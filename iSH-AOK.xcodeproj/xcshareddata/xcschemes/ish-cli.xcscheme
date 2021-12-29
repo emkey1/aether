@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "497F6D46254E605F00C82F46"
-               BuildableName = "ish"
-               BlueprintName = "ish"
-               ReferencedContainer = "container:iSH.xcodeproj">
+               BuildableName = "ish-AOK"
+               BlueprintName = "ish-AOK"
+               ReferencedContainer = "container:iSH-AOK.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "497F6D46254E605F00C82F46"
-            BuildableName = "ish"
-            BlueprintName = "ish"
-            ReferencedContainer = "container:iSH.xcodeproj">
+            BuildableName = "ish-AOK"
+            BlueprintName = "ish-AOK"
+            ReferencedContainer = "container:iSH-AOK.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "497F6D46254E605F00C82F46"
-            BuildableName = "ish"
-            BlueprintName = "ish"
-            ReferencedContainer = "container:iSH.xcodeproj">
+            BuildableName = "ish-AOK"
+            BlueprintName = "ish-AOK"
+            ReferencedContainer = "container:iSH-AOK.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

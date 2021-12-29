@@ -7,15 +7,15 @@
 	objects = {
 
 /* Begin PBXAggregateTarget section */
-		BB4A922324ED9402002F5A96 /* iSH pre */ = {
+		BB4A922324ED9402002F5A96 /* iSH-AOK pre */ = {
 			isa = PBXAggregateTarget;
-			buildConfigurationList = BB4A922424ED9402002F5A96 /* Build configuration list for PBXAggregateTarget "iSH pre" */;
+			buildConfigurationList = BB4A922424ED9402002F5A96 /* Build configuration list for PBXAggregateTarget "iSH-AOK pre" */;
 			buildPhases = (
 				BB4A922A24ED9421002F5A96 /* Add icons to Info.plist */,
 			);
 			dependencies = (
 			);
-			name = "iSH pre";
+			name = "iSH-AOK pre";
 			productName = "iSH pre";
 		};
 /* End PBXAggregateTarget section */
@@ -106,14 +106,14 @@
 		BB0F553223A0AB9C0032A2A1 /* pydann1.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553123A0AB9B0032A2A1 /* pydann1.png */; };
 		BB0F553423A0AC760032A2A1 /* ihash1.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553323A0AC760032A2A1 /* ihash1.png */; };
 		BB0F553623A0ACFC0032A2A1 /* pydann2.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553523A0ACFC0032A2A1 /* pydann2.png */; };
-		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; };
+		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; platformFilter = ios; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
 		BB123ACC26C9EFD900419CDA /* LinuxTTY.c in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACB26C9EFD900419CDA /* LinuxTTY.c */; };
 		BB123ACE26C9F13500419CDA /* IOSCalls.m in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACD26C9F13500419CDA /* IOSCalls.m */; };
-		BB13F7EA200ADCED003D1C4D /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
+		BB13F7EA200ADCED003D1C4D /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; platformFilter = ios; };
 		BB1B9A4323A5E96900414052 /* icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB1B9A4223A5E96900414052 /* icon.png */; };
 		BB21A1702689048200BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
-		BB21A18426890C7E00BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
+		BB21A18426890C7E00BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; platformFilter = ios; };
 		BB21A18526894F9400BD19B4 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
 		BB21A1862689500000BD19B4 /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; };
 		BB235537235D49B300139E00 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
@@ -138,7 +138,7 @@
 		BB28C7A626896B1F00BDC834 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB5578215876CD00DFE6DE /* AboutViewController.m */; };
 		BB28C7A726896B1F00BDC834 /* UIViewController+Extras.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557021586C4800DFE6DE /* UIViewController+Extras.m */; };
 		BB28C7A826896B1F00BDC834 /* NSObject+SaneKVO.m in Sources */ = {isa = PBXBuildFile; fileRef = BBCED896255BB65A00CA0701 /* NSObject+SaneKVO.m */; };
-		BB28C7AE26896C1D00BDC834 /* libiSHApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBEF191E26806364001225BD /* libiSHApp.a */; };
+		BB28C7AE26896C1D00BDC834 /* libiSH-AOKApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBEF191E26806364001225BD /* libiSH-AOKApp.a */; platformFilter = ios; };
 		BB28C7B226896C4600BDC834 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = BB792B621F96D90D00FFB7A4 /* main.m */; };
 		BB28C7B826896CE600BDC834 /* ArrowBarButton.m in Sources */ = {isa = PBXBuildFile; fileRef = BBFB557F21587B6800DFE6DE /* ArrowBarButton.m */; };
 		BB28C7BA268975AA00BDC834 /* iOSFS.m in Sources */ = {isa = PBXBuildFile; fileRef = 408A2639236440F8008A4E81 /* iOSFS.m */; };
@@ -161,7 +161,7 @@
 		BB88F4942154760800A341FD /* FileProviderExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4932154760800A341FD /* FileProviderExtension.m */; };
 		BB88F4972154760800A341FD /* FileProviderItem.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4962154760800A341FD /* FileProviderItem.m */; };
 		BB88F49A2154760800A341FD /* FileProviderEnumerator.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4992154760800A341FD /* FileProviderEnumerator.m */; };
-		BB88F49F2154760800A341FD /* iSHFileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSHFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BB8C3AFF26B7B8CF00E38DDC /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB8C3AFD26B7B8AF00E38DDC /* fakefs.c */; };
 		BB9C7B87240A2B1E00F5D4F0 /* AppGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = BB9C7B84240A240E00F5D4F0 /* AppGroup.m */; };
 		BBA8E2C1236FF5EA00515F76 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
@@ -178,10 +178,10 @@
 		BBD23D5F258DA450003DCB40 /* Screenshots.m in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D5E258DA450003DCB40 /* Screenshots.m */; };
 		BBD23D77258DA4BC003DCB40 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D76258DA4BC003DCB40 /* SnapshotHelper.swift */; };
 		BBECF3AD269132F400DEC937 /* LinuxInterop.c in Sources */ = {isa = PBXBuildFile; fileRef = BBECF39D2691313B00DEC937 /* LinuxInterop.c */; };
-		BBECF3AE2691330F00DEC937 /* libiSHLinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3A22691314C00DEC937 /* libiSHLinux.a */; };
+		BBECF3AE2691330F00DEC937 /* libiSH-AOKLinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3A22691314C00DEC937 /* libiSH-AOKLinux.a */; };
 		BBECF3B9269136FB00DEC937 /* liblinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3B8269136E100DEC937 /* liblinux.a */; };
 		BBECF3BC26913F1600DEC937 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = BB792B541F96D90D00FFB7A4 /* AppDelegate.m */; };
-		BBEF1970268066D1001225BD /* libiSHApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBEF191E26806364001225BD /* libiSHApp.a */; };
+		BBEF1970268066D1001225BD /* libiSH-AOKApp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBEF191E26806364001225BD /* libiSH-AOKApp.a */; };
 		BBEF1972268066D1001225BD /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; };
 		BBEF1973268066D1001225BD /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; };
 		BBEF1974268066D1001225BD /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
@@ -216,7 +216,7 @@
 		BBEF1995268066D1001225BD /* sprite64.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0B880E2589662200208600 /* sprite64.png */; };
 		BBEF1996268066D1001225BD /* icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB1B9A4223A5E96900414052 /* icon.png */; };
 		BBFB2C7E259026C200545EAB /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; };
-		BBFB2CEC2590296B00545EAB /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; };
+		BBFB2CEC2590296B00545EAB /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; platformFilter = ios; };
 		BBFB55662158644C00DFE6DE /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB55652158644C00DFE6DE /* libresolv.tbd */; };
 /* End PBXBuildFile section */
 
@@ -358,7 +358,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BB88F49F2154760800A341FD /* iSHFileProvider.appex in Embed App Extensions */,
+				BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -524,7 +524,8 @@
 		497F6CD2254E5CC800C82F46 /* sync.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sync.c; sourceTree = "<group>"; };
 		497F6CD3254E5CC800C82F46 /* bits.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bits.h; sourceTree = "<group>"; };
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
-		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
+		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "ish-AOK"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -583,7 +584,7 @@
 		BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ProjectDebugLinux.xcconfig; sourceTree = "<group>"; };
 		BB28C755268956C900BDC834 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS15.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		BB2B4DAB231D94C300CB578B /* hterm_all.js */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.javascript; name = hterm_all.js; path = ../../deps/libapps/hterm/dist/js/hterm_all.js; sourceTree = "<group>"; };
-		BB41591C255EF9E300E0950C /* iSHUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iSHUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "iSH-AOKUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB41591E255EF9E300E0950C /* UITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UITests.m; sourceTree = "<group>"; };
 		BB415920255EF9E300E0950C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB455E0F1FB37F6600AFB48B /* DelayedUITask.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DelayedUITask.h; sourceTree = "<group>"; };
@@ -601,7 +602,7 @@
 		BB6DB260216435330047A611 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		BB78AB291FAD22440013E782 /* TerminalView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TerminalView.h; sourceTree = "<group>"; };
 		BB78AB2A1FAD22440013E782 /* TerminalView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TerminalView.m; sourceTree = "<group>"; };
-		BB792B501F96D90D00FFB7A4 /* iSH.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iSH.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB792B501F96D90D00FFB7A4 /* iSH-AOK.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iSH-AOK.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB792B531F96D90D00FFB7A4 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		BB792B541F96D90D00FFB7A4 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
 		BB792B561F96D90D00FFB7A4 /* TerminalViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TerminalViewController.h; sourceTree = "<group>"; };
@@ -617,7 +618,7 @@
 		BB7D93822087C2890008DA78 /* main.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = main.c; sourceTree = "<group>"; };
 		BB82A7FB21B4C2E8006AA5FD /* AboutExternalKeyboardViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutExternalKeyboardViewController.h; sourceTree = "<group>"; };
 		BB82A7FC21B4C2E8006AA5FD /* AboutExternalKeyboardViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutExternalKeyboardViewController.m; sourceTree = "<group>"; };
-		BB88F4902154760800A341FD /* iSHFileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = iSHFileProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "iSH-AOK.FileProvider.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB88F4922154760800A341FD /* FileProviderExtension.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FileProviderExtension.h; sourceTree = "<group>"; };
 		BB88F4932154760800A341FD /* FileProviderExtension.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FileProviderExtension.m; sourceTree = "<group>"; };
 		BB88F4952154760800A341FD /* FileProviderItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FileProviderItem.h; sourceTree = "<group>"; };
@@ -651,12 +652,12 @@
 		BBD23D95258DEF6B003DCB40 /* Screenshots.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Screenshots.xctestplan; sourceTree = "<group>"; };
 		BBECF39B2691311D00DEC937 /* LinuxInterop.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LinuxInterop.h; sourceTree = "<group>"; };
 		BBECF39D2691313B00DEC937 /* LinuxInterop.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = LinuxInterop.c; sourceTree = "<group>"; };
-		BBECF3A22691314C00DEC937 /* libiSHLinux.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libiSHLinux.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBECF3A22691314C00DEC937 /* libiSH-AOKLinux.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libiSH-AOKLinux.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBECF3B8269136E100DEC937 /* liblinux.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = liblinux.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = StaticLibLinux.xcconfig; sourceTree = "<group>"; };
-		BBEF191E26806364001225BD /* libiSHApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libiSHApp.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBEF191E26806364001225BD /* libiSH-AOKApp.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libiSH-AOKApp.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBEF192C26806546001225BD /* AppLib.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppLib.xcconfig; sourceTree = "<group>"; };
-		BBEF199C268066D1001225BD /* iSH.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iSH.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBEF199C268066D1001225BD /* iSH-AOK.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "iSH-AOK.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBEF19BA26806D7E001225BD /* Linux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Linux.xcconfig; sourceTree = "<group>"; };
 		BBFB2C5B2590257E00545EAB /* libish_emu.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libish_emu.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = StaticLib.xcconfig; sourceTree = "<group>"; };
@@ -692,7 +693,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BB28C7AE26896C1D00BDC834 /* libiSHApp.a in Frameworks */,
+				BB28C7AE26896C1D00BDC834 /* libiSH-AOKApp.a in Frameworks */,
 				BB21A18426890C7E00BD19B4 /* libfakefs.a in Frameworks */,
 				BB13F7EA200ADCED003D1C4D /* libish.a in Frameworks */,
 				BBFB2CEC2590296B00545EAB /* libish_emu.a in Frameworks */,
@@ -720,8 +721,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				BBECF3B9269136FB00DEC937 /* liblinux.a in Frameworks */,
-				BBECF3AE2691330F00DEC937 /* libiSHLinux.a in Frameworks */,
-				BBEF1970268066D1001225BD /* libiSHApp.a in Frameworks */,
+				BBECF3AE2691330F00DEC937 /* libiSH-AOKLinux.a in Frameworks */,
+				BBEF1970268066D1001225BD /* libiSH-AOKApp.a in Frameworks */,
 				BBBD741426B7BE2E00321AC5 /* libfakefs.a in Frameworks */,
 				BBEF1972268066D1001225BD /* libish_emu.a in Frameworks */,
 				BBEF1973268066D1001225BD /* libarchive.a in Frameworks */,
@@ -930,6 +931,7 @@
 		BB792B451F96D8E000FFB7A4 = {
 			isa = PBXGroup;
 			children = (
+				5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */,
 				BB792B521F96D90D00FFB7A4 /* app */,
 				BB9C7B88240A343400F5D4F0 /* iSH.xcconfig */,
 				BB4A53931FAA393B00A72ACE /* most of the code */,
@@ -943,17 +945,17 @@
 		BB792B511F96D90D00FFB7A4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				BB792B501F96D90D00FFB7A4 /* iSH.app */,
-				BB88F4902154760800A341FD /* iSHFileProvider.appex */,
+				BB792B501F96D90D00FFB7A4 /* iSH-AOK.app */,
+				BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */,
 				BB13F7DC200AD81D003D1C4D /* libish.a */,
 				BBFB2C5B2590257E00545EAB /* libish_emu.a */,
-				BB41591C255EF9E300E0950C /* iSHUITests.xctest */,
-				497F6D47254E605F00C82F46 /* ish */,
+				BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */,
+				497F6D47254E605F00C82F46 /* ish-AOK */,
 				497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
-				BBEF191E26806364001225BD /* libiSHApp.a */,
-				BBEF199C268066D1001225BD /* iSH.app */,
+				BBEF191E26806364001225BD /* libiSH-AOKApp.a */,
+				BBEF199C268066D1001225BD /* iSH-AOK.app */,
 				BB21A16F2689041500BD19B4 /* libfakefs.a */,
-				BBECF3A22691314C00DEC937 /* libiSHLinux.a */,
+				BBECF3A22691314C00DEC937 /* libiSH-AOKLinux.a */,
 				BBECF3B8269136E100DEC937 /* liblinux.a */,
 			);
 			name = Products;
@@ -1302,9 +1304,9 @@
 			productReference = 497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */;
 			productType = "com.apple.product-type.tool";
 		};
-		497F6D46254E605F00C82F46 /* ish */ = {
+		497F6D46254E605F00C82F46 /* ish-AOK */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 497F6D4B254E605F00C82F46 /* Build configuration list for PBXNativeTarget "ish" */;
+			buildConfigurationList = 497F6D4B254E605F00C82F46 /* Build configuration list for PBXNativeTarget "ish-AOK" */;
 			buildPhases = (
 				497F6D43254E605F00C82F46 /* Sources */,
 				497F6D44254E605F00C82F46 /* Frameworks */,
@@ -1315,9 +1317,9 @@
 			dependencies = (
 				497F6D5B254E609000C82F46 /* PBXTargetDependency */,
 			);
-			name = ish;
+			name = "ish-AOK";
 			productName = ish;
-			productReference = 497F6D47254E605F00C82F46 /* ish */;
+			productReference = 497F6D47254E605F00C82F46 /* ish-AOK */;
 			productType = "com.apple.product-type.tool";
 		};
 		BB13F7DB200AD81D003D1C4D /* libish */ = {
@@ -1352,9 +1354,9 @@
 			productReference = BB21A16F2689041500BD19B4 /* libfakefs.a */;
 			productType = "com.apple.product-type.library.static";
 		};
-		BB41591B255EF9E300E0950C /* iSHUITests */ = {
+		BB41591B255EF9E300E0950C /* iSH-AOKUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BB415925255EF9E300E0950C /* Build configuration list for PBXNativeTarget "iSHUITests" */;
+			buildConfigurationList = BB415925255EF9E300E0950C /* Build configuration list for PBXNativeTarget "iSH-AOKUITests" */;
 			buildPhases = (
 				BB415918255EF9E300E0950C /* Sources */,
 				BB415919255EF9E300E0950C /* Frameworks */,
@@ -1365,14 +1367,14 @@
 			dependencies = (
 				BB415922255EF9E300E0950C /* PBXTargetDependency */,
 			);
-			name = iSHUITests;
+			name = "iSH-AOKUITests";
 			productName = iSHUITests;
-			productReference = BB41591C255EF9E300E0950C /* iSHUITests.xctest */;
+			productReference = BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		BB792B4F1F96D90D00FFB7A4 /* iSH */ = {
+		BB792B4F1F96D90D00FFB7A4 /* iSH-AOK */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BB792B661F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH" */;
+			buildConfigurationList = BB792B661F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH-AOK" */;
 			buildPhases = (
 				BB21A17826890A5B00BD19B4 /* Sources */,
 				BB792B4D1F96D90D00FFB7A4 /* Frameworks */,
@@ -1391,14 +1393,14 @@
 				BB13F7E7200AD874003D1C4D /* PBXTargetDependency */,
 				BB88F49E2154760800A341FD /* PBXTargetDependency */,
 			);
-			name = iSH;
+			name = "iSH-AOK";
 			productName = iSH;
-			productReference = BB792B501F96D90D00FFB7A4 /* iSH.app */;
+			productReference = BB792B501F96D90D00FFB7A4 /* iSH-AOK.app */;
 			productType = "com.apple.product-type.application";
 		};
-		BB88F48F2154760800A341FD /* iSHFileProvider */ = {
+		BB88F48F2154760800A341FD /* iSH-AOK.FileProvider */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSHFileProvider" */;
+			buildConfigurationList = BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSH-AOK.FileProvider" */;
 			buildPhases = (
 				BB88F48C2154760800A341FD /* Sources */,
 				BB88F48D2154760800A341FD /* Frameworks */,
@@ -1408,14 +1410,14 @@
 			);
 			dependencies = (
 			);
-			name = iSHFileProvider;
+			name = "iSH-AOK.FileProvider";
 			productName = iSHFiles;
-			productReference = BB88F4902154760800A341FD /* iSHFileProvider.appex */;
+			productReference = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		BBECF3A12691314C00DEC937 /* libiSHLinux */ = {
+		BBECF3A12691314C00DEC937 /* libiSH-AOKLinux */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BBECF3A82691314C00DEC937 /* Build configuration list for PBXNativeTarget "libiSHLinux" */;
+			buildConfigurationList = BBECF3A82691314C00DEC937 /* Build configuration list for PBXNativeTarget "libiSH-AOKLinux" */;
 			buildPhases = (
 				BBECF39E2691314C00DEC937 /* Sources */,
 			);
@@ -1424,9 +1426,9 @@
 			dependencies = (
 				BBECF3BE2691417C00DEC937 /* PBXTargetDependency */,
 			);
-			name = libiSHLinux;
+			name = "libiSH-AOKLinux";
 			productName = iSHLinux;
-			productReference = BBECF3A22691314C00DEC937 /* libiSHLinux.a */;
+			productReference = BBECF3A22691314C00DEC937 /* libiSH-AOKLinux.a */;
 			productType = "com.apple.product-type.library.static";
 		};
 		BBECF3AF269136E100DEC937 /* liblinux */ = {
@@ -1445,9 +1447,9 @@
 			productReference = BBECF3B8269136E100DEC937 /* liblinux.a */;
 			productType = "com.apple.product-type.library.static";
 		};
-		BBEF191D26806364001225BD /* libiSHApp */ = {
+		BBEF191D26806364001225BD /* libiSH-AOKApp */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BBEF192626806364001225BD /* Build configuration list for PBXNativeTarget "libiSHApp" */;
+			buildConfigurationList = BBEF192626806364001225BD /* Build configuration list for PBXNativeTarget "libiSH-AOKApp" */;
 			buildPhases = (
 				BBEF191A26806364001225BD /* Sources */,
 			);
@@ -1455,14 +1457,14 @@
 			);
 			dependencies = (
 			);
-			name = libiSHApp;
+			name = "libiSH-AOKApp";
 			productName = libiSH;
-			productReference = BBEF191E26806364001225BD /* libiSHApp.a */;
+			productReference = BBEF191E26806364001225BD /* libiSH-AOKApp.a */;
 			productType = "com.apple.product-type.library.static";
 		};
-		BBEF1964268066D1001225BD /* iSH+Linux */ = {
+		BBEF1964268066D1001225BD /* iSH-AOK+Linux */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BBEF1999268066D1001225BD /* Build configuration list for PBXNativeTarget "iSH+Linux" */;
+			buildConfigurationList = BBEF1999268066D1001225BD /* Build configuration list for PBXNativeTarget "iSH-AOK+Linux" */;
 			buildPhases = (
 				BB21A1722689084800BD19B4 /* Sources */,
 				BBEF196F268066D1001225BD /* Frameworks */,
@@ -1479,9 +1481,9 @@
 				BBEF1967268066D1001225BD /* PBXTargetDependency */,
 				BBEF1969268066D1001225BD /* PBXTargetDependency */,
 			);
-			name = "iSH+Linux";
+			name = "iSH-AOK+Linux";
 			productName = iSH;
-			productReference = BBEF199C268066D1001225BD /* iSH.app */;
+			productReference = BBEF199C268066D1001225BD /* iSH-AOK.app */;
 			productType = "com.apple.product-type.application";
 		};
 		BBFB2C542590257E00545EAB /* libish_emu */ = {
@@ -1549,7 +1551,6 @@
 					};
 					BB88F48F2154760800A341FD = {
 						CreatedOnToolsVersion = 10.0;
-						ProvisioningStyle = Automatic;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.iOS = {
 								enabled = 1;
@@ -1564,7 +1565,7 @@
 					};
 				};
 			};
-			buildConfigurationList = BB792B491F96D8E000FFB7A4 /* Build configuration list for PBXProject "iSH" */;
+			buildConfigurationList = BB792B491F96D8E000FFB7A4 /* Build configuration list for PBXProject "iSH-AOK" */;
 			compatibilityVersion = "Xcode 6.3";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -1583,21 +1584,21 @@
 			);
 			projectRoot = "";
 			targets = (
-				BB792B4F1F96D90D00FFB7A4 /* iSH */,
-				BBEF191D26806364001225BD /* libiSHApp */,
-				BBEF1964268066D1001225BD /* iSH+Linux */,
-				BBECF3A12691314C00DEC937 /* libiSHLinux */,
-				BB88F48F2154760800A341FD /* iSHFileProvider */,
-				BB41591B255EF9E300E0950C /* iSHUITests */,
+				BB792B4F1F96D90D00FFB7A4 /* iSH-AOK */,
+				BBEF191D26806364001225BD /* libiSH-AOKApp */,
+				BBEF1964268066D1001225BD /* iSH-AOK+Linux */,
+				BBECF3A12691314C00DEC937 /* libiSH-AOKLinux */,
+				BB88F48F2154760800A341FD /* iSH-AOK.FileProvider */,
+				BB41591B255EF9E300E0950C /* iSH-AOKUITests */,
 				BB13F7CA200ACC31003D1C4D /* Meson */,
 				BB13F7D0200ACCA2003D1C4D /* Ninja */,
 				BB13F7DB200AD81D003D1C4D /* libish */,
 				BB21A1662689041500BD19B4 /* libfakefs */,
 				BBFB2C542590257E00545EAB /* libish_emu */,
 				BBECF3AF269136E100DEC937 /* liblinux */,
-				BB4A922324ED9402002F5A96 /* iSH pre */,
+				BB4A922324ED9402002F5A96 /* iSH-AOK pre */,
 				497F6CE3254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
-				497F6D46254E605F00C82F46 /* ish */,
+				497F6D46254E605F00C82F46 /* ish-AOK */,
 			);
 		};
 /* End PBXProject section */
@@ -1807,9 +1808,7 @@
 			outputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/root.tar.gz",
 			);
-			// runOnlyForDeploymentPostprocessing = 0;
-			// shellPath = /bin/sh;
-			// shellScript = "curl -L \"https://$ROOTFS_URL\" -o \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			runOnlyForDeploymentPostprocessing = 0;
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -1863,7 +1862,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "curl -L \"https://$ROOTFS_URL\" -o \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "cp /Users/mke/Documents/git/iSH-AOK/root.tar.gz \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
@@ -2068,6 +2067,7 @@
 		BB10E5CB248DBAB7009C7A74 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = libarchive;
+			platformFilter = ios;
 			targetProxy = BB10E5CA248DBAB7009C7A74 /* PBXContainerItemProxy */;
 		};
 		BB13F7D5200ACCA8003D1C4D /* PBXTargetDependency */ = {
@@ -2077,6 +2077,7 @@
 		};
 		BB13F7E7200AD874003D1C4D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilter = ios;
 			target = BB13F7DB200AD81D003D1C4D /* libish */;
 			targetProxy = BB13F7E6200AD874003D1C4D /* PBXContainerItemProxy */;
 		};
@@ -2092,17 +2093,19 @@
 		};
 		BB415922255EF9E300E0950C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BB792B4F1F96D90D00FFB7A4 /* iSH */;
+			target = BB792B4F1F96D90D00FFB7A4 /* iSH-AOK */;
 			targetProxy = BB415921255EF9E300E0950C /* PBXContainerItemProxy */;
 		};
 		BB4A922824ED940C002F5A96 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BB4A922324ED9402002F5A96 /* iSH pre */;
+			platformFilter = ios;
+			target = BB4A922324ED9402002F5A96 /* iSH-AOK pre */;
 			targetProxy = BB4A922724ED940C002F5A96 /* PBXContainerItemProxy */;
 		};
 		BB88F49E2154760800A341FD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BB88F48F2154760800A341FD /* iSHFileProvider */;
+			platformFilter = ios;
+			target = BB88F48F2154760800A341FD /* iSH-AOK.FileProvider */;
 			targetProxy = BB88F49D2154760800A341FD /* PBXContainerItemProxy */;
 		};
 		BBECF3B0269136E100DEC937 /* PBXTargetDependency */ = {
@@ -2117,17 +2120,18 @@
 		};
 		BBEF1929268063FD001225BD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BBEF191D26806364001225BD /* libiSHApp */;
+			platformFilter = ios;
+			target = BBEF191D26806364001225BD /* libiSH-AOKApp */;
 			targetProxy = BBEF1928268063FD001225BD /* PBXContainerItemProxy */;
 		};
 		BBEF1965268066D1001225BD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BB4A922324ED9402002F5A96 /* iSH pre */;
+			target = BB4A922324ED9402002F5A96 /* iSH-AOK pre */;
 			targetProxy = BBEF1966268066D1001225BD /* PBXContainerItemProxy */;
 		};
 		BBEF1967268066D1001225BD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = BBEF191D26806364001225BD /* libiSHApp */;
+			target = BBEF191D26806364001225BD /* libiSH-AOKApp */;
 			targetProxy = BBEF1968268066D1001225BD /* PBXContainerItemProxy */;
 		};
 		BBEF1969268066D1001225BD /* PBXTargetDependency */ = {
@@ -2173,12 +2177,14 @@
 		497F6CE8254E5E4C00C82F46 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		497F6CE9254E5E4C00C82F46 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 			};
 			name = Release;
 		};
@@ -2187,6 +2193,7 @@
 			buildSettings = {
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -2198,6 +2205,7 @@
 			buildSettings = {
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -2341,7 +2349,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 301;
-				MARKETING_VERSION = "1.2.4-AOK";
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2353,7 +2364,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 301;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
-				MARKETING_VERSION = "1.2.4-AOK";
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -2372,7 +2386,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 301;
-				MARKETING_VERSION = "1.2.4-AOK";
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = DebugLinux;
@@ -2381,6 +2398,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
 			};
 			name = DebugLinux;
 		};
@@ -2388,6 +2407,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = DebugLinux;
 		};
@@ -2397,9 +2417,10 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 			};
 			name = DebugLinux;
 		};
@@ -2457,6 +2478,7 @@
 		BB7F62102688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 			};
 			name = DebugLinux;
 		};
@@ -2465,6 +2487,7 @@
 			buildSettings = {
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -2477,9 +2500,10 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2487,11 +2511,16 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
+				CODE_SIGN_ENTITLEMENTS = iSHFileProviderRelease.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 			};
 			name = Release;
 		};
@@ -2499,6 +2528,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2506,6 +2536,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = DebugLinux;
 		};
@@ -2513,6 +2544,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = Release;
 		};
@@ -2520,6 +2552,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = ReleaseLinux;
 		};
@@ -2555,6 +2588,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2562,6 +2596,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = Release;
 		};
@@ -2569,6 +2604,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2576,6 +2613,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
 			};
 			name = Release;
 		};
@@ -2593,7 +2632,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 301;
-				MARKETING_VERSION = "1.2.4-AOK";
+				MARKETING_VERSION = 1.2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = ReleaseLinux;
@@ -2602,6 +2644,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				PRODUCT_NAME = "iSH-AOK";
 			};
 			name = ReleaseLinux;
 		};
@@ -2609,6 +2653,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = ReleaseLinux;
 		};
@@ -2618,9 +2663,10 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).FileProvider";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
 			};
 			name = ReleaseLinux;
 		};
@@ -2677,6 +2723,7 @@
 		BBEF19B626806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 			};
 			name = ReleaseLinux;
 		};
@@ -2685,6 +2732,7 @@
 			buildSettings = {
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
+				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -2719,7 +2767,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		497F6D4B254E605F00C82F46 /* Build configuration list for PBXNativeTarget "ish" */ = {
+		497F6D4B254E605F00C82F46 /* Build configuration list for PBXNativeTarget "ish-AOK" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				497F6D4C254E605F00C82F46 /* Debug-ApplePleaseFixFB19282108 */,
@@ -2774,7 +2822,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB415925255EF9E300E0950C /* Build configuration list for PBXNativeTarget "iSHUITests" */ = {
+		BB415925255EF9E300E0950C /* Build configuration list for PBXNativeTarget "iSH-AOKUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BB415923255EF9E300E0950C /* Debug-ApplePleaseFixFB19282108 */,
@@ -2785,7 +2833,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB4A922424ED9402002F5A96 /* Build configuration list for PBXAggregateTarget "iSH pre" */ = {
+		BB4A922424ED9402002F5A96 /* Build configuration list for PBXAggregateTarget "iSH-AOK pre" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BB4A922524ED9402002F5A96 /* Debug-ApplePleaseFixFB19282108 */,
@@ -2796,7 +2844,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB792B491F96D8E000FFB7A4 /* Build configuration list for PBXProject "iSH" */ = {
+		BB792B491F96D8E000FFB7A4 /* Build configuration list for PBXProject "iSH-AOK" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BB792B4A1F96D8E000FFB7A4 /* Debug-ApplePleaseFixFB19282108 */,
@@ -2807,7 +2855,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB792B661F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH" */ = {
+		BB792B661F96D90D00FFB7A4 /* Build configuration list for PBXNativeTarget "iSH-AOK" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BB792B641F96D90D00FFB7A4 /* Debug-ApplePleaseFixFB19282108 */,
@@ -2818,7 +2866,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSHFileProvider" */ = {
+		BB88F4A22154760800A341FD /* Build configuration list for PBXNativeTarget "iSH-AOK.FileProvider" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BB88F4A02154760800A341FD /* Debug-ApplePleaseFixFB19282108 */,
@@ -2829,7 +2877,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BBECF3A82691314C00DEC937 /* Build configuration list for PBXNativeTarget "libiSHLinux" */ = {
+		BBECF3A82691314C00DEC937 /* Build configuration list for PBXNativeTarget "libiSH-AOKLinux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BBECF3A92691314C00DEC937 /* Debug-ApplePleaseFixFB19282108 */,
@@ -2851,7 +2899,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BBEF192626806364001225BD /* Build configuration list for PBXNativeTarget "libiSHApp" */ = {
+		BBEF192626806364001225BD /* Build configuration list for PBXNativeTarget "libiSH-AOKApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BBEF192426806364001225BD /* Debug-ApplePleaseFixFB19282108 */,
@@ -2862,7 +2910,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BBEF1999268066D1001225BD /* Build configuration list for PBXNativeTarget "iSH+Linux" */ = {
+		BBEF1999268066D1001225BD /* Build configuration list for PBXNativeTarget "iSH-AOK+Linux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BBEF199A268066D1001225BD /* Debug-ApplePleaseFixFB19282108 */,
