@@ -162,12 +162,7 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     task_start(current);
 
 #else
-    if (strchr(root.fileSystemRepresentation, '"') != NULL) {
-        NSLog(@"can't deal with double quote in rootfs path");
-        return _EINVAL;
-    }
-    NSArray<NSString *> *args = @[
-    ];
+    NSArray<NSString *> *args = @[];
     actuate_kernel([args componentsJoinedByString:@" "].UTF8String);
 #endif
     
@@ -177,6 +172,15 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 #if ISH_LINUX
 const char *DefaultRootPath() {
     return [Roots.instance rootUrl:Roots.instance.defaultRoot].fileSystemRepresentation;
+}
+
+void SyncHostname(void) {
+    async_do_in_workqueue(^{
+        char hostname[256];
+        if (gethostname(hostname, sizeof(hostname)) < 0)
+            return;
+        linux_sethostname(hostname);
+    });
 }
 #endif
 
@@ -237,6 +241,14 @@ const char *DefaultRootPath() {
         return YES;
 
     bootError = [self boot];
+
+#if ISH_LINUX
+    [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillEnterForegroundNotification object:UIApplication.sharedApplication queue:nil usingBlock:^(NSNotification * _Nonnull note) {
+        SyncHostname();
+    }];
+    SyncHostname();
+#endif
+
     return YES;
 }
 
@@ -266,7 +278,9 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     
     [UserPreferences.shared observe:@[@"shouldDisableDimming"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
-        UIApplication.sharedApplication.idleTimerDisabled = UserPreferences.shared.shouldDisableDimming;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIApplication.sharedApplication.idleTimerDisabled = UserPreferences.shared.shouldDisableDimming;
+        });
     }];
     
     struct sockaddr_in6 address = {

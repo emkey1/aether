@@ -115,11 +115,15 @@
     }
     
     [UserPreferences.shared observe:@[@"hideStatusBar"] options:0 owner:self usingBlock:^(typeof(self) self) {
-        [self setNeedsStatusBarAppearanceUpdate];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self setNeedsStatusBarAppearanceUpdate];
+        });
     }];
     [UserPreferences.shared observe:@[@"theme", @"hideExtraKeysWithExternalKeyboard"]
                             options:0 owner:self usingBlock:^(typeof(self) self) {
-        [self _updateStyleFromPreferences:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _updateStyleFromPreferences:YES];
+        });
     }];
     [self _updateBadge];
 }
@@ -197,7 +201,7 @@
         argv_arr[i] = command[i].UTF8String;
     argv_arr[command.count] = NULL;
     const char *envp_arr[] = {
-        "TERM=xterm256-color",
+        "TERM=xterm-256color",
         NULL,
     };
     const char *const *argv = argv_arr;
@@ -206,7 +210,7 @@
     __block int sessionPid = 0;
     __block int err = 1;
     sync_do_in_workqueue(^(void (^done)(void)) {
-        start_session(argv[0], argv, envp, ^(int retval, int pid, nsobj_t term) {
+        linux_start_session(argv[0], argv, envp, ^(int retval, int pid, nsobj_t term) {
             err = retval;
             if (term)
                 terminal = CFBridgingRelease(term);
@@ -274,6 +278,7 @@
 }
 
 - (void)_updateStyleFromPreferences:(BOOL)animated {
+    NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
     NSTimeInterval duration = animated ? 0.1 : 0;
     [UIView animateWithDuration:duration animations:^{
         self.view.backgroundColor = UserPreferences.shared.theme.backgroundColor;

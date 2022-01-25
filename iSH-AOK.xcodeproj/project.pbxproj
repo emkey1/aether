@@ -381,6 +381,7 @@
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
 		408A263B23644102008A4E81 /* iOSFS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOSFS.h; sourceTree = "<group>"; };
 		49302D8D277669D300C9885A /* ish.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = ish.c; sourceTree = "<group>"; };
+		49302D972777FAB400C9885A /* ish.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ish.h; sourceTree = "<group>"; };
 		494D03F72727DAC6004F0CCE /* xcode-ninja.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "xcode-ninja.sh"; sourceTree = "<group>"; };
 		497F6BDA254E5C0D00C82F46 /* mem.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mem.h; sourceTree = "<group>"; };
 		497F6BDB254E5C0D00C82F46 /* path.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = path.c; sourceTree = "<group>"; };
@@ -746,6 +747,7 @@
 			children = (
 				497F6BF4254E5C0D00C82F46 /* entry.c */,
 				49302D8D277669D300C9885A /* ish.c */,
+				49302D972777FAB400C9885A /* ish.h */,
 				497F6BF2254E5C0D00C82F46 /* pid.c */,
 				497F6BF3254E5C0D00C82F46 /* root.c */,
 			);
@@ -2345,7 +2347,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 308;
+				CURRENT_PROJECT_VERSION = 316;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2353,7 +2355,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 308;
+				CURRENT_PROJECT_VERSION = 316;
 			};
 			name = Release;
 		};
@@ -2391,7 +2393,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 308;
+				CURRENT_PROJECT_VERSION = 316;
 			};
 			name = DebugLinux;
 		};
@@ -2646,7 +2648,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 308;
+				CURRENT_PROJECT_VERSION = 316;
 			};
 			name = ReleaseLinux;
 		};
