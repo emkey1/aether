@@ -166,3 +166,8 @@ int current_pid() {
         return current->pid;
     return -1;
 }
+
+char* current_comm() {
+    if (current)
+        return current->comm;
+}

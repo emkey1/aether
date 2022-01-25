@@ -6,6 +6,10 @@
 #include "kernel/task.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
+#include <pthread.h>
+
+pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
+int shouldDisableMulticore; // Disable multicore if toggled
 
 __thread struct task *current;
 
@@ -137,7 +141,11 @@ void task_run_current() {
     tlb_refresh(&tlb, &current->mem->mmu);
     while (true) {
         read_wrlock(&current->mem->lock);
+        if(shouldDisableMulticore)
+            pthread_mutex_lock(&global_lock);
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
+        if(shouldDisableMulticore)
+            pthread_mutex_unlock(&global_lock);
         read_wrunlock(&current->mem->lock);
         handle_interrupt(interrupt);
     }

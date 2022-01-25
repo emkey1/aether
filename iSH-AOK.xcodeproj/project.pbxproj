@@ -1868,7 +1868,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cp /Users/mke/Documents/git/iSH-AOK/root.tar.gz \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "cp /Users/mke/git/iSH-AOK/root.tar.gz \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
@@ -2362,7 +2362,7 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 306;
+				CURRENT_PROJECT_VERSION = 308;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2377,7 +2377,7 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 306;
+				CURRENT_PROJECT_VERSION = 308;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2400,7 +2400,7 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 306;
+				CURRENT_PROJECT_VERSION = 308;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2655,7 +2655,7 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 306;
+				CURRENT_PROJECT_VERSION = 308;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";

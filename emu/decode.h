@@ -14,6 +14,7 @@
 #define DEFAULT_CHANNEL instr
 #define TRACEI(msg, ...) TRACE(msg "\t", ##__VA_ARGS__)
 extern int current_pid(void);
+extern char* curent_comm(void);
 #define TRACEIP() TRACE("%d %08x\t", current_pid(), state->ip)
 
 // this will be the next PyEval_EvalFrameEx

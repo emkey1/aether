@@ -8,6 +8,8 @@
 #include "fs/fd.h"
 #include "fs/tty.h"
 
+extern pthread_mutex_t global_lock;
+
 static void halt_system(void);
 
 static bool exit_tgroup(struct task *task) {
@@ -365,7 +367,9 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
     struct rusage_ rusage;
     int_t res;
     TASK_MAY_BLOCK {
+        //pthread_mutex_lock(&global_lock);
         res = do_wait(idtype, id, &info, &rusage, options | WEXITED_);
+        //pthread_mutex_unlock(&global_lock);
     }
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
