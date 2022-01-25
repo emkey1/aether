@@ -18,6 +18,7 @@
 #include <linux/file.h>
 #include <linux/umh.h>
 #include <linux/syscalls.h>
+#include <linux/utsname.h>
 #include <asm/irq.h>
 #include <user/fs.h>
 #include <user/irq.h>
@@ -137,7 +138,7 @@ static void session_cleanup(struct subprocess_info *info) {
     kfree(session);
 }
 
-void start_session(const char *exe, const char *const *argv, const char *const *envp, StartSessionDoneBlock done) {
+void linux_start_session(const char *exe, const char *const *argv, const char *const *envp, StartSessionDoneBlock done) {
     struct ish_session *session = kzalloc(sizeof(*session), GFP_KERNEL);
     session->tty = ios_pty_open(&session->terminal);
     session->callback = done;
@@ -145,4 +146,38 @@ void start_session(const char *exe, const char *const *argv, const char *const *
     int err = call_usermodehelper_exec(proc, UMH_WAIT_EXEC);
     if (err < 0)
         done(err, 0, NULL);
+}
+
+void linux_sethostname(const char *hostname) {
+    int len = strlen(hostname);
+    if (len > __NEW_UTS_LEN)
+        len = __NEW_UTS_LEN;
+    down_write(&uts_sem);
+    struct new_utsname *u = utsname();
+    if (strncmp(u->nodename, hostname, len) != 0) {
+        memcpy(u->nodename, hostname, len);
+        memset(u->nodename + len, 0, sizeof(u->nodename) - len);
+        uts_proc_notify(UTS_PROC_HOSTNAME);
+    }
+    up_write(&uts_sem);
+}
+
+ssize_t linux_read_file(const char *path, char *buf, size_t size) {
+    struct file *filp = filp_open(path, O_RDONLY, 0);
+    if (IS_ERR(filp))
+        return PTR_ERR(filp);
+    ssize_t res = vfs_read(filp, buf, size, NULL);
+    filp_close(filp, NULL);
+    if (res >= size)
+        return -ENAMETOOLONG;
+    return res;
+}
+ssize_t linux_write_file(const char *path, const char *buf, size_t size) {
+    struct file *filp = filp_open(path, O_WRONLY, 0);
+    ssize_t res = vfs_write(filp, buf, size, NULL);
+    filp_close(filp, NULL);
+    return res;
+}
+int linux_remove_directory(const char *path) {
+    return ksys_rmdir(path);
 }
