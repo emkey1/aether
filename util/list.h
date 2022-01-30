@@ -54,9 +54,11 @@ static inline void list_init_add(struct list *list, struct list *item) {
 }
 
 static inline void list_remove(struct list *item) {
-    item->prev->next = item->next;
-    item->next->prev = item->prev;
-    item->next = item->prev = NULL;
+    if (!list_null(item)) { // MKE, hack to work around thread coherency issues.  Global lock?  FIXME-MKE
+        item->prev->next = item->next;
+        item->next->prev = item->prev;
+       item->next = item->prev = NULL;
+    }
 }
 
 static inline void list_remove_safe(struct list *item) {

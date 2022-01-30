@@ -62,13 +62,21 @@ static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
 }
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
-    struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
-    if (pgdir == NULL)
+    if (mem->pgdir[PGDIR_TOP(page)]) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
+        struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
+        if (pgdir == NULL)
+            return NULL;
+        
+        struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
+        if (entry->data == NULL)
+            return NULL;
+        
+        return entry;
+    } else {
+        mem->pgdir[PGDIR_TOP(page)] = NULL;
+        // printk("URGENT: pt_entry mem() corruption");
         return NULL;
-    struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
-    if (entry->data == NULL)
-        return NULL;
-    return entry;
+    }
 }
 
 static void mem_pt_del(struct mem *mem, page_t page) {

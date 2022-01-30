@@ -1,4 +1,3 @@
-#include <sys/param.h> // for MIN and MAX
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <string.h>
@@ -311,7 +310,7 @@ struct proc_dir_entry proc_root_entries[] = {
 
 static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_ROOT_LEN) {
-        *next_entry = (struct proc_entry) {&proc_root_entries[*index], *index, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_root_entries[*index], *index, 0, 0, 0};
         (*index)++;
         return true;
     }
