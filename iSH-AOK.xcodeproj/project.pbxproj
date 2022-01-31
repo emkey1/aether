@@ -16,7 +16,7 @@
 			dependencies = (
 			);
 			name = "iSH-AOK pre";
-			productName = "iSH pre";
+			productName = "iSH-AOK pre";
 		};
 /* End PBXAggregateTarget section */
 
