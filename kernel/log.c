@@ -170,4 +170,5 @@ int current_pid() {
 char* current_comm() {
     if (current)
         return current->comm;
+    return calloc(1, 1); 
 }
