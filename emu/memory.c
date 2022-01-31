@@ -62,7 +62,7 @@ static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
 }
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
-    if (mem->pgdir[PGDIR_TOP(page)]) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
+    if (mem->pgdir[PGDIR_TOP(page)] != NULL) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
         struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
         if (pgdir == NULL)
             return NULL;
