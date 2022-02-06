@@ -52,7 +52,10 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        pthread_cond_wait(&cond->cond, &lock->m);
+        struct timespec myto;
+        myto.tv_nsec = 3;
+        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &myto);
+        // pthread_cond_wait(&cond->cond, &lock->m); //mkemke
     } else {
 #if __linux__
         struct timespec abs_timeout;

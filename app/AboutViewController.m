@@ -17,6 +17,7 @@
 @property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
+@property (weak, nonatomic) IBOutlet UISwitch *disableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
 @property (weak, nonatomic) IBOutlet UITextField *bootCommandField;
 
@@ -80,6 +81,7 @@
     UserPreferences *prefs = UserPreferences.shared;
     self.themeCell.detailTextLabel.text = prefs.theme.presetName;
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
+    self.disableMulticoreSwitch.on = UserPreferences.shared.shouldDisableMulticore;
     self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
     self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
 
@@ -133,6 +135,10 @@
 
 - (IBAction)disableDimmingChanged:(id)sender {
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
+}
+
+- (IBAction)disableMulticoreChanged:(id)sender { // mkemke
+    UserPreferences.shared.shouldDisableMulticore = self.disableMulticoreSwitch.on;
 }
 
 - (IBAction)textBoxSubmit:(id)sender {

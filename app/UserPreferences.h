@@ -52,6 +52,7 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL hideStatusBar;
 @property (nonatomic) Theme *theme;
 @property BOOL shouldDisableDimming;
+@property BOOL shouldDisableMulticore;
 @property NSString *fontFamily;
 @property NSNumber *fontSize;
 @property NSArray<NSString *> *launchCommand;
