@@ -150,10 +150,9 @@ void task_run_current() {
         
         if(doDisableMulticore)
             pthread_mutex_unlock(&global_lock);
-        
-        read_wrunlock(&current->mem->lock);        
+ 
+        read_wrunlock(&current->mem->lock);  
         handle_interrupt(interrupt);
-
     }
 }
 

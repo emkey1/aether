@@ -411,7 +411,7 @@ static int real_poll_update(struct real_poll *real, int fd, int types, void *dat
     return kevent(real->fd, e, 3, e, 3, NULL);
 }
 
-static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout) {
+static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout) {//mkemke
     return kevent(real->fd, NULL, 0, (struct kevent *) events, max, timeout);
 }
 

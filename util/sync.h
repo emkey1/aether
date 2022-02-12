@@ -131,16 +131,15 @@ static inline void wrlock_init(wrlock_t *lock) {
 extern int current_pid(void);
 extern char* current_comm(void);
 static inline void wrlock_destroy(wrlock_t *lock) {
-int mypid = current_pid();
 #ifdef JUSTLOG
-    if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: pthread_rwlock_destroy error(PID: %d Process: %s) \n",mypid, current_comm());
+    if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: pthread_rwlock_destroy error(PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();
 #endif
 }
 static inline void read_wrlock(wrlock_t *lock) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_rdlock error \n");
+    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_rdlock error (PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_rdlock(&lock->l) != 0) __builtin_trap();
 #endif
@@ -151,14 +150,14 @@ static inline void read_wrunlock(wrlock_t *lock) {
     assert(lock->val > 0);
     lock->val--;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error \n");
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif
 }
 static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_wrlock error \n");
+    if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_wrlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_wrlock(&lock->l) != 0) __builtin_trap();
 #endif
@@ -174,7 +173,7 @@ static inline void write_wrunlock(wrlock_t *lock) {
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error \n");
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif

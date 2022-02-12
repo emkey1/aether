@@ -5,6 +5,8 @@
 #include "kernel/signal.h"
 #include "kernel/task.h"
 
+pthread_mutex_t syscall_lock = PTHREAD_MUTEX_INITIALIZER;
+
 dword_t syscall_stub() {
     return _ENOSYS;
 }
@@ -266,10 +268,12 @@ void handle_interrupt(int interrupt) {
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
+            //pthread_mutex_lock(&syscall_lock); //mkemke
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
+            // pthread_mutex_unlock(&syscall_lock); //mkemke
             lock(&current->ptrace.lock);
             if (current->ptrace.stop_at_syscall) {
                 current->ptrace.syscall = syscall_num;
