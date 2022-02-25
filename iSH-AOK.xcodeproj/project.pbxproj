@@ -98,19 +98,13 @@
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
-		BB0F5530239F8B360032A2A1 /* uninspired.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552F239F8B360032A2A1 /* uninspired.png */; };
-		BB0F553223A0AB9C0032A2A1 /* pydann1.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553123A0AB9B0032A2A1 /* pydann1.png */; };
-		BB0F553423A0AC760032A2A1 /* ihash1.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553323A0AC760032A2A1 /* ihash1.png */; };
-		BB0F553623A0ACFC0032A2A1 /* pydann2.png in Resources */ = {isa = PBXBuildFile; fileRef = BB0F553523A0ACFC0032A2A1 /* pydann2.png */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; platformFilter = ios; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
 		BB123ACC26C9EFD900419CDA /* LinuxTTY.c in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACB26C9EFD900419CDA /* LinuxTTY.c */; };
 		BB123ACE26C9F13500419CDA /* IOSCalls.m in Sources */ = {isa = PBXBuildFile; fileRef = BB123ACD26C9F13500419CDA /* IOSCalls.m */; };
 		BB13F7EA200ADCED003D1C4D /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; platformFilter = ios; };
-		BB1B9A4323A5E96900414052 /* icon.png in Resources */ = {isa = PBXBuildFile; fileRef = BB1B9A4223A5E96900414052 /* icon.png */; };
 		BB21A1702689048200BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; platformFilter = ios; };
 		BB21A18426890C7E00BD19B4 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; platformFilter = ios; };
-		BB21A18526894F9400BD19B4 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; platformFilter = ios; };
 		BB21A1862689500000BD19B4 /* libish_emu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB2C5B2590257E00545EAB /* libish_emu.a */; platformFilter = ios; };
 		BB235537235D49B300139E00 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
 		BB28C79226896B1F00BDC834 /* AboutAppearanceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */; };
@@ -190,7 +184,7 @@
 		BBBD741426B7BE2E00321AC5 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
 		BBBF7B5C2415CDBB00EC4C14 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = BBBF7B5B2415CDBB00EC4C14 /* Settings.bundle */; };
 		BBBF9CBD27C217B6002A30F7 /* PasteboardDeviceLinux.c in Sources */ = {isa = PBXBuildFile; fileRef = BBBF9CBB27C217A6002A30F7 /* PasteboardDeviceLinux.c */; };
-		BBBF9CBF27C44114002A30F7 /* iSHFileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSHFileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BBBFE94921C5CFF100509DD5 /* NSError+ISHErrno.m in Sources */ = {isa = PBXBuildFile; fileRef = BB13F4DD21C5770000343E17 /* NSError+ISHErrno.m */; };
 		BBC3863E276817A900CC8C2E /* UpgradeRootViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */; };
 		BBC3863F276817AD00CC8C2E /* CurrentRoot.m in Sources */ = {isa = PBXBuildFile; fileRef = BB565EA32734F1FB00C93EAE /* CurrentRoot.m */; };
@@ -390,7 +384,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BBBF9CBF27C44114002A30F7 /* iSHFileProvider.appex in Embed App Extensions */,
+				BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -607,15 +601,13 @@
 		BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ProjectDebugLinux.xcconfig; sourceTree = "<group>"; };
 		BB28C755268956C900BDC834 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS15.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		BB2B4DAB231D94C300CB578B /* hterm_all.js */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.javascript; name = hterm_all.js; path = ../../deps/libapps/hterm/dist/js/hterm_all.js; sourceTree = "<group>"; };
-		BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "iSH-AOKUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB38597627BCEC70000A1082 /* circular.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = circular.png; sourceTree = "<group>"; };
 		BB38597927BCEC78000A1082 /* dollarblock1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dollarblock1.png; sourceTree = "<group>"; };
 		BB38597A27BCEC78000A1082 /* dollarblock2.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dollarblock2.png; sourceTree = "<group>"; };
 		BB38597B27BCEC78000A1082 /* freeiosterminal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = freeiosterminal.png; sourceTree = "<group>"; };
 		BB38598227BCEC83000A1082 /* ishcolontildehash.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ishcolontildehash.png; sourceTree = "<group>"; };
 		BB38598327BCEC83000A1082 /* is.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = is.png; sourceTree = "<group>"; };
-		BB41591C255EF9E300E0950C /* iSHUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iSHUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
->>>>>>> 584a082cfb466763959a02d3302ee87d8c6c7112:iSH.xcodeproj/project.pbxproj
+		BB41591C255EF9E300E0950C /* iSHUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = iSHUITests.xctest; path = "iSH-AOKUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB41591E255EF9E300E0950C /* UITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UITests.m; sourceTree = "<group>"; };
 		BB415920255EF9E300E0950C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB455E0F1FB37F6600AFB48B /* DelayedUITask.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DelayedUITask.h; sourceTree = "<group>"; };
@@ -993,7 +985,7 @@
 				BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */,
 				BB13F7DC200AD81D003D1C4D /* libish.a */,
 				BBFB2C5B2590257E00545EAB /* libish_emu.a */,
-				BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */,
+				BB41591C255EF9E300E0950C /* iSHUITests.xctest */,
 				497F6D47254E605F00C82F46 /* ish-AOK */,
 				497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
 				BBEF191E26806364001225BD /* libiSH-AOKApp.a */,
@@ -1418,7 +1410,7 @@
 			);
 			name = "iSH-AOKUITests";
 			productName = iSHUITests;
-			productReference = BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */;
+			productReference = BB41591C255EF9E300E0950C /* iSHUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		BB792B4F1F96D90D00FFB7A4 /* iSH-AOK */ = {
