@@ -137,7 +137,7 @@
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
 }
 
-- (IBAction)disableMulticoreChanged:(id)sender { // mkemke
+- (IBAction)disableMulticoreChanged:(id)sender { 
     UserPreferences.shared.shouldDisableMulticore = self.disableMulticoreSwitch.on;
 }
 

@@ -313,9 +313,9 @@ retry:
         goto error;
 
     // no matching zombie found, wait for one
-    struct timespec mytime;
-    mytime.tv_sec = 10;
-    mytime.tv_nsec = 0;
+    //struct timespec mytime;
+    //mytime.tv_sec = 10;
+    //mytime.tv_nsec = 0;
     if (wait_for(&current->group->child_exit, &pids_lock, NULL)) {
         // maybe we got a SIGCHLD! go through the loop one more time to make
         // sure the newly exited process is returned in that case.
@@ -370,9 +370,7 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
     struct rusage_ rusage;
     int_t res;
     TASK_MAY_BLOCK {
-        //pthread_mutex_lock(&global_lock);
         res = do_wait(idtype, id, &info, &rusage, options | WEXITED_);
-        //pthread_mutex_unlock(&global_lock);
     }
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
