@@ -286,7 +286,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     
     [UserPreferences.shared observe:@[@"shouldDisableMulticore"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
-        dispatch_async(dispatch_get_main_queue(), ^{ //mkemke
+        dispatch_async(dispatch_get_main_queue(), ^{ 
             doDisableMulticore = UserPreferences.shared.shouldDisableMulticore;
         });
     }];
