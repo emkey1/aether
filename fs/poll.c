@@ -276,13 +276,13 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
             sockrestart_begin_listen_wait(poll_fd->fd);
         }
-        unlock(&poll_->lock);
         int err;
         struct real_poll_event e[4];
         do {
+            unlock(&poll_->lock);
             err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
+            lock(&poll_->lock);
         } while (sockrestart_should_restart_listen_wait() && errno == EINTR);
-        lock(&poll_->lock);
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
             sockrestart_end_listen_wait(poll_fd->fd);
         }

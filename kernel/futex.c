@@ -6,7 +6,7 @@
 #define FUTEX_PRIVATE_FLAG_ 128
 #define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_)
 
-extern bool doDisableMulticore;
+extern bool doEnableMulticore;
 
 struct futex {
     atomic_uint refcount;
@@ -171,7 +171,7 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
     switch (op & FUTEX_CMD_MASK_) {
         case FUTEX_WAIT_:
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
-            if(doDisableMulticore) {
+            if(!doEnableMulticore) {
                 struct timespec mytime;
                 mytime.tv_sec = 2;
                 mytime.tv_nsec = 0;

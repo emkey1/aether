@@ -326,8 +326,6 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     return [NSString stringWithFormat:@"%c", ch];
 }
 
-
-
 - (void)deleteBackward {
     [self insertText:@"\x7f"];
 }
@@ -521,9 +519,9 @@ static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
         [self addFunctionKey:UIKeyInputInsert withNormalEscapeSequence:@"\x1b[2~" withShiftEscapeSequence:@"\x1b[2;2~" withControlEscapeSequence:@"\x1b[2;5~"];
         [self addFunctionKey:UIKeyInputHelp withNormalEscapeSequence:@"\x1b[2~" withShiftEscapeSequence:@"\x1b[2;2~" withControlEscapeSequence:@"\x1b[2;5~"];
          */
-        if (@available(iOS 15.0, *)) {
+        /*if (@available(iOS 15.0, *)) {
             [self addFunctionKey:UIKeyInputDelete withName:@"Del" withNormalEscapeSequence:@"\x1b[3~" withShiftEscapeSequence:@"\x1b[3;2~" withControlEscapeSequence:@"\x1b[3;5~"];
-        }
+        } */ //mkemke Explore why this doesn't work at some point.
         [self addFunctionKey:UIKeyInputPageUp withName:@"PgUp" withNormalEscapeSequence:@"\x1b[5~" withShiftEscapeSequence:@"\x1b[5;2~" withControlEscapeSequence:@"\x1b[5;5~"];
         [self addFunctionKey:UIKeyInputPageDown withName:@"PgDn" withNormalEscapeSequence:@"\x1b[6~" withShiftEscapeSequence:@"\x1b[6;2~" withControlEscapeSequence:@"\x1b[6;5~"];
         [self addFunctionKey:UIKeyInputHome withName:@"Home" withNormalEscapeSequence:@"\x1bOH" withShiftEscapeSequence:@"\x1b[1;2H" withControlEscapeSequence:@"\x1b[1;5H"];

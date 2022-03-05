@@ -21,7 +21,7 @@ static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
 static NSString *const kPreferenceThemeKey = @"Theme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
-static NSString *const kPreferenceDisableMulticoreKey = @"Disable Multicore";
+static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -31,7 +31,7 @@ NSDictionary<NSString *, NSString *> *friendlyPreferenceMapping;
 NSDictionary<NSString *, NSString *> *friendlyPreferenceReverseMapping;
 NSDictionary<NSString *, NSString *> *kvoProperties;
 
-extern bool doDisableMulticore;
+extern bool doEnableMulticore;
 
 char **get_all_defaults_keys_impl(void) {
     NSArray<NSString *> *preferenceKeys = NSUserDefaults.standardUserDefaults.dictionaryRepresentation.allKeys;
@@ -146,7 +146,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceOptionMappingKey: @(OptionMapNone),
             kPreferenceBacktickEscapeKey: @(NO),
             kPreferenceDisableDimmingKey: @(NO),
-            kPreferenceDisableMulticoreKey: @(NO),
+            kPreferenceEnableMulticoreKey: @(NO),
             kPreferenceLaunchCommandKey: @[@"/bin/login", @"-f", @"root"],
             kPreferenceBootCommandKey: @[@"/sbin/init"],
             kPreferenceHideStatusBarKey: @(NO),
@@ -167,7 +167,7 @@ bool (*remove_user_default)(const char *name);
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
-            @"disable_multicore": kPreferenceDisableMulticoreKey,
+            @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"hide_status_bar": kPreferenceHideStatusBarKey,
@@ -188,7 +188,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
-            kPreferenceDisableMulticoreKey: property(shouldDisableMulticore),
+            kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceHideStatusBarKey: property(hideStatusBar),
@@ -326,16 +326,16 @@ bool (*remove_user_default)(const char *name);
     return [*value isKindOfClass:NSNumber.class];
 }
 
-// MARK: disablemulticore
-- (BOOL)shouldDisableMulticore {
-    return [_defaults boolForKey:kPreferenceDisableMulticoreKey];
+// MARK: ShouldEnablemulticore
+- (BOOL)shouldEnableMulticore {
+    return [_defaults boolForKey:kPreferenceEnableMulticoreKey];
 }
 
-- (void)setShouldDisableMulticore:(BOOL)doDisableMulticore {
-    [_defaults setBool:doDisableMulticore forKey:kPreferenceDisableMulticoreKey];
+- (void)setShouldEnableMulticore:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceEnableMulticoreKey];
 }
 
-- (BOOL)validateShouldDisableMulticore:(id *)value error:(NSError **)error {
+- (BOOL)validateShouldEnableMulticore:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

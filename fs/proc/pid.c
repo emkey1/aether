@@ -33,9 +33,10 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     pthread_mutex_unlock(&global_lock);
     if (task == NULL)
         return _ESRCH;
+    lock(&task->sighand->lock); //mkemke
     lock(&task->general_lock);
     lock(&task->group->lock);
-    lock(&task->sighand->lock);
+    //mkemke lock(&task->sighand->lock);
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an

@@ -274,7 +274,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     self.unameHostname = [NSUserDefaults.standardUserDefaults stringForKey:@"hostnameOverride"];
     extern const char *uname_hostname_override;
     uname_hostname_override = self.unameHostname.UTF8String;
-    extern bool doDisableMulticore;
+    extern bool doEnableMulticore;
 #endif
     
     [UserPreferences.shared observe:@[@"shouldDisableDimming"] options:NSKeyValueObservingOptionInitial
@@ -284,10 +284,10 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
         });
     }];
     
-    [UserPreferences.shared observe:@[@"shouldDisableMulticore"] options:NSKeyValueObservingOptionInitial
+    [UserPreferences.shared observe:@[@"shouldEnableMulticore"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{ 
-            doDisableMulticore = UserPreferences.shared.shouldDisableMulticore;
+            doEnableMulticore = UserPreferences.shared.shouldEnableMulticore;
         });
     }];
     

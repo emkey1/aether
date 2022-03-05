@@ -9,7 +9,7 @@
 #include <pthread.h>
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
-bool doDisableMulticore;; // Disable multicore if toggled
+bool doEnableMulticore;; // Enable multicore if toggled, should default to true
 
 __thread struct task *current;
 
@@ -143,12 +143,12 @@ void task_run_current() {
     while (true) {
         read_wrlock(&current->mem->lock);
         
-        if(doDisableMulticore)
+        if(!doEnableMulticore)
             pthread_mutex_lock(&global_lock);
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
         
-        if(doDisableMulticore)
+        if(!doEnableMulticore)
             pthread_mutex_unlock(&global_lock);
  
         read_wrunlock(&current->mem->lock);  

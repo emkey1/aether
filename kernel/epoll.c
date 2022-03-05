@@ -3,7 +3,7 @@
 
 static struct fd_ops epoll_ops;
 
-extern bool doDisableMulticore;
+extern bool doEnableMulticore;
 
 fd_t sys_epoll_create(int_t flags) {
     STRACE("epoll_create(%#x)", flags);
@@ -96,13 +96,12 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
     struct epoll_context context = {.events = events, .n = 0, .max_events = max_events};
     STRACE("...\n");
     int res;
-    if(doDisableMulticore) {
+    if(!doEnableMulticore) {
         struct timespec mytime;
         mytime.tv_sec = 2;
         mytime.tv_nsec = 0;
         res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime);
     } else {
-        
         res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout < 0 ? NULL : &timeout_ts);
     }
     STRACE("%d end epoll_wait", current->pid);
