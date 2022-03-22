@@ -49,7 +49,7 @@
                                                                                  action:@selector(exitRecovery:)];
         self.navigationItem.leftBarButtonItem = nil;
     }
-    _versionLabel.text = [NSString stringWithFormat:@"iSH %@ (Build %@)",
+    _versionLabel.text = [NSString stringWithFormat:@"iSH-AOK %@ (Build %@)",
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"]];
 
