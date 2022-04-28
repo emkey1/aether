@@ -275,6 +275,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     extern const char *uname_hostname_override;
     uname_hostname_override = self.unameHostname.UTF8String;
     extern bool doEnableMulticore;
+    extern bool doEnableExtraLocking;
 #endif
     
     [UserPreferences.shared observe:@[@"shouldDisableDimming"] options:NSKeyValueObservingOptionInitial
@@ -290,6 +291,13 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
             doEnableMulticore = UserPreferences.shared.shouldEnableMulticore;
         });
     }];
+    [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial
+                              owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            doEnableExtraLocking = UserPreferences.shared.shouldEnableExtraLocking;
+        });
+    }];
+
     
     struct sockaddr_in6 address = {
         .sin6_len = sizeof(address),

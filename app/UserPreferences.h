@@ -53,6 +53,7 @@ extern NSString *const kThemeBackgroundColor;
 @property (nonatomic) Theme *theme;
 @property BOOL shouldDisableDimming;
 @property BOOL shouldEnableMulticore;
+@property BOOL shouldEnableExtraLocking;
 @property NSString *fontFamily;
 @property NSNumber *fontSize;
 @property NSArray<NSString *> *launchCommand;

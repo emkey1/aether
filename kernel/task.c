@@ -10,6 +10,7 @@
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 bool doEnableMulticore;; // Enable multicore if toggled, should default to true
+bool doEnableExtraLocking;; // Enable multicore if toggled, should default to true
 
 __thread struct task *current;
 

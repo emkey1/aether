@@ -22,6 +22,7 @@ static NSString *const kPreferenceFontSizeKey = @"Font Size";
 static NSString *const kPreferenceThemeKey = @"Theme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
+static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -147,6 +148,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceBacktickEscapeKey: @(NO),
             kPreferenceDisableDimmingKey: @(NO),
             kPreferenceEnableMulticoreKey: @(NO),
+	    kPreferenceEnableExtraLockingKey: @(NO),
             kPreferenceLaunchCommandKey: @[@"/bin/login", @"-f", @"root"],
             kPreferenceBootCommandKey: @[@"/sbin/init"],
             kPreferenceHideStatusBarKey: @(NO),
@@ -168,6 +170,7 @@ bool (*remove_user_default)(const char *name);
             @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
             @"enable_multicore": kPreferenceEnableMulticoreKey,
+            @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"hide_status_bar": kPreferenceHideStatusBarKey,
@@ -189,6 +192,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceFontSizeKey: property(fontSize),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
             kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
+	    kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceHideStatusBarKey: property(hideStatusBar),
@@ -339,6 +343,18 @@ bool (*remove_user_default)(const char *name);
     return [*value isKindOfClass:NSNumber.class];
 }
 
+// MARK: ShouldEnableExtraLocking
+- (BOOL)shouldEnableExtraLocking {
+    return [_defaults boolForKey:kPreferenceEnableExtraLockingKey];
+}
+
+- (void)setShouldEnableExtraLocking:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceEnableExtraLockingKey];
+}
+
+- (BOOL)validateShouldEnableExtraLocking:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
 
 // MARK: launchCommand
 - (NSArray<NSString *> *)launchCommand {

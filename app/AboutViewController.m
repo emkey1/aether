@@ -18,6 +18,7 @@
 @property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
+@property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
 @property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
 @property (weak, nonatomic) IBOutlet UITextField *bootCommandField;
 
@@ -82,6 +83,7 @@
     self.themeCell.detailTextLabel.text = prefs.theme.presetName;
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
+    self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
     self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
     self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
 
@@ -140,6 +142,11 @@
 - (IBAction)enableMulticoreChanged:(id)sender {
     UserPreferences.shared.shouldEnableMulticore = self.enableMulticoreSwitch.on;
 }
+
+- (IBAction)enableExtraLockingChanged:(id)sender {
+    UserPreferences.shared.shouldEnableExtraLocking = self.enableExtraLockingSwitch.on;
+}
+
 
 - (IBAction)textBoxSubmit:(id)sender {
     [sender resignFirstResponder];
