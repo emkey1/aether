@@ -9,6 +9,8 @@
 
 typedef double CFTimeInterval;
 
+extern bool doEnableMulticore;
+
 struct cpu_usage get_total_cpu_usage() {
     host_cpu_load_info_data_t load;
     mach_msg_type_number_t fuck = HOST_CPU_LOAD_INFO_COUNT;
@@ -94,10 +96,13 @@ struct uptime_info get_uptime() {
 }
 
 int get_cpu_count() {
-    int ncpu;
-    size_t size = sizeof(int);
-    sysctlbyname("hw.ncpu", &ncpu, &size, NULL, 0);
-    return ncpu;
+     int ncpu;
+     size_t size = sizeof(int);
+     if(doEnableMulticore)
+         sysctlbyname("hw.ncpu", &ncpu, &size, NULL, 0);
+     else
+         ncpu = 1; // Return one when Multicore is disabled -mke
+     return ncpu;
 }
 
 int get_per_cpu_usage(struct cpu_usage** cpus_usage) {

@@ -129,6 +129,9 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
+    if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
+       printk("Warning: pids_lock was not set\n");
+    }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;

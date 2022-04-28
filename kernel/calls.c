@@ -303,7 +303,7 @@ void handle_interrupt(int interrupt) {
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
-        printk("%d illegal instruction at 0x%x: ", current->pid, cpu->eip);
+        printk("%d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
         for (int i = 0; i < 8; i++) {
             uint8_t b;
             if (user_get(cpu->eip + i, b))
@@ -331,7 +331,7 @@ void handle_interrupt(int interrupt) {
         });
         unlock(&pids_lock);
     } else if (interrupt != INT_TIMER) {
-        printk("%d unhandled interrupt %d\n", current->pid, interrupt);
+        printk("%d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
     }
 

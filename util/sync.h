@@ -41,7 +41,20 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    pthread_mutex_lock(&lock->m);
+    unsigned int count = 0;
+    //while(trylock(&lock->m)) {
+    struct timespec mylock_pause = {0 /*secs*/, 13 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+
+    while(pthread_mutex_trylock(&lock->m)) {
+        count++;
+        nanosleep(&mylock_pause, &mylock_pause);
+        // Loop until lock works.  Maybe this will help make the multithreading work? -mke
+    }
+
+    if(count > 10000) {
+        printk("Attempted Lock Count = %d\n",count);
+    }
+
     lock->owner = pthread_self();
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
