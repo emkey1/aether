@@ -18,6 +18,8 @@
 
 // The Evil global lock.  Use sparingly or not at all
 extern pthread_mutex_t global_lock;
+// Time to wait between non blocking lock attempts
+struct timespec lock_pause = {0 /*secs*/, 5 /*nanosecs*/};
 
 // increment the change count
 static void mem_changed(struct mem *mem);

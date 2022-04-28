@@ -13,6 +13,8 @@
 
 #define LOCK_DEBUG 0
 
+extern struct timespec lock_pause;
+
 typedef struct {
     pthread_mutex_t m;
     pthread_t owner;
@@ -42,7 +44,6 @@ static inline void lock_init(lock_t *lock) {
 #endif
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    //while(trylock(&lock->m)) {
     struct timespec mylock_pause = {0 /*secs*/, 13 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
 
     while(pthread_mutex_trylock(&lock->m)) {
@@ -51,8 +52,8 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
 
-    if(count > 10000) {
-        printk("Attempted Lock Count = %d\n",count);
+    if(count > 100000) {
+        printk("Warning: large lock attempt count(%d)\n",count);
     }
 
     lock->owner = pthread_self();
@@ -75,6 +76,31 @@ static inline void unlock(lock_t *lock) {
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
 }
+
+typedef struct {
+    pthread_rwlock_t l;
+    // 0: unlocked
+    // -1: write-locked
+    // >0: read-locked with this many readers
+    atomic_int val;
+    const char *file;
+    int line;
+    int pid;
+} wrlock_t;
+
+static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    int status = pthread_rwlock_trywrlock(&lock->l);
+#if LOCK_DEBUG
+    if (!status) {
+        lock->debug.file = file;
+        lock->debug.line = line;
+        extern int current_pid(void);
+        lock->debug.pid = current_pid();
+    }
+#endif
+    return status;
+}
+#define trylockw(lock) trylockw(lock, __FILE__, __LINE__)
 
 static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     int status = pthread_mutex_trylock(&lock->m);
@@ -118,16 +144,7 @@ void notify_once(cond_t *cond);
 // writers waiting a read lock will block.
 // on darwin pthread_rwlock_t is already like this, on linux you can configure
 // it to prefer writers. not worrying about anything else right now.
-typedef struct {
-    pthread_rwlock_t l;
-    // 0: unlocked
-    // -1: write-locked
-    // >0: read-locked with this many readers
-    atomic_int val;
-    const char *file;
-    int line;
-    int pid;
-} wrlock_t;
+
 static inline void wrlock_init(wrlock_t *lock) {
     pthread_rwlockattr_t *pattr = NULL;
 #if defined(__GLIBC__)
@@ -170,7 +187,16 @@ static inline void read_wrunlock(wrlock_t *lock) {
 }
 static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_wrlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
+    unsigned int count = 0; 
+    while(trylockw(&lock->l)) {
+        count++;
+        nanosleep(&lock_pause, &lock_pause);
+    }
+
+    if(count > 100000) {
+        printk("Warning: large lock attempt count(%d)\n",count);
+    }
+    //if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_wrlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_wrlock(&lock->l) != 0) __builtin_trap();
 #endif
