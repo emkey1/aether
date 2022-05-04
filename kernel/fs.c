@@ -9,6 +9,9 @@
 #include "fs/path.h"
 #include "fs/dev.h"
 
+extern bool doEnableExtraLocking;
+extern pthread_mutex_t extra_lock;
+
 static struct fd *at_fd(fd_t f) {
     if (f == AT_FDCWD_)
         return AT_PWD;
@@ -325,7 +328,12 @@ static ssize_t iovec_size(struct iovec_ *iovec, unsigned iovec_count) {
 
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     STRACE("readv(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
+   // if(doEnableExtraLocking)
+    //    pthread_mutex_lock(&extra_lock);
     struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
+    //if(doEnableExtraLocking)
+     //   pthread_mutex_unlock(&extra_lock);
+    
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
     size_t io_size = iovec_size(iovec, iovec_count);

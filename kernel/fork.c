@@ -159,6 +159,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         lock(&pids_lock);
         task_destroy(task);
         unlock(&pids_lock);
+        
         return err;
     }
     task->cpu.eax = 0;

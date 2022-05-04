@@ -9,6 +9,8 @@
 #include <pthread.h>
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
+
 bool doEnableMulticore;; // Enable multicore if toggled, should default to true
 bool doEnableExtraLocking;; // Enable multicore if toggled, should default to true
 
@@ -132,6 +134,7 @@ void task_destroy(struct task *task) {
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
        printk("Warning: pids_lock was not set\n");
     }
+    
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
@@ -155,7 +158,8 @@ void task_run_current() {
         if(!doEnableMulticore)
             pthread_mutex_unlock(&global_lock);
  
-        read_wrunlock(&current->mem->lock);  
+        read_wrunlock(&current->mem->lock);
+        
         handle_interrupt(interrupt);
     }
 }

@@ -8,7 +8,8 @@
 #include "fs/fd.h"
 #include "fs/tty.h"
 
-extern pthread_mutex_t global_lock;
+extern bool doEnableExtraLocking;
+extern pthread_mutex_t extra_lock;
 
 static void halt_system(void);
 
@@ -117,8 +118,9 @@ noreturn void do_exit(int status) {
     }
 
     vfork_notify(current);
-    if (current != leader)
+    if(current != leader) 
         task_destroy(current);
+    
     unlock(&pids_lock);
 
     pthread_exit(NULL);
@@ -221,6 +223,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     free(task->group);
 
     task_destroy(task);
+    
     return true;
 }
 
@@ -238,9 +241,15 @@ static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
 
 static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     assert(task_is_leader(task));
+    //if(doEnableExtraLocking) {
+    //    pthread_mutex_lock(&extra_lock);
+    //}
     if ((options & WUNTRACED_ && notify_if_stopped(task, info_out)) ||
         (options & WEXITED_ && reap_if_zombie(task, info_out, rusage_out, options))) {
         info_out->sig = SIGCHLD_;
+     //   if(doEnableExtraLocking) {
+       //     pthread_mutex_unlock(&extra_lock);
+      //  }
         return true;
     }
     lock(&task->ptrace.lock);
@@ -251,9 +260,15 @@ static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct 
         info_out->child.status = /* task->ptrace.trap_event << 16 |*/ task->ptrace.signal << 8 | 0x7f;
         task->ptrace.signal = 0;
         unlock(&task->ptrace.lock);
+        //if(doEnableExtraLocking) {
+         //   pthread_mutex_unlock(&extra_lock);
+        //}
         return true;
     }
     unlock(&task->ptrace.lock);
+    //if(doEnableExtraLocking) {
+     //   pthread_mutex_unlock(&extra_lock);
+   // }
     return false;
 }
 

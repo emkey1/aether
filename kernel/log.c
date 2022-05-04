@@ -42,8 +42,38 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
     }
     char *buf = malloc(len);
     fifo_read(&log_buf, buf, len, flags);
-    int fail = user_write(buf_addr, buf, len);
+    
+    // Here we will split on \n and do one entry per line
+    int fail;
+    // Keep printing tokens while one of the
+    // delimiters present in str[].
+    addr_t pointer = buf_addr; // Where we are in the buffer
+    unsigned count=1;
+    char *token = strtok(buf, "\n"); // Inject an extra end of line to get sanish output from dmesg.  -mke
+    
+    fail = user_write(pointer, "\n", 1);
+    if (fail) {
+        free(buf);
+        return _EFAULT;
+    }
+    pointer = pointer + 1;
+    
+    while (token != NULL) {
+        size_t length = strlen(token);
+        fail = user_write(pointer, token, length);
+        if (fail) {
+            free(buf);
+            return _EFAULT;
+        }
+        pointer += length;
+        fail = user_write(pointer, "\n", 1);
+        pointer++;
+        token = strtok(NULL, "\n");
+        count++;
+    }
+
     free(buf);
+    
     if (fail)
         return _EFAULT;
     return len;
@@ -94,12 +124,24 @@ static void log_buf_append(const char *msg) {
     if (log_max_since_clear > fifo_capacity(&log_buf))
         log_max_since_clear = fifo_capacity(&log_buf);
 }
+
 static void log_line(const char *line);
+
 static void output_line(const char *line) {
+    time_t t=time(NULL);
+    char* c_time_string;
+    c_time_string = ctime(&t);
+    c_time_string[strcspn(c_time_string, "\n")] = 0;  // Remove trailing newline
+    //double tstamp = difftime(t, (time_t) 0);
+    int mybuff_size = 512;
+    char tmpbuff[mybuff_size];
+    //sprintf(tmpbuff, "[   %f] %s", tstamp, line);
+    sprintf(tmpbuff, "[   %s] %s", c_time_string, line);
+    
     // send it to stdout or wherever
-    log_line(line);
+    log_line(tmpbuff);
     // add it to the circular buffer
-    log_buf_append(line);
+    log_buf_append(tmpbuff);
     log_buf_append("\n");
 }
 
@@ -108,6 +150,7 @@ void ish_vprintk(const char *msg, va_list args) {
     // I'm trusting you to not pass an absurdly long message
     static __thread char buf[16384] = "";
     static __thread size_t buf_size = 0;
+    
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer

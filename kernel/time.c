@@ -190,6 +190,8 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     req.tv_sec = req_ts.sec;
     req.tv_nsec = req_ts.nsec;
     struct timespec rem;
+    rem.tv_sec = 0; // Be anal and set both to zero.  -mke
+    rem.tv_nsec = 0;
     int res = 0;
     TASK_MAY_BLOCK {
         res = nanosleep(&req, &rem);

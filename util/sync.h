@@ -13,6 +13,9 @@
 
 #define LOCK_DEBUG 0
 
+extern int current_pid(void);
+extern char* current_comm(void);
+
 extern struct timespec lock_pause;
 
 typedef struct {
@@ -42,6 +45,7 @@ static inline void lock_init(lock_t *lock) {
 #else
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
+
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
     struct timespec mylock_pause = {0 /*secs*/, 13 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
@@ -49,6 +53,11 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&mylock_pause, &mylock_pause);
+        if(count > 200000) {
+            //printk("[%d] Possible deadlock, aborted lock attempt(PID: %d Process: %s)\n",time(NULL),current_pid(), current_comm() );
+            printk("Possible deadlock, aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
+            return;
+        }
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
 
@@ -66,7 +75,9 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
     lock->debug.pid = current_pid();
 #endif
 }
+
 #define lock(lock) __lock(lock, __FILE__, __LINE__)
+
 static inline void unlock(lock_t *lock) {
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
@@ -100,6 +111,7 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
 #endif
     return status;
 }
+
 #define trylockw(lock) trylockw(lock, __FILE__, __LINE__)
 
 static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
@@ -114,6 +126,7 @@ static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file
 #endif
     return status;
 }
+
 #define trylock(lock) trylock(lock, __FILE__, __LINE__)
 
 // conditions, implemented using pthread conditions but hacked so you can also
@@ -153,50 +166,50 @@ static inline void wrlock_init(wrlock_t *lock) {
     pthread_rwlockattr_init(pattr);
     pthread_rwlockattr_setkind_np(pattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
 #endif
+#ifdef JUSTLOG
+    if (pthread_rwlock_init(&lock->l, pattr)) printk("URGENT: wrlock_init() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+#else
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
+#endif
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
 }
 
-extern int current_pid(void);
-extern char* current_comm(void);
 static inline void wrlock_destroy(wrlock_t *lock) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: pthread_rwlock_destroy error(PID: %d Process: %s) \n",current_pid(), current_comm());
+    if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: wlock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();
 #endif
 }
+
 static inline void read_wrlock(wrlock_t *lock) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_rdlock error (PID: %d Process: %s) \n",current_pid(), current_comm());
+    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: read_wrlock() error (PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_rdlock(&lock->l) != 0) __builtin_trap();
 #endif
     assert(lock->val >= 0);
     lock->val++;
 }
+
 static inline void read_wrunlock(wrlock_t *lock) {
+    if(lock->val <=0) {
+        printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s count %d) \n",current_pid(), current_comm(), lock->val);
+	return;
+    }
     assert(lock->val > 0);
     lock->val--;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: read_wrunlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif
 }
+
 static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
 #ifdef JUSTLOG
-    unsigned int count = 0; 
-    while(trylockw(&lock->l)) {
-        count++;
-        nanosleep(&lock_pause, &lock_pause);
-    }
-
-    if(count > 100000) {
-        printk("Warning: large lock attempt count(%d)\n",count);
-    }
-    //if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_wrlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
+    if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: __write_wrilock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_wrlock(&lock->l) != 0) __builtin_trap();
 #endif
@@ -206,13 +219,15 @@ static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
     lock->line = line;
     lock->pid = current_pid();
 }
+
 #define write_wrlock(lock) __write_wrlock(lock, __FILE__, __LINE__)
+
 static inline void write_wrunlock(wrlock_t *lock) {
     assert(lock->val == -1);
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s) \n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_wrlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif
@@ -229,6 +244,7 @@ static inline int sigunwind_start() {
         return 0;
     }
 }
+
 static inline void sigunwind_end() {
     should_unwind = false;
 }

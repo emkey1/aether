@@ -19,7 +19,10 @@
 // The Evil global lock.  Use sparingly or not at all
 extern pthread_mutex_t global_lock;
 // Time to wait between non blocking lock attempts
-struct timespec lock_pause = {0 /*secs*/, 5 /*nanosecs*/};
+struct timespec lock_pause = {0 /*secs*/, 500 /*nanosecs*/};
+
+extern bool doEnableExtraLocking;
+extern pthread_mutex_t extra_lock;
 
 // increment the change count
 static void mem_changed(struct mem *mem);
@@ -274,8 +277,15 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         // TODO: factor the lock/unlock code here into a new function. Do this
         // next time you touch this function.
-        read_wrunlock(&mem->lock);
-        write_wrlock(&mem->lock);
+	   // if(doEnableExtraLocking) {
+     //        pthread_mutex_lock(&extra_lock);
+        //     read_wrunlock(&mem->lock);
+         //    write_wrlock(&mem->lock);
+	    //     pthread_mutex_unlock(&extra_lock);
+      //  } else {
+             read_wrunlock(&mem->lock);
+             write_wrlock(&mem->lock);
+       // }
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
         write_wrunlock(&mem->lock);
         read_wrlock(&mem->lock);

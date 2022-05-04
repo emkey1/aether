@@ -9,8 +9,8 @@
 #include "kernel/vdso.h"
 #include "util/sync.h"
 
-// The Evil global lock.  Use sparingly or not at all
-extern pthread_mutex_t global_lock;
+extern pthread_mutex_t extra_lock;
+extern bool doEnableExtraLocking;
 
 static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
@@ -28,9 +28,11 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    pthread_mutex_lock(&global_lock);
+    if(doEnableExtraLocking) {
+        pthread_mutex_lock(&extra_lock);
+    } 
+        
     struct task *task = proc_get_task(entry);
-    pthread_mutex_unlock(&global_lock);
     if (task == NULL)
         return _ESRCH;
     lock(&task->sighand->lock); //mkemke
@@ -106,6 +108,10 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%d", task->exit_signal);
     // that's enough for now
     proc_printf(buf, "\n");
+    
+    if(doEnableExtraLocking) {
+        pthread_mutex_unlock(&extra_lock);
+    }
 
     unlock(&task->sighand->lock);
     unlock(&task->group->lock);

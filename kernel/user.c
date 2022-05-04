@@ -1,6 +1,9 @@
 #include <string.h>
 #include "kernel/calls.h"
 
+extern bool doEnableExtraLocking;
+extern pthread_mutex_t extra_lock;
+
 static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
     char *cbuf = (char *) buf;
     addr_t p = addr;
@@ -35,7 +38,9 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
 
 int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
     read_wrlock(&task->mem->lock);
+
     int res = __user_read_task(task, addr, buf, count);
+
     read_wrunlock(&task->mem->lock);
     return res;
 }
