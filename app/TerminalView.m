@@ -638,52 +638,15 @@ static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
 }
 
 - (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
-    bool handled = false;
-    UIKeyModifierFlags modifier;
-
     if (@available(iOS 13.4, *)) {
-        // this is all to handle Ins/Help key as Apple don't support that key using UIKey interface
-        UIKey *key;
-
-        for (UIPress *aPress in presses) {
-            key = aPress.key;
-            handled = false;
-            // Use of UIKeyboardHID was introduced in 13.4
-
-            // ignore modifier keys by themselves
-            if ( key.keyCode == UIKeyboardHIDUsageKeyboardLeftShift || key.keyCode == UIKeyboardHIDUsageKeyboardLeftControl || key.keyCode == UIKeyboardHIDUsageKeyboardLeftAlt || key.keyCode == UIKeyboardHIDUsageKeyboardRightShift || key.keyCode == UIKeyboardHIDUsageKeyboardRightControl || key.keyCode == UIKeyboardHIDUsageKeyboardRightAlt || key.keyCode == UIKeyboardHIDUsageKeyboardRightGUI ) {
-                continue;
-            }
-
-            modifier = key.modifierFlags;
-            if ( modifier & UIKeyModifierNumericPad ) {
-                modifier &= ~UIKeyModifierNumericPad;
-            }
-            if ( modifier & UIKeyModifierAlphaShift) {
-                modifier &= ~UIKeyModifierAlphaShift;
-            }
-            if ( key.keyCode == UIKeyboardHIDUsageKeyboardInsert || key.keyCode == UIKeyboardHIDUsageKeyboardHelp ) {
-                if ( modifier == 0) {
-                    [self insertRawText:@"\x1b[2~"];
-                    handled = true;
-                    break;
-                }
-                if ( modifier & UIKeyModifierShift )  {
-                    [self insertRawText:@"\x1b[2;2~"];
-                    handled = true;
-                    break;
-                }
-                if ( modifier & UIKeyModifierControl )  {
-                    [self insertRawText:@"\x1b[2;5~"];
-                    handled = true;
-                    break;
-                }
-            }
+        UIKey *key = presses.anyObject.key;
+        if (UserPreferences.shared.overrideControlSpace &&
+            key.keyCode == UIKeyboardHIDUsageKeyboardSpacebar &&
+            key.modifierFlags & UIKeyModifierControl) {
+            return [self insertControlChar:' '];
         }
     }
-    if ( !handled) {
-       return [super pressesBegan:presses withEvent:event];
-    }
+    return [super pressesBegan:presses withEvent:event];
 }
 
 - (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {

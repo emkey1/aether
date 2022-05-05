@@ -48,7 +48,7 @@ static inline void lock_init(lock_t *lock) {
 
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    struct timespec mylock_pause = {0 /*secs*/, 13 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+    struct timespec mylock_pause = {0 /*secs*/, 130 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
 
     while(pthread_mutex_trylock(&lock->m)) {
         count++;

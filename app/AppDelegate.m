@@ -276,6 +276,8 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     uname_hostname_override = self.unameHostname.UTF8String;
     extern bool doEnableMulticore;
     extern bool doEnableExtraLocking;
+    extern pthread_mutex_t global_lock;
+    extern pthread_mutex_t extra_lock;
 #endif
     
     [UserPreferences.shared observe:@[@"shouldDisableDimming"] options:NSKeyValueObservingOptionInitial
@@ -287,14 +289,17 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     
     [UserPreferences.shared observe:@[@"shouldEnableMulticore"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
-        dispatch_async(dispatch_get_main_queue(), ^{ 
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Need to toggle pending lock off here.
             doEnableMulticore = UserPreferences.shared.shouldEnableMulticore;
+            pthread_mutex_unlock(&global_lock); // Be sure not to leave around orphan lock
         });
     }];
     [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             doEnableExtraLocking = UserPreferences.shared.shouldEnableExtraLocking;
+            pthread_mutex_unlock(&extra_lock); // Be sure not to leave around orphan lock
         });
     }];
 
