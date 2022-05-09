@@ -6,13 +6,18 @@
 #include "kernel/task.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
+#include "platform/platform.h"
 #include <pthread.h>
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
+unsigned FTT = 0; // First time through the execution path
+dword_t extra_lock_pid = 0;
+unsigned extra_lock_queue_size = 0;
 
-bool doEnableMulticore;; // Enable multicore if toggled, should default to true
-bool doEnableExtraLocking;; // Enable multicore if toggled, should default to true
+bool doEnableMulticore; // Enable multicore if toggled, should default to false
+bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
+unsigned doLockSleepNanoseconds; // How many nanoseconds should __lock() sleep between retries
 
 __thread struct task *current;
 
@@ -134,7 +139,6 @@ void task_destroy(struct task *task) {
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
        printk("Warning: pids_lock was not set\n");
     }
-    
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
@@ -146,7 +150,16 @@ void task_run_current() {
     struct cpu_state *cpu = &current->cpu;
     struct tlb tlb = {};
     tlb_refresh(&tlb, &current->mem->mmu);
-
+    if(FTT == 15) { // Do this part once only, wait a tiny bit
+        struct uname uts;
+        do_uname(&uts);
+        unsigned short ncpu = get_cpu_count();
+        printk("iSH-AOK %s booted on (%d)emulated(%s) CPU(s)\n",uts.release, ncpu, uts.arch);
+        FTT++;
+    } else {
+        FTT++;
+    }
+    
     while (true) {
         read_wrlock(&current->mem->lock);
         
@@ -165,8 +178,16 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
+    // mkemkemke  Extra locking here?
+    if(doEnableExtraLocking) {
+        pthread_mutex_lock(&extra_lock);
+    }
     current = task;
     update_thread_name();
+    
+    if(doEnableExtraLocking) {
+        pthread_mutex_unlock(&extra_lock);
+    }
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
@@ -199,4 +220,29 @@ void update_thread_name() {
 #else
     pthread_setname_np(pthread_self(), name);
 #endif
+}
+
+void extra_lockf(dword_t pid) {
+    if(pid_get(extra_lock_pid) != NULL) {  // Locking task still exists, wait
+        pthread_mutex_lock(&extra_lock);
+        extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
+    } else { // Locking task has died, remove lock and grab again
+        if(extra_lock_pid) {
+            printk("WARNING: locking PID(%d) dead\n", extra_lock_pid); // It will be zero if not relevant
+            pthread_mutex_unlock(&extra_lock);
+        }
+            pthread_mutex_lock(&extra_lock);
+            extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
+    }
+    extra_lock_queue_size++;
+    return;
+}
+
+void extra_unlockf(dword_t pid) {
+    if(pid)
+        // Placeholder
+    pthread_mutex_unlock(&extra_lock);
+    extra_lock_pid = 0;
+    extra_lock_queue_size--;
+    return;
 }

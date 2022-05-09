@@ -23,6 +23,8 @@ struct timespec lock_pause = {0 /*secs*/, 500 /*nanosecs*/};
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
+extern dword_t extra_lock_pid;
+extern unsigned extra_lock_queue_size;
 
 // increment the change count
 static void mem_changed(struct mem *mem);
@@ -79,7 +81,6 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
         return entry;
     } else {
         mem->pgdir[PGDIR_TOP(page)] = NULL;
-        // printk("URGENT: pt_entry mem() corruption");
         return NULL;
     }
 }
@@ -277,16 +278,17 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         // TODO: factor the lock/unlock code here into a new function. Do this
         // next time you touch this function.
-	   // if(doEnableExtraLocking) {
-     //        pthread_mutex_lock(&extra_lock);
-        //     read_wrunlock(&mem->lock);
-         //    write_wrlock(&mem->lock);
-	    //     pthread_mutex_unlock(&extra_lock);
-      //  } else {
-             read_wrunlock(&mem->lock);
-             write_wrlock(&mem->lock);
+        read_wrunlock(&mem->lock);
+        write_wrlock(&mem->lock);
+        
+       // if(doEnableExtraLocking) {
+       //     extra_lockf(0);
        // }
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
+        //if(doEnableExtraLocking) {
+         //   extra_unlockf(0);
+      //  }
+        
         write_wrunlock(&mem->lock);
         read_wrlock(&mem->lock);
 
@@ -314,10 +316,19 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             // copy/paste from above
             read_wrunlock(&mem->lock);
             write_wrlock(&mem->lock);
+            
+           // if(doEnableExtraLocking) {
+         //       extra_lockf(0);
+          //  }
             memcpy(copy, data, PAGE_SIZE);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
+          //  if(doEnableExtraLocking) {
+          //      extra_unlockf(0);
+          //  }
+            
             write_wrunlock(&mem->lock);
             read_wrlock(&mem->lock);
+            
         }
     }
 

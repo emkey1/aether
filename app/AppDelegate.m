@@ -276,6 +276,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     uname_hostname_override = self.unameHostname.UTF8String;
     extern bool doEnableMulticore;
     extern bool doEnableExtraLocking;
+    extern unsigned doLockSleepNanoseconds;
     extern pthread_mutex_t global_lock;
     extern pthread_mutex_t extra_lock;
 #endif
@@ -302,7 +303,13 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
             pthread_mutex_unlock(&extra_lock); // Be sure not to leave around orphan lock
         });
     }];
-
+ //   [UserPreferences.shared observe:@[@"shouldLockSleepNanoseconds"] options:NSKeyValueObservingOptionInitial
+  //                            owner:self usingBlock:^(typeof(self) self) {
+   //     dispatch_async(dispatch_get_main_queue(), ^{
+  //          doLockSleepNanoseconds = UserPreferences.shared.shouldLockSleepNanoseconds;
+  //          pthread_mutex_unlock(&extra_lock); // Be sure not to leave around orphan lock
+  //      });
+  //  }];
     
     struct sockaddr_in6 address = {
         .sin6_len = sizeof(address),

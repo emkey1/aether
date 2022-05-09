@@ -204,6 +204,10 @@ extern void (*exit_hook)(struct task *task, int code);
 // Will ensure that the -pid part always fits, then will fit as much of comm as possible.
 void update_thread_name(void);
 
+// Functions to implement additional locking and unlocking -mke
+void extra_lockf(dword_t pid);
+void extra_unlockf(dword_t pid);
+
 // To collect statics on which tasks are blocked we need to proccess areas
 // of code which could block our task (e.g reads or writes). Before executing
 // of functions which can block the task, we mark our task as blocked and

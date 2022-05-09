@@ -11,6 +11,8 @@
 
 extern pthread_mutex_t extra_lock;
 extern bool doEnableExtraLocking;
+extern dword_t extra_lock_pid;
+extern unsigned extra_lock_queue_size;
 
 static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
@@ -29,8 +31,8 @@ static void proc_put_task(struct task *UNUSED(task)) {
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     if(doEnableExtraLocking) {
-        pthread_mutex_lock(&extra_lock);
-    } 
+        extra_lockf(entry->pid);
+    }
         
     struct task *task = proc_get_task(entry);
     if (task == NULL)
@@ -110,9 +112,9 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "\n");
     
     if(doEnableExtraLocking) {
-        pthread_mutex_unlock(&extra_lock);
+        extra_unlockf(entry->pid);
     }
-
+    
     unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
@@ -162,6 +164,11 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
         return _ESRCH;
     int err = 0;
     lock(&task->general_lock);
+    
+    if(doEnableExtraLocking) {
+        extra_lockf(task->pid);
+    }
+    
     if (task->mm == NULL)
         goto out_free_task;
 
@@ -174,6 +181,10 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (user_read_task(task, task->mm->argv_start, data, size) == 0)
         proc_buf_append(buf, data, size);
     free(data);
+    
+    if(doEnableExtraLocking) {
+        extra_unlockf(task->pid);
+    }
 
 out_free_task:
     unlock(&task->general_lock);

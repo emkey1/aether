@@ -9,8 +9,9 @@
 #include <sys/sysinfo.h>
 #endif
 
-const char *uname_version = "AOK";
+const char *uname_version = "iSH-AOK";
 const char *uname_hostname_override = NULL;
+
 
 void do_uname(struct uname *uts) {
     struct utsname real_uname;
@@ -18,12 +19,19 @@ void do_uname(struct uname *uts) {
     const char *hostname = real_uname.nodename;
     if (uname_hostname_override)
         hostname = uname_hostname_override;
+    
+    // Get current date and format it in a sane way.  -mke
+    char build_date[100];
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    strftime(build_date, sizeof(build_date)-1, "%Y-%m-%d %H:%M", t);
 
     memset(uts, 0, sizeof(struct uname));
     strcpy(uts->system, "Linux");
     strcpy(uts->hostname, hostname);
     strcpy(uts->release, "4.20.69-ish_aok");
-    snprintf(uts->version, sizeof(uts->version), "%s %s %s", uname_version, __DATE__, __TIME__);
+    // snprintf(uts->version, sizeof(uts->version), "%s %s %s", uname_version, __DATE__, __TIME__);
+    snprintf(uts->version, sizeof(uts->version), "%s %s", uname_version, build_date);
     strcpy(uts->arch, "i686");
     strcpy(uts->domain, "(none)");
 }

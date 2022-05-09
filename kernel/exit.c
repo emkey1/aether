@@ -10,6 +10,8 @@
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
+extern dword_t extra_lock_pid;
+extern unsigned extra_lock_queue_size;
 
 static void halt_system(void);
 
@@ -217,6 +219,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
         return true;
 
     // tear down group
+
     cond_destroy(&task->group->child_exit);
     task_leave_session(task);
     list_remove(&task->group->pgroup);

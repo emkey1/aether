@@ -19,6 +19,7 @@ static NSString *const kPreferenceHideExtraKeysWithExternalKeyboardKey = @"Hide 
 static NSString *const kPreferenceOverrideControlSpaceKey = @"Override Control Space";
 static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
+static NSString *const kPreferenceLockSleepNanoseconds = @"Lock Sleep Nanoseconds";
 static NSString *const kPreferenceThemeKey = @"Theme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
@@ -33,6 +34,7 @@ NSDictionary<NSString *, NSString *> *friendlyPreferenceReverseMapping;
 NSDictionary<NSString *, NSString *> *kvoProperties;
 
 extern bool doEnableMulticore;
+extern unsigned doLockSleepNanoseconds;
 
 char **get_all_defaults_keys_impl(void) {
     NSArray<NSString *> *preferenceKeys = NSUserDefaults.standardUserDefaults.dictionaryRepresentation.allKeys;
@@ -142,13 +144,14 @@ bool (*remove_user_default)(const char *name);
         [_defaults registerDefaults:@{
             kPreferenceFontFamilyKey: @"Menlo",
             kPreferenceFontSizeKey: @(12),
+            kPreferenceLockSleepNanoseconds: @(300),
             kPreferenceThemeKey: defaultTheme.properties,
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
             kPreferenceBacktickEscapeKey: @(NO),
             kPreferenceDisableDimmingKey: @(NO),
             kPreferenceEnableMulticoreKey: @(NO),
-	    kPreferenceEnableExtraLockingKey: @(NO),
+	        kPreferenceEnableExtraLockingKey: @(NO),
             kPreferenceLaunchCommandKey: @[@"/bin/login", @"-f", @"root"],
             kPreferenceBootCommandKey: @[@"/sbin/init"],
             kPreferenceHideStatusBarKey: @(NO),
@@ -167,8 +170,9 @@ bool (*remove_user_default)(const char *name);
             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
             @"override_control_space": kPreferenceOverrideControlSpaceKey,
             @"font_family": kPreferenceFontFamilyKey,
-            @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
+            @"font_size": kPreferenceFontSizeKey,
+            @"lock_sleep_nanoseconds": kPreferenceLockSleepNanoseconds,
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"launch_command": kPreferenceLaunchCommandKey,
@@ -190,6 +194,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
+            kPreferenceLockSleepNanoseconds: property(lockSleepNanoseconds),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
             kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
 	    kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
@@ -287,6 +292,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateFontSize:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: lockSleepNanoseconds
+- (NSNumber *)lockSleepNanoseconds {
+    return [_defaults objectForKey:kPreferenceLockSleepNanoseconds];
+}
+
+- (void)setLockSleepNanoseconds:(NSNumber *)lockSleepNanoseconds {
+    [_defaults setObject:lockSleepNanoseconds forKey:kPreferenceLockSleepNanoseconds];
+}
+
+- (BOOL)validatesetLockSleepNanoseconds:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

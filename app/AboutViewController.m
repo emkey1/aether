@@ -54,7 +54,7 @@
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"]];
 
-    [UserPreferences.shared observe:@[@"capsLockMapping", @"fontSize", @"launchCommand", @"bootCommand"]
+    [UserPreferences.shared observe:@[@"capsLockMapping", @"fontSize", @"launchCommand", @"bootCommand", @"shouldLockSleepNanoseconds"]
                             options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self _updateUI];
@@ -147,6 +147,9 @@
     UserPreferences.shared.shouldEnableExtraLocking = self.enableExtraLockingSwitch.on;
 }
 
+//- (IBAction)shouldLockSleepNanoseconds:(id)sender {
+//    UserPreferences.shared.shouldLockSleepNanoseconds = self.shouldLockSleepNanosecondsSwitch.on;
+//}
 
 - (IBAction)textBoxSubmit:(id)sender {
     [sender resignFirstResponder];
