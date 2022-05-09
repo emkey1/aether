@@ -42,6 +42,9 @@ void mem_init(struct mem *mem) {
 }
 
 void mem_destroy(struct mem *mem) {
+    if(doEnableExtraLocking)
+        extra_lockf(0);
+    
     write_wrlock(&mem->lock);
     pt_unmap_always(mem, 0, MEM_PAGES);
 #if ENGINE_JIT
@@ -52,8 +55,13 @@ void mem_destroy(struct mem *mem) {
             free(mem->pgdir[i]);
     }
     free(mem->pgdir);
+    
     write_wrunlock(&mem->lock);
     wrlock_destroy(&mem->lock);
+    
+    if(doEnableExtraLocking)
+        extra_unlockf(0); //mkemkemke
+    
 }
 
 #define PGDIR_TOP(page) ((page) >> 10)
@@ -69,14 +77,17 @@ static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
 }
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
+
     if (mem->pgdir[PGDIR_TOP(page)] != NULL) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
         struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
-        if (pgdir == NULL)
+        if (pgdir == NULL) {
             return NULL;
+        }
         
         struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
-        if (entry->data == NULL)
+        if (entry->data == NULL) {
             return NULL;
+        }
         
         return entry;
     } else {

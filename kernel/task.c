@@ -12,8 +12,10 @@
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 unsigned FTT = 0; // First time through the execution path
+unsigned extra_lock_queue_size;
 dword_t extra_lock_pid = 0;
-unsigned extra_lock_queue_size = 0;
+time_t newest_extra_lock_time = 0;
+unsigned maxl = 10; // Max age of an extra_lock
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
 bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
@@ -222,25 +224,92 @@ void update_thread_name() {
 #endif
 }
 
+/* Let me be clear here.  The following two functions (extra_lockf() & extra_unlockf() are horrible hacks.  
+   If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
+   years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 void extra_lockf(dword_t pid) {
+    time_t now;
+    time(&now);
+
+    if(!newest_extra_lock_time)
+        time(&newest_extra_lock_time); // Initialize
+    
+    if((now - newest_extra_lock_time > maxl) && (extra_lock_queue_size)) { // If we have a lock, and there has been no activity for awhile, kill it
+        printk("ERROR: The newest_extra_lock time(lockf) has exceded %d seconds (%d) (%d). Resetting\n", maxl, now, newest_extra_lock_time);
+        pthread_mutex_unlock(&extra_lock);
+        pid = 0;
+        extra_lock_queue_size = 0;
+        time(&newest_extra_lock_time);  // Update time
+        return;
+    }
+       
     if(pid_get(extra_lock_pid) != NULL) {  // Locking task still exists, wait
-        pthread_mutex_lock(&extra_lock);
+        unsigned int count = 0;
+        struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        while(pthread_mutex_trylock(&extra_lock)) {
+            count++;
+            nanosleep(&mylock_pause, &mylock_pause);
+            //mylock_pause.tv_nsec+=10;
+            if(count > 200000) {
+                printk("ERROR: Possible deadlock(lockf), aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
+                return;
+            }
+            // Loop until lock works.  Maybe this will help make the multithreading work? -mke
+        }
+
+        if(count > 100000) {
+            printk("WARNING: large lock attempt count(lockf(%d))\n",count);
+        }
+        time(&newest_extra_lock_time);  // Update time
         extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
     } else { // Locking task has died, remove lock and grab again
         if(extra_lock_pid) {
             printk("WARNING: locking PID(%d) dead\n", extra_lock_pid); // It will be zero if not relevant
             pthread_mutex_unlock(&extra_lock);
         }
-            pthread_mutex_lock(&extra_lock);
-            extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
+        
+        unsigned int count = 0;
+        struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        while(pthread_mutex_trylock(&extra_lock)) {
+            count++;
+            nanosleep(&mylock_pause, &mylock_pause);
+            //mylock_pause.tv_nsec+=10;
+            if(count > 200000) {
+                printk("ERROR: Possible deadlock(lockf), aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
+                return;
+            }
+            // Loop until lock works.  Maybe this will help make the multithreading work? -mke
+        }
+
+        if(count > 100000) {
+            printk("WARNING: large lock attempt count(lockf(%d))\n",count);
+        }
+        pthread_mutex_trylock(&extra_lock);
+        time(&newest_extra_lock_time);  // Update time
+        extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
     }
     extra_lock_queue_size++;
+    
     return;
 }
 
 void extra_unlockf(dword_t pid) {
+    time_t now;
+    time(&now);
+    if((now - newest_extra_lock_time > maxl) && (extra_lock_queue_size)) { // If we have a lock, and there has been no activity for awhile, kill it
+        printk("ERROR: The newest_extra_lock time(unlockf) has exceded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
+        pthread_mutex_unlock(&extra_lock);
+        extra_lock_pid = 0;
+        extra_lock_queue_size = 0;
+        return;
+    }
+    
     if(pid)
         // Placeholder
+        if(extra_lock_queue_size == 0) {
+            printk("WARNING: Trying to extra_unlockf() when no lock exists\n");
+            return;
+        }
     pthread_mutex_unlock(&extra_lock);
     extra_lock_pid = 0;
     extra_lock_queue_size--;

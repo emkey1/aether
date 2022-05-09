@@ -37,11 +37,13 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
 }
 
 int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
+    //extra_lockf(task->pid); // Didn't work
     read_wrlock(&task->mem->lock);
 
     int res = __user_read_task(task, addr, buf, count);
 
     read_wrunlock(&task->mem->lock);
+    //extra_unlockf(task->pid);
     return res;
 }
 

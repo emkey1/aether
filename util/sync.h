@@ -48,11 +48,12 @@ static inline void lock_init(lock_t *lock) {
 
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    struct timespec mylock_pause = {0 /*secs*/, 2000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+    struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
 
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&mylock_pause, &mylock_pause);
+        //mylock_pause.tv_nsec+=10;
         if(count > 200000) {
             printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
             return;
@@ -61,7 +62,7 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
     }
 
     if(count > 100000) {
-        printk("Warning: large lock attempt count(%d)\n",count);
+        printk("WARNING: large lock attempt count(__lock(%d))\n",count);
     }
 
     lock->owner = pthread_self();
