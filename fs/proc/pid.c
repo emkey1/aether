@@ -30,9 +30,8 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    if(doEnableExtraLocking) {
+    if(doEnableExtraLocking)
         extra_lockf(entry->pid);
-    }
         
     struct task *task = proc_get_task(entry);
     if (task == NULL)
@@ -165,9 +164,8 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     int err = 0;
     lock(&task->general_lock);
     
-    if(doEnableExtraLocking) {
+    if(doEnableExtraLocking)
         extra_lockf(task->pid);
-    }
     
     if (task->mm == NULL)
         goto out_free_task;

@@ -138,13 +138,17 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
+    if(doEnableExtraLocking)
+        extra_lockf(task->pid);
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
-       printk("Warning: pids_lock was not set\n");
+       printk("WARNING: pids_lock was not set\n");
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     list_remove(&pid->alive);
+    if(doEnableExtraLocking)
+        extra_unlockf(task->pid);
     free(task);
 }
 
@@ -181,15 +185,13 @@ void task_run_current() {
 
 static void *task_thread(void *task) {
     // mkemkemke  Extra locking here?
-    if(doEnableExtraLocking) {
+    if(doEnableExtraLocking)
         pthread_mutex_lock(&extra_lock);
-    }
     current = task;
     update_thread_name();
     
-    if(doEnableExtraLocking) {
+    if(doEnableExtraLocking)
         pthread_mutex_unlock(&extra_lock);
-    }
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
@@ -264,7 +266,7 @@ void extra_lockf(dword_t pid) {
         extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
     } else { // Locking task has died, remove lock and grab again
         if(extra_lock_pid) {
-            printk("WARNING: locking PID(%d) dead\n", extra_lock_pid); // It will be zero if not relevant
+            printk("WARNING: Previous locking PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
             pthread_mutex_unlock(&extra_lock);
         }
         
@@ -275,14 +277,14 @@ void extra_lockf(dword_t pid) {
             nanosleep(&mylock_pause, &mylock_pause);
             //mylock_pause.tv_nsec+=10;
             if(count > 200000) {
-                printk("ERROR: Possible deadlock(lockf), aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
+                printk("ERROR: Possible deadlock(lockf), aborted lock attempt(PID: %d Process: %s)\n", current_pid(), current_comm() );
                 return;
             }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
         }
 
-        if(count > 100000) {
-            printk("WARNING: large lock attempt count(lockf(%d))\n",count);
+        if(count > 150000) {
+            printk("WARNING: large lock attempt count(lockf(%d))\n", count);
         }
         pthread_mutex_trylock(&extra_lock);
         time(&newest_extra_lock_time);  // Update time
