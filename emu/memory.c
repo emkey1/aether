@@ -56,11 +56,13 @@ void mem_destroy(struct mem *mem) {
     }
     free(mem->pgdir);
     
+    mem->pgdir = NULL; //mkemkemke Trying something here
+    
     write_wrunlock(&mem->lock);
     wrlock_destroy(&mem->lock);
     
     if(doEnableExtraLocking)
-        extra_unlockf(0); //mkemkemke
+        extra_unlockf(0);
     
 }
 

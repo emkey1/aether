@@ -219,6 +219,9 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
         return true;
 
     // tear down group
+   // lock(&pids_lock); //mkemkemke  Doesn't work
+    //if(doEnableExtraLocking) //mke Doesn't work
+     //   extra_lockf(task->pid);
 
     cond_destroy(&task->group->child_exit);
     task_leave_session(task);
@@ -226,6 +229,9 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     free(task->group);
 
     task_destroy(task);
+    //if(doEnableExtraLocking)
+     //   extra_unlockf(task->pid);
+    //unlock(&pids_lock); //mkemkemke
     
     return true;
 }
