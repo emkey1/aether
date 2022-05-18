@@ -92,9 +92,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
+    delay_task_delete_plus(task);
     lock(&task->sighand->lock);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
+    delay_task_delete_minus(task);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -104,6 +106,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (task->zombie || task->exiting)
         return;
 
+    delay_task_delete_plus(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
@@ -117,6 +120,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);
     }
+    delay_task_delete_minus(task);
 }
 
 bool try_self_signal(int sig) {

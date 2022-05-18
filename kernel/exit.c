@@ -16,6 +16,9 @@ extern unsigned extra_lock_queue_size;
 static void halt_system(void);
 
 static bool exit_tgroup(struct task *task) {
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     struct tgroup *group = task->group;
     list_remove(&task->group_links);
     bool group_dead = list_empty(&group->threads);
@@ -47,6 +50,9 @@ static struct task *find_new_parent(struct task *task) {
 
 noreturn void do_exit(int status) {
     // has to happen before mm_release
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     addr_t clear_tid = current->clear_tid;
     if (clear_tid) {
         pid_t_ zero = 0;
@@ -64,6 +70,9 @@ noreturn void do_exit(int status) {
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     // save things that our parent might be interested in
     current->exit_code = status; // FIXME locking
     struct rusage_ rusage = rusage_get_current();
@@ -93,7 +102,11 @@ noreturn void do_exit(int status) {
         list_remove(&child->siblings);
         list_add(&new_parent->children, &child->siblings);
     }
-
+    
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
+    
     if (exit_tgroup(current)) {
         // notify parent that we died
         struct task *parent = leader->parent;
@@ -141,6 +154,11 @@ noreturn void do_exit_group(int status) {
 
     // kill everyone else in the group
     struct task *task;
+    
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
+    
     list_for_each_entry(&group->threads, task, group_links) {
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         task->group->stopped = false;
@@ -196,6 +214,9 @@ dword_t sys_exit_group(dword_t status) {
 static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     if (!task->zombie)
         return false;
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     lock(&task->group->lock);
 
     dword_t exit_code = task->exit_code;
@@ -222,7 +243,9 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
    // lock(&pids_lock); //mkemkemke  Doesn't work
     //if(doEnableExtraLocking) //mke Doesn't work
      //   extra_lockf(task->pid);
-
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     cond_destroy(&task->group->child_exit);
     task_leave_session(task);
     list_remove(&task->group->pgroup);

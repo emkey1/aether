@@ -28,9 +28,9 @@ struct mm *mm_copy(struct mm *mm) {
     new_mm->refcount = 1;
     mem_init(&new_mm->mem);
     fd_retain(new_mm->exefile);
-    write_wrlock(&mm->mem.lock);
+    write_lock(&mm->mem.lock);
     pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
-    write_wrunlock(&mm->mem.lock);
+    write_unlock(&mm->mem.lock);
     return new_mm;
 }
 
@@ -96,9 +96,9 @@ static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags,
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
 
-    write_wrlock(&current->mem->lock);
+    write_lock(&current->mem->lock);
     addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
-    write_wrunlock(&current->mem->lock);
+    write_unlock(&current->mem->lock);
     return res;
 }
 
@@ -123,9 +123,13 @@ int_t sys_munmap(addr_t addr, uint_t len) {
         return _EINVAL;
     if (len == 0)
         return _EINVAL;
-    write_wrlock(&current->mem->lock);
+    
+    delay_task_delete_plus(current);
+    write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
-    write_wrunlock(&current->mem->lock);
+    write_unlock(&current->mem->lock);
+    delay_task_delete_minus(current);
+    
     if (err < 0)
         return _EINVAL;
     return 0;
@@ -185,9 +189,9 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     if (prot & ~P_RWX)
         return _EINVAL;
     pages_t pages = PAGE_ROUND_UP(len);
-    write_wrlock(&current->mem->lock);
+    write_lock(&current->mem->lock);
     int err = pt_set_flags(current->mem, PAGE(addr), pages, prot);
-    write_wrunlock(&current->mem->lock);
+    write_unlock(&current->mem->lock);
     return err;
 }
 
@@ -213,7 +217,7 @@ addr_t sys_brk(addr_t new_brk) {
     STRACE("brk(0x%x)", new_brk);
     struct mm *mm = current->mm;
 
-    write_wrlock(&mm->mem.lock);
+    write_lock(&mm->mem.lock);
     if (new_brk < mm->start_brk)
         goto out;
     addr_t old_brk = mm->brk;
@@ -239,6 +243,6 @@ addr_t sys_brk(addr_t new_brk) {
     mm->brk = new_brk;
 out:;
     addr_t brk = mm->brk;
-    write_wrunlock(&mm->mem.lock);
+    write_unlock(&mm->mem.lock);
     return brk;
 }

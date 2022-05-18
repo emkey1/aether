@@ -11,6 +11,7 @@
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 unsigned extra_lock_queue_size;
 dword_t extra_lock_pid = 0;
 time_t newest_extra_lock_time = 0;
@@ -106,7 +107,7 @@ struct task *task_create_(struct task *parent) {
     if (parent != NULL)
         *task = *parent;
 
-    task->wait_to_delete = false; // Flag used to delay task deletion if set.  --mke
+    task->delay_task_delete_requests = 0; // counter used to delay task deletion if positive.  --mke
     task->pid = pid->id;
     pid->task = task;
     list_add(&alive_pids_list, &pid->alive);
@@ -139,15 +140,34 @@ struct task *task_create_(struct task *parent) {
     return task;
 }
 
+void delay_task_delete_plus(struct task *task) {  // Delay task deletion, increase number of threads.  -mke
+    pthread_mutex_lock(&delay_lock);
+    task->delay_task_delete_requests++;
+    pthread_mutex_unlock(&delay_lock);
+}
+
+void delay_task_delete_minus(struct task *task) { // Decrease number of threads requesting delay on task deletion.  -mke
+    pthread_mutex_lock(&delay_lock);
+    if(task->delay_task_delete_requests >= 1) {
+        task->delay_task_delete_requests--;
+    } else {
+        printk("ERROR: delay_task_delete_minus was negative(%d)\n", task->delay_task_delete_requests);
+        task->delay_task_delete_requests = 0;
+    }
+    pthread_mutex_unlock(&delay_lock);
+}
+
 void task_destroy(struct task *task) {
-    while(current->wait_to_delete) { // Wait for now, task is in critical section
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 
     if(doEnableExtraLocking)
         extra_lockf(task->pid);
+    bool Ishould = false;
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
        printk("WARNING: pids_lock was not set\n");
+        Ishould = true;
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
@@ -155,6 +175,12 @@ void task_destroy(struct task *task) {
     list_remove(&pid->alive);
     if(doEnableExtraLocking)
         extra_unlockf(task->pid);
+    if(Ishould)
+        unlock(&pids_lock);
+    
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     free(task);
 }
 
@@ -179,7 +205,7 @@ void task_run_current() {
     tlb_refresh(&tlb, &current->mem->mmu);
     
     while (true) {
-        read_wrlock(&current->mem->lock);
+        read_lock(&current->mem->lock);
         
         if(!doEnableMulticore)
             pthread_mutex_lock(&global_lock);
@@ -189,7 +215,7 @@ void task_run_current() {
         if(!doEnableMulticore)
             pthread_mutex_unlock(&global_lock);
  
-        read_wrunlock(&current->mem->lock);
+        read_unlock(&current->mem->lock);
         
         handle_interrupt(interrupt);
     }

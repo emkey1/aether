@@ -7,6 +7,7 @@
 #include "emu/memory.h"
 #include "emu/interrupt.h"
 #include "util/list.h"
+#include "kernel/task.h"
 
 extern int current_pid(void);
 
@@ -178,7 +179,7 @@ static inline size_t jit_cache_hash(addr_t ip) {
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
-    read_wrlock(&jit->jetsam_lock);
+    read_lock(&jit->jetsam_lock);
 
     struct jit_block **cache = calloc(JIT_CACHE_SIZE, sizeof(*cache));
     struct jit_frame *frame = malloc(sizeof(struct jit_frame));
@@ -237,7 +238,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
     free(frame);
     free(cache);
-    read_wrunlock(&jit->jetsam_lock);
+    read_unlock(&jit->jetsam_lock);
     return interrupt;
 }
 
@@ -260,6 +261,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
+    delay_task_delete_plus(current);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
 
@@ -270,11 +272,12 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // this point, so they will all clear out their block pointers
         // TODO: use RCU for better performance
         unlock(&jit->lock);
-        write_wrlock(&jit->jetsam_lock);
+        write_lock(&jit->jetsam_lock);
         lock(&jit->lock);
         jit_free_jetsam(jit);
-        write_wrunlock(&jit->jetsam_lock);
+        write_unlock(&jit->jetsam_lock);
     }
+    delay_task_delete_minus(current);
     unlock(&jit->lock);
 
     return interrupt;

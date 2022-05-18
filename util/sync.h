@@ -181,9 +181,9 @@ static inline void wrlock_destroy(wrlock_t *lock) {
 #endif
 }
 
-static inline void read_wrlock(wrlock_t *lock) {
+static inline void read_lock(wrlock_t *lock) {
 #ifdef JUSTLOG
-    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: read_wrlock() error (PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: read_lock() error (PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_rdlock(&lock->l) != 0) __builtin_trap();
 #endif
@@ -191,7 +191,7 @@ static inline void read_wrlock(wrlock_t *lock) {
     lock->val++;
 }
 
-static inline void read_wrunlock(wrlock_t *lock) {
+static inline void read_unlock(wrlock_t *lock) {
     if(lock->val <=0) {
         printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s count %d) \n",current_pid(), current_comm(), lock->val);
 	return;
@@ -199,13 +199,13 @@ static inline void read_wrunlock(wrlock_t *lock) {
     assert(lock->val > 0);
     lock->val--;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: read_wrunlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: read_unlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif
 }
 
-static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
+static inline void __write_lock(wrlock_t *lock, const char *file, int line) {
 #ifdef JUSTLOG
     if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: __write_wrilock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
@@ -218,14 +218,14 @@ static inline void __write_wrlock(wrlock_t *lock, const char *file, int line) {
     lock->pid = current_pid();
 }
 
-#define write_wrlock(lock) __write_wrlock(lock, __FILE__, __LINE__)
+#define write_lock(lock) __write_lock(lock, __FILE__, __LINE__)
 
-static inline void write_wrunlock(wrlock_t *lock) {
+static inline void write_unlock(wrlock_t *lock) {
     assert(lock->val == -1);
     lock->val = lock->line = lock->pid = 0;
     lock->file = NULL;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_wrlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_lock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif

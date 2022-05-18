@@ -249,6 +249,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
         return _ENOMEM;
     
     int_t res = 0;
+    delay_task_delete_plus(current);
     TASK_MAY_BLOCK {
         res = sys_read_buf(fd_no, buf, size);
     }
@@ -257,6 +258,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
             res = _EFAULT;
     }
     free(buf);
+    delay_task_delete_minus(current);
     return res;
 }
 

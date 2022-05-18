@@ -45,7 +45,7 @@ void mem_destroy(struct mem *mem) {
     if(doEnableExtraLocking)
         extra_lockf(0);
     
-    write_wrlock(&mem->lock);
+    write_lock(&mem->lock);
     pt_unmap_always(mem, 0, MEM_PAGES);
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
@@ -58,7 +58,7 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    write_wrunlock(&mem->lock);
+    write_unlock(&mem->lock);
     wrlock_destroy(&mem->lock);
     
     if(doEnableExtraLocking)
@@ -291,8 +291,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         // TODO: factor the lock/unlock code here into a new function. Do this
         // next time you touch this function.
-        read_wrunlock(&mem->lock);
-        write_wrlock(&mem->lock);
+        read_unlock(&mem->lock);
+        write_lock(&mem->lock);
         
        // if(doEnableExtraLocking) {
        //     extra_lockf(0);
@@ -302,8 +302,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
          //   extra_unlockf(0);
       //  }
         
-        write_wrunlock(&mem->lock);
-        read_wrlock(&mem->lock);
+        write_unlock(&mem->lock);
+        read_lock(&mem->lock);
 
         entry = mem_pt(mem, page);
     }
@@ -327,8 +327,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
                     MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
             // copy/paste from above
-            read_wrunlock(&mem->lock);
-            write_wrlock(&mem->lock);
+            read_unlock(&mem->lock);
+            write_lock(&mem->lock);
             
            // if(doEnableExtraLocking) {
          //       extra_lockf(0);
@@ -339,8 +339,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
           //      extra_unlockf(0);
           //  }
             
-            write_wrunlock(&mem->lock);
-            read_wrlock(&mem->lock);
+            write_unlock(&mem->lock);
+            read_lock(&mem->lock);
             
         }
     }

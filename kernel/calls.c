@@ -291,9 +291,9 @@ void handle_interrupt(int interrupt) {
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-        read_wrlock(&current->mem->lock);
+        read_lock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
-        read_wrunlock(&current->mem->lock);
+        read_unlock(&current->mem->lock);
         if (ptr == NULL) {
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {

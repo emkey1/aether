@@ -12,6 +12,9 @@
 #include "util/timer.h"
 #include "util/sync.h"
 
+void delay_task_delete_plus(struct task *task);  // Delay task deletion, increase number of threads requesting delay.  -mke
+void delay_task_delete_minus(struct task *task);  // Delay task deletion, decrease number of threads requesting delay.  -mke
+
 // everything here is private to the thread executing this task and needs no
 // locking, unless otherwise specified
 struct task {
@@ -20,7 +23,7 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
-    bool wait_to_delete; // If true, don't delete yet
+    unsigned delay_task_delete_requests; // If true, don't delete yetwait_to_delete
 
     struct tgroup *group; // immutable
     struct list group_links;

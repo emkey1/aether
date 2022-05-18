@@ -108,9 +108,9 @@ static int load_entry(struct prg_header ph, addr_t bias, struct fd *fd) {
         if (tail_size != 0) {
             // Unlock and lock the mem because the user functions must be
             // called without locking mem.
-            write_wrunlock(&current->mem->lock);
+            write_unlock(&current->mem->lock);
             user_memset(file_end, 0, tail_size);
-            write_wrlock(&current->mem->lock);
+            write_lock(&current->mem->lock);
         }
         if (tail_size > bss_size)
             tail_size = bss_size;
@@ -207,7 +207,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     mm_release(current->mm);
     task_set_mm(current, mm_new());
     unlock(&current->general_lock);
-    write_wrlock(&current->mem->lock);
+    write_lock(&current->mem->lock);
 
     current->mm->exefile = fd_retain(fd);
 
@@ -288,7 +288,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     if ((err = pt_map_nothing(current->mem, 0xffffd, 1, P_WRITE | P_GROWSDOWN)) < 0)
         goto beyond_hope;
     // that was the last memory mapping
-    write_wrunlock(&current->mem->lock);
+    write_unlock(&current->mem->lock);
     dword_t sp = 0xffffe000;
     // on 32-bit linux, there's 4 empty bytes at the very bottom of the stack.
     // on 64-bit linux, there's 8. make ptraceomatic happy. (a major theme in this file)
@@ -420,7 +420,7 @@ out_free_ph:
 
 beyond_hope:
     // TODO force sigsegv
-    write_wrunlock(&current->mem->lock);
+    write_unlock(&current->mem->lock);
     goto out_free_interp;
 }
 

@@ -30,17 +30,16 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    current->wait_to_delete = true;
     if(doEnableExtraLocking)
         extra_lockf(entry->pid);
         
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
+    delay_task_delete_plus(task);
     lock(&task->sighand->lock); //mkemke
     lock(&task->general_lock);
     lock(&task->group->lock);
-    //mkemke lock(&task->sighand->lock);
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
@@ -119,7 +118,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     unlock(&task->group->lock);
     unlock(&task->general_lock);
     proc_put_task(task);
-    current->wait_to_delete = false;
+    delay_task_delete_minus(task);
     return 0;
 }
 
@@ -161,8 +160,11 @@ out_free_task:
 
 static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
+    
     if (task == NULL)
         return _ESRCH;
+    delay_task_delete_plus(task);
+    
     int err = 0;
     lock(&task->general_lock);
     
@@ -188,6 +190,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 
 out_free_task:
     unlock(&task->general_lock);
+    delay_task_delete_minus(task);
     proc_put_task(task);
     return err;
 }
@@ -197,7 +200,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
     if (mem == NULL)
         return;
 
-    read_wrlock(&mem->lock);
+    read_lock(&mem->lock);
     page_t page = 0;
     while (page < MEM_PAGES) {
         // find a region
@@ -243,7 +246,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
                 0, // inode
                 path);
     }
-    read_wrunlock(&mem->lock);
+    read_unlock(&mem->lock);
 }
 
 static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {
