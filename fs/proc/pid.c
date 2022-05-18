@@ -30,6 +30,7 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
+    current->wait_to_delete = true;
     if(doEnableExtraLocking)
         extra_lockf(entry->pid);
         
@@ -118,6 +119,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     unlock(&task->group->lock);
     unlock(&task->general_lock);
     proc_put_task(task);
+    current->wait_to_delete = false;
     return 0;
 }
 

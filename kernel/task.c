@@ -16,6 +16,7 @@ unsigned extra_lock_queue_size;
 dword_t extra_lock_pid = 0;
 time_t newest_extra_lock_time = 0;
 unsigned maxl = 10; // Max age of an extra_lock
+bool BOOTING = true;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
 bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
@@ -105,6 +106,8 @@ struct task *task_create_(struct task *parent) {
     *task = (struct task) {};
     if (parent != NULL)
         *task = *parent;
+
+    task->wait_to_delete = false; // Flag used to delay task deletion if set.  --mke
     task->pid = pid->id;
     pid->task = task;
     list_add(&alive_pids_list, &pid->alive);
@@ -138,6 +141,10 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
+    while(current->wait_to_delete) { // Wait for now, task is in critical section
+        nanosleep(&lock_pause, NULL);
+    }
+
     if(doEnableExtraLocking)
         extra_lockf(task->pid);
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
@@ -152,7 +159,22 @@ void task_destroy(struct task *task) {
     free(task);
 }
 
+void run_at_boot() {  // Stuff we run only once, at boot time.
+    BOOTING = false;
+    struct uname uts;
+    struct timespec startup_pause = {3 /*secs*/, 0 /*nanosecs*/};  // Sleep for a bit to let things like the number of CPU's be updated.  -mke
+    nanosleep(&startup_pause, NULL);
+    do_uname(&uts);
+    unsigned short ncpu = get_cpu_count();
+
+    printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
+}
+
 void task_run_current() {
+    if(BOOTING) {
+        run_at_boot();
+    }
+
     struct cpu_state *cpu = &current->cpu;
     struct tlb tlb = {};
     tlb_refresh(&tlb, &current->mem->mmu);

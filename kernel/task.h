@@ -20,6 +20,7 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
+    bool wait_to_delete; // If true, don't delete yet
 
     struct tgroup *group; // immutable
     struct list group_links;
