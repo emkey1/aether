@@ -11,7 +11,6 @@
 
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
-unsigned FTT = 0; // First time through the execution path
 unsigned extra_lock_queue_size;
 dword_t extra_lock_pid = 0;
 time_t newest_extra_lock_time = 0;
@@ -178,15 +177,6 @@ void task_run_current() {
     struct cpu_state *cpu = &current->cpu;
     struct tlb tlb = {};
     tlb_refresh(&tlb, &current->mem->mmu);
-    if(FTT == 15) { // Do this part once only, wait a tiny bit
-        struct uname uts;
-        do_uname(&uts);
-        unsigned short ncpu = get_cpu_count();
-        printk("iSH-AOK %s booted on (%d)emulated(%s) CPU(s)\n",uts.release, ncpu, uts.arch);
-        FTT++;
-    } else {
-        FTT++;
-    }
     
     while (true) {
         read_wrlock(&current->mem->lock);
@@ -259,7 +249,7 @@ void extra_lockf(dword_t pid) {
         time(&newest_extra_lock_time); // Initialize
     
     if((now - newest_extra_lock_time > maxl) && (extra_lock_queue_size)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(lockf) has exceded %d seconds (%d) (%d). Resetting\n", maxl, now, newest_extra_lock_time);
+        printk("ERROR: The newest_extra_lock time(lockf) has exceded %d seconds (%d). Resetting\n", maxl, now - newest_extra_lock_time);
         pthread_mutex_unlock(&extra_lock);
         pid = 0;
         extra_lock_queue_size = 0;

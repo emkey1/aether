@@ -48,21 +48,19 @@ static inline void lock_init(lock_t *lock) {
 
 static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
-
+    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
-        nanosleep(&mylock_pause, &mylock_pause);
-        //mylock_pause.tv_nsec+=10;
-        if(count > 200000) {
-            printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
+        nanosleep(&lock_pause, NULL);
+        if(count > count_max * .90) {
+            printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s) from file %s\n",current_pid(), current_comm(), file);
             return;
         }
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
 
-    if(count > 100000) {
-        printk("WARNING: large lock attempt count(__lock(%d))\n",count);
+    if(count > count_max * .90) {
+        printk("WARNING: large lock attempt count(__lock(%d)) from file %s\n",count, file);
     }
 
     lock->owner = pthread_self();
