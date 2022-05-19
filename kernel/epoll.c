@@ -96,14 +96,14 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
     struct epoll_context context = {.events = events, .n = 0, .max_events = max_events};
     STRACE("...\n");
     int res;
-    if(!doEnableMulticore) {
+   // if(doEnableMulticore) {
         struct timespec mytime;
         mytime.tv_sec = 2;
         mytime.tv_nsec = 0;
-        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime);
-    } else {
-        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout < 0 ? NULL : &timeout_ts);
-    }
+        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime); // This is arguably evil, but it makes go work much better and I haven't found a downside yet.  -mke
+    //} else {
+     //   res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout < 0 ? NULL : &timeout_ts);
+   // }
     STRACE("%d end epoll_wait", current->pid);
     if (res >= 0) {
         for (int i = 0; i < res; i++) {

@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <setjmp.h>
+#include<errno.h>
 #include "misc.h"
 #include "debug.h"
 
@@ -13,10 +14,14 @@
 
 #define LOCK_DEBUG 0
 
+
+
 extern int current_pid(void);
 extern char* current_comm(void);
 
 extern struct timespec lock_pause;
+
+extern pthread_mutex_t nested_lock; // Used to make all lock operations atomic, even read->write and right->read -mke
 
 typedef struct {
     pthread_mutex_t m;
@@ -30,6 +35,7 @@ typedef struct {
     } debug;
 #endif
 } lock_t;
+
 
 static inline void lock_init(lock_t *lock) {
     pthread_mutex_init(&lock->m, NULL);
@@ -97,6 +103,45 @@ typedef struct {
     int pid;
 } wrlock_t;
 
+
+static inline void nested_lockf(unsigned count);
+static inline void _read_unlock(wrlock_t *lock);
+static inline void write_unlock_and_destroy(wrlock_t *lock);
+
+static inline void loop_lock_read(wrlock_t *lock) {
+    unsigned count = 0;
+    while(pthread_rwlock_tryrdlock(&lock->l)) {
+        ////pthread_mutex_unlock(&nested_lock);
+        nanosleep(&lock_pause, NULL);
+        nested_lockf(count);
+    }
+}
+
+static inline void loop_lock_write(wrlock_t *lock) {
+    unsigned count = 0;
+    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    while(pthread_rwlock_trywrlock(&lock->l)) {
+        count++;
+        if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
+            printk("ERROR: loop_lock_write() failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.\n", count);
+            _read_unlock(lock);
+            lock->val = 0;
+            ////pthread_mutex_unlock(&nested_lock);
+            return;
+        } else if(count > count_max) {
+            printk("ERROR: loop_lock_write() tries excede %d, dealing with likely deadlock.\n", count_max);
+            _read_unlock(lock);
+            lock->val = 0;
+            ////pthread_mutex_unlock(&nested_lock);
+            return;
+        }
+        ////pthread_mutex_unlock(&nested_lock);
+        nanosleep(&lock_pause, NULL);
+        unsigned count = 0;
+        nested_lockf(count);
+    }
+}
+
 static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     int status = pthread_rwlock_trywrlock(&lock->l);
 #if LOCK_DEBUG
@@ -151,6 +196,9 @@ void notify(cond_t *cond);
 // Wake up one waiter.
 void notify_once(cond_t *cond);
 
+static inline void read_to_write_lock(wrlock_t *lock);
+static inline void read_unlock_and_destroy(wrlock_t *lock);
+
 // this is a read-write lock that prefers writers, i.e. if there are any
 // writers waiting a read lock will block.
 // on darwin pthread_rwlock_t is already like this, on linux you can configure
@@ -173,7 +221,7 @@ static inline void wrlock_init(wrlock_t *lock) {
     lock->file = NULL;
 }
 
-static inline void wrlock_destroy(wrlock_t *lock) {
+static inline void _lock_destroy(wrlock_t *lock) {
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: wlock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
@@ -181,20 +229,38 @@ static inline void wrlock_destroy(wrlock_t *lock) {
 #endif
 }
 
-static inline void read_lock(wrlock_t *lock) {
-#ifdef JUSTLOG
-    if (pthread_rwlock_rdlock(&lock->l) != 0) printk("URGENT: read_lock() error (PID: %d Process: %s)\n",current_pid(), current_comm());
-#else
-    if (pthread_rwlock_rdlock(&lock->l) != 0) __builtin_trap();
-#endif
-    assert(lock->val >= 0);
-    lock->val++;
+static inline void lock_destroy(wrlock_t *lock) {
+    unsigned count = 0;
+    
+    nested_lockf(count);
+    
+    _lock_destroy(lock);
+    
+    ////pthread_mutex_unlock(&nested_lock);
 }
 
-static inline void read_unlock(wrlock_t *lock) {
+
+static inline void _read_lock(wrlock_t *lock) {
+    loop_lock_read(lock);
+    assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
+    lock->val++;
+    if(lock->val > 1000) { // We likely have a problem.
+        printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock.\n", lock->file, lock->line);
+        read_unlock_and_destroy(lock);
+    }
+}
+
+static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls lock, internal calls using _write_unlock() don't -mke
+    unsigned count = 0;
+    nested_lockf(count);
+    _read_lock(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void _read_unlock(wrlock_t *lock) {
     if(lock->val <=0) {
         printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s count %d) \n",current_pid(), current_comm(), lock->val);
-	return;
+	    return;
     }
     assert(lock->val > 0);
     lock->val--;
@@ -205,12 +271,31 @@ static inline void read_unlock(wrlock_t *lock) {
 #endif
 }
 
-static inline void __write_lock(wrlock_t *lock, const char *file, int line) {
-#ifdef JUSTLOG
-    if (pthread_rwlock_wrlock(&lock->l) != 0) printk("URGENT: __write_wrilock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
-#else
-    if (pthread_rwlock_wrlock(&lock->l) != 0) __builtin_trap();
-#endif
+static inline void read_unlock(wrlock_t *lock) {
+    unsigned count = 0;
+    nested_lockf(count);
+
+    _read_unlock(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void _write_unlock(wrlock_t *lock) {
+    assert(lock->val == -1);
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_lock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    lock->val = lock->line = lock->pid = 0;
+    lock->file = NULL;
+}
+
+static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
+    unsigned count = 0;
+    nested_lockf(count);
+    _write_unlock(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
+    loop_lock_write(lock);
+
     assert(lock->val == 0);
     lock->val = -1;
     lock->file = file;
@@ -218,17 +303,56 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) {
     lock->pid = current_pid();
 }
 
-#define write_lock(lock) __write_lock(lock, __FILE__, __LINE__)
+static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
+    unsigned count = 0;
+    nested_lockf(count);
+    __write_lock(lock, file, line);
+    ////pthread_mutex_unlock(&nested_lock);
+}
 
-static inline void write_unlock(wrlock_t *lock) {
-    assert(lock->val == -1);
-    lock->val = lock->line = lock->pid = 0;
-    lock->file = NULL;
-#ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_lock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
-#else
-    if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
-#endif
+#define write_lock(lock) _write_lock(lock, __FILE__, __LINE__)
+
+static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a RO lock to a Write lock.  -mke
+    unsigned count = 0;
+    nested_lockf(count);
+    _read_unlock(lock);
+    __write_lock(lock, __FILE__, __LINE__);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a Write lock to a RO lock.  -mke
+    unsigned count = 0;
+    nested_lockf(count);
+    _write_unlock(lock);
+    _read_lock(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void write_unlock_and_destroy(wrlock_t *lock) {
+    unsigned count = 0;
+    nested_lockf(count);
+    _write_unlock(lock);
+    _lock_destroy(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void read_unlock_and_destroy(wrlock_t *lock) {
+    unsigned count = 0;
+    nested_lockf(count);
+    _read_unlock(lock);
+    _lock_destroy(lock);
+    ////pthread_mutex_unlock(&nested_lock);
+}
+
+static inline void nested_lockf(unsigned count) {
+    return; // Short circuit for now
+    unsigned myrand = rand() % 50000 + 10000;
+    while(pthread_mutex_trylock(&nested_lock)) {
+        count++;
+        if(count > myrand )
+            return;
+        nanosleep(&lock_pause, NULL);
+    }
 }
 
 extern __thread sigjmp_buf unwind_buf;

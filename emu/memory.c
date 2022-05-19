@@ -15,6 +15,7 @@
 #include "kernel/vdso.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
+#include "util/sync.h"
 
 // The Evil global lock.  Use sparingly or not at all
 extern pthread_mutex_t global_lock;
@@ -58,8 +59,9 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    write_unlock(&mem->lock);
-    wrlock_destroy(&mem->lock);
+    //write_unlock(&mem->lock);
+    //lock_destroy(&mem->lock);
+    write_unlock_and_destroy(&mem->lock);
     
     if(doEnableExtraLocking)
         extra_unlockf(0);
@@ -291,8 +293,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         // TODO: factor the lock/unlock code here into a new function. Do this
         // next time you touch this function.
-        read_unlock(&mem->lock);
-        write_lock(&mem->lock);
+        read_to_write_lock(&mem->lock);
+        //read_unlock(&mem->lock);
+        //write_lock(&mem->lock);
         
        // if(doEnableExtraLocking) {
        //     extra_lockf(0);
@@ -302,8 +305,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
          //   extra_unlockf(0);
       //  }
         
-        write_unlock(&mem->lock);
-        read_lock(&mem->lock);
+        //write_unlock(&mem->lock);
+        //read_lock(&mem->lock);
+        write_to_read_lock(&mem->lock);
 
         entry = mem_pt(mem, page);
     }
@@ -327,8 +331,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
                     MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
             // copy/paste from above
-            read_unlock(&mem->lock);
-            write_lock(&mem->lock);
+            read_to_write_lock(&mem->lock);
+            //read_unlock(&mem->lock);
+            //write_lock(&mem->lock);
             
            // if(doEnableExtraLocking) {
          //       extra_lockf(0);
@@ -338,9 +343,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
           //  if(doEnableExtraLocking) {
           //      extra_unlockf(0);
           //  }
-            
-            write_unlock(&mem->lock);
-            read_lock(&mem->lock);
+            write_to_read_lock(&mem->lock);
+            //write_unlock(&mem->lock);
+            //read_lock(&mem->lock);
             
         }
     }

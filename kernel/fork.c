@@ -126,6 +126,9 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     return 0;
 
 fail_free_sighand:
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     sighand_release(task->sighand);
 fail_free_fs:
     fs_info_release(task->fs);

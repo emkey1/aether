@@ -12,6 +12,8 @@
 pthread_mutex_t global_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t nested_lock = PTHREAD_MUTEX_INITIALIZER;
+
 unsigned extra_lock_queue_size;
 dword_t extra_lock_pid = 0;
 time_t newest_extra_lock_time = 0;
@@ -151,7 +153,7 @@ void delay_task_delete_minus(struct task *task) { // Decrease number of threads 
     if(task->delay_task_delete_requests >= 1) {
         task->delay_task_delete_requests--;
     } else {
-        printk("ERROR: delay_task_delete_minus was negative(%d)\n", task->delay_task_delete_requests);
+        printk("ERROR: delay_task_delete_minus was zero(%d)\n", task->delay_task_delete_requests);
         task->delay_task_delete_requests = 0;
     }
     pthread_mutex_unlock(&delay_lock);
@@ -208,6 +210,7 @@ void task_run_current() {
         read_lock(&current->mem->lock);
         
         if(!doEnableMulticore)
+            
             pthread_mutex_lock(&global_lock);
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);

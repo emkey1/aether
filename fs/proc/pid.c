@@ -36,10 +36,11 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
+    
     delay_task_delete_plus(task);
-    lock(&task->sighand->lock); //mkemke
     lock(&task->general_lock);
     lock(&task->group->lock);
+    lock(&task->sighand->lock); //mkemke
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
