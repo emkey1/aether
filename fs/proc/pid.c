@@ -37,10 +37,10 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     if (task == NULL)
         return _ESRCH;
     
-    delay_task_delete_plus(task);
+    delay_task_delete_up_vote(task);
     lock(&task->general_lock);
     lock(&task->group->lock);
-    lock(&task->sighand->lock); //mkemke
+    // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
@@ -95,14 +95,16 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
     uint32_t ignored = 0;
     uint32_t caught = 0;
-    for (int i = 0; i < 32; i++) {
+    /* for (int i = 0; i < 32; i++) {
         if (task->sighand->action[i].handler == SIG_IGN_)
             ignored |= 1l << i;
         else if (task->sighand->action[i].handler != SIG_DFL_)
             caught |= 1l << i;
     }
     proc_printf(buf, "%lu ", (unsigned long) ignored);
-    proc_printf(buf, "%lu ", (unsigned long) caught);
+    proc_printf(buf, "%lu ", (unsigned long) caught); */
+    proc_printf(buf, "%lu ", 0l); // ignored
+    proc_printf(buf, "%lu ", 0l); // caught
 
     proc_printf(buf, "%lu ", 0l); // wchan (wtf)
     proc_printf(buf, "%lu ", 0l); // nswap
@@ -115,11 +117,11 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
         extra_unlockf(entry->pid);
     }
     
-    unlock(&task->sighand->lock);
+    //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
     proc_put_task(task);
-    delay_task_delete_minus(task);
+    delay_task_delete_down_vote(task);
     return 0;
 }
 
@@ -164,7 +166,8 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     
     if (task == NULL)
         return _ESRCH;
-    delay_task_delete_plus(task);
+    
+    delay_task_delete_up_vote(task);
     
     int err = 0;
     lock(&task->general_lock);
@@ -191,7 +194,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 
 out_free_task:
     unlock(&task->general_lock);
-    delay_task_delete_minus(task);
+    delay_task_delete_down_vote(task);
     proc_put_task(task);
     return err;
 }

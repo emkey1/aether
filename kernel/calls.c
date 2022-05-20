@@ -11,6 +11,9 @@ pthread_mutex_t syscall_lock = PTHREAD_MUTEX_INITIALIZER;
 dword_t syscall_stub() {
     return _ENOSYS;
 }
+dword_t syscall_stub_silent() {
+    return _ENOSYS;
+}
 dword_t syscall_success_stub() {
     return 0;
 }
@@ -110,6 +113,7 @@ syscall_t syscall_table[] = {
     [147] = (syscall_t) sys_getsid,
     [148] = (syscall_t) sys_fsync, // fdatasync
     [150] = (syscall_t) sys_mlock,
+    [152] = (syscall_t) syscall_stub, // mlockall
     [155] = (syscall_t) sys_sched_getparam,
     [156] = (syscall_t) sys_sched_setscheduler,
     [157] = (syscall_t) sys_sched_getscheduler,
@@ -157,6 +161,7 @@ syscall_t syscall_table[] = {
     [212] = (syscall_t) sys_chown32,
     [213] = (syscall_t) sys_setuid,
     [214] = (syscall_t) sys_setgid,
+    [216] = (syscall_t) syscall_stub, // setfsgid32
     [219] = (syscall_t) sys_madvise,
     [220] = (syscall_t) sys_getdents64,
     [221] = (syscall_t) sys_fcntl,
@@ -222,6 +227,7 @@ syscall_t syscall_table[] = {
     [330] = (syscall_t) sys_dup3,
     [331] = (syscall_t) sys_pipe2,
     [332] = (syscall_t) syscall_stub, // inotify_init1
+    [336] = (syscall_t) syscall_stub, // perf_event_open
     [340] = (syscall_t) sys_prlimit64,
     [345] = (syscall_t) sys_sendmmsg,
     [347] = (syscall_t) syscall_stub, // process_vm_readv
@@ -245,9 +251,9 @@ syscall_t syscall_table[] = {
     [373] = (syscall_t) sys_shutdown,
     [375] = (syscall_t) syscall_stub, // membarrier
     [377] = (syscall_t) sys_copy_file_range,
-    [383] = (syscall_t) syscall_stub, // statx
+    [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
-    [439] = (syscall_t) syscall_stub, // faccessat2
+    [439] = (syscall_t) syscall_stub_silent, // faccessat2
 };
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
@@ -262,6 +268,9 @@ void handle_interrupt(int interrupt) {
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                 printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+            }
+            if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
+                // Fail silently
             }
             lock(&current->ptrace.lock);
             if (current->ptrace.stop_at_syscall) {
@@ -292,7 +301,9 @@ void handle_interrupt(int interrupt) {
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
         read_lock(&current->mem->lock);
+        delay_task_delete_up_vote(current);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
+        delay_task_delete_down_vote(current);
         read_unlock(&current->mem->lock);
         if (ptr == NULL) {
             printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);

@@ -124,11 +124,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-    delay_task_delete_plus(current);
+    delay_task_delete_up_vote(current);
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
     write_unlock(&current->mem->lock);
-    delay_task_delete_minus(current);
+    delay_task_delete_down_vote(current);
     
     if (err < 0)
         return _EINVAL;

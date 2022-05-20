@@ -142,18 +142,18 @@ struct task *task_create_(struct task *parent) {
     return task;
 }
 
-void delay_task_delete_plus(struct task *task) {  // Delay task deletion, increase number of threads.  -mke
+void delay_task_delete_up_vote(struct task *task) {  // Delay task deletion, increase number of threads.  -mke
     pthread_mutex_lock(&delay_lock);
     task->delay_task_delete_requests++;
     pthread_mutex_unlock(&delay_lock);
 }
 
-void delay_task_delete_minus(struct task *task) { // Decrease number of threads requesting delay on task deletion.  -mke
+void delay_task_delete_down_vote(struct task *task) { // Decrease number of threads requesting delay on task deletion.  -mke
     pthread_mutex_lock(&delay_lock);
     if(task->delay_task_delete_requests >= 1) {
         task->delay_task_delete_requests--;
     } else {
-        printk("ERROR: delay_task_delete_minus was zero(%d)\n", task->delay_task_delete_requests);
+        printk("ERROR: delay_task_delete_down_vote was zero(%d)\n", task->delay_task_delete_requests);
         task->delay_task_delete_requests = 0;
     }
     pthread_mutex_unlock(&delay_lock);

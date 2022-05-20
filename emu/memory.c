@@ -102,8 +102,10 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
 static void mem_pt_del(struct mem *mem, page_t page) {
     struct pt_entry *entry = mem_pt(mem, page);
+    delay_task_delete_up_vote(current);
     if (entry != NULL)
         entry->data = NULL;
+    delay_task_delete_down_vote(current);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -294,19 +296,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // TODO: factor the lock/unlock code here into a new function. Do this
         // next time you touch this function.
         read_to_write_lock(&mem->lock);
-        //read_unlock(&mem->lock);
-        //write_lock(&mem->lock);
-        
-       // if(doEnableExtraLocking) {
-       //     extra_lockf(0);
-       // }
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
-        //if(doEnableExtraLocking) {
-         //   extra_unlockf(0);
-      //  }
-        
-        //write_unlock(&mem->lock);
-        //read_lock(&mem->lock);
         write_to_read_lock(&mem->lock);
 
         entry = mem_pt(mem, page);
@@ -324,6 +314,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // get rid of any compiled blocks in this page
         jit_invalidate_page(mem->mmu.jit, page);
 #endif
+        
+        delay_task_delete_up_vote(current);
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
             void *data = (char *) entry->data->data + entry->offset;
@@ -332,22 +324,13 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
-            //read_unlock(&mem->lock);
-            //write_lock(&mem->lock);
-            
-           // if(doEnableExtraLocking) {
-         //       extra_lockf(0);
-          //  }
             memcpy(copy, data, PAGE_SIZE);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
-          //  if(doEnableExtraLocking) {
-          //      extra_unlockf(0);
-          //  }
             write_to_read_lock(&mem->lock);
-            //write_unlock(&mem->lock);
-            //read_lock(&mem->lock);
             
         }
+        delay_task_delete_down_vote(current);
+        
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);

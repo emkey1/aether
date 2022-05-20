@@ -85,6 +85,9 @@ noreturn void do_exit(int status) {
     lock(&pids_lock);
     current->exiting = true;
     // release the sighand
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     sighand_release(current->sighand);
     current->sighand = NULL;
     struct sigqueue *sigqueue, *sigqueue_tmp;

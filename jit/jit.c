@@ -261,7 +261,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
-    delay_task_delete_plus(current);
+    delay_task_delete_up_vote(current);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
 
@@ -277,7 +277,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock);
     }
-    delay_task_delete_minus(current);
+    delay_task_delete_down_vote(current);
     unlock(&jit->lock);
 
     return interrupt;

@@ -12,8 +12,8 @@
 #include "util/timer.h"
 #include "util/sync.h"
 
-void delay_task_delete_plus(struct task *task);  // Delay task deletion, increase number of threads requesting delay.  -mke
-void delay_task_delete_minus(struct task *task);  // Delay task deletion, decrease number of threads requesting delay.  -mke
+void delay_task_delete_up_vote(struct task *task);  // Delay task deletion, increase number of threads requesting delay.  -mke
+void delay_task_delete_down_vote(struct task *task);  // Delay task deletion, decrease number of threads requesting delay.  -mke
 
 // everything here is private to the thread executing this task and needs no
 // locking, unless otherwise specified

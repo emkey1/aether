@@ -111,13 +111,14 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
     while(pthread_rwlock_tryrdlock(&lock->l)) {
-        ////pthread_mutex_unlock(&nested_lock);
+        pthread_mutex_unlock(&nested_lock);
         nanosleep(&lock_pause, NULL);
         nested_lockf(count);
     }
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
+    
     unsigned count = 0;
     long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
@@ -126,16 +127,18 @@ static inline void loop_lock_write(wrlock_t *lock) {
             printk("ERROR: loop_lock_write() failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.\n", count);
             _read_unlock(lock);
             lock->val = 0;
-            ////pthread_mutex_unlock(&nested_lock);
+            loop_lock_write(lock);
+            pthread_mutex_unlock(&nested_lock);
             return;
         } else if(count > count_max) {
             printk("ERROR: loop_lock_write() tries excede %d, dealing with likely deadlock.\n", count_max);
             _read_unlock(lock);
             lock->val = 0;
-            ////pthread_mutex_unlock(&nested_lock);
+            pthread_mutex_unlock(&nested_lock);
+            pthread_rwlock_wrlock(&lock->l);
             return;
         }
-        ////pthread_mutex_unlock(&nested_lock);
+        pthread_mutex_unlock(&nested_lock);
         nanosleep(&lock_pause, NULL);
         unsigned count = 0;
         nested_lockf(count);
@@ -236,14 +239,21 @@ static inline void lock_destroy(wrlock_t *lock) {
     
     _lock_destroy(lock);
     
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 
 static inline void _read_lock(wrlock_t *lock) {
     loop_lock_read(lock);
-    assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
-    lock->val++;
+    // assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
+    if(lock->val) {
+        lock->val++;
+    } else if (lock->val > -1){  // Deal with insanity.  -mke
+        lock->val++;
+    } else {
+        lock->val++;
+        printk("ERROR: _read_lock() val is %d\n", lock->val);
+    }
     if(lock->val > 1000) { // We likely have a problem.
         printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock.\n", lock->file, lock->line);
         read_unlock_and_destroy(lock);
@@ -254,7 +264,7 @@ static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls
     unsigned count = 0;
     nested_lockf(count);
     _read_lock(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void _read_unlock(wrlock_t *lock) {
@@ -276,7 +286,7 @@ static inline void read_unlock(wrlock_t *lock) {
     nested_lockf(count);
 
     _read_unlock(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void _write_unlock(wrlock_t *lock) {
@@ -290,14 +300,18 @@ static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lo
     unsigned count = 0;
     nested_lockf(count);
     _write_unlock(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
     loop_lock_write(lock);
 
-    assert(lock->val == 0);
-    lock->val = -1;
+    // assert(lock->val == 0);
+    if(lock->val == 0) {
+        lock->val = -1;
+    } else {
+        lock->val = -1;  // I need some place to get a break.  -mke
+    }
     lock->file = file;
     lock->line = line;
     lock->pid = current_pid();
@@ -307,7 +321,7 @@ static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
     unsigned count = 0;
     nested_lockf(count);
     __write_lock(lock, file, line);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 #define write_lock(lock) _write_lock(lock, __FILE__, __LINE__)
@@ -317,7 +331,7 @@ static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically sw
     nested_lockf(count);
     _read_unlock(lock);
     __write_lock(lock, __FILE__, __LINE__);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a Write lock to a RO lock.  -mke
@@ -325,7 +339,7 @@ static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swa
     nested_lockf(count);
     _write_unlock(lock);
     _read_lock(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
@@ -333,7 +347,7 @@ static inline void write_unlock_and_destroy(wrlock_t *lock) {
     nested_lockf(count);
     _write_unlock(lock);
     _lock_destroy(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
@@ -341,11 +355,11 @@ static inline void read_unlock_and_destroy(wrlock_t *lock) {
     nested_lockf(count);
     _read_unlock(lock);
     _lock_destroy(lock);
-    ////pthread_mutex_unlock(&nested_lock);
+    pthread_mutex_unlock(&nested_lock);
 }
 
 static inline void nested_lockf(unsigned count) {
-    return; // Short circuit for now
+    //return; // Short circuit for now
     unsigned myrand = rand() % 50000 + 10000;
     while(pthread_mutex_trylock(&nested_lock)) {
         count++;

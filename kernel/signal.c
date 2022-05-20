@@ -92,11 +92,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    delay_task_delete_plus(task);
+    delay_task_delete_up_vote(task);
     lock(&task->sighand->lock);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    delay_task_delete_minus(task);
+    delay_task_delete_down_vote(task);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -106,7 +106,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (task->zombie || task->exiting)
         return;
 
-    delay_task_delete_plus(task);
+    delay_task_delete_up_vote(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
@@ -120,7 +120,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);
     }
-    delay_task_delete_minus(task);
+    delay_task_delete_down_vote(task);
 }
 
 bool try_self_signal(int sig) {
@@ -330,7 +330,8 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
     lock(&current->sighand->lock);
 }
 
-void receive_signals() {
+void receive_signals() {  // Should this function have a check for delay_task_delete_requests? -mke
+    nanosleep(&lock_pause, NULL);
     lock(&current->group->lock);
     bool was_stopped = current->group->stopped;
     unlock(&current->group->lock);
@@ -461,6 +462,9 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     if (--sighand->refcount == 0) {
         free(sighand);
     }
