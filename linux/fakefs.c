@@ -93,7 +93,7 @@ static struct dentry *fakefs_lookup(struct inode *ino, struct dentry *dentry, un
 out:
     if (IS_ERR(child)) {
         db_rollback(&info->db);
-        printk("fakefs_lookup failed: %pe\n", child);
+        printk("ERROR: fakefs_lookup failed: %pe\n", child);
     } else {
         db_commit(&info->db);
     }
@@ -534,7 +534,7 @@ static int read_inode(struct inode *ino) {
         ino->i_op = &fakefs_iops;
         break;
     default:
-        printk("read_inode: unexpected S_IFMT: %o\n", ino->i_mode & S_IFMT);
+        printk("ERROR: read_inode: unexpected S_IFMT: %o\n", ino->i_mode & S_IFMT);
         return -EIO;
     }
     return 0;
@@ -569,7 +569,7 @@ static int fakefs_fill_super(struct super_block *sb, struct fs_context *fc) {
     db_begin(&info->db);
     root->i_ino = path_get_inode(&info->db, "");
     if (root->i_ino == 0) {
-        printk("fakefs: could not find root inode\n");
+        printk("ERROR: fakefs: could not find root inode\n");
         db_rollback(&info->db);
         iput(root);
         return -EINVAL;

@@ -376,7 +376,7 @@ static int fakefs_mount(struct mount *mount) {
 static int fakefs_umount(struct mount *mount) {
     int err = fake_db_deinit(&mount->fakefs);
     if (err != SQLITE_OK) {
-        printk("sqlite failed to close: %d\n", err);
+        printk("ERROR: sqlite failed to close: %d\n", err);
     }
     /* return realfs.umount(mount); */
     return 0;

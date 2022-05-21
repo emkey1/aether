@@ -100,12 +100,12 @@ void sockrestart_on_resume() {
         list_remove(&saved->saved);
         int new_sock = socket(saved->name_addr.sa_family, saved->type, saved->proto);
         if (new_sock < 0) {
-            printk("restarting socket(%d, %d, %d) failed: %s\n",
+            printk("WARNING: restarting socket(%d, %d, %d) failed: %s\n",
                     saved->name_addr.sa_family, saved->type, saved->proto, strerror(errno));
             goto thank_u_next;
         }
         if (bind(new_sock, (struct sockaddr *) &saved->name, saved->name_len) < 0) {
-            printk("rebinding socket failed: %s\n", strerror(errno));
+            printk("WARNING: rebinding socket failed: %s\n", strerror(errno));
             goto thank_u_next;
         }
         dup2(new_sock, saved->sock->real_fd);

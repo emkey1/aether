@@ -110,7 +110,24 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
+    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
+        count++;
+        if(lock->val > 10000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
+            printk("ERROR: loop_lock_read() failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.\n", count);
+            _read_unlock(lock);
+            lock->val = 0;
+            loop_lock_read(lock);
+            pthread_mutex_unlock(&nested_lock);
+            return;
+        } else if(count > count_max) {
+            printk("ERROR: loop_lock_read() tries excede %d, dealing with likely deadlock.\n", count_max);
+            _read_unlock(lock);
+            lock->val = 0;
+            loop_lock_read(lock);
+            pthread_mutex_unlock(&nested_lock);
+            return;
+        }
         pthread_mutex_unlock(&nested_lock);
         nanosleep(&lock_pause, NULL);
         nested_lockf(count);
@@ -134,13 +151,13 @@ static inline void loop_lock_write(wrlock_t *lock) {
             printk("ERROR: loop_lock_write() tries excede %d, dealing with likely deadlock.\n", count_max);
             _read_unlock(lock);
             lock->val = 0;
-            pthread_mutex_unlock(&nested_lock);
             pthread_rwlock_wrlock(&lock->l);
+            pthread_mutex_unlock(&nested_lock);
             return;
         }
         pthread_mutex_unlock(&nested_lock);
         nanosleep(&lock_pause, NULL);
-        unsigned count = 0;
+        unsigned count = 0;  // This is a different scope from the 'count' above
         nested_lockf(count);
     }
 }

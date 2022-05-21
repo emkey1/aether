@@ -21,9 +21,9 @@ static void *real_tty_read_thread(void *_tty) {
     for (;;) {
         int err = read(STDIN_FILENO, &ch, 1);
         if (err != 1) {
-            printk("tty read returned %d\n", err);
+            printk("ERROR: tty read returned %d\n", err);
             if (err < 0)
-                printk("error: %s\n", strerror(errno));
+                printk("ERROR:real_tty_read_thread() %s\n", strerror(errno));
             continue;
         }
         if (ch == '\x1c') {
@@ -128,7 +128,7 @@ static int real_tty_write(struct tty *tty, const void *buf, size_t len, bool UNU
 void real_tty_reset_term() {
     if (!real_tty_is_open) return;
     if (tcsetattr(STDIN_FILENO, TCSANOW, &old_termios) < 0 && errno != ENOTTY) {
-        printk("failed to reset terminal: %s\n", strerror(errno));
+        printk("WARNING: failed to reset terminal: %s\n", strerror(errno));
         abort();
     }
 }

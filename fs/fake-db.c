@@ -148,7 +148,7 @@ void path_rename(struct fakefs_db *fs, const char *src, const char *dst) {
 #if DEBUG_sql
 static int trace_callback(unsigned UNUSED(why), void *UNUSED(fuck), void *stmt, void *_sql) {
     char *sql = _sql;
-    printk("%d sql trace: %s %s\n", current ? current->pid : -1, sqlite3_expanded_sql(stmt), sql[0] == '-' ? sql : "");
+    printk("WARNING: %d sql trace: %s %s\n", current ? current->pid : -1, sqlite3_expanded_sql(stmt), sql[0] == '-' ? sql : "");
     return 0;
 }
 #endif
@@ -173,7 +173,7 @@ extern int fakefs_migrate(struct fakefs_db *fs, int root_fd);
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
     int err = sqlite3_open_v2(db_path, &fs->db, SQLITE_OPEN_READWRITE, NULL);
     if (err != SQLITE_OK) {
-        printk("error opening database: %s\n", sqlite3_errmsg(fs->db));
+        printk("ERROR: sqlite3 opening database: %s\n", sqlite3_errmsg(fs->db));
         sqlite3_close(fs->db);
         return _EINVAL;
     }

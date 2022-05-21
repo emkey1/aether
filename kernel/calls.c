@@ -263,11 +263,11 @@ void handle_interrupt(int interrupt) {
     if (interrupt == INT_SYSCALL) {
         unsigned syscall_num = cpu->eax;
         if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
-            printk("%d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
+            printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
-                printk("%d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+                printk("WARNING: %d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
             }
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
                 // Fail silently
@@ -306,7 +306,7 @@ void handle_interrupt(int interrupt) {
         delay_task_delete_down_vote(current);
         read_unlock(&current->mem->lock);
         if (ptr == NULL) {
-            printk("%d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
+            printk("ERROR: %d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,
@@ -314,7 +314,7 @@ void handle_interrupt(int interrupt) {
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
-        printk("%d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
+        printk("WARNING: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
         for (int i = 0; i < 8; i++) {
             uint8_t b;
             if (user_get(cpu->eip + i, b))
@@ -342,7 +342,7 @@ void handle_interrupt(int interrupt) {
         });
         unlock(&pids_lock);
     } else if (interrupt != INT_TIMER) {
-        printk("%d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
+        printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
     }
 
@@ -372,7 +372,7 @@ void dump_maps() {
 }
 
 void dump_stack(int lines) {
-    printk("stack at %x, base at %x, ip at %x\n", current->cpu.esp, current->cpu.ebp, current->cpu.eip);
+    printk("WARNING: stack at %x, base at %x, ip at %x\n", current->cpu.esp, current->cpu.ebp, current->cpu.eip);
     for (int i = 0; i < lines*8; i++) {
         dword_t stackword;
         if (user_get(current->cpu.esp + (i * 4), stackword))

@@ -59,8 +59,7 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    //write_unlock(&mem->lock);
-    //lock_destroy(&mem->lock);
+    //write_unlock;
     write_unlock_and_destroy(&mem->lock);
     
     if(doEnableExtraLocking)
@@ -193,6 +192,9 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
+                //while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+                 //   nanosleep(&lock_pause, NULL);
+               // }
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
@@ -310,12 +312,12 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
             entry->flags |= P_WRITE | P_COW;
         }
+        delay_task_delete_up_vote(current);
 #if ENGINE_JIT
         // get rid of any compiled blocks in this page
         jit_invalidate_page(mem->mmu.jit, page);
 #endif
         
-        delay_task_delete_up_vote(current);
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
             void *data = (char *) entry->data->data + entry->offset;
@@ -384,6 +386,6 @@ void mem_coredump(struct mem *mem, const char *file) {
             return;
         }
     }
-    printk("dumped %d pages\n", pages);
+    printk("WARNING: dumped %d pages\n", pages);
     close(fd);
 }

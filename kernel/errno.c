@@ -94,7 +94,7 @@ int err_map(int err) {
         ERRCASE(EDQUOT)
     }
 #undef ERRCASE
-    printk("unknown error %d\n", err);
+    printk("ERROR: unknown error %d\n", err);
     return -(err | 0x1000);
 }
 

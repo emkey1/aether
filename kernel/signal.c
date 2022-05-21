@@ -293,7 +293,7 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
     // install frame
     if (user_write(sp, &frame, frame_size)) {
-        printk("failed to install frame for %d at %#x\n", info->sig, sp);
+        printk("WARNING: failed to install frame for %d at %#x\n", info->sig, sp);
         deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
     }
 

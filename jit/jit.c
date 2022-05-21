@@ -117,6 +117,7 @@ static struct jit_block *jit_lookup(struct jit *jit, addr_t addr) {
 static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
     struct gen_state state;
     TRACE("%d %08x --- compiling:\n", current_pid(), ip);
+    
     gen_start(ip, &state);
     while (true) {
         if (!gen_step(&state, tlb))
@@ -230,7 +231,11 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-        interrupt = jit_enter(block, frame, tlb);
+        if(block != NULL) {
+            interrupt = jit_enter(block, frame, tlb);
+        } else {
+            interrupt = INT_NONE; // Try to recover.  -mke
+        }
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
         *cpu = frame->cpu;
