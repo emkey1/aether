@@ -105,7 +105,9 @@ static void itimer_notify(struct task *task) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
     };
+    delay_task_delete_up_vote(task);
     send_signal(task, SIGALRM_, info);
+    delay_task_delete_down_vote(task);
 }
 
 static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
