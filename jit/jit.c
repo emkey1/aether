@@ -80,7 +80,7 @@ static void jit_resize_hash(struct jit *jit, size_t new_size) {
             continue;
         struct jit_block *block, *tmp;
         list_for_each_entry_safe(&jit->hash[i], block, tmp, chain) {
-            list_remove(&block->chain);
+            list_remove(&block->chain); // delay_taske_delete_requests already set here -mke
             list_init_add(&new_hash[block->addr % new_size], &block->chain);
         }
     }
@@ -145,8 +145,11 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
         jit->mem_used -= block->used;
         jit->num_blocks--;
     }
+    delay_task_delete_up_vote(current);
     list_remove(&block->chain);
+    delay_task_delete_down_vote(current);
     for (int i = 0; i <= 1; i++) {
+
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
 
@@ -154,7 +157,9 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
                 *prev_block->jump_ip[i] = prev_block->old_jump_ip[i];
+            delay_task_delete_up_vote(current);
             list_remove(&prev_block->jumps_from_links[i]);
+            delay_task_delete_down_vote(current);
         }
     }
 }
@@ -167,8 +172,10 @@ static void jit_block_free(struct jit *jit, struct jit_block *block) {
 static void jit_free_jetsam(struct jit *jit) {
     struct jit_block *block, *tmp;
     list_for_each_entry_safe(&jit->jetsam, block, tmp, jetsam) {
+        delay_task_delete_up_vote(current);
         list_remove(&block->jetsam);
         free(block);
+        delay_task_delete_down_vote(current);
     }
 }
 

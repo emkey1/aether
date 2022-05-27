@@ -1067,7 +1067,9 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         lock(&sock->lock);
         assert(!list_empty(&sock->socket.unix_scm));
         struct scm *scm = list_first_entry(&sock->socket.unix_scm, struct scm, queue);
+        delay_task_delete_up_vote(current);
         list_remove(&scm->queue);
+        delay_task_delete_down_vote(current);
         unlock(&sock->lock);
 
         if (res < 0) {

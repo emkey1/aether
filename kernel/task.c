@@ -210,7 +210,6 @@ void task_run_current() {
         read_lock(&current->mem->lock);
         
         if(!doEnableMulticore)
-            
             pthread_mutex_lock(&global_lock);
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
