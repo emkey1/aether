@@ -26,11 +26,12 @@ extern pthread_mutex_t nested_lock; // Used to make all lock operations atomic, 
 typedef struct {
     pthread_mutex_t m;
     pthread_t owner;
+    int pid;
+    const char *comm; 
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
         int line;
-        int pid;
         bool initialized;
     } debug;
 #endif
@@ -58,7 +59,7 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&lock_pause, NULL);
-        if(count > count_max * .90) {
+        if(count > count_max) {
             printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s) from file %s\n",current_pid(), current_comm(), file);
             return;
         }
@@ -66,10 +67,12 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
     }
 
     if(count > count_max * .90) {
-        printk("WARNING: large lock attempt count(__lock(%d)) from file %s\n",count, file);
+        printk("WARNING: large lock attempt count(Function: __lock(%d) from file %s PID: %d Process: %s)\n",count, file, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
+    lock->pid = current_pid();
+    lock->comm = current_comm();
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
     assert(!lock->debug.file && "Attempting to recursively lock");
@@ -101,6 +104,7 @@ typedef struct {
     const char *file;
     int line;
     int pid;
+    const char *comm;
 } wrlock_t;
 
 
@@ -113,15 +117,15 @@ static inline void loop_lock_read(wrlock_t *lock) {
     long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
-        if(lock->val > 10000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_read() failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.\n", count);
+        if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
+            printk("ERROR: loop_lock_read(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it (PID: %d, Process: %s).\n", lock, count, current_pid(), current_comm());
             _read_unlock(lock);
             lock->val = 0;
             loop_lock_read(lock);
             pthread_mutex_unlock(&nested_lock);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_read() tries excede %d, dealing with likely deadlock.\n", count_max);
+            printk("ERROR: loop_lock_read(%d) tries excede %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max, current_pid(), current_comm());
             _read_unlock(lock);
             lock->val = 0;
             loop_lock_read(lock);
@@ -135,20 +139,21 @@ static inline void loop_lock_read(wrlock_t *lock) {
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
-    
     unsigned count = 0;
     long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_write() failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.\n", count);
+            printk("ERROR: loop_lock_write(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s)\n", lock, count, lock->pid, lock->comm);
             _read_unlock(lock);
             lock->val = 0;
+            lock->pid = 0;
+            lock->comm = NULL;
             loop_lock_write(lock);
             pthread_mutex_unlock(&nested_lock);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_write() tries excede %d, dealing with likely deadlock.\n", count_max);
+            printk("ERROR: loop_lock_write(%d) tries excede %d, dealing with likely deadlock.(PID: %d Process: %s)\n", count_max, lock->pid, lock->comm);
             _read_unlock(lock);
             lock->val = 0;
             pthread_rwlock_wrlock(&lock->l);
@@ -238,6 +243,7 @@ static inline void wrlock_init(wrlock_t *lock) {
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
 #endif
     lock->val = lock->line = lock->pid = 0;
+    lock->comm = NULL;
     lock->file = NULL;
 }
 
@@ -272,9 +278,11 @@ static inline void _read_lock(wrlock_t *lock) {
         printk("ERROR: _read_lock() val is %d\n", lock->val);
     }
     if(lock->val > 1000) { // We likely have a problem.
-        printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock.\n", lock->file, lock->line);
+        printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock->file, lock->line,lock->pid, lock->comm);
         read_unlock_and_destroy(lock);
     }
+    lock->pid = current_pid();
+    lock->comm = current_comm();
 }
 
 static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls lock, internal calls using _write_unlock() don't -mke
@@ -286,16 +294,17 @@ static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls
 
 static inline void _read_unlock(wrlock_t *lock) {
     if(lock->val <=0) {
-        printk("URGENT: pthread_rwlock_unlock error(PID: %d Process: %s count %d) \n",current_pid(), current_comm(), lock->val);
-	    return;
+        printk("ERROR: pthread_rwlock_unlock(%d) error(PID: %d Process: %s count %d) \n",lock, current_pid(), current_comm(), lock->val);
+        lock->val = 1;
+	    //return;
     }
     assert(lock->val > 0);
-    lock->val--;
 #ifdef JUSTLOG
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: read_unlock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: read_unlock(%d) error(PID: %d Process: %s)\n",lock, current_pid(), current_comm());
 #else
     if (pthread_rwlock_unlock(&lock->l) != 0) __builtin_trap();
 #endif
+    lock->val--;
 }
 
 static inline void read_unlock(wrlock_t *lock) {
@@ -308,8 +317,9 @@ static inline void read_unlock(wrlock_t *lock) {
 
 static inline void _write_unlock(wrlock_t *lock) {
     assert(lock->val == -1);
-    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_lock() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_unlock(&lock->l) != 0) printk("URGENT: write_lock(%d) error(PID: %d Process: %s)\n",lock, current_pid(), current_comm());
     lock->val = lock->line = lock->pid = 0;
+    lock->comm = NULL;
     lock->file = NULL;
 }
 
@@ -332,6 +342,7 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) { //
     lock->file = file;
     lock->line = line;
     lock->pid = current_pid();
+    lock->comm = current_comm();
 }
 
 static inline void _write_lock(wrlock_t *lock, const char *file, int line) {

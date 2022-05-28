@@ -20,7 +20,7 @@
 // The Evil global lock.  Use sparingly or not at all
 extern pthread_mutex_t global_lock;
 // Time to wait between non blocking lock attempts
-struct timespec lock_pause = {0 /*secs*/, 500 /*nanosecs*/};
+struct timespec lock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
@@ -47,6 +47,9 @@ void mem_destroy(struct mem *mem) {
         extra_lockf(0);
     
     write_lock(&mem->lock);
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     pt_unmap_always(mem, 0, MEM_PAGES);
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
@@ -192,9 +195,6 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                //while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
-                 //   nanosleep(&lock_pause, NULL);
-               // }
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));

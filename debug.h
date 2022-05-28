@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define WAIT_SLEEP 1500
+
 void ish_printk(const char *msg, ...);
 void ish_vprintk(const char *msg, va_list args);
 #define printk ish_printk

@@ -93,9 +93,9 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     proc_printf(buf, "%lu ", (unsigned long) task->pending & 0xffffffff);
     proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
-    uint32_t ignored = 0;
+    /* uint32_t ignored = 0;
     uint32_t caught = 0;
-    /* for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 32; i++) {
         if (task->sighand->action[i].handler == SIG_IGN_)
             ignored |= 1l << i;
         else if (task->sighand->action[i].handler != SIG_DFL_)

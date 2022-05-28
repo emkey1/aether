@@ -160,27 +160,33 @@ void delay_task_delete_down_vote(struct task *task) { // Decrease number of thre
 }
 
 void task_destroy(struct task *task) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 
     if(doEnableExtraLocking)
         extra_lockf(task->pid);
-    bool Ishould = false;
+    bool IShould = false;
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
        printk("WARNING: pids_lock was not set\n");
-        Ishould = true;
+        IShould = true;
+    }
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     list_remove(&pid->alive);
     if(doEnableExtraLocking)
         extra_unlockf(task->pid);
-    if(Ishould)
+    if(IShould)
         unlock(&pids_lock);
     
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     free(task);
@@ -287,20 +293,21 @@ void extra_lockf(dword_t pid) {
        
     if(pid_get(extra_lock_pid) != NULL) {  // Locking task still exists, wait
         unsigned int count = 0;
-        struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        struct timespec mylock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        long count_max = (255000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
         while(pthread_mutex_trylock(&extra_lock)) {
             count++;
             nanosleep(&mylock_pause, &mylock_pause);
             //mylock_pause.tv_nsec+=10;
-            if(count > 200000) {
+            if(count > count_max) {
                 printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d Process: %s)\n",current_pid(), current_comm() );
                 return;
             }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
         }
 
-        if(count > 100000) {
-            printk("WARNING: large lock attempt count(extra_lockf(%d))\n",count);
+        if(count > count_max * .90) {
+            printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
         }
         time(&newest_extra_lock_time);  // Update time
         extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
@@ -311,20 +318,21 @@ void extra_lockf(dword_t pid) {
         }
         
         unsigned int count = 0;
-        struct timespec mylock_pause = {0 /*secs*/, 20000 /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        struct timespec mylock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+        long count_max = (255000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
         while(pthread_mutex_trylock(&extra_lock)) {
             count++;
             nanosleep(&mylock_pause, &mylock_pause);
             //mylock_pause.tv_nsec+=10;
-            if(count > 200000) {
+            if(count > count_max) {
                 printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d Process: %s)\n", current_pid(), current_comm() );
                 return;
             }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
         }
 
-        if(count > 150000) {
-            printk("WARNING: large lock attempt count(extra_lockf(%d))\n", count);
+        if(count > count_max * .90) {
+            printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
         }
         pthread_mutex_trylock(&extra_lock);
         time(&newest_extra_lock_time);  // Update time

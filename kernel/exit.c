@@ -16,7 +16,7 @@ extern unsigned extra_lock_queue_size;
 static void halt_system(void);
 
 static bool exit_tgroup(struct task *task) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     struct tgroup *group = task->group;
@@ -217,7 +217,7 @@ dword_t sys_exit_group(dword_t status) {
 static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     if (!task->zombie)
         return false;
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     lock(&task->group->lock);
@@ -246,7 +246,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
    // lock(&pids_lock); //mkemkemke  Doesn't work
     //if(doEnableExtraLocking) //mke Doesn't work
      //   extra_lockf(task->pid);
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     cond_destroy(&task->group->child_exit);

@@ -66,6 +66,9 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
+    while(current->delay_task_delete_requests > 3) { // Yes, this is weird.  It might not work, but I'm trying.  -mke
+        nanosleep(&lock_pause, NULL); // Yes, this has triggered at least once.  Is it doing any good though? -mke
+    }
     jit_invalidate_range(jit, page, page + 1);
 }
 void jit_invalidate_all(struct jit *jit) {
@@ -150,17 +153,19 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
     delay_task_delete_down_vote(current);
     for (int i = 0; i <= 1; i++) {
 
+        delay_task_delete_up_vote(current);
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
+        delay_task_delete_down_vote(current);
 
         struct jit_block *prev_block, *tmp;
+        delay_task_delete_up_vote(current);
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
                 *prev_block->jump_ip[i] = prev_block->old_jump_ip[i];
-            delay_task_delete_up_vote(current);
             list_remove(&prev_block->jumps_from_links[i]);
-            delay_task_delete_down_vote(current);
         }
+        delay_task_delete_down_vote(current);
     }
 }
 
@@ -231,6 +236,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
             unlock(&jit->lock);
         }
+        
         frame->last_block = block;
 
         // block may be jetsam, but that's ok, because it can't be freed until
@@ -289,8 +295,8 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock);
     }
-    delay_task_delete_down_vote(current);
     unlock(&jit->lock);
+    delay_task_delete_down_vote(current);
 
     return interrupt;
 }
