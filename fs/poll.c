@@ -87,9 +87,7 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     struct poll_fd *poll_fd;
     if (!list_empty(&poll->pollfd_freelist)) {
         poll_fd = list_first_entry(&poll->pollfd_freelist, struct poll_fd, fds);
-        delay_task_delete_up_vote(current);
         list_remove(&poll_fd->fds);
-        delay_task_delete_down_vote(current);
     } else {
         poll_fd = malloc(sizeof(struct poll_fd));
         if (poll_fd == NULL) {
@@ -139,10 +137,9 @@ int poll_del_fd(struct poll *poll, struct fd *fd) {
             goto out;
         }
     }
-    delay_task_delete_up_vote(current);
+
     list_remove(&poll_fd->polls);
     list_remove(&poll_fd->fds);
-    delay_task_delete_down_vote(current);
     poll_fd_free(poll_fd);
 
     err = 0;
@@ -188,9 +185,7 @@ void poll_cleanup_fd(struct fd *fd) {
         lock(&poll_fd->poll->lock);
         if (poll_fd_is_real(poll_fd))
             real_poll_update(&poll_fd->poll->real, fd->real_fd, 0, poll_fd);
-        delay_task_delete_up_vote(current);
         list_remove(&poll_fd->polls);
-        delay_task_delete_down_vote(current);
         list_remove(&poll_fd->fds);
         unlock(&poll_fd->poll->lock);
         poll_fd_free(poll_fd);
@@ -334,18 +329,14 @@ void poll_destroy(struct poll *poll) {
     struct poll_fd *tmp;
     list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
         lock(&poll_fd->fd->poll_lock);
-        delay_task_delete_up_vote(current);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
-        delay_task_delete_down_vote(current);
         unlock(&poll_fd->fd->poll_lock);
         free(poll_fd);
     }
 
     list_for_each_entry_safe(&poll->pollfd_freelist, poll_fd, tmp, fds) {
-        delay_task_delete_up_vote(current);
         list_remove(&poll_fd->fds);
-        delay_task_delete_down_vote(current);
         free(poll_fd);
     }
 

@@ -12,7 +12,7 @@
 extern pthread_mutex_t extra_lock;
 extern bool doEnableExtraLocking;
 extern dword_t extra_lock_pid;
-extern unsigned extra_lock_queue_size;
+extern const char extra_lock_comm;
 
 static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
@@ -31,7 +31,7 @@ static void proc_put_task(struct task *UNUSED(task)) {
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     if(doEnableExtraLocking)
-        extra_lockf(entry->pid);
+        extra_lockf(entry->pid, entry->meta->name);
         
     struct task *task = proc_get_task(entry);
     if (task == NULL)
@@ -173,7 +173,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     lock(&task->general_lock);
     
     if(doEnableExtraLocking)
-        extra_lockf(task->pid);
+        extra_lockf(task->pid, task->comm);
     
     if (task->mm == NULL)
         goto out_free_task;
@@ -184,13 +184,12 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
         err = _ENOMEM;
         goto out_free_task;
     }
-    if (user_read_task(task, task->mm->argv_start, data, size) == 0)
-        proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022
+    if (user_read_task(task, task->mm->argv_start, data, size) == 0) // Crashed here on Saturday May 28th -mke
+        proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022 -mke
     free(data);
     
-    if(doEnableExtraLocking) {
+    if(doEnableExtraLocking)
         extra_unlockf(task->pid);
-    }
 
 out_free_task:
     unlock(&task->general_lock);

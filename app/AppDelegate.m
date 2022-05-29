@@ -279,7 +279,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     extern bool doEnableMulticore;
     extern bool doEnableExtraLocking;
     extern unsigned doLockSleepNanoseconds;
-    extern pthread_mutex_t global_lock;
+    extern pthread_mutex_t multicore_lock;
     extern pthread_mutex_t extra_lock;
 #endif
     
@@ -295,7 +295,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
         dispatch_async(dispatch_get_main_queue(), ^{
             // Need to toggle pending lock off here.
             doEnableMulticore = UserPreferences.shared.shouldEnableMulticore;
-            pthread_mutex_unlock(&global_lock); // Be sure not to leave around orphan lock
+            pthread_mutex_unlock(&multicore_lock); // Be sure not to leave around orphan lock
         });
     }];
     [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial

@@ -18,14 +18,14 @@
 #include "util/sync.h"
 
 // The Evil global lock.  Use sparingly or not at all
-extern pthread_mutex_t global_lock;
+extern pthread_mutex_t multicore_lock;
 // Time to wait between non blocking lock attempts
 struct timespec lock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
-extern unsigned extra_lock_queue_size;
+extern const char extra_lock_comm;
 
 // increment the change count
 static void mem_changed(struct mem *mem);
@@ -44,7 +44,7 @@ void mem_init(struct mem *mem) {
 
 void mem_destroy(struct mem *mem) {
     if(doEnableExtraLocking)
-        extra_lockf(0);
+        extra_lockf(0, NULL);
     
     write_lock(&mem->lock);
     while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
@@ -295,8 +295,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // called with the read lock.
         // This locking stuff is copy/pasted for all the code in this function
         // which changes memory maps.
-        // TODO: factor the lock/unlock code here into a new function. Do this
-        // next time you touch this function.
         read_to_write_lock(&mem->lock);
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
         write_to_read_lock(&mem->lock);

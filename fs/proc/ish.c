@@ -105,6 +105,5 @@ static int proc_ish_show_version(struct proc_entry *UNUSED(entry), struct proc_d
 struct proc_children proc_ish_children = PROC_CHILDREN({
     {".defaults", S_IFDIR, .readdir = proc_ish_underlying_defaults_readdir},
     {"defaults", S_IFDIR, .readdir = proc_ish_defaults_readdir},
-    {"net", S_IFDIR, .readdir = proc_ish_defaults_readdir},
     {"version", .show = proc_ish_show_version},
 });

@@ -30,6 +30,7 @@ void do_uname(struct uname *uts) {
     strcpy(uts->system, "Linux");
     strcpy(uts->hostname, hostname);
     strcpy(uts->release, "4.20.69-ish_aok");
+    // snprintf(uts->version, sizeof(uts->version), "%s %s %s", uname_version, __DATE__, __TIME__);
     snprintf(uts->version, sizeof(uts->version), "%s %s", uname_version, build_date);
     strcpy(uts->arch, "i686");
     strcpy(uts->domain, "(none)");

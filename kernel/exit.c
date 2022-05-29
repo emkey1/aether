@@ -11,7 +11,7 @@
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
-extern unsigned extra_lock_queue_size;
+extern const char extra_lock_comm;
 
 static void halt_system(void);
 
@@ -61,10 +61,19 @@ noreturn void do_exit(int status) {
     }
 
     // release all our resources
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     mm_release(current->mm);
     current->mm = NULL;
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     fdtable_release(current->files);
     current->files = NULL;
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     fs_info_release(current->fs);
     current->fs = NULL;
     // sighand must be released below so it can be protected by pids_lock
@@ -250,14 +259,22 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
         nanosleep(&lock_pause, NULL);
     }
     cond_destroy(&task->group->child_exit);
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     task_leave_session(task);
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     list_remove(&task->group->pgroup);
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     free(task->group);
-
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     task_destroy(task);
-    //if(doEnableExtraLocking)
-     //   extra_unlockf(task->pid);
-    //unlock(&pids_lock); //mkemkemke
     
     return true;
 }
