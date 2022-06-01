@@ -48,7 +48,7 @@ static inline struct list *blocks_list(struct jit *jit, page_t page, int i) {
 }
 
 void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
-    lock(&jit->lock);
+    lock(&jit->lock, 0);
     struct jit_block *block, *tmp;
     for (page_t page = start; page < end; page++) {
         for (int i = 0; i <= 1; i++) {
@@ -201,7 +201,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         size_t cache_index = jit_cache_hash(ip);
         struct jit_block *block = cache[cache_index];
         if (block == NULL || block->addr != ip) {
-            lock(&jit->lock);
+            lock(&jit->lock, 0);
             block = jit_lookup(jit, ip);
             if (block == NULL) {
                 block = jit_block_compile(ip, tlb);
@@ -216,7 +216,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         if (last_block != NULL &&
                 (last_block->jump_ip[0] != NULL ||
                  last_block->jump_ip[1] != NULL)) {
-            lock(&jit->lock);
+            lock(&jit->lock, 0);
             // can't mint new pointers to a block that has been marked jetsam
             // and is thus assumed to have no pointers left
             if (!last_block->is_jetsam && !block->is_jetsam) {
@@ -279,14 +279,14 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     cpu->trapno = interrupt;
 
     struct jit *jit = cpu->mmu->jit;
-    lock(&jit->lock);
+    lock(&jit->lock, 0);
     if (!list_empty(&jit->jetsam)) {
         // write-lock the jetsam_lock to wait until other jit threads get to
         // this point, so they will all clear out their block pointers
         // TODO: use RCU for better performance
         unlock(&jit->lock);
         write_lock(&jit->jetsam_lock);
-        lock(&jit->lock);
+        lock(&jit->lock, 0);
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock);
     }

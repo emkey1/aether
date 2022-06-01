@@ -34,7 +34,7 @@ int dyn_dev_register(struct dev_ops *ops, int type, int major, int minor) {
         return _EINVAL;
     }
 
-    lock(&dyn_info_char.devs_lock);
+    lock(&dyn_info_char.devs_lock, 0);
 
     // Make sure minor number isn't taken yet
     if (dyn_info_char.devs[minor] != NULL) {

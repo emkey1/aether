@@ -141,7 +141,7 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     struct timer_spec old_spec;
 
     struct tgroup *group = current->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     int err = itimer_set(group, which, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
@@ -168,7 +168,7 @@ uint_t sys_alarm(uint_t seconds) {
     struct timer_spec old_spec;
 
     struct tgroup *group = current->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     int err = itimer_set(group, ITIMER_REAL_, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
@@ -277,7 +277,7 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
         return _EINVAL;
 
     struct tgroup *group = current->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     unsigned timer_id;
     for (timer_id = 0; timer_id < TIMERS_MAX; timer_id++) {
         if (group->posix_timers[timer_id].timer == NULL)
@@ -318,7 +318,7 @@ int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, ad
     if (timer_id > TIMERS_MAX)
         return _EINVAL;
 
-    lock(&current->group->lock);
+    lock(&current->group->lock, 0);
     struct posix_timer *timer = &current->group->posix_timers[timer_id];
     struct timer_spec spec = timer_spec_to_real(value);
     struct timer_spec old_spec;
@@ -341,7 +341,7 @@ int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, ad
 
 int_t sys_timer_delete(dword_t timer_id) {
     STRACE("timer_delete(%d)\n", timer_id);
-    lock(&current->group->lock);
+    lock(&current->group->lock, 0);
     struct posix_timer *timer = &current->group->posix_timers[timer_id];
     if (timer->timer == NULL) {
         unlock(&current->group->lock);
@@ -356,7 +356,7 @@ int_t sys_timer_delete(dword_t timer_id) {
 static struct fd_ops timerfd_ops;
 
 static void timerfd_callback(struct fd *fd) {
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     fd->timerfd.expirations++;
     notify(&fd->cond);
     unlock(&fd->lock);
@@ -395,7 +395,7 @@ int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old
         spec.value = timespec_subtract(spec.value, now);
     }
 
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     int err = timer_set(fd->timerfd.timer, spec, &old_spec);
     unlock(&fd->lock);
     if (err < 0)
@@ -413,7 +413,7 @@ int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old
 static ssize_t timerfd_read(struct fd *fd, void *buf, size_t bufsize) {
     if (bufsize < sizeof(uint64_t))
         return _EINVAL;
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     while (fd->timerfd.expirations == 0) {
         if (fd->flags & O_NONBLOCK_) {
             unlock(&fd->lock);
@@ -433,7 +433,7 @@ static ssize_t timerfd_read(struct fd *fd, void *buf, size_t bufsize) {
 }
 static int timerfd_poll(struct fd *fd) {
     int res = 0;
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     if (fd->timerfd.expirations != 0)
         res |= POLL_READ;
     unlock(&fd->lock);

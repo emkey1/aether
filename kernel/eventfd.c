@@ -23,7 +23,7 @@ static ssize_t eventfd_read(struct fd *fd, void *buf, size_t bufsize) {
     if (bufsize < sizeof(uint64_t))
         return _EINVAL;
 
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     while (fd->eventfd.val == 0) {
         if (fd->flags & O_NONBLOCK_) {
             unlock(&fd->lock);
@@ -50,7 +50,7 @@ static ssize_t eventfd_write(struct fd *fd, const void *buf, size_t bufsize) {
     if (increment == UINT64_MAX)
         return _EINVAL;
 
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     while (fd->eventfd.val >= UINT64_MAX - increment) {
         if (fd->flags & O_NONBLOCK_) {
             unlock(&fd->lock);
@@ -70,7 +70,7 @@ static ssize_t eventfd_write(struct fd *fd, const void *buf, size_t bufsize) {
 }
 
 static int eventfd_poll(struct fd *fd) {
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     int types = 0;
     if (fd->eventfd.val > 0)
         types |= POLL_READ;

@@ -59,7 +59,7 @@ static struct futex *futex_get_unlocked(addr_t addr) {
 // Returns the futex for the current process at the given addr, and locks it
 // Unlocked variant is available for times when you need to get two futexes at once
 static struct futex *futex_get(addr_t addr) {
-    lock(&futex_lock);
+    lock(&futex_lock, 0);
     struct futex *futex = futex_get_unlocked(addr);
     if (futex == NULL)
         unlock(&futex_lock);
@@ -208,7 +208,7 @@ int_t sys_set_robust_list(addr_t robust_list, dword_t len) {
 int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
     STRACE("get_robust_list(%d, %#x, %#x)", pid, robust_list_ptr, len_ptr);
 
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     struct task *task = pid_get_task(pid);
     unlock(&pids_lock);
     if (task != current)

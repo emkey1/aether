@@ -43,8 +43,9 @@ void mem_init(struct mem *mem) {
 }
 
 void mem_destroy(struct mem *mem) {
+    int elock_fail = 0;
     if(doEnableExtraLocking)
-        extra_lockf(0, NULL);
+        elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
     while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
@@ -55,17 +56,21 @@ void mem_destroy(struct mem *mem) {
     jit_free(mem->mmu.jit);
 #endif
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
+        while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
     free(mem->pgdir);
     
     mem->pgdir = NULL; //mkemkemke Trying something here
-    
-    //write_unlock;
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     write_unlock_and_destroy(&mem->lock);
     
-    if(doEnableExtraLocking)
+    if((doEnableExtraLocking) && (!elock_fail))
         extra_unlockf(0);
     
 }
@@ -104,16 +109,17 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
 static void mem_pt_del(struct mem *mem, page_t page) {
     struct pt_entry *entry = mem_pt(mem, page);
-    delay_task_delete_up_vote(current);
+    //delay_task_delete_up_vote(current);
     if (entry != NULL)
         entry->data = NULL;
-    delay_task_delete_down_vote(current);
+    //delay_task_delete_down_vote(current);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
     (*page)++;
     if (*page >= MEM_PAGES)
         return;
+    
     while (*page < MEM_PAGES && mem->pgdir[PGDIR_TOP(*page)] == NULL)
         *page = (*page - PGDIR_BOTTOM(*page)) + MEM_PGDIR_SIZE;
 }
@@ -240,6 +246,9 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 }
 
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
         struct pt_entry *entry = mem_pt(src, page);
         if (entry == NULL)
@@ -253,6 +262,9 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
         dst_entry->data = entry->data;
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;
+    }
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
     }
     mem_changed(src);
     mem_changed(dst);

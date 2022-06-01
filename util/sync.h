@@ -10,6 +10,7 @@
 #include "misc.h"
 #include "debug.h"
 
+
 // locks, implemented using pthread
 
 #define LOCK_DEBUG 0
@@ -18,6 +19,7 @@
 
 extern int current_pid(void);
 extern char* current_comm(void);
+extern int current_delay_task_delete_requests(void);
 
 extern struct timespec lock_pause;
 
@@ -26,8 +28,8 @@ extern pthread_mutex_t nested_lock; // Used to make all lock operations atomic, 
 typedef struct {
     pthread_mutex_t m;
     pthread_t owner;
+    const char *comm;
     int pid;
-    const char *comm; 
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
@@ -53,21 +55,23 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 
-static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
-            printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s) from file %s\n",current_pid(), current_comm(), file);
+            if(!log_lock)
+                printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s) \n",current_pid(), current_comm());
             return;
         }
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
 
     if(count > count_max * .90) {
-        printk("WARNING: large lock attempt count(Function: __lock(%d) from file %s PID: %d Process: %s)\n",count, file, lock->pid, lock->comm);
+        if(!log_lock)
+            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d)  (PID: %d Process: %s)\n",count, lock, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
@@ -83,7 +87,7 @@ static inline void __lock(lock_t *lock, __attribute__((unused)) const char *file
 #endif
 }
 
-#define lock(lock) __lock(lock, __FILE__, __LINE__)
+#define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
 
 static inline void unlock(lock_t *lock) {
 #if LOCK_DEBUG
@@ -116,7 +120,7 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
-    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
@@ -145,7 +149,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
 
 static inline void loop_lock_write(wrlock_t *lock) {
     unsigned count = 0;
-    long count_max = (255000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
@@ -249,7 +253,8 @@ static inline void wrlock_init(wrlock_t *lock) {
     pthread_rwlockattr_setkind_np(pattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
 #endif
 #ifdef JUSTLOG
-    if (pthread_rwlock_init(&lock->l, pattr)) printk("URGENT: wrlock_init() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_init(&lock->l, pattr))
+        printk("URGENT: wrlock_init() error(PID: %d Process: %s)\n",current_pid(), current_comm());
 #else
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
 #endif
@@ -259,8 +264,14 @@ static inline void wrlock_init(wrlock_t *lock) {
 }
 
 static inline void _lock_destroy(wrlock_t *lock) {
+    while(current_delay_task_delete_requests()) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
 #ifdef JUSTLOG
-    if (pthread_rwlock_destroy(&lock->l) != 0) printk("URGENT: wlock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+    if (pthread_rwlock_destroy(&lock->l) != 0) {
+        printk("URGENT: wlock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+        printk("INFO: lock_destroy(), delay_task_delete_requests = %d\n", current_delay_task_delete_requests());
+    }
 #else
     if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();
 #endif

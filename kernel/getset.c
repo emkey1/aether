@@ -13,7 +13,7 @@ pid_t_ sys_gettid() {
 pid_t_ sys_getppid() {
     STRACE("getppid()");
     pid_t_ ppid;
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     if (current->parent != NULL)
         ppid = current->parent->pid;
     else

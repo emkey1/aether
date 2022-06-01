@@ -40,7 +40,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     list_add(&old_group->pgroup, &group->pgroup);
     list_add(&old_group->session, &group->session);
     if (group->tty) {
-        lock(&group->tty->lock);
+        lock(&group->tty->lock, 0);
         group->tty->refcount++;
         unlock(&group->tty->lock);
     }
@@ -94,8 +94,8 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
-    lock(&pids_lock);
-    lock(&old_group->lock);
+    lock(&pids_lock, 0);
+    lock(&old_group->lock, 0);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);
         task->group->leader = task;
@@ -159,7 +159,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
-        lock(&pids_lock);
+        lock(&pids_lock, 0);
         task_destroy(task);
         unlock(&pids_lock);
         
@@ -186,12 +186,12 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
     task_start(task);
 
     if (flags & CLONE_VFORK_) {
-        lock(&vfork.lock);
+        lock(&vfork.lock, 0);
         while (!vfork.done)
             // FIXME this should stop waiting if a fatal signal is received
             wait_for_ignore_signals(&vfork.cond, &vfork.lock, NULL);
         unlock(&vfork.lock);
-        lock(&task->general_lock);
+        lock(&task->general_lock, 0);
         task->vfork = NULL;
         unlock(&task->general_lock);
         cond_destroy(&vfork.cond);
@@ -209,9 +209,9 @@ dword_t sys_vfork() {
 }
 
 void vfork_notify(struct task *task) {
-    lock(&task->general_lock);
+    lock(&task->general_lock, 0);
     if (task->vfork) {
-        lock(&task->vfork->lock);
+        lock(&task->vfork->lock, 0);
         task->vfork->done = true;
         notify(&task->vfork->cond);
         unlock(&task->vfork->lock);

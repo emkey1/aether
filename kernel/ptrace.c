@@ -10,7 +10,7 @@ static struct task *find_child(pid_t_ pid) {
     struct task *child = NULL;
     list_for_each_entry(&current->children, child, siblings) {
         if (child->pid == pid) {
-            lock(&child->ptrace.lock);
+            lock(&child->ptrace.lock, 0);
             if (child->ptrace.stopped) {
                 goto found;
             }

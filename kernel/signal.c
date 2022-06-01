@@ -71,7 +71,7 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         // must release the sighand lock while going insane, to avoid a deadlock
         unlock(&task->sighand->lock);
 retry:
-        lock(&task->waiting_cond_lock);
+        lock(&task->waiting_cond_lock, 0);
         if (task->waiting_cond != NULL) {
             bool mine = false;
             if (trylock(task->waiting_lock) == EBUSY) {
@@ -87,13 +87,13 @@ retry:
                 unlock(task->waiting_lock);
         }
         unlock(&task->waiting_cond_lock);
-        lock(&task->sighand->lock);
+        lock(&task->sighand->lock, 0);
     }
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     delay_task_delete_up_vote(task);
-    lock(&task->sighand->lock);
+    lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
     delay_task_delete_down_vote(task);
@@ -108,14 +108,14 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
 
     delay_task_delete_up_vote(task);
     struct sighand *sighand = task->sighand;
-    lock(&sighand->lock);
+    lock(&sighand->lock, 0);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
         deliver_signal_unlocked(task, sig, info);
     }
     unlock(&sighand->lock);
 
     if (sig == SIGCONT_ || sig == SIGKILL_) {
-        lock(&task->group->lock);
+        lock(&task->group->lock, 0);
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);
@@ -127,7 +127,7 @@ bool try_self_signal(int sig) {
     assert(sig == SIGTTIN_ || sig == SIGTTOU_);
 
     struct sighand *sighand = current->sighand;
-    lock(&sighand->lock);
+    lock(&sighand->lock, 0);
     bool can_send = signal_action(sighand, sig) != SIGNAL_IGNORE &&
         !sigset_has(current->blocked, sig);
     if (can_send)
@@ -137,7 +137,7 @@ bool try_self_signal(int sig) {
 }
 
 int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
         unlock(&pids_lock);
@@ -228,7 +228,7 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
             return;
 
         case SIGNAL_STOP:
-            lock(&current->group->lock);
+            lock(&current->group->lock,0);
             current->group->stopped = true;
             current->group->group_exit_code = sig << 8 | 0x7f;
             unlock(&current->group->lock);
@@ -302,7 +302,7 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 }
 
 void signal_delivery_stop(int sig, struct siginfo_ *info) {
-    lock(&current->ptrace.lock);
+    lock(&current->ptrace.lock, 0);
     current->ptrace.stopped = true;
     current->ptrace.signal = sig | current->ptrace.stop_at_syscall << 7;
     current->ptrace.info = *info;
@@ -312,11 +312,11 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
     send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
 
     unlock(&current->sighand->lock);
-    lock(&current->ptrace.lock);
+    lock(&current->ptrace.lock, 0);
     TASK_MAY_BLOCK {
         while (current->ptrace.stopped) {
             wait_for_ignore_signals(&current->ptrace.cond, &current->ptrace.lock, NULL);
-            lock(&current->sighand->lock);
+            lock(&current->sighand->lock, 0);
             bool got_sigkill = sigset_has(current->pending, SIGKILL_);
             unlock(&current->sighand->lock);
             if (got_sigkill) {
@@ -327,17 +327,17 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
         }
     }
     unlock(&current->ptrace.lock);
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
 }
 
 void receive_signals() {  // Should this function have a check for delay_task_delete_requests? -mke
     nanosleep(&lock_pause, NULL);
-    lock(&current->group->lock);
+    lock(&current->group->lock, 0);
     bool was_stopped = current->group->stopped;
     unlock(&current->group->lock);
 
     struct sighand *sighand = current->sighand;
-    lock(&sighand->lock);
+    lock(&sighand->lock, 0);
 
     // A saved mask means that the last system call was a call like sigsuspend
     // that changes the mask during the call. Only ignore a signal right now if
@@ -374,11 +374,11 @@ void receive_signals() {  // Should this function have a check for delay_task_de
 
     // this got moved out of the switch case in receive_signal to fix locking problems
     if (!was_stopped) {
-        lock(&current->group->lock);
+        lock(&current->group->lock, 0);
         bool now_stopped = current->group->stopped;
         unlock(&current->group->lock);
         if (now_stopped) {
-            lock(&pids_lock);
+            lock(&pids_lock, 0);
             notify(&current->parent->group->child_exit);
             // TODO add siginfo
             send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
@@ -414,7 +414,7 @@ dword_t sys_rt_sigreturn() {
     }
     restore_sigcontext(&frame.uc.mcontext, cpu);
 
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     // FIXME this duplicates logic from sys_sigaltstack
     if (!is_on_altstack(cpu->esp, current->sighand) &&
             frame.uc.stack.size >= MINSIGSTKSZ_) {
@@ -436,7 +436,7 @@ dword_t sys_sigreturn() {
     }
     restore_sigcontext(&frame.sc, cpu);
 
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     sigset_t_ oldmask = ((sigset_t_) frame.extramask << 32) | frame.sc.oldmask;
     sigmask_set(oldmask);
     unlock(&current->sighand->lock);
@@ -477,7 +477,7 @@ static int do_sigaction(int sig, const struct sigaction_ *action, struct sigacti
         return _EINVAL;
 
     struct sighand *sighand = current->sighand;
-    lock(&sighand->lock);
+    lock(&sighand->lock, 0);
     if (oldaction)
         *oldaction = sighand->action[sig];
     if (action)
@@ -524,7 +524,7 @@ static void sigmask_set_temp_unlocked(sigset_t_ mask) {
 }
 
 void sigmask_set_temp(sigset_t_ mask) {
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     sigmask_set_temp_unlocked(mask);
     unlock(&current->sighand->lock);
 }
@@ -560,7 +560,7 @@ dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dwo
             return _EFAULT;
     if (set_addr != 0) {
         struct sighand *sighand = current->sighand;
-        lock(&sighand->lock);
+        lock(&sighand->lock, 0);
         int err = do_sigprocmask(how, set);
         unlock(&sighand->lock);
         if (err < 0)
@@ -595,7 +595,7 @@ static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stac
 dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
     STRACE("sigaltstack(0x%x, 0x%x)", ss_addr, old_ss_addr);
     struct sighand *sighand = current->sighand;
-    lock(&sighand->lock);
+    lock(&sighand->lock, 0);
     if (old_ss_addr != 0) {
         struct stack_t_ old_ss;
         altstack_to_user(sighand, &old_ss);
@@ -635,7 +635,7 @@ int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {
         return _EFAULT;
     STRACE("sigsuspend(0x%llx) = ...\n", (long long) mask);
 
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     sigmask_set_temp_unlocked(mask);
     TASK_MAY_BLOCK {
         while (wait_for(&current->pause, &current->sighand->lock, NULL) != _EINTR)
@@ -647,7 +647,7 @@ int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {
 }
 
 int_t sys_pause() {
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     TASK_MAY_BLOCK {
         while (wait_for(&current->pause, &current->sighand->lock, NULL) != _EINTR)
             continue;
@@ -672,7 +672,7 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
     }
     STRACE("sigtimedwait(%#llx, %#x, %#x) = ...\n", (long long) set, info_addr, timeout_addr);
 
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     assert(current->waiting == 0);
     current->waiting = set;
     int err;
@@ -763,7 +763,7 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
         pid = -current->group->pgid;
 
     int err;
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
 
     if (pid == -1) {
         err = kill_everything(sig);

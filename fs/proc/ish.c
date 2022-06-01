@@ -36,7 +36,7 @@ static int proc_ish_underlying_defaults_show(struct proc_entry *entry, struct pr
 }
 
 static int proc_ish_underlying_defaults_update(struct proc_entry *entry, struct proc_data *data) {
-    if (!set_user_default(entry->name, data->data, data->size))
+    if (!set_user_default(entry->name, data->data, data->size)) //mkemkemke Set Defaults
         return _EIO;
     return 0;
 }

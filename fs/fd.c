@@ -75,7 +75,7 @@ static int fdtable_close(struct fdtable *table, fd_t f);
 
 // FIXME this looks like it has the classic refcount UAF
 void fdtable_release(struct fdtable *table) {
-    lock(&table->lock);
+    lock(&table->lock, 0);
     if (--table->refcount == 0) {
         for (fd_t f = 0; (unsigned) f < table->size; f++)
             fdtable_close(table, f);
@@ -117,7 +117,7 @@ static int fdtable_resize(struct fdtable *table, unsigned size) {
 }
 
 struct fdtable *fdtable_copy(struct fdtable *table) {
-    lock(&table->lock);
+    lock(&table->lock, 0);
     int size = table->size;
     struct fdtable *new_table = fdtable_new(size);
     if (IS_ERR(new_table)) {
@@ -149,7 +149,7 @@ struct fd *fdtable_get(struct fdtable *table, fd_t f) {
 }
 
 struct fd *f_get(fd_t f) {
-    lock(&current->files->lock);
+    lock(&current->files->lock, 0);
     struct fd *fd = fdtable_get(current->files, f);
     unlock(&current->files->lock);
     return fd;
@@ -182,7 +182,7 @@ static fd_t f_install_start(struct fd *fd, fd_t start) {
 }
 
 fd_t f_install(struct fd *fd, int flags) {
-    lock(&current->files->lock);
+    lock(&current->files->lock, 0);
     fd_t f = f_install_start(fd, 0);
     if (f >= 0) {
         if (flags & O_CLOEXEC_)
@@ -207,7 +207,7 @@ static int fdtable_close(struct fdtable *table, fd_t f) {
 }
 
 int f_close(fd_t f) {
-    lock(&current->files->lock);
+    lock(&current->files->lock, 0);
     int err = fdtable_close(current->files, f);
     unlock(&current->files->lock);
     return err;
@@ -219,7 +219,7 @@ dword_t sys_close(fd_t f) {
 }
 
 void fdtable_do_cloexec(struct fdtable *table) {
-    lock(&table->lock);
+    lock(&table->lock, 0);
     for (fd_t f = 0; (unsigned) f < table->size; f++)
         if (bit_test(f, table->cloexec))
             fdtable_close(table, f);

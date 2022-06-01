@@ -40,7 +40,7 @@ char * get_filesystems(void) {
 
 struct mount *mount_find(char *path) {
     assert(path_is_normalized(path));
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     struct mount *mount = NULL;
     assert(!list_empty(&mounts)); // this would mean there's no root FS mounted
     list_for_each_entry(&mounts, mount, mounts) {
@@ -54,13 +54,13 @@ struct mount *mount_find(char *path) {
 }
 
 void mount_retain(struct mount *mount) {
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     mount->refcount++;
     unlock(&mounts_lock);
 }
 
 void mount_release(struct mount *mount) {
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     mount->refcount--;
     unlock(&mounts_lock);
 }
@@ -181,7 +181,7 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
     if (err < 0)
         return err;
 
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     err = do_mount(fs, source, point, data, flags & MS_FLAGS);
     unlock(&mounts_lock);
     return err;
@@ -199,7 +199,7 @@ dword_t sys_umount2(addr_t target_addr, dword_t flags) {
     if (err < 0)
         return err;
 
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     err = do_umount(target);
     unlock(&mounts_lock);
     return err;

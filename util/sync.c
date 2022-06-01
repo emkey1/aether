@@ -21,7 +21,7 @@ static bool is_signal_pending(lock_t *lock) {
     if (!current)
         return false;
     if (lock != &current->sighand->lock)
-        lock(&current->sighand->lock);
+        lock(&current->sighand->lock, 0);
     bool pending = !!(current->pending & ~current->blocked);
     if (lock != &current->sighand->lock)
         unlock(&current->sighand->lock);
@@ -41,7 +41,7 @@ int wait_for(cond_t *cond, lock_t *lock, struct timespec *timeout) {
 
 int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout) {
     if (current) {
-        lock(&current->waiting_cond_lock);
+        lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = cond;
         current->waiting_lock = lock;
         unlock(&current->waiting_cond_lock);
@@ -75,7 +75,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #endif
 
     if (current) {
-        lock(&current->waiting_cond_lock);
+        lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = NULL;
         current->waiting_lock = NULL;
         unlock(&current->waiting_cond_lock);
@@ -117,7 +117,7 @@ void sigusr1_handler() {
         should_unwind = true;
         sigprocmask(SIG_BLOCK, &sigusr1, NULL);
         if (lock != &current->sighand->lock)
-            lock(&current->sighand->lock);
+            lock(&current->sighand->lock, 0);
         bool pending = !!(current->pending & ~current->blocked);
         if (lock != &current->sighand->lock)
             unlock(&current->sighand->lock);

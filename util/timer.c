@@ -18,7 +18,7 @@ struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data
 }
 
 void timer_free(struct timer *timer) {
-    lock(&timer->lock);
+    lock(&timer->lock, 0);
     timer->active = false;
     if (timer->thread_running) {
         timer->dead = true;
@@ -32,13 +32,13 @@ void timer_free(struct timer *timer) {
 
 static void *timer_thread(void *param) {
     struct timer *timer = param;
-    lock(&timer->lock);
+    lock(&timer->lock, 0);
     while (true) {
         struct timespec remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         while (timer->active && timespec_positive(remaining)) {
             unlock(&timer->lock);
             nanosleep(&remaining, NULL);
-            lock(&timer->lock);
+            lock(&timer->lock, 0);
             remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         }
         if (timer->active)
@@ -59,7 +59,7 @@ static void *timer_thread(void *param) {
 }
 
 int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *oldspec) {
-    lock(&timer->lock);
+    lock(&timer->lock, 0);
     struct timespec now = timespec_now(timer->clockid);
     if (oldspec != NULL) {
         oldspec->value = timespec_subtract(timer->end, now);

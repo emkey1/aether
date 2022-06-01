@@ -82,7 +82,7 @@ static struct fd *sock_getfd(fd_t sock_fd) {
 static uint32_t unix_socket_next_id() {
     static uint32_t next_id = 0;
     static lock_t next_id_lock = LOCK_INITIALIZER;
-    lock(&next_id_lock);
+    lock(&next_id_lock, 0);
     uint32_t id = ++next_id;
     unlock(&next_id_lock);
     return id;
@@ -108,7 +108,7 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
         if (err < 0) {
             mode_t_ mode = 0777;
             struct fs_info *fs = current->fs;
-            lock(&fs->lock);
+            lock(&fs->lock, 0);
             mode &= ~fs->umask;
             unlock(&fs->lock);
             err = mount->fs->mknod(mount, path, S_IFSOCK | mode, 0);
@@ -132,7 +132,7 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
 
     // Look up the socket ID for the inode number.
     struct inode_data *inode = inode_get(mount, stat.inode);
-    lock(&inode->lock);
+    lock(&inode->lock, 0);
     if (inode->socket_id == 0)
         inode->socket_id = unix_socket_next_id();
     unlock(&inode->lock);
@@ -175,7 +175,7 @@ static lock_t unix_abstract_lock = LOCK_INITIALIZER;
 
 static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *socket_id) {
     uint32_t hash = str_hash(name);
-    lock(&unix_abstract_lock);
+    lock(&unix_abstract_lock, 0);
     struct unix_abstract *sock_tmp;
     struct unix_abstract *sock = NULL;
     struct list *bucket = &abstract_hash[hash % ABSTRACT_HASH_SIZE];
@@ -214,7 +214,7 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
 }
 
 static void unix_abstract_release(struct unix_abstract *name) {
-    lock(&unix_abstract_lock);
+    lock(&unix_abstract_lock, 0);
     if (--name->refcount == 0) {
         list_remove(&name->links);
         free(name);
@@ -375,7 +375,7 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         ssize_t res = write(sock->real_fd, &sock, sizeof(struct fd *));
         if (res == sizeof(struct fd *)) {
             // Wait for acknowledgement that it happened.
-            lock(&peer_lock);
+            lock(&peer_lock, 0);
             TASK_MAY_BLOCK {
                 while (sock->socket.unix_peer == NULL)
                     wait_for_ignore_signals(&sock->socket.unix_got_peer, &peer_lock, NULL);
@@ -439,7 +439,7 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
         close(client);
 
     if (sock->socket.domain == AF_LOCAL_) {
-        lock(&peer_lock);
+        lock(&peer_lock, 0);
         struct fd *client_fd = f_get(client_f);
         fill_cred(&client_fd->socket.unix_cred);
         struct fd *peer;
@@ -539,7 +539,7 @@ int_t sys_socketpair(dword_t domain, dword_t type, dword_t protocol, addr_t sock
     if (err < 0)
         return errno_map();
 
-    lock(&peer_lock);
+    lock(&peer_lock, 0);
     int fake_sockets[2];
     err = fake_sockets[0] = sock_fd_create(sockets[0], domain, type, protocol);
     if (fake_sockets[0] < 0) {
@@ -740,7 +740,7 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         struct ucred_ *cred = (struct ucred_ *) value;
         if (value_len != sizeof(*cred))
             return _EINVAL;
-        lock(&peer_lock);
+        lock(&peer_lock, 0);
         if (sock->socket.domain != AF_LOCAL_ || sock->socket.unix_peer == NULL) {
             cred->pid = 0;
             cred->uid = cred->gid = -1;
@@ -935,14 +935,14 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
                     scm->fds[fd_i++] = fd_retain(f_get(fds[i]));
                 }
             }
-            lock(&peer_lock);
+            lock(&peer_lock, 0);
             struct fd *peer = sock->socket.unix_peer;
             if (peer == NULL) {
                 unlock(&peer_lock);
                 err = _EPIPE;
                 goto out_free_scm;
             }
-            lock(&peer->lock);
+            lock(&peer->lock, 0);
             list_add_tail(&peer->socket.unix_scm, &scm->queue);
             unlock(&peer->lock);
             unlock(&peer_lock);
@@ -968,10 +968,10 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
 
 out_free_scm:
     if (scm != NULL) {
-        lock(&peer_lock);
+        lock(&peer_lock, 0);
         struct fd *peer = sock->socket.unix_peer;
         if (peer != NULL) {
-            lock(&peer->lock);
+            lock(&peer->lock, 0);
             list_remove_safe(&scm->queue);
             unlock(&peer->lock);
         }
@@ -1064,7 +1064,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         int dummy_fd = ((int *) CMSG_DATA(cmsg))[0];
         close(dummy_fd);
 
-        lock(&sock->lock);
+        lock(&sock->lock, 0);
         assert(!list_empty(&sock->socket.unix_scm));
         struct scm *scm = list_first_entry(&sock->socket.unix_scm, struct scm, queue);
         list_remove(&scm->queue);
@@ -1174,13 +1174,13 @@ static int sock_close(struct fd *fd) {
     inode_release_if_exist(fd->socket.unix_name_inode);
     if (fd->socket.unix_name_abstract != NULL)
         unix_abstract_release(fd->socket.unix_name_abstract);
-    lock(&peer_lock);
+    lock(&peer_lock, 0);
     struct fd *peer = fd->socket.unix_peer;
     if (peer != NULL)
         peer->socket.unix_peer = NULL;
     unlock(&peer_lock);
     if (fd->socket.domain == AF_LOCAL_) {
-        lock(&fd->lock);
+        lock(&fd->lock, 0);
         struct scm *scm, *tmp;
         list_for_each_entry_safe(&fd->socket.unix_scm, scm, tmp, queue) {
             list_remove(&scm->queue);

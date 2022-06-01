@@ -36,7 +36,7 @@ static int getpath(int fd, char *buf) {
 // useful for simulating mknodat on ios, dealing with long unix socket paths, etc
 lock_t fchdir_lock;
 static void lock_fchdir(int dirfd) {
-    lock(&fchdir_lock);
+    lock(&fchdir_lock, 0);
     fchdir(dirfd);
 }
 static void unlock_fchdir() {
@@ -232,7 +232,7 @@ int realfs_poll(struct fd *fd) {
         p.revents &= ~POLLPRI;
 
     if (p.revents & POLLNVAL) {
-        printk("WARNING: pollnval %d flags %d events %d revents %d\n", fd->real_fd, flags, p.events, p.revents);
+        // printk("WARNING: pollnval %d flags %d events %d revents %d\n", fd->real_fd, flags, p.events, p.revents);
         // Seriously, fuck Darwin. I just want to poll on POLLIN|POLLOUT|POLLPRI.
         // But if there's almost any kind of error, you just get POLLNVAL back,
         // and no information about the bits that are in fact set. So ask for each

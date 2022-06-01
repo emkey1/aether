@@ -44,7 +44,7 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    lock(&_lock);
+    lock(&_lock, 0);
     self.urls = urls;
     notify(&_cond);
     unlock(&_lock);
@@ -66,7 +66,7 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
         [terminalViewController presentViewController:picker animated:true completion:nil];
     });
 
-    lock(&_lock);
+    lock(&_lock, 0);
     while (_urls == nil) {
         int err = wait_for(&_cond, &_lock, NULL);
         if (err < 0) {

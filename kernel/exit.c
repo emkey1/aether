@@ -85,13 +85,13 @@ noreturn void do_exit(int status) {
     // save things that our parent might be interested in
     current->exit_code = status; // FIXME locking
     struct rusage_ rusage = rusage_get_current();
-    lock(&current->group->lock);
+    lock(&current->group->lock, 0);
     rusage_add(&current->group->rusage, &rusage);
     struct rusage_ group_rusage = current->group->rusage;
     unlock(&current->group->lock);
 
     // the actual freeing needs pids_lock
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     current->exiting = true;
     // release the sighand
     while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
@@ -155,8 +155,8 @@ noreturn void do_exit(int status) {
 
 noreturn void do_exit_group(int status) {
     struct tgroup *group = current->group;
-    lock(&pids_lock);
-    lock(&group->lock);
+    lock(&pids_lock, 0);
+    lock(&group->lock, 0);
     if (!group->doing_group_exit) {
         group->doing_group_exit = true;
         group->group_exit_code = status;
@@ -193,7 +193,7 @@ static void halt_system(void) {
     }
 
     // unmount all filesystems
-    lock(&mounts_lock);
+    lock(&mounts_lock, 0);
     struct mount *mount, *tmp;
     list_for_each_entry_safe(&mounts, mount, tmp, mounts) {
         mount_remove(mount);
@@ -229,7 +229,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
-    lock(&task->group->lock);
+    lock(&task->group->lock, 0);
 
     dword_t exit_code = task->exit_code;
     if (task->group->doing_group_exit)
@@ -238,7 +238,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 
     struct rusage_ rusage = task->group->rusage;
     if (!(options & WNOWAIT_)) {
-        lock(&current->group->lock);
+        lock(&current->group->lock, 0);
         rusage_add(&current->group->children_rusage, &rusage);
         unlock(&current->group->lock);
     }
@@ -280,7 +280,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 }
 
 static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
-    lock(&task->group->lock);
+    lock(&task->group->lock, 0);
     bool stopped = task->group->stopped;
     unlock(&task->group->lock);
     if (!stopped || task->group->group_exit_code == 0)
@@ -302,7 +302,7 @@ static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct 
        //     pthread_mutex_unlock(&extra_lock);
         return true;
     }
-    lock(&task->ptrace.lock);
+    lock(&task->ptrace.lock, 0);
     if (task->ptrace.stopped && task->ptrace.signal) {
         // I had this code here because it made something work, but it's now
         // making GDB think we support events (we don't). I can't remember what
@@ -326,7 +326,7 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     if (options & ~(WNOHANG_|WUNTRACED_|WEXITED_|WCONTINUED_|WNOWAIT_|__WALL_))
         return _EINVAL;
 
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     int err;
     bool got_signal = false;
 

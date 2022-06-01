@@ -209,7 +209,7 @@ extern void (*exit_hook)(struct task *task, int code);
 void update_thread_name(void);
 
 // Functions to implement additional locking and unlocking -mke
-void extra_lockf(dword_t pid, char comm[16]);
+int extra_lockf(dword_t pid);
 void extra_unlockf(dword_t pid);
 
 // To collect statics on which tasks are blocked we need to proccess areas
@@ -217,14 +217,14 @@ void extra_unlockf(dword_t pid);
 // of functions which can block the task, we mark our task as blocked and
 // unblock it after the function is executed.
 __attribute__((always_inline)) inline int task_may_block_start(void) {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     current->io_block = 1;
     unlock(&pids_lock);
     return 0;
 }
 
 __attribute__((always_inline)) inline int task_may_block_end(void) {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     current->io_block = 0;
     unlock(&pids_lock);
     return 0;

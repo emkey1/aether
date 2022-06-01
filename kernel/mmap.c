@@ -39,6 +39,9 @@ void mm_retain(struct mm *mm) {
 }
 
 void mm_release(struct mm *mm) {
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);

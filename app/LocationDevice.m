@@ -64,7 +64,7 @@ BOOL CLIsAuthorized(CLAuthorizationStatus status) {
 }
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
-    lock(&_lock);
+    lock(&_lock, 0);
     self.latest = locations.lastObject;
     notify(&_updateCond);
     unlock(&_lock);
@@ -80,7 +80,7 @@ BOOL CLIsAuthorized(CLAuthorizationStatus status) {
 }
 
 - (int)waitForUpdate {
-    lock(&_lock);
+    lock(&_lock, 0);
     CLLocation *oldLatest = self.latest;
     int err = 0;
     while (self.latest == oldLatest) {

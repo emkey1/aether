@@ -68,7 +68,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     dword_t res = 0;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
@@ -81,7 +81,7 @@ dword_t get_count_of_blocked_tasks() {
 }
 
 dword_t get_count_of_alive_tasks() {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
@@ -92,7 +92,7 @@ dword_t get_count_of_alive_tasks() {
 }
 
 struct task *task_create_(struct task *parent) {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     do {
         last_allocated_pid++;
         if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
@@ -161,16 +161,18 @@ void delay_task_delete_down_vote(struct task *task) { // Decrease number of thre
 }
 
 void task_destroy(struct task *task) {
+    //int elock_fail = 0;
+    //if(doEnableExtraLocking)
+     //   elock_fail = extra_lockf(task->pid);
+    
     while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 
-    if(doEnableExtraLocking)
-        extra_lockf(task->pid, task->comm);
     bool IShould = false;
     if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
        printk("WARNING: pids_lock was not set\n");
-        IShould = true;
+       IShould = true;
     }
     while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
@@ -178,12 +180,14 @@ void task_destroy(struct task *task) {
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
+    
     while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
-    if(doEnableExtraLocking)
-        extra_unlockf(task->pid);
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(task->pid);
+    
     if(IShould)
         unlock(&pids_lock);
     
@@ -232,12 +236,13 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
-    
+    int elock_fail = 0;
     if(doEnableExtraLocking)
-        extra_lockf(0, "");
+        elock_fail = extra_lockf(0);
+    
     current = task;
     update_thread_name();
-    if(doEnableExtraLocking)
+    if((doEnableExtraLocking) && (!elock_fail))
         extra_unlockf(0);
     
     task_run_current();
@@ -277,7 +282,7 @@ void update_thread_name() {
 /* Let me be clear here.  The following two functions (extra_lockf() & extra_unlockf() are horrible hacks.  
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
-void extra_lockf(dword_t pid,  char comm[16]) {
+int extra_lockf(dword_t pid) {
     time_t now;
     time(&now);
 
@@ -300,16 +305,15 @@ void extra_lockf(dword_t pid,  char comm[16]) {
                 printk("ERROR: Possible deadlock(extra_lockf(), aborted lock attempt(PID: %d Process: %s)\n", current_pid(), current_comm() );
                 extra_lock_pid = 0;
                 strcpy(extra_lock_comm, "");
-                return;
+                return 1;
             }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
         }
         
         extra_lock_pid = pid;
-        strcpy(d, comm);
         extra_lock_held = true; //
         time(&newest_extra_lock_time);  // Update time
-        return;
+        return 0;
     }
         
     while(pthread_mutex_trylock(&extra_lock)) {
@@ -317,27 +321,22 @@ void extra_lockf(dword_t pid,  char comm[16]) {
         nanosleep(&mylock_pause, NULL);
         //mylock_pause.tv_nsec+=10;
         if(count > count_max) {
-            printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d Process: %s)\n", current->pid, current->comm);
+            printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d )\n", extra_lock_pid);
             extra_lock_pid = 0;
-            strcpy(extra_lock_comm, "");
-            return;
+            return 1;
         }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
 
     if(count > count_max * .90) {
-        printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
+        //printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
+        printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d)\n",count, extra_lock_pid);
     }
     
     time(&newest_extra_lock_time);  // Update time
     extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
-    if(comm != NULL) {
-//        strcpy(extra_lock_comm, comm);
-    } else {
-        strcpy(extra_lock_comm, "");
-    }
     extra_lock_held = true; //
-    return;
+    return 0;
 }
 
 void extra_unlockf(dword_t pid) {

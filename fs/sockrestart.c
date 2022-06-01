@@ -14,7 +14,7 @@ static struct list listen_fds = LIST_INITIALIZER(listen_fds);
 void sockrestart_begin_listen(struct fd *sock) {
     if (sock->ops != &socket_fdops)
         return;
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     list_add(&listen_fds, &sock->sockrestart.listen);
     unlock(&sockrestart_lock);
 }
@@ -22,7 +22,7 @@ void sockrestart_begin_listen(struct fd *sock) {
 void sockrestart_end_listen(struct fd *sock) {
     if (sock->ops != &socket_fdops)
         return;
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     list_remove_safe(&sock->sockrestart.listen);
     unlock(&sockrestart_lock);
 }
@@ -32,7 +32,7 @@ static struct list listen_tasks = LIST_INITIALIZER(listen_tasks);
 void sockrestart_begin_listen_wait(struct fd *sock) {
     if (sock->ops != &socket_fdops)
         return;
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     if (current->sockrestart.count == 0)
         list_add(&listen_tasks, &current->sockrestart.listen);
     current->sockrestart.count++;
@@ -42,7 +42,7 @@ void sockrestart_begin_listen_wait(struct fd *sock) {
 void sockrestart_end_listen_wait(struct fd *sock) {
     if (sock->ops != &socket_fdops)
         return;
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     current->sockrestart.count--;
     if (current->sockrestart.count == 0)
         list_remove(&current->sockrestart.listen);
@@ -50,7 +50,7 @@ void sockrestart_end_listen_wait(struct fd *sock) {
 }
 
 bool sockrestart_should_restart_listen_wait() {
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     bool punt = current->sockrestart.punt;
     current->sockrestart.punt = false;
     unlock(&sockrestart_lock);
@@ -74,7 +74,7 @@ static struct list saved_sockets = LIST_INITIALIZER(saved_sockets);
 // these should only be called from the main thread, but it's easiest to just lock for the whole time
 
 void sockrestart_on_suspend() {
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     assert(list_empty(&saved_sockets));
     struct fd *sock;
     list_for_each_entry(&listen_fds, sock, sockrestart.listen) {
@@ -94,7 +94,7 @@ void sockrestart_on_suspend() {
 }
 
 void sockrestart_on_resume() {
-    lock(&sockrestart_lock);
+    lock(&sockrestart_lock, 0);
     struct saved_socket *saved, *tmp;
     list_for_each_entry_safe(&saved_sockets, saved, tmp, saved) {
         list_remove(&saved->saved);

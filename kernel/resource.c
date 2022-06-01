@@ -21,7 +21,7 @@ static int rlimit_get(struct task *task, int resource, struct rlimit_ *limit) {
     if (!resource_valid(resource))
         return _EINVAL;
     struct tgroup *group = task->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     *limit = group->limits[resource];
     unlock(&group->lock);
     return 0;
@@ -31,7 +31,7 @@ static int rlimit_set(struct task *task, int resource, struct rlimit_ limit) {
     if (!resource_valid(resource))
         return _EINVAL;
     struct tgroup *group = task->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     group->limits[resource] = limit;
     unlock(&group->lock);
     return 0;
@@ -182,7 +182,7 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
             rusage = rusage_get_current();
             break;
         case RUSAGE_CHILDREN_:
-            lock(&current->group->lock);
+            lock(&current->group->lock, 0);
             rusage = current->group->children_rusage;
             unlock(&current->group->lock);
             break;
@@ -197,7 +197,7 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {
     STRACE("sched_getaffinity(%d, %d, %#x)", pid, cpusetsize, cpuset_addr);
     if (pid != 0) {
-        lock(&pids_lock);
+        lock(&pids_lock, 0);
         struct task *task = pid_get_task(pid);
         unlock(&pids_lock);
         if (task == NULL)

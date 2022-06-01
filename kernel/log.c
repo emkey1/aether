@@ -113,7 +113,7 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
     delay_task_delete_up_vote(current);
-    lock(&log_lock);
+    lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
     delay_task_delete_down_vote(current);
@@ -156,7 +156,7 @@ void ish_vprintk(const char *msg, va_list args) {
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
-    lock(&log_lock);
+    lock(&log_lock, 1);
     char *b = buf;
     char *p;
     while ((p = strchr(b, '\n')) != NULL) {
@@ -212,8 +212,14 @@ int current_pid() {
     return -1;
 }
 
-char* current_comm() {
-    if (current)
+char * current_comm() {
+    if (current) {
         return current->comm;
+    }
     return calloc(1, 1); 
+}
+
+// Because sometimes we can't #include "kernel/task.h" -mke
+int current_delay_task_delete_requests() {
+    return current->delay_task_delete_requests;
 }

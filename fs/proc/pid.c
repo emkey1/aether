@@ -19,7 +19,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    lock(&pids_lock);
+    lock(&pids_lock, 0);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock(&pids_lock);
@@ -30,16 +30,17 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
+    int elock_fail;
     if(doEnableExtraLocking)
-        extra_lockf(entry->pid, entry->meta->name);
+        elock_fail = extra_lockf(entry->pid);
         
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
     
     delay_task_delete_up_vote(task);
-    lock(&task->general_lock);
-    lock(&task->group->lock);
+    lock(&task->general_lock, 0);
+    lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
 
     // program reads this using read-like syscall, so we are in blocking area,
@@ -113,9 +114,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // that's enough for now
     proc_printf(buf, "\n");
     
-    if(doEnableExtraLocking) {
+    if((doEnableExtraLocking) && (!elock_fail))
         extra_unlockf(entry->pid);
-    }
     
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
@@ -141,7 +141,7 @@ static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
     if (task == NULL)
         return _ESRCH;
     int err = 0;
-    lock(&task->general_lock);
+    lock(&task->general_lock, 0);
     if (task->mm == NULL)
         goto out_free_task;
 
@@ -170,10 +170,11 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     delay_task_delete_up_vote(task);
     
     int err = 0;
-    lock(&task->general_lock);
+    lock(&task->general_lock, 0);
     
+    int elock_fail = 0;
     if(doEnableExtraLocking)
-        extra_lockf(task->pid, task->comm);
+        elock_fail = extra_lockf(task->pid);
     
     if (task->mm == NULL)
         goto out_free_task;
@@ -188,7 +189,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
         proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022 -mke
     free(data);
     
-    if(doEnableExtraLocking)
+    if((doEnableExtraLocking) && (!elock_fail))
         extra_unlockf(task->pid);
 
 out_free_task:
@@ -267,7 +268,7 @@ static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, 
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    lock(&task->files->lock);
+    lock(&task->files->lock, 0);
     while (*index < task->files->size && task->files->files[*index] == NULL)
         (*index)++;
     fd_t f = (*index)++;
@@ -286,7 +287,7 @@ static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    lock(&task->files->lock);
+    lock(&task->files->lock, 0);
     struct fd *fd = fdtable_get(task->files, entry->fd);
     int err = generic_getpath(fd, buf);
     unlock(&task->files->lock);
@@ -298,7 +299,7 @@ static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    lock(&task->general_lock);
+    lock(&task->general_lock, 0);
     int err = generic_getpath(task->mm->exefile, buf);
     unlock(&task->general_lock);
     proc_put_task(task);

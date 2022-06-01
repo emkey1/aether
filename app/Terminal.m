@@ -156,7 +156,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         if (self.tty == NULL)
             return;
 #if !ISH_LINUX
-        lock(&self.tty->lock);
+        lock(&self.tty->lock, 0);
         tty_set_winsize(self.tty, (struct winsize_) {.col = cols, .row = rows});
         unlock(&self.tty->lock);
 #else
@@ -176,7 +176,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
 - (int)sendOutput:(const void *)buf length:(int)len {
 #if !ISH_LINUX
-    lock(&_dataLock);
+    lock(&_dataLock, 0);
     if (!NSThread.isMainThread) {
         // The main thread is the only one that can unblock this, so sleeping here would be a deadlock.
         // The only reason for this to be called on the main thread is if input is echoed.
@@ -238,7 +238,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         return;
 
 #if !ISH_LINUX
-    lock(&_dataLock);
+    lock(&_dataLock, 0);
     if (_outputInProgress) {
         [self.refreshTask schedule];
         unlock(&_dataLock);
@@ -275,7 +275,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     NSString *jsToEvaluate = [NSString stringWithFormat:@"exports.write(\"%@\")", dataString];
     [self.webView evaluateJavaScript:jsToEvaluate completionHandler:^(id result, NSError *error) {
 #if !ISH_LINUX
-        lock(&self->_dataLock);
+        lock(&self->_dataLock, 0);
         self->_outputInProgress = NO;
         unlock(&self->_dataLock);
 #else
@@ -319,7 +319,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     if (tty != NULL) {
 #if !ISH_LINUX
         if (tty != NULL) {
-            lock(&tty->lock);
+            lock(&tty->lock, 0);
             tty_hangup(tty);
             unlock(&tty->lock);
         }
@@ -370,7 +370,7 @@ static int ios_tty_init(struct tty *tty) {
     else
         dispatch_sync(dispatch_get_main_queue(), init_block);
 
-    lock(&ttys_lock);
+    lock(&ttys_lock, 0);
     return 0;
 }
 

@@ -49,6 +49,9 @@ static void ios_handle_exit(struct task *task, int code) {
         return;
     // pid should be saved now since task would be freed
     pid_t pid = task->pid;
+    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:ProcessExitedNotification
                                                             object:nil

@@ -20,7 +20,7 @@ static struct fd *at_fd(fd_t f) {
 
 static void apply_umask(mode_t_ *mode) {
     struct fs_info *fs = current->fs;
-    lock(&fs->lock);
+    lock(&fs->lock, 0);
     *mode &= ~fs->umask;
     unlock(&fs->lock);
 }
@@ -412,7 +412,7 @@ dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, 
         return _EBADF;
     if (!fd->ops->lseek)
         return _ESPIPE;
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     off_t_ off = ((qword_t) off_high << 32) | off_low;
     STRACE("llseek(%d, %lu, %#x, %d)", f, off, res_addr, whence);
     off_t_ res = fd->ops->lseek(fd, off, whence);
@@ -431,7 +431,7 @@ dword_t sys_lseek(fd_t f, dword_t off, dword_t whence) {
         return _EBADF;
     if (!fd->ops->lseek)
         return _ESPIPE;
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     off_t res = fd->ops->lseek(fd, off, whence);
     unlock(&fd->lock);
     if ((dword_t) res != res)
@@ -448,7 +448,7 @@ dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     if (buf == NULL)
         return _ENOMEM;
     task_may_block_start();
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     ssize_t res;
     if (fd->ops->pread) {
         res = fd->ops->pread(fd, buf, size, off);
@@ -489,7 +489,7 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     if (user_read(buf_addr, buf, size))
         return _EFAULT;
     
-    lock(&fd->lock);
+    lock(&fd->lock, 0);
     ssize_t res;
     
     TASK_MAY_BLOCK {
@@ -572,7 +572,7 @@ dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
 
 dword_t sys_getcwd(addr_t buf_addr, dword_t size) {
     STRACE("getcwd(%#x, %#x)", buf_addr, size);
-    lock(&current->fs->lock);
+    lock(&current->fs->lock, 0);
     struct fd *wd = current->fs->pwd;
     char pwd[MAX_PATH + 1];
     int err = generic_getpath(wd, pwd);
@@ -607,7 +607,7 @@ static struct fd *open_dir(const char *path) {
 }
 
 void fs_chdir(struct fs_info *fs, struct fd *fd) {
-    lock(&fs->lock);
+    lock(&fs->lock, 0);
     fd_close(fs->pwd);
     fs->pwd = fd;
     unlock(&fs->lock);
@@ -645,7 +645,7 @@ dword_t sys_chroot(addr_t path_addr) {
     struct fd *dir = open_dir(path);
     if (IS_ERR(dir))
         return PTR_ERR(dir);
-    lock(&current->fs->lock);
+    lock(&current->fs->lock, 0);
     fd_close(current->fs->root);
     current->fs->root = dir;
     unlock(&current->fs->lock);
@@ -655,7 +655,7 @@ dword_t sys_chroot(addr_t path_addr) {
 dword_t sys_umask(dword_t mask) {
     STRACE("umask(0%o)", mask);
     struct fs_info *fs = current->fs;
-    lock(&fs->lock);
+    lock(&fs->lock, 0);
     mode_t_ old_umask = fs->umask;
     fs->umask = ((mode_t_) mask) & 0777;
     unlock(&fs->lock);

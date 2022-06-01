@@ -272,12 +272,12 @@ void handle_interrupt(int interrupt) {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
                 // Fail silently
             }
-            lock(&current->ptrace.lock);
+            lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
                 unlock(&current->ptrace.lock);
                 receive_signals();
-                lock(&current->ptrace.lock);
+                lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
@@ -287,24 +287,24 @@ void handle_interrupt(int interrupt) {
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
             // pthread_mutex_unlock(&syscall_lock); //mkemke
-            lock(&current->ptrace.lock);
+            lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
                 current->ptrace.syscall = syscall_num;
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
                 unlock(&current->ptrace.lock);
                 receive_signals();
-                lock(&current->ptrace.lock);
+                lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-        read_lock(&current->mem->lock);
         delay_task_delete_up_vote(current);
+        read_lock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
-        delay_task_delete_down_vote(current);
         read_unlock(&current->mem->lock);
+        delay_task_delete_down_vote(current);
         if (ptr == NULL) {
             printk("ERROR: %d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
@@ -328,14 +328,14 @@ void handle_interrupt(int interrupt) {
         };
         deliver_signal(current, SIGILL_, info);
     } else if (interrupt == INT_BREAKPOINT) {
-        lock(&pids_lock);
+        lock(&pids_lock, 0);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
         unlock(&pids_lock);
     } else if (interrupt == INT_DEBUG) {
-        lock(&pids_lock);
+        lock(&pids_lock, 0);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,
@@ -348,7 +348,7 @@ void handle_interrupt(int interrupt) {
 
     receive_signals();
     struct tgroup *group = current->group;
-    lock(&group->lock);
+    lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
     unlock(&group->lock);

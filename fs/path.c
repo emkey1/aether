@@ -124,7 +124,7 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
         return _ENOENT;
 
     // start with root or cwd, depending on whether it starts with a slash
-    lock(&current->fs->lock);
+    lock(&current->fs->lock, 0);
     if (path[0] == '/')
         at = current->fs->root;
     else if (at == AT_PWD)

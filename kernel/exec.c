@@ -203,7 +203,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     // general_lock protects current->mm. otherwise procfs might read the
     // pointer before it's released and then try to lock it after it's
     // released.
-    lock(&current->general_lock);
+    lock(&current->general_lock, 0);
     mm_release(current->mm);
     task_set_mm(current, mm_new());
     unlock(&current->general_lock);
@@ -595,7 +595,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     }
 
     // save current->comm
-    lock(&current->general_lock);
+    lock(&current->general_lock, 0);
     const char *basename = strrchr(file, '/');
     if (basename == NULL)
         basename = file;
@@ -611,7 +611,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     fdtable_do_cloexec(current->files);
 
     // reset signal handlers
-    lock(&current->sighand->lock);
+    lock(&current->sighand->lock, 0);
     for (int sig = 0; sig < NUM_SIGS; sig++) {
         struct sigaction_ *action = &current->sighand->action[sig];
         if (action->handler != SIG_IGN_)
@@ -624,7 +624,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     vfork_notify(current);
 
     if (current->ptrace.traced) {
-        lock(&pids_lock);
+        lock(&pids_lock, 0);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .code = SI_USER_,
             .kill.pid = current->pid,
