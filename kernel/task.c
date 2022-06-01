@@ -291,7 +291,7 @@ int extra_lockf(dword_t pid) {
     
     unsigned int count = 0;
     struct timespec mylock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
-    long count_max = (255000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    long count_max = (555000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
         printk("ERROR: The newest_extra_lock time(extra_lockf) has exceded %d seconds (%d). Resetting\n", maxl, now - newest_extra_lock_time);

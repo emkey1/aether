@@ -710,6 +710,9 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
 }
 
 static int kill_task(struct task *task, dword_t sig) {
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     if (!superuser() &&
             current->uid != task->uid &&
             current->uid != task->suid &&
@@ -721,6 +724,9 @@ static int kill_task(struct task *task, dword_t sig) {
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     send_signal(task, sig, info);
     return 0;
 }
@@ -733,6 +739,9 @@ static int kill_group(pid_t_ pgid, dword_t sig) {
     }
     struct tgroup *tgroup;
     int err = _EPERM;
+    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
         int kill_err = kill_task(tgroup->leader, sig);
         // killing a group should return an error only if no process can be signaled

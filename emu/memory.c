@@ -336,7 +336,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
-            memcpy(copy, data, PAGE_SIZE);
+            memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
             write_to_read_lock(&mem->lock);
             

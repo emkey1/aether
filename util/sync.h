@@ -57,7 +57,10 @@ static inline void lock_init(lock_t *lock) {
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
-    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    long count_max = (555000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&lock_pause, NULL);
@@ -161,13 +164,13 @@ static inline void loop_lock_write(wrlock_t *lock) {
             loop_lock_write(lock);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_write(%d) tries excede %d, dealing with likely deadlock.(PID: %d Process: %s)\n", count_max, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) tries excede %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
 	        if(lock->val > 0) {
                 _read_unlock(lock);
 	        } else if (lock->val < 0) {
 	            _write_unlock(lock);
 	        } else {
-	            printk("ERROR: lock->val = 0 in loop_lock_write(%d)\n", lock->pid);
+	            printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock->pid, lock->comm);
 	        }
             
             lock->val = 0;
