@@ -15,6 +15,8 @@ static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data 
     return 0;
 }
 
+bool proc_net_readdir(struct proc_entry * UNUSED(entry), unsigned long *index, struct proc_entry *next_entry);
+
 char * parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags into text */
     if(edx & (1<<0))
         strcat(edx_flags, "fpu ");
@@ -301,6 +303,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"loadavg", .show = proc_show_loadavg},
     {"meminfo", .show = proc_show_meminfo},
     {"mounts", .show = proc_show_mounts},
+    {"net", S_IFDIR, .readdir= proc_net_readdir},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
     {"stat", .show = proc_show_stat},
     {"uptime", .show = proc_show_uptime},

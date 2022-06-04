@@ -47,7 +47,7 @@
 		497F6D0B254E5EA600C82F46 /* poll.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BF6254E5C0E00C82F46 /* poll.c */; };
 		497F6D0C254E5EA600C82F46 /* pid.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BF2254E5C0D00C82F46 /* pid.c */; };
 		497F6D0D254E5EA600C82F46 /* root.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BF3254E5C0D00C82F46 /* root.c */; };
-		497F6D0E254E5EA600C82F46 /* entry.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BF4254E5C0D00C82F46 /* entry.c */; };
+		497F6D0E254E5EA600C82F46 /* net.h in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BF4254E5C0D00C82F46 /* net.h */; };
 		497F6D0F254E5EA600C82F46 /* proc.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BDD254E5C0D00C82F46 /* proc.c */; };
 		497F6D10254E5EA600C82F46 /* pty.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C06254E5C0E00C82F46 /* pty.c */; };
 		497F6D11254E5EA600C82F46 /* real.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C04254E5C0E00C82F46 /* real.c */; };
@@ -422,7 +422,7 @@
 		497F6BF0254E5C0D00C82F46 /* fd.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = fd.h; sourceTree = "<group>"; };
 		497F6BF2254E5C0D00C82F46 /* pid.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = pid.c; sourceTree = "<group>"; };
 		497F6BF3254E5C0D00C82F46 /* root.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = root.c; sourceTree = "<group>"; };
-		497F6BF4254E5C0D00C82F46 /* entry.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = entry.c; sourceTree = "<group>"; };
+		497F6BF4254E5C0D00C82F46 /* net.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = net.h; sourceTree = "<group>"; };
 		497F6BF5254E5C0E00C82F46 /* proc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = proc.h; sourceTree = "<group>"; };
 		497F6BF6254E5C0E00C82F46 /* poll.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = poll.c; sourceTree = "<group>"; };
 		497F6BF7254E5C0E00C82F46 /* sock.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sock.c; sourceTree = "<group>"; };
@@ -543,6 +543,8 @@
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
 		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "ish-AOK"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
+		5DBA57EB284BEDDD00CBC5D0 /* proc */ = {isa = PBXFileReference; lastKnownFileType = folder; path = proc; sourceTree = "<group>"; };
+		5DF50EB6284BEF8200FF9FD8 /* proc */ = {isa = PBXFileReference; lastKnownFileType = folder; name = proc; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -768,7 +770,9 @@
 		497F6BF1254E5C0D00C82F46 /* proc */ = {
 			isa = PBXGroup;
 			children = (
-				497F6BF4254E5C0D00C82F46 /* entry.c */,
+				5DF50EB6284BEF8200FF9FD8 /* proc */,
+				497F6BF4254E5C0D00C82F46 /* net.h */,
+				5DBA57EB284BEDDD00CBC5D0 /* proc */,
 				49302D8D277669D300C9885A /* ish.c */,
 				49302D972777FAB400C9885A /* ish.h */,
 				497F6BF2254E5C0D00C82F46 /* pid.c */,
@@ -1963,7 +1967,7 @@
 				497F6D0B254E5EA600C82F46 /* poll.c in Sources */,
 				497F6D0C254E5EA600C82F46 /* pid.c in Sources */,
 				497F6D0D254E5EA600C82F46 /* root.c in Sources */,
-				497F6D0E254E5EA600C82F46 /* entry.c in Sources */,
+				497F6D0E254E5EA600C82F46 /* net.h in Sources */,
 				497F6D0F254E5EA600C82F46 /* proc.c in Sources */,
 				497F6D10254E5EA600C82F46 /* pty.c in Sources */,
 				497F6D11254E5EA600C82F46 /* real.c in Sources */,
@@ -2396,8 +2400,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */;
 			buildSettings = {
-				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				CURRENT_PROJECT_VERSION = 376;
+				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2405,9 +2409,9 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 376;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				CURRENT_PROJECT_VERSION = 376;
 			};
 			name = Release;
 		};
@@ -2418,7 +2422,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2436,7 +2440,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2451,8 +2455,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */;
 			buildSettings = {
-				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				CURRENT_PROJECT_VERSION = 376;
+				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = DebugLinux;
 		};
@@ -2463,7 +2467,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2480,7 +2484,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2503,7 +2507,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2596,7 +2600,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2614,7 +2618,7 @@
 				CODE_SIGN_ENTITLEMENTS = iSHFileProviderRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2707,7 +2711,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2721,7 +2725,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2733,9 +2737,9 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */;
 			buildSettings = {
+				CURRENT_PROJECT_VERSION = 376;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				CURRENT_PROJECT_VERSION = 376;
 			};
 			name = ReleaseLinux;
 		};
@@ -2746,7 +2750,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
@@ -2763,7 +2767,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2786,7 +2790,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 365;
+				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
