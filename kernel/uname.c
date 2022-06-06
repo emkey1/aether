@@ -12,7 +12,6 @@
 const char *uname_version = "iSH-AOK";
 const char *uname_hostname_override = NULL;
 
-
 void do_uname(struct uname *uts) {
     struct utsname real_uname;
     uname(&real_uname);

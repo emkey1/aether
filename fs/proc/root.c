@@ -4,6 +4,7 @@
 #include "kernel/calls.h"
 #include "kernel/task.h"
 #include "fs/proc.h"
+#include "fs/proc/net.h"
 #include "platform/platform.h"
 #include <sys/param.h> // for MIN and MAX
 #include "emu/cpuid.h"
@@ -14,8 +15,6 @@ static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data 
     proc_printf(buf, "%s version %s %s\n", uts.system, uts.release, uts.version);
     return 0;
 }
-
-bool proc_net_readdir(struct proc_entry * UNUSED(entry), unsigned long *index, struct proc_entry *next_entry);
 
 char * parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags into text */
     if(edx & (1<<0))
@@ -242,7 +241,7 @@ static int proc_show_loadavg(struct proc_entry *UNUSED(entry), struct proc_data 
     double load_15m = uptime.load_15m / 65536.0;
     int blocked_task_count = get_count_of_blocked_tasks();
     int alive_task_count = get_count_of_alive_tasks();
-    // running_task_count is calculated approximetly, since we don't know the real number of currently running tasks.
+    // running_task_count is calculated abool proc_net_readdir(struct proc_entry * UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) pproximetly, since we don't know the real number of currently running tasks.
     int running_task_count = MIN(get_cpu_count(), (int)(alive_task_count - blocked_task_count));
     proc_printf(buf, "%.2f %.2f %.2f %u/%u %u\n", load_1m, load_5m, load_15m, running_task_count, alive_task_count, last_pid_id);
     return 0;
@@ -303,9 +302,10 @@ struct proc_dir_entry proc_root_entries[] = {
     {"loadavg", .show = proc_show_loadavg},
     {"meminfo", .show = proc_show_meminfo},
     {"mounts", .show = proc_show_mounts},
-    {"net", S_IFDIR, .readdir= proc_net_readdir},
+    {"net", S_IFDIR, .children = &proc_net_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},
-    {"stat", .show = proc_show_stat},
+    {"stat", .show = &proc_show_stat},
+    {"sys", S_IFDIR, .children = &proc_sys_children},
     {"uptime", .show = proc_show_uptime},
     {"version", .show = proc_show_version},
 };

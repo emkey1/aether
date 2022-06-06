@@ -1,5 +1,6 @@
 #include "fs/proc.h"
 #include "fs/proc/ish.h"
+#include "fs/proc/net.h"
 #include "kernel/errno.h"
 #include <stdio.h>
 #include <stdlib.h>

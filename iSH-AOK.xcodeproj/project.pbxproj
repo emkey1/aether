@@ -97,6 +97,9 @@
 		497F6D3D254E5EA600C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
+		5D8ACEFA284BF122003C50D3 /* net.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEF9284BF122003C50D3 /* net.c */; };
+		5D8ACEFD284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
+		5D8ACEFE284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; platformFilter = ios; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
@@ -543,8 +546,9 @@
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
 		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "ish-AOK"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
-		5DBA57EB284BEDDD00CBC5D0 /* proc */ = {isa = PBXFileReference; lastKnownFileType = folder; path = proc; sourceTree = "<group>"; };
-		5DF50EB6284BEF8200FF9FD8 /* proc */ = {isa = PBXFileReference; lastKnownFileType = folder; name = proc; sourceTree = "<group>"; };
+		5D8ACEF9284BF122003C50D3 /* net.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = net.c; sourceTree = "<group>"; };
+		5D8ACEFB284CE096003C50D3 /* sys.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sys.h; sourceTree = "<group>"; };
+		5D8ACEFC284CE096003C50D3 /* sys.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sys.c; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -609,7 +613,7 @@
 		BB38597B27BCEC78000A1082 /* freeiosterminal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = freeiosterminal.png; sourceTree = "<group>"; };
 		BB38598227BCEC83000A1082 /* ishcolontildehash.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = ishcolontildehash.png; sourceTree = "<group>"; };
 		BB38598327BCEC83000A1082 /* is.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = is.png; sourceTree = "<group>"; };
-		BB41591C255EF9E300E0950C /* iSHUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = iSHUITests.xctest; path = "iSH-AOKUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "iSH-AOKUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BB41591E255EF9E300E0950C /* UITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UITests.m; sourceTree = "<group>"; };
 		BB415920255EF9E300E0950C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB455E0F1FB37F6600AFB48B /* DelayedUITask.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DelayedUITask.h; sourceTree = "<group>"; };
@@ -770,9 +774,10 @@
 		497F6BF1254E5C0D00C82F46 /* proc */ = {
 			isa = PBXGroup;
 			children = (
-				5DF50EB6284BEF8200FF9FD8 /* proc */,
+				5D8ACEFC284CE096003C50D3 /* sys.c */,
+				5D8ACEFB284CE096003C50D3 /* sys.h */,
+				5D8ACEF9284BF122003C50D3 /* net.c */,
 				497F6BF4254E5C0D00C82F46 /* net.h */,
-				5DBA57EB284BEDDD00CBC5D0 /* proc */,
 				49302D8D277669D300C9885A /* ish.c */,
 				49302D972777FAB400C9885A /* ish.h */,
 				497F6BF2254E5C0D00C82F46 /* pid.c */,
@@ -989,7 +994,7 @@
 				BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */,
 				BB13F7DC200AD81D003D1C4D /* libish.a */,
 				BBFB2C5B2590257E00545EAB /* libish_emu.a */,
-				BB41591C255EF9E300E0950C /* iSHUITests.xctest */,
+				BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */,
 				497F6D47254E605F00C82F46 /* ish-AOK */,
 				497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
 				BBEF191E26806364001225BD /* libiSH-AOKApp.a */,
@@ -1414,7 +1419,7 @@
 			);
 			name = "iSH-AOKUITests";
 			productName = iSHUITests;
-			productReference = BB41591C255EF9E300E0950C /* iSHUITests.xctest */;
+			productReference = BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		BB792B4F1F96D90D00FFB7A4 /* iSH-AOK */ = {
@@ -1558,6 +1563,7 @@
 				TargetAttributes = {
 					497F6CE3254E5E4C00C82F46 = {
 						CreatedOnToolsVersion = 12.2;
+						LastSwiftMigration = 1340;
 					};
 					497F6D46254E605F00C82F46 = {
 						CreatedOnToolsVersion = 12.2;
@@ -1587,6 +1593,7 @@
 					};
 					BB792B4F1F96D90D00FFB7A4 = {
 						CreatedOnToolsVersion = 9.0;
+						LastSwiftMigration = 1340;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.iOS = {
 								enabled = 1;
@@ -1959,6 +1966,7 @@
 				497F6D03254E5EA500C82F46 /* fd.c in Sources */,
 				497F6D04254E5EA500C82F46 /* generic.c in Sources */,
 				497F6D05254E5EA600C82F46 /* inode.c in Sources */,
+				5D8ACEFE284CE096003C50D3 /* sys.c in Sources */,
 				497F6D06254E5EA600C82F46 /* lock.c in Sources */,
 				497F6D07254E5EA600C82F46 /* mem.c in Sources */,
 				497F6D08254E5EA600C82F46 /* mount.c in Sources */,
@@ -1981,6 +1989,7 @@
 				497F6D19254E5EA600C82F46 /* helpers.c in Sources */,
 				497F6D1A254E5EA600C82F46 /* jit.c in Sources */,
 				497F6D1B254E5EA600C82F46 /* offsets.c in Sources */,
+				5D8ACEFA284BF122003C50D3 /* net.c in Sources */,
 				497F6D1C254E5EA600C82F46 /* calls.c in Sources */,
 				497F6D1D254E5EA600C82F46 /* epoll.c in Sources */,
 				497F6D1E254E5EA600C82F46 /* errno.c in Sources */,
@@ -2039,6 +2048,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB28C7BB268975AE00BDC834 /* LocationDevice.m in Sources */,
+				5D8ACEFD284CE096003C50D3 /* sys.c in Sources */,
 				BB28C7BA268975AA00BDC834 /* iOSFS.m in Sources */,
 				BB28C7BC268975B000BDC834 /* PasteboardDevice.m in Sources */,
 			);
@@ -2236,18 +2246,35 @@
 		497F6CE8254E5E4C00C82F46 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/MakeXcodeAutoCompleteWork-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		497F6CE9254E5E4C00C82F46 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/MakeXcodeAutoCompleteWork-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -2420,15 +2447,23 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/iSH-AOK-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2438,15 +2473,22 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/iSH-AOK-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -2465,15 +2507,23 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/iSH-AOK-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = DebugLinux;
@@ -2573,9 +2623,18 @@
 		BB7F62102688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/MakeXcodeAutoCompleteWork-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
 			};
 			name = DebugLinux;
 		};
@@ -2748,15 +2807,22 @@
 			baseConfigurationReference = BB0B86CD2586FD8800208600 /* App.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 376;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 1.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/iSH-AOK-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = ReleaseLinux;
@@ -2855,9 +2921,17 @@
 		BBEF19B626806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
+				SWIFT_OBJC_BRIDGING_HEADER = "fs/proc/MakeXcodeAutoCompleteWork-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
 			};
 			name = ReleaseLinux;
 		};
