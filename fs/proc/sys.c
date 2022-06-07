@@ -13,6 +13,8 @@
 #import <unistd.h>
 #import <net/if_var.h>
 
+extern const char *proc_ish_version;
+
 #pragma mark - /proc/sys
 
 static void get_child_names(struct proc_entry *entry, unsigned long index) {
@@ -100,8 +102,14 @@ static int sys_show_net_unix_hostname(struct proc_entry * UNUSED(entry), struct 
     return 0;
 }
 
+static int sys_show_net_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%s\n", proc_ish_version);
+    return 0;
+}
+
 struct proc_dir_entry proc_sys_kernel[] = {
     {"hostname", .show = sys_show_net_unix_hostname},
+    {"version", .show = sys_show_net_version},
 };
 
 #define PROC_SYS_KERNEL_LEN sizeof(proc_sys_kernel)/sizeof(proc_sys_kernel[0])

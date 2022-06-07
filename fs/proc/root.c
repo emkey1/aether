@@ -231,6 +231,25 @@ static int proc_show_uptime(struct proc_entry *UNUSED(entry), struct proc_data *
     proc_printf(buf, "%u.%u %u.%u\n", uptime / 100, uptime % 100, uptime / 100, uptime % 100);
     return 0;
 }
+static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    
+    return 0;
+}
+/*
+ 8       0 sda 52553 537 6661171 8035 394441 324883 29295529 405166 0 111828 240028 0 0 0 0
+ 8       1 sda1 421 0 9657 21 2 0 9 0 0 16 20 0 0 0 0
+ 8       2 sda2 51958 537 6642610 7999 392133 324883 29295520 405043 0 111804 239984 0 0 0 0
+ 8       3 sda3 70 0 4592 6 0 0 0 0 0 8 12 0 0 0 0
+11       0 sr0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ */
+static int proc_show_diskstats(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    //proc_printf(buf, "8       0 disk1 52553 537 6661171 8035 394441 324883 29295529 405166 0 111828 240028 0 0 0 0\n");
+    proc_printf(buf, "8       0 disk1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    //proc_printf(buf, "8       0 sda1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    //proc_printf(buf, "8       0 sda2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    //proc_printf(buf, "8       0 sda3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    return 0;
+}
 
 static int proc_show_loadavg(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct uptime_info uptime = get_uptime();
@@ -297,6 +316,7 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
     {"cpuinfo", .show = proc_show_cpuinfo},
+    {"diskstats", .show = proc_show_diskstats},
     {"filesystems", .show = proc_show_filesystems},
     {"ish", S_IFDIR, .children = &proc_ish_children},
     {"loadavg", .show = proc_show_loadavg},
@@ -308,6 +328,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"sys", S_IFDIR, .children = &proc_sys_children},
     {"uptime", .show = proc_show_uptime},
     {"version", .show = proc_show_version},
+    {"vmstat", .show = proc_show_vmstat},
 };
 #define PROC_ROOT_LEN sizeof(proc_root_entries)/sizeof(proc_root_entries[0])
 
