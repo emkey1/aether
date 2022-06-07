@@ -17,20 +17,11 @@ extern const char *proc_ish_version;
 
 #pragma mark - /proc/sys
 
-static void get_child_names(struct proc_entry *entry, unsigned long index) {
-    if (index == 0 || entry->child_names == NULL) {
-        if (entry->child_names != NULL)
-            free_string_array(entry->child_names);
-        //entry->child_names = get_all_defaults_keys();
-    }
-}
 static bool sys_show_abi(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     return 0;
 }
 
-static bool sys_show_debug(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    return 0;
-}
+
 
 static bool sys_show_dev(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     return 0;
@@ -41,24 +32,6 @@ static bool sys_show_fs(struct proc_entry *entry, unsigned long *index, struct p
 }
 
 static bool sys_show_fscache(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    return 0;
-}
-
-static bool sys_show_kernel(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    return 0;
-}
-
-static bool sys_show_net(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    get_child_names(entry, *index);
-    char *friendly_name = NULL;
-    do {
-        const char *name = entry->child_names[*index];
-        if (name == NULL)
-            return false;
-        (*index)++;
-    } while (friendly_name == NULL);
-    next_entry->name = friendly_name;
-    return true;
     return 0;
 }
 
@@ -94,6 +67,27 @@ static bool sys_show_net_unix(struct proc_entry *entry, unsigned long *index, st
     return 0;
 }
 
+static int sys_show_net_debug_exception_trace(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", 0);
+    return 0;
+}
+
+struct proc_dir_entry proc_sys_debug[] = {
+    {"exception-trace", .show = sys_show_net_debug_exception_trace},
+};
+
+#define PROC_SYS_DEBUG_LEN sizeof(proc_sys_debug)/sizeof(proc_sys_debug[0])
+
+static bool proc_sys_debug_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index < PROC_SYS_DEBUG_LEN) {
+        *next_entry = (struct proc_entry) {&proc_sys_debug[*index], *index, NULL, NULL, 0, 0};
+        (*index)++;
+        return true;
+    }
+    
+    return false;
+}
+
 static int sys_show_net_unix_hostname(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
     struct utsname real_uname;
     uname(&real_uname);
@@ -124,13 +118,6 @@ static bool proc_sys_kernel_readdir(struct proc_entry *UNUSED(entry), unsigned l
     return false;
 }
 
-/*
- dr-xr-xr-x 1 root root 0 Jun  4 22:45 core
- dr-xr-xr-x 1 root root 0 Jun  3 23:49 ipv4
- dr-xr-xr-x 1 root root 0 Jun  3 23:49 ipv6
- dr-xr-xr-x 1 root root 0 Jun  4 22:45 netfilter
- dr-xr-xr-x 1 root root 0 Jun  4 22:45 unix
- */
 struct proc_dir_entry proc_sys_net[] = {
     {"core", S_IFDIR, .readdir = sys_show_net_core},
     {"ipv4", S_IFDIR, .readdir = sys_show_net_ipv4},
@@ -155,7 +142,7 @@ struct proc_dir_entry proc_net = {NULL, S_IFDIR, .readdir = proc_sys_net_readdir
 
 struct proc_children proc_sys_children = PROC_CHILDREN({
     {"abi", S_IFDIR, .readdir = sys_show_abi},
-    {"debug", S_IFDIR, .readdir = sys_show_debug},
+    {"debug", S_IFDIR, .readdir = proc_sys_debug_readdir},
     {"dev", S_IFDIR, .readdir = sys_show_dev},
     {"fs", S_IFDIR, .readdir = sys_show_fs},
     {"fscache", S_IFDIR, .readdir = sys_show_fscache},
