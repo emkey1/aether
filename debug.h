@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #define WAIT_SLEEP 2500
+#define WAIT_MAX_UPPER 555000
 
 void ish_printk(const char *msg, ...);
 void ish_vprintk(const char *msg, va_list args);

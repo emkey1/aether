@@ -280,7 +280,9 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         struct real_poll_event e[4];
         do {
             unlock(&poll_->lock);
+
             err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
+      
             lock(&poll_->lock, 0);
         } while (sockrestart_should_restart_listen_wait() && errno == EINTR);
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
@@ -327,6 +329,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
 void poll_destroy(struct poll *poll) {
     struct poll_fd *poll_fd;
     struct poll_fd *tmp;
+    
     while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
@@ -340,7 +343,11 @@ void poll_destroy(struct poll *poll) {
     while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
+    
     list_for_each_entry_safe(&poll->pollfd_freelist, poll_fd, tmp, fds) {
+        while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         list_remove(&poll_fd->fds);
         free(poll_fd);
     }

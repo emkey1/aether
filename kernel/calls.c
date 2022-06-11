@@ -345,8 +345,9 @@ void handle_interrupt(int interrupt) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
     }
-
+    delay_task_delete_up_vote(current);
     receive_signals();
+    delay_task_delete_down_vote(current);
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
     while (group->stopped)

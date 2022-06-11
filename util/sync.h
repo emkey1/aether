@@ -59,7 +59,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
     struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
-    long count_max = (555000 - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    long count_max = (WAIT_MAX_UPPER - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
     
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
