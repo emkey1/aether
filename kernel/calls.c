@@ -345,14 +345,14 @@ void handle_interrupt(int interrupt) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
     }
-    delay_task_delete_up_vote(current);
     receive_signals();
-    delay_task_delete_down_vote(current);
     struct tgroup *group = current->group;
+    delay_task_delete_up_vote(current);
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
     unlock(&group->lock);
+    delay_task_delete_down_vote(current);
 }
 
 void dump_maps() {

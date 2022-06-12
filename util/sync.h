@@ -58,8 +58,8 @@ static inline void lock_init(lock_t *lock) {
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
-    struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
-    long count_max = (WAIT_MAX_UPPER - mylock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
@@ -123,7 +123,9 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
-    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
@@ -152,7 +154,9 @@ static inline void loop_lock_read(wrlock_t *lock) {
 
 static inline void loop_lock_write(wrlock_t *lock) {
     unsigned count = 0;
-    long count_max = (555000 - lock_pause.tv_nsec);  // As sleep time increases, decrease acceptable loops.  -mke
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke

@@ -221,7 +221,6 @@ void task_run_current() {
         read_lock(&current->mem->lock);
         
         if(!doEnableMulticore)
-            
             pthread_mutex_lock(&multicore_lock);
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
@@ -290,7 +289,8 @@ int extra_lockf(dword_t pid) {
         time(&newest_extra_lock_time); // Initialize
     
     unsigned int count = 0;
-    struct timespec mylock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/}; // Time to sleep between non blocking lock attempts.  -mke
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - WAIT_SLEEP);  // As sleep time increases, decrease acceptable loops.  -mke
     
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
@@ -305,6 +305,7 @@ int extra_lockf(dword_t pid) {
                 printk("ERROR: Possible deadlock(extra_lockf(), aborted lock attempt(PID: %d Process: %s)\n", current_pid(), current_comm() );
                 extra_lock_pid = 0;
                 strcpy(extra_lock_comm, "");
+                pthread_mutex_unlock(&extra_lock);
                 return 1;
             }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
@@ -323,6 +324,8 @@ int extra_lockf(dword_t pid) {
         if(count > count_max) {
             printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d )\n", extra_lock_pid);
             extra_lock_pid = 0;
+            pthread_mutex_unlock(&extra_lock);
+            strcpy(extra_lock_comm, "");
             return 1;
         }
             // Loop until lock works.  Maybe this will help make the multithreading work? -mke
