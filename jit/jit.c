@@ -156,10 +156,13 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
         delay_task_delete_down_vote(current);
 
         struct jit_block *prev_block, *tmp;
+        while(current->delay_task_delete_requests > 3) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         delay_task_delete_up_vote(current);
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
-                *prev_block->jump_ip[i] = prev_block->old_jump_ip[i];
+                *prev_block->jump_ip[i] = prev_block->old_jump_ip[i]; // Crashed here June 12 2022
             list_remove(&prev_block->jumps_from_links[i]);
         }
         delay_task_delete_down_vote(current);

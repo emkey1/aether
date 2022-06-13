@@ -232,7 +232,8 @@ static int proc_show_uptime(struct proc_entry *UNUSED(entry), struct proc_data *
     return 0;
 }
 static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    
+    if(buf)
+        return 0;
     return 0;
 }
 /*

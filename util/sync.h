@@ -66,7 +66,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock)
-                printk("ERROR: Possible deadlock, aborted lock attempt(PID: %d Process: %s) \n",current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s) (File: %s Line: %d)\n", lock, current_pid(), current_comm(), file, line);
             return;
         }
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
@@ -74,7 +74,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d)  (PID: %d Process: %s)\n",count, lock, lock->pid, lock->comm);
+            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) (File: %s Line: %d)\n",count, lock, lock->pid, lock->comm, file, line);
     }
 
     lock->owner = pthread_self();
@@ -124,7 +124,8 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
-    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+//    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    struct timespec lock_pause = {0 /*secs*/, random_wait * .5 /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
@@ -133,17 +134,18 @@ static inline void loop_lock_read(wrlock_t *lock) {
             _read_unlock(lock);
             lock->val = 0;
             loop_lock_read(lock);
-            return;
-        } else if(count > count_max) {
-            printk("ERROR: loop_lock_read(%d) tries excede %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max, current_pid(), current_comm());
-            _read_unlock(lock);
             
+            return;
+        } else if(count > (count_max * 5)) { // Need to be more persistent for RO locks
+            printk("ERROR: loop_lock_read(%d) tries excede %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 5, current_pid(), current_comm());
             if(lock->val > 0) {
-                lock->val--;
-            } else if(lock->val < 0){ // Weird, write lock?
-                printk("ERROR: (lock(%d) is write while trying for read. (PID: %d Process: %s \n", lock, lock->pid, lock->comm);
+                lock->val++;
+            } else if (lock->val < 0) {
+                _write_unlock(lock);
+            } else {
+                printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock->pid, lock->comm);
             }
-            //loop_lock_read(lock);
+            
             return;
         }
         nested_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
@@ -154,7 +156,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
 
 static inline void loop_lock_write(wrlock_t *lock) {
     unsigned count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP*2;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
@@ -276,7 +278,7 @@ static inline void _lock_destroy(wrlock_t *lock) {
     }
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) {
-        printk("URGENT: wlock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
+        printk("URGENT: lock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
         printk("INFO: lock_destroy(), delay_task_delete_requests = %d\n", current_delay_task_delete_requests());
     }
 #else

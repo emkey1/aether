@@ -23,7 +23,7 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
-    unsigned delay_task_delete_requests; // If true, don't delete yetwait_to_delete
+    unsigned delay_task_delete_requests; // If positive, don't delete yet, wait_to_delete
 
     struct tgroup *group; // immutable
     struct list group_links;
@@ -135,6 +135,7 @@ struct posix_timer {
 struct tgroup {
     struct list threads; // locked by pids_lock, by majority vote
     struct task *leader; // immutable
+    long group_count_in_int;
     struct rusage_ rusage;
 
     // locked by pids_lock

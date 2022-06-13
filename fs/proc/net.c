@@ -23,7 +23,7 @@
 static int proc_show_if_inet6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
     struct ifaddrs *addrs;
     size_t needed; // How much buffer do we need to allocate
-    char *mybuf;
+    // char *mybuf;
     
     int mib[] = {CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS};
     // sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
@@ -62,26 +62,38 @@ static int proc_show_arp(struct proc_entry * UNUSED(entry), struct proc_data *bu
 }
 
 static int proc_show_raw(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
 static int proc_show_raw6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
 static int proc_show_tcp(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
 static int proc_show_tcp6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
 static int proc_show_udp(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
 static int proc_show_udp6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+    if(buf)
+        return 0;
     return 0;
 }
 
@@ -207,34 +219,50 @@ dr-xr-xr-x 5 root root 0 Jun  5 10:55 stat
 dr-xr-xr-x 3 root root 0 Jun  5 10:55 vlan
 */
 static bool net_show_net_snmp6(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_ipconfig(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_netfilter(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_nfsfs(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_rpc(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_stat(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_unix(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
 static bool net_show_vlan(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    if(entry && next_entry && index)
+        return 0;
     return 0;
 }
 
