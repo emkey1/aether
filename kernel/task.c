@@ -304,7 +304,7 @@ int extra_lockf(dword_t pid) {
     long count_max = (WAIT_MAX_UPPER - WAIT_SLEEP);  // As sleep time increases, decrease acceptable loops.  -mke
     
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(extra_lockf) has exceded %d seconds (%d). Resetting\n", maxl, now - newest_extra_lock_time);
+        printk("ERROR: The newest_extra_lock time(extra_lockf) has exceeded %d seconds (%d). Resetting\n", maxl, now - newest_extra_lock_time);
         pthread_mutex_unlock(&extra_lock);
         
         while(pthread_mutex_trylock(&extra_lock)) {
@@ -356,7 +356,7 @@ void extra_unlockf(dword_t pid) {
     time_t now;
     time(&now);
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(unlockf) has exceded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
+        printk("ERROR: The newest_extra_lock time(unlockf) has exceeded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
         pthread_mutex_unlock(&extra_lock);
         extra_lock_pid = 0;
         strcpy(extra_lock_comm, "");

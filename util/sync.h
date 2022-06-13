@@ -108,6 +108,7 @@ typedef struct {
     // -1: write-locked
     // >0: read-locked with this many readers
     atomic_int val;
+    int favor_read;  // Increment this up each time a write lock is gained, down when a read lock is gained
     const char *file;
     int line;
     int pid;
@@ -115,11 +116,24 @@ typedef struct {
 } wrlock_t;
 
 
-static inline void nested_lockf(unsigned count);
-static inline void nested_unlockf(void);
 static inline void _read_unlock(wrlock_t *lock);
 static inline void _write_unlock(wrlock_t *lock);
 static inline void write_unlock_and_destroy(wrlock_t *lock);
+
+static inline void nested_lockf(unsigned count) {
+    //return; // Short circuit for now
+    unsigned myrand = rand() % 50000 + 10000;
+    while(pthread_mutex_trylock(&nested_lock)) {
+        count++;
+        if(count > myrand )
+            return;
+        nanosleep(&lock_pause, NULL);
+    }
+}
+
+static inline void nested_unlockf(void) {
+    pthread_mutex_unlock(&nested_lock);
+}
 
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
@@ -134,29 +148,40 @@ static inline void loop_lock_read(wrlock_t *lock) {
             _read_unlock(lock);
             lock->val = 0;
             loop_lock_read(lock);
+            if(lock->favor_read > 24)
+                lock->favor_read = lock->favor_read - 25;
             
             return;
-        } else if(count > (count_max * 5)) { // Need to be more persistent for RO locks
-            printk("ERROR: loop_lock_read(%d) tries excede %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 5, current_pid(), current_comm());
+        } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
+            printk("ERROR: loop_lock_read(%d) tries exceeded %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 500, current_pid(), current_comm());
             if(lock->val > 0) {
                 lock->val++;
             } else if (lock->val < 0) {
                 _write_unlock(lock);
             } else {
-                printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock->pid, lock->comm);
+                printk("ERROR: loop_lock_read(%d) failure.  lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock, lock->pid, lock->comm);
             }
-            
+            if(lock->favor_read > 24)
+                lock->favor_read = lock->favor_read - 25;
             return;
         }
         nested_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
         nanosleep(&lock_pause, NULL);
         nested_lockf(count);
     }
+    
+    if(lock->favor_read > 24)
+        lock->favor_read = lock->favor_read - 25;
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
     unsigned count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP*2;
+    if(lock->favor_read < 50001) {
+        lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
+    } else {
+        lock->favor_read = lock->favor_read - 5000;
+    }
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP * lock->favor_read;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
@@ -170,7 +195,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
             loop_lock_write(lock);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_write(%d) tries excede %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
 	        if(lock->val > 0) {
                 _read_unlock(lock);
 	        } else if (lock->val < 0) {
@@ -189,6 +214,62 @@ static inline void loop_lock_write(wrlock_t *lock) {
         unsigned mycount = 0;  
         nested_lockf(mycount);
     }
+}
+
+static inline void _read_unlock(wrlock_t *lock) {
+    if(lock->val <=0) {
+        printk("ERROR: read_unlock(%d) error(PID: %d Process: %s count %d) \n",lock, current_pid(), current_comm(), lock->val);
+        lock->val = 0;
+        return;
+    }
+    assert(lock->val > 0);
+    if (pthread_rwlock_unlock(&lock->l) != 0)
+        printk("URGENT: read_unlock(%d) error(PID: %d Process: %s)\n", lock, current_pid(), current_comm());
+    lock->val--;
+}
+
+static inline void read_unlock(wrlock_t *lock) {
+    unsigned count = 0;
+    nested_lockf(count);
+    _read_unlock(lock);
+    nested_unlockf();
+}
+
+static inline void _write_unlock(wrlock_t *lock) {
+    if(pthread_rwlock_unlock(&lock->l) != 0)
+        printk("URGENT: write_unlock(%d:%d) error(PID: %d Process: %s)\n", lock, lock->val, current_pid(), current_comm());
+    if(lock->val != -1) {
+        printk("ERROR: write_unlock(%d) on lock with val of %d (PID: %d Process: %s)\n", lock, lock->val, current_pid(), current_comm());
+    }
+    //assert(lock->val == -1);
+    lock->val = lock->line = lock->pid = 0;
+    lock->comm = NULL;
+    lock->file = NULL;
+}
+
+static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
+    unsigned count = 0;
+    nested_lockf(count);
+    _write_unlock(lock);
+    nested_unlockf();
+}
+
+static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
+    loop_lock_write(lock);
+
+    // assert(lock->val == 0);
+    lock->val = -1;
+    lock->file = file;
+    lock->line = line;
+    lock->pid = current_pid();
+    lock->comm = current_comm();
+}
+
+static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
+    unsigned count = 0;
+    nested_lockf(count);
+    __write_lock(lock, file, line);
+    nested_unlockf();
 }
 
 static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
@@ -324,61 +405,6 @@ static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls
     nested_unlockf();
 }
 
-static inline void _read_unlock(wrlock_t *lock) {
-    if(lock->val <=0) {
-        printk("ERROR: read_unlock(%d) error(PID: %d Process: %s count %d) \n",lock, current_pid(), current_comm(), lock->val);
-        lock->val = 0;
-	    return;
-    }
-    assert(lock->val > 0);
-    if (pthread_rwlock_unlock(&lock->l) != 0)
-        printk("URGENT: read_unlock(%d) error(PID: %d Process: %s)\n", lock, current_pid(), current_comm());
-    lock->val--;
-}
-
-static inline void read_unlock(wrlock_t *lock) {
-    unsigned count = 0;
-    nested_lockf(count);
-    _read_unlock(lock);
-    nested_unlockf();
-}
-
-static inline void _write_unlock(wrlock_t *lock) {
-    if(pthread_rwlock_unlock(&lock->l) != 0)
-        printk("URGENT: write_unlock(%d:%d) error(PID: %d Process: %s)\n", lock, lock->val, current_pid(), current_comm());
-    if(lock->val != -1) {
-        printk("ERROR: write_unlock(%d) on lock with val of %d (PID: %d Process: %s", lock, lock->val, current_pid(), current_comm());
-    }
-    //assert(lock->val == -1);
-    lock->val = lock->line = lock->pid = 0;
-    lock->comm = NULL;
-    lock->file = NULL;
-}
-
-static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
-    unsigned count = 0;
-    nested_lockf(count);
-    _write_unlock(lock);
-    nested_unlockf();
-}
-
-static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
-    loop_lock_write(lock);
-
-    // assert(lock->val == 0);
-    lock->val = -1;
-    lock->file = file;
-    lock->line = line;
-    lock->pid = current_pid();
-    lock->comm = current_comm();
-}
-
-static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
-    unsigned count = 0;
-    nested_lockf(count);
-    __write_lock(lock, file, line);
-    nested_unlockf();
-}
 
 #define write_lock(lock) _write_lock(lock, __FILE__, __LINE__)
 
@@ -414,20 +440,6 @@ static inline void read_unlock_and_destroy(wrlock_t *lock) {
     nested_unlockf();
 }
 
-static inline void nested_lockf(unsigned count) {
-    //return; // Short circuit for now
-    unsigned myrand = rand() % 50000 + 10000;
-    while(pthread_mutex_trylock(&nested_lock)) {
-        count++;
-        if(count > myrand )
-            return;
-        nanosleep(&lock_pause, NULL);
-    }
-}
-
-static inline void nested_unlockf(void) {
-    pthread_mutex_unlock(&nested_lock);
-}
 
 extern __thread sigjmp_buf unwind_buf;
 extern __thread bool should_unwind;
