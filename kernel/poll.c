@@ -93,9 +93,7 @@ dword_t sys_select(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t 
     struct select_context context = {readfds, writefds, exceptfds};
     int err = 0;
     TASK_MAY_BLOCK {
-        delay_task_delete_up_vote(current);
         err = poll_wait(poll, select_event_callback, &context, timeout_addr == 0 ? NULL : &timeout_ts);
-        delay_task_delete_down_vote(current);
     }
     STRACE("%d end select ", current->pid);
     for (fd_t i = 0; i < nfds; i++) {

@@ -56,7 +56,7 @@ int user_read(addr_t addr, void *buf, size_t count) {
     return user_read_task(current, addr, buf, count);
 }
 
-int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
+int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) { // This function has 'write' in the name, yet uses a read lock?  -mke
     read_lock(&task->mem->lock);
     int res = __user_write_task(task, addr, buf, count);
     read_unlock(&task->mem->lock);

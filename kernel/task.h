@@ -218,20 +218,22 @@ void extra_unlockf(dword_t pid);
 // of functions which can block the task, we mark our task as blocked and
 // unblock it after the function is executed.
 __attribute__((always_inline)) inline int task_may_block_start(void) {
- /*   lock(&pids_lock, 0);
+ /*
+    lock(&pids_lock, 0);
     current->io_block = 1;
-    unlock(&pids_lock); */
+    unlock(&pids_lock);
+  */
     delay_task_delete_up_vote(current);
     current->io_block = 1;
     return 0;
 }
 
 __attribute__((always_inline)) inline int task_may_block_end(void) {
-    /*
+  /*
     lock(&pids_lock, 0);
     current->io_block = 0;
     unlock(&pids_lock);
-    */
+   */
     current->io_block = 0;
     delay_task_delete_down_vote(current);
     return 0;

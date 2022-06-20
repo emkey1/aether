@@ -231,10 +231,6 @@ void task_run_current() {
         read_unlock(&current->mem->lock);
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(current->parent != NULL) {
-        //    while(current->parent->group->group_count_in_int > 15) {
-         //       nanosleep(&while_pause, NULL);
-          //  }
-        
             current->parent->group->group_count_in_int++; // Keep track of how many children the parent has
             handle_interrupt(interrupt);
             current->parent->group->group_count_in_int--;

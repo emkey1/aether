@@ -181,7 +181,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
     } else {
         lock->favor_read = lock->favor_read - 5000;
     }
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP * lock->favor_read;
+    int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
