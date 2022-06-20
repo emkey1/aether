@@ -63,7 +63,7 @@
 
 - (IBAction)importFilesystem:(id)sender {
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-                                              initWithDocumentTypes:@[@"public.tar-archive", @"org.gnu.gnu-zip-archive"]
+                                              initWithDocumentTypes:@[@"public.tar-archive", @"org.gnu.gnu-zip-archive", @"public.bzip2-archive"]
                                               inMode:UIDocumentPickerModeImport];
     [self presentViewController:picker animated:YES completion:nil];
     if (@available(iOS 13, *)) {

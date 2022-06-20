@@ -178,7 +178,7 @@
 		BB88F4942154760800A341FD /* FileProviderExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4932154760800A341FD /* FileProviderExtension.m */; };
 		BB88F4972154760800A341FD /* FileProviderItem.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4962154760800A341FD /* FileProviderItem.m */; };
 		BB88F49A2154760800A341FD /* FileProviderEnumerator.m in Sources */ = {isa = PBXBuildFile; fileRef = BB88F4992154760800A341FD /* FileProviderEnumerator.m */; };
-		BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BB8C3AFF26B7B8CF00E38DDC /* fakefs.c in Sources */ = {isa = PBXBuildFile; fileRef = BB8C3AFD26B7B8AF00E38DDC /* fakefs.c */; };
 		BB9C7B87240A2B1E00F5D4F0 /* AppGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = BB9C7B84240A240E00F5D4F0 /* AppGroup.m */; };
 		BBA8E2C1236FF5EA00515F76 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
@@ -187,7 +187,7 @@
 		BBBD741426B7BE2E00321AC5 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
 		BBBF7B5C2415CDBB00EC4C14 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = BBBF7B5B2415CDBB00EC4C14 /* Settings.bundle */; };
 		BBBF9CBD27C217B6002A30F7 /* PasteboardDeviceLinux.c in Sources */ = {isa = PBXBuildFile; fileRef = BBBF9CBB27C217A6002A30F7 /* PasteboardDeviceLinux.c */; };
-		BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB88F4902154760800A341FD /* iSH-AOK.FileProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BBBFE94921C5CFF100509DD5 /* NSError+ISHErrno.m in Sources */ = {isa = PBXBuildFile; fileRef = BB13F4DD21C5770000343E17 /* NSError+ISHErrno.m */; };
 		BBC3863E276817A900CC8C2E /* UpgradeRootViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */; };
 		BBC3863F276817AD00CC8C2E /* CurrentRoot.m in Sources */ = {isa = PBXBuildFile; fileRef = BB565EA32734F1FB00C93EAE /* CurrentRoot.m */; };
@@ -370,26 +370,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 		};
-		BB88F4A32154760800A341FD /* Embed App Extensions */ = {
+		BB88F4A32154760800A341FD /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed App Extensions */,
+				BB88F49F2154760800A341FD /* iSH-AOK.FileProvider.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		BBEF1997268066D1001225BD /* Embed App Extensions */ = {
+		BBEF1997268066D1001225BD /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed App Extensions */,
+				BBBF9CBF27C44114002A30F7 /* iSH-AOK.FileProvider.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -1432,7 +1432,7 @@
 				BB034E8C263643C10000A498 /* Generate APK Repositories File */,
 				BB4A53AC1FAA49CA00A72ACE /* Compile JavaScript */,
 				BB792B4E1F96D90D00FFB7A4 /* Resources */,
-				BB88F4A32154760800A341FD /* Embed App Extensions */,
+				BB88F4A32154760800A341FD /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -1522,7 +1522,7 @@
 				BBEF197A268066D1001225BD /* Generate APK Repositories File */,
 				BBEF197B268066D1001225BD /* Compile JavaScript */,
 				BBEF197C268066D1001225BD /* Resources */,
-				BBEF1997268066D1001225BD /* Embed App Extensions */,
+				BBEF1997268066D1001225BD /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -1559,7 +1559,7 @@
 			isa = PBXProject;
 			attributes = {
 				CLASSPREFIX = "";
-				LastUpgradeCheck = 1340;
+				LastUpgradeCheck = 1400;
 				TargetAttributes = {
 					497F6CE3254E5E4C00C82F46 = {
 						CreatedOnToolsVersion = 12.2;
@@ -2248,6 +2248,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2266,6 +2267,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2282,6 +2284,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
@@ -2296,6 +2299,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
@@ -2309,24 +2313,28 @@
 		BB13F7CC200ACC31003D1C4D /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		BB13F7CD200ACC31003D1C4D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
 		BB13F7D2200ACCA2003D1C4D /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		BB13F7D3200ACCA2003D1C4D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
@@ -2334,6 +2342,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2341,6 +2350,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
@@ -2348,6 +2358,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2355,6 +2366,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2362,6 +2374,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
@@ -2369,6 +2382,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2414,12 +2428,14 @@
 		BB4A922524ED9402002F5A96 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		BB4A922624ED9402002F5A96 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
@@ -2428,6 +2444,7 @@
 			baseConfigurationReference = BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */;
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 376;
+				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2437,6 +2454,7 @@
 			baseConfigurationReference = BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */;
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 376;
+				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -2498,6 +2516,7 @@
 			baseConfigurationReference = BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */;
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 376;
+				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = DebugLinux;
@@ -2546,6 +2565,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = DebugLinux;
@@ -2591,12 +2611,14 @@
 		BB7F620B2688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
 		BB7F620C2688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2604,6 +2626,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2611,12 +2634,14 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
 		BB7F620F2688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2625,6 +2650,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2642,6 +2668,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
@@ -2692,6 +2719,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2700,6 +2728,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = DebugLinux;
@@ -2708,6 +2737,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = Release;
@@ -2716,6 +2746,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKLinux";
 			};
 			name = ReleaseLinux;
@@ -2724,6 +2755,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2731,6 +2763,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = DebugLinux;
 		};
@@ -2738,6 +2771,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};
@@ -2745,6 +2779,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2752,6 +2787,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2760,6 +2796,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = Release;
@@ -2797,6 +2834,7 @@
 			baseConfigurationReference = BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */;
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 376;
+				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -2845,6 +2883,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBEF192C26806546001225BD /* AppLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
 			};
 			name = ReleaseLinux;
@@ -2889,12 +2928,14 @@
 		BBEF19B126806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
 		BBEF19B226806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2902,6 +2943,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2909,12 +2951,14 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
 		BBEF19B526806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = ReleaseLinux;
 		};
@@ -2923,6 +2967,7 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2939,6 +2984,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_HARDENED_RUNTIME = YES;
 				HEADER_SEARCH_PATHS = "$(SRCROOT)";
@@ -2953,6 +2999,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2960,6 +3007,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */;
 			buildSettings = {
+				DEAD_CODE_STRIPPING = YES;
 			};
 			name = Release;
 		};

@@ -103,6 +103,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     if (archive == NULL)
         ARCHIVE_ERR(archive);
     archive_read_support_filter_gzip(archive);
+    archive_read_support_filter_bzip2(archive);
     archive_read_support_format_tar(archive);
     if (archive_read_open_filename(archive, archive_path, 65536) != ARCHIVE_OK)
         ARCHIVE_ERR(archive);

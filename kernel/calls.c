@@ -6,8 +6,6 @@
 #include "kernel/signal.h"
 #include "kernel/task.h"
 
-pthread_mutex_t syscall_lock = PTHREAD_MUTEX_INITIALIZER;
-
 dword_t syscall_stub() {
     return _ENOSYS;
 }
@@ -267,7 +265,7 @@ void handle_interrupt(int interrupt) {
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
-                printk("WARNING: %d(%s) stub syscall %d\n", current->pid, current->comm, syscall_num);
+                printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);
             }
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
                 // Fail silently
@@ -281,12 +279,10 @@ void handle_interrupt(int interrupt) {
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
-            //pthread_mutex_lock(&syscall_lock); //mkemke
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
-            // pthread_mutex_unlock(&syscall_lock); //mkemke
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
                 current->ptrace.syscall = syscall_num;
