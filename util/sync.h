@@ -61,12 +61,16 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     
+   // if((!log_lock) && (current_pid() > 10 ))
+    //    printk("INFO: Attempting Lock(lock(%d)), (PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
-            if(!log_lock)
-                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s) (File: %s Line: %d)\n", lock, current_pid(), current_comm(), file, line);
+            if(!log_lock) {
+                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
+                pthread_mutex_unlock(&lock->m);
+            }
             return;
         }
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
@@ -74,7 +78,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) (File: %s Line: %d)\n",count, lock, lock->pid, lock->comm, file, line);
+            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) (File: %s Line: %d)\n",count, lock->m, lock->pid, lock->comm, file, line);
     }
 
     lock->owner = pthread_self();
@@ -122,11 +126,14 @@ static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void nested_lockf(unsigned count) {
     //return; // Short circuit for now
-    unsigned myrand = rand() % 50000 + 10000;
+    unsigned myrand = (rand() % 50000) + 10000;
     while(pthread_mutex_trylock(&nested_lock)) {
         count++;
-        if(count > myrand )
+        if(count > myrand ) {
+            printk("ERROR: nested_lockf max count attempts exceded(%d)\n", myrand);
+            pthread_mutex_unlock(&nested_lock);
             return;
+        }
         nanosleep(&lock_pause, NULL);
     }
 }
@@ -137,9 +144,9 @@ static inline void nested_unlockf(void) {
 
 static inline void loop_lock_read(wrlock_t *lock) {
     unsigned count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4;
 //    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
-    struct timespec lock_pause = {0 /*secs*/, random_wait * .5 /*nanosecs*/};
+    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
@@ -205,6 +212,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
 	        }
             
             lock->val = 0;
+            pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
             loop_lock_write(lock);
             return;
         }

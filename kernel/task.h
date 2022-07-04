@@ -219,9 +219,9 @@ void extra_unlockf(dword_t pid);
 // unblock it after the function is executed.
 __attribute__((always_inline)) inline int task_may_block_start(void) {
  /*
-    lock(&pids_lock, 0);
+    lock(&block_lock, 0);
     current->io_block = 1;
-    unlock(&pids_lock);
+    unlock(&block_lock);
   */
     delay_task_delete_up_vote(current);
     current->io_block = 1;
@@ -230,9 +230,9 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
 
 __attribute__((always_inline)) inline int task_may_block_end(void) {
   /*
-    lock(&pids_lock, 0);
+    lock(&block_lock, 0);
     current->io_block = 0;
-    unlock(&pids_lock);
+    unlock(&block_lock);
    */
     current->io_block = 0;
     delay_task_delete_down_vote(current);

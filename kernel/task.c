@@ -30,6 +30,7 @@ __thread struct task *current;
 static dword_t last_allocated_pid = 0;
 static struct pid pids[MAX_PID + 1] = {};
 lock_t pids_lock = LOCK_INITIALIZER;
+lock_t block_lock = LOCK_INITIALIZER;
 struct list alive_pids_list;
 
 static bool pid_empty(struct pid *pid) {

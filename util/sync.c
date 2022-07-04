@@ -52,7 +52,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        pthread_cond_wait(&cond->cond, &lock->m); 
+        pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
     } else {
 #if __linux__
         struct timespec abs_timeout;
