@@ -20,6 +20,7 @@
 extern int current_pid(void);
 extern char* current_comm(void);
 extern int current_delay_task_delete_requests(void);
+extern int modify_current_delay_task_delete_requests(int);
 
 extern struct timespec lock_pause;
 
@@ -125,7 +126,9 @@ static inline void _write_unlock(wrlock_t *lock);
 static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void nested_lockf(unsigned count) {
-    //return; // Short circuit for now
+    pthread_mutex_lock(&nested_lock);
+    return;  // Short circuit for now
+    
     unsigned myrand = (rand() % 50000) + 10000;
     while(pthread_mutex_trylock(&nested_lock)) {
         count++;
@@ -143,6 +146,7 @@ static inline void nested_unlockf(void) {
 }
 
 static inline void loop_lock_read(wrlock_t *lock) {
+    modify_current_delay_task_delete_requests(1); // This is a critical piece of code.  Calling process should not be killed while in it.  -mke
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4;
 //    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
@@ -158,6 +162,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
             if(lock->favor_read > 24)
                 lock->favor_read = lock->favor_read - 25;
             
+            modify_current_delay_task_delete_requests(-1);
             return;
         } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
             printk("ERROR: loop_lock_read(%d) tries exceeded %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 500, current_pid(), current_comm());
@@ -179,9 +184,12 @@ static inline void loop_lock_read(wrlock_t *lock) {
     
     if(lock->favor_read > 24)
         lock->favor_read = lock->favor_read - 25;
+    
+    modify_current_delay_task_delete_requests(-1);
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
+    modify_current_delay_task_delete_requests(1);
     unsigned count = 0;
     if(lock->favor_read < 50001) {
         lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
@@ -200,6 +208,8 @@ static inline void loop_lock_write(wrlock_t *lock) {
             lock->pid = 0;
             lock->comm = NULL;
             loop_lock_write(lock);
+            
+            modify_current_delay_task_delete_requests(-1);
             return;
         } else if(count > count_max) {
             printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
@@ -214,6 +224,8 @@ static inline void loop_lock_write(wrlock_t *lock) {
             lock->val = 0;
             pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
             loop_lock_write(lock);
+            
+            modify_current_delay_task_delete_requests(-1);
             return;
         }
         
