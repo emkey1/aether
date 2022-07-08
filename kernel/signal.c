@@ -92,11 +92,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    delay_task_delete_up_vote(task);
+    critical_region_count_increase(task);
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    delay_task_delete_down_vote(task);
+    critical_region_count_decrease(task);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -106,7 +106,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (task->zombie || task->exiting)
         return;
 
-    delay_task_delete_up_vote(task);
+    //critical_region_count_increase(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
@@ -120,7 +120,8 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);
     }
-    delay_task_delete_down_vote(task);
+    
+    //critical_region_count_decrease(task);
 }
 
 bool try_self_signal(int sig) {
@@ -330,7 +331,7 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
     lock(&current->sighand->lock, 0);
 }
 
-void receive_signals() {  // Should this function have a check for delay_task_delete_requests? -mke
+void receive_signals() {  // Should this function have a check for critical_region_count? -mke
     nanosleep(&lock_pause, NULL);
     lock(&current->group->lock, 0);
     bool was_stopped = current->group->stopped;
@@ -462,7 +463,7 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     if (--sighand->refcount == 0) {
@@ -710,7 +711,7 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
 }
 
 static int kill_task(struct task *task, dword_t sig) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     if (!superuser() &&
@@ -724,7 +725,7 @@ static int kill_task(struct task *task, dword_t sig) {
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     send_signal(task, sig, info);
@@ -739,7 +740,7 @@ static int kill_group(pid_t_ pgid, dword_t sig) {
     }
     struct tgroup *tgroup;
     int err = _EPERM;
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {

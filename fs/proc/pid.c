@@ -31,14 +31,13 @@ static void proc_put_task(struct task *UNUSED(task)) {
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     int elock_fail;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(entry->pid);
-        
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    
-    delay_task_delete_up_vote(task);
+ //   if(doEnableExtraLocking)
+  //      elock_fail = extra_lockf(entry->pid);
+        
+    task->critical_region_count++;
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -94,7 +93,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     proc_printf(buf, "%lu ", (unsigned long) task->pending & 0xffffffff);
     proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
-    /* uint32_t ignored = 0;
+    /* uint32_t ignored = 0; // MKEMKEMKE try enabling this at some point
     uint32_t caught = 0;
     for (int i = 0; i < 32; i++) {
         if (task->sighand->action[i].handler == SIG_IGN_)
@@ -114,14 +113,14 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // that's enough for now
     proc_printf(buf, "\n");
     
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(entry->pid);
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(entry->pid);
     
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
     proc_put_task(task);
-    delay_task_delete_down_vote(task);
+    task->critical_region_count--;
     return 0;
 }
 
@@ -167,7 +166,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (task == NULL)
         return _ESRCH;
     
-    delay_task_delete_up_vote(task);
+    critical_region_count_increase(task);
     
     int err = 0;
     lock(&task->general_lock, 0);
@@ -188,14 +187,14 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (user_read_task(task, task->mm->argv_start, data, size) == 0) // Crashed here on Saturday May 28th -mke
         proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022 -mke
     free(data);
-    
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid);
 
 out_free_task:
     unlock(&task->general_lock);
-    delay_task_delete_down_vote(task);
     proc_put_task(task);
+    critical_region_count_decrease(task);
+    
+    if((doEnableExtraLocking) && (!elock_fail))
+        extra_unlockf(task->pid);
     return err;
 }
 

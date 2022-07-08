@@ -19,8 +19,10 @@
 
 extern int current_pid(void);
 extern char* current_comm(void);
-extern int current_delay_task_delete_requests(void);
-extern int modify_current_delay_task_delete_requests(int);
+extern unsigned current_critical_region_count(void);
+extern void modify_current_critical_region_count(int);
+extern unsigned current_locks_held_count(void);
+extern void modify_current_locks_held_count(int);
 
 extern struct timespec lock_pause;
 
@@ -74,8 +76,13 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
             }
             return;
         }
+        
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
+    
+   // if(current_pid() > 5)
+    //    modify_current_critical_region_count(1);
+        //modify_current_locks_held_count(1);
 
     if(count > count_max * .90) {
         if(!log_lock)
@@ -105,6 +112,9 @@ static inline void unlock(lock_t *lock) {
 #endif
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
+   // if(current_pid() > 5)
+    //    modify_current_critical_region_count(-1);
+        //modify_current_locks_held_count(-1);
 }
 
 typedef struct {
@@ -146,7 +156,7 @@ static inline void nested_unlockf(void) {
 }
 
 static inline void loop_lock_read(wrlock_t *lock) {
-    modify_current_delay_task_delete_requests(1); // This is a critical piece of code.  Calling process should not be killed while in it.  -mke
+    modify_current_critical_region_count(1); // This is a critical piece of code.  Calling process should not be killed while in it.  -mke
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4;
 //    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
@@ -162,7 +172,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
             if(lock->favor_read > 24)
                 lock->favor_read = lock->favor_read - 25;
             
-            modify_current_delay_task_delete_requests(-1);
+            modify_current_critical_region_count(-1);
             return;
         } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
             printk("ERROR: loop_lock_read(%d) tries exceeded %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 500, current_pid(), current_comm());
@@ -184,12 +194,12 @@ static inline void loop_lock_read(wrlock_t *lock) {
     
     if(lock->favor_read > 24)
         lock->favor_read = lock->favor_read - 25;
-    
-    modify_current_delay_task_delete_requests(-1);
+    modify_current_locks_held_count(1);
+    modify_current_critical_region_count(-1);
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
-    modify_current_delay_task_delete_requests(1);
+    modify_current_critical_region_count(1);
     unsigned count = 0;
     if(lock->favor_read < 50001) {
         lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
@@ -209,7 +219,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
             lock->comm = NULL;
             loop_lock_write(lock);
             
-            modify_current_delay_task_delete_requests(-1);
+            modify_current_critical_region_count(-1);
             return;
         } else if(count > count_max) {
             printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
@@ -225,7 +235,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
             pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
             loop_lock_write(lock);
             
-            modify_current_delay_task_delete_requests(-1);
+            modify_current_critical_region_count(-1);
             return;
         }
         
@@ -234,17 +244,20 @@ static inline void loop_lock_write(wrlock_t *lock) {
         unsigned mycount = 0;  
         nested_lockf(mycount);
     }
+    modify_current_locks_held_count(1);
 }
 
 static inline void _read_unlock(wrlock_t *lock) {
     if(lock->val <=0) {
         printk("ERROR: read_unlock(%d) error(PID: %d Process: %s count %d) \n",lock, current_pid(), current_comm(), lock->val);
         lock->val = 0;
+        modify_current_locks_held_count(-1);
         return;
     }
     assert(lock->val > 0);
     if (pthread_rwlock_unlock(&lock->l) != 0)
         printk("URGENT: read_unlock(%d) error(PID: %d Process: %s)\n", lock, current_pid(), current_comm());
+        modify_current_locks_held_count(-1);
     lock->val--;
 }
 
@@ -265,6 +278,7 @@ static inline void _write_unlock(wrlock_t *lock) {
     lock->val = lock->line = lock->pid = 0;
     lock->comm = NULL;
     lock->file = NULL;
+    modify_current_locks_held_count(-1);
 }
 
 static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
@@ -302,6 +316,9 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
         lock->debug.pid = current_pid();
     }
 #endif
+    if(status == 0)
+        modify_current_locks_held_count(1);
+    
     return status;
 }
 
@@ -317,6 +334,9 @@ static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file
         lock->debug.pid = current_pid();
     }
 #endif
+   if((!status) && (current_pid() > 10)) // iSH-AOK crashes if low number processes are not excluded.  Might be able to go lower then 10?  -mke
+       modify_current_locks_held_count(1);
+    
     return status;
 }
 
@@ -374,13 +394,13 @@ static inline void wrlock_init(wrlock_t *lock) {
 }
 
 static inline void _lock_destroy(wrlock_t *lock) {
-    while(current_delay_task_delete_requests()) { // Wait for now, task is in one or more critical sections
+    while(current_critical_region_count()) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) {
         printk("URGENT: lock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
-        printk("INFO: lock_destroy(), delay_task_delete_requests = %d\n", current_delay_task_delete_requests());
+        printk("INFO: lock_destroy(), critical_region_count = %d\n", current_critical_region_count());
     }
 #else
     if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();

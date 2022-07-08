@@ -39,7 +39,7 @@ void mm_retain(struct mm *mm) {
 }
 
 void mm_release(struct mm *mm) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     if (--mm->refcount == 0) {
@@ -127,11 +127,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
     write_unlock(&current->mem->lock);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
     
     if (err < 0)
         return _EINVAL;

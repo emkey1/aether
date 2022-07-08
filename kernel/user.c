@@ -21,7 +21,7 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
 }
 
 static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
-    delay_task_delete_up_vote(task);
+    critical_region_count_increase(task);
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
     while (p < addr + count) {
@@ -30,25 +30,25 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
             chunk_end = addr + count;
         char *ptr = mem_ptr(task->mem, p, MEM_WRITE);
         if (ptr == NULL) {
-            delay_task_delete_down_vote(task);
+            critical_region_count_decrease(task);
             return 1;
         }
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
         p = chunk_end;
     }
     
-    delay_task_delete_down_vote(task);
+    critical_region_count_decrease(task);
     return 0;
 }
 
 int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
-    delay_task_delete_up_vote(task);
+    critical_region_count_increase(task);
     read_lock(&task->mem->lock);
 
     int res = __user_read_task(task, addr, buf, count);
 
     read_unlock(&task->mem->lock);
-    delay_task_delete_down_vote(task);
+    critical_region_count_decrease(task);
     return res;
 }
 
@@ -68,9 +68,9 @@ int user_write(addr_t addr, const void *buf, size_t count) {
 }
 
 int user_read_string(addr_t addr, char *buf, size_t max) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     if (addr == 0) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return 1;
     }
     read_lock(&current->mem->lock);
@@ -78,7 +78,7 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     while (i < max) {
         if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
             read_unlock(&current->mem->lock);
-            delay_task_delete_down_vote(current);
+            critical_region_count_decrease(current);
             return 1;
         }
         if (buf[i] == '\0')
@@ -86,7 +86,7 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
         i++;
     }
     read_unlock(&current->mem->lock);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
     return 0;
 }
 

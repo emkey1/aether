@@ -4,16 +4,16 @@
 #include "kernel/task.h"
 
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return;
     }
     tlb->mmu = mmu;
     tlb->dirty_page = TLB_PAGE_EMPTY;
     tlb->mem_changes = mmu->changes;
     tlb_flush(tlb);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
 }
 
 void tlb_flush(struct tlb *tlb) {
@@ -23,48 +23,48 @@ void tlb_flush(struct tlb *tlb) {
 }
 
 void tlb_free(struct tlb *tlb) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     free(tlb);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
 }
 
 bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned size) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     char *ptr1 = __tlb_read_ptr(tlb, addr);
     if (ptr1 == NULL) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return false;
     }
     char *ptr2 = __tlb_read_ptr(tlb, (PAGE(addr) + 1) << PAGE_BITS);
     if (ptr2 == NULL) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return false;
     }
     size_t part1 = PAGE_SIZE - PGOFFSET(addr);
     assert(part1 < size);
     memcpy(value, ptr1, part1);
     memcpy(value + part1, ptr2, size - part1);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
     return true;
 }
 
 bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, unsigned size) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     char *ptr1 = __tlb_write_ptr(tlb, addr);
     if (ptr1 == NULL) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return false;
     }
     char *ptr2 = __tlb_write_ptr(tlb, (PAGE(addr) + 1) << PAGE_BITS);
     if (ptr2 == NULL) {
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         return false;
     }
     size_t part1 = PAGE_SIZE - PGOFFSET(addr);
     assert(part1 < size);
     memcpy(ptr1, value, part1);
     memcpy(ptr2, value + part1, size - part1);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
     return true;
 }
 

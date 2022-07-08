@@ -114,11 +114,11 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
     return retval;
 }
 
@@ -222,13 +222,24 @@ char * current_comm() {
 }
 
 // Because sometimes we can't #include "kernel/task.h" -mke
-int current_delay_task_delete_requests() {
-    return current->delay_task_delete_requests;
+unsigned current_critical_region_count() {
+    return current->critical_region_count;
 }
 
-int modify_current_delay_task_delete_requests(int value) { // Should only be -1 or 1.  -mke
+unsigned current_locks_held_count() {
+    return current->locks_held_count;
+}
+
+void modify_current_critical_region_count(int value) { // value Should only be -1 or 1.  -mke
     if((value != -1) || (value != 1))
         value = 0;
-    current->delay_task_delete_requests = current->delay_task_delete_requests + value;
-    return current->delay_task_delete_requests;
+    current->critical_region_count = current->critical_region_count + value;
+    //return current->critical_region_count;
+}
+
+void modify_current_locks_held_count(int value) { // value Should only be -1 or 1.  -mke
+    if((value < -1) || (value > 1))
+        value = 0;
+    current->locks_held_count = current->locks_held_count + value;
+    //return current->locks_held_count;
 }

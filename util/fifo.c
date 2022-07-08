@@ -10,9 +10,9 @@ void fifo_init(struct fifo *fifo, size_t capacity) {
 }
 
 void fifo_destroy(struct fifo *fifo) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     free(fifo->buf);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
 }
 
 size_t fifo_capacity(struct fifo *fifo) {
@@ -66,7 +66,7 @@ int fifo_read(struct fifo *fifo, void *buf, size_t size, int flags) {
 }
 
 void fifo_flush(struct fifo *fifo) {
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     fifo->size = 0;
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
 }

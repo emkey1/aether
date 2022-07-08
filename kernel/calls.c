@@ -257,12 +257,18 @@ syscall_t syscall_table[] = {
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
 
 void handle_interrupt(int interrupt) {
+    critical_region_count_increase(current);
     struct cpu_state *cpu = &current->cpu;
-    if (interrupt == INT_SYSCALL) {
+    critical_region_count_decrease(current);
+    if (interrupt == INT_SYSCALL) { // Flag as critical?  -mke MKEMKEMKE
         unsigned syscall_num = cpu->eax;
         if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
             printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
+            
+            critical_region_count_increase(current);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
+            critical_region_count_decrease(current);
+            
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                 printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);
@@ -272,7 +278,11 @@ void handle_interrupt(int interrupt) {
             }
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
+                
+                critical_region_count_increase(current);
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
+                critical_region_count_decrease(current);
+                
                 unlock(&current->ptrace.lock);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
@@ -296,11 +306,11 @@ void handle_interrupt(int interrupt) {
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-        delay_task_delete_up_vote(current);
+        critical_region_count_increase(current);
         read_lock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_unlock(&current->mem->lock);
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         if (ptr == NULL) {
             printk("ERROR: %d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
@@ -343,12 +353,12 @@ void handle_interrupt(int interrupt) {
     }
     receive_signals();
     struct tgroup *group = current->group;
-    delay_task_delete_up_vote(current);
+    critical_region_count_increase(current);
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
     unlock(&group->lock);
-    delay_task_delete_down_vote(current);
+    critical_region_count_decrease(current);
 }
 
 void dump_maps() {

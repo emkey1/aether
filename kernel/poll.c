@@ -198,7 +198,7 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
     TASK_MAY_BLOCK {
         res = poll_wait(poll, poll_event_callback, &context, timeout < 0 ? NULL : &timeout_ts);
     }
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     poll_destroy(poll);

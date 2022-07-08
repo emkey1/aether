@@ -44,11 +44,12 @@ void mem_init(struct mem *mem) {
 
 void mem_destroy(struct mem *mem) {
     int elock_fail = 0;
+//    current->critical_region_count++;
     if(doEnableExtraLocking)
-        elock_fail = extra_lockf(0);
+       elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     pt_unmap_always(mem, 0, MEM_PAGES);
@@ -56,7 +57,7 @@ void mem_destroy(struct mem *mem) {
     jit_free(mem->mmu.jit);
 #endif
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-        while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+       while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
             nanosleep(&lock_pause, NULL);
         }
         if (mem->pgdir[i] != NULL)
@@ -65,13 +66,14 @@ void mem_destroy(struct mem *mem) {
     free(mem->pgdir);
     
     mem->pgdir = NULL; //mkemkemke Trying something here
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     write_unlock_and_destroy(&mem->lock);
     
+ //   current->critical_region_count--;
     if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(0);
+       extra_unlockf(0);
     
 }
 
@@ -109,10 +111,10 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
 static void mem_pt_del(struct mem *mem, page_t page) {
     struct pt_entry *entry = mem_pt(mem, page);
-    //delay_task_delete_up_vote(current);
+    //critical_region_count_increase(current);
     if (entry != NULL)
         entry->data = NULL;
-    //delay_task_delete_down_vote(current);
+    //critical_region_count_decrease(current);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -246,7 +248,7 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 }
 
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
@@ -263,7 +265,7 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;
     }
-    while(current->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     mem_changed(src);
@@ -322,7 +324,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
             entry->flags |= P_WRITE | P_COW;
         }
-        delay_task_delete_up_vote(current);
+        critical_region_count_increase(current);
 #if ENGINE_JIT
         // get rid of any compiled blocks in this page
         jit_invalidate_page(mem->mmu.jit, page);
@@ -330,9 +332,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
+            void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
-            void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
@@ -341,7 +342,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             write_to_read_lock(&mem->lock);
             
         }
-        delay_task_delete_down_vote(current);
+        critical_region_count_decrease(current);
         
     }
 
