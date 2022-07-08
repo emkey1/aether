@@ -139,7 +139,7 @@ dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_
 struct rusage_ rusage_get_current() {
     // only the time fields are currently implemented
     struct rusage_ rusage;
-    critical_region_count_increase(current);
+    current->critical_region_count++;
 #if __linux__
     struct rusage usage;
     int err = getrusage(RUSAGE_THREAD, &usage);
@@ -157,7 +157,7 @@ struct rusage_ rusage_get_current() {
     rusage.stime.sec = info.system_time.seconds;
     rusage.stime.usec = info.system_time.microseconds;
 #endif
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
     return rusage;
 }
 

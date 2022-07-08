@@ -92,11 +92,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    critical_region_count_increase(task);
+    task->critical_region_count++;
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    critical_region_count_decrease(task);
+    task->critical_region_count--;
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {

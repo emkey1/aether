@@ -114,11 +114,11 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
-    critical_region_count_increase(current);
+    current->critical_region_count++;
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
     return retval;
 }
 

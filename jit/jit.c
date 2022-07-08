@@ -151,22 +151,22 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
     }
     list_remove(&block->chain);
     for (int i = 0; i <= 1; i++) {
-        critical_region_count_increase(current);
+        current->critical_region_count++;
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
-        critical_region_count_decrease(current);
+        current->critical_region_count--;
 
         struct jit_block *prev_block, *tmp;
 //        while(current->critical_region_count > 3) { // Wait for now, task is in one or more critical sections
   //          nanosleep(&lock_pause, NULL);
 //        }
-        critical_region_count_increase(current);
+        current->critical_region_count++;
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
                 *prev_block->jump_ip[i] = prev_block->old_jump_ip[i]; // Crashed here June 12 2022
             list_remove(&prev_block->jumps_from_links[i]);
         }
-        critical_region_count_decrease(current);
+        current->critical_region_count--;
     }
 }
 
@@ -280,7 +280,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
-    critical_region_count_increase(current);
+    current->critical_region_count++;
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
 
@@ -297,7 +297,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         write_unlock(&jit->jetsam_lock);
     }
     unlock(&jit->lock);
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
 
     return interrupt;
 }

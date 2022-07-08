@@ -10,9 +10,9 @@ void fifo_init(struct fifo *fifo, size_t capacity) {
 }
 
 void fifo_destroy(struct fifo *fifo) {
-    critical_region_count_increase(current);
+    current->critical_region_count++;
     free(fifo->buf);
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
 }
 
 size_t fifo_capacity(struct fifo *fifo) {
@@ -66,7 +66,7 @@ int fifo_read(struct fifo *fifo, void *buf, size_t size, int flags) {
 }
 
 void fifo_flush(struct fifo *fifo) {
-    critical_region_count_increase(current);
+    current->critical_region_count++;
     fifo->size = 0;
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
 }

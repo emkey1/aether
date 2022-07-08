@@ -209,6 +209,8 @@ static inline void loop_lock_write(wrlock_t *lock) {
     int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
+    if(count_max < 2500)
+        count_max = 2500; // Set a minimum value.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke

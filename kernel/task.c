@@ -246,12 +246,14 @@ static void *task_thread(void *task) {
     int elock_fail = 0;
     
     current = task;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(current->pid);
     
+    current->critical_region_count++;
+   // if(doEnableExtraLocking)
+    //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(0);
+    current->critical_region_count--;
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(0);
     
     task_run_current();
     die("task_thread returned"); // above function call should never return

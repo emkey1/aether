@@ -105,9 +105,9 @@ static void itimer_notify(struct task *task) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
     };
-    critical_region_count_increase(task);
+    task->critical_region_count++;
     send_signal(task, SIGALRM_, info);
-    critical_region_count_decrease(task);
+    task->critical_region_count--;
 }
 
 static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {

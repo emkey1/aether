@@ -127,11 +127,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-    critical_region_count_increase(current);
+    current->critical_region_count++;
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
     write_unlock(&current->mem->lock);
-    critical_region_count_decrease(current);
+    current->critical_region_count--;
     
     if (err < 0)
         return _EINVAL;

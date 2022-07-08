@@ -119,8 +119,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
-    proc_put_task(task);
     task->critical_region_count--;
+    proc_put_task(task);
     return 0;
 }
 
@@ -166,14 +166,14 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (task == NULL)
         return _ESRCH;
     
-    critical_region_count_increase(task);
+    task->critical_region_count++;
     
     int err = 0;
     lock(&task->general_lock, 0);
     
     int elock_fail = 0;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(task->pid);
+   // if(doEnableExtraLocking)
+    //    elock_fail = extra_lockf(task->pid);
     
     if (task->mm == NULL)
         goto out_free_task;
@@ -191,10 +191,10 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 out_free_task:
     unlock(&task->general_lock);
     proc_put_task(task);
-    critical_region_count_decrease(task);
+    task->critical_region_count--;
     
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid);
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(task->pid);
     return err;
 }
 
