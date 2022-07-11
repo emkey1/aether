@@ -5,6 +5,7 @@
 #include "fs/tty.h"
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
+#include "kernel/resource_locking.h"
 
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
@@ -126,7 +127,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     return 0;
 
 fail_free_sighand:
-    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(task)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     sighand_release(task->sighand);

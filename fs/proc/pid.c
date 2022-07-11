@@ -7,6 +7,7 @@
 #include "fs/tty.h"
 #include "kernel/fs.h"
 #include "kernel/vdso.h"
+#include "kernel/resource_locking.h"
 #include "util/sync.h"
 
 extern pthread_mutex_t extra_lock;
@@ -30,14 +31,14 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    int elock_fail;
+    //int elock_fail;
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
  //   if(doEnableExtraLocking)
   //      elock_fail = extra_lockf(entry->pid);
         
-    task->critical_region_count++;
+    modify_critical_region_count(task, 1);
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -119,7 +120,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
-    task->critical_region_count--;
+    modify_critical_region_count(task, -1);
     proc_put_task(task);
     return 0;
 }
@@ -166,7 +167,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (task == NULL)
         return _ESRCH;
     
-    task->critical_region_count++;
+    modify_critical_region_count(task, 1);
     
     int err = 0;
     lock(&task->general_lock, 0);
@@ -191,7 +192,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 out_free_task:
     unlock(&task->general_lock);
     proc_put_task(task);
-    task->critical_region_count--;
+    modify_critical_region_count(task, -1);
     
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(task->pid);
@@ -284,8 +285,10 @@ static void proc_pid_fd_getname(struct proc_entry *entry, char *buf) {
 
 static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
-    if (task == NULL)
+    if (task == NULL) {
+        proc_put_task(task);
         return _ESRCH;
+    }
     lock(&task->files->lock, 0);
     struct fd *fd = fdtable_get(task->files, entry->fd);
     int err = generic_getpath(fd, buf);

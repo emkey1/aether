@@ -5,6 +5,7 @@
 #include "kernel/errno.h"
 #include "kernel/task.h"
 #include "kernel/fs.h"
+#include "kernel/resource_locking.h"
 #include "fs/fd.h"
 #include "fs/path.h"
 #include "fs/dev.h"
@@ -250,7 +251,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     
     int_t res = 0;
     
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
     TASK_MAY_BLOCK {
         res = sys_read_buf(fd_no, buf, size);
     }
@@ -259,7 +260,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
             res = _EFAULT;
     }
     free(buf);
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
     
     return res;
 }

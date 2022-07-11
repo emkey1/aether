@@ -8,6 +8,7 @@
 #include "emu/interrupt.h"
 #include "util/list.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 
 extern int current_pid(void);
 
@@ -66,12 +67,13 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
-    while(current->critical_region_count > 4) { // Wait for now, task is in one or more critical sections, and/or has locks
-//    while(current->critical_region_count > 3) { // Yes, this is weird.  It might not work, but I'm trying.  -mke
-        nanosleep(&lock_pause, NULL); // Yes, this has triggered at least once.  Is it doing any good though? -mke
-    }
+//    while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
+ //       nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
+//    }
+    
     jit_invalidate_range(jit, page, page + 1);
 }
+
 void jit_invalidate_all(struct jit *jit) {
     jit_invalidate_range(jit, 0, MEM_PAGES);
 }
@@ -151,22 +153,21 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
     }
     list_remove(&block->chain);
     for (int i = 0; i <= 1; i++) {
-        current->critical_region_count++;
+        modify_critical_region_count(current, 1);
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
-        current->critical_region_count--;
+        modify_critical_region_count(current, -1);
 
         struct jit_block *prev_block, *tmp;
-//        while(current->critical_region_count > 3) { // Wait for now, task is in one or more critical sections
-  //          nanosleep(&lock_pause, NULL);
-//        }
-        current->critical_region_count++;
+        
+        modify_critical_region_count(current, 1);
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
                 *prev_block->jump_ip[i] = prev_block->old_jump_ip[i]; // Crashed here June 12 2022
             list_remove(&prev_block->jumps_from_links[i]);
         }
-        current->critical_region_count--;
+        
+        modify_critical_region_count(current, -1);
     }
 }
 
@@ -280,7 +281,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
     cpu->trapno = interrupt;
 
@@ -297,7 +298,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         write_unlock(&jit->jetsam_lock);
     }
     unlock(&jit->lock);
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
 
     return interrupt;
 }

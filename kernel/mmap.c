@@ -6,6 +6,7 @@
 #include "fs/fd.h"
 #include "emu/memory.h"
 #include "kernel/mm.h"
+#include "kernel/resource_locking.h"
 
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
@@ -39,9 +40,10 @@ void mm_retain(struct mm *mm) {
 }
 
 void mm_release(struct mm *mm) {
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
+    
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
@@ -127,11 +129,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
     write_unlock(&current->mem->lock);
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
     
     if (err < 0)
         return _EINVAL;

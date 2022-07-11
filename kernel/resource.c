@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <string.h>
 #include "kernel/calls.h"
+#include "kernel/resource_locking.h"
 
 static bool resource_valid(int resource) {
     return resource >= 0 && resource < RLIMIT_NLIMITS_;
@@ -139,7 +140,7 @@ dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_
 struct rusage_ rusage_get_current() {
     // only the time fields are currently implemented
     struct rusage_ rusage;
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
 #if __linux__
     struct rusage usage;
     int err = getrusage(RUSAGE_THREAD, &usage);
@@ -157,7 +158,7 @@ struct rusage_ rusage_get_current() {
     rusage.stime.sec = info.system_time.seconds;
     rusage.stime.usec = info.system_time.microseconds;
 #endif
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
     return rusage;
 }
 

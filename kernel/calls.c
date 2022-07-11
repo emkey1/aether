@@ -5,6 +5,7 @@
 #include "emu/memory.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 
 dword_t syscall_stub() {
     return _ENOSYS;
@@ -257,17 +258,17 @@ syscall_t syscall_table[] = {
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
 
 void handle_interrupt(int interrupt) {
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
     struct cpu_state *cpu = &current->cpu;
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
     if (interrupt == INT_SYSCALL) { // Flag as critical?  -mke MKEMKEMKE
         unsigned syscall_num = cpu->eax;
         if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
             printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
             
-            current->critical_region_count++;
+            modify_critical_region_count(current, 1);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
-            current->critical_region_count--;
+            modify_critical_region_count(current, -1);
             
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
@@ -279,9 +280,9 @@ void handle_interrupt(int interrupt) {
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
                 
-                current->critical_region_count++;
+                modify_critical_region_count(current, 1);
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
-                current->critical_region_count--;
+                modify_critical_region_count(current, -1);
                 
                 unlock(&current->ptrace.lock);
                 receive_signals();
@@ -306,11 +307,11 @@ void handle_interrupt(int interrupt) {
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-        current->critical_region_count++;
+        modify_critical_region_count(current, 1);
         read_lock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_unlock(&current->mem->lock);
-        current->critical_region_count--;
+        modify_critical_region_count(current, -1);
         if (ptr == NULL) {
             printk("ERROR: %d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
@@ -353,12 +354,12 @@ void handle_interrupt(int interrupt) {
     }
     receive_signals();
     struct tgroup *group = current->group;
-    current->critical_region_count++;
+    modify_critical_region_count(current, 1);
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
     unlock(&group->lock);
-    current->critical_region_count--;
+    modify_critical_region_count(current, -1);
 }
 
 void dump_maps() {

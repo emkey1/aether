@@ -7,6 +7,7 @@
 #include "util/list.h"
 #include "kernel/errno.h"
 #include "kernel/fs.h"
+#include "kernel/resource_locking.h"
 #include "fs/fd.h"
 #include "fs/poll.h"
 #include "fs/real.h"
@@ -330,7 +331,7 @@ void poll_destroy(struct poll *poll) {
     struct poll_fd *poll_fd;
     struct poll_fd *tmp;
     
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current)) {
         nanosleep(&lock_pause, NULL);
     }
     list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
@@ -340,12 +341,13 @@ void poll_destroy(struct poll *poll) {
         unlock(&poll_fd->fd->poll_lock);
         free(poll_fd);
     }
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections
+          
+    while(critical_region_count(current)) {
         nanosleep(&lock_pause, NULL);
     }
     
     list_for_each_entry_safe(&poll->pollfd_freelist, poll_fd, tmp, fds) {
-        while(current->critical_region_count) { // Wait for now, task is in one or more critical sections
+        while(critical_region_count(current)) {
             nanosleep(&lock_pause, NULL);
         }
         list_remove(&poll_fd->fds);

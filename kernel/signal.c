@@ -5,6 +5,7 @@
 #include "kernel/signal.h"
 #include "kernel/task.h"
 #include "kernel/vdso.h"
+#include "kernel/resource_locking.h"
 #include "emu/interrupt.h"
 
 #if is_gcc(9)
@@ -92,11 +93,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    task->critical_region_count++;
+    modify_critical_region_count(task, 1);
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    task->critical_region_count--;
+    modify_critical_region_count(task, -1);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -463,7 +464,7 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     if (--sighand->refcount == 0) {
@@ -711,9 +712,9 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
 }
 
 static int kill_task(struct task *task, dword_t sig) {
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
+    //while((critical_region_count(task) >1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+   //     nanosleep(&lock_pause, NULL);
+    //}
     if (!superuser() &&
             current->uid != task->uid &&
             current->uid != task->suid &&
@@ -725,9 +726,9 @@ static int kill_task(struct task *task, dword_t sig) {
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
+    //while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    //    nanosleep(&lock_pause, NULL);
+    //}
     send_signal(task, sig, info);
     return 0;
 }
@@ -740,7 +741,7 @@ static int kill_group(pid_t_ pgid, dword_t sig) {
     }
     struct tgroup *tgroup;
     int err = _EPERM;
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
