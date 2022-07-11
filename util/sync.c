@@ -144,7 +144,8 @@ void modify_critical_region_count(struct task *task, int value) { // value Shoul
         task = current;
     if(current == NULL)   // We're probably thread 1, no valid task exists at this point.  -mke
         return;
-    
+    if(task->critical_region.count > 1000)
+        task->critical_region.count = 1;
     pthread_mutex_lock(&task->critical_region.lock);
     task->critical_region.count = task->critical_region.count + value;
     pthread_mutex_unlock(&task->critical_region.lock);

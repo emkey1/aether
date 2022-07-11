@@ -440,7 +440,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     int err = 0;
     struct tty *tty = fd->tty;
-    //lock(&pids_lock, 0); // MKEMKE
+    lock(&pids_lock, 0);
     lock(&tty->lock, 0);
     if (tty->hung_up) {
         unlock(&pids_lock);
@@ -448,7 +448,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     }
 
     pid_t_ current_pgid = current->group->pgid;
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     err = tty_signal_if_background(tty, current_pgid, SIGTTIN_);
     if (err < 0)
         goto error;

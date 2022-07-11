@@ -253,8 +253,12 @@ __attribute__((constructor)) static void create_attr() {
 }
 
 void task_start(struct task *task) {
+    modify_critical_region_count(task, 1);
+    
     if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
         die("could not create thread");
+    
+    modify_critical_region_count(task, -1);
 }
 
 int_t sys_sched_yield() {
