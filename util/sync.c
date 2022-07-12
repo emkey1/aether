@@ -140,12 +140,19 @@ unsigned locks_held_count_wrapper() { // sync.h can't know about the definition 
 }
 
 void modify_critical_region_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
-    if(task == NULL)
+    if((task == NULL) && (current != NULL)) {
         task = current;
-    if(current == NULL)   // We're probably thread 1, no valid task exists at this point.  -mke
+    } else {
         return;
+    }
+    if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
+        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring\n");
+        return;
+    }
     
     pthread_mutex_lock(&task->critical_region.lock);
+   // if(task->critical_region.count > 1000)
+    //    task->critical_region.count = 1; //  Mad kludge. -mke
     task->critical_region.count = task->critical_region.count + value;
     pthread_mutex_unlock(&task->critical_region.lock);
 }
@@ -155,14 +162,18 @@ void modify_critical_region_count_wrapper(int value) { // sync.h can't know abou
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
-    if(task == NULL)
+    if((task == NULL) && (current != NULL)) {
         task = current;
-    if(current == NULL)   // We're probably thread 1, no valid task exists at this point.  -mke
+    } else {
         return;
+    }
     
     pthread_mutex_lock(&task->locks_held.lock);
-    if((value > 0) || (task->locks_held.count)) // Make sure we don't attempt to go below zero.   -mke
-        task->locks_held.count = task->locks_held.count + value;
+    if(!task->locks_held.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
+        printk("ERROR: Attempt to decrement locks_held count when it is already zero, ignoring\n");
+        return;
+    }
+    task->locks_held.count = task->locks_held.count + value;
     pthread_mutex_unlock(&task->locks_held.lock);
 }
 

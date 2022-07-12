@@ -142,7 +142,7 @@ int tty_open(struct tty *tty, struct fd *fd) {
         // Make this our controlling terminal if:
         // - the terminal doesn't already have a session
         // - we're a session leader
-        lock(&pids_lock, 0);
+        complex_lock(&pids_lock, 0);
         lock(&tty->lock, 0);
         if (tty->session == 0 && current->group->sid == current->pid)
             tty_set_controlling(current->group, tty);
@@ -440,7 +440,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     int err = 0;
     struct tty *tty = fd->tty;
-    //lock(&pids_lock, 0); // MKEMKE
+    complex_lock(&pids_lock, 0); // MKEMKE
     lock(&tty->lock, 0);
     if (tty->hung_up) {
         unlock(&pids_lock);
@@ -448,7 +448,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     }
 
     pid_t_ current_pgid = current->group->pgid;
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     err = tty_signal_if_background(tty, current_pgid, SIGTTIN_);
     if (err < 0)
         goto error;
@@ -621,7 +621,7 @@ static int tiocsctty(struct tty *tty, int force) {
     unlock(&tty->lock); //aaaaaaaa
     // it's safe because literally nothing happens between that unlock and the last lock, and repulsive for the same reason
     // locking is ***hard**
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     lock(&tty->lock, 0);
     // do nothing if this is already our controlling tty
     if (current->group->sid == current->pid && current->group->sid == tty->session)
@@ -740,7 +740,7 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
         case TIOCSPGRP_:
             // see "aaaaaaaa" comment above
             unlock(&tty->lock);
-            lock(&pids_lock, 0);
+            complex_lock(&pids_lock, 0);
             lock(&tty->lock, 0);
             pid_t_ sid = current->group->sid;
             unlock(&pids_lock);

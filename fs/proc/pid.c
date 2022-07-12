@@ -20,7 +20,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock(&pids_lock);
@@ -162,7 +162,8 @@ out_free_task:
 }
 
 static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
+    //struct task *task = proc_get_task(entry);
+    struct task *task = pid_get_task(entry->pid);
     
     if (task == NULL)
         return _ESRCH;
@@ -191,7 +192,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 
 out_free_task:
     unlock(&task->general_lock);
-    proc_put_task(task);
+    //proc_put_task(task);
     modify_critical_region_count(task, -1);
     
     //if((doEnableExtraLocking) && (!elock_fail))

@@ -95,7 +95,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     lock(&old_group->lock, 0);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);
@@ -160,7 +160,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
-        lock(&pids_lock, 0);
+        complex_lock(&pids_lock, 0);
         task_destroy(task);
         unlock(&pids_lock);
         

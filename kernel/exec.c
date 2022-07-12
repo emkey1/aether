@@ -624,7 +624,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     vfork_notify(current);
 
     if (current->ptrace.traced) {
-        lock(&pids_lock, 0);
+        complex_lock(&pids_lock, 0);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .code = SI_USER_,
             .kill.pid = current->pid,

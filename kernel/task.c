@@ -70,7 +70,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     dword_t res = 0;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
@@ -83,7 +83,7 @@ dword_t get_count_of_blocked_tasks() {
 }
 
 dword_t get_count_of_alive_tasks() {
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
@@ -94,7 +94,7 @@ dword_t get_count_of_alive_tasks() {
 }
 
 struct task *task_create_(struct task *parent) {
-    lock(&pids_lock, 0);
+    complex_lock(&pids_lock, 0);
     do {
         last_allocated_pid++;
         if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
@@ -230,15 +230,15 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
-    int elock_fail = 0;
+    //int elock_fail = 0;
     
     current = task;
     
-    modify_critical_region_count(task, 1);
+    //modify_critical_region_count(task, 1);
    // if(doEnableExtraLocking)
     //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    modify_critical_region_count(task, -1);
+    //modify_critical_region_count(task, -1);
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     

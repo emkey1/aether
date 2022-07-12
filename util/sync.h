@@ -56,16 +56,8 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 
-static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    modify_critical_region_count_wrapper(1);
-    pthread_mutex_lock(&lock->m);
-    modify_locks_held_count_wrapper(1);
-    lock->owner = pthread_self();
-    lock->pid = current_pid();
-    lock->comm = current_comm();
-    modify_critical_region_count_wrapper(-1);
-    return;
-    
+static inline void complex_lock(lock_t *lock, int log_lock) {
+    // "Advanced" locking for some things.  pids_lock for instance
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
@@ -78,7 +70,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
+                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock->m, current_pid(), current_comm());
                 pthread_mutex_unlock(&lock->m);
                 modify_locks_held_count_wrapper(-1);
             }
@@ -96,7 +88,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) (File: %s Line: %d)\n",count, lock->m, lock->pid, lock->comm, file, line);
+            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
@@ -110,6 +102,19 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     extern int current_pid(void);
     lock->debug.pid = current_pid();
 #endif
+}
+
+static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    modify_critical_region_count_wrapper(1);
+    pthread_mutex_lock(&lock->m);
+    modify_locks_held_count_wrapper(1);
+    lock->owner = pthread_self();
+    lock->pid = current_pid();
+    lock->comm = current_comm();
+    modify_critical_region_count_wrapper(-1);
+    return;
+    
+ 
 }
 
 #define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
