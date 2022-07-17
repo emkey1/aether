@@ -7,6 +7,11 @@
 
 #import "Theme.h"
 #import "UserPreferences.h"
+#import "fs/proc/ish.h"
+
+char *get_documents_directory_impl(void) {
+    return strdup(NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject.UTF8String);
+}
 
 @implementation UIColor (iSH)
 - (nullable instancetype)ish_initWithHexString:(NSString *)string {
