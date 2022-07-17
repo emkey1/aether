@@ -7,6 +7,11 @@
 
 #import "Theme.h"
 #import "UserPreferences.h"
+#import "fs/proc/ish.h"
+
+char *get_documents_directory_impl(void) {
+    return strdup(NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject.UTF8String);
+}
 
 @implementation UIColor (iSH)
 - (nullable instancetype)ish_initWithHexString:(NSString *)string {
@@ -143,6 +148,11 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
 @property(readonly, nonnull) NSData *data;
 @end
 
+// TODO: Move these to Linux
+#if ISH_LINUX
+char *(*get_documents_directory)(void);
+#endif
+
 @implementation Theme {
 }
 
@@ -152,6 +162,7 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
     }];
     [NSFileCoordinator addFilePresenter:directoryWatcher];
     
+    get_documents_directory = get_documents_directory_impl;
     [NSFileManager.defaultManager createDirectoryAtURL:self.themesDirectory withIntermediateDirectories:YES attributes:nil error:nil];
 }
 
