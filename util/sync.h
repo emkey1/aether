@@ -181,6 +181,7 @@ static inline void nested_unlockf(void) {
 
 static inline void loop_lock_read(wrlock_t *lock) {
     modify_critical_region_count_wrapper(1);
+    modify_locks_held_count_wrapper(1); // No, it hasn't been granted yet, but since it can take some time, we set it here to avoid problems.  -mke
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4;
 //    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
@@ -189,7 +190,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_read(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it (PID: %d, Process: %s).\n", lock, count, current_pid(), current_comm());
+            printk("ERROR: loop_lock_read(%d) failure.  Pending read locks > 1000(%d), loops = %d.  Faking it to make it (PID: %d, Process: %s).\n", lock, count, lock->val, current_pid(), current_comm());
             _read_unlock(lock);
             lock->val = 0;
             loop_lock_read(lock);
@@ -197,6 +198,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
                 lock->favor_read = lock->favor_read - 25;
             
             modify_critical_region_count_wrapper(-1);
+            modify_locks_held_count_wrapper(-1);
             return;
         } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
             printk("ERROR: loop_lock_read(%d) tries exceeded %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 500, current_pid(), current_comm());
@@ -210,6 +212,7 @@ static inline void loop_lock_read(wrlock_t *lock) {
             if(lock->favor_read > 24)
                 lock->favor_read = lock->favor_read - 25;
             modify_critical_region_count_wrapper(-1);
+            modify_locks_held_count_wrapper(-1);
             return;
         }
         nested_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
@@ -219,12 +222,12 @@ static inline void loop_lock_read(wrlock_t *lock) {
     
     if(lock->favor_read > 24)
         lock->favor_read = lock->favor_read - 25;
-    modify_locks_held_count_wrapper(1);
     modify_critical_region_count_wrapper(-1);
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
     modify_critical_region_count_wrapper(1);
+    modify_locks_held_count_wrapper(1);  // Set this here to avoid problems elsewhere in the complicated webs of execution
     unsigned count = 0;
     if(lock->favor_read < 50001) {
         lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
@@ -247,6 +250,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
             loop_lock_write(lock);
             
             modify_critical_region_count_wrapper(-1);
+            modify_locks_held_count_wrapper(-1);
             return;
         } else if(count > count_max) {
             printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
@@ -263,6 +267,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
             loop_lock_write(lock);
             
             modify_critical_region_count_wrapper(-1);
+            modify_locks_held_count_wrapper(-1);
             return;
         }
         
@@ -273,7 +278,6 @@ static inline void loop_lock_write(wrlock_t *lock) {
     }
     
     modify_critical_region_count_wrapper(-1);
-    modify_locks_held_count_wrapper(1);
 }
 
 static inline void _read_unlock(wrlock_t *lock) {
@@ -318,7 +322,8 @@ static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lo
 }
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
-    loop_lock_write(lock);
+    //loop_lock_write(lock);
+    pthread_rwlock_rdlock(&lock->l);
 
     // assert(lock->val == 0);
     lock->val = -1;
@@ -446,7 +451,8 @@ static inline void lock_destroy(wrlock_t *lock) {
 
 
 static inline void _read_lock(wrlock_t *lock) {
-    loop_lock_read(lock);
+    //loop_lock_read(lock);
+    pthread_rwlock_rdlock(&lock->l);
     // assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
     if(lock->val) {
         lock->val++;

@@ -8,6 +8,7 @@
 #include "emu/memory.h"
 #include "emu/tlb.h"
 #include "platform/platform.h"
+#include "util/sync.h"
 #include <pthread.h>
 
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;

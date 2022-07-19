@@ -349,8 +349,10 @@ static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *i
             pid++;
         } while (pid <= MAX_PID && pid_get_task(pid) == NULL);
         //unlock(&pids_lock);
-        if (pid > MAX_PID)
+        if (pid > MAX_PID) {
+            modify_critical_region_count(current, -1);
             return false;
+        }
         *next_entry = (struct proc_entry) {&proc_pid, .pid = pid};
         *index = pid + PROC_ROOT_LEN;
         modify_critical_region_count(current, -1);

@@ -41,35 +41,44 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
         if ((size_t) len > fifo_capacity(&log_buf))
             len = fifo_capacity(&log_buf);
     }
-    char *buf = malloc(len);
+    char *buf = malloc(len + 1);
     fifo_read(&log_buf, buf, len, flags);
     
     // Here we will split on \n and do one entry per line
-    int fail;
     // Keep printing tokens while one of the
-    // delimiters present in str[].
+    // delimiters present
     addr_t pointer = buf_addr; // Where we are in the buffer
     unsigned count = 1;
-    char *token = strtok(buf, "\n"); // Inject an extra end of line to get sanish output from dmesg.  -mke
+    char *token = strtok(buf, "\n"); // Get the first line
     
-    fail = user_write(pointer, "\n", 1);
-    if (fail) {
+    if(user_write(pointer, "\n", 1)) { // Positive return value = fail
         free(buf);
         return _EFAULT;
     }
-    pointer = pointer + 1;
+    
+    pointer++;
     
     while (token != NULL) {
         size_t length = strlen(token);
-        fail = user_write(pointer, token, length);
-        if (fail) {
+        if(user_write(pointer, token, length)) { // Positive return value = fail
             free(buf);
             return _EFAULT;
         }
+           
         pointer += length;
-        fail = user_write(pointer, "\n", 1);
+        
+        if(user_write(pointer, "\n", 1)) { // Positive return value = fail
+            free(buf);
+            return _EFAULT;
+        }
+        
         pointer++;
-        token = strtok(NULL, "\n");
+        if(pointer < (buf_addr + len)) {
+            token = strtok(NULL, "\n");  // Grab next token, deal with starting at top of loop. -mke
+        } else {
+            token = NULL;
+        }
+           
         if(count > 12000)
             token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
         count++;
@@ -77,8 +86,6 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
 
     free(buf);
     
-    if (fail)
-        return _EFAULT;
     return len;
 }
 

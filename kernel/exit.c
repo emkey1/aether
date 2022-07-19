@@ -181,9 +181,9 @@ noreturn void do_exit_group(int status) {
         modify_locks_held_count(current, tmpvar); // Reset to zero -mke
     }
     
-    while((critical_region_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
+    //while((critical_region_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+     //   nanosleep(&lock_pause, NULL);
+   // }
     
     list_for_each_entry(&group->threads, task, group_links) {
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
@@ -243,7 +243,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
-    lock(&task->group->lock, 0);
+    complex_lock(&task->group->lock, 0);
 
     dword_t exit_code = task->exit_code;
     if (task->group->doing_group_exit)
@@ -294,7 +294,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 }
 
 static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
-    lock(&task->group->lock, 0);
+    complex_lock(&task->group->lock, 0);
     bool stopped = task->group->stopped;
     unlock(&task->group->lock);
     if (!stopped || task->group->group_exit_code == 0)

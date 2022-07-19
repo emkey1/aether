@@ -139,12 +139,16 @@ unsigned locks_held_count_wrapper() { // sync.h can't know about the definition 
     return(locks_held_count(current));
 }
 
-void modify_critical_region_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
-    if((task == NULL) && (current != NULL)) {
-        task = current;
-    } else {
-        return;
+
+void __modify_critical_region_count(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
+    if(task == NULL) {
+        if(current != NULL) {
+            task = current;
+        } else {
+            return;
+        }
     }
+        
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
         printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring\n");
         return;

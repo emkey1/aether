@@ -92,17 +92,22 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
 }
 
 int user_write_string(addr_t addr, const char *buf) {
-    if (addr == 0)
+    modify_critical_region_count(current, 1);
+    if (addr == 0) {
+        modify_critical_region_count(current, -1);
         return 1;
+    }
     read_lock(&current->mem->lock);
     size_t i = 0;
     do {
         if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
             read_unlock(&current->mem->lock);
+            modify_critical_region_count(current, -1);
             return 1;
         }
         i++;
     } while (buf[i - 1] != '\0');
     read_unlock(&current->mem->lock);
+    modify_critical_region_count(current, -1);
     return 0;
 }

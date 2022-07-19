@@ -549,6 +549,7 @@
 		5D8ACEF9284BF122003C50D3 /* net.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = net.c; sourceTree = "<group>"; };
 		5D8ACEFB284CE096003C50D3 /* sys.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sys.h; sourceTree = "<group>"; };
 		5D8ACEFC284CE096003C50D3 /* sys.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sys.c; sourceTree = "<group>"; };
+		5D8C94D3287E53AD0095EDEE /* fp_sync.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = fp_sync.c; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -1232,6 +1233,7 @@
 				BB13F4DD21C5770000343E17 /* NSError+ISHErrno.m */,
 				BB88F49B2154760800A341FD /* Info.plist */,
 				BB88F49C2154760800A341FD /* iSHFileProvider.entitlements */,
+				5D8C94D3287E53AD0095EDEE /* fp_sync.c */,
 			);
 			path = FileProvider;
 			sourceTree = "<group>";
