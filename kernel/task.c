@@ -235,11 +235,11 @@ static void *task_thread(void *task) {
     
     current = task;
     
-    //modify_critical_region_count(task, 1);
+    //__modify_critical_region_count(task, 1);
    // if(doEnableExtraLocking)
     //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    //modify_critical_region_count(task, -1);
+    //__modify_critical_region_count(task, -1);
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
@@ -282,12 +282,12 @@ void update_thread_name() {
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
     if(current != NULL)
-        modify_critical_region_count(current, 1);
+        __modify_critical_region_count(current, 1, __FILE__, __LINE__);
     pthread_mutex_lock(&extra_lock);
     extra_lock_pid = pid;
     extra_lock_held = true; //
     if(current != NULL)
-        modify_critical_region_count(current, -1);
+        __modify_critical_region_count(current, -1, __FILE__, __LINE__);
     return 0;
     
     time_t now;
@@ -352,10 +352,10 @@ int extra_lockf(dword_t pid) {
 
 void extra_unlockf(dword_t pid) {
     if(current != NULL)
-        modify_critical_region_count(current, 1);
+        __modify_critical_region_count(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
-        modify_critical_region_count(current, -1);
+        __modify_critical_region_count(current, -1, __FILE__, __LINE__);
     
     return;
     

@@ -162,7 +162,7 @@ void __modify_critical_region_count(struct task *task, int value, __attribute__(
 }
 
 void modify_critical_region_count_wrapper(int value) { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-    modify_critical_region_count(current, value);
+    __modify_critical_region_count(current, value, __FILE__, __LINE__);
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke

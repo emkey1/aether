@@ -251,7 +251,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     
     int_t res = 0;
     
-    modify_critical_region_count(current, 1);
+    __modify_critical_region_count(current, 1, __FILE__, __LINE__);
     TASK_MAY_BLOCK {
         res = sys_read_buf(fd_no, buf, size);
     }
@@ -260,7 +260,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
             res = _EFAULT;
     }
     free(buf);
-    modify_critical_region_count(current, -1);
+    __modify_critical_region_count(current, -1, __FILE__, __LINE__);
     
     return res;
 }

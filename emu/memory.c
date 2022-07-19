@@ -67,7 +67,7 @@ void mem_destroy(struct mem *mem) {
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
-    modify_critical_region_count(current, 1);
+    __modify_critical_region_count(current, 1, __FILE__, __LINE__);
     while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
     // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
@@ -77,7 +77,7 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    modify_critical_region_count(current, -1);
+    __modify_critical_region_count(current, -1, __FILE__, __LINE__);
     
     write_unlock_and_destroy(&mem->lock);
     
@@ -120,10 +120,10 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
 static void mem_pt_del(struct mem *mem, page_t page) {
     struct pt_entry *entry = mem_pt(mem, page);
-    modify_critical_region_count(current, 1);
+    __modify_critical_region_count(current, 1, __FILE__, __LINE__);
     if (entry != NULL)
         entry->data = NULL;
-    modify_critical_region_count(current, -1);
+    __modify_critical_region_count(current, -1, __FILE__, __LINE__);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -330,7 +330,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE))
             return NULL;
         
-        modify_critical_region_count(current, 1);
+        __modify_critical_region_count(current, 1, __FILE__, __LINE__);
         
         if (type == MEM_WRITE_PTRACE) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
@@ -354,7 +354,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             
         }
         
-        modify_critical_region_count(current, -1);
+        __modify_critical_region_count(current, -1, __FILE__, __LINE__);
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);
