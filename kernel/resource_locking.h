@@ -3,7 +3,7 @@
 
 extern unsigned critical_region_count(struct task*);
 //#define modify_critical_region_count(task, int) __modify_critical_region_count(task, int, __FILE__, __LINE__)
-extern void __modify_critical_region_count(struct task*, int, char*, int);
+extern void modify_critical_region_count(struct task*, int, char*, int);
 extern unsigned locks_held_count(struct task*);
 extern void modify_locks_held_count(struct task*, int);
 

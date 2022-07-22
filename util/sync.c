@@ -4,6 +4,9 @@
 #include "util/sync.h"
 #include "debug.h"
 #include "kernel/errno.h"
+#include <string.h>
+
+int noprintk = 0; // Used to suprress calls to printk.  -mke
 
 void cond_init(cond_t *cond) {
     pthread_condattr_t attr;
@@ -140,7 +143,7 @@ unsigned locks_held_count_wrapper() { // sync.h can't know about the definition 
 }
 
 
-void __modify_critical_region_count(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
+void modify_critical_region_count(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
     if(task == NULL) {
         if(current != NULL) {
             task = current;
@@ -148,21 +151,30 @@ void __modify_critical_region_count(struct task *task, int value, __attribute__(
             return;
         }
     }
-        
+    
+    pthread_mutex_lock(&task->critical_region.lock);
+    
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring\n");
+        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d)\n", task->comm, task->pid);
         return;
     }
     
-    pthread_mutex_lock(&task->critical_region.lock);
    // if(task->critical_region.count > 1000)
     //    task->critical_region.count = 1; //  Mad kludge. -mke
     task->critical_region.count = task->critical_region.count + value;
+    
+    if((strcmp(task->comm, "dmesg") == 0) && ( !noprintk)) { // Extra logging for the some command
+    //if((task->pid < 20) && ( !noprintk)) { // Extra logging for the some command(s)
+        noprintk = 1; // Avoid recursive logging -mke
+        printk("INFO: MCRC(%d:%s:%d:%d:%d)\n", task->pid,file, line, value, task->critical_region.count);
+        noprintk = 0;
+    }
+        
     pthread_mutex_unlock(&task->critical_region.lock);
 }
 
-void modify_critical_region_count_wrapper(int value) { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-    __modify_critical_region_count(current, value, __FILE__, __LINE__);
+void modify_critical_region_count_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
+    //modify_critical_region_count(current, value, file, line);
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke

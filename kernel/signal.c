@@ -93,11 +93,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    __modify_critical_region_count(task, 1, __FILE__, __LINE__);
+    //modify_critical_region_count(task, 1, __FILE__, __LINE__);
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    __modify_critical_region_count(task, -1, __FILE__, __LINE__);
+    //modify_critical_region_count(task, -1, __FILE__, __LINE__);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
