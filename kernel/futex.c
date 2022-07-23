@@ -208,7 +208,7 @@ int_t sys_set_robust_list(addr_t robust_list, dword_t len) {
 int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
     STRACE("get_robust_list(%d, %#x, %#x)", pid, robust_list_ptr, len_ptr);
 
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     struct task *task = pid_get_task(pid);
     unlock(&pids_lock);
     if (task != current)

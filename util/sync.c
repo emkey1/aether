@@ -142,8 +142,7 @@ unsigned locks_held_count_wrapper() { // sync.h can't know about the definition 
     return(locks_held_count(current));
 }
 
-
-void modify_critical_region_count(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
+void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
     if(task == NULL) {
         if(current != NULL) {
             task = current;
@@ -163,7 +162,7 @@ void modify_critical_region_count(struct task *task, int value, __attribute__((u
     //    task->critical_region.count = 1; //  Mad kludge. -mke
     task->critical_region.count = task->critical_region.count + value;
     
-    if((strcmp(task->comm, "dmesg") == 0) && ( !noprintk)) { // Extra logging for the some command
+    if((strcmp(task->comm, "test_critical") == 0) && ( !noprintk)) { // Extra logging for the some command
     //if((task->pid < 20) && ( !noprintk)) { // Extra logging for the some command(s)
         noprintk = 1; // Avoid recursive logging -mke
         printk("INFO: MCRC(%d:%s:%d:%d:%d)\n", task->pid,file, line, value, task->critical_region.count);
@@ -173,8 +172,8 @@ void modify_critical_region_count(struct task *task, int value, __attribute__((u
     pthread_mutex_unlock(&task->critical_region.lock);
 }
 
-void modify_critical_region_count_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
-    //modify_critical_region_count(current, value, file, line);
+void modify_critical_region_counter_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
+    modify_critical_region_counter(current, value, file, line);
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke

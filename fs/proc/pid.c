@@ -20,7 +20,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock(&pids_lock);
@@ -38,7 +38,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
  //   if(doEnableExtraLocking)
   //      elock_fail = extra_lockf(entry->pid);
         
-    //modify_critical_region_count(task, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -120,7 +120,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
-    //modify_critical_region_count(task, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     proc_put_task(task);
     return 0;
 }
@@ -168,7 +168,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     if (task == NULL)
         return _ESRCH;
     
-    //modify_critical_region_count(task, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     
     int err = 0;
     lock(&task->general_lock, 0);
@@ -193,7 +193,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 out_free_task:
     unlock(&task->general_lock);
     //proc_put_task(task);
-    //modify_critical_region_count(task, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(task->pid);

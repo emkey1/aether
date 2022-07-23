@@ -18,7 +18,7 @@
 extern int current_pid(void);
 extern char* current_comm(void);
 extern unsigned critical_region_count_wrapper(void);
-extern void modify_critical_region_count_wrapper(int, const char*, int);
+extern void modify_critical_region_counter_wrapper(int, const char*, int);
 extern unsigned locks_held_count_wrapper(void);
 extern void modify_locks_held_count_wrapper(int);
 
@@ -56,7 +56,31 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 
-static inline void complex_lock(lock_t *lock, int log_lock) {
+static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
+    // "Advanced" locking for some things.  pids_lock for instance
+    unsigned int count = 0;
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
+    
+    while(pthread_mutex_trylock(lock)) {
+        count++;
+        nanosleep(&lock_pause, NULL);
+        if(count > count_max) {
+            if(!log_lock) {
+                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
+                pthread_mutex_unlock(lock);
+                modify_locks_held_count_wrapper(-1);
+            }
+            return;
+        }
+        // Loop until lock works.  Maybe this will help make the multithreading work? -mke
+    }
+    
+    modify_locks_held_count_wrapper(1);
+}
+
+static inline void complex_lockt(lock_t *lock, int log_lock) {
     // "Advanced" locking for some things.  pids_lock for instance
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
@@ -65,7 +89,7 @@ static inline void complex_lock(lock_t *lock, int log_lock) {
     
    // if((!log_lock) && (current_pid() > 10 ))
     //    printk("INFO: Attempting Lock(lock(%d)), (PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     while(pthread_mutex_trylock(&lock->m)) {
         count++;
         nanosleep(&lock_pause, NULL);
@@ -82,7 +106,7 @@ static inline void complex_lock(lock_t *lock, int log_lock) {
     }
     
     modify_locks_held_count_wrapper(1);
-    modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
     
    // if(current_pid() > 5)
     //    modify_current_critical_region_count(1);
@@ -107,24 +131,24 @@ static inline void complex_lock(lock_t *lock, int log_lock) {
 }
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_lock(&lock->m);
     modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
     lock->comm = current_comm();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
 
 #define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
 
 static inline void unlock(lock_t *lock) {
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     pthread_mutex_unlock(&lock->m);
     lock->owner = zero_init(pthread_t);
     modify_locks_held_count_wrapper(-1);
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
@@ -153,7 +177,7 @@ static inline void _write_unlock(wrlock_t *lock);
 static inline void write_unlock_and_destroy(wrlock_t *lock);
 
 static inline void nested_lockf(unsigned count) {
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    ////modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     //pthread_mutex_lock(&nested_lock);
     //modify_locks_held_count_wrapper(1);
     //return;  // Short circuit for now
@@ -164,27 +188,26 @@ static inline void nested_lockf(unsigned count) {
         if(count > myrand ) {
             printk("ERROR: nested_lockf max count attempts exceded(%d)\n", myrand);
             pthread_mutex_unlock(&nested_lock);
-            modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+     //       //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
             return;
         }
         nanosleep(&lock_pause, NULL);
     }
-    modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+    ////modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void nested_unlockf(void) {
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_unlock(&nested_lock);
     modify_locks_held_count_wrapper(-1);
-    modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void loop_lock_read(wrlock_t *lock) {
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     modify_locks_held_count_wrapper(1); // No, it hasn't been granted yet, but since it can take some time, we set it here to avoid problems.  -mke
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4;
-//    struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
@@ -197,8 +220,8 @@ static inline void loop_lock_read(wrlock_t *lock) {
             if(lock->favor_read > 24)
                 lock->favor_read = lock->favor_read - 25;
             
-            modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
             modify_locks_held_count_wrapper(-1);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
             printk("ERROR: loop_lock_read(%d) tries exceeded %d, dealing with likely deadlock.  (PID: %d, Process: %s).\n", lock, count_max * 500, current_pid(), current_comm());
@@ -211,8 +234,8 @@ static inline void loop_lock_read(wrlock_t *lock) {
             }
             if(lock->favor_read > 24)
                 lock->favor_read = lock->favor_read - 25;
-            modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
             modify_locks_held_count_wrapper(-1);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
         nested_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
@@ -222,11 +245,12 @@ static inline void loop_lock_read(wrlock_t *lock) {
     
     if(lock->favor_read > 24)
         lock->favor_read = lock->favor_read - 25;
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void loop_lock_write(wrlock_t *lock) {
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     modify_locks_held_count_wrapper(1);  // Set this here to avoid problems elsewhere in the complicated webs of execution
     unsigned count = 0;
     if(lock->favor_read < 50001) {
@@ -249,8 +273,8 @@ static inline void loop_lock_write(wrlock_t *lock) {
             lock->comm = NULL;
             loop_lock_write(lock);
             
-            modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
             modify_locks_held_count_wrapper(-1);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         } else if(count > count_max) {
             printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
@@ -266,8 +290,8 @@ static inline void loop_lock_write(wrlock_t *lock) {
             pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
             loop_lock_write(lock);
             
-            modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
             modify_locks_held_count_wrapper(-1);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
         
@@ -277,16 +301,16 @@ static inline void loop_lock_write(wrlock_t *lock) {
         nested_lockf(mycount);
     }
     
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void _read_unlock(wrlock_t *lock) {
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     if(lock->val <=0) {
         printk("ERROR: read_unlock(%d) error(PID: %d Process: %s count %d) \n",lock, current_pid(), current_comm(), lock->val);
         lock->val = 0;
         modify_locks_held_count_wrapper(-1);
-        modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+        //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
         return;
     }
     assert(lock->val > 0);
@@ -294,20 +318,20 @@ static inline void _read_unlock(wrlock_t *lock) {
         printk("URGENT: read_unlock(%d) error(PID: %d Process: %s)\n", lock, current_pid(), current_comm());
     lock->val--;
     modify_locks_held_count_wrapper(-1);
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void read_unlock(wrlock_t *lock) {
     unsigned count = 0;
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     nested_lockf(count);
     _read_unlock(lock);
     nested_unlockf();
-    modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void _write_unlock(wrlock_t *lock) {
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     if(pthread_rwlock_unlock(&lock->l) != 0)
         printk("URGENT: write_unlock(%d:%d) error(PID: %d Process: %s)\n", lock, lock->val, current_pid(), current_comm());
     if(lock->val != -1) {
@@ -318,7 +342,7 @@ static inline void _write_unlock(wrlock_t *lock) {
     lock->comm = NULL;
     lock->file = NULL;
     modify_locks_held_count_wrapper(-1);
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
@@ -330,7 +354,7 @@ static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lo
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
     //loop_lock_write(lock);
-    modify_critical_region_count_wrapper(1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_rwlock_rdlock(&lock->l);
 
     // assert(lock->val == 0);
@@ -339,7 +363,7 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) { //
     lock->line = line;
     lock->pid = current_pid();
     lock->comm = current_comm();
-    modify_critical_region_count_wrapper(-1,__FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
@@ -350,6 +374,7 @@ static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
 }
 
 static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     int status = pthread_rwlock_trywrlock(&lock->l);
 #if LOCK_DEBUG
     if (!status) {
@@ -362,12 +387,14 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
     if(status == 0)
         modify_locks_held_count_wrapper(1);
     
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
     return status;
 }
 
 #define trylockw(lock) trylockw(lock, __FILE__, __LINE__)
 
 static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     int status = pthread_mutex_trylock(&lock->m);
 #if LOCK_DEBUG
     if (!status) {
@@ -380,6 +407,7 @@ static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file
    if((!status) && (current_pid() > 10)) // iSH-AOK crashes if low number processes are not excluded.  Might be able to go lower then 10?  -mke
        modify_locks_held_count_wrapper(1);
     
+    //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
     return status;
 }
 
@@ -442,8 +470,7 @@ static inline void _lock_destroy(wrlock_t *lock) {
     }
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) {
-        printk("URGENT: lock_destroy() error(PID: %d Process: %s)\n",current_pid(), current_comm());
-        printk("INFO: lock_destroy(), critical_region_count = %d\n", critical_region_count_wrapper());
+        printk("URGENT: lock_destroy(%d) on active lock. (PID: %d Process: %s Critical Region Count: %d)\n",&lock->l, current_pid(), current_comm(),critical_region_count_wrapper());
     }
 #else
     if (pthread_rwlock_destroy(&lock->l) != 0) __builtin_trap();
@@ -453,6 +480,10 @@ static inline void _lock_destroy(wrlock_t *lock) {
 static inline void lock_destroy(wrlock_t *lock) {
     unsigned count = 0;
     
+    while((critical_region_count_wrapper() > 1) && (current_pid() != 1)) { // Wait for now, task is in one or more critical sections
+        nanosleep(&lock_pause, NULL);
+    }
+    
     nested_lockf(count);
     _lock_destroy(lock);
     nested_unlockf();
@@ -460,7 +491,7 @@ static inline void lock_destroy(wrlock_t *lock) {
 
 static inline void _read_lock(wrlock_t *lock) {
     //loop_lock_read(lock);
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     pthread_rwlock_rdlock(&lock->l);
     // assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
     if(lock->val) {
@@ -475,12 +506,13 @@ static inline void _read_lock(wrlock_t *lock) {
     if(lock->val > 1000) { // We likely have a problem.
         printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock->file, lock->line,lock->pid, lock->comm);
         read_unlock_and_destroy(lock);
+        //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
         return;
     }
     
     lock->pid = current_pid();
     lock->comm = current_comm();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls lock, internal calls using _read_unlock() don't -mke
@@ -494,42 +526,42 @@ static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls
 
 static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a RO lock to a Write lock.  -mke
     unsigned count = 0;
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
     _read_unlock(lock);
     __write_lock(lock, __FILE__, __LINE__);
     nested_unlockf();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a Write lock to a RO lock.  -mke
     unsigned count = 0;
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
     _write_unlock(lock);
     _read_lock(lock);
     nested_unlockf();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
     _write_unlock(lock);
     _lock_destroy(lock);
     nested_unlockf();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
     _read_unlock(lock);
     _lock_destroy(lock);
     nested_unlockf();
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 

@@ -228,7 +228,7 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
     unlock(&block_lock);
   */
 //    critical_region_count_increase(current);
-    modify_critical_region_count_wrapper(1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     current->io_block = 1;
     return 0;
 }
@@ -240,7 +240,7 @@ __attribute__((always_inline)) inline int task_may_block_end(void) {
     unlock(&block_lock);
    */
     current->io_block = 0;
-    modify_critical_region_count_wrapper(-1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 //    critical_region_count_decrease(current);
     return 0;
 }

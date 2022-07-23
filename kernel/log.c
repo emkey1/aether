@@ -122,11 +122,11 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
-    //modify_critical_region_count(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
-    //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return retval;
 }
 
@@ -166,7 +166,7 @@ void ish_vprintk(const char *msg, va_list args) {
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
-    complex_lock(&log_lock, 1);
+    complex_lockt(&log_lock, 1);
     char *b = buf;
     char *p;
     while ((p = strchr(b, '\n')) != NULL) {

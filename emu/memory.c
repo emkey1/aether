@@ -67,7 +67,7 @@ void mem_destroy(struct mem *mem) {
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
-    //modify_critical_region_count(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
     // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
@@ -77,7 +77,7 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     write_unlock_and_destroy(&mem->lock);
     
@@ -100,30 +100,42 @@ static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+
     if (mem->pgdir[PGDIR_TOP(page)] != NULL) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
         struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
         if (pgdir == NULL) {
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return NULL;
         }
         
         struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
         if (entry->data == NULL) {
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return NULL;
         }
         
+        modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         return entry;
     } else {
         mem->pgdir[PGDIR_TOP(page)] = NULL;
+        modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         return NULL;
     }
+    
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 static void mem_pt_del(struct mem *mem, page_t page) {
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct pt_entry *entry = mem_pt(mem, page);
-    //modify_critical_region_count(current, 1, __FILE__, __LINE__);
-    if (entry != NULL)
+    if (entry != NULL) {
+         while(critical_region_count(current) > 1) {
+             nanosleep(&lock_pause, NULL);
+        }
         entry->data = NULL;
-    //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+    }
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -201,6 +213,9 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
+        while(critical_region_count(current)) {
+            nanosleep(&lock_pause, NULL);
+        }
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)
             continue;
@@ -212,6 +227,9 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
+                while(critical_region_count(current)) {
+                    nanosleep(&lock_pause, NULL);
+                }
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
@@ -330,7 +348,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE))
             return NULL;
         
-        //modify_critical_region_count(current, 1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         
         if (type == MEM_WRITE_PTRACE) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
@@ -354,7 +372,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             
         }
         
-        //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);

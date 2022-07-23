@@ -71,7 +71,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     dword_t res = 0;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
@@ -84,7 +84,7 @@ dword_t get_count_of_blocked_tasks() {
 }
 
 dword_t get_count_of_alive_tasks() {
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
@@ -95,7 +95,7 @@ dword_t get_count_of_alive_tasks() {
 }
 
 struct task *task_create_(struct task *parent) {
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     do {
         last_allocated_pid++;
         if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
@@ -201,6 +201,9 @@ void run_at_boot() {  // Stuff we run only once, at boot time.
 void task_run_current() {
     if(BOOTING) {
         run_at_boot();
+        //struct timespec boot_pause = {1 /*secs*/, 0 /*nanosecs*/};
+        // Stupid stuff ahead, without it, sometimes doEnableMulticore is not set yet apparently?
+        //nanosleep(&boot_pause, NULL);
     }
 
     struct cpu_state *cpu = &current->cpu;
@@ -210,8 +213,12 @@ void task_run_current() {
     while (true) {
         read_lock(&current->mem->lock);
         
-        if(!doEnableMulticore)
-            pthread_mutex_lock(&multicore_lock);
+        if(doEnableMulticore) {
+            // Do nothing
+        } else {
+            //pthread_mutex_lock(&multicore_lock);
+            complex_lock(&multicore_lock, 1);
+        }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
         
@@ -235,11 +242,11 @@ static void *task_thread(void *task) {
     
     current = task;
     
-    ////modify_critical_region_count(task, 1);
+    ////modify_critical_region_counter(task, 1);
    // if(doEnableExtraLocking)
     //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    ////modify_critical_region_count(task, -1);
+    ////modify_critical_region_counter(task, -1);
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
@@ -282,12 +289,12 @@ void update_thread_name() {
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
     if(current != NULL)
-        //modify_critical_region_count(current, 1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_lock(&extra_lock);
     extra_lock_pid = pid;
     extra_lock_held = true; //
     if(current != NULL)
-        //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return 0;
     
     time_t now;
@@ -352,10 +359,10 @@ int extra_lockf(dword_t pid) {
 
 void extra_unlockf(dword_t pid) {
     if(current != NULL)
-        //modify_critical_region_count(current, 1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
-        //modify_critical_region_count(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     return;
     

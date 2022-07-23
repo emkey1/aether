@@ -97,7 +97,7 @@ noreturn void do_exit(int status) {
     unlock(&current->group->lock);
 
     // the actual freeing needs pids_lock
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     current->exiting = true;
     // release the sighand
     //while(critical_region_count(current)) {
@@ -163,7 +163,7 @@ noreturn void do_exit(int status) {
 
 noreturn void do_exit_group(int status) {
     struct tgroup *group = current->group;
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     lock(&group->lock, 0);
     if (!group->doing_group_exit) {
         group->doing_group_exit = true;
@@ -243,7 +243,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
-    complex_lock(&task->group->lock, 0);
+    complex_lockt(&task->group->lock, 0);
 
     dword_t exit_code = task->exit_code;
     if (task->group->doing_group_exit)
@@ -294,7 +294,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 }
 
 static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
-    complex_lock(&task->group->lock, 0);
+    complex_lockt(&task->group->lock, 0);
     bool stopped = task->group->stopped;
     unlock(&task->group->lock);
     if (!stopped || task->group->group_exit_code == 0)
@@ -340,7 +340,7 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     if (options & ~(WNOHANG_|WUNTRACED_|WEXITED_|WCONTINUED_|WNOWAIT_|__WALL_))
         return _EINVAL;
 
-    complex_lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     int err;
     bool got_signal = false;
 
