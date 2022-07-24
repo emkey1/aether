@@ -67,7 +67,7 @@ void mem_destroy(struct mem *mem) {
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
-    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
     // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
@@ -77,7 +77,7 @@ void mem_destroy(struct mem *mem) {
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     write_unlock_and_destroy(&mem->lock);
     
@@ -142,9 +142,10 @@ void mem_next_page(struct mem *mem, page_t *page) {
     (*page)++;
     if (*page >= MEM_PAGES)
         return;
-    
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     while (*page < MEM_PAGES && mem->pgdir[PGDIR_TOP(*page)] == NULL)
         *page = (*page - PGDIR_BOTTOM(*page)) + MEM_PGDIR_SIZE;
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
@@ -361,8 +362,10 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
+            modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
