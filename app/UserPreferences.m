@@ -152,15 +152,13 @@ bool (*remove_user_default)(const char *name);
     if (self) {
         _defaults = [NSUserDefaults standardUserDefaults];
         [_defaults registerDefaults:@{
+            kPreferenceEnableMulticoreKey: @(YES),
+	        kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceFontSizeKey: @(12),
-            kPreferenceLockSleepNanoseconds: @(300),
-            kPreferenceThemeKey: defaultTheme.properties,
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
             kPreferenceBacktickEscapeKey: @(NO),
             kPreferenceDisableDimmingKey: @(NO),
-            kPreferenceEnableMulticoreKey: @(YES),
-	        kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceLaunchCommandKey: @[@"/bin/login", @"-f", @"root"],
             kPreferenceBootCommandKey: @[@"/sbin/init"],
             kPreferenceBlinkCursorKey: @(NO),
@@ -186,24 +184,23 @@ bool (*remove_user_default)(const char *name);
         set_user_default = set_user_default_impl;
         remove_user_default = remove_user_default_impl;
         friendlyPreferenceMapping = @{
-            @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
-            @"option_mapping": kPreferenceOptionMappingKey,
-            @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
-            @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
-            @"override_control_space": kPreferenceOverrideControlSpaceKey,
-            @"font_family": kPreferenceFontFamilyKey,
-            @"disable_dimming": kPreferenceDisableDimmingKey,
-            @"font_size": kPreferenceFontSizeKey,
-            @"lock_sleep_nanoseconds": kPreferenceLockSleepNanoseconds,
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
-            @"launch_command": kPreferenceLaunchCommandKey,
-            @"boot_command": kPreferenceBootCommandKey,
-            @"cursor_style": kPreferenceCursorStyleKey,
-            @"blink_cursor": kPreferenceBlinkCursorKey,
-            @"hide_status_bar": kPreferenceHideStatusBarKey,
-            @"color_scheme": kPreferenceColorSchemeKey,
-            @"theme": kPreferenceThemeKey,
+            @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
+             @"option_mapping": kPreferenceOptionMappingKey,
+             @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
+             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
+             @"override_control_space": kPreferenceOverrideControlSpaceKey,
+             @"font_family": kPreferenceFontFamilyKey,
+             @"font_size": kPreferenceFontSizeKey,
+             @"disable_dimming": kPreferenceDisableDimmingKey,
+             @"launch_command": kPreferenceLaunchCommandKey,
+             @"boot_command": kPreferenceBootCommandKey,
+             @"cursor_style": kPreferenceCursorStyleKey,
+             @"blink_cursor": kPreferenceBlinkCursorKey,
+             @"hide_status_bar": kPreferenceHideStatusBarKey,
+             @"color_scheme": kPreferenceColorSchemeKey,
+             @"theme": kPreferenceThemeKey,
         };
         NSMutableDictionary <NSString *, NSString *> *reverseMapping = [NSMutableDictionary new];
         for (NSString *key in friendlyPreferenceMapping) {
@@ -213,6 +210,8 @@ bool (*remove_user_default)(const char *name);
         // Helps a bit with compile-time safety and autocompletion
 #define property(x) NSStringFromSelector(@selector(x))
         kvoProperties = @{
+            kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
+	        kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceCapsLockMappingKey: property(capsLockMapping),
             kPreferenceOptionMappingKey: property(optionMapping),
             kPreferenceBacktickEscapeKey: property(backtickMapEscape),
@@ -220,10 +219,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
-            kPreferenceLockSleepNanoseconds: property(lockSleepNanoseconds),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
-            kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
-	    kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceCursorStyleKey: property(cursorStyle),
@@ -330,15 +326,6 @@ bool (*remove_user_default)(const char *name);
 
 - (BOOL)validateFontSize:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
-}
-
-// MARK: lockSleepNanoseconds
-- (NSNumber *)lockSleepNanoseconds {
-    return [_defaults objectForKey:kPreferenceLockSleepNanoseconds];
-}
-
-- (void)setLockSleepNanoseconds:(NSNumber *)lockSleepNanoseconds {
-    [_defaults setObject:lockSleepNanoseconds forKey:kPreferenceLockSleepNanoseconds];
 }
 
 - (BOOL)validatesetLockSleepNanoseconds:(id *)value error:(NSError **)error {

@@ -199,6 +199,15 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
     if (!defaultThemes) {
         defaultThemes = @[
             [[self alloc] initWithName:@"Default"
+                          lightPalette:[[Palette alloc] initWithForegroundColor:@"#FD9F20"
+                                                                backgroundColor:@"#fff"
+                                                                    cursorColor:nil
+                                                          colorPaletteOverrides:nil]
+                           darkPalette:[[Palette alloc] initWithForegroundColor:@"#FD9F20"
+                                                                backgroundColor:@"#000"
+                                                                    cursorColor:nil
+                                                          colorPaletteOverrides:nil]],
+            [[self alloc] initWithName:@"iSH-Default"
                           lightPalette:[[Palette alloc] initWithForegroundColor:@"#000"
                                                                 backgroundColor:@"#fff"
                                                                     cursorColor:nil
