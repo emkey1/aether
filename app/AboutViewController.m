@@ -79,8 +79,6 @@
 
 - (void)_updateUI {
     NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
-    UserPreferences *prefs = UserPreferences.shared;
-    self.themeCell.detailTextLabel.text = prefs.theme.presetName;
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
