@@ -546,12 +546,12 @@ static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swa
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
-    //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
     _write_unlock(lock);
     _lock_destroy(lock);
     nested_unlockf();
-    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {

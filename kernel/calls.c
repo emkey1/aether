@@ -238,7 +238,7 @@ syscall_t syscall_table[] = {
     [361] = (syscall_t) sys_bind,
     [362] = (syscall_t) sys_connect,
     [363] = (syscall_t) sys_listen,
-    [364] = (syscall_t) syscall_stub, // accept4
+    [364] = (syscall_t) syscall_stub_silent, // accept4
     [365] = (syscall_t) sys_getsockopt,
     [366] = (syscall_t) sys_setsockopt,
     [367] = (syscall_t) sys_getsockname,
@@ -313,7 +313,7 @@ void handle_interrupt(int interrupt) {
         read_unlock(&current->mem->lock);
         //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         if (ptr == NULL) {
-            printk("ERROR: %d page fault on 0x%x at 0x%x\n", current->pid, cpu->segfault_addr, cpu->eip);
+            printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,

@@ -71,9 +71,9 @@ void jit_invalidate_page(struct jit *jit, page_t page) {
  //       nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
 //    }
     
-    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     jit_invalidate_range(jit, page, page + 1);
-    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 void jit_invalidate_all(struct jit *jit) {

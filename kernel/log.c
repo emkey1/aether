@@ -73,14 +73,14 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
         }
         
         pointer++;
-        if(pointer < (buf_addr + len)) {
-            token = strtok(NULL, "\n");  // Grab next token, deal with starting at top of loop. -mke
+        if(pointer < (buf_addr + (len -1))) {
+            token = strtok(NULL, "\n");  // Grab next token, deal with when back at top of while loop. -mke
         } else {
             token = NULL;
         }
            
-        if(count > 12000)
-            token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
+        //if(count > 12000)
+        //    token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
         count++;
     }
 

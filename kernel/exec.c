@@ -16,6 +16,7 @@
 #include "fs/fd.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
+#include "kernel/resource_locking.h"
 #include "tools/ptraceomatic-config.h"
 
 #define ARGV_MAX 32 * PAGE_SIZE
@@ -108,9 +109,11 @@ static int load_entry(struct prg_header ph, addr_t bias, struct fd *fd) {
         if (tail_size != 0) {
             // Unlock and lock the mem because the user functions must be
             // called without locking mem.
+            modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             write_unlock(&current->mem->lock);
             user_memset(file_end, 0, tail_size);
             write_lock(&current->mem->lock);
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         }
         if (tail_size > bss_size)
             tail_size = bss_size;

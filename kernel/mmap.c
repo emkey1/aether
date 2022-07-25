@@ -101,9 +101,11 @@ static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags,
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
 
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     write_lock(&current->mem->lock);
     addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
     write_unlock(&current->mem->lock);
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return res;
 }
 
@@ -158,6 +160,9 @@ int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
 
     // shrinking always works
     if (new_pages <= old_pages) {
+        while(critical_region_count(current)) {
+            nanosleep(&lock_pause, NULL);
+        }
         int err = pt_unmap(current->mem, PAGE(addr) + new_pages, old_pages - new_pages);
         if (err < 0)
             return _EFAULT;
