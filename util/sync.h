@@ -558,7 +558,8 @@ static inline void read_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     nested_lockf(count);
-    _read_unlock(lock);
+    if(trylockw(lock)) // It should be locked, but just in case.  Likely masking underlying issue.  -mke
+        _read_unlock(lock);
     _lock_destroy(lock);
     nested_unlockf();
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);

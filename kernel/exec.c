@@ -110,7 +110,8 @@ static int load_entry(struct prg_header ph, addr_t bias, struct fd *fd) {
             // Unlock and lock the mem because the user functions must be
             // called without locking mem.
             modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-            write_unlock(&current->mem->lock);
+	    if(trylockw(&current->mem->lock)) //  Test to see if it is actually locked.  This is likely masking an underlying problem.  -mke
+                write_unlock(&current->mem->lock);
             user_memset(file_end, 0, tail_size);
             write_lock(&current->mem->lock);
             modify_critical_region_counter(current, -1, __FILE__, __LINE__);
