@@ -48,7 +48,7 @@ int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
 
     int res = __user_read_task(task, addr, buf, count);
 
-    read_unlock(&task->mem->lock);
+    read_unlock(&task->mem->lock, __FILE__, __LINE__);
     //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     return res;
 }
@@ -60,7 +60,7 @@ int user_read(addr_t addr, void *buf, size_t count) {
 int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) { // This function has 'write' in the name, yet uses a read lock?  -mke
     read_lock(&task->mem->lock);
     int res = __user_write_task(task, addr, buf, count);
-    read_unlock(&task->mem->lock);
+    read_unlock(&task->mem->lock, __FILE__, __LINE__);
     return res;
 }
 
@@ -78,7 +78,7 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     size_t i = 0;
     while (i < max) {
         if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
-            read_unlock(&current->mem->lock);
+            read_unlock(&current->mem->lock, __FILE__, __LINE__);
             //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return 1;
         }
@@ -86,7 +86,7 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
             break;
         i++;
     }
-    read_unlock(&current->mem->lock);
+    read_unlock(&current->mem->lock, __FILE__, __LINE__);
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return 0;
 }
@@ -101,13 +101,13 @@ int user_write_string(addr_t addr, const char *buf) {
     size_t i = 0;
     do {
         if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
-            read_unlock(&current->mem->lock);
+            read_unlock(&current->mem->lock, __FILE__, __LINE__);
             //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return 1;
         }
         i++;
     } while (buf[i - 1] != '\0');
-    read_unlock(&current->mem->lock);
+    read_unlock(&current->mem->lock, __FILE__, __LINE__);
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return 0;
 }

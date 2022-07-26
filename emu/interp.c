@@ -618,7 +618,7 @@ flatten __no_instrument void cpu_run(struct cpu_state *cpu) {
         }
         if (interrupt != INT_NONE) {
             cpu->trapno = interrupt;
-            read_unlock(&cpu->mem->lock);
+            read_unlock(&cpu->mem->lock, __FILE__, __LINE__);
             handle_interrupt(interrupt);
             read_lock(&cpu->mem->lock);
             if (tlb.mem != cpu->mem)

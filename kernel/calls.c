@@ -310,7 +310,7 @@ void handle_interrupt(int interrupt) {
         //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         read_lock(&current->mem->lock);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
-        read_unlock(&current->mem->lock);
+        read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         if (ptr == NULL) {
             printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);

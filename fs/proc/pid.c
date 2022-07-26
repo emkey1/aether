@@ -251,7 +251,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
                 0, // inode
                 path);
     }
-    read_unlock(&mem->lock);
+    read_unlock(&mem->lock, __FILE__, __LINE__);
 }
 
 static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {

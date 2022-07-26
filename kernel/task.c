@@ -225,7 +225,7 @@ void task_run_current() {
         if(!doEnableMulticore)
             pthread_mutex_unlock(&multicore_lock);
  
-        read_unlock(&current->mem->lock);
+        read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(current->parent != NULL) {
             current->parent->group->group_count_in_int++; // Keep track of how many children the parent has

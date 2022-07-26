@@ -235,7 +235,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                     if (last_block->jump_ip[i] != NULL &&
                             (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
                         *last_block->jump_ip[i] = (unsigned long) block->code;
+			modify_critical_region_counter(current, 1, __FILE__, __LINE__);
                         list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+			modify_critical_region_counter(current, -1, __FILE__, __LINE__);
                     }
                 }
             }
@@ -264,7 +266,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
     free(frame);
     free(cache);
-    read_unlock(&jit->jetsam_lock);
+    read_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     return interrupt;
 }
 
@@ -301,7 +303,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         write_lock(&jit->jetsam_lock);
         lock(&jit->lock, 0);
         jit_free_jetsam(jit);
-        write_unlock(&jit->jetsam_lock);
+        write_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     }
     unlock(&jit->lock);
     ////modify_critical_region_counter(current, -1);
