@@ -67,9 +67,9 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
-//    while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
- //       nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
-//    }
+    while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
+        nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
+    }
     
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     jit_invalidate_range(jit, page, page + 1);
@@ -196,7 +196,7 @@ static inline size_t jit_cache_hash(addr_t ip) {
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
-    read_lock(&jit->jetsam_lock);
+    read_lock(&jit->jetsam_lock, __FILE__, __LINE__);
 
     struct jit_block **cache = calloc(JIT_CACHE_SIZE, sizeof(*cache));
     struct jit_frame *frame = malloc(sizeof(struct jit_frame));
@@ -290,7 +290,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
     ////modify_critical_region_counter(current, 1);
-    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb);
+    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022. -mke
     cpu->trapno = interrupt;
 
     struct jit *jit = cpu->mmu->jit;
@@ -302,6 +302,9 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         unlock(&jit->lock);
         write_lock(&jit->jetsam_lock);
         lock(&jit->lock, 0);
+        while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
+            nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
+        }
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     }

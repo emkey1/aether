@@ -205,7 +205,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
     if (mem == NULL)
         return;
 
-    read_lock(&mem->lock);
+    read_lock(&mem->lock, __FILE__, __LINE__);
     page_t page = 0;
     while (page < MEM_PAGES) {
         // find a region

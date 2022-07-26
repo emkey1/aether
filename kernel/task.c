@@ -14,7 +14,7 @@
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t nested_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
 
 dword_t extra_lock_pid = 0;
 char extra_lock_comm[16] = "";
@@ -211,7 +211,7 @@ void task_run_current() {
     tlb_refresh(&tlb, &current->mem->mmu);
     
     while (true) {
-        read_lock(&current->mem->lock);
+        read_lock(&current->mem->lock, __FILE__, __LINE__);
         
         if(doEnableMulticore) {
             // Do nothing

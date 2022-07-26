@@ -125,7 +125,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            read_lock(&child->mem->lock);
+            read_lock(&child->mem->lock, __FILE__, __LINE__);
             char *ptr = mem_ptr(child->mem, addr, MEM_WRITE_PTRACE);
             read_unlock(&child->mem->lock, __FILE__, __LINE__);
             if (ptr) {

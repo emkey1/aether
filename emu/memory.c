@@ -49,7 +49,7 @@ void mem_destroy(struct mem *mem) {
      //  elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
-    while((critical_region_count(current)) && (current->pid > 9) ){ // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     pt_unmap_always(mem, 0, MEM_PAGES);
@@ -59,7 +59,6 @@ void mem_destroy(struct mem *mem) {
     int mycount = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
         while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)){ // Wait for now, task is in one or more critical sections
-       // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
             mycount++;
             nanosleep(&lock_pause, NULL);
         }
@@ -69,7 +68,6 @@ void mem_destroy(struct mem *mem) {
     }
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
-    // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     
@@ -339,7 +337,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         read_to_write_lock(&mem->lock);
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
-        write_to_read_lock(&mem->lock);
+        write_to_read_lock(&mem->lock, __FILE__, __LINE__);
 
         entry = mem_pt(mem, page);
     }
@@ -369,13 +367,14 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
+            modify_critical_region_counter(current, 1,__FILE__, __LINE__);
             memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
-            write_to_read_lock(&mem->lock);
+            write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
         
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);

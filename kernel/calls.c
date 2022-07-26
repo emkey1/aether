@@ -308,7 +308,7 @@ void handle_interrupt(int interrupt) {
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
         //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-        read_lock(&current->mem->lock);
+        read_lock(&current->mem->lock, __FILE__, __LINE__);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
