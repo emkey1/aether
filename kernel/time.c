@@ -10,6 +10,7 @@
 #include "kernel/errno.h"
 #include "kernel/resource.h"
 #include "kernel/time.h"
+#include "kernel/resource_locking.h"
 #include "fs/poll.h"
 
 static int clockid_to_real(uint_t clock, clockid_t *real) {
@@ -105,9 +106,9 @@ static void itimer_notify(struct task *task) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
     };
-    delay_task_delete_up_vote(task);
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     send_signal(task, SIGALRM_, info);
-    delay_task_delete_down_vote(task);
+    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 }
 
 static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {

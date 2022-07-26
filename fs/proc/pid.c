@@ -7,6 +7,7 @@
 #include "fs/tty.h"
 #include "kernel/fs.h"
 #include "kernel/vdso.h"
+#include "kernel/resource_locking.h"
 #include "util/sync.h"
 
 extern pthread_mutex_t extra_lock;
@@ -19,7 +20,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock(&pids_lock);
@@ -30,15 +31,14 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    int elock_fail;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(entry->pid);
-        
+    //int elock_fail;
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    
-    delay_task_delete_up_vote(task);
+ //   if(doEnableExtraLocking)
+  //      elock_fail = extra_lockf(entry->pid);
+        
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -94,7 +94,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     proc_printf(buf, "%lu ", (unsigned long) task->pending & 0xffffffff);
     proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
-    /* uint32_t ignored = 0;
+    /* uint32_t ignored = 0; // MKEMKEMKE try enabling this at some point
     uint32_t caught = 0;
     for (int i = 0; i < 32; i++) {
         if (task->sighand->action[i].handler == SIG_IGN_)
@@ -114,14 +114,14 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // that's enough for now
     proc_printf(buf, "\n");
     
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(entry->pid);
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(entry->pid);
     
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
+    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     proc_put_task(task);
-    delay_task_delete_down_vote(task);
     return 0;
 }
 
@@ -162,19 +162,20 @@ out_free_task:
 }
 
 static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
+    //struct task *task = proc_get_task(entry);
+    struct task *task = pid_get_task(entry->pid);
     
     if (task == NULL)
         return _ESRCH;
     
-    delay_task_delete_up_vote(task);
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     
     int err = 0;
     lock(&task->general_lock, 0);
     
     int elock_fail = 0;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(task->pid);
+   // if(doEnableExtraLocking)
+    //    elock_fail = extra_lockf(task->pid);
     
     if (task->mm == NULL)
         goto out_free_task;
@@ -189,13 +190,13 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
         proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022 -mke
     free(data);
     
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid);
-
 out_free_task:
     unlock(&task->general_lock);
-    delay_task_delete_down_vote(task);
-    proc_put_task(task);
+    //proc_put_task(task);
+    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
+    
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(task->pid);
     return err;
 }
 
@@ -285,8 +286,10 @@ static void proc_pid_fd_getname(struct proc_entry *entry, char *buf) {
 
 static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
-    if (task == NULL)
+    if (task == NULL) {
+        proc_put_task(task);
         return _ESRCH;
+    }
     lock(&task->files->lock, 0);
     struct fd *fd = fdtable_get(task->files, entry->fd);
     int err = generic_getpath(fd, buf);

@@ -4,9 +4,11 @@
 #include <string.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
 #include "platform/platform.h"
+#include "util/sync.h"
 #include <pthread.h>
 
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -69,7 +71,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     dword_t res = 0;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
@@ -82,7 +84,7 @@ dword_t get_count_of_blocked_tasks() {
 }
 
 dword_t get_count_of_alive_tasks() {
-    lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
@@ -93,7 +95,7 @@ dword_t get_count_of_alive_tasks() {
 }
 
 struct task *task_create_(struct task *parent) {
-    lock(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     do {
         last_allocated_pid++;
         if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
@@ -111,7 +113,6 @@ struct task *task_create_(struct task *parent) {
     if (parent != NULL)
         *task = *parent;
 
-    task->delay_task_delete_requests = 0; // counter used to delay task deletion if positive.  --mke
     task->pid = pid->id;
     pid->task = task;
     list_add(&alive_pids_list, &pid->alive);
@@ -141,24 +142,10 @@ struct task *task_create_(struct task *parent) {
 
     lock_init(&task->ptrace.lock);
     cond_init(&task->ptrace.cond);
+    
+    task->locks_held.count = 0; // counter used to keep track of pending locks associated with task.  Do not delete when locks are present.  -mke
+    task->critical_region.count = 0; // counter used to delay task deletion if positive.  --mke
     return task;
-}
-
-void delay_task_delete_up_vote(struct task *task) {  // Delay task deletion, increase number of threads.  -mke
-    pthread_mutex_lock(&delay_lock);
-    task->delay_task_delete_requests++;
-    pthread_mutex_unlock(&delay_lock);
-}
-
-void delay_task_delete_down_vote(struct task *task) { // Decrease number of threads requesting delay on task deletion.  -mke
-    pthread_mutex_lock(&delay_lock);
-    if(task->delay_task_delete_requests >= 1) {
-        task->delay_task_delete_requests--;
-    } else {
-        printk("ERROR: delay_task_delete_down_vote was zero(%d)\n", task->delay_task_delete_requests);
-        task->delay_task_delete_requests = 0;
-    }
-    pthread_mutex_unlock(&delay_lock);
 }
 
 void task_destroy(struct task *task) {
@@ -166,7 +153,7 @@ void task_destroy(struct task *task) {
     //if(doEnableExtraLocking)
      //   elock_fail = extra_lockf(task->pid);
     
-    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
 
@@ -175,14 +162,15 @@ void task_destroy(struct task *task) {
        printk("WARNING: pids_lock was not set\n");
        IShould = true;
     }
-    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
-    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
@@ -192,9 +180,10 @@ void task_destroy(struct task *task) {
     if(IShould)
         unlock(&pids_lock);
     
-    while(task->delay_task_delete_requests) { // Wait for now, task is in one or more critical sections
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
+    
     free(task);
 }
 
@@ -212,6 +201,9 @@ void run_at_boot() {  // Stuff we run only once, at boot time.
 void task_run_current() {
     if(BOOTING) {
         run_at_boot();
+        //struct timespec boot_pause = {1 /*secs*/, 0 /*nanosecs*/};
+        // Stupid stuff ahead, without it, sometimes doEnableMulticore is not set yet apparently?
+        //nanosleep(&boot_pause, NULL);
     }
 
     struct cpu_state *cpu = &current->cpu;
@@ -221,8 +213,12 @@ void task_run_current() {
     while (true) {
         read_lock(&current->mem->lock);
         
-        if(!doEnableMulticore)
-            pthread_mutex_lock(&multicore_lock);
+        if(doEnableMulticore) {
+            // Do nothing
+        } else {
+            //pthread_mutex_lock(&multicore_lock);
+            complex_lock(&multicore_lock, 1);
+        }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
         
@@ -242,14 +238,17 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
-    int elock_fail = 0;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(0);
+    //int elock_fail = 0;
     
     current = task;
+    
+    ////modify_critical_region_counter(task, 1);
+   // if(doEnableExtraLocking)
+    //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(0);
+    ////modify_critical_region_counter(task, -1);
+    //if((doEnableExtraLocking) && (!elock_fail))
+     //   extra_unlockf(0);
     
     task_run_current();
     die("task_thread returned"); // above function call should never return
@@ -289,6 +288,15 @@ void update_thread_name() {
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
+    if(current != NULL)
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    pthread_mutex_lock(&extra_lock);
+    extra_lock_pid = pid;
+    extra_lock_held = true; //
+    if(current != NULL)
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    return 0;
+    
     time_t now;
     time(&now);
 
@@ -350,6 +358,14 @@ int extra_lockf(dword_t pid) {
 }
 
 void extra_unlockf(dword_t pid) {
+    if(current != NULL)
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    pthread_mutex_unlock(&extra_lock);
+    if(current != NULL)
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    
+    return;
+    
     time_t now;
     time(&now);
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it

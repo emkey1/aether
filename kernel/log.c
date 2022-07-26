@@ -10,6 +10,7 @@
 #include "util/sync.h"
 #include "util/fifo.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 #include "misc.h"
 
 #define LOG_BUF_SHIFT 20
@@ -40,44 +41,51 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
         if ((size_t) len > fifo_capacity(&log_buf))
             len = fifo_capacity(&log_buf);
     }
-    char *buf = malloc(len);
+    char *buf = malloc(len + 1);
     fifo_read(&log_buf, buf, len, flags);
     
     // Here we will split on \n and do one entry per line
-    int fail;
     // Keep printing tokens while one of the
-    // delimiters present in str[].
+    // delimiters present
     addr_t pointer = buf_addr; // Where we are in the buffer
     unsigned count = 1;
-    char *token = strtok(buf, "\n"); // Inject an extra end of line to get sanish output from dmesg.  -mke
+    char *token = strtok(buf, "\n"); // Get the first line
     
-    fail = user_write(pointer, "\n", 1);
-    if (fail) {
+    if(user_write(pointer, "\n", 1)) { // Positive return value = fail
         free(buf);
         return _EFAULT;
     }
-    pointer = pointer + 1;
+    
+    pointer++;
     
     while (token != NULL) {
         size_t length = strlen(token);
-        fail = user_write(pointer, token, length);
-        if (fail) {
+        if(user_write(pointer, token, length)) { // Positive return value = fail
             free(buf);
             return _EFAULT;
         }
+           
         pointer += length;
-        fail = user_write(pointer, "\n", 1);
+        
+        if(user_write(pointer, "\n", 1)) { // Positive return value = fail
+            free(buf);
+            return _EFAULT;
+        }
+        
         pointer++;
-        token = strtok(NULL, "\n");
-        if(count > 12000)
-            token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
+        if(pointer < (buf_addr + (len -1))) {
+            token = strtok(NULL, "\n");  // Grab next token, deal with when back at top of while loop. -mke
+        } else {
+            token = NULL;
+        }
+           
+        //if(count > 12000)
+        //    token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
         count++;
     }
 
     free(buf);
     
-    if (fail)
-        return _EFAULT;
     return len;
 }
 
@@ -114,11 +122,11 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
-    delay_task_delete_up_vote(current);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
-    delay_task_delete_down_vote(current);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return retval;
 }
 
@@ -158,7 +166,7 @@ void ish_vprintk(const char *msg, va_list args) {
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
-    lock(&log_lock, 1);
+    complex_lockt(&log_lock, 1);
     char *b = buf;
     char *p;
     while ((p = strchr(b, '\n')) != NULL) {
@@ -215,20 +223,10 @@ int current_pid() {
 }
 
 char * current_comm() {
-    if (current) {
+    if (current != NULL) {
         return current->comm;
     }
     return calloc(1, 1); 
 }
 
-// Because sometimes we can't #include "kernel/task.h" -mke
-int current_delay_task_delete_requests() {
-    return current->delay_task_delete_requests;
-}
 
-int modify_current_delay_task_delete_requests(int value) { // Should only be -1 or 1.  -mke
-    if((value != -1) || (value != 1))
-        value = 0;
-    current->delay_task_delete_requests = current->delay_task_delete_requests + value;
-    return current->delay_task_delete_requests;
-}

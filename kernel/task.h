@@ -12,18 +12,22 @@
 #include "util/timer.h"
 #include "util/sync.h"
 
-void delay_task_delete_up_vote(struct task *task);  // Delay task deletion, increase number of threads requesting delay.  -mke
-void delay_task_delete_down_vote(struct task *task);  // Delay task deletion, decrease number of threads requesting delay.  -mke
-
-// everything here is private to the thread executing this task and needs no
-// locking, unless otherwise specified
 struct task {
     struct cpu_state cpu;
     struct mm *mm; // locked by general_lock
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
-    unsigned delay_task_delete_requests; // If positive, don't delete yet, wait_to_delete
+    
+    struct {
+        pthread_mutex_t lock;
+        unsigned count; // If positive, don't delete yet, wait_to_delete
+    } critical_region;
+    
+    struct {
+        pthread_mutex_t lock;
+        unsigned count; // Count of locks held by current task
+    } locks_held;
 
     struct tgroup *group; // immutable
     struct list group_links;
@@ -223,7 +227,8 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
     current->io_block = 1;
     unlock(&block_lock);
   */
-    delay_task_delete_up_vote(current);
+//    critical_region_count_increase(current);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     current->io_block = 1;
     return 0;
 }
@@ -235,7 +240,8 @@ __attribute__((always_inline)) inline int task_may_block_end(void) {
     unlock(&block_lock);
    */
     current->io_block = 0;
-    delay_task_delete_down_vote(current);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+//    critical_region_count_decrease(current);
     return 0;
 }
 
