@@ -360,7 +360,7 @@ static struct tmp_inode *tmpfs_fd_inode(struct fd *fd) {
 static int tmpfs_getpath(struct fd *fd, char *buf) {
     struct tmp_dirent *dirent = fd->tmpfs.dirent;
     struct tmp_dirent *root_dirent = fd->mount->data;
-    char *p = buf + MAX_PATH -1;
+    char *p = buf + MAX_PATH - 1;
     *p = '\0';
     while (dirent != root_dirent) {
         size_t name_len = strlen(dirent->name);
