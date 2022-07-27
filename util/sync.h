@@ -131,13 +131,13 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
 }
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_lock(&lock->m);
     modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
     lock->comm = current_comm();
-    //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
 
