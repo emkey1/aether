@@ -241,6 +241,7 @@ static void *task_thread(void *task) {
     //int elock_fail = 0;
     
     current = task;
+    current->critical_region.count = 0; // Is this needed?  -mke
     
     ////modify_critical_region_counter(task, 1);
    // if(doEnableExtraLocking)

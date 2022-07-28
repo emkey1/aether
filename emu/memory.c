@@ -58,18 +58,22 @@ void mem_destroy(struct mem *mem) {
 #endif
     int mycount = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-        while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)){ // Wait for now, task is in one or more critical sections
+        do {
             mycount++;
             nanosleep(&lock_pause, NULL);
-        }
+        } while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
+        
         
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
+
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
+
+    do {
         nanosleep(&lock_pause, NULL);
     }
+    while((critical_region_count(current) >1) && (current->pid > 1) ); // Wait for now, task is in one or more critical sections
     
     free(mem->pgdir);
     
@@ -128,7 +132,7 @@ static void mem_pt_del(struct mem *mem, page_t page) {
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct pt_entry *entry = mem_pt(mem, page);
     if (entry != NULL) {
-         while(critical_region_count(current) > 2) {
+         while(critical_region_count(current) > 3) { // mark
              nanosleep(&lock_pause, NULL);
         }
         entry->data = NULL;
@@ -212,7 +216,7 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
-        while(critical_region_count(current) >1) {
+        while(critical_region_count(current) >3) {
             nanosleep(&lock_pause, NULL);
         }
         struct pt_entry *pt = mem_pt(mem, page);
@@ -226,7 +230,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                while(critical_region_count(current) > 1) {
+                while(critical_region_count(current) > 2) {
                     nanosleep(&lock_pause, NULL);
                 }
                 int err = munmap(data->data, data->size);

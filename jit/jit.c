@@ -67,7 +67,7 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
-    while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
+    while(critical_region_count(current) > 4) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
         nanosleep(&lock_pause, NULL);          // Yes, this has triggered at least once.  Is it doing any good though? -mke
     }
     

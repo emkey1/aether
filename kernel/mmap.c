@@ -47,7 +47,13 @@ void mm_release(struct mm *mm) {
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
+        while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         mem_destroy(&mm->mem);
+        while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         free(mm);
     }
 }

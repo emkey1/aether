@@ -154,7 +154,7 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     pthread_mutex_lock(&task->critical_region.lock);
     
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d)\n", task->comm, task->pid);
+        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, line, file);
         return;
     }
     
