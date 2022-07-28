@@ -132,7 +132,7 @@ static void mem_pt_del(struct mem *mem, page_t page) {
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct pt_entry *entry = mem_pt(mem, page);
     if (entry != NULL) {
-         while(critical_region_count(current) > 3) { // mark
+         while(critical_region_count(current) > 4) { // mark
              nanosleep(&lock_pause, NULL);
         }
         entry->data = NULL;
@@ -230,7 +230,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                while(critical_region_count(current) > 2) {
+                while(critical_region_count(current) > 3) {
                     nanosleep(&lock_pause, NULL);
                 }
                 int err = munmap(data->data, data->size);

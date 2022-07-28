@@ -160,11 +160,9 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
         return;
     }
     
-   // if(task->critical_region.count > 1000)
-    //    task->critical_region.count = 1; //  Mad kludge. -mke
     task->critical_region.count = task->critical_region.count + value;
     
-    if((strcmp(task->comm, "foodoo.alpine") == 0) && ( !noprintk)) { // Extra logging for the some command
+    if((strcmp(task->comm, "countme_now") == 0) && ( !noprintk)) { // Extra logging for the some command
     //if((task->pid == 3) && ( !noprintk)) { // Extra logging for the some command(s)
         noprintk = 1; // Avoid recursive logging -mke
         printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count);

@@ -333,7 +333,7 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
 }
 
 void receive_signals() {  // Should this function have a check for critical_region_count? -mke
-    nanosleep(&lock_pause, NULL);
+    //nanosleep(&lock_pause, NULL);
     lock(&current->group->lock, 0);
     bool was_stopped = current->group->stopped;
     unlock(&current->group->lock);
@@ -357,8 +357,10 @@ void receive_signals() {  // Should this function have a check for critical_regi
         int sig = sigqueue->info.sig;
         if (sigset_has(blocked, sig))
             continue;
+        modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         list_remove(&sigqueue->queue);
         sigset_del(&current->pending, sig);
+        modify_critical_region_counter(current, 1, __FILE__, __LINE__);
 
         if (current->ptrace.traced && sig != SIGKILL_) {
             // This notifies the parent, goes to sleep, and waits for the
