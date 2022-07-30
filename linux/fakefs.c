@@ -413,10 +413,11 @@ static int fakefs_iterate(struct file *file, struct dir_context *ctx) {
             ent.ino = d_inode(file->f_path.dentry->d_parent)->i_ino;
         } else {
             db_begin(&info->db);
-            if (dir_path_len + 1 + strlen(ent.name) + 1 > PATH_MAX)
+            const size_t namelen = strlen(ent.name) + 1;
+            if (dir_path_len + 1 + namelen > PATH_MAX)
                 continue; // a
             dir_path[dir_path_len] = '/';
-            strcpy(&dir_path[dir_path_len + 1], ent.name);
+            memcpy(&dir_path[dir_path_len + 1], ent.name, namelen);
             ent.ino = path_get_inode(&info->db, dir_path);
             db_commit(&info->db);
         }
@@ -708,17 +709,23 @@ static int fakefs_get_tree(struct fs_context *fc) {
     struct fakefs_super *info = fc->s_fs_info;
     struct fakefs_context *ctx = fc->fs_private;
 
-    char *path = kmalloc(strlen(ctx->path) + 10, GFP_KERNEL);
-    strcpy(path, ctx->path);
-    strcat(path, "/data");
+    static const char pd[] = "/data";
+    static const char pdb[] = "/meta.db";
+
+    const size_t pathlen = strlen(ctx->path);
+    char *path = kmalloc(pathlen + 10, GFP_KERNEL);
+    memcpy(path, ctx->path, pathlen);
+    memcpy(path[pathlen], pd, sizeof(pd));
+
     info->root_fd = host_open(path, O_RDONLY);
     if (info->root_fd < 0) {
         kfree(path);
         return info->root_fd;
     }
 
-    strcpy(path, ctx->path);
-    strcat(path, "/meta.db");
+    memcpy(path, ctx->path, pathlen);
+    memcpy(path[pathlen], pdb, sizeof(pdb));
+
     int err = fake_db_init(&info->db, path, info->root_fd);
     if (err < 0) {
         kfree(path);

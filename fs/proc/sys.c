@@ -17,73 +17,52 @@ extern const char *proc_ish_version;
 
 #pragma mark - /proc/sys
 
-static bool sys_show_abi(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_abi(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_dev((struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
+
+static bool sys_show_dev(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_fs(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_fs(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_fscache(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_fscache(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_sunrpc(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_sunrpc(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_user(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_user(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_vm(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_vm(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_net_core(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_net_core(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_net_ipv4(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_net_ipv4(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_net_ipv6(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_net_ipv6(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_net_netfilter(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_net_netfilter(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool sys_show_net_unix(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_net_unix(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
