@@ -9,6 +9,7 @@
 #include<errno.h>
 #include "misc.h"
 #include "debug.h"
+#include <strings.h>
 
 
 // locks, implemented using pthread
@@ -29,7 +30,8 @@ extern pthread_mutex_t atomic_l_lock; // Used to make all lock operations atomic
 typedef struct {
     pthread_mutex_t m;
     pthread_t owner;
-    const char *comm;
+    char comm[16];
+    //const char *comm;
     int pid;
 #if LOCK_DEBUG
     struct lock_debug {
@@ -110,12 +112,13 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
     
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
+            printk("WARNING: large lock attempt count(%d) in Function: complex_lockt(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
     lock->pid = current_pid();
-    lock->comm = current_comm();
+    strcpy(lock->comm, current_comm());
+    //lock->comm = current_comm();
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
     assert(!lock->debug.file && "Attempting to recursively lock");
@@ -132,7 +135,8 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
-    lock->comm = current_comm();
+    //lock->comm = current_comm();
+    strcpy(lock->comm, current_comm());
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
@@ -142,7 +146,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 static inline void unlock(lock_t *lock) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     pthread_mutex_unlock(&lock->m);
-    //lock->owner = zero_init(pthread_t);
+    lock->owner = zero_init(pthread_t);
     modify_locks_held_count_wrapper(-1);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     

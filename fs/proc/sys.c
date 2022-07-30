@@ -23,9 +23,7 @@ static bool sys_show_abi(struct proc_entry *entry, unsigned long *index, struct 
     return 0;
 }
 
-static bool sys_show_dev(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && entry && next_entry && index)
-        return 0;
+static bool sys_show_dev((struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 

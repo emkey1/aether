@@ -72,7 +72,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    //complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
@@ -82,7 +82,7 @@ dword_t get_count_of_blocked_tasks() {
         }
     }
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return res;
 }
 
@@ -110,8 +110,10 @@ struct task *task_create_(struct task *parent) {
     list_init(&pid->pgroup);
 
     struct task *task = malloc(sizeof(struct task));
-    if (task == NULL)
+    if (task == NULL) {
+        unlock(&pids_lock);
         return NULL;
+    }
     *task = (struct task) {};
     if (parent != NULL)
         *task = *parent;

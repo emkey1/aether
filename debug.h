@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define WAIT_SLEEP 2500
+#define WAIT_SLEEP 25
 #define WAIT_MAX_UPPER 555000
 
 void ish_printk(const char *msg, ...);
