@@ -95,7 +95,7 @@ noreturn void do_exit(int status) {
     unlock(&current->group->lock);
 
     // the actual freeing needs pids_lock
-    //complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     // release the sighand
     //while(critical_region_count(current)) {
@@ -150,12 +150,12 @@ noreturn void do_exit(int status) {
             exit_hook(current, status);
     }
 
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     vfork_notify(current);
     if(current != leader) 
         task_destroy(current);
     
-    //unlock(&pids_lock);
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    unlock(&pids_lock);
 
     pthread_exit(NULL);
 }

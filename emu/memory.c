@@ -373,9 +373,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
-            //modify_critical_region_counter(current, 1,__FILE__, __LINE__);
+            modify_critical_region_counter(current, 1,__FILE__, __LINE__);
             memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
-            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
             write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             

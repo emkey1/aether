@@ -218,15 +218,26 @@ void die(const char *msg, ...) {
 
 // fun little utility function
 int current_pid() {
-    if (current)
-        return current->pid;
+    if(current != NULL) {
+        if (current->exiting != true) {
+           return current->pid;
+        } else {
+            return -1;
+        }
+    }
+    
     return -1;
 }
 
 char * current_comm() {
-    if (current != NULL) {
-        return current->comm;
+    if(current != NULL) {
+        if (current->exiting != true) {
+            return current->comm;
+        } else {
+            return calloc(1, 1);
+        }
     }
+    
     return calloc(1, 1); 
 }
 

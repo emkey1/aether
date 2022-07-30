@@ -318,6 +318,7 @@ void handle_interrupt(int interrupt) {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,
             };
+            current->zombie = true; // Lets see if this helps with page faults never exiting.  -mke
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {

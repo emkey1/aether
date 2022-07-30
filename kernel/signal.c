@@ -102,11 +102,14 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
     // signal zero is for testing whether a process exists
-    if (sig == 0)
+    if(sig == 0)
         return;
-    if (task->zombie || task->exiting)
+    if(task->zombie)
         return;
-
+    if(task->exiting)
+        return;  // I'm not sure this is correct.  -mke
+        
+        
     //critical_region_count_increase(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
