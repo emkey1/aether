@@ -61,43 +61,31 @@ static int proc_show_arp(struct proc_entry * UNUSED(entry), struct proc_data *bu
     return 0;
 }
 
-static int proc_show_raw(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_raw(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_raw6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_raw6(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_tcp(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_tcp(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_tcp6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_tcp6(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_udp(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_udp(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_udp6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_udp6(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 
-static int proc_show_route(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
+static int proc_show_route(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     
     proc_printf(buf, "Iface    Destination    Gateway     Flags    RefCnt    Use    Metric    Mask        MTU    Window    IRTT \n");
     
@@ -218,51 +206,35 @@ dr-xr-xr-x 8 root root 0 Jun  5 10:55 rpc
 dr-xr-xr-x 5 root root 0 Jun  5 10:55 stat
 dr-xr-xr-x 3 root root 0 Jun  5 10:55 vlan
 */
-static bool net_show_net_snmp6(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_net_snmp6(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_ipconfig(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_ipconfig(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_netfilter(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_netfilter(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_nfsfs(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_nfsfs(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_rpc(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_rpc(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_stat(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_stat(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_unix(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_unix(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
-static bool net_show_vlan(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if(entry && next_entry && index)
-        return 0;
+static bool net_show_vlan(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
 
