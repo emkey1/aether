@@ -186,7 +186,7 @@ static struct fd *devpts_open(struct mount *UNUSED(mount), const char *path, int
 
 static int devpts_getpath(struct fd *fd, char *buf) {
     if (fd->devpts.num == -1)
-        strcpy(buf, "");
+        memcpy(buf, "", 1);
     else
         sprintf(buf, "/%d", fd->devpts.num);
     return 0;

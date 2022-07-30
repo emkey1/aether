@@ -25,14 +25,15 @@ void do_uname(struct uname *uts) {
     struct tm *t = localtime(&now);
     strftime(build_date, sizeof(build_date)-1, "%Y-%m-%d %H:%M", t);
 
-    memset(uts, 0, sizeof(struct uname));
-    strcpy(uts->system, "Linux");
+    static const struct uname u = {
+        .arch = "i686",
+        .domain = "(none)",
+        .release = "4.20.69-ish_aok",
+        .system = "Linux"
+    };
+    *uts = u; // Implicit memcpy
     strcpy(uts->hostname, hostname);
-    strcpy(uts->release, "4.20.69-ish_aok");
-    // snprintf(uts->version, sizeof(uts->version), "%s %s %s", uname_version, __DATE__, __TIME__);
     snprintf(uts->version, sizeof(uts->version), "%s %s", uname_version, build_date);
-    strcpy(uts->arch, "i686");
-    strcpy(uts->domain, "(none)");
 }
 
 dword_t sys_uname(addr_t uts_addr) {
