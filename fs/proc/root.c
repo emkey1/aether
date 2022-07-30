@@ -17,7 +17,7 @@ static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data 
     return 0;
 }
 
-char * parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags into text */
+void parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags into text */
     static const char *enumerated[] = {
         "fpu ", "vme ", "de ", "pse ", "tsc ", "msr ", "pae ", "mce ", "cx8 ", "apic ", "Reserved ",
         "sep ", "mtrr ", "pge ", "mca ", "cmov ", "", "pse-36 ", "psn ", "clfsh ", "Reserved ",
@@ -33,7 +33,6 @@ char * parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flag
         }
     }
     edx_flags[offset] = '\0';
-    return edx_flags;
 }
 
 static void unpack32(dword_t src, void *dst) {
@@ -43,34 +42,34 @@ static void unpack32(dword_t src, void *dst) {
     }
 }
 
-char *translate_vendor_id(dword_t *ebx, dword_t *ecx, dword_t *edx) {
-    char *byteArray = calloc(12 + 1, sizeof(char)); // vendor_id is fixed at 12 bytes
-
-    unpack32(*ebx, &byteArray[0]);
-    unpack32(*edx, &byteArray[4]);
-    unpack32(*ecx, &byteArray[8]);
-
-    return byteArray;
+void translate_vendor_id(char *buf, dword_t *ebx, dword_t *ecx, dword_t *edx) {
+    unpack32(*ebx, &buf[0]);
+    unpack32(*edx, &buf[4]);
+    unpack32(*ecx, &buf[8]);
 }
 
 static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    dword_t *eax = malloc(sizeof(dword_t));
-    dword_t *ebx = malloc(sizeof(dword_t));
-    dword_t *ecx = malloc(sizeof(dword_t));
-    dword_t *edx = malloc(sizeof(dword_t));
+    dword_t eax = 0;
+    dword_t ebx;
+    dword_t ecx;
+    dword_t edx;
 
-    *eax = 0x00; // Get vendor_id.  It is returned as four bytes each in ebx, ecx & edx
-    do_cpuid(eax, ebx, ecx, edx); // Get vendor_id
+    do_cpuid(&eax, &ebx, &ecx, &edx); // Get vendor_id
 
-    char *vendor_id = calloc(12 + 1, sizeof(char)); // vendor_id is fixed at 12 bytes
+    char vendor_id[13] = { 0 };
+    translate_vendor_id(vendor_id, &ebx, &ecx, &edx);
 
-    vendor_id = translate_vendor_id(ebx, ecx, edx);
+    eax = 1;
+    do_cpuid(&eax, &ebx, &ecx, &edx);
 
-    *eax = 1;
-    do_cpuid(eax, ebx, ecx, edx);
+    // static const char len[] = {
+    //     "fpu " "vme " "de " "pse " "tsc " "msr " "pae " "mce " "cx8 " "apic " "Reserved "
+    //     "sep " "mtrr " "pge " "mca " "cmov " "" "pse-36 " "psn " "clfsh " "Reserved "
+    //     "ds " "acpi " "mmx " "fxsr " "sse " "sse2 " "ss " "htt " "tm " "Reserved " "pbe "
+    // };
 
-    char *edx_flags=calloc(151, sizeof(char)); // Max size if all flags set
-    parse_edx_flags(*edx, edx_flags);
+    char edx_flags[148] = { 0 };
+    parse_edx_flags(edx, edx_flags);
 
     int cpu_count = get_cpu_count(); // One entry per device processor
     int i;
@@ -96,15 +95,13 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "wp              : yes\n");
         proc_printf(buf, "flags           : %s\n", edx_flags); // Pulled from do_cpuid
         proc_printf(buf, "bogomips        : 1066.00\n");
-        proc_printf(buf, "clflush size    : %d\n", *ebx);
+        proc_printf(buf, "clflush size    : %d\n", ebx);
         proc_printf(buf, "cache_alignment : %d\n",64);
         proc_printf(buf, "address sizes   : 36 bits physical, 32 bits virtual\n");
         proc_printf(buf, "power management:\n");
         proc_printf(buf, "\n");
     }
 
-    free(edx_flags);
-    free(vendor_id);
     return 0;
 }
 
@@ -180,9 +177,7 @@ static int proc_show_uptime(struct proc_entry *UNUSED(entry), struct proc_data *
     proc_printf(buf, "%u.%u %u.%u\n", uptime / 100, uptime % 100, uptime / 100, uptime % 100);
     return 0;
 }
-static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    if(buf)
-        return 0;
+static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
     return 0;
 }
 /*
@@ -222,12 +217,16 @@ static int proc_readlink_self(struct proc_entry *UNUSED(entry), char *buf) {
 }
 
 static void proc_print_escaped(struct proc_data *buf, const char *str) {
-    // FIXME: this is hella slow
-    for (size_t i = 0; str[i] != '\0'; i++) {
-        if (strchr(" \t\\", str[i]) != NULL) {
-            proc_printf(buf, "\\%03o", str[i]);
-        } else {
-            proc_printf(buf, "%c", str[i]);
+    for (size_t i = 0; str && str[i]; i++) {
+        switch (str[i]) {
+            case 9:
+            case 32:
+            case 92:
+                proc_printf(buf, "\\%03o", str[i]);
+                break;
+            default:
+                proc_printf(buf, "%c", str[i]);
+                break;
         }
     }
 }
