@@ -365,7 +365,11 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 #endif
         
         // if page is cow, ~~milk~~ copy it
+        if(doEnableExtraLocking)
+           extra_lockf(0);
+        
         if (entry->flags & P_COW) {
+            lock(&current->general_lock, 0);  // prevent elf_exec from doing mm_release while we are in flight?  -mke
             //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
@@ -377,9 +381,13 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
             modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
+            unlock(&current->general_lock);
             write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
+        
+        if(doEnableExtraLocking)
+           extra_unlockf(0);
         
     }
 

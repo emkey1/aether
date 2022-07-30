@@ -8,6 +8,8 @@
 #include "kernel/mm.h"
 #include "kernel/resource_locking.h"
 
+extern bool doEnableExtraLocking;
+
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
     if (mm == NULL)
@@ -46,11 +48,16 @@ void mm_release(struct mm *mm) {
         while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
+        
+        if(doEnableExtraLocking)
+            extra_lockf(0);
         mem_destroy(&mm->mem);
         while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         free(mm);
+        if(doEnableExtraLocking)
+           extra_unlockf(0);
     }
 }
 

@@ -38,8 +38,10 @@ void jit_free(struct jit *jit) {
         }
     }
     jit_free_jetsam(jit);
+    unlock(&jit->lock);
     free(jit->page_hash);
     free(jit->hash);
+    write_lock(&jit->jetsam_lock);
     free(jit);
 }
 

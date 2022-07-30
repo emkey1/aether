@@ -239,9 +239,9 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
-        atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
+        //atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
         nanosleep(&lock_pause, NULL);
-        atomic_l_lockf(count);
+        //atomic_l_lockf(count);
     }
     
     if(lock->favor_read > 24)
