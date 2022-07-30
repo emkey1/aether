@@ -68,7 +68,7 @@ static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(complex_lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
                 pthread_mutex_unlock(lock);
                 modify_locks_held_count_wrapper(-1);
             }
@@ -95,7 +95,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock->m, current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(complex_lockt(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock->m, current_pid(), current_comm());
                 pthread_mutex_unlock(&lock->m);
                 modify_locks_held_count_wrapper(-1);
             }
@@ -108,10 +108,6 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
     modify_locks_held_count_wrapper(1);
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
     
-   // if(current_pid() > 5)
-    //    modify_current_critical_region_count(1);
-        //modify_current_locks_held_count(1);
-
     if(count > count_max * .90) {
         if(!log_lock)
             printk("WARNING: large lock attempt count(%d) in Function: __lock(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
@@ -134,9 +130,9 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_lock(&lock->m);
     modify_locks_held_count_wrapper(1);
-    //lock->owner = pthread_self();
-    //lock->pid = current_pid();
-    //lock->comm = current_comm();
+    lock->owner = pthread_self();
+    lock->pid = current_pid();
+    lock->comm = current_comm();
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
@@ -466,7 +462,7 @@ static inline void wrlock_init(wrlock_t *lock) {
 }
 
 static inline void _lock_destroy(wrlock_t *lock) {
-    while((critical_region_count_wrapper() > 1) && (current_pid() != 1)) { // Wait for now, task is in one or more critical sections
+    while((critical_region_count_wrapper() > 2) && (current_pid() != 1)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 #ifdef JUSTLOG

@@ -50,8 +50,9 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    current->exiting = true;
     // has to happen before mm_release
-    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
     //while(critical_region_count(current)) {
         nanosleep(&lock_pause, NULL);
     }
@@ -63,19 +64,16 @@ noreturn void do_exit(int status) {
     }
 
     // release all our resources
-    //while(critical_region_count(current)) {
-    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    do {
         nanosleep(&lock_pause, NULL);
-    }
+    } while((critical_region_count(current)) || (locks_held_count(current))); // Wait for now, task is in one or more critical sections, and/or has locks
     mm_release(current->mm);
     current->mm = NULL;
-    //while(critical_region_count(current)) {
     while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     fdtable_release(current->files);
     current->files = NULL;
-   // while(critical_region_count(current)) {
     while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
@@ -98,7 +96,6 @@ noreturn void do_exit(int status) {
 
     // the actual freeing needs pids_lock
     complex_lockt(&pids_lock, 0);
-    current->exiting = true;
     // release the sighand
     //while(critical_region_count(current)) {
     while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks

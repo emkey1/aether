@@ -18,6 +18,8 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
+
+    bool process_info_being_read; // Set when something like ps, top, etc wants to access task info.
     
     struct {
         pthread_mutex_t lock;

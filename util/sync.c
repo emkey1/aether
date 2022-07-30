@@ -160,14 +160,14 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
         return;
     }
     
-    task->critical_region.count = task->critical_region.count + value;
     
-    if((strcmp(task->comm, "countme_now") == 0) && ( !noprintk)) { // Extra logging for the some command
-    //if((task->pid == 3) && ( !noprintk)) { // Extra logging for the some command(s)
+    if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
         noprintk = 1; // Avoid recursive logging -mke
-        printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count);
+        printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count + value);
         noprintk = 0;
     }
+    
+    task->critical_region.count = task->critical_region.count + value;
         
     pthread_mutex_unlock(&task->critical_region.lock);
 }
@@ -194,7 +194,7 @@ void modify_locks_held_count(struct task *task, int value) { // value Should onl
 }
 
 void modify_locks_held_count_wrapper(int value) { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-   modify_locks_held_count(current, value);
+    modify_locks_held_count(current, value);
 }
 
 // This is how you would mitigate the unlock/wait race if the wait

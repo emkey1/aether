@@ -67,13 +67,13 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
-    while(critical_region_count(current) > 4) {
+    while(critical_region_count(current) > 4) { // It's all a bit magic, but I think this is doing something useful.  -mke
         nanosleep(&lock_pause, NULL);
     }
     
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     jit_invalidate_range(jit, page, page + 1);
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 void jit_invalidate_all(struct jit *jit) {
@@ -155,21 +155,21 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
     }
     list_remove(&block->chain);
     for (int i = 0; i <= 1; i++) {
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
         struct jit_block *prev_block, *tmp;
         
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
             if (prev_block->jump_ip[i] != NULL)
                 *prev_block->jump_ip[i] = prev_block->old_jump_ip[i]; // Crashed here June 12 2022
             list_remove(&prev_block->jumps_from_links[i]);
         }
         
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     }
 }
 
@@ -209,7 +209,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         addr_t ip = frame->cpu.eip;
         size_t cache_index = jit_cache_hash(ip);
         struct jit_block *block = cache[cache_index];
-        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        //////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         if (block == NULL || block->addr != ip) {
             lock(&jit->lock, 0);
             block = jit_lookup(jit, ip);
@@ -222,7 +222,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             cache[cache_index] = block;
             unlock(&jit->lock);
         }
-        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        //////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         struct jit_block *last_block = frame->last_block;
         if (last_block != NULL &&
                 (last_block->jump_ip[0] != NULL ||
@@ -235,9 +235,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                     if (last_block->jump_ip[i] != NULL &&
                             (*last_block->jump_ip[i] & 0xffffffff) == block->addr) {
                         *last_block->jump_ip[i] = (unsigned long) block->code;
-			modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+			//modify_critical_region_counter(current, 1, __FILE__, __LINE__);
                         list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
-			modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+			//modify_critical_region_counter(current, -1, __FILE__, __LINE__);
                     }
                 }
             }
@@ -245,7 +245,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             unlock(&jit->lock);
         }
         
-        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        //////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         
         frame->last_block = block;
 
@@ -289,7 +289,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
-    ////modify_critical_region_counter(current, 1);
+    //////modify_critical_region_counter(current, 1);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022. -mke
     cpu->trapno = interrupt;
 
@@ -309,7 +309,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         write_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     }
     unlock(&jit->lock);
-    ////modify_critical_region_counter(current, -1);
+    //////modify_critical_region_counter(current, -1);
 
     return interrupt;
 }
