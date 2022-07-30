@@ -154,20 +154,20 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     pthread_mutex_lock(&task->critical_region.lock);
     
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d)\n", task->comm, task->pid);
+        //int skipme = strcmp(task->comm, "init");
+        //if((task->pid > 2) && (skipme != 0))  // Why ask why?  -mke
+        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
         return;
     }
     
-   // if(task->critical_region.count > 1000)
-    //    task->critical_region.count = 1; //  Mad kludge. -mke
-    task->critical_region.count = task->critical_region.count + value;
     
-    if((strcmp(task->comm, "test_critical") == 0) && ( !noprintk)) { // Extra logging for the some command
-    //if((task->pid < 20) && ( !noprintk)) { // Extra logging for the some command(s)
+    if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
         noprintk = 1; // Avoid recursive logging -mke
-        printk("INFO: MCRC(%d:%s:%d:%d:%d)\n", task->pid,file, line, value, task->critical_region.count);
+        printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count + value);
         noprintk = 0;
     }
+    
+    task->critical_region.count = task->critical_region.count + value;
         
     pthread_mutex_unlock(&task->critical_region.lock);
 }
@@ -185,7 +185,8 @@ void modify_locks_held_count(struct task *task, int value) { // value Should onl
     
     pthread_mutex_lock(&task->locks_held.lock);
     if(!task->locks_held.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-        printk("ERROR: Attempt to decrement locks_held count when it is already zero, ignoring\n");
+       if((task->pid > 2) && (!strcmp(task->comm, "init")))  // Why ask why?  -mke
+            printk("ERROR: Attempt to decrement locks_held count when it is already zero, ignoring\n");
         return;
     }
     task->locks_held.count = task->locks_held.count + value;
@@ -193,7 +194,7 @@ void modify_locks_held_count(struct task *task, int value) { // value Should onl
 }
 
 void modify_locks_held_count_wrapper(int value) { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-   modify_locks_held_count(current, value);
+    modify_locks_held_count(current, value);
 }
 
 // This is how you would mitigate the unlock/wait race if the wait

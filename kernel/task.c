@@ -4,6 +4,7 @@
 #include <string.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
+#include "kernel/task.h"
 #include "kernel/resource_locking.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
@@ -14,7 +15,7 @@
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t nested_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
 
 dword_t extra_lock_pid = 0;
 char extra_lock_comm[16] = "";
@@ -72,6 +73,7 @@ struct pid *pid_get_last_allocated() {
 
 dword_t get_count_of_blocked_tasks() {
     complex_lockt(&pids_lock, 0);
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
@@ -79,6 +81,7 @@ dword_t get_count_of_blocked_tasks() {
             res++;
         }
     }
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     unlock(&pids_lock);
     return res;
 }
@@ -107,8 +110,10 @@ struct task *task_create_(struct task *parent) {
     list_init(&pid->pgroup);
 
     struct task *task = malloc(sizeof(struct task));
-    if (task == NULL)
+    if (task == NULL) {
+        unlock(&pids_lock);
         return NULL;
+    }
     *task = (struct task) {};
     if (parent != NULL)
         *task = *parent;
@@ -211,7 +216,7 @@ void task_run_current() {
     tlb_refresh(&tlb, &current->mem->mmu);
     
     while (true) {
-        read_lock(&current->mem->lock);
+        read_lock(&current->mem->lock, __FILE__, __LINE__);
         
         if(doEnableMulticore) {
             // Do nothing
@@ -225,7 +230,7 @@ void task_run_current() {
         if(!doEnableMulticore)
             pthread_mutex_unlock(&multicore_lock);
  
-        read_unlock(&current->mem->lock);
+        read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(current->parent != NULL) {
             current->parent->group->group_count_in_int++; // Keep track of how many children the parent has
@@ -241,12 +246,13 @@ static void *task_thread(void *task) {
     //int elock_fail = 0;
     
     current = task;
+    current->critical_region.count = 0; // Is this needed?  -mke
     
-    ////modify_critical_region_counter(task, 1);
+    //////modify_critical_region_counter(task, 1);
    // if(doEnableExtraLocking)
     //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    ////modify_critical_region_counter(task, -1);
+    //////modify_critical_region_counter(task, -1);
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
@@ -289,12 +295,12 @@ void update_thread_name() {
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
     if(current != NULL)
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_lock(&extra_lock);
     extra_lock_pid = pid;
     extra_lock_held = true; //
     if(current != NULL)
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return 0;
     
     time_t now;
@@ -359,10 +365,10 @@ int extra_lockf(dword_t pid) {
 
 void extra_unlockf(dword_t pid) {
     if(current != NULL)
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     return;
     

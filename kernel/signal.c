@@ -93,11 +93,11 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    //modify_critical_region_counter(task, 1, __FILE__, __LINE__); // Doesn't work.  -mke
+    ////modify_critical_region_counter(task, 1, __FILE__, __LINE__); // Doesn't work.  -mke
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
-    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
+    ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
@@ -333,7 +333,7 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
 }
 
 void receive_signals() {  // Should this function have a check for critical_region_count? -mke
-    nanosleep(&lock_pause, NULL);
+    //nanosleep(&lock_pause, NULL);
     lock(&current->group->lock, 0);
     bool was_stopped = current->group->stopped;
     unlock(&current->group->lock);
@@ -357,8 +357,10 @@ void receive_signals() {  // Should this function have a check for critical_regi
         int sig = sigqueue->info.sig;
         if (sigset_has(blocked, sig))
             continue;
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         list_remove(&sigqueue->queue);
         sigset_del(&current->pending, sig);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
         if (current->ptrace.traced && sig != SIGKILL_) {
             // This notifies the parent, goes to sleep, and waits for the
@@ -464,7 +466,7 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
-    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
+    while(critical_region_count(current) > 1) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     if (--sighand->refcount == 0) {
