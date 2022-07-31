@@ -82,7 +82,7 @@ static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
     modify_locks_held_count_wrapper(1);
 }
 
-static inline void complex_lockt(lock_t *lock, int log_lock) {
+static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     // "Advanced" locking for some things.  pids_lock for instance
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
@@ -97,7 +97,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(complex_lockt(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock->m, current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(complex_lockt(%d), aborted lock attempt(PID: %d Process: %s) (Previously Owned:%s:%d) (Called By:%s:%d)\n", lock->m, current_pid(), current_comm(), lock->comm, lock->pid, file, line);
                 pthread_mutex_unlock(&lock->m);
                 modify_locks_held_count_wrapper(-1);
             }
@@ -112,7 +112,8 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
     
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: complex_lockt(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
+           printk("Warning: large lock attempt count (%d)(complex_lockt(%d), aborted lock attempt(PID: %d Process: %s) (Previously Owned:%s:%d) (Called By:%s:%d)\n", count, lock->m, current_pid(), current_comm(), lock->comm, lock->pid, file, line);
+           // printk("WARNING: large lock attempt count(%d) in Function: complex_lockt(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
@@ -239,9 +240,11 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
-        //atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
+        if(strcmp(current_comm(), "go"))  // I can't believe I'm doing this.  -mke
+            atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?  This breaks go. Not having it here breaks other stuff.  -mke
         nanosleep(&lock_pause, NULL);
-        //atomic_l_lockf(count);
+        if(strcmp(current_comm(), "go")) // Yes I can.  -mke
+            atomic_l_lockf(count);
     }
     
     if(lock->favor_read > 24)

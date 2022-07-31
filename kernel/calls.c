@@ -336,14 +336,14 @@ void handle_interrupt(int interrupt) {
         };
         deliver_signal(current, SIGILL_, info);
     } else if (interrupt == INT_BREAKPOINT) {
-        complex_lockt(&pids_lock, 0);
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
         unlock(&pids_lock);
     } else if (interrupt == INT_DEBUG) {
-        complex_lockt(&pids_lock, 0);
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,

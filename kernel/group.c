@@ -10,7 +10,7 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
         id = current->pid;
     if (pgid == 0)
         pgid = id;
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct pid *pid = pid_get(id);
     err = _ESRCH;
     if (pid == NULL)
@@ -61,7 +61,7 @@ dword_t sys_setpgrp() {
 
 pid_t_ sys_getpgid(pid_t_ pid) {
     STRACE("getpgid(%d)", pid);
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = current;
     if (pid != 0)
         task = pid_get_task(pid);
@@ -95,7 +95,7 @@ void task_leave_session(struct task *task) {
 }
 
 pid_t_ task_setsid(struct task *task) {
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct tgroup *group = task->group;
     pid_t_ new_sid = group->leader->pid;
     if (group->pgid == new_sid || group->sid == new_sid) {
@@ -123,7 +123,7 @@ dword_t sys_setsid() {
 
 dword_t sys_getsid() {
     STRACE("getsid()");
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     pid_t_ sid = current->group->sid;
     unlock(&pids_lock);
     return sid;

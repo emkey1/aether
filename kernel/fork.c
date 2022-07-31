@@ -160,7 +160,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
-        complex_lockt(&pids_lock, 0);
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         task_destroy(task);
         unlock(&pids_lock);
         

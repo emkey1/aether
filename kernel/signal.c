@@ -142,7 +142,7 @@ bool try_self_signal(int sig) {
 }
 
 int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
         unlock(&pids_lock);
@@ -385,7 +385,7 @@ void receive_signals() {  // Should this function have a check for critical_regi
         bool now_stopped = current->group->stopped;
         unlock(&current->group->lock);
         if (now_stopped) {
-            complex_lockt(&pids_lock, 0);
+            complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
             notify(&current->parent->group->child_exit);
             // TODO add siginfo
             send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
@@ -779,7 +779,7 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
         pid = -current->group->pgid;
 
     int err;
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
 
     if (pid == -1) {
         err = kill_everything(sig);

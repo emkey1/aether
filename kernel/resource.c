@@ -198,7 +198,7 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {
     STRACE("sched_getaffinity(%d, %d, %#x)", pid, cpusetsize, cpuset_addr);
     if (pid != 0) {
-        complex_lockt(&pids_lock, 0);
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         struct task *task = pid_get_task(pid);
         unlock(&pids_lock);
         if (task == NULL)

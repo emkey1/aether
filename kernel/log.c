@@ -166,7 +166,7 @@ void ish_vprintk(const char *msg, va_list args) {
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
-    complex_lockt(&log_lock, 1);
+    complex_lockt(&log_lock, 1, __FILE__, __LINE__);
     char *b = buf;
     char *p;
     while ((p = strchr(b, '\n')) != NULL) {

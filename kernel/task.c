@@ -72,7 +72,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
@@ -87,7 +87,7 @@ dword_t get_count_of_blocked_tasks() {
 }
 
 dword_t get_count_of_alive_tasks() {
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
@@ -98,7 +98,7 @@ dword_t get_count_of_alive_tasks() {
 }
 
 struct task *task_create_(struct task *parent) {
-    complex_lockt(&pids_lock, 0);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     do {
         last_allocated_pid++;
         if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
