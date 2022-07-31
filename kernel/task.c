@@ -205,13 +205,6 @@ void run_at_boot() {  // Stuff we run only once, at boot time.
 }
 
 void task_run_current() {
-    if(BOOTING) {
-        run_at_boot();
-        //struct timespec boot_pause = {1 /*secs*/, 0 /*nanosecs*/};
-        // Stupid stuff ahead, without it, sometimes doEnableMulticore is not set yet apparently?
-        //nanosleep(&boot_pause, NULL);
-    }
-
     struct cpu_state *cpu = &current->cpu;
     struct tlb tlb = {};
     tlb_refresh(&tlb, &current->mem->mmu);
@@ -247,6 +240,8 @@ static void *task_thread(void *task) {
     //int elock_fail = 0;
     
     current = task;
+    if(current->pid == 1)
+        run_at_boot();
     current->critical_region.count = 0; // Is this needed?  -mke
     
     //////modify_critical_region_counter(task, 1);
