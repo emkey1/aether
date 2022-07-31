@@ -559,6 +559,7 @@
 		5D8ACEFB284CE096003C50D3 /* sys.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sys.h; sourceTree = "<group>"; };
 		5D8ACEFC284CE096003C50D3 /* sys.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sys.c; sourceTree = "<group>"; };
 		5D8C94D3287E53AD0095EDEE /* fp_sync.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = fp_sync.c; sourceTree = "<group>"; };
+		5D8CEFF92894C81400D24ED8 /* resource_locking.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = resource_locking.h; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -1087,6 +1088,7 @@
 		BB7D933C2087C2880008DA78 /* kernel */ = {
 			isa = PBXGroup;
 			children = (
+				5D8CEFF92894C81400D24ED8 /* resource_locking.h */,
 				497F6C9F254E5C9800C82F46 /* calls.c */,
 				497F6C7B254E5C9700C82F46 /* calls.h */,
 				497F6C82254E5C9700C82F46 /* elf.h */,

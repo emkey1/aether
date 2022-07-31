@@ -49,37 +49,41 @@ void mem_destroy(struct mem *mem) {
      //  elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
-    while((critical_region_count(current)) && (current->pid > 9) ){ // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     pt_unmap_always(mem, 0, MEM_PAGES);
 #if ENGINE_JIT
+    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
+        nanosleep(&lock_pause, NULL);
+    }
     jit_free(mem->mmu.jit);
 #endif
     int mycount = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-        while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)){ // Wait for now, task is in one or more critical sections
-       // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
+        do {
             mycount++;
             nanosleep(&lock_pause, NULL);
-        }
+        } while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
+        
         
         if (mem->pgdir[i] != NULL)
             free(mem->pgdir[i]);
     }
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    while((critical_region_count(current) >1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections
-    // while(critical_region_count(current))  { // Wait for now, task is in one or more critical sections, and/or has locks
+
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+
+    do {
         nanosleep(&lock_pause, NULL);
-    }
+    } while((critical_region_count(current) > 1) && (current->pid > 1) ); // Wait for now, task is in one or more critical sections
     
     free(mem->pgdir);
     
     mem->pgdir = NULL; //mkemkemke Trying something here
     
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    
     write_unlock_and_destroy(&mem->lock);
+    
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     //if((doEnableExtraLocking) && (!elock_fail))
      //  extra_unlockf(0);
@@ -100,52 +104,52 @@ static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
 
     if (mem->pgdir[PGDIR_TOP(page)] != NULL) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
         struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
         if (pgdir == NULL) {
-            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return NULL;
         }
         
         struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
         if (entry->data == NULL) {
-            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return NULL;
         }
         
-        modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         return entry;
     } else {
         mem->pgdir[PGDIR_TOP(page)] = NULL;
-        modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         return NULL;
     }
     
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 static void mem_pt_del(struct mem *mem, page_t page) {
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct pt_entry *entry = mem_pt(mem, page);
     if (entry != NULL) {
-         while(critical_region_count(current) > 2) {
+         while(critical_region_count(current) > 4) { // mark
              nanosleep(&lock_pause, NULL);
         }
         entry->data = NULL;
     }
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
     (*page)++;
     if (*page >= MEM_PAGES)
         return;
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     while (*page < MEM_PAGES && mem->pgdir[PGDIR_TOP(*page)] == NULL)
         *page = (*page - PGDIR_BOTTOM(*page)) + MEM_PGDIR_SIZE;
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
@@ -214,7 +218,7 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
-        while(critical_region_count(current) >1) {
+        while(critical_region_count(current) >3) {
             nanosleep(&lock_pause, NULL);
         }
         struct pt_entry *pt = mem_pt(mem, page);
@@ -228,7 +232,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
             if (data->data != vdso_data) {
-                while(critical_region_count(current) > 1) {
+                while(critical_region_count(current) > 3) {
                     nanosleep(&lock_pause, NULL);
                 }
                 int err = munmap(data->data, data->size);
@@ -339,7 +343,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // which changes memory maps.
         read_to_write_lock(&mem->lock);
         pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
-        write_to_read_lock(&mem->lock);
+        write_to_read_lock(&mem->lock, __FILE__, __LINE__);
 
         entry = mem_pt(mem, page);
     }
@@ -349,7 +353,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE))
             return NULL;
         
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         
         if (type == MEM_WRITE_PTRACE) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
@@ -362,20 +366,21 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         
         // if page is cow, ~~milk~~ copy it
         if (entry->flags & P_COW) {
-            modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+            //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
-            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
             // copy/paste from above
             read_to_write_lock(&mem->lock);
+            //modify_critical_region_counter(current, 1,__FILE__, __LINE__);
             memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
+            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
-            write_to_read_lock(&mem->lock);
+            write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
         
-        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);

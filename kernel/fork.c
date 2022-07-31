@@ -95,7 +95,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
-    complex_lockt(&pids_lock, 0);
+    lock(&pids_lock, 0);
     lock(&old_group->lock, 0);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);

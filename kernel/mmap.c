@@ -31,7 +31,7 @@ struct mm *mm_copy(struct mm *mm) {
     fd_retain(new_mm->exefile);
     write_lock(&mm->mem.lock);
     pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
-    write_unlock(&mm->mem.lock);
+    write_unlock(&mm->mem.lock, __FILE__, __LINE__);
     return new_mm;
 }
 
@@ -40,14 +40,16 @@ void mm_retain(struct mm *mm) {
 }
 
 void mm_release(struct mm *mm) {
-    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
-        nanosleep(&lock_pause, NULL);
-    }
-    
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
+        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         mem_destroy(&mm->mem);
+        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+            nanosleep(&lock_pause, NULL);
+        }
         free(mm);
     }
 }
@@ -101,11 +103,11 @@ static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags,
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
 
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     write_lock(&current->mem->lock);
     addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
-    write_unlock(&current->mem->lock);
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    write_unlock(&current->mem->lock, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return res;
 }
 
@@ -131,11 +133,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
-    write_unlock(&current->mem->lock);
-    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    write_unlock(&current->mem->lock, __FILE__, __LINE__);
+    //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     if (err < 0)
         return _EINVAL;
@@ -201,7 +203,7 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     pages_t pages = PAGE_ROUND_UP(len);
     write_lock(&current->mem->lock);
     int err = pt_set_flags(current->mem, PAGE(addr), pages, prot);
-    write_unlock(&current->mem->lock);
+    write_unlock(&current->mem->lock, __FILE__, __LINE__);
     return err;
 }
 
@@ -253,6 +255,6 @@ addr_t sys_brk(addr_t new_brk) {
     mm->brk = new_brk;
 out:;
     addr_t brk = mm->brk;
-    write_unlock(&mm->mem.lock);
+    write_unlock(&mm->mem.lock, __FILE__, __LINE__);
     return brk;
 }
