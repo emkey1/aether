@@ -440,7 +440,11 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     int err = 0;
     struct tty *tty = fd->tty;
+<<<<<<< HEAD
+    lock(&pids_lock, 0);
+=======
     complex_lockt(&pids_lock, 0); // MKEMKE
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     lock(&tty->lock, 0);
     if (tty->hung_up) {
         unlock(&pids_lock);

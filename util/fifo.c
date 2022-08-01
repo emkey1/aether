@@ -2,7 +2,6 @@
 #include <string.h>
 #include "util/fifo.h"
 #include "kernel/task.h"
-#include "kernel/resource_locking.h"
 
 void fifo_init(struct fifo *fifo, size_t capacity) {
     fifo->buf = malloc(capacity);
@@ -11,9 +10,15 @@ void fifo_init(struct fifo *fifo, size_t capacity) {
 }
 
 void fifo_destroy(struct fifo *fifo) {
+<<<<<<< HEAD
+    current->critical_region_count++;
+    free(fifo->buf);
+    current->critical_region_count--;
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     free(fifo->buf);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 size_t fifo_capacity(struct fifo *fifo) {
@@ -67,7 +72,13 @@ int fifo_read(struct fifo *fifo, void *buf, size_t size, int flags) {
 }
 
 void fifo_flush(struct fifo *fifo) {
+<<<<<<< HEAD
+    current->critical_region_count++;
+    fifo->size = 0;
+    current->critical_region_count--;
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     fifo->size = 0;
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }

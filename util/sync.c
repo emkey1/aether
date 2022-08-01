@@ -49,17 +49,12 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         current->waiting_lock = lock;
         unlock(&current->waiting_cond_lock);
     }
-        
     int rc = 0;
 #if LOCK_DEBUG
     struct lock_debug lock_tmp = lock->debug;
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        //struct timespec abs_timeout; // Short circuit for now.  -mke
-        //abs_timeout.tv_sec = 50;
-        //abs_timeout.tv_nsec = 0;
-        //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &abs_timeout);
         pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
     } else {
 #if __linux__
@@ -142,6 +137,15 @@ unsigned locks_held_count_wrapper() { // sync.h can't know about the definition 
     return(locks_held_count(current));
 }
 
+<<<<<<< HEAD
+void modify_critical_region_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
+    if(task == NULL)
+        task = current;
+    if(current == NULL)   // We're probably thread 1, no valid task exists at this point.  -mke
+        return;
+    if(task->critical_region.count > 1000)
+        task->critical_region.count = 1;
+=======
 void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
     if(task == NULL) {
         if(current != NULL) {
@@ -151,6 +155,7 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
         }
     }
     
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     pthread_mutex_lock(&task->critical_region.lock);
     
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke

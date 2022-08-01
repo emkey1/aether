@@ -10,7 +10,6 @@
 #include "util/sync.h"
 #include "util/fifo.h"
 #include "kernel/task.h"
-#include "kernel/resource_locking.h"
 #include "misc.h"
 
 #define LOG_BUF_SHIFT 20
@@ -122,11 +121,19 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
+<<<<<<< HEAD
+    current->critical_region_count++;
+    lock(&log_lock, 0);
+    int retval = do_syslog(type, buf_addr, len);
+    unlock(&log_lock);
+    current->critical_region_count--;
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return retval;
 }
 
@@ -223,10 +230,31 @@ int current_pid() {
 }
 
 char * current_comm() {
-    if (current != NULL) {
+    if (current) {
         return current->comm;
     }
     return calloc(1, 1);
 }
 
+// Because sometimes we can't #include "kernel/task.h" -mke
+unsigned current_critical_region_count() {
+    return current->critical_region_count;
+}
 
+unsigned current_locks_held_count() {
+    return current->locks_held_count;
+}
+
+void modify_current_critical_region_count(int value) { // value Should only be -1 or 1.  -mke
+    if((value != -1) || (value != 1))
+        value = 0;
+    current->critical_region_count = current->critical_region_count + value;
+    //return current->critical_region_count;
+}
+
+void modify_current_locks_held_count(int value) { // value Should only be -1 or 1.  -mke
+    if((value < -1) || (value > 1))
+        value = 0;
+    current->locks_held_count = current->locks_held_count + value;
+    //return current->locks_held_count;
+}

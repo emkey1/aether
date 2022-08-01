@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 #include "kernel/calls.h"
 #include "kernel/fs.h"
+#include "kernel/resource_locking.h"
 #include "fs/proc.h"
 #include "fs/path.h"
 
@@ -18,6 +19,8 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
         unsigned long index = 0;
         struct proc_entry next_entry = {0};
         char entry_name[MAX_NAME];
+        modify_critical_region_count(current, 1);
+        lock(&pids_lock, 0);
         while (proc_dir_read(entry, &index, &next_entry)) {
             // tack on some dynamically generated attributes
             if (next_entry.meta->parent == NULL)
@@ -33,10 +36,12 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
                 goto found;
             proc_entry_cleanup(&next_entry);
         }
+        modify_critical_region_count(current, -1);
         err = _ENOENT;
         break;
 found:
         proc_entry_cleanup(entry);
+        unlock(&pids_lock);
         *entry = next_entry;
     }
     if (err < 0)

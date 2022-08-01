@@ -2,19 +2,28 @@
 #include "emu/tlb.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
-#include "kernel/resource_locking.h"
 
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
+<<<<<<< HEAD
+    critical_region_count_increase(current);
+    if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes) {
+        critical_region_count_decrease(current);
+=======
     //modify_critical_region_counter(current, 1, __FILE__, __LINE__); // WORKING ON -mke
     if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes) {
         //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return;
     }
     tlb->mmu = mmu;
     tlb->dirty_page = TLB_PAGE_EMPTY;
     tlb->mem_changes = mmu->changes;
     tlb_flush(tlb);
+<<<<<<< HEAD
+    critical_region_count_decrease(current);
+=======
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 void tlb_flush(struct tlb *tlb) {
@@ -24,6 +33,18 @@ void tlb_flush(struct tlb *tlb) {
 }
 
 void tlb_free(struct tlb *tlb) {
+<<<<<<< HEAD
+    critical_region_count_increase(current);
+    free(tlb);
+    critical_region_count_decrease(current);
+}
+
+bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned size) {
+    critical_region_count_increase(current);
+    char *ptr1 = __tlb_read_ptr(tlb, addr);
+    if (ptr1 == NULL) {
+        critical_region_count_decrease(current);
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     free(tlb);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -34,38 +55,62 @@ bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned s
     char *ptr1 = __tlb_read_ptr(tlb, addr);
     if (ptr1 == NULL) {
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return false;
     }
     char *ptr2 = __tlb_read_ptr(tlb, (PAGE(addr) + 1) << PAGE_BITS);
     if (ptr2 == NULL) {
+<<<<<<< HEAD
+        critical_region_count_decrease(current);
+=======
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return false;
     }
     size_t part1 = PAGE_SIZE - PGOFFSET(addr);
     assert(part1 < size);
     memcpy(value, ptr1, part1);
     memcpy(value + part1, ptr2, size - part1);
+<<<<<<< HEAD
+    critical_region_count_decrease(current);
+=======
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return true;
 }
 
 bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, unsigned size) {
+<<<<<<< HEAD
+    critical_region_count_increase(current);
+    char *ptr1 = __tlb_write_ptr(tlb, addr);
+    if (ptr1 == NULL) {
+        critical_region_count_decrease(current);
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     char *ptr1 = __tlb_write_ptr(tlb, addr);
     if (ptr1 == NULL) {
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return false;
     }
     char *ptr2 = __tlb_write_ptr(tlb, (PAGE(addr) + 1) << PAGE_BITS);
     if (ptr2 == NULL) {
+<<<<<<< HEAD
+        critical_region_count_decrease(current);
+=======
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return false;
     }
     size_t part1 = PAGE_SIZE - PGOFFSET(addr);
     assert(part1 < size);
     memcpy(ptr1, value, part1);
     memcpy(ptr2, value + part1, size - part1);
+<<<<<<< HEAD
+    critical_region_count_decrease(current);
+=======
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return true;
 }
 

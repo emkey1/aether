@@ -30,9 +30,13 @@
 #if !ISH_LINUX
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(processExited:) name:ProcessExitedNotification object:nil];
 
+<<<<<<< HEAD
+    //lock(&pids_lock, 0);
+=======
     complex_lockt(&pids_lock, 0);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     current = pid_get_task(1); // pray
-    unlock(&pids_lock);
+    //unlock(&pids_lock);
     self.terminal = [Terminal createPseudoTerminal:&self->_tty];
     current = NULL;
     
@@ -74,9 +78,13 @@
     if (code != 0) {
         [self showAlertWithTitle:@"Upgrade failed" message:@"exit status %d", code];
     } else {
+<<<<<<< HEAD
+        //lock(&pids_lock, 0);
+=======
         complex_lockt(&pids_lock, 0);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         current = pid_get_task(1); // pray
-        unlock(&pids_lock);
+        //unlock(&pids_lock);
         FsUpdateRepositories();
         current = NULL;
         [self showAlertWithTitle:@"Upgrade succeeded" message:@""];

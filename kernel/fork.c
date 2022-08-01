@@ -5,7 +5,6 @@
 #include "fs/tty.h"
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
-#include "kernel/resource_locking.h"
 
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
@@ -95,7 +94,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
-    lock(&pids_lock, 0);
+    //lock(&pids_lock, 0);
     lock(&old_group->lock, 0);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);
@@ -104,7 +103,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
     list_add(&task->group->threads, &task->group_links);
     unlock(&old_group->lock);
-    unlock(&pids_lock);
+    //unlock(&pids_lock);
 
     if (flags & CLONE_SETTLS_) {
         err = task_set_thread_area(task, tls_addr);
@@ -127,7 +126,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     return 0;
 
 fail_free_sighand:
-    while(critical_region_count(task)) { // Wait for now, task is in one or more critical sections
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     sighand_release(task->sighand);
@@ -160,9 +159,13 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
+<<<<<<< HEAD
+        //lock(&pids_lock, 0);
+=======
         complex_lockt(&pids_lock, 0);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         task_destroy(task);
-        unlock(&pids_lock);
+        //unlock(&pids_lock);
         
         return err;
     }

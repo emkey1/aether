@@ -4,8 +4,11 @@
 #include <string.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
+<<<<<<< HEAD
+=======
 #include "kernel/task.h"
 #include "kernel/resource_locking.h"
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 #include "emu/memory.h"
 #include "emu/tlb.h"
 #include "platform/platform.h"
@@ -118,6 +121,8 @@ struct task *task_create_(struct task *parent) {
     if (parent != NULL)
         *task = *parent;
 
+    task->critical_region_count = 0; // counter used to delay task deletion if positive.  --mke
+    task->locks_held_count = 0; // counter used to keep track of pending locks associated with task.  Do not delete when locks are present.  -mke
     task->pid = pid->id;
     pid->task = task;
     list_add(&alive_pids_list, &pid->alive);
@@ -147,10 +152,24 @@ struct task *task_create_(struct task *parent) {
 
     lock_init(&task->ptrace.lock);
     cond_init(&task->ptrace.cond);
-    
-    task->locks_held.count = 0; // counter used to keep track of pending locks associated with task.  Do not delete when locks are present.  -mke
-    task->critical_region.count = 0; // counter used to delay task deletion if positive.  --mke
     return task;
+}
+
+void critical_region_count_increase(struct task *task) {  // Delay task deletion, increase number of threads.  -mke
+    pthread_mutex_lock(&delay_lock);
+    task->critical_region_count++;
+    pthread_mutex_unlock(&delay_lock);
+}
+
+void critical_region_count_decrease(struct task *task) { // Decrease number of threads requesting delay on task deletion.  -mke
+    pthread_mutex_lock(&delay_lock);
+    if(task->critical_region_count >= 1) {
+        task->critical_region_count--;
+    } else {
+        printk("ERROR: delay_task_delete_down_vote was zero(%d)\n", task->critical_region_count);
+        task->critical_region_count = 0;
+    }
+    pthread_mutex_unlock(&delay_lock);
 }
 
 void task_destroy(struct task *task) {
@@ -158,7 +177,7 @@ void task_destroy(struct task *task) {
     //if(doEnableExtraLocking)
      //   elock_fail = extra_lockf(task->pid);
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
 
@@ -167,15 +186,14 @@ void task_destroy(struct task *task) {
        printk("WARNING: pids_lock was not set\n");
        IShould = true;
     }
-    
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
@@ -185,10 +203,9 @@ void task_destroy(struct task *task) {
     if(IShould)
         unlock(&pids_lock);
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
-    
     free(task);
 }
 
@@ -248,11 +265,19 @@ static void *task_thread(void *task) {
     current = task;
     current->critical_region.count = 0; // Is this needed?  -mke
     
+<<<<<<< HEAD
+    current->critical_region_count++;
+   // if(doEnableExtraLocking)
+    //    elock_fail = extra_lockf(current->pid);
+    update_thread_name();
+    current->critical_region_count--;
+=======
     //////modify_critical_region_counter(task, 1);
    // if(doEnableExtraLocking)
     //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
     //////modify_critical_region_counter(task, -1);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
@@ -267,8 +292,12 @@ __attribute__((constructor)) static void create_attr() {
 }
 
 void task_start(struct task *task) {
+    modify_critical_region_count(task, 1);
+    
     if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
         die("could not create thread");
+    
+    modify_critical_region_count(task, -1);
 }
 
 int_t sys_sched_yield() {
@@ -295,12 +324,20 @@ void update_thread_name() {
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
     if(current != NULL)
+<<<<<<< HEAD
+        current->critical_region_count++;
+=======
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     pthread_mutex_lock(&extra_lock);
     extra_lock_pid = pid;
     extra_lock_held = true; //
     if(current != NULL)
+<<<<<<< HEAD
+        current->critical_region_count--;
+=======
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return 0;
     
     time_t now;
@@ -365,11 +402,18 @@ int extra_lockf(dword_t pid) {
 
 void extra_unlockf(dword_t pid) {
     if(current != NULL)
+<<<<<<< HEAD
+        current->critical_region_count++;
+    pthread_mutex_unlock(&extra_lock);
+    if(current != NULL)
+        current->critical_region_count--;
+=======
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return;
     
     time_t now;

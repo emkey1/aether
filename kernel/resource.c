@@ -12,7 +12,6 @@
 #include <limits.h>
 #include <string.h>
 #include "kernel/calls.h"
-#include "kernel/resource_locking.h"
 
 static bool resource_valid(int resource) {
     return resource >= 0 && resource < RLIMIT_NLIMITS_;
@@ -140,7 +139,11 @@ dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_
 struct rusage_ rusage_get_current() {
     // only the time fields are currently implemented
     struct rusage_ rusage;
+<<<<<<< HEAD
+    current->critical_region_count++;
+=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 #if __linux__
     struct rusage usage;
     int err = getrusage(RUSAGE_THREAD, &usage);
@@ -158,7 +161,11 @@ struct rusage_ rusage_get_current() {
     rusage.stime.sec = info.system_time.seconds;
     rusage.stime.usec = info.system_time.microseconds;
 #endif
+<<<<<<< HEAD
+    current->critical_region_count--;
+=======
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return rusage;
 }
 
@@ -198,9 +205,13 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {
     STRACE("sched_getaffinity(%d, %d, %#x)", pid, cpusetsize, cpuset_addr);
     if (pid != 0) {
+<<<<<<< HEAD
+        //lock(&pids_lock, 0);
+=======
         complex_lockt(&pids_lock, 0);
+>>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         struct task *task = pid_get_task(pid);
-        unlock(&pids_lock);
+        //unlock(&pids_lock);
         if (task == NULL)
             return _ESRCH;
     }

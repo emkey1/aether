@@ -49,9 +49,9 @@ static void ios_handle_exit(struct task *task, int code) {
         return;
     // pid should be saved now since task would be freed
     pid_t pid = task->pid;
-//    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
-//        nanosleep(&lock_pause, NULL);
-//    }
+    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+        nanosleep(&lock_pause, NULL);
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:ProcessExitedNotification
                                                             object:nil
