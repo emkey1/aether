@@ -183,6 +183,13 @@ static void jit_block_free(struct jit *jit, struct jit_block *block) {
 }
 
 static void jit_free_jetsam(struct jit *jit) {
+    if(!strcmp(current->comm, "go")) {
+        // Sleep for a bit if this is go.  Kludge alert.  -mke
+        struct timespec wait;
+        wait.tv_sec = 3; // Be anal and set both to zero.  -mke
+        wait.tv_nsec = 0;
+        nanosleep(&wait, NULL);
+    }
     struct jit_block *block, *tmp;
     list_for_each_entry_safe(&jit->jetsam, block, tmp, jetsam) {
         list_remove(&block->jetsam);

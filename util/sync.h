@@ -146,8 +146,8 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
 static inline void unlock(lock_t *lock) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    pthread_mutex_unlock(&lock->m);
     lock->owner = zero_init(pthread_t);
+    pthread_mutex_unlock(&lock->m);
     modify_locks_held_count_wrapper(-1);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     
