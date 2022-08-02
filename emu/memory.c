@@ -14,6 +14,7 @@
 #include "jit/jit.h"
 #include "kernel/vdso.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 #include "fs/fd.h"
 #include "util/sync.h"
 
@@ -43,13 +44,12 @@ void mem_init(struct mem *mem) {
 }
 
 void mem_destroy(struct mem *mem) {
-    int elock_fail = 0;
-//    current->critical_region_count++;
-    if(doEnableExtraLocking)
-       elock_fail = extra_lockf(0);
+   // int elock_fail = 0;
+    //if(doEnableExtraLocking)
+     //  elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     pt_unmap_always(mem, 0, MEM_PAGES);
@@ -59,26 +59,8 @@ void mem_destroy(struct mem *mem) {
     }
     jit_free(mem->mmu.jit);
 #endif
+    int mycount = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-<<<<<<< HEAD
-       while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
-            nanosleep(&lock_pause, NULL);
-        }
-        if (mem->pgdir[i] != NULL)
-            free(mem->pgdir[i]);
-    }
-    free(mem->pgdir);
-    
-    mem->pgdir = NULL; //mkemkemke Trying something here
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
-    write_unlock_and_destroy(&mem->lock);
-    
- //   current->critical_region_count--;
-    if((doEnableExtraLocking) && (!elock_fail))
-       extra_unlockf(0);
-=======
         do {
             mycount++;
             nanosleep(&lock_pause, NULL);
@@ -105,7 +87,6 @@ void mem_destroy(struct mem *mem) {
     
     //if((doEnableExtraLocking) && (!elock_fail))
      //  extra_unlockf(0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     
 }
 
@@ -152,12 +133,6 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
 static void mem_pt_del(struct mem *mem, page_t page) {
     //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct pt_entry *entry = mem_pt(mem, page);
-<<<<<<< HEAD
-    //critical_region_count_increase(current);
-    if (entry != NULL)
-        entry->data = NULL;
-    //critical_region_count_decrease(current);
-=======
     if (entry != NULL) {
          while(critical_region_count(current) > 4) { // mark
              nanosleep(&lock_pause, NULL);
@@ -165,7 +140,6 @@ static void mem_pt_del(struct mem *mem, page_t page) {
         entry->data = NULL;
     }
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -306,7 +280,7 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 }
 
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
@@ -323,7 +297,7 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;
     }
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(current)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     mem_changed(src);
@@ -378,17 +352,13 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // if page is unwritable, well tough luck
         if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE))
             return NULL;
-<<<<<<< HEAD
-=======
         
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         if (type == MEM_WRITE_PTRACE) {
             // TODO: Is P_WRITE really correct? The page shouldn't be writable without ptrace.
             entry->flags |= P_WRITE | P_COW;
         }
-        critical_region_count_increase(current);
 #if ENGINE_JIT
         // get rid of any compiled blocks in this page
         jit_invalidate_page(mem->mmu.jit, page);
@@ -410,7 +380,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
-        critical_region_count_decrease(current);
         
     }
 

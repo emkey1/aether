@@ -250,10 +250,6 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     
     int_t res = 0;
     
-<<<<<<< HEAD
-    current->critical_region_count++;
-=======
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     TASK_MAY_BLOCK {
         res = sys_read_buf(fd_no, buf, size);
     }
@@ -264,11 +260,7 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     //////modify_critical_region_counter(current, 1, __FILE__, __LINE__);  // mkemkemke   When this line was above the TASK_MAY_BLOCK, it got executed, but the modify below did not.
                                                                      // So there appears to be some sort of concurency issue here?
     free(buf);
-<<<<<<< HEAD
-    current->critical_region_count--;
-=======
     //////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     
     return res;
 }

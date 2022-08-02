@@ -3,9 +3,12 @@
 #include "kernel/calls.h"
 #include "kernel/errno.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 #include "fs/fd.h"
 #include "emu/memory.h"
 #include "kernel/mm.h"
+
+extern bool doEnableExtraLocking;
 
 struct mm *mm_new() {
     struct mm *mm = malloc(sizeof(struct mm));
@@ -39,23 +42,22 @@ void mm_retain(struct mm *mm) {
 }
 
 void mm_release(struct mm *mm) {
-<<<<<<< HEAD
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
-=======
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
         while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
+        
+        if(doEnableExtraLocking)
+            extra_lockf(0);
         mem_destroy(&mm->mem);
         while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         free(mm);
+        if(doEnableExtraLocking)
+           extra_unlockf(0);
     }
 }
 
@@ -138,19 +140,11 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     if (len == 0)
         return _EINVAL;
     
-<<<<<<< HEAD
-    current->critical_region_count++;
-    write_lock(&current->mem->lock);
-    int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
-    write_unlock(&current->mem->lock);
-    current->critical_region_count--;
-=======
     //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     write_lock(&current->mem->lock);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
     write_unlock(&current->mem->lock, __FILE__, __LINE__);
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     
     if (err < 0)
         return _EINVAL;

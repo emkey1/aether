@@ -25,11 +25,6 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
 }
 
 static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
-<<<<<<< HEAD
-    task->critical_region_count++;
-=======
-    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
     while (p < addr + count) {
@@ -38,43 +33,25 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
             chunk_end = addr + count;
         char *ptr = mem_ptr(task->mem, p, MEM_WRITE);
         if (ptr == NULL) {
-<<<<<<< HEAD
-            task->critical_region_count--;
-=======
             //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
             return 1;
         }
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
         p = chunk_end;
     }
     
-<<<<<<< HEAD
-    task->critical_region_count--;
-=======
     //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return 0;
 }
 
 int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
-<<<<<<< HEAD
-    task->critical_region_count++;
-    read_lock(&task->mem->lock);
-=======
     read_lock(&task->mem->lock, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 
     //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     int res = __user_read_task(task, addr, buf, count);
     //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 
-<<<<<<< HEAD
-    read_unlock(&task->mem->lock);
-    task->critical_region_count--;
-=======
     read_unlock(&task->mem->lock, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return res;
 }
 
@@ -96,15 +73,9 @@ int user_write(addr_t addr, const void *buf, size_t count) {
 }
 
 int user_read_string(addr_t addr, char *buf, size_t max) {
-<<<<<<< HEAD
-    current->critical_region_count++;
-    if (addr == 0) {
-        current->critical_region_count--;
-=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     if (addr == 0) {
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return 1;
     }
     //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
@@ -112,26 +83,16 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     size_t i = 0;
     while (i < max) {
         if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
-<<<<<<< HEAD
-            read_unlock(&current->mem->lock);
-            current->critical_region_count--;
-=======
             read_unlock(&current->mem->lock, __FILE__, __LINE__);
             ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
             return 1;
         }
         if (buf[i] == '\0')
             break;
         i++;
     }
-<<<<<<< HEAD
-    read_unlock(&current->mem->lock);
-    current->critical_region_count--;
-=======
     read_unlock(&current->mem->lock, __FILE__, __LINE__);
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return 0;
 }
 

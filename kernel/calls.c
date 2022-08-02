@@ -257,30 +257,18 @@ syscall_t syscall_table[] = {
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
 
 void handle_interrupt(int interrupt) {
-<<<<<<< HEAD
-    current->critical_region_count++;
-    struct cpu_state *cpu = &current->cpu;
-    current->critical_region_count--;
-=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     struct cpu_state *cpu = &current->cpu;
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     if (interrupt == INT_SYSCALL) { // Flag as critical?  -mke MKEMKEMKE
         unsigned syscall_num = cpu->eax;
         if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
             printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
-            
-<<<<<<< HEAD
-            current->critical_region_count++;
-            deliver_signal(current, SIGSYS_, SIGINFO_NIL);
-            current->critical_region_count--;
-=======
+
             ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
             ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
-            
+
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                 printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);
@@ -290,17 +278,11 @@ void handle_interrupt(int interrupt) {
             }
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
-                
-<<<<<<< HEAD
-                current->critical_region_count++;
-                send_signal(current, SIGTRAP_, SIGINFO_NIL);
-                current->critical_region_count--;
-=======
+
                 ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
                 ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
-                
+
                 unlock(&current->ptrace.lock);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
@@ -324,25 +306,18 @@ void handle_interrupt(int interrupt) {
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
-<<<<<<< HEAD
-        current->critical_region_count++;
-        read_lock(&current->mem->lock);
-        void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
-        read_unlock(&current->mem->lock);
-        current->critical_region_count--;
-=======
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
         read_lock(&current->mem->lock, __FILE__, __LINE__);
         void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
         read_unlock(&current->mem->lock, __FILE__, __LINE__);
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         if (ptr == NULL) {
             printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
             struct siginfo_ info = {
                 .code = mem_segv_reason(current->mem, cpu->segfault_addr),
                 .fault.addr = cpu->segfault_addr,
             };
+            current->zombie = true; // Lets see if this helps with page faults never exiting.  -mke
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
@@ -360,47 +335,31 @@ void handle_interrupt(int interrupt) {
         };
         deliver_signal(current, SIGILL_, info);
     } else if (interrupt == INT_BREAKPOINT) {
-<<<<<<< HEAD
-        //lock(&pids_lock, 0);
-=======
-        complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
     } else if (interrupt == INT_DEBUG) {
-<<<<<<< HEAD
-        //lock(&pids_lock, 0);
-=======
-        complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,
         });
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
     } else if (interrupt != INT_TIMER) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
     }
     receive_signals();
     struct tgroup *group = current->group;
-<<<<<<< HEAD
-    current->critical_region_count++;
-=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
     unlock(&group->lock);
-<<<<<<< HEAD
-    current->critical_region_count--;
-=======
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 void dump_maps() {

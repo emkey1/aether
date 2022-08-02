@@ -105,15 +105,9 @@ static void itimer_notify(struct task *task) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
     };
-<<<<<<< HEAD
-    task->critical_region_count++;
-    send_signal(task, SIGALRM_, info);
-    task->critical_region_count--;
-=======
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     send_signal(task, SIGALRM_, info);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {

@@ -7,7 +7,7 @@
 #include "fs/tty.h"
 #include "kernel/fs.h"
 #include "kernel/vdso.h"
-#inclcude "kernel/"
+#include "kernel/resource_locking.h"
 #include "util/sync.h"
 
 extern pthread_mutex_t extra_lock;
@@ -20,35 +20,25 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-    int foo;
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
-        foo = 1;
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
     return task;
 }
 static void proc_put_task(struct task *UNUSED(task)) {
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    int elock_fail;
+    //int elock_fail;
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true))
         return _ESRCH;
  //   if(doEnableExtraLocking)
   //      elock_fail = extra_lockf(entry->pid);
         
-<<<<<<< HEAD
-    task->critical_region_count++;
-=======
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -130,12 +120,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
-<<<<<<< HEAD
-    task->critical_region_count--;
-=======
-    ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     proc_put_task(task);
+    ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     return 0;
 }
 
@@ -178,17 +164,13 @@ out_free_task:
 }
 
 static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf) {
-    //struct task *task = proc_get_task(entry);
-    struct task *task = pid_get_task(entry->pid);
+    struct task *task = proc_get_task(entry);
+    //struct task *task = pid_get_task(entry->pid);
     
     if ((task == NULL) || (task->exiting == true))
         return _ESRCH;
     
-<<<<<<< HEAD
-    task->critical_region_count++;
-=======
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     
     int err = 0;
     lock(&task->general_lock, 0);
@@ -212,13 +194,8 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     
 out_free_task:
     unlock(&task->general_lock);
-<<<<<<< HEAD
-    proc_put_task(task);
-    task->critical_region_count--;
-=======
     //proc_put_task(task);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(task->pid);
@@ -295,8 +272,6 @@ static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, 
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) 
         return _ESRCH;
-    lock(&pids_lock, 0);
-    modify_critical_region_count(task, 1);
     lock(&task->files->lock, 0);
     while (*index < task->files->size && task->files->files[*index] == NULL)
         (*index)++;
@@ -305,8 +280,6 @@ static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, 
     unlock(&task->files->lock);
     proc_put_task(task);
     *next_entry = (struct proc_entry) {&proc_pid_fd, .pid = entry->pid, .fd = f};
-    unlock(&pids_lock);
-    modify_critical_region_count(task, -1);
     return any_left;
 }
 
@@ -316,13 +289,10 @@ static void proc_pid_fd_getname(struct proc_entry *entry, char *buf) {
 
 static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
-<<<<<<< HEAD
-    if (task == NULL)
-=======
     if ((task == NULL) || (task->exiting == true)) {
         proc_put_task(task);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         return _ESRCH;
+    }
     lock(&task->files->lock, 0);
     struct fd *fd = fdtable_get(task->files, entry->fd);
     int err = generic_getpath(fd, buf);

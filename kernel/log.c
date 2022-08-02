@@ -121,19 +121,11 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
-<<<<<<< HEAD
-    current->critical_region_count++;
-    lock(&log_lock, 0);
-    int retval = do_syslog(type, buf_addr, len);
-    unlock(&log_lock);
-    current->critical_region_count--;
-=======
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return retval;
 }
 
@@ -172,7 +164,7 @@ void ish_vprintk(const char *msg, va_list args) {
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
-    complex_lockt(&log_lock, 1);
+    complex_lockt(&log_lock, 1, __FILE__, __LINE__);
     char *b = buf;
     char *p;
     while ((p = strchr(b, '\n')) != NULL) {
@@ -224,37 +216,25 @@ void die(const char *msg, ...) {
 
 // fun little utility function
 int current_pid() {
-    if (current)
-        return current->pid;
+    if(current != NULL) {
+        if (current->exiting != true) {
+           return current->pid;
+        } else {
+            return -1;
+        }
+    }
+    
     return -1;
 }
 
 char * current_comm() {
-    if (current) {
-        return current->comm;
+    if(current != NULL) {
+        if (current->exiting != true) {
+            return current->comm;
+        } else {
+            return calloc(1, 1);
+        }
     }
-    return calloc(1, 1);
-}
-
-// Because sometimes we can't #include "kernel/task.h" -mke
-unsigned current_critical_region_count() {
-    return current->critical_region_count;
-}
-
-unsigned current_locks_held_count() {
-    return current->locks_held_count;
-}
-
-void modify_current_critical_region_count(int value) { // value Should only be -1 or 1.  -mke
-    if((value != -1) || (value != 1))
-        value = 0;
-    current->critical_region_count = current->critical_region_count + value;
-    //return current->critical_region_count;
-}
-
-void modify_current_locks_held_count(int value) { // value Should only be -1 or 1.  -mke
-    if((value < -1) || (value > 1))
-        value = 0;
-    current->locks_held_count = current->locks_held_count + value;
-    //return current->locks_held_count;
+    
+    return calloc(1, 1); 
 }

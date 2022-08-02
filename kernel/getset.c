@@ -13,16 +13,12 @@ pid_t_ sys_gettid() {
 pid_t_ sys_getppid() {
     STRACE("getppid()");
     pid_t_ ppid;
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     if (current->parent != NULL)
         ppid = current->parent->pid;
     else
         ppid = 0;
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return ppid;
 }
 

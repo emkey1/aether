@@ -628,17 +628,13 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     vfork_notify(current);
 
     if (current->ptrace.traced) {
-<<<<<<< HEAD
-        //lock(&pids_lock, 0);
-=======
-        complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .code = SI_USER_,
             .kill.pid = current->pid,
             .kill.uid = current->uid,
         });
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
     }
 
     return 0;

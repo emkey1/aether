@@ -290,23 +290,22 @@ static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *i
 
     pid_t_ pid = *index - PROC_ROOT_LEN;
     if (pid <= MAX_PID) {
-<<<<<<< HEAD
-        lock(&pids_lock, 0); // MKEMKE
-=======
-        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-        //lock(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+        //complex_lockt(&pids_lock, 0, __FILE__, __LINE__); // Revisit this later.  -mke
+        
         do {
             pid++;
         } while (pid <= MAX_PID && pid_get_task(pid) == NULL);
-        //unlock(&pids_lock);
+        
+        // unlock(&pids_lock);
+        
         if (pid > MAX_PID) {
-            ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return false;
         }
         *next_entry = (struct proc_entry) {&proc_pid, .pid = pid};
         *index = pid + PROC_ROOT_LEN;
-        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+        //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         return true;
     }
 

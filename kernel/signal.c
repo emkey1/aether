@@ -3,6 +3,7 @@
 #include <signal.h>
 #include "kernel/calls.h"
 #include "kernel/signal.h"
+#include "kernel/resource_locking.h"
 #include "kernel/task.h"
 #include "kernel/vdso.h"
 #include "emu/interrupt.h"
@@ -92,28 +93,23 @@ retry:
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-<<<<<<< HEAD
-    task->critical_region_count++;
-    lock(&task->sighand->lock, 0);
-    deliver_signal_unlocked(task, sig, info);
-    unlock(&task->sighand->lock);
-    task->critical_region_count--;
-=======
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__); // Doesn't work.  -mke
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
     // signal zero is for testing whether a process exists
-    if (sig == 0)
+    if(sig == 0)
         return;
-    if (task->zombie || task->exiting)
+    if(task->zombie)
         return;
-
+    if(task->exiting)
+        return;  // I'm not sure this is correct.  -mke
+        
+        
     //critical_region_count_increase(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
@@ -146,21 +142,17 @@ bool try_self_signal(int sig) {
 }
 
 int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
         return _ESRCH;
     }
     struct tgroup *tgroup;
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
         send_signal(tgroup->leader, sig, info);
     }
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return 0;
 }
 
@@ -393,15 +385,11 @@ void receive_signals() {  // Should this function have a check for critical_regi
         bool now_stopped = current->group->stopped;
         unlock(&current->group->lock);
         if (now_stopped) {
-<<<<<<< HEAD
-            //lock(&pids_lock, 0);
-=======
-            complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+            complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
             notify(&current->parent->group->child_exit);
             // TODO add siginfo
             send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
-            //unlock(&pids_lock);
+            unlock(&pids_lock);
         }
     }
 }
@@ -481,11 +469,7 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
-<<<<<<< HEAD
-    while(current->critical_region_count) { // Wait for now, task is in one or more critical sections, and/or has locks
-=======
     while(critical_region_count(current) > 1) { // Wait for now, task is in one or more critical sections
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
         nanosleep(&lock_pause, NULL);
     }
     if (--sighand->refcount == 0) {
@@ -733,7 +717,8 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
 }
 
 static int kill_task(struct task *task, dword_t sig) {
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    task->exiting = true;
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     if (!superuser() &&
@@ -747,7 +732,7 @@ static int kill_task(struct task *task, dword_t sig) {
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     send_signal(task, sig, info);
@@ -757,12 +742,12 @@ static int kill_task(struct task *task, dword_t sig) {
 static int kill_group(pid_t_ pgid, dword_t sig) {
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
         return _ESRCH;
     }
     struct tgroup *tgroup;
     int err = _EPERM;
-    while((current->critical_region_count) || (current->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
@@ -795,11 +780,6 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
         pid = -current->group->pgid;
 
     int err;
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 
     if (pid == -1) {
         err = kill_everything(sig);
@@ -808,20 +788,20 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
     } else {
         struct task *task = pid_get_task(pid);
         if (task == NULL) {
-            //unlock(&pids_lock);
+            unlock(&pids_lock);
             return _ESRCH;
         }
 
         // If tgid is nonzero, it must be correct
         if (tgid != 0 && task->tgid != tgid) {
-            //unlock(&pids_lock);
+            unlock(&pids_lock);
             return _ESRCH;
         }
 
         err = kill_task(task, sig);
     }
 
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return err;
 }
 

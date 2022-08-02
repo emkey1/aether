@@ -10,11 +10,7 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
         id = current->pid;
     if (pgid == 0)
         pgid = id;
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct pid *pid = pid_get(id);
     err = _ESRCH;
     if (pid == NULL)
@@ -55,7 +51,7 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
 
     err = 0;
 out:
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return err;
 }
 
@@ -65,20 +61,16 @@ dword_t sys_setpgrp() {
 
 pid_t_ sys_getpgid(pid_t_ pid) {
     STRACE("getpgid(%d)", pid);
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = current;
     if (pid != 0)
         task = pid_get_task(pid);
     if (!task) {
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
         return _ESRCH;
     }
     pid = task->group->pgid;
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return pid;
 }
 pid_t_ sys_getpgrp() {
@@ -103,15 +95,11 @@ void task_leave_session(struct task *task) {
 }
 
 pid_t_ task_setsid(struct task *task) {
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct tgroup *group = task->group;
     pid_t_ new_sid = group->leader->pid;
     if (group->pgid == new_sid || group->sid == new_sid) {
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
         return _EPERM;
     }
 
@@ -124,7 +112,7 @@ pid_t_ task_setsid(struct task *task) {
     list_add(&pid->pgroup, &group->pgroup);
     group->pgid = new_sid;
 
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return new_sid;
 }
 
@@ -135,13 +123,9 @@ dword_t sys_setsid() {
 
 dword_t sys_getsid() {
     STRACE("getsid()");
-<<<<<<< HEAD
-    //lock(&pids_lock, 0);
-=======
-    complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     pid_t_ sid = current->group->sid;
-    //unlock(&pids_lock);
+    unlock(&pids_lock);
     return sid;
 }
 

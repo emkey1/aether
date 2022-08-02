@@ -23,10 +23,6 @@ struct task {
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
     uint64_t threadid;
-<<<<<<< HEAD
-    unsigned critical_region_count; // If positive, don't delete yet, wait_to_delete
-    unsigned locks_held_count; // Count of locks held by current task
-=======
 
     bool process_info_being_read; // Set when something like ps, top, etc wants to access task info.
     
@@ -39,7 +35,6 @@ struct task {
         pthread_mutex_t lock;
         unsigned count; // Count of locks held by current task
     } locks_held;
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
 
     struct tgroup *group; // immutable
     struct list group_links;
@@ -239,12 +234,8 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
     current->io_block = 1;
     unlock(&block_lock);
   */
-<<<<<<< HEAD
-    critical_region_count_increase(current);
-=======
 //    critical_region_count_increase(current);
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     current->io_block = 1;
     return 0;
 }
@@ -256,12 +247,7 @@ __attribute__((always_inline)) inline int task_may_block_end(void) {
     unlock(&block_lock);
    */
     current->io_block = 0;
-<<<<<<< HEAD
-    critical_region_count_decrease(current);
-=======
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-//    critical_region_count_decrease(current);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
     return 0;
 }
 

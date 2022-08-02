@@ -2,6 +2,7 @@
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "kernel/calls.h"
+#include "kernel/resource_locking.h"
 #include "fs/tty.h"
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
@@ -126,7 +127,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     return 0;
 
 fail_free_sighand:
-    while((task->critical_region_count) || (task->locks_held_count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     sighand_release(task->sighand);
@@ -159,13 +160,9 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
-<<<<<<< HEAD
-        //lock(&pids_lock, 0);
-=======
-        complex_lockt(&pids_lock, 0);
->>>>>>> 2eebde1688b242d9ec29a6af5d1374758e1b1f41
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         task_destroy(task);
-        //unlock(&pids_lock);
+        unlock(&pids_lock);
         
         return err;
     }
