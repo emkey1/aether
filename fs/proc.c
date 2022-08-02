@@ -20,7 +20,7 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
         struct proc_entry next_entry = {0};
         char entry_name[MAX_NAME];
         modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+        //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         while (proc_dir_read(entry, &index, &next_entry)) {
             // tack on some dynamically generated attributes
             if (next_entry.meta->parent == NULL)
@@ -43,7 +43,7 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
 found:
         modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         proc_entry_cleanup(entry);
-        unlock(&pids_lock);
+        //unlock(&pids_lock);
         *entry = next_entry;
     }
     if (err < 0)

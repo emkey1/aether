@@ -88,8 +88,8 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
-    if(!log_lock)
-        printk("INFO: %s:%d\n", file, line);
+    //if(!log_lock)
+     //   printk("INFO: %s:%d\n", file, line);
     
    // if((!log_lock) && (current_pid() > 10 ))
     //    printk("INFO: Attempting Lock(lock(%d)), (PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
