@@ -27,6 +27,7 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
     stat->mode = proc_entry_mode(entry);
 
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+    //trylock(&pids_lock); // Kludgery.  -mke
     struct task *task = pid_get_task(entry->pid);
 
     if (task != NULL) {
@@ -34,7 +35,7 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
         stat->gid = task->gid;
     } // else the memset above will have initialized memory to zero, which is the root uid/gid
 
-    unlock(&pids_lock);
+    unlock(&pids_lock, __FILE__, __LINE__, true);
 
     stat->inode = entry->meta->inode | entry->pid << 16 | (uint64_t) entry->fd << 48;
     return 0;

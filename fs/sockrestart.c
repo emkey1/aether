@@ -16,7 +16,7 @@ void sockrestart_begin_listen(struct fd *sock) {
         return;
     lock(&sockrestart_lock, 0);
     list_add(&listen_fds, &sock->sockrestart.listen);
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }
 
 void sockrestart_end_listen(struct fd *sock) {
@@ -24,7 +24,7 @@ void sockrestart_end_listen(struct fd *sock) {
         return;
     lock(&sockrestart_lock, 0);
     list_remove_safe(&sock->sockrestart.listen);
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }
 
 static struct list listen_tasks = LIST_INITIALIZER(listen_tasks);
@@ -36,7 +36,7 @@ void sockrestart_begin_listen_wait(struct fd *sock) {
     if (current->sockrestart.count == 0)
         list_add(&listen_tasks, &current->sockrestart.listen);
     current->sockrestart.count++;
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }
 
 void sockrestart_end_listen_wait(struct fd *sock) {
@@ -46,14 +46,14 @@ void sockrestart_end_listen_wait(struct fd *sock) {
     current->sockrestart.count--;
     if (current->sockrestart.count == 0)
         list_remove(&current->sockrestart.listen);
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }
 
 bool sockrestart_should_restart_listen_wait() {
     lock(&sockrestart_lock, 0);
     bool punt = current->sockrestart.punt;
     current->sockrestart.punt = false;
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
     return punt;
 }
 
@@ -90,7 +90,7 @@ void sockrestart_on_suspend() {
         getsockname(sock->real_fd, (struct sockaddr *) &saved->name, &saved->name_len);
         list_add(&saved_sockets, &saved->saved);
     }
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }
 
 void sockrestart_on_resume() {
@@ -118,5 +118,5 @@ thank_u_next:
         task->sockrestart.punt = true;
         pthread_kill(task->thread, SIGUSR1);
     }
-    unlock(&sockrestart_lock);
+    unlock(&sockrestart_lock, __FILE__, __LINE__);
 }

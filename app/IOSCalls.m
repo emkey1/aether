@@ -37,8 +37,8 @@ void sync_do_in_workqueue(void (^block)(void (^done)(void))) {
         block(^{
             pthread_mutex_lock(&mutex);
             flag = true;
-            pthread_mutex_unlock(&mutex);
-            pthread_cond_broadcast(&cond);
+            pthread_mutex_unlock(&mutex, __FILE__, __LINE__);
+            pthread_cond_broadcast(&cond, __FILE__, __LINE__);
         });
     });
     pthread_mutex_lock(&mutex);

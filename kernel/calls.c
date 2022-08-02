@@ -283,12 +283,12 @@ void handle_interrupt(int interrupt) {
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
                 ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
-                unlock(&current->ptrace.lock);
+                unlock(&current->ptrace.lock, __FILE__, __LINE__);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
-            unlock(&current->ptrace.lock);
+            unlock(&current->ptrace.lock,  __FILE__, __LINE__);
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
@@ -297,12 +297,12 @@ void handle_interrupt(int interrupt) {
             if (current->ptrace.stop_at_syscall) {
                 current->ptrace.syscall = syscall_num;
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
-                unlock(&current->ptrace.lock);
+                unlock(&current->ptrace.lock, __FILE__, __LINE__);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
-            unlock(&current->ptrace.lock);
+            unlock(&current->ptrace.lock, __FILE__, __LINE__);
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
@@ -340,14 +340,14 @@ void handle_interrupt(int interrupt) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
     } else if (interrupt == INT_DEBUG) {
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,
         });
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
     } else if (interrupt != INT_TIMER) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
@@ -358,7 +358,7 @@ void handle_interrupt(int interrupt) {
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
-    unlock(&group->lock);
+    unlock(&group->lock, __FILE__, __LINE__);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 

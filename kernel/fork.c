@@ -43,7 +43,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     if (group->tty) {
         lock(&group->tty->lock, 0);
         group->tty->refcount++;
-        unlock(&group->tty->lock);
+        unlock(&group->tty->lock, __FILE__, __LINE__);
     }
     group->itimer = NULL;
     group->doing_group_exit = false;
@@ -103,8 +103,8 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
         task->tgid = task->pid;
     }
     list_add(&task->group->threads, &task->group_links);
-    unlock(&old_group->lock);
-    //unlock(&pids_lock);
+    unlock(&old_group->lock, __FILE__, __LINE__);
+    //unlock(&pids_lock, __FILE__, __LINE__, true);
 
     if (flags & CLONE_SETTLS_) {
         err = task_set_thread_area(task, tls_addr);
@@ -162,7 +162,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // could cause leaks
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         task_destroy(task);
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         
         return err;
     }
@@ -191,10 +191,10 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         while (!vfork.done)
             // FIXME this should stop waiting if a fatal signal is received
             wait_for_ignore_signals(&vfork.cond, &vfork.lock, NULL);
-        unlock(&vfork.lock);
+        unlock(&vfork.lock, __FILE__, __LINE__);
         lock(&task->general_lock, 0);
         task->vfork = NULL;
-        unlock(&task->general_lock);
+        unlock(&task->general_lock, __FILE__, __LINE__);
         cond_destroy(&vfork.cond);
     }
 
@@ -215,7 +215,7 @@ void vfork_notify(struct task *task) {
         lock(&task->vfork->lock, 0);
         task->vfork->done = true;
         notify(&task->vfork->cond);
-        unlock(&task->vfork->lock);
+        unlock(&task->vfork->lock, __FILE__, __LINE__);
     }
-    unlock(&task->general_lock);
+    unlock(&task->general_lock, __FILE__, __LINE__);
 }

@@ -45,7 +45,7 @@ static struct futex *futex_get_unlocked(addr_t addr) {
 
     futex = malloc(sizeof(struct futex));
     if (futex == NULL) {
-        unlock(&futex_lock);
+        unlock(&futex_lock, __FILE__, __LINE__);
         return NULL;
     }
     futex->refcount = 1;
@@ -62,7 +62,7 @@ static struct futex *futex_get(addr_t addr) {
     lock(&futex_lock, 0);
     struct futex *futex = futex_get_unlocked(addr);
     if (futex == NULL)
-        unlock(&futex_lock);
+        unlock(&futex_lock, __FILE__, __LINE__);
     return futex;
 }
 
@@ -78,7 +78,7 @@ static void futex_put_unlocked(struct futex *futex) {
 // Also has an unlocked version, for releasing the result of futex_get_unlocked
 static void futex_put(struct futex *futex) {
     futex_put_unlocked(futex);
-    unlock(&futex_lock);
+    unlock(&futex_lock, __FILE__, __LINE__);
 }
 
 static int futex_load(struct futex *futex, dword_t *out) {
@@ -210,7 +210,7 @@ int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
 
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = pid_get_task(pid);
-    unlock(&pids_lock);
+    unlock(&pids_lock, __FILE__, __LINE__, true);
     if (task != current)
         return _EPERM;
 

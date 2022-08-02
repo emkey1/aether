@@ -129,7 +129,7 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
         at = current->fs->root;
     else if (at == AT_PWD)
         at = current->fs->pwd;
-    unlock(&current->fs->lock);
+    unlock(&current->fs->lock, __FILE__, __LINE__);
     char at_path[MAX_PATH];
     if (at != NULL) {
         int err = generic_getpath(at, at_path);

@@ -103,6 +103,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
                 pthread_mutex_unlock(&lock->m);
                 modify_locks_held_count_wrapper(-1);
             }
+            printk("INFO: complex_lockt(%d:%s:%d)\n", &lock->m, file, line);
             return;
         }
         
@@ -142,10 +143,12 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     return;
 }
 
-#define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
+#define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__, bool verbose)
 
-static inline void unlock(lock_t *lock) {
+static inline void unlock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line, bool verbose) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
+    if(verbose == true)
+        printk("INFO: unlock(%d:%s:%d)\n", &lock->m, file, line);
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
     modify_locks_held_count_wrapper(-1);

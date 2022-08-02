@@ -82,7 +82,7 @@ dword_t get_count_of_blocked_tasks() {
         }
     }
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //unlock(&pids_lock);
+    //unlock(&pids_lock, __FILE__, __LINE__, true);
     return res;
 }
 
@@ -93,7 +93,7 @@ dword_t get_count_of_alive_tasks() {
     list_for_each(&alive_pids_list, item) {
         res++;
     }
-    //unlock(&pids_lock);
+    //unlock(&pids_lock, __FILE__, __LINE__, true);
     return res;
 }
 
@@ -111,7 +111,7 @@ struct task *task_create_(struct task *parent) {
 
     struct task *task = malloc(sizeof(struct task));
     if (task == NULL) {
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return NULL;
     }
     *task = (struct task) {};
@@ -128,7 +128,7 @@ struct task *task_create_(struct task *parent) {
         task->parent = parent;
         list_add(&parent->children, &task->siblings);
     }
-    unlock(&pids_lock);
+    unlock(&pids_lock, __FILE__, __LINE__, true);
 
     task->pending = 0;
     list_init(&task->queue);
@@ -184,7 +184,7 @@ void task_destroy(struct task *task) {
      //   extra_unlockf(task->pid);
     
     if(IShould)
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
     
     while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);

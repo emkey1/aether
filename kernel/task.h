@@ -232,7 +232,7 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
  /*
     lock(&block_lock, 0);
     current->io_block = 1;
-    unlock(&block_lock);
+    unlock(&block_lock, __FILE__, __LINE__);
   */
 //    critical_region_count_increase(current);
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
@@ -244,7 +244,7 @@ __attribute__((always_inline)) inline int task_may_block_end(void) {
   /*
     lock(&block_lock, 0);
     current->io_block = 0;
-    unlock(&block_lock);
+    unlock(&block_lock, __FILE__, __LINE__);
    */
     current->io_block = 0;
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);

@@ -365,6 +365,9 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 #endif
         
         // if page is cow, ~~milk~~ copy it
+        if(doEnableExtraLocking)
+            extra_lockf(0);
+        
         if (entry->flags & P_COW) {
             //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
@@ -381,6 +384,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             
         }
         
+        if(doEnableExtraLocking)
+            extra_unlockf(0);
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);

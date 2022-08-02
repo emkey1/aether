@@ -158,7 +158,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 #if !ISH_LINUX
         lock(&self.tty->lock, 0);
         tty_set_winsize(self.tty, (struct winsize_) {.col = cols, .row = rows});
-        unlock(&self.tty->lock);
+        unlock(&self.tty->lock, __FILE__, __LINE__);
 #else
         async_do_in_workqueue(^{
             self->_tty->ops->resize(self->_tty, cols, rows);
@@ -185,7 +185,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     }
     [_pendingData appendData:[NSData dataWithBytes:buf length:len]];
     [self.refreshTask schedule];
-    unlock(&_dataLock);
+    unlock(&_dataLock, __FILE__, __LINE__);
 #else
     @synchronized (self) {
         int room = [self roomForOutput];
@@ -241,14 +241,14 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     lock(&_dataLock, 0);
     if (_outputInProgress) {
         [self.refreshTask schedule];
-        unlock(&_dataLock);
+        unlock(&_dataLock, __FILE__, __LINE__);
         return;
     }
     NSData *data = _pendingData;
     _pendingData = [[NSMutableData alloc] initWithCapacity:BUF_SIZE];
     _outputInProgress = YES;
     notify(&self->_dataConsumed);
-    unlock(&_dataLock);
+    unlock(&_dataLock, __FILE__, __LINE__);
 #else
     NSData *data;
     @synchronized (self) {
@@ -277,7 +277,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 #if !ISH_LINUX
         lock(&self->_dataLock, 0);
         self->_outputInProgress = NO;
-        unlock(&self->_dataLock);
+        unlock(&self->_dataLock, __FILE__, __LINE__);
 #else
         @synchronized (self) {
             self->_outputInProgress = NO;
@@ -321,7 +321,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         if (tty != NULL) {
             lock(&tty->lock, 0);
             tty_hangup(tty);
-            unlock(&tty->lock);
+            unlock(&tty->lock, __FILE__, __LINE__);
         }
 #else
         tty->ops->hangup(tty);
@@ -359,7 +359,7 @@ void Terminal_setLinuxTTY(nsobj_t _self, struct linux_tty *tty) {
 #if !ISH_LINUX
 static int ios_tty_init(struct tty *tty) {
     // This is called with ttys_lock but that results in deadlock since the main thread can also acquire ttys_lock. So release it.
-    unlock(&ttys_lock);
+    unlock(&ttys_lock, __FILE__, __LINE__);
     void (^init_block)(void) = ^{
         Terminal *terminal = [Terminal terminalWithType:tty->type number:tty->num];
         tty->data = (void *) CFBridgingRetain(terminal);

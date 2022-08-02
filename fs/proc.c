@@ -37,13 +37,13 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
             proc_entry_cleanup(&next_entry);
         }
         modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-        unlock(&pids_lock);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         err = _ENOENT;
         break;
 found:
         modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         proc_entry_cleanup(entry);
-        //unlock(&pids_lock);
+        //unlock(&pids_lock, __FILE__, __LINE__, true);
         *entry = next_entry;
     }
     if (err < 0)

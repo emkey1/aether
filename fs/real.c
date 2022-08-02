@@ -40,7 +40,7 @@ static void lock_fchdir(int dirfd) {
     fchdir(dirfd);
 }
 static void unlock_fchdir() {
-    unlock(&fchdir_lock);
+    unlock(&fchdir_lock, __FILE__, __LINE__);
 }
 
 static int open_flags_real_from_fake(int flags) {
