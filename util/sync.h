@@ -118,7 +118,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 
     lock->owner = pthread_self();
     lock->pid = current_pid();
-    strcpy(lock->comm, current_comm());
+    //strcpy(lock->comm, current_comm());
     //lock->comm = current_comm();
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
@@ -137,7 +137,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     lock->owner = pthread_self();
     lock->pid = current_pid();
     //lock->comm = current_comm();
-    strcpy(lock->comm, current_comm());
+    //strcpy(lock->comm, current_comm());
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
