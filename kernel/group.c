@@ -86,11 +86,11 @@ void task_leave_session(struct task *task) {
         if (list_empty(&pid_get(group->sid)->session)) {
             lock(&group->tty->lock, 0);
             group->tty->session = 0;
-            unlock(&group->tty->lock, __FILE__, __LINE__);
+            unlock(&group->tty->lock, __FILE__, __LINE__, false);
         }
         tty_release(group->tty);
         group->tty = NULL;
-        unlock(&ttys_lock, __FILE__, __LINE__);
+        unlock(&ttys_lock, __FILE__, __LINE__, false);
     }
 }
 

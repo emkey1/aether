@@ -26,11 +26,11 @@ static ssize_t eventfd_read(struct fd *fd, void *buf, size_t bufsize) {
     lock(&fd->lock, 0);
     while (fd->eventfd.val == 0) {
         if (fd->flags & O_NONBLOCK_) {
-            unlock(&fd->lock, __FILE__, __LINE__);
+            unlock(&fd->lock, __FILE__, __LINE__, false);
             return _EAGAIN;
         }
         if (wait_for(&fd->cond, &fd->lock, NULL)) {
-            unlock(&fd->lock, __FILE__, __LINE__);
+            unlock(&fd->lock, __FILE__, __LINE__, false);
             return _EINTR;
         }
     }
@@ -38,7 +38,7 @@ static ssize_t eventfd_read(struct fd *fd, void *buf, size_t bufsize) {
     *(uint64_t *) buf = fd->eventfd.val;
     fd->eventfd.val = 0;
     notify(&fd->cond);
-    unlock(&fd->lock, __FILE__, __LINE__);
+    unlock(&fd->lock, __FILE__, __LINE__, false);
     poll_wakeup(fd, POLL_WRITE);
     return sizeof(uint64_t);
 }
@@ -53,18 +53,18 @@ static ssize_t eventfd_write(struct fd *fd, const void *buf, size_t bufsize) {
     lock(&fd->lock, 0);
     while (fd->eventfd.val >= UINT64_MAX - increment) {
         if (fd->flags & O_NONBLOCK_) {
-            unlock(&fd->lock, __FILE__, __LINE__);
+            unlock(&fd->lock, __FILE__, __LINE__, false);
             return _EAGAIN;
         }
         if (wait_for(&fd->cond, &fd->lock, NULL)) {
-            unlock(&fd->lock, __FILE__, __LINE__);
+            unlock(&fd->lock, __FILE__, __LINE__, false);
             return _EINTR;
         }
     }
 
     fd->eventfd.val += increment;
     notify(&fd->cond);
-    unlock(&fd->lock, __FILE__, __LINE__);
+    unlock(&fd->lock, __FILE__, __LINE__, false);
     poll_wakeup(fd, POLL_READ);
     return sizeof(uint64_t);
 }
@@ -76,7 +76,7 @@ static int eventfd_poll(struct fd *fd) {
         types |= POLL_READ;
     if (fd->eventfd.val < UINT64_MAX - 1)
         types |= POLL_WRITE;
-    unlock(&fd->lock, __FILE__, __LINE__);
+    unlock(&fd->lock, __FILE__, __LINE__, false);
     return types;
 }
 

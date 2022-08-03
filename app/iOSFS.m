@@ -47,7 +47,7 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
     lock(&_lock, 0);
     self.urls = urls;
     notify(&_cond);
-    unlock(&_lock, __FILE__, __LINE__);
+    unlock(&_lock, __FILE__, __LINE__, false);
 }
 
 - (int)askForURL:(NSURL **)url {
@@ -70,13 +70,13 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
     while (_urls == nil) {
         int err = wait_for(&_cond, &_lock, NULL);
         if (err < 0) {
-            unlock(&_lock, __FILE__, __LINE__);
+            unlock(&_lock, __FILE__, __LINE__, false);
             return err;
         }
     }
     NSArray<NSURL *> *urls = _urls;
     _urls = nil;
-    unlock(&_lock, __FILE__, __LINE__);
+    unlock(&_lock, __FILE__, __LINE__, false);
     
     if (@available(iOS 13, *)) {
         assert(urls.count <= 1);

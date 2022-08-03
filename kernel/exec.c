@@ -210,7 +210,7 @@ static int elf_exec(struct fd *fd, const char *file, struct exec_args argv, stru
     lock(&current->general_lock, 0);
     mm_release(current->mm);
     task_set_mm(current, mm_new());
-    unlock(&current->general_lock, __FILE__, __LINE__);
+    unlock(&current->general_lock, __FILE__, __LINE__, false);
     write_lock(&current->mem->lock);
 
     current->mm->exefile = fd_retain(fd);
@@ -606,7 +606,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     else
         basename++;
     strncpy(current->comm, basename, sizeof(current->comm));
-    unlock(&current->general_lock, __FILE__, __LINE__);
+    unlock(&current->general_lock, __FILE__, __LINE__, false);
 
     update_thread_name();
 
@@ -622,7 +622,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
             action->handler = SIG_DFL_;
     }
     current->sighand->altstack = 0;
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
 
     current->did_exec = true;
     vfork_notify(current);

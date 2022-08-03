@@ -162,7 +162,7 @@ static struct tmp_dirent *__tmpfs_lookup(struct mount *mount, const char *path, 
 
         lock(&dirent->lock, 0);
         struct tmp_dirent *child = tmpfs_dir_lookup(dirent, component);
-        unlock(&dirent->lock, __FILE__, __LINE__);
+        unlock(&dirent->lock, __FILE__, __LINE__, false);
 
         tmp_dirent_release(dirent);
         if (IS_ERR(child))
@@ -283,7 +283,7 @@ out_creat:
             tmp_dirent_release(dirent);
             dirent = ERR_PTR(err);
         }
-        unlock(&parent->lock, __FILE__, __LINE__);
+        unlock(&parent->lock, __FILE__, __LINE__, false);
         tmp_dirent_release(parent);
     } else {
         dirent = tmpfs_lookup(mount, path);
@@ -303,7 +303,7 @@ out_creat:
     if (!list_empty(&dirent->children)) {
         tmpfs_fd_seekdir(fd, list_first_entry(&dirent->children, struct tmp_dirent, dir));
     }
-    unlock(&dirent->lock, __FILE__, __LINE__);
+    unlock(&dirent->lock, __FILE__, __LINE__, false);
     return fd;
 }
 
@@ -314,7 +314,7 @@ static int tmpfs_stat(struct mount *mount, const char *path, struct statbuf *sta
     struct tmp_inode *inode = dirent->inode;
     lock(&inode->lock, 0);
     *stat = dirent->inode->stat;
-    unlock(&inode->lock, __FILE__, __LINE__);
+    unlock(&inode->lock, __FILE__, __LINE__, false);
     tmp_dirent_release(dirent);
     return 0;
 }
@@ -344,7 +344,7 @@ static int tmpfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
 
     err = tmpfs_dir_link(parent, filename, inode, NULL);
 out:
-    unlock(&parent->lock, __FILE__, __LINE__);
+    unlock(&parent->lock, __FILE__, __LINE__, false);
     tmp_dirent_release(parent);
     return err;
 }
@@ -378,7 +378,7 @@ static int tmpfs_fstat(struct fd *fd, struct statbuf *stat) {
     struct tmp_inode *inode = tmpfs_fd_inode(fd);
     lock(&inode->lock, 0);
     *stat = inode->stat;
-    unlock(&inode->lock, __FILE__, __LINE__);
+    unlock(&inode->lock, __FILE__, __LINE__, false);
     return 0;
 }
 
@@ -401,7 +401,7 @@ static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
     res = bufsize;
 
 out:
-    unlock(&inode->lock, __FILE__, __LINE__);
+    unlock(&inode->lock, __FILE__, __LINE__, false);
     return res;
 }
 
@@ -424,7 +424,7 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     res = bufsize;
 
 out:
-    unlock(&inode->lock, __FILE__, __LINE__);
+    unlock(&inode->lock, __FILE__, __LINE__, false);
     return res;
 }
 
@@ -434,7 +434,7 @@ static off_t_ tmpfs_lseek(struct fd *fd, off_t_ off, int whence) {
         struct tmp_inode *inode = tmpfs_fd_inode(fd);
         lock(&inode->lock, 0);
         size = inode->stat.size;
-        unlock(&inode->lock, __FILE__, __LINE__);
+        unlock(&inode->lock, __FILE__, __LINE__, false);
     }
 
     int err = generic_seek(fd, off, whence, size);
@@ -467,8 +467,8 @@ static int tmpfs_readdir(struct fd *fd, struct dir_entry *entry) {
     res = 1;
 
 out:
-    unlock(&parent->lock, __FILE__, __LINE__);
-    unlock(&fd->lock, __FILE__, __LINE__);
+    unlock(&parent->lock, __FILE__, __LINE__, false);
+    unlock(&fd->lock, __FILE__, __LINE__, false);
     return res;
 }
 
@@ -490,7 +490,7 @@ static void tmpfs_seekdir(struct fd *fd, unsigned long ptr) {
     if (&child->dir == &dir->children)
         child = NULL;
     tmpfs_fd_seekdir(fd, child);
-    unlock(&dir->lock, __FILE__, __LINE__);
+    unlock(&dir->lock, __FILE__, __LINE__, false);
 }
 
 const struct fs_ops tmpfs = {

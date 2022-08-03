@@ -45,7 +45,7 @@ static struct futex *futex_get_unlocked(addr_t addr) {
 
     futex = malloc(sizeof(struct futex));
     if (futex == NULL) {
-        unlock(&futex_lock, __FILE__, __LINE__);
+        unlock(&futex_lock, __FILE__, __LINE__, false);
         return NULL;
     }
     futex->refcount = 1;
@@ -62,7 +62,7 @@ static struct futex *futex_get(addr_t addr) {
     lock(&futex_lock, 0);
     struct futex *futex = futex_get_unlocked(addr);
     if (futex == NULL)
-        unlock(&futex_lock, __FILE__, __LINE__);
+        unlock(&futex_lock, __FILE__, __LINE__, false);
     return futex;
 }
 
@@ -78,7 +78,7 @@ static void futex_put_unlocked(struct futex *futex) {
 // Also has an unlocked version, for releasing the result of futex_get_unlocked
 static void futex_put(struct futex *futex) {
     futex_put_unlocked(futex);
-    unlock(&futex_lock, __FILE__, __LINE__);
+    unlock(&futex_lock, __FILE__, __LINE__, false);
 }
 
 static int futex_load(struct futex *futex, dword_t *out) {

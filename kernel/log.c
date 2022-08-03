@@ -124,7 +124,7 @@ int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
-    unlock(&log_lock, __FILE__, __LINE__);
+    unlock(&log_lock, __FILE__, __LINE__, false);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return retval;
 }
@@ -174,7 +174,7 @@ void ish_vprintk(const char *msg, va_list args) {
         buf_size -= p + 1 - b;
         b = p + 1;
     }
-    unlock(&log_lock, __FILE__, __LINE__);
+    unlock(&log_lock, __FILE__, __LINE__, false);
     memmove(buf, b, strlen(b) + 1);
 }
 

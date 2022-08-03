@@ -67,7 +67,7 @@ BOOL CLIsAuthorized(CLAuthorizationStatus status) {
     lock(&_lock, 0);
     self.latest = locations.lastObject;
     notify(&_updateCond);
-    unlock(&_lock, __FILE__, __LINE__);
+    unlock(&_lock, __FILE__, __LINE__, false);
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
@@ -88,7 +88,7 @@ BOOL CLIsAuthorized(CLAuthorizationStatus status) {
         if (err < 0)
             break;
     }
-    unlock(&_lock, __FILE__, __LINE__);
+    unlock(&_lock, __FILE__, __LINE__, false);
     return err;
 }
 

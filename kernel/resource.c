@@ -23,7 +23,7 @@ static int rlimit_get(struct task *task, int resource, struct rlimit_ *limit) {
     struct tgroup *group = task->group;
     lock(&group->lock, 0);
     *limit = group->limits[resource];
-    unlock(&group->lock, __FILE__, __LINE__);
+    unlock(&group->lock, __FILE__, __LINE__, false);
     return 0;
 }
 
@@ -33,7 +33,7 @@ static int rlimit_set(struct task *task, int resource, struct rlimit_ limit) {
     struct tgroup *group = task->group;
     lock(&group->lock, 0);
     group->limits[resource] = limit;
-    unlock(&group->lock, __FILE__, __LINE__);
+    unlock(&group->lock, __FILE__, __LINE__, false);
     return 0;
 }
 
@@ -184,7 +184,7 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
         case RUSAGE_CHILDREN_:
             lock(&current->group->lock, 0);
             rusage = current->group->children_rusage;
-            unlock(&current->group->lock, __FILE__, __LINE__);
+            unlock(&current->group->lock, __FILE__, __LINE__, false);
             break;
         default:
             return _EINVAL;

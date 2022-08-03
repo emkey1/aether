@@ -21,7 +21,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 
 static struct task *proc_get_task(struct proc_entry *entry) {
     //trylock(&pids_lock);  // Gross kludgery  -mke
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__, true);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock(&pids_lock, __FILE__, __LINE__, true);
@@ -34,8 +34,10 @@ static void proc_put_task(struct task *UNUSED(task)) {
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //int elock_fail;
     struct task *task = proc_get_task(entry);
-    if ((task == NULL) || (task->exiting == true))
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
  //   if(doEnableExtraLocking)
   //      elock_fail = extra_lockf(entry->pid);
         
@@ -118,9 +120,9 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(entry->pid);
     
-    //unlock(&task->sighand->lock, __FILE__, __LINE__);
-    unlock(&task->group->lock, __FILE__, __LINE__);
-    unlock(&task->general_lock, __FILE__, __LINE__);
+    //unlock(&task->sighand->lock, __FILE__, __LINE__, false);
+    unlock(&task->group->lock, __FILE__, __LINE__, false);
+    unlock(&task->general_lock, __FILE__, __LINE__, false);
     proc_put_task(task);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     return 0;
@@ -139,8 +141,10 @@ static int proc_pid_statm_show(struct proc_entry *UNUSED(entry), struct proc_dat
 
 static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
-    if ((task == NULL) || (task->exiting == true))
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
     task->process_info_being_read = true;
     int err = 0;
     lock(&task->general_lock, 0);
@@ -158,7 +162,7 @@ static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
     free(data);
 
 out_free_task:
-    unlock(&task->general_lock, __FILE__, __LINE__);
+    unlock(&task->general_lock, __FILE__, __LINE__, false);
     task->process_info_being_read = false;
     proc_put_task(task);
     return err;
@@ -168,8 +172,10 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     struct task *task = proc_get_task(entry);
     //struct task *task = pid_get_task(entry->pid);
     
-    if ((task == NULL) || (task->exiting == true))
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
     
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     
@@ -194,7 +200,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     free(data);
     
 out_free_task:
-    unlock(&task->general_lock, __FILE__, __LINE__);
+    unlock(&task->general_lock, __FILE__, __LINE__, false);
     //proc_put_task(task);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     
@@ -260,8 +266,10 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
 
 static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
-    if ((task == NULL) || (task->exiting == true))
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
     proc_maps_dump(task, buf);
     proc_put_task(task);
     return 0;
@@ -271,14 +279,16 @@ static struct proc_dir_entry proc_pid_fd;
 
 static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     struct task *task = proc_get_task(entry);
-    if ((task == NULL) || (task->exiting == true)) 
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
     lock(&task->files->lock, 0);
     while (*index < task->files->size && task->files->files[*index] == NULL)
         (*index)++;
     fd_t f = (*index)++;
     bool any_left = (unsigned) f < task->files->size;
-    unlock(&task->files->lock, __FILE__, __LINE__);
+    unlock(&task->files->lock, __FILE__, __LINE__, false);
     proc_put_task(task);
     *next_entry = (struct proc_entry) {&proc_pid_fd, .pid = entry->pid, .fd = f};
     return any_left;
@@ -291,24 +301,26 @@ static void proc_pid_fd_getname(struct proc_entry *entry, char *buf) {
 static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
-        proc_put_task(task);
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
     }
     lock(&task->files->lock, 0);
     struct fd *fd = fdtable_get(task->files, entry->fd);
     int err = generic_getpath(fd, buf);
-    unlock(&task->files->lock, __FILE__, __LINE__);
+    unlock(&task->files->lock, __FILE__, __LINE__, false);
     proc_put_task(task);
     return err;
 }
 
 static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
-    if ((task == NULL) || task->exiting == true)
+    if ((task == NULL) || (task->exiting == true)) {
+        unlock(&pids_lock, __FILE__, __LINE__, true);
         return _ESRCH;
+    }
     lock(&task->general_lock, 0);
     int err = generic_getpath(task->mm->exefile, buf);
-    unlock(&task->general_lock, __FILE__, __LINE__);
+    unlock(&task->general_lock, __FILE__, __LINE__, false);
     proc_put_task(task);
     return err;
 }

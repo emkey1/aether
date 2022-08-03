@@ -70,7 +70,7 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         // wake up any pthread condition waiters
         // actual madness, I hope to god it's correct
         // must release the sighand lock while going insane, to avoid a deadlock
-        unlock(&task->sighand->lock, __FILE__, __LINE__);
+        unlock(&task->sighand->lock, __FILE__, __LINE__, false);
 retry:
         lock(&task->waiting_cond_lock, 0);
         if (task->waiting_cond != NULL) {
@@ -79,15 +79,15 @@ retry:
                 if (pthread_equal(task->waiting_lock->owner, pthread_self()))
                     mine = true;
                 if (!mine) {
-                    unlock(&task->waiting_cond_lock, __FILE__, __LINE__);
+                    unlock(&task->waiting_cond_lock, __FILE__, __LINE__, false);
                     goto retry;
                 }
             }
             notify(task->waiting_cond);
             if (!mine)
-                unlock(task->waiting_lock, __FILE__, __LINE__);
+                unlock(task->waiting_lock, __FILE__, __LINE__, false);
         }
-        unlock(&task->waiting_cond_lock, __FILE__, __LINE__);
+        unlock(&task->waiting_cond_lock, __FILE__, __LINE__, false);
         lock(&task->sighand->lock, 0);
     }
 }
@@ -96,7 +96,7 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__); // Doesn't work.  -mke
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
-    unlock(&task->sighand->lock, __FILE__, __LINE__);
+    unlock(&task->sighand->lock, __FILE__, __LINE__, false);
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 }
 
@@ -116,13 +116,13 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
         deliver_signal_unlocked(task, sig, info);
     }
-    unlock(&sighand->lock, __FILE__, __LINE__);
+    unlock(&sighand->lock, __FILE__, __LINE__, false);
 
     if (sig == SIGCONT_ || sig == SIGKILL_) {
         lock(&task->group->lock, 0);
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
-        unlock(&task->group->lock, __FILE__, __LINE__);
+        unlock(&task->group->lock, __FILE__, __LINE__, false);
     }
     
     //critical_region_count_decrease(task);
@@ -137,7 +137,7 @@ bool try_self_signal(int sig) {
         !sigset_has(current->blocked, sig);
     if (can_send)
         deliver_signal_unlocked(current, sig, SIGINFO_NIL);
-    unlock(&sighand->lock, __FILE__, __LINE__);
+    unlock(&sighand->lock, __FILE__, __LINE__, false);
     return can_send;
 }
 
@@ -236,11 +236,11 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
             lock(&current->group->lock,0);
             current->group->stopped = true;
             current->group->group_exit_code = sig << 8 | 0x7f;
-            unlock(&current->group->lock, __FILE__, __LINE__);
+            unlock(&current->group->lock, __FILE__, __LINE__, false);
             return;
 
         case SIGNAL_KILL:
-            unlock(&sighand->lock, __FILE__, __LINE__); // do_exit must be called without this lock
+            unlock(&sighand->lock, __FILE__, __LINE__, false); // do_exit must be called without this lock
             do_exit_group(sig);
     }
 
@@ -311,27 +311,27 @@ void signal_delivery_stop(int sig, struct siginfo_ *info) {
     current->ptrace.stopped = true;
     current->ptrace.signal = sig | current->ptrace.stop_at_syscall << 7;
     current->ptrace.info = *info;
-    unlock(&current->ptrace.lock, __FILE__, __LINE__);
+    unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
     notify(&current->parent->group->child_exit);
     // TODO add siginfo
     send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
 
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     lock(&current->ptrace.lock, 0);
     TASK_MAY_BLOCK {
         while (current->ptrace.stopped) {
             wait_for_ignore_signals(&current->ptrace.cond, &current->ptrace.lock, NULL);
             lock(&current->sighand->lock, 0);
             bool got_sigkill = sigset_has(current->pending, SIGKILL_);
-            unlock(&current->sighand->lock, __FILE__, __LINE__);
+            unlock(&current->sighand->lock, __FILE__, __LINE__, false);
             if (got_sigkill) {
                 STRACE("%d received a SIGKILL in signal delivery stop\n", current->pid);
-                unlock(&current->ptrace.lock, __FILE__, __LINE__);
+                unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
                 do_exit_group(SIGKILL_);
             }
         }
     }
-    unlock(&current->ptrace.lock, __FILE__, __LINE__);
+    unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
     lock(&current->sighand->lock, 0);
 }
 
@@ -339,7 +339,7 @@ void receive_signals() {  // Should this function have a check for critical_regi
     //nanosleep(&lock_pause, NULL);
     lock(&current->group->lock, 0);
     bool was_stopped = current->group->stopped;
-    unlock(&current->group->lock, __FILE__, __LINE__);
+    unlock(&current->group->lock, __FILE__, __LINE__, false);
 
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
@@ -377,13 +377,13 @@ void receive_signals() {  // Should this function have a check for critical_regi
         free(sigqueue);
     }
 
-    unlock(&sighand->lock, __FILE__, __LINE__);
+    unlock(&sighand->lock, __FILE__, __LINE__, false);
 
     // this got moved out of the switch case in receive_signal to fix locking problems
     if (!was_stopped) {
         lock(&current->group->lock, 0);
         bool now_stopped = current->group->stopped;
-        unlock(&current->group->lock, __FILE__, __LINE__);
+        unlock(&current->group->lock, __FILE__, __LINE__, false);
         if (now_stopped) {
             complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
             notify(&current->parent->group->child_exit);
@@ -429,7 +429,7 @@ dword_t sys_rt_sigreturn() {
         current->sighand->altstack_size = frame.uc.stack.size;
     }
     sigmask_set(frame.uc.sigmask);
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     return cpu->eax;
 }
 
@@ -446,7 +446,7 @@ dword_t sys_sigreturn() {
     lock(&current->sighand->lock, 0);
     sigset_t_ oldmask = ((sigset_t_) frame.extramask << 32) | frame.sc.oldmask;
     sigmask_set(oldmask);
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     return cpu->eax;
 }
 
@@ -489,7 +489,7 @@ static int do_sigaction(int sig, const struct sigaction_ *action, struct sigacti
         *oldaction = sighand->action[sig];
     if (action)
         sighand->action[sig] = *action;
-    unlock(&sighand->lock, __FILE__, __LINE__);
+    unlock(&sighand->lock, __FILE__, __LINE__, false);
     return 0;
 }
 
@@ -533,7 +533,7 @@ static void sigmask_set_temp_unlocked(sigset_t_ mask) {
 void sigmask_set_temp(sigset_t_ mask) {
     lock(&current->sighand->lock, 0);
     sigmask_set_temp_unlocked(mask);
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
 }
 
 static int do_sigprocmask(dword_t how, sigset_t_ set) {
@@ -569,7 +569,7 @@ dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dwo
         struct sighand *sighand = current->sighand;
         lock(&sighand->lock, 0);
         int err = do_sigprocmask(how, set);
-        unlock(&sighand->lock, __FILE__, __LINE__);
+        unlock(&sighand->lock, __FILE__, __LINE__, false);
         if (err < 0)
             return err;
     }
@@ -607,18 +607,18 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
         struct stack_t_ old_ss;
         altstack_to_user(sighand, &old_ss);
         if (user_put(old_ss_addr, old_ss)) {
-            unlock(&sighand->lock, __FILE__, __LINE__);
+            unlock(&sighand->lock, __FILE__, __LINE__, false);
             return _EFAULT;
         }
     }
     if (ss_addr != 0) {
         if (is_on_altstack(current->cpu.esp, sighand)) {
-            unlock(&sighand->lock, __FILE__, __LINE__);
+            unlock(&sighand->lock, __FILE__, __LINE__, false);
             return _EPERM;
         }
         struct stack_t_ ss;
         if (user_get(ss_addr, ss)) {
-            unlock(&sighand->lock, __FILE__, __LINE__);
+            unlock(&sighand->lock, __FILE__, __LINE__, false);
             return _EFAULT;
         }
         if (ss.flags & SS_DISABLE_) {
@@ -630,7 +630,7 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
             sighand->altstack_size = ss.size;
         }
     }
-    unlock(&sighand->lock, __FILE__, __LINE__);
+    unlock(&sighand->lock, __FILE__, __LINE__, false);
     return 0;
 }
 
@@ -648,7 +648,7 @@ int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {
         while (wait_for(&current->pause, &current->sighand->lock, NULL) != _EINTR)
             continue;
     }
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     STRACE("%d done sigsuspend", current->pid);
     return _EINTR;
 }
@@ -659,7 +659,7 @@ int_t sys_pause() {
         while (wait_for(&current->pause, &current->sighand->lock, NULL) != _EINTR)
             continue;
     }
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     return _EINTR;
 }
 
@@ -690,7 +690,7 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
     }
     current->waiting = 0;
     if (err == _ETIMEDOUT) {
-        unlock(&current->sighand->lock, __FILE__, __LINE__);
+        unlock(&current->sighand->lock, __FILE__, __LINE__, false);
         STRACE("sigtimedwait timed out\n");
         return _EAGAIN;
     }
@@ -711,7 +711,7 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
     if (info_addr != 0)
         if (user_put(info_addr, info))
             return _EFAULT;
-    unlock(&current->sighand->lock, __FILE__, __LINE__);
+    unlock(&current->sighand->lock, __FILE__, __LINE__, false);
     STRACE("done sigtimedwait = %d\n", info.sig);
     return info.sig;
 }

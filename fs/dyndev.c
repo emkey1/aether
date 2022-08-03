@@ -38,12 +38,12 @@ int dyn_dev_register(struct dev_ops *ops, int type, int major, int minor) {
 
     // Make sure minor number isn't taken yet
     if (dyn_info_char.devs[minor] != NULL) {
-        unlock(&dyn_info_char.devs_lock, __FILE__, __LINE__);
+        unlock(&dyn_info_char.devs_lock, __FILE__, __LINE__, false);
         return _EEXIST;
     }
 
     dyn_info_char.devs[minor] = ops;
-    unlock(&dyn_info_char.devs_lock, __FILE__, __LINE__);
+    unlock(&dyn_info_char.devs_lock, __FILE__, __LINE__, false);
 
     return 0;
 }

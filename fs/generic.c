@@ -45,7 +45,7 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     lock(&inodes_lock, 0); // TODO: don't do this
     struct fd *fd = mount->fs->open(mount, path, flags, mode);
     if (IS_ERR(fd)) {
-        unlock(&inodes_lock, __FILE__, __LINE__);
+        unlock(&inodes_lock, __FILE__, __LINE__, false);
         // if an error happens after this point, fd_close will release the
         // mount, but right now we need to do it manually
         mount_release(mount);
@@ -56,11 +56,11 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     struct statbuf stat;
     err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0) {
-        unlock(&inodes_lock, __FILE__, __LINE__);
+        unlock(&inodes_lock, __FILE__, __LINE__, false);
         goto error;
     }
     fd->inode = inode_get_unlocked(mount, stat.inode);
-    unlock(&inodes_lock, __FILE__, __LINE__);
+    unlock(&inodes_lock, __FILE__, __LINE__, false);
     fd->type = stat.mode & S_IFMT;
     fd->flags = flags;
 
