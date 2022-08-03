@@ -2540,7 +2540,6 @@
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				CURRENT_PROJECT_VERSION = 394;
->>>>>>> 1fa322713824ca6ec778488b4faad0ea2c6ba94d:iSH.xcodeproj/project.pbxproj
 			};
 			name = DebugLinux;
 		};
