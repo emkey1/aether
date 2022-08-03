@@ -146,7 +146,7 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
         case LSEEK_CUR:
             lock(&fd->lock, 0);
             offset = fd->ops->lseek(fd, 0, LSEEK_CUR);
-            unlock(&fd->lock, __FILE__, __LINE__, false);
+            unlock(&fd->lock);
             if (offset < 0)
                 return offset;
             break;
@@ -206,7 +206,7 @@ int fcntl_getlk(struct fd *fd, struct flock_ *flock) {
     else
         flock->type = F_UNLCK_;
 out:
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
     return err;
 }
 
@@ -236,7 +236,7 @@ int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
         }
     }
 out:
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
     return err;
 }
 
@@ -248,5 +248,5 @@ void file_lock_remove_owned_by(struct fd *fd, void *owner) {
         if (lock->owner == owner)
             file_lock_delete(lock);
     }
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
 }

@@ -40,14 +40,14 @@ struct inode_data *inode_get_unlocked(struct mount *mount, ino_t ino) {
 
     lock(&inode->lock, 0);
     inode->refcount++;
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
     return inode;
 }
 
 struct inode_data *inode_get(struct mount *mount, ino_t ino) {
     lock(&inodes_lock, 0);
     struct inode_data *data = inode_get_unlocked(mount, ino);
-    unlock(&inodes_lock, __FILE__, __LINE__, false);
+    unlock(&inodes_lock);
     return data;
 }
 
@@ -56,28 +56,28 @@ void inode_check_orphaned(struct mount *mount, ino_t ino) {
     struct inode_data *inode = inode_get_data(mount, ino);
     if (inode == NULL)
         mount->fs->inode_orphaned(mount, ino);
-    unlock(&inodes_lock, __FILE__, __LINE__, false);
+    unlock(&inodes_lock);
 }
 
 void inode_retain(struct inode_data *inode) {
     lock(&inode->lock, 0);
     inode->refcount++;
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
 }
 
 void inode_release(struct inode_data *inode) {
     lock(&inodes_lock, 0);
     lock(&inode->lock, 0);
     if (--inode->refcount == 0) {
-        unlock(&inode->lock, __FILE__, __LINE__, false);
+        unlock(&inode->lock);
         list_remove(&inode->chain);
         if (inode->mount->fs->inode_orphaned)
             inode->mount->fs->inode_orphaned(inode->mount, inode->number);
-        unlock(&inodes_lock, __FILE__, __LINE__, false);
+        unlock(&inodes_lock);
         mount_release(inode->mount);
         free(inode);
     } else {
-        unlock(&inode->lock, __FILE__, __LINE__, false);
-        unlock(&inodes_lock, __FILE__, __LINE__, false);
+        unlock(&inode->lock);
+        unlock(&inodes_lock);
     }
 }

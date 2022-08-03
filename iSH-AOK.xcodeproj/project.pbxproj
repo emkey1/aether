@@ -103,8 +103,6 @@
 		5D8ACEFA284BF122003C50D3 /* net.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEF9284BF122003C50D3 /* net.c */; };
 		5D8ACEFD284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
 		5D8ACEFE284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
-		5D8CF0122898778300D24ED8 /* entry.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8CF0112898778300D24ED8 /* entry.c */; };
-		5D8CF0132898778300D24ED8 /* entry.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8CF0112898778300D24ED8 /* entry.c */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; platformFilter = ios; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
@@ -562,7 +560,6 @@
 		5D8ACEFC284CE096003C50D3 /* sys.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sys.c; sourceTree = "<group>"; };
 		5D8C94D3287E53AD0095EDEE /* fp_sync.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = fp_sync.c; sourceTree = "<group>"; };
 		5D8CEFF92894C81400D24ED8 /* resource_locking.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = resource_locking.h; sourceTree = "<group>"; };
-		5D8CF0112898778300D24ED8 /* entry.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = entry.c; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -788,7 +785,6 @@
 		497F6BF1254E5C0D00C82F46 /* proc */ = {
 			isa = PBXGroup;
 			children = (
-				5D8CF0112898778300D24ED8 /* entry.c */,
 				5D8ACEFC284CE096003C50D3 /* sys.c */,
 				5D8ACEFB284CE096003C50D3 /* sys.h */,
 				5D8ACEF9284BF122003C50D3 /* net.c */,
@@ -1984,7 +1980,6 @@
 				497F6CFE254E5EA500C82F46 /* dir.c in Sources */,
 				497F6CFF254E5EA500C82F46 /* dyndev.c in Sources */,
 				497F6D00254E5EA500C82F46 /* fake-migrate.c in Sources */,
-				5D8CF0132898778300D24ED8 /* entry.c in Sources */,
 				497F6D01254E5EA500C82F46 /* fake-rebuild.c in Sources */,
 				497F6D02254E5EA500C82F46 /* fake.c in Sources */,
 				497F6D03254E5EA500C82F46 /* fd.c in Sources */,
@@ -2074,7 +2069,6 @@
 				BB28C7BB268975AE00BDC834 /* LocationDevice.m in Sources */,
 				5D8ACEFD284CE096003C50D3 /* sys.c in Sources */,
 				BB28C7BA268975AA00BDC834 /* iOSFS.m in Sources */,
-				5D8CF0122898778300D24ED8 /* entry.c in Sources */,
 				BB28C7BC268975B000BDC834 /* PasteboardDevice.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

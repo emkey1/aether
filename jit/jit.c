@@ -38,8 +38,10 @@ void jit_free(struct jit *jit) {
         }
     }
     jit_free_jetsam(jit);
+    unlock(&jit->lock);
     free(jit->page_hash);
     free(jit->hash);
+    write_lock(&jit->jetsam_lock);
     free(jit);
 }
 
@@ -63,7 +65,7 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
             }
         }
     }
-    unlock(&jit->lock, __FILE__, __LINE__, false);
+    unlock(&jit->lock);
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
@@ -227,7 +229,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 TRACE("%d %08x --- missed cache\n", current_pid(), ip);
             }
             cache[cache_index] = block;
-            unlock(&jit->lock, __FILE__, __LINE__, false);
+            unlock(&jit->lock);
         }
         //////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
         struct jit_block *last_block = frame->last_block;
@@ -249,7 +251,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 }
             }
 
-            unlock(&jit->lock, __FILE__, __LINE__, false);
+            unlock(&jit->lock);
         }
         
         //////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -306,7 +308,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // write-lock the jetsam_lock to wait until other jit threads get to
         // this point, so they will all clear out their block pointers
         // TODO: use RCU for better performance
-        unlock(&jit->lock, __FILE__, __LINE__, false);
+        unlock(&jit->lock);
         write_lock(&jit->jetsam_lock);
         lock(&jit->lock, 0);
         while(critical_region_count(current) > 3) {// Yes, this is weird.  It might not work, but I'm trying.  -mke
@@ -315,7 +317,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     }
-    unlock(&jit->lock, __FILE__, __LINE__, false);
+    unlock(&jit->lock);
     //////modify_critical_region_counter(current, -1);
 
     return interrupt;

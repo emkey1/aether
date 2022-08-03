@@ -84,14 +84,10 @@ static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
 
 static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     // "Advanced" locking for some things.  pids_lock for instance
-    if(!log_lock)
-        printk("INFO: complex_lockt(%d:%s:%d)\n", lock, file, line);
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
-    //if(!log_lock)
-     //   printk("INFO: %s:%d\n", file, line);
     
    // if((!log_lock) && (current_pid() > 10 ))
     //    printk("INFO: Attempting Lock(lock(%d)), (PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
@@ -101,11 +97,10 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(complex_lockt(%d)), aborted lock attempt(PID: %d Process: %s) (%s:%d)\n", lock->m, current_pid(), current_comm(), file, line);
+                printk("ERROR: Possible deadlock(complex_lockt(%d), aborted lock attempt(PID: %d Process: %s) (Previously Owned:%s:%d) (Called By:%s:%d)\n", lock->m, current_pid(), current_comm(), lock->comm, lock->pid, file, line);
                 pthread_mutex_unlock(&lock->m);
                 modify_locks_held_count_wrapper(-1);
             }
-            printk("INFO: complex_lockt(%d:%s:%d)\n", &lock->m, file, line);
             return;
         }
         
@@ -117,7 +112,8 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
     
     if(count > count_max * .90) {
         if(!log_lock)
-            printk("WARNING: large lock attempt count(%d) in Function: complex_lockt(%d) (PID: %d Process: %s)(%s:%d)\n",count, lock->m, lock->pid, lock->comm, file, line);
+           printk("Warning: large lock attempt count (%d)(complex_lockt(%d), aborted lock attempt(PID: %d Process: %s) (Previously Owned:%s:%d) (Called By:%s:%d)\n", count, lock->m, current_pid(), current_comm(), lock->comm, lock->pid, file, line);
+           // printk("WARNING: large lock attempt count(%d) in Function: complex_lockt(%d) (PID: %d Process: %s) \n",count, lock->m, lock->pid, lock->comm);
     }
 
     lock->owner = pthread_self();
@@ -129,6 +125,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
     assert(!lock->debug.file && "Attempting to recursively lock");
     lock->debug.file = file;
     lock->debug.line = line;
+    extern int current_pid(void);
     lock->debug.pid = current_pid();
 #endif
 }
@@ -147,10 +144,8 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
 #define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
 
-static inline void unlock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line, bool verbose) {
+static inline void unlock(lock_t *lock) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    if(verbose == true)
-        printk("INFO: unlock(%d:%s:%d)\n", &lock, file, line);
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
     modify_locks_held_count_wrapper(-1);
@@ -245,9 +240,11 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
-        atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?
+        if(strcmp(current_comm(), "go"))  // I can't believe I'm doing this.  -mke
+            atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?  This breaks go. Not having it here breaks other stuff.  -mke
         nanosleep(&lock_pause, NULL);
-        atomic_l_lockf(count);
+        if(strcmp(current_comm(), "go")) // Yes I can.  -mke
+            atomic_l_lockf(count);
     }
     
     if(lock->favor_read > 24)

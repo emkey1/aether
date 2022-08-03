@@ -59,14 +59,14 @@ struct tty *tty_get(struct tty_driver *driver, int type, int num) {
     if (tty == NULL || tty == (void *) 1 /* ew */) {
         tty = tty_alloc(driver, type, num);
         if (tty == NULL) {
-            unlock(&ttys_lock, __FILE__, __LINE__, false);
+            unlock(&ttys_lock);
             return ERR_PTR(_ENOMEM);
         }
 
         if (driver->ops->init) {
             int err = driver->ops->init(tty);
             if (err < 0) {
-                unlock(&ttys_lock, __FILE__, __LINE__, false);
+                unlock(&ttys_lock);
                 return ERR_PTR(err);
             }
         }
@@ -75,19 +75,19 @@ struct tty *tty_get(struct tty_driver *driver, int type, int num) {
     lock(&tty->lock, 0);
     tty->refcount++;
     tty->ever_opened = true;
-    unlock(&tty->lock, __FILE__, __LINE__, false);
-    unlock(&ttys_lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
+    unlock(&ttys_lock);
     return tty;
 }
 
 static void tty_poll_wakeup(struct tty *tty, int events) {
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
     struct fd *fd;
     lock(&tty->fds_lock, 0);
     list_for_each_entry(&tty->fds, fd, tty_other_fds) {
         poll_wakeup(fd, events);
     }
-    unlock(&tty->fds_lock, __FILE__, __LINE__, false);
+    unlock(&tty->fds_lock);
     lock(&tty->lock, 0);
 }
 
@@ -98,7 +98,7 @@ void tty_release(struct tty *tty) {
         if (driver->ops->cleanup)
             driver->ops->cleanup(tty);
         driver->ttys[tty->num] = NULL;
-        unlock(&tty->lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
         cond_destroy(&tty->produced);
         free(tty);
     } else {
@@ -106,11 +106,11 @@ void tty_release(struct tty *tty) {
         struct tty *master = NULL;
         if (tty->driver == &pty_slave && tty->refcount == 1)
             master = tty->pty.other;
-        unlock(&tty->lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
         if (master != NULL) {
             lock(&master->lock, 0);
             tty_poll_wakeup(master, POLL_READ | POLL_HUP);
-            unlock(&master->lock, __FILE__, __LINE__, false);
+            unlock(&master->lock);
         }
     }
 }
@@ -124,7 +124,7 @@ static void tty_set_controlling(struct tgroup *group, struct tty *tty) {
         tty->session = group->sid;
         tty->fg_group = group->pgid;
     }
-    unlock(&group->lock, __FILE__, __LINE__, false);
+    unlock(&group->lock);
 }
 
 // by default, /dev/console is /dev/tty1
@@ -136,7 +136,7 @@ int tty_open(struct tty *tty, struct fd *fd) {
 
     lock(&tty->fds_lock, 0);
     list_add(&tty->fds, &fd->tty_other_fds);
-    unlock(&tty->fds_lock, __FILE__, __LINE__, false);
+    unlock(&tty->fds_lock);
 
     if (!(fd->flags & O_NOCTTY_)) {
         // Make this our controlling terminal if:
@@ -146,8 +146,8 @@ int tty_open(struct tty *tty, struct fd *fd) {
         lock(&tty->lock, 0);
         if (tty->session == 0 && current->group->sid == current->pid)
             tty_set_controlling(current->group, tty);
-        unlock(&tty->lock, __FILE__, __LINE__, false);
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&tty->lock);
+        unlock(&pids_lock);
     }
 
     return 0;
@@ -160,13 +160,13 @@ static int tty_device_open(int major, int minor, struct fd *fd) {
             lock(&ttys_lock, 0);
             lock(&current->group->lock, 0);
             tty = current->group->tty;
-            unlock(&current->group->lock, __FILE__, __LINE__, false);
+            unlock(&current->group->lock);
             if (tty != NULL) {
                 lock(&tty->lock, 0);
                 tty->refcount++;
-                unlock(&tty->lock, __FILE__, __LINE__, false);
+                unlock(&tty->lock);
             }
-            unlock(&ttys_lock, __FILE__, __LINE__, false);
+            unlock(&ttys_lock);
             if (tty == NULL)
                 return _ENXIO;
         } else if (minor == DEV_CONSOLE_MINOR) {
@@ -189,7 +189,7 @@ static int tty_device_open(int major, int minor, struct fd *fd) {
         if (err < 0) {
             lock(&ttys_lock, 0);
             tty_release(tty);
-            unlock(&ttys_lock, __FILE__, __LINE__, false);
+            unlock(&ttys_lock);
             return err;
         }
     }
@@ -201,10 +201,10 @@ static int tty_close(struct fd *fd) {
     if (fd->tty != NULL) {
         lock(&fd->tty->fds_lock, 0);
         list_remove_safe(&fd->tty_other_fds);
-        unlock(&fd->tty->fds_lock, __FILE__, __LINE__, false);
+        unlock(&fd->tty->fds_lock);
         lock(&ttys_lock, 0);
         tty_release(fd->tty);
-        unlock(&ttys_lock, __FILE__, __LINE__, false);
+        unlock(&ttys_lock);
     }
     return 0;
 }
@@ -368,7 +368,7 @@ no_special:
 
     pid_t_ fg_group = tty->fg_group;
     assert(tty->bufsize <= sizeof(tty->buf));
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
 
     if (fg_group != 0) {
         for (int sig = 1; sig < NUM_SIGS; sig++) {
@@ -407,14 +407,14 @@ static bool pty_is_half_closed_master(struct tty *tty) {
     // only time one tty lock is nested in another
     lock(&slave->lock, 0);
     bool half_closed = slave->ever_opened && slave->refcount == 1;
-    unlock(&slave->lock, __FILE__, __LINE__, false);
+    unlock(&slave->lock);
     return half_closed;
 }
 
 static bool tty_is_current(struct tty *tty) {
     lock(&current->group->lock, 0);
     bool is_current = current->group->tty == tty;
-    unlock(&current->group->lock, __FILE__, __LINE__, false);
+    unlock(&current->group->lock);
     return is_current;
 }
 
@@ -443,12 +443,12 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__); // MKEMKE
     lock(&tty->lock, 0);
     if (tty->hung_up) {
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
         goto error;
     }
 
     pid_t_ current_pgid = current->group->pgid;
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     err = tty_signal_if_background(tty, current_pgid, SIGTTIN_);
     if (err < 0)
         goto error;
@@ -528,10 +528,10 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     }
 
 out:
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
     return bufsize + bufsize_extra;
 error:
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
     return err;
 }
 
@@ -539,7 +539,7 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
     struct tty *tty = fd->tty;
     lock(&tty->lock, 0);
     if (tty->hung_up) {
-        unlock(&tty->lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
         return _EIO;
     }
 
@@ -548,7 +548,7 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
     // we have to unlock it now to avoid lock ordering problems with ptys
     // the code below is safe because it only accesses tty->driver which is immutable
     // I reviewed real driver and ios driver and they're safe
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
 
     int err = 0;
     char *postbuf = NULL;
@@ -595,7 +595,7 @@ static int tty_poll(struct fd *fd) {
     }
     if (tty->driver == &pty_master && tty->packet_flags != 0)
         types |= POLL_PRI;
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
     return types;
 }
 
@@ -618,7 +618,7 @@ static ssize_t tty_ioctl_size(int cmd) {
 
 static int tiocsctty(struct tty *tty, int force) {
     int err = 0;
-    unlock(&tty->lock, __FILE__, __LINE__, false); //aaaaaaaa
+    unlock(&tty->lock); //aaaaaaaa
     // it's safe because literally nothing happens between that unlock and the last lock, and repulsive for the same reason
     // locking is ***hard**
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
@@ -643,7 +643,7 @@ static int tiocsctty(struct tty *tty, int force) {
                     tgroup->tty = NULL;
                     tty->refcount--;
                 }
-                unlock(&tgroup->lock, __FILE__, __LINE__, false);
+                unlock(&tgroup->lock);
             }
         } else {
             err = _EPERM;
@@ -653,7 +653,7 @@ static int tiocsctty(struct tty *tty, int force) {
 
     tty_set_controlling(current->group, tty);
 out:
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return err;
 }
 
@@ -694,7 +694,7 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
     }
 
     if (in_tty->driver == &pty_master)
-        unlock(&tty->lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
     return err;
 }
 
@@ -703,7 +703,7 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
     struct tty *tty = fd->tty;
     lock(&tty->lock, 0);
     if (tty->hung_up) {
-        unlock(&tty->lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
         if (cmd == TIOCSPGRP_)
             return _ENOTTY;
         return _EIO;
@@ -739,11 +739,11 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
             *(dword_t *) arg = tty->fg_group; break;
         case TIOCSPGRP_:
             // see "aaaaaaaa" comment above
-            unlock(&tty->lock, __FILE__, __LINE__, false);
+            unlock(&tty->lock);
             complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
             lock(&tty->lock, 0);
             pid_t_ sid = current->group->sid;
-            unlock(&pids_lock, __FILE__, __LINE__, true);
+            unlock(&pids_lock);
             if (!tty_is_current(tty) || sid != tty->session) {
                 err = _ENOTTY;
                 break;
@@ -763,7 +763,7 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
                 err = tty->driver->ops->ioctl(tty, cmd, arg);
     }
 
-    unlock(&tty->lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
     return err;
 }
 

@@ -84,7 +84,7 @@ static uint32_t unix_socket_next_id() {
     static lock_t next_id_lock = LOCK_INITIALIZER;
     lock(&next_id_lock, 0);
     uint32_t id = ++next_id;
-    unlock(&next_id_lock, __FILE__, __LINE__, false);
+    unlock(&next_id_lock);
     return id;
 }
 
@@ -110,7 +110,7 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
             struct fs_info *fs = current->fs;
             lock(&fs->lock, 0);
             mode &= ~fs->umask;
-            unlock(&fs->lock, __FILE__, __LINE__, false);
+            unlock(&fs->lock);
             err = mount->fs->mknod(mount, path, S_IFSOCK | mode, 0);
             if (err < 0)
                 goto out;
@@ -135,7 +135,7 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
     lock(&inode->lock, 0);
     if (inode->socket_id == 0)
         inode->socket_id = unix_socket_next_id();
-    unlock(&inode->lock, __FILE__, __LINE__, false);
+    unlock(&inode->lock);
     *socket_id = inode->socket_id;
 
     mount_release(mount);
@@ -189,11 +189,11 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
     }
 
     if (bind_fd != NULL && sock != NULL) {
-        unlock(&unix_abstract_lock, __FILE__, __LINE__, false);
+        unlock(&unix_abstract_lock);
         return _EEXIST;
     }
     if (bind_fd == NULL && sock == NULL) {
-        unlock(&unix_abstract_lock, __FILE__, __LINE__, false);
+        unlock(&unix_abstract_lock);
         return _ENOENT;
     }
 
@@ -206,7 +206,7 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
     }
 
     sock->refcount++;
-    unlock(&unix_abstract_lock, __FILE__, __LINE__, false);
+    unlock(&unix_abstract_lock);
     *socket_id = sock->socket_id;
     if (bind_fd != NULL)
         bind_fd->socket.unix_name_abstract = sock;
@@ -219,7 +219,7 @@ static void unix_abstract_release(struct unix_abstract *name) {
         list_remove(&name->links);
         free(name);
     }
-    unlock(&unix_abstract_lock, __FILE__, __LINE__, false);
+    unlock(&unix_abstract_lock);
 }
 
 const char *sock_tmp_prefix = "/tmp/ishsock";
@@ -380,7 +380,7 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
                 while (sock->socket.unix_peer == NULL)
                     wait_for_ignore_signals(&sock->socket.unix_got_peer, &peer_lock, NULL);
             }
-            unlock(&peer_lock, __FILE__, __LINE__, false);
+            unlock(&peer_lock);
         }
     }
 
@@ -449,7 +449,7 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
             peer->socket.unix_peer = client_fd;
             notify(&peer->socket.unix_got_peer);
         }
-        unlock(&peer_lock, __FILE__, __LINE__, false);
+        unlock(&peer_lock);
     }
 
     return client_f;
@@ -543,19 +543,19 @@ int_t sys_socketpair(dword_t domain, dword_t type, dword_t protocol, addr_t sock
     int fake_sockets[2];
     err = fake_sockets[0] = sock_fd_create(sockets[0], domain, type, protocol);
     if (fake_sockets[0] < 0) {
-        unlock(&peer_lock, __FILE__, __LINE__, false);
+        unlock(&peer_lock);
         goto close_sockets;
     }
     err = fake_sockets[1] = sock_fd_create(sockets[1], domain, type, protocol);
     if (fake_sockets[1] < 0) {
-        unlock(&peer_lock, __FILE__, __LINE__, false);
+        unlock(&peer_lock);
         goto close_fake_0;
     }
     struct fd *sock1 = f_get(fake_sockets[0]);
     struct fd *sock2 = f_get(fake_sockets[1]);
     sock1->socket.unix_peer = sock2;
     sock2->socket.unix_peer = sock1;
-    unlock(&peer_lock, __FILE__, __LINE__, false);
+    unlock(&peer_lock);
 
     err = _EFAULT;
     if (user_put(sockets_addr, fake_sockets))
@@ -747,7 +747,7 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         } else {
             *cred = sock->socket.unix_peer->socket.unix_cred;
         }
-        unlock(&peer_lock, __FILE__, __LINE__, false);
+        unlock(&peer_lock);
     } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
         if (value_len != sizeof(dword_t))
             return _EINVAL;
@@ -938,14 +938,14 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             lock(&peer_lock, 0);
             struct fd *peer = sock->socket.unix_peer;
             if (peer == NULL) {
-                unlock(&peer_lock, __FILE__, __LINE__, false);
+                unlock(&peer_lock);
                 err = _EPIPE;
                 goto out_free_scm;
             }
             lock(&peer->lock, 0);
             list_add_tail(&peer->socket.unix_scm, &scm->queue);
-            unlock(&peer->lock, __FILE__, __LINE__, false);
-            unlock(&peer_lock, __FILE__, __LINE__, false);
+            unlock(&peer->lock);
+            unlock(&peer_lock);
         }
     }
 
@@ -973,9 +973,9 @@ out_free_scm:
         if (peer != NULL) {
             lock(&peer->lock, 0);
             list_remove_safe(&scm->queue);
-            unlock(&peer->lock, __FILE__, __LINE__, false);
+            unlock(&peer->lock);
         }
-        unlock(&peer_lock, __FILE__, __LINE__, false);
+        unlock(&peer_lock);
         scm_free(scm);
     }
 out_free_iov:
@@ -1068,7 +1068,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         assert(!list_empty(&sock->socket.unix_scm));
         struct scm *scm = list_first_entry(&sock->socket.unix_scm, struct scm, queue);
         list_remove(&scm->queue);
-        unlock(&sock->lock, __FILE__, __LINE__, false);
+        unlock(&sock->lock);
 
         if (res < 0) {
             scm_free(scm);
@@ -1178,7 +1178,7 @@ static int sock_close(struct fd *fd) {
     struct fd *peer = fd->socket.unix_peer;
     if (peer != NULL)
         peer->socket.unix_peer = NULL;
-    unlock(&peer_lock, __FILE__, __LINE__, false);
+    unlock(&peer_lock);
     if (fd->socket.domain == AF_LOCAL_) {
         lock(&fd->lock, 0);
         struct scm *scm, *tmp;
@@ -1186,7 +1186,7 @@ static int sock_close(struct fd *fd) {
             list_remove(&scm->queue);
             scm_free(scm);
         }
-        unlock(&fd->lock, __FILE__, __LINE__, false);
+        unlock(&fd->lock);
     }
     return realfs_close(fd);
 }

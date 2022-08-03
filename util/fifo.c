@@ -2,6 +2,7 @@
 #include <string.h>
 #include "util/fifo.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 
 void fifo_init(struct fifo *fifo, size_t capacity) {
     fifo->buf = malloc(capacity);

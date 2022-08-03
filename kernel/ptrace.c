@@ -15,7 +15,7 @@ static struct task *find_child(pid_t_ pid) {
                 goto found;
             }
 
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
         }
     }
     child = NULL;
@@ -86,13 +86,13 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             if (!child) return _EPERM;
 
             if (user_get_task(child, addr, peek)) {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             } else if (user_put(data, peek)) {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -111,10 +111,10 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
 
             memcpy(&peek, (char *)&user_ + addr, sizeof(peek));
             if (user_put(data, peek)) {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -131,10 +131,10 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             if (ptr) {
                 memcpy(ptr, &data, sizeof(data));
             } else {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -147,7 +147,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             child->cpu.tf = false;
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -159,7 +159,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
 
             child->ptrace.stopped = false;
             send_signal(child, SIGKILL_, SIGINFO_NIL);
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -172,7 +172,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             child->cpu.tf = true;
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -186,10 +186,10 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             get_user_regs_and_syscall(child, &user_regs_);
             user_regs_.orig_eax = child->ptrace.syscall;
             if (user_put(data, user_regs_)) {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -205,7 +205,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             } else {
                 set_user_regs(&child->cpu, &user_regs_);
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -218,11 +218,11 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
 
             struct user_fpregs_struct_ user_fpregs_ = {};
             if (user_put(data, user_fpregs_)) {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
             // TODO get float point registers
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -238,7 +238,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             } else {
                 // TODO set floating point registers
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -252,7 +252,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             child->ptrace.stopped = false;
             child->ptrace.stop_at_syscall = true;
             notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }
@@ -268,10 +268,10 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             // if (data == PTRACE_O_TRACESYSGOOD_ || !data) {
             if (true) {
                 child->ptrace.sysgood = !!(data & PTRACE_O_TRACESYSGOOD_);
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return 0;
             } else {
-                unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&child->ptrace.lock);
                 return _EINVAL;
             }
         }
@@ -284,7 +284,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             if (data && user_put(data, child->ptrace.info)) {
                 return _EFAULT;
             }
-            unlock(&child->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&child->ptrace.lock);
 
             return 0;
         }

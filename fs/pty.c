@@ -39,7 +39,7 @@ static void pty_master_cleanup(struct tty *tty) {
     slave->pty.other = NULL;
     lock(&slave->lock, 0);
     tty_hangup(slave);
-    unlock(&slave->lock, __FILE__, __LINE__, false);
+    unlock(&slave->lock);
     tty_release(slave);
 }
 
@@ -106,7 +106,7 @@ static int pty_reserve_next() {
             break;
     }
     pty_slave.ttys[pty_num] = (void *) 1; // anything non-null to reserve it
-    unlock(&ttys_lock, __FILE__, __LINE__, false);
+    unlock(&ttys_lock);
     return pty_num;
 }
 
@@ -149,7 +149,7 @@ static bool devpts_pty_exists(int pty_num) {
         return false;
     lock(&ttys_lock, 0);
     bool exists = pty_slave.ttys[pty_num] != NULL;
-    unlock(&ttys_lock, __FILE__, __LINE__, false);
+    unlock(&ttys_lock);
     return exists;
 }
 
@@ -209,8 +209,8 @@ static void devpts_stat_num(int pty_num, struct statbuf *stat) {
         stat->inode = pty_num + 3;
         stat->rdev = dev_make(TTY_PSEUDO_SLAVE_MAJOR, pty_num);
 
-        unlock(&tty->lock, __FILE__, __LINE__, false);
-        unlock(&ttys_lock, __FILE__, __LINE__, false);
+        unlock(&tty->lock);
+        unlock(&ttys_lock);
     }
 }
 
@@ -237,8 +237,8 @@ static int devpts_setattr_num(int pty_num, struct attr attr) {
             break;
     }
 
-    unlock(&tty->lock, __FILE__, __LINE__, false);
-    unlock(&ttys_lock, __FILE__, __LINE__, false);
+    unlock(&tty->lock);
+    unlock(&ttys_lock);
     return 0;
 }
 

@@ -49,20 +49,20 @@ struct mount *mount_find(char *path) {
             break;
     }
     mount->refcount++;
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
     return mount;
 }
 
 void mount_retain(struct mount *mount) {
     lock(&mounts_lock, 0);
     mount->refcount++;
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
 }
 
 void mount_release(struct mount *mount) {
     lock(&mounts_lock, 0);
     mount->refcount--;
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
 }
 
 int do_mount(const struct fs_ops *fs, const char *source, const char *point, const char *info, int flags) {
@@ -183,7 +183,7 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
 
     lock(&mounts_lock, 0);
     err = do_mount(fs, source, point, data, flags & MS_FLAGS);
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
     return err;
 }
 
@@ -201,7 +201,7 @@ dword_t sys_umount2(addr_t target_addr, dword_t flags) {
 
     lock(&mounts_lock, 0);
     err = do_umount(target);
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
     return err;
 }
 

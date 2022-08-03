@@ -3,10 +3,10 @@
 #include "kernel/calls.h"
 #include "kernel/errno.h"
 #include "kernel/task.h"
-#include "kernel/resource_locking.h"
 #include "fs/fd.h"
 #include "emu/memory.h"
 #include "kernel/mm.h"
+#include "kernel/resource_locking.h"
 
 extern bool doEnableExtraLocking;
 

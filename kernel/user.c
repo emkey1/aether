@@ -1,5 +1,6 @@
 #include <string.h>
 #include "kernel/calls.h"
+#include "kernel/resource_locking.h"
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
@@ -25,6 +26,7 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
 }
 
 static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
+    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
     while (p < addr + count) {

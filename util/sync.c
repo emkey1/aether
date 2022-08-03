@@ -27,7 +27,7 @@ static bool is_signal_pending(lock_t *lock) {
         lock(&current->sighand->lock, 0);
     bool pending = !!(current->pending & ~current->blocked);
     if (lock != &current->sighand->lock)
-        unlock(&current->sighand->lock, __FILE__, __LINE__, false);
+        unlock(&current->sighand->lock);
     return pending;
 }
 
@@ -47,7 +47,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = cond;
         current->waiting_lock = lock;
-        unlock(&current->waiting_cond_lock, __FILE__, __LINE__, false);
+        unlock(&current->waiting_cond_lock);
     }
         
     int rc = 0;
@@ -86,7 +86,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = NULL;
         current->waiting_lock = NULL;
-        unlock(&current->waiting_cond_lock, __FILE__, __LINE__, false);
+        unlock(&current->waiting_cond_lock);
     }
     if (rc == ETIMEDOUT)
         return _ETIMEDOUT;
@@ -162,7 +162,6 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     
     
     if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
-    //if((current->pid == 4) && ( !noprintk)) { // Extra logging for the some command
         noprintk = 1; // Avoid recursive logging -mke
         printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count + value);
         noprintk = 0;
@@ -174,7 +173,7 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
 }
 
 void modify_critical_region_counter_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
-   modify_critical_region_counter(current, value, file, line);
+    modify_critical_region_counter(current, value, file, line);
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
@@ -216,7 +215,7 @@ void modify_locks_held_count_wrapper(int value) { // sync.h can't know about the
             lock(&current->sighand->lock, 0);
         bool pending = !!(current->pending & ~current->blocked);
         if (lock != &current->sighand->lock)
-            unlock(&current->sighand->lock, __FILE__, __LINE__, false);
+            unlock(&current->sighand->lock);
         sigprocmask(SIG_UNBLOCK, &sigusr1, NULL);
         if (pending) {
             should_unwind = false;

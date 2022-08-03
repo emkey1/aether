@@ -18,7 +18,7 @@ pid_t_ sys_getppid() {
         ppid = current->parent->pid;
     else
         ppid = 0;
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return ppid;
 }
 

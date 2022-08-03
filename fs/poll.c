@@ -116,8 +116,8 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
 
     err = 0;
 out:
-    unlock(&poll->lock, __FILE__, __LINE__, false);
-    unlock(&fd->poll_lock, __FILE__, __LINE__, false);
+    unlock(&poll->lock);
+    unlock(&fd->poll_lock);
     return err;
 }
 
@@ -145,8 +145,8 @@ int poll_del_fd(struct poll *poll, struct fd *fd) {
 
     err = 0;
 out:
-    unlock(&poll->lock, __FILE__, __LINE__, false);
-    unlock(&fd->poll_lock, __FILE__, __LINE__, false);
+    unlock(&poll->lock);
+    unlock(&fd->poll_lock);
     return err;
 }
 
@@ -174,8 +174,8 @@ int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
 
     err = 0;
 out:
-    unlock(&poll->lock, __FILE__, __LINE__, false);
-    unlock(&fd->poll_lock, __FILE__, __LINE__, false);
+    unlock(&poll->lock);
+    unlock(&fd->poll_lock);
     return err;
 }
 
@@ -188,10 +188,10 @@ void poll_cleanup_fd(struct fd *fd) {
             real_poll_update(&poll_fd->poll->real, fd->real_fd, 0, poll_fd);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
-        unlock(&poll_fd->poll->lock, __FILE__, __LINE__, false);
+        unlock(&poll_fd->poll->lock);
         poll_fd_free(poll_fd);
     }
-    unlock(&fd->poll_lock, __FILE__, __LINE__, false);
+    unlock(&fd->poll_lock);
 }
 
 void poll_wakeup(struct fd *fd, int events) {
@@ -204,10 +204,10 @@ void poll_wakeup(struct fd *fd, int events) {
             poll_fd->triggered_types &= ~events;
         if (poll->notify_pipe[1] != -1)
             write(poll->notify_pipe[1], "", 1);
-        unlock(&poll->lock, __FILE__, __LINE__, false);
+        unlock(&poll->lock);
         // oneshot?
     }
-    unlock(&fd->poll_lock, __FILE__, __LINE__, false);
+    unlock(&fd->poll_lock);
 }
 
 int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struct timespec *timeout) {
@@ -217,7 +217,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
     if (poll_->waiters++ == 0) {
         assert(poll_->notify_pipe[0] == -1 && poll_->notify_pipe[1] == -1);
         if (pipe(poll_->notify_pipe) < 0) {
-            unlock(&poll_->lock, __FILE__, __LINE__, false);
+            unlock(&poll_->lock);
             return errno_map();
         }
         fcntl(poll_->notify_pipe[0], F_SETFL, O_NONBLOCK);
@@ -267,7 +267,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
 
         lock(&current->sighand->lock,0);
         bool signal_pending = !!(current->pending & ~current->blocked);
-        unlock(&current->sighand->lock, __FILE__, __LINE__, false);
+        unlock(&current->sighand->lock);
         if (signal_pending) {
             res = _EINTR;
             break;
@@ -280,7 +280,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         int err;
         struct real_poll_event e[4];
         do {
-            unlock(&poll_->lock, __FILE__, __LINE__, false);
+            unlock(&poll_->lock);
 
             err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
       
@@ -323,7 +323,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         poll_->notify_pipe[1] = -1;
     }
 
-    unlock(&poll_->lock, __FILE__, __LINE__, false);
+    unlock(&poll_->lock);
     return res;
 }
 
@@ -338,7 +338,7 @@ void poll_destroy(struct poll *poll) {
         lock(&poll_fd->fd->poll_lock, 0);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
-        unlock(&poll_fd->fd->poll_lock, __FILE__, __LINE__, false);
+        unlock(&poll_fd->fd->poll_lock);
         free(poll_fd);
     }
           

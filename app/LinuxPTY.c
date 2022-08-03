@@ -147,7 +147,7 @@ struct file *ios_pty_open(nsobj_t *terminal_out) {
     vfs_ioctl(ptm_file, TIOCSPTLCK, (unsigned long) &lock_pty);
     spin_lock(&ptm_file->f_lock);
     ptm_file->f_flags |= O_NONBLOCK;
-    spin_unlock(&ptm_file->f_lock, __FILE__, __LINE__, false);
+    spin_unlock(&ptm_file->f_lock);
 
     // sadly this api can't just return a struct file *
     int fd = vfs_ioctl(ptm_file, TIOCGPTPEER, O_RDWR);

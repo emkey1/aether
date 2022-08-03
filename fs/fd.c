@@ -81,10 +81,10 @@ void fdtable_release(struct fdtable *table) {
             fdtable_close(table, f);
         free(table->files);
         free(table->cloexec);
-        unlock(&table->lock, __FILE__, __LINE__, false);
+        unlock(&table->lock);
         free(table);
     } else {
-        unlock(&table->lock, __FILE__, __LINE__, false);
+        unlock(&table->lock);
     }
 }
 
@@ -121,7 +121,7 @@ struct fdtable *fdtable_copy(struct fdtable *table) {
     int size = table->size;
     struct fdtable *new_table = fdtable_new(size);
     if (IS_ERR(new_table)) {
-        unlock(&table->lock, __FILE__, __LINE__, false);
+        unlock(&table->lock);
         return new_table;
     }
     memcpy(new_table->files, table->files, sizeof(struct fd *) * size);
@@ -129,7 +129,7 @@ struct fdtable *fdtable_copy(struct fdtable *table) {
         if (new_table->files[f])
             new_table->files[f]->refcount++;
     memcpy(new_table->cloexec, table->cloexec, BITS_SIZE(size));
-    unlock(&table->lock, __FILE__, __LINE__, false);
+    unlock(&table->lock);
     return new_table;
 }
 
@@ -151,7 +151,7 @@ struct fd *fdtable_get(struct fdtable *table, fd_t f) {
 struct fd *f_get(fd_t f) {
     lock(&current->files->lock, 0);
     struct fd *fd = fdtable_get(current->files, f);
-    unlock(&current->files->lock, __FILE__, __LINE__, false);
+    unlock(&current->files->lock);
     return fd;
 }
 
@@ -190,7 +190,7 @@ fd_t f_install(struct fd *fd, int flags) {
         if (flags & O_NONBLOCK_)
             fd_setflags(fd, O_NONBLOCK_);
     }
-    unlock(&current->files->lock, __FILE__, __LINE__, false);
+    unlock(&current->files->lock);
     return f;
 }
 
@@ -209,7 +209,7 @@ static int fdtable_close(struct fdtable *table, fd_t f) {
 int f_close(fd_t f) {
     lock(&current->files->lock, 0);
     int err = fdtable_close(current->files, f);
-    unlock(&current->files->lock, __FILE__, __LINE__, false);
+    unlock(&current->files->lock);
     return err;
 }
 
@@ -223,7 +223,7 @@ void fdtable_do_cloexec(struct fdtable *table) {
     for (fd_t f = 0; (unsigned) f < table->size; f++)
         if (bit_test(f, table->cloexec))
             fdtable_close(table, f);
-    unlock(&table->lock, __FILE__, __LINE__, false);
+    unlock(&table->lock);
 }
 
 #define F_DUPFD_ 0

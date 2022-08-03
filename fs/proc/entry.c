@@ -3,9 +3,6 @@
 #include "fs/stat.h"
 #include "fs/proc.h"
 #include "kernel/task.h"
-#include "kernel/resource_locking.h"
-
-extern int current_pid(void);
 
 mode_t_ proc_entry_mode(struct proc_entry *entry) {
     mode_t_ mode = entry->meta->mode;
@@ -26,8 +23,7 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
     memset(stat, 0, sizeof(*stat));
     stat->mode = proc_entry_mode(entry);
 
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
-    //trylock(&pids_lock); // Kludgery.  -mke
+    //lock(&pids_lock, 0);  // MKEMKEMKE
     struct task *task = pid_get_task(entry->pid);
 
     if (task != NULL) {
@@ -35,7 +31,7 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
         stat->gid = task->gid;
     } // else the memset above will have initialized memory to zero, which is the root uid/gid
 
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    //unlock(&pids_lock);
 
     stat->inode = entry->meta->inode | entry->pid << 16 | (uint64_t) entry->fd << 48;
     return 0;

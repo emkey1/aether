@@ -24,7 +24,6 @@
 #import "UIApplication+OpenURL.h"
 #include "kernel/init.h"
 #include "kernel/calls.h"
-#include "kernel/resource_locking.h"
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
@@ -51,8 +50,8 @@ static void ios_handle_exit(struct task *task, int code) {
     // pid should be saved now since task would be freed
     pid_t pid = task->pid;
 //    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
- //       nanosleep(&lock_pause, NULL);
-  //  }
+//        nanosleep(&lock_pause, NULL);
+//    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter] postNotificationName:ProcessExitedNotification
                                                             object:nil

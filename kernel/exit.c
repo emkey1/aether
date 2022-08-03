@@ -92,12 +92,13 @@ noreturn void do_exit(int status) {
     lock(&current->group->lock, 0);
     rusage_add(&current->group->rusage, &rusage);
     struct rusage_ group_rusage = current->group->rusage;
-    unlock(&current->group->lock, __FILE__, __LINE__, false);
+    unlock(&current->group->lock);
 
     // the actual freeing needs pids_lock
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
-   modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     // release the sighand
+    //while(critical_region_count(current)) {
     while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
@@ -119,6 +120,7 @@ noreturn void do_exit(int status) {
         list_add(&new_parent->children, &child->siblings);
     }
     
+    //while(critical_region_count(current)) {
     while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
@@ -148,12 +150,12 @@ noreturn void do_exit(int status) {
             exit_hook(current, status);
     }
 
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     vfork_notify(current);
     if(current != leader) 
         task_destroy(current);
     
-   unlock(&pids_lock, __FILE__, __LINE__, true);
-   modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    unlock(&pids_lock);
 
     pthread_exit(NULL);
 }
@@ -188,8 +190,8 @@ noreturn void do_exit_group(int status) {
         notify(&task->group->stopped_cond);
     }
 
-    unlock(&group->lock, __FILE__, __LINE__, false);
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&group->lock);
+    unlock(&pids_lock);
     do_exit(status);
 }
 
@@ -209,7 +211,7 @@ static void halt_system(void) {
     list_for_each_entry_safe(&mounts, mount, tmp, mounts) {
         mount_remove(mount);
     }
-    unlock(&mounts_lock, __FILE__, __LINE__, false);
+    unlock(&mounts_lock);
 }
 
 dword_t sys_exit(dword_t status) {
@@ -240,7 +242,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
-    lock(&task->group->lock, 0);
+    complex_lockt(&task->group->lock, 0, __FILE__, __LINE__);
 
     dword_t exit_code = task->exit_code;
     if (task->group->doing_group_exit)
@@ -251,12 +253,12 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     if (!(options & WNOWAIT_)) {
         lock(&current->group->lock, 0);
         rusage_add(&current->group->children_rusage, &rusage);
-        unlock(&current->group->lock, __FILE__, __LINE__, false);
+        unlock(&current->group->lock);
     }
     if (rusage_out != NULL)
         *rusage_out = rusage;
 
-    unlock(&task->group->lock, __FILE__, __LINE__, false);
+    unlock(&task->group->lock);
 
     // WNOWAIT means don't destroy the child, instead leave it so it could be waited for again.
     if (options & WNOWAIT_)
@@ -291,9 +293,9 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 }
 
 static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
-    lock(&task->group->lock, 0);
+    complex_lockt(&task->group->lock, 0, __FILE__, __LINE__);
     bool stopped = task->group->stopped;
-    unlock(&task->group->lock, __FILE__, __LINE__, false);
+    unlock(&task->group->lock);
     if (!stopped || task->group->group_exit_code == 0)
         return false;
     dword_t exit_code = task->group->group_exit_code;
@@ -320,12 +322,12 @@ static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct 
         // it fixed but until then commenting it out for now.
         info_out->child.status = /* task->ptrace.trap_event << 16 |*/ task->ptrace.signal << 8 | 0x7f;
         task->ptrace.signal = 0;
-        unlock(&task->ptrace.lock, __FILE__, __LINE__, false);
+        unlock(&task->ptrace.lock);
         //if(doEnableExtraLocking)
          //   pthread_mutex_unlock(&extra_lock);
         return true;
     }
-    unlock(&task->ptrace.lock, __FILE__, __LINE__, false);
+    unlock(&task->ptrace.lock);
     //if(doEnableExtraLocking)
      //   pthread_mutex_unlock(&extra_lock);
     return false;
@@ -337,7 +339,7 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     if (options & ~(WNOHANG_|WUNTRACED_|WEXITED_|WCONTINUED_|WNOWAIT_|__WALL_))
         return _EINVAL;
 
-    //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     int err;
     bool got_signal = false;
@@ -399,12 +401,12 @@ retry:
     info->sig = SIGCHLD_;
 found_something:
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return 0;
 
 error:
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return err;
 }
 

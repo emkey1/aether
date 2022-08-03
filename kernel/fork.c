@@ -2,10 +2,10 @@
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "kernel/calls.h"
-#include "kernel/resource_locking.h"
 #include "fs/tty.h"
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
+#include "kernel/resource_locking.h"
 
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
@@ -43,7 +43,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     if (group->tty) {
         lock(&group->tty->lock, 0);
         group->tty->refcount++;
-        unlock(&group->tty->lock, __FILE__, __LINE__, false);
+        unlock(&group->tty->lock);
     }
     group->itimer = NULL;
     group->doing_group_exit = false;
@@ -95,7 +95,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     }
 
     struct tgroup *old_group = task->group;
-    //lock(&pids_lock, 0);
+    lock(&pids_lock, 0);
     lock(&old_group->lock, 0);
     if (!(flags & CLONE_THREAD_)) {
         task->group = tgroup_copy(old_group);
@@ -103,8 +103,8 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
         task->tgid = task->pid;
     }
     list_add(&task->group->threads, &task->group_links);
-    unlock(&old_group->lock, __FILE__, __LINE__, false);
-    //unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&old_group->lock);
+    unlock(&pids_lock);
 
     if (flags & CLONE_SETTLS_) {
         err = task_set_thread_area(task, tls_addr);
@@ -127,7 +127,7 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     return 0;
 
 fail_free_sighand:
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(critical_region_count(task)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     sighand_release(task->sighand);
@@ -162,7 +162,7 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         // could cause leaks
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         task_destroy(task);
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
         
         return err;
     }
@@ -191,10 +191,10 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         while (!vfork.done)
             // FIXME this should stop waiting if a fatal signal is received
             wait_for_ignore_signals(&vfork.cond, &vfork.lock, NULL);
-        unlock(&vfork.lock, __FILE__, __LINE__, false);
+        unlock(&vfork.lock);
         lock(&task->general_lock, 0);
         task->vfork = NULL;
-        unlock(&task->general_lock, __FILE__, __LINE__, false);
+        unlock(&task->general_lock);
         cond_destroy(&vfork.cond);
     }
 
@@ -215,7 +215,7 @@ void vfork_notify(struct task *task) {
         lock(&task->vfork->lock, 0);
         task->vfork->done = true;
         notify(&task->vfork->cond);
-        unlock(&task->vfork->lock, __FILE__, __LINE__, false);
+        unlock(&task->vfork->lock);
     }
-    unlock(&task->general_lock, __FILE__, __LINE__, false);
+    unlock(&task->general_lock);
 }

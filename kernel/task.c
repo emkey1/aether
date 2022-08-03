@@ -72,7 +72,7 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
@@ -82,18 +82,18 @@ dword_t get_count_of_blocked_tasks() {
         }
     }
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return res;
 }
 
 dword_t get_count_of_alive_tasks() {
-    //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     dword_t res = 0;
     struct list *item;
     list_for_each(&alive_pids_list, item) {
         res++;
     }
-    //unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
     return res;
 }
 
@@ -111,7 +111,7 @@ struct task *task_create_(struct task *parent) {
 
     struct task *task = malloc(sizeof(struct task));
     if (task == NULL) {
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
         return NULL;
     }
     *task = (struct task) {};
@@ -128,7 +128,7 @@ struct task *task_create_(struct task *parent) {
         task->parent = parent;
         list_add(&parent->children, &task->siblings);
     }
-    unlock(&pids_lock, __FILE__, __LINE__, true);
+    unlock(&pids_lock);
 
     task->pending = 0;
     list_init(&task->queue);
@@ -157,9 +157,8 @@ void task_destroy(struct task *task) {
     //int elock_fail = 0;
     //if(doEnableExtraLocking)
      //   elock_fail = extra_lockf(task->pid);
-    task->exiting = true;
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
 
@@ -169,14 +168,15 @@ void task_destroy(struct task *task) {
        IShould = true;
     }
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+        nanosleep(&lock_pause, NULL);
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
@@ -184,9 +184,9 @@ void task_destroy(struct task *task) {
      //   extra_unlockf(task->pid);
     
     if(IShould)
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
     
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     
@@ -205,10 +205,6 @@ void run_at_boot() {  // Stuff we run only once, at boot time.
 }
 
 void task_run_current() {
-    if(BOOTING) {
-        run_at_boot();
-    }
-
     struct cpu_state *cpu = &current->cpu;
     struct tlb tlb = {};
     tlb_refresh(&tlb, &current->mem->mmu);
@@ -244,6 +240,8 @@ static void *task_thread(void *task) {
     //int elock_fail = 0;
     
     current = task;
+    if(current->pid == 1)
+        run_at_boot();
     current->critical_region.count = 0; // Is this needed?  -mke
     
     //////modify_critical_region_counter(task, 1);

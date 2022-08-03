@@ -23,9 +23,9 @@ void timer_free(struct timer *timer) {
     if (timer->thread_running) {
         timer->dead = true;
         pthread_kill(timer->thread, SIGUSR1);
-        unlock(&timer->lock, __FILE__, __LINE__, false);
+        unlock(&timer->lock);
     } else {
-        unlock(&timer->lock, __FILE__, __LINE__, false);
+        unlock(&timer->lock);
         free(timer);
     }
 }
@@ -36,7 +36,7 @@ static void *timer_thread(void *param) {
     while (true) {
         struct timespec remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         while (timer->active && timespec_positive(remaining)) {
-            unlock(&timer->lock, __FILE__, __LINE__, false);
+            unlock(&timer->lock);
             nanosleep(&remaining, NULL);
             lock(&timer->lock, 0);
             remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
@@ -54,7 +54,7 @@ static void *timer_thread(void *param) {
     if (timer->dead)
         free(timer);
     else
-        unlock(&timer->lock, __FILE__, __LINE__, false);
+        unlock(&timer->lock);
     return NULL;
 }
 
@@ -77,6 +77,6 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
         pthread_create(&timer->thread, NULL, timer_thread, timer);
         pthread_detach(timer->thread);
     }
-    unlock(&timer->lock, __FILE__, __LINE__, false);
+    unlock(&timer->lock);
     return 0;
 }

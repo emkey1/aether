@@ -12,11 +12,6 @@
 #include "util/timer.h"
 #include "util/sync.h"
 
-void critical_region_count_increase(struct task *task);  // Delay task deletion, increase number of threads requesting delay.  -mke
-void critical_region_count_decrease(struct task *task);  // Delay task deletion, decrease number of threads requesting delay.  -mke
-
-// everything here is private to the thread executing this task and needs no
-// locking, unless otherwise specified
 struct task {
     struct cpu_state cpu;
     struct mm *mm; // locked by general_lock
@@ -232,7 +227,7 @@ __attribute__((always_inline)) inline int task_may_block_start(void) {
  /*
     lock(&block_lock, 0);
     current->io_block = 1;
-    unlock(&block_lock, __FILE__, __LINE__, false);
+    unlock(&block_lock);
   */
 //    critical_region_count_increase(current);
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
@@ -244,10 +239,11 @@ __attribute__((always_inline)) inline int task_may_block_end(void) {
   /*
     lock(&block_lock, 0);
     current->io_block = 0;
-    unlock(&block_lock, __FILE__, __LINE__, false);
+    unlock(&block_lock);
    */
     current->io_block = 0;
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+//    critical_region_count_decrease(current);
     return 0;
 }
 

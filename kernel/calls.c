@@ -5,6 +5,7 @@
 #include "emu/memory.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 
 dword_t syscall_stub() {
     return _ENOSYS;
@@ -264,11 +265,11 @@ void handle_interrupt(int interrupt) {
         unsigned syscall_num = cpu->eax;
         if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
             printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
-
+            
             ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
             ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-
+            
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                 printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);
@@ -278,17 +279,17 @@ void handle_interrupt(int interrupt) {
             }
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
-
+                
                 ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
                 ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-
-                unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
+                
+                unlock(&current->ptrace.lock);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
-            unlock(&current->ptrace.lock,  __FILE__, __LINE__, false);
+            unlock(&current->ptrace.lock);
             STRACE("%d call %-3d ", current->pid, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
@@ -297,12 +298,12 @@ void handle_interrupt(int interrupt) {
             if (current->ptrace.stop_at_syscall) {
                 current->ptrace.syscall = syscall_num;
                 send_signal(current, SIGTRAP_, SIGINFO_NIL);
-                unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
+                unlock(&current->ptrace.lock);
                 receive_signals();
                 lock(&current->ptrace.lock, 0);
                 current->ptrace.stop_at_syscall = false;
             }
-            unlock(&current->ptrace.lock, __FILE__, __LINE__, false);
+            unlock(&current->ptrace.lock);
         }
     } else if (interrupt == INT_GPF) {
         // some page faults, such as stack growing or CoW clones, are handled by mem_ptr
@@ -340,14 +341,14 @@ void handle_interrupt(int interrupt) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
     } else if (interrupt == INT_DEBUG) {
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,
         });
-        unlock(&pids_lock, __FILE__, __LINE__, true);
+        unlock(&pids_lock);
     } else if (interrupt != INT_TIMER) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);
@@ -358,7 +359,7 @@ void handle_interrupt(int interrupt) {
     lock(&group->lock, 0);
     while (group->stopped)
         wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
-    unlock(&group->lock, __FILE__, __LINE__, false);
+    unlock(&group->lock);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 

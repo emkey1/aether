@@ -291,15 +291,11 @@ static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *i
     pid_t_ pid = *index - PROC_ROOT_LEN;
     if (pid <= MAX_PID) {
         //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-        complex_lockt(&pids_lock, 0, __FILE__, __LINE__); // Revisit this later.  -mke
-        //trylock(&pids_lock); // Kludgery  -mke
-        
+        //lock(&pids_lock, 0);
         do {
             pid++;
         } while (pid <= MAX_PID && pid_get_task(pid) == NULL);
-        
-         unlock(&pids_lock, __FILE__, __LINE__, true);
-        
+        //unlock(&pids_lock);
         if (pid > MAX_PID) {
             //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return false;

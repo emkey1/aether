@@ -10,6 +10,7 @@
 #include "util/sync.h"
 #include "util/fifo.h"
 #include "kernel/task.h"
+#include "kernel/resource_locking.h"
 #include "misc.h"
 
 #define LOG_BUF_SHIFT 20
@@ -42,49 +43,49 @@ static int syslog_read(addr_t buf_addr, int_t len, int flags) {
     }
     char *buf = malloc(len + 1);
     fifo_read(&log_buf, buf, len, flags);
-
+    
     // Here we will split on \n and do one entry per line
     // Keep printing tokens while one of the
     // delimiters present
     addr_t pointer = buf_addr; // Where we are in the buffer
     unsigned count = 1;
     char *token = strtok(buf, "\n"); // Get the first line
-
+    
     if(user_write(pointer, "\n", 1)) { // Positive return value = fail
         free(buf);
         return _EFAULT;
     }
-
+    
     pointer++;
-
+    
     while (token != NULL) {
         size_t length = strlen(token);
         if(user_write(pointer, token, length)) { // Positive return value = fail
             free(buf);
             return _EFAULT;
         }
-
+           
         pointer += length;
-
+        
         if(user_write(pointer, "\n", 1)) { // Positive return value = fail
             free(buf);
             return _EFAULT;
         }
-
+        
         pointer++;
         if(pointer < (buf_addr + (len -1))) {
             token = strtok(NULL, "\n");  // Grab next token, deal with when back at top of while loop. -mke
         } else {
             token = NULL;
         }
-
+           
         //if(count > 12000)
         //    token = NULL; // We're going to overrun something.  Need to fix this, but for now, just abort.  -mke
         count++;
     }
 
     free(buf);
-
+    
     return len;
 }
 
@@ -124,7 +125,7 @@ int_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
     ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     lock(&log_lock, 0);
     int retval = do_syslog(type, buf_addr, len);
-    unlock(&log_lock, __FILE__, __LINE__, false);
+    unlock(&log_lock);
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return retval;
 }
@@ -139,15 +140,16 @@ static void log_buf_append(const char *msg) {
 static void log_line(const char *line);
 
 static void output_line(const char *line) {
-    time_t t = time(NULL);
-    char* c_time_string = ctime(&t);
-    const size_t tlen = strlen(c_time_string); // We can trust c_time_string to be null terminated
-    c_time_string[tlen - 1] = '\0'; // Remove trailing newline
-
-    char tmpbuff[512];
-    if (snprintf(tmpbuff, 512, "[   %s] %s", c_time_string, line) >= 512) { // Insufficient room, need to terminate at buffer size
-        tmpbuff[511] = '\0';
-    }
+    time_t t=time(NULL);
+    char* c_time_string;
+    c_time_string = ctime(&t);
+    c_time_string[strcspn(c_time_string, "\n")] = 0;  // Remove trailing newline
+    //double tstamp = difftime(t, (time_t) 0);
+    int mybuff_size = 512;
+    char tmpbuff[mybuff_size];
+    //sprintf(tmpbuff, "[   %f] %s", tstamp, line);
+    sprintf(tmpbuff, "[   %s] %s", c_time_string, line);
+    
     // send it to stdout or wherever
     log_line(tmpbuff);
     // add it to the circular buffer
@@ -160,7 +162,7 @@ void ish_vprintk(const char *msg, va_list args) {
     // I'm trusting you to not pass an absurdly long message
     static __thread char buf[16384] = "";
     static __thread size_t buf_size = 0;
-
+    
     buf_size += vsprintf(buf + buf_size, msg, args);
 
     // output up to the last newline, leave the rest in the buffer
@@ -174,7 +176,7 @@ void ish_vprintk(const char *msg, va_list args) {
         buf_size -= p + 1 - b;
         b = p + 1;
     }
-    unlock(&log_lock, __FILE__, __LINE__, false);
+    unlock(&log_lock);
     memmove(buf, b, strlen(b) + 1);
 }
 
@@ -238,3 +240,5 @@ char * current_comm() {
     
     return calloc(1, 1); 
 }
+
+
