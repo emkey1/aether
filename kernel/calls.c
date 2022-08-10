@@ -8,6 +8,8 @@
 #include "kernel/resource_locking.h"
 
 dword_t syscall_stub() {
+    //STRACE("syscall_stub(%d)", f);
+    STRACE("syscall_stub()");
     return _ENOSYS;
 }
 dword_t syscall_stub_silent() {
@@ -209,6 +211,7 @@ syscall_t syscall_table[] = {
     [307] = (syscall_t) sys_faccessat,
     [308] = (syscall_t) sys_pselect,
     [309] = (syscall_t) sys_ppoll,
+    [310] = (syscall_t) syscall_stub, // unshare
     [311] = (syscall_t) sys_set_robust_list,
     [312] = (syscall_t) sys_get_robust_list,
     [313] = (syscall_t) sys_splice,

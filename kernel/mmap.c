@@ -145,6 +145,7 @@ struct mmap_arg_struct {
 
 addr_t sys_mmap(addr_t args_addr) {
     struct mmap_arg_struct args;
+    STRACE("sys_mmap(0x%x)", args_addr);
     if (user_get(args_addr, args))
         return _EFAULT;
     return mmap_common(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);
