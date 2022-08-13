@@ -294,7 +294,7 @@ void handle_interrupt(int interrupt) {
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
-            STRACE("%d call %-3d ", current->pid, syscall_num);
+            STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->critical_region.count, current->locks_held.count, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;
