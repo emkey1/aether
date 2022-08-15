@@ -8,6 +8,8 @@
 #include "kernel/resource_locking.h"
 
 dword_t syscall_stub() {
+    //STRACE("syscall_stub(%d)", f);
+    STRACE("syscall_stub()");
     return _ENOSYS;
 }
 dword_t syscall_stub_silent() {
@@ -209,10 +211,12 @@ syscall_t syscall_table[] = {
     [307] = (syscall_t) sys_faccessat,
     [308] = (syscall_t) sys_pselect,
     [309] = (syscall_t) sys_ppoll,
+    [310] = (syscall_t) syscall_stub, // unshare
     [311] = (syscall_t) sys_set_robust_list,
     [312] = (syscall_t) sys_get_robust_list,
     [313] = (syscall_t) sys_splice,
     [314] = (syscall_t) syscall_stub, // sync_file_range
+    [318] = (syscall_t) syscall_success_stub, // getcpu
     [319] = (syscall_t) sys_epoll_pwait,
     [320] = (syscall_t) sys_utimensat,
     [321] = (syscall_t) syscall_stub, // signalfd
@@ -248,7 +252,7 @@ syscall_t syscall_table[] = {
     [371] = (syscall_t) sys_recvfrom,
     [372] = (syscall_t) sys_recvmsg,
     [373] = (syscall_t) sys_shutdown,
-    [375] = (syscall_t) syscall_stub, // membarrier
+    [375] = (syscall_t) sys_membarrier, // membarrier
     [377] = (syscall_t) sys_copy_file_range,
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
@@ -290,7 +294,7 @@ void handle_interrupt(int interrupt) {
                 current->ptrace.stop_at_syscall = false;
             }
             unlock(&current->ptrace.lock);
-            STRACE("%d call %-3d ", current->pid, syscall_num);
+            STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->critical_region.count, current->locks_held.count, syscall_num);
             int result = syscall_table[syscall_num](cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
             STRACE(" = 0x%x\n", result);
             cpu->eax = result;

@@ -122,12 +122,30 @@ addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_
     return mmap_common(addr, len, prot, flags, fd_no, offset << PAGE_BITS);
 }
 
+enum membarrier_cmd {
+    MEMBARRIER_CMD_QUERY = 0,
+    MEMBARRIER_SUPPORTS_ALL = 31, // lies
+};
+
+dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid) {
+    STRACE("membarrier(0x%x, 0x%x, 0x%x)", cmd, flags, cpuid);
+    switch (cmd) {
+        case MEMBARRIER_CMD_QUERY:
+            return MEMBARRIER_SUPPORTS_ALL;
+        default:
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            // __asm__ __volatile__("" : : : "memory");
+    }
+    return 0;
+}
+
 struct mmap_arg_struct {
     dword_t addr, len, prot, flags, fd, offset;
 };
 
 addr_t sys_mmap(addr_t args_addr) {
     struct mmap_arg_struct args;
+    STRACE("sys_mmap(0x%x)", args_addr);
     if (user_get(args_addr, args))
         return _EFAULT;
     return mmap_common(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);

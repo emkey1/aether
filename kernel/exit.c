@@ -95,8 +95,8 @@ noreturn void do_exit(int status) {
     unlock(&current->group->lock);
 
     // the actual freeing needs pids_lock
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     // release the sighand
     //while(critical_region_count(current)) {
     while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
