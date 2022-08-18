@@ -11,13 +11,14 @@
 #include "platform/platform.h"
 #include "util/sync.h"
 #include <pthread.h>
+#include <libkern/OSAtomic.h>
 
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
 
-dword_t extra_lock_pid = 0;
+dword_t extra_lock_pid = -1;
 char extra_lock_comm[16] = "";
 bool extra_lock_held = false;
 time_t newest_extra_lock_time = 0;
@@ -195,8 +196,10 @@ void task_destroy(struct task *task) {
 
 void run_at_boot() {  // Stuff we run only once, at boot time.
     BOOTING = false;
+    atomic_thread_fence(__ATOMIC_SEQ_CST);
+    
     struct uname uts;
-    struct timespec startup_pause = {3 /*secs*/, 0 /*nanosecs*/};  // Sleep for a bit to let things like the number of CPU's be updated.  -mke
+    struct timespec startup_pause = {2 /*secs*/, 0 /*nanosecs*/};  // Sleep for a bit to let things like the number of CPU's be updated.  -mke
     nanosleep(&startup_pause, NULL);
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
@@ -290,7 +293,7 @@ void update_thread_name() {
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
-    if(current != NULL)
+    //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_lock(&extra_lock);
     extra_lock_pid = pid;
