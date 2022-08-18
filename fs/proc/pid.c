@@ -31,10 +31,10 @@ static void proc_put_task(struct task *UNUSED(task)) {
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
-    //int elock_fail;
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true))
         return _ESRCH;
+    //int elock_fail;
  //   if(doEnableExtraLocking)
   //      elock_fail = extra_lockf(entry->pid);
         

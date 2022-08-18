@@ -7,9 +7,11 @@
 
 #import <UIKit/UIKit.h>
 #import "AppDelegate.h"
+extern void run_at_boot();
 
 int main(int argc, char * argv[]) {
     @autoreleasepool {
+        run_at_boot();
         return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
     }
 }

@@ -155,9 +155,9 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
-    //int elock_fail = 0;
-    //if(doEnableExtraLocking)
-     //   elock_fail = extra_lockf(task->pid);
+    int elock_fail = 0;
+    if(doEnableExtraLocking)
+        elock_fail = extra_lockf(task->pid);
     
     while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
@@ -181,8 +181,8 @@ void task_destroy(struct task *task) {
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(task->pid);
+    if((doEnableExtraLocking) && (!elock_fail))
+        extra_unlockf(task->pid);
     
     if(IShould)
         unlock(&pids_lock);
@@ -195,16 +195,12 @@ void task_destroy(struct task *task) {
 }
 
 void run_at_boot() {  // Stuff we run only once, at boot time.
-    BOOTING = false;
-    atomic_thread_fence(__ATOMIC_SEQ_CST);
-    
     struct uname uts;
-    struct timespec startup_pause = {2 /*secs*/, 0 /*nanosecs*/};  // Sleep for a bit to let things like the number of CPU's be updated.  -mke
-    nanosleep(&startup_pause, NULL);
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
-
     printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
+    BOOTING = false;
+
 }
 
 void task_run_current() {
@@ -240,11 +236,10 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
-    //int elock_fail = 0;
     
     current = task;
-    if(current->pid == 1)
-        run_at_boot();
+    // int elock_fail = 0;
+    
     current->critical_region.count = 0; // Is this needed?  -mke
     
     //////modify_critical_region_counter(task, 1);
@@ -255,6 +250,7 @@ static void *task_thread(void *task) {
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
+    atomic_thread_fence(__ATOMIC_SEQ_CST);
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
