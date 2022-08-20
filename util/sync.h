@@ -58,7 +58,7 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 
-static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
+static inline void threaded_lock(pthread_mutex_t *lock, int log_lock) {
     // "Advanced" locking for some things.  pids_lock for instance
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
@@ -70,7 +70,7 @@ static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(complex_lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(threaded_lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
                 pthread_mutex_unlock(lock);
                 modify_locks_held_count_wrapper(-1);
             }

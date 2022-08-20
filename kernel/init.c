@@ -54,6 +54,8 @@ static struct rlimit_ init_rlimits[16] = {
 static struct task *construct_task(struct task *parent) {
     struct task *task = task_create_(parent);
 
+    //atomic_thread_fence(__ATOMIC_SEQ_CST);
+    
     struct tgroup *group = malloc(sizeof(struct tgroup));
     *group = (struct tgroup) {};
     list_init(&group->threads);

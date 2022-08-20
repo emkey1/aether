@@ -135,8 +135,8 @@ dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid) {
             errno = ENOSYS;
             return -1;
         default:
-            atomic_thread_fence(__ATOMIC_SEQ_CST);
-            //__asm__ __volatile__("" : : : "memory");
+            //atomic_thread_fence(__ATOMIC_SEQ_CST);
+            __asm__ __volatile__("" : : : "memory");
     }
     return 0;
 }

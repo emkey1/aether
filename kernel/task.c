@@ -195,6 +195,7 @@ void task_destroy(struct task *task) {
 }
 
 void run_at_boot() {  // Stuff we run only once, at boot time.
+    //atomic_thread_fence(__ATOMIC_SEQ_CST);
     struct uname uts;
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
@@ -215,7 +216,7 @@ void task_run_current() {
             // Do nothing
         } else {
             //pthread_mutex_lock(&multicore_lock);
-            complex_lock(&multicore_lock, 1);
+            threaded_lock(&multicore_lock, 1);
         }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
@@ -250,7 +251,6 @@ static void *task_thread(void *task) {
     //if((doEnableExtraLocking) && (!elock_fail))
      //   extra_unlockf(0);
     
-    atomic_thread_fence(__ATOMIC_SEQ_CST);
     task_run_current();
     die("task_thread returned"); // above function call should never return
 }
@@ -292,7 +292,8 @@ int extra_lockf(dword_t pid) {
     //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_lock(&extra_lock);
-    extra_lock_pid = pid;
+    //extra_lock_pid = pid;
+    extra_lock_pid = current->pid;
     extra_lock_held = true; //
     if(current != NULL)
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -330,6 +331,7 @@ int extra_lockf(dword_t pid) {
         extra_lock_pid = pid;
         extra_lock_held = true; //
         time(&newest_extra_lock_time);  // Update time
+        current->locks_held.count++;
         return 0;
     }
         
@@ -372,6 +374,7 @@ void extra_unlockf(dword_t pid) {
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
         printk("ERROR: The newest_extra_lock time(unlockf) has exceeded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
         pthread_mutex_unlock(&extra_lock);
+        current->locks_held.count--;
         extra_lock_pid = 0;
         strcpy(extra_lock_comm, "");
         extra_lock_held = false;
@@ -379,7 +382,7 @@ void extra_unlockf(dword_t pid) {
     }
     
     if((pid_get(extra_lock_pid) == NULL) && (extra_lock_pid)) {
-    //    printk("WARNING: Previous locking PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
+        printk("WARNING: Previous extra_lock() PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
     }
     
     if(pid)
@@ -392,5 +395,6 @@ void extra_unlockf(dword_t pid) {
     extra_lock_pid = 0;
     strcpy(extra_lock_comm, "");
     extra_lock_held = false; //
+    current->locks_held.count--;
     return;
 }
