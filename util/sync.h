@@ -257,7 +257,7 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
-static inline void loop_lock_write(wrlock_t *lock) {
+static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     modify_locks_held_count_wrapper(1);  // Set this here to avoid problems elsewhere in the complicated webs of execution
     unsigned count = 0;
@@ -269,34 +269,34 @@ static inline void loop_lock_write(wrlock_t *lock) {
     int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
-    if(count_max < 2500)
-        count_max = 2500; // Set a minimum value.  -mke
+    if(count_max < 25000)
+        count_max = 25000; // Set a minimum value.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_write(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s)\n", lock, count, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s) (%s:%d)\n", lock, count, lock->pid, lock->comm, file, line);
             _read_unlock(lock, __FILE__, __LINE__);
             lock->val = 0;
             lock->pid = 0;
             lock->comm = NULL;
-            loop_lock_write(lock);
+            loop_lock_write(lock, file, line);
             
             modify_locks_held_count_wrapper(-1);
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
 	        if(lock->val > 0) {
                 _read_unlock(lock, __FILE__, __LINE__);
 	        } else if (lock->val < 0) {
 	            _write_unlock(lock, __FILE__, __LINE__);
 	        } else {
-	            printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock->pid, lock->comm);
+	            printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s) (%s:%d)\n", lock->pid, lock->comm, file, line);
 	        }
             
             lock->val = 0;
             pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
-            loop_lock_write(lock);
+            loop_lock_write(lock, file, line);
             
             modify_locks_held_count_wrapper(-1);
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -364,7 +364,7 @@ static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const ch
 }
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
-    loop_lock_write(lock);
+    loop_lock_write(lock, file, line);
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     //pthread_rwlock_rdlock(&lock->l);
 
