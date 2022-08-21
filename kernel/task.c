@@ -73,10 +73,10 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         if (pid_entry->task->io_block) {
             res++;
@@ -291,13 +291,13 @@ void update_thread_name() {
 int extra_lockf(dword_t pid) {
     //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    pthread_mutex_lock(&extra_lock);
+    //pthread_mutex_lock(&extra_lock);
     //extra_lock_pid = pid;
-    extra_lock_pid = current->pid;
+    //extra_lock_pid = current->pid;
     extra_lock_held = true; //
-    if(current != NULL)
+    //if(current != NULL)
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    return 0;
+    //return 0;
     
     time_t now;
     time(&now);

@@ -7,7 +7,7 @@
 
 #import <UIKit/UIKit.h>
 #import "AppDelegate.h"
-extern void run_at_boot();
+extern void run_at_boot(void);
 
 int main(int argc, char * argv[]) {
     @autoreleasepool {

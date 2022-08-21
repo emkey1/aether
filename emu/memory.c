@@ -44,7 +44,7 @@ void mem_init(struct mem *mem) {
 }
 
 void mem_destroy(struct mem *mem) {
-    int elock_fail = 0;
+    //int elock_fail = 0;
    // if(doEnableExtraLocking)
    //    elock_fail = extra_lockf(0);
     
