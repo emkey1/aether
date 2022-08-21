@@ -44,9 +44,9 @@ void mem_init(struct mem *mem) {
 }
 
 void mem_destroy(struct mem *mem) {
-   // int elock_fail = 0;
-    //if(doEnableExtraLocking)
-     //  elock_fail = extra_lockf(0);
+    //int elock_fail = 0;
+   // if(doEnableExtraLocking)
+   //    elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
     while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
@@ -86,7 +86,7 @@ void mem_destroy(struct mem *mem) {
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     
     //if((doEnableExtraLocking) && (!elock_fail))
-     //  extra_unlockf(0);
+    //   extra_unlockf(0);
     
 }
 

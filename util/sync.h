@@ -58,7 +58,7 @@ static inline void lock_init(lock_t *lock) {
 #define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
 #endif
 
-static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
+static inline void threaded_lock(pthread_mutex_t *lock, int log_lock) {
     // "Advanced" locking for some things.  pids_lock for instance
     unsigned int count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
@@ -70,7 +70,7 @@ static inline void complex_lock(pthread_mutex_t *lock, int log_lock) {
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
             if(!log_lock) {
-                printk("ERROR: Possible deadlock(complex_lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
+                printk("ERROR: Possible deadlock(threaded_lock(%d)), aborted lock attempt(PID: %d Process: %s))\n", lock, current_pid(), current_comm());
                 pthread_mutex_unlock(lock);
                 modify_locks_held_count_wrapper(-1);
             }
@@ -177,24 +177,27 @@ static inline void _read_unlock(wrlock_t *lock, const char*, int);
 static inline void _write_unlock(wrlock_t *lock, const char*, int);
 static inline void write_unlock_and_destroy(wrlock_t *lock);
 
-static inline void atomic_l_lockf(unsigned count) {
-    modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+static inline void atomic_l_lockf(unsigned count, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {  // Make all locks atomic by wrapping them.  -mke
+    /* modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_lock(&atomic_l_lock);
     modify_locks_held_count_wrapper(1);
     modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+    STRACE("atomic_l_lockf(%d)\n", count);
     return;  // Short circuit for now
-    
+   */
     unsigned myrand = (rand() % 50000) + 10000;
     while(pthread_mutex_trylock(&atomic_l_lock)) {
         count++;
         if(count > myrand ) {
-            printk("ERROR: atomic_l_lockf max count attempts exceded(%d)\n", myrand);
+            printk("ERROR: atomic_l_lockf max count attempts exceded(%d) (%s:%d)\n", myrand, file, line);
             pthread_mutex_unlock(&atomic_l_lock);
      //       //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+            STRACE("\natomic_l_lockfE(%d)\n", count);
             return;
         }
         nanosleep(&lock_pause, NULL);
     }
+    STRACE("\natomic_l_lockf(%d)\n", count);
     ////modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
@@ -202,6 +205,7 @@ static inline void atomic_l_unlockf(void) {
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_unlock(&atomic_l_lock);
     modify_locks_held_count_wrapper(-1);
+    STRACE("atomic_l_unlockf()\n");
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
@@ -240,11 +244,11 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         }
-        if(strcmp(current_comm(), "go"))  // I can't believe I'm doing this.  -mke
+        //if(strcmp(current_comm(), "go"))  // I can't believe I'm doing this.  -mke
             atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?  This breaks go. Not having it here breaks other stuff.  -mke
         nanosleep(&lock_pause, NULL);
-        if(strcmp(current_comm(), "go")) // Yes I can.  -mke
-            atomic_l_lockf(count);
+        //if(strcmp(current_comm(), "go")) // Yes I can.  -mke
+            atomic_l_lockf(count, __FILE__, __LINE__);
     }
     
     if(lock->favor_read > 24)
@@ -253,7 +257,7 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
-static inline void loop_lock_write(wrlock_t *lock) {
+static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     modify_locks_held_count_wrapper(1);  // Set this here to avoid problems elsewhere in the complicated webs of execution
     unsigned count = 0;
@@ -265,34 +269,34 @@ static inline void loop_lock_write(wrlock_t *lock) {
     int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
-    if(count_max < 2500)
-        count_max = 2500; // Set a minimum value.  -mke
+    if(count_max < 25000)
+        count_max = 25000; // Set a minimum value.  -mke
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
         if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_write(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s)\n", lock, count, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s) (%s:%d)\n", lock, count, lock->pid, lock->comm, file, line);
             _read_unlock(lock, __FILE__, __LINE__);
             lock->val = 0;
             lock->pid = 0;
             lock->comm = NULL;
-            loop_lock_write(lock);
+            loop_lock_write(lock, file, line);
             
             modify_locks_held_count_wrapper(-1);
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
         } else if(count > count_max) {
-            printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s)\n", lock, count_max, lock->pid, lock->comm);
+            printk("ERROR: loop_lock_write(%d) tries exceeded %d, dealing with likely deadlock.(PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
 	        if(lock->val > 0) {
                 _read_unlock(lock, __FILE__, __LINE__);
 	        } else if (lock->val < 0) {
 	            _write_unlock(lock, __FILE__, __LINE__);
 	        } else {
-	            printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s)\n", lock->pid, lock->comm);
+	            printk("ERROR: lock->val = 0 in loop_lock_write(PID: %d Process: %s) (%s:%d)\n", lock->pid, lock->comm, file, line);
 	        }
             
             lock->val = 0;
             pthread_rwlock_unlock(&lock->l);  // Lets live dangerously.  -mke
-            loop_lock_write(lock);
+            loop_lock_write(lock, file, line);
             
             modify_locks_held_count_wrapper(-1);
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -302,7 +306,7 @@ static inline void loop_lock_write(wrlock_t *lock) {
         atomic_l_unlockf();
         nanosleep(&lock_pause, NULL);
         unsigned mycount = 0;  
-        atomic_l_lockf(mycount);
+        atomic_l_lockf(mycount, __FILE__, __LINE__);
     }
     
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -315,6 +319,7 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         lock->val = 0;
         modify_locks_held_count_wrapper(-1);
         //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+        STRACE("read_unlockE(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
     assert(lock->val > 0);
@@ -322,15 +327,18 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         printk("URGENT: read_unlock(%d) error(PID: %d Process: %s) (%s:%d)\n", lock, current_pid(), current_comm(), file, line);
     lock->val--;
     modify_locks_held_count_wrapper(-1);
+    STRACE("read_unlock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void read_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned count = 0;
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
-    atomic_l_lockf(count);
+    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
+        atomic_l_lockf(count, __FILE__, __LINE__);
     _read_unlock(lock, file, line);
-    atomic_l_unlockf();
+    if(lock->pid != current_pid() && (lock->pid != -1))
+        atomic_l_unlockf();
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
@@ -343,6 +351,7 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
     }
     //assert(lock->val == -1);
     lock->val = lock->line = lock->pid = 0;
+    STRACE("write_unlock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     lock->comm = NULL;
     lock->file = NULL;
     modify_locks_held_count_wrapper(-1);
@@ -351,13 +360,15 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
 
 static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
     unsigned count = 0;
-    atomic_l_lockf(count);
+    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
+        atomic_l_lockf(count, __FILE__, __LINE__);
     _write_unlock(lock, file, line);
-    atomic_l_unlockf();
+    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
+        atomic_l_unlockf();
 }
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock
-    loop_lock_write(lock);
+    loop_lock_write(lock, file, line);
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     //pthread_rwlock_rdlock(&lock->l);
 
@@ -367,12 +378,13 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) { //
     lock->line = line;
     lock->pid = current_pid();
     lock->comm = current_comm();
+    STRACE("write_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
     unsigned count = 0;
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     __write_lock(lock, file, line);
     atomic_l_unlockf();
 }
@@ -390,8 +402,10 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
 #endif
     if(status == 0)
         modify_locks_held_count_wrapper(1);
+    STRACE("trylockw(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+    lock->pid = current_pid();
     return status;
 }
 
@@ -412,6 +426,8 @@ static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file
        modify_locks_held_count_wrapper(1);
     
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+    STRACE("trylock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    lock->pid = current_pid();
     return status;
 }
 
@@ -488,7 +504,7 @@ static inline void lock_destroy(wrlock_t *lock) {
         nanosleep(&lock_pause, NULL);
     }
     
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     _lock_destroy(lock);
     atomic_l_unlockf();
 }
@@ -511,17 +527,19 @@ static inline void _read_lock(wrlock_t *lock, __attribute__((unused)) const char
         printk("WARNING: _read_lock() has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock->file, lock->line,lock->pid, lock->comm);
         read_unlock_and_destroy(lock);
         modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+        STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
     
     lock->pid = current_pid();
     lock->comm = current_comm();
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
 static inline void read_lock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrapper so that external calls lock, internal calls using _read_unlock() don't -mke
     unsigned count = 0;
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     _read_lock(lock, file, line);
     atomic_l_unlockf();
 }
@@ -531,7 +549,7 @@ static inline void read_lock(wrlock_t *lock, __attribute__((unused)) const char 
 static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a RO lock to a Write lock.  -mke
     unsigned count = 0;
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     _read_unlock(lock, __FILE__, __LINE__);
     __write_lock(lock, __FILE__, __LINE__);
     atomic_l_unlockf();
@@ -541,7 +559,7 @@ static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically sw
 static inline void write_to_read_lock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Try to atomically swap a Write lock to a RO lock.  -mke
     unsigned count = 0;
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     _write_unlock(lock, file, line);
     _read_lock(lock, file, line);
     atomic_l_unlockf();
@@ -551,7 +569,7 @@ static inline void write_to_read_lock(wrlock_t *lock, __attribute__((unused)) co
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     _write_unlock(lock, __FILE__, __LINE__);
     _lock_destroy(lock);
     atomic_l_unlockf();
@@ -561,7 +579,7 @@ static inline void write_unlock_and_destroy(wrlock_t *lock) {
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
     unsigned count = 0;
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    atomic_l_lockf(count);
+    atomic_l_lockf(count, __FILE__, __LINE__);
     if(trylockw(lock)) // It should be locked, but just in case.  Likely masking underlying issue.  -mke
         _read_unlock(lock, __FILE__, __LINE__);
     _lock_destroy(lock);

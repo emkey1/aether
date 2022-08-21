@@ -11,13 +11,14 @@
 #include "platform/platform.h"
 #include "util/sync.h"
 #include <pthread.h>
+#include <libkern/OSAtomic.h>
 
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
 
-dword_t extra_lock_pid = 0;
+dword_t extra_lock_pid = -1;
 char extra_lock_comm[16] = "";
 bool extra_lock_held = false;
 time_t newest_extra_lock_time = 0;
@@ -72,10 +73,10 @@ struct pid *pid_get_last_allocated() {
 }
 
 dword_t get_count_of_blocked_tasks() {
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     dword_t res = 0;
     struct pid *pid_entry;
+    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         if (pid_entry->task->io_block) {
             res++;
@@ -154,9 +155,9 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
-    //int elock_fail = 0;
-    //if(doEnableExtraLocking)
-     //   elock_fail = extra_lockf(task->pid);
+    int elock_fail = 0;
+    if(doEnableExtraLocking)
+        elock_fail = extra_lockf(task->pid);
     
     while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
@@ -180,8 +181,8 @@ void task_destroy(struct task *task) {
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&pid->alive);
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(task->pid);
+    if((doEnableExtraLocking) && (!elock_fail))
+        extra_unlockf(task->pid);
     
     if(IShould)
         unlock(&pids_lock);
@@ -194,14 +195,13 @@ void task_destroy(struct task *task) {
 }
 
 void run_at_boot() {  // Stuff we run only once, at boot time.
-    BOOTING = false;
+    //atomic_thread_fence(__ATOMIC_SEQ_CST);
     struct uname uts;
-    struct timespec startup_pause = {3 /*secs*/, 0 /*nanosecs*/};  // Sleep for a bit to let things like the number of CPU's be updated.  -mke
-    nanosleep(&startup_pause, NULL);
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
-
     printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
+    BOOTING = false;
+
 }
 
 void task_run_current() {
@@ -216,7 +216,7 @@ void task_run_current() {
             // Do nothing
         } else {
             //pthread_mutex_lock(&multicore_lock);
-            complex_lock(&multicore_lock, 1);
+            threaded_lock(&multicore_lock, 1);
         }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
@@ -237,11 +237,10 @@ void task_run_current() {
 }
 
 static void *task_thread(void *task) {
-    //int elock_fail = 0;
     
     current = task;
-    if(current->pid == 1)
-        run_at_boot();
+    // int elock_fail = 0;
+    
     current->critical_region.count = 0; // Is this needed?  -mke
     
     //////modify_critical_region_counter(task, 1);
@@ -290,14 +289,15 @@ void update_thread_name() {
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid) {
-    if(current != NULL)
+    //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    pthread_mutex_lock(&extra_lock);
-    extra_lock_pid = pid;
+    //pthread_mutex_lock(&extra_lock);
+    //extra_lock_pid = pid;
+    //extra_lock_pid = current->pid;
     extra_lock_held = true; //
-    if(current != NULL)
+    //if(current != NULL)
         ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    return 0;
+    //return 0;
     
     time_t now;
     time(&now);
@@ -331,6 +331,7 @@ int extra_lockf(dword_t pid) {
         extra_lock_pid = pid;
         extra_lock_held = true; //
         time(&newest_extra_lock_time);  // Update time
+        current->locks_held.count++;
         return 0;
     }
         
@@ -373,6 +374,7 @@ void extra_unlockf(dword_t pid) {
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
         printk("ERROR: The newest_extra_lock time(unlockf) has exceeded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
         pthread_mutex_unlock(&extra_lock);
+        current->locks_held.count--;
         extra_lock_pid = 0;
         strcpy(extra_lock_comm, "");
         extra_lock_held = false;
@@ -380,7 +382,7 @@ void extra_unlockf(dword_t pid) {
     }
     
     if((pid_get(extra_lock_pid) == NULL) && (extra_lock_pid)) {
-    //    printk("WARNING: Previous locking PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
+        printk("WARNING: Previous extra_lock() PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
     }
     
     if(pid)
@@ -393,5 +395,6 @@ void extra_unlockf(dword_t pid) {
     extra_lock_pid = 0;
     strcpy(extra_lock_comm, "");
     extra_lock_held = false; //
+    current->locks_held.count--;
     return;
 }
