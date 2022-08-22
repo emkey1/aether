@@ -334,9 +334,13 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
 static inline void read_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     unsigned count = 0;
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
-    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
+    if(lock->pid != current_pid() && (lock->pid != -1)) {
         atomic_l_lockf(count, __FILE__, __LINE__);
-    _read_unlock(lock, file, line);
+        _read_unlock(lock, file, line);
+    } else { // We can unlock our own lock without additional locking.  -mke
+        _read_unlock(lock, file, line);
+        return;
+    }
     if(lock->pid != current_pid() && (lock->pid != -1))
         atomic_l_unlockf();
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
@@ -360,9 +364,13 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
 
 static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
     unsigned count = 0;
-    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
+    if(lock->pid != current_pid() && (lock->pid != -1)) {
         atomic_l_lockf(count, __FILE__, __LINE__);
-    _write_unlock(lock, file, line);
+        _write_unlock(lock, file, line);
+    } else { // We can unlock our own lock regardless.  -mke
+        _write_unlock(lock, file, line);
+        return;
+    }
     if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
         atomic_l_unlockf();
 }
