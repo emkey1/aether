@@ -204,7 +204,6 @@ char *(*get_documents_directory)(void);
     if (!defaultThemes) {
         defaultThemes = @[
             [[self alloc] initWithName:@"Default"
-<<<<<<< HEAD
                           lightPalette:[[Palette alloc] initWithForegroundColor:@"#FD9F20"
                                                                 backgroundColor:@"#fff"
                                                                     cursorColor:nil
@@ -214,8 +213,6 @@ char *(*get_documents_directory)(void);
                                                                     cursorColor:nil
                                                           colorPaletteOverrides:nil]],
             [[self alloc] initWithName:@"iSH-Default"
-=======
->>>>>>> dceb486093a968a3ee7b1ad6f4f912ab134cc574
                           lightPalette:[[Palette alloc] initWithForegroundColor:@"#000"
                                                                 backgroundColor:@"#fff"
                                                                     cursorColor:nil
@@ -347,19 +344,11 @@ char *(*get_documents_directory)(void);
     [self.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES];
 }
 
-<<<<<<< HEAD
-+ (BOOL)addUserTheme:(Theme *)theme {
-    if ([self.class themeForName:theme.name includingDefaultThemes:NO]) {
-        return NO;
-    } else {
-        [theme.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[theme.name stringByAppendingString:@".json"]] atomically:YES];
-=======
 - (BOOL)addUserTheme {
     if ([self.class themeForName:self.name includingDefaultThemes:NO]) {
         return NO;
     } else {
         [self.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[self.name stringByAppendingString:@".json"]] atomically:YES];
->>>>>>> dceb486093a968a3ee7b1ad6f4f912ab134cc574
         return YES;
     }
 }
