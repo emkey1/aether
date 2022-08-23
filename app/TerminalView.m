@@ -72,7 +72,7 @@ struct rowcol {
             self->_keyCommands = nil;
         });
     }];
-    [prefs observe:@[@"colorScheme", @"fontFamily", @"fontSize", @"theme", @"cursorStyle", @"blinkCursor"]
+    [prefs observe:@[@"fontFamily", @"fontSize", @"theme"]
            options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self _updateStyle];
@@ -195,11 +195,6 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     [self _updateStyle];
 }
 
-- (void)setOverrideAppearance:(enum OverrideAppearance)overrideAppearance {
-    _overrideAppearance = overrideAppearance;
-    [self _updateStyle];
-}
-
 - (CGFloat)effectiveFontSize {
     if (self.overrideFontSize != 0)
         return self.overrideFontSize;
@@ -280,14 +275,7 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 }
 
 - (void)setKeyboardAppearance:(UIKeyboardAppearance)keyboardAppearance {
-    BOOL needsFirstResponderDance = self.isFirstResponder && _keyboardAppearance != keyboardAppearance;
-    if (needsFirstResponderDance) {
-        [self resignFirstResponder];
-    }
     _keyboardAppearance = keyboardAppearance;
-    if (needsFirstResponderDance) {
-        [self becomeFirstResponder];
-    }
     if (keyboardAppearance == UIKeyboardAppearanceLight) {
         self.scrollbarView.indicatorStyle = UIScrollViewIndicatorStyleBlack;
     } else {
@@ -346,6 +334,8 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     }
     return [NSString stringWithFormat:@"%c", ch];
 }
+
+
 
 - (void)deleteBackward {
     [self insertText:@"\x7f"];
@@ -540,9 +530,9 @@ static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
         [self addFunctionKey:UIKeyInputInsert withNormalEscapeSequence:@"\x1b[2~" withShiftEscapeSequence:@"\x1b[2;2~" withControlEscapeSequence:@"\x1b[2;5~"];
         [self addFunctionKey:UIKeyInputHelp withNormalEscapeSequence:@"\x1b[2~" withShiftEscapeSequence:@"\x1b[2;2~" withControlEscapeSequence:@"\x1b[2;5~"];
          */
-        /*if (@available(iOS 15.0, *)) {
-            [self addFunctionKey:UIKeyInputDelete withName:@"Del" withNormalEscapeSequence:@"\x1b[3~" withShiftEscapeSequence:@"\x1b[3;2~" withControlEscapeSequence:@"\x1b[3;5~"];
-        } */ //mkemke Explore why this doesn't work at some point.
+        //if (@available(iOS 15.0, *)) {
+        //    [self addFunctionKey:UIKeyInputDelete withName:@"Del" withNormalEscapeSequence:@"\x1b[3~" withShiftEscapeSequence:@"\x1b[3;2~" withControlEscapeSequence:@"\x1b[3;5~"];
+       // } // This breaks the del key.  -mke
         [self addFunctionKey:UIKeyInputPageUp withName:@"PgUp" withNormalEscapeSequence:@"\x1b[5~" withShiftEscapeSequence:@"\x1b[5;2~" withControlEscapeSequence:@"\x1b[5;5~"];
         [self addFunctionKey:UIKeyInputPageDown withName:@"PgDn" withNormalEscapeSequence:@"\x1b[6~" withShiftEscapeSequence:@"\x1b[6;2~" withControlEscapeSequence:@"\x1b[6;5~"];
         [self addFunctionKey:UIKeyInputHome withName:@"Home" withNormalEscapeSequence:@"\x1bOH" withShiftEscapeSequence:@"\x1b[1;2H" withControlEscapeSequence:@"\x1b[1;5H"];
@@ -659,15 +649,52 @@ static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
 }
 
 - (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    bool handled = false;
+    UIKeyModifierFlags modifier;
+
     if (@available(iOS 13.4, *)) {
-        UIKey *key = presses.anyObject.key;
-        if (UserPreferences.shared.overrideControlSpace &&
-            key.keyCode == UIKeyboardHIDUsageKeyboardSpacebar &&
-            key.modifierFlags & UIKeyModifierControl) {
-            return [self insertControlChar:' '];
+        // this is all to handle Ins/Help key as Apple don't support that key using UIKey interface
+        UIKey *key;
+
+        for (UIPress *aPress in presses) {
+            key = aPress.key;
+            handled = false;
+            // Use of UIKeyboardHID was introduced in 13.4
+
+            // ignore modifier keys by themselves
+            if ( key.keyCode == UIKeyboardHIDUsageKeyboardLeftShift || key.keyCode == UIKeyboardHIDUsageKeyboardLeftControl || key.keyCode == UIKeyboardHIDUsageKeyboardLeftAlt || key.keyCode == UIKeyboardHIDUsageKeyboardRightShift || key.keyCode == UIKeyboardHIDUsageKeyboardRightControl || key.keyCode == UIKeyboardHIDUsageKeyboardRightAlt || key.keyCode == UIKeyboardHIDUsageKeyboardRightGUI ) {
+                continue;
+            }
+
+            modifier = key.modifierFlags;
+            if ( modifier & UIKeyModifierNumericPad ) {
+                modifier &= ~UIKeyModifierNumericPad;
+            }
+            if ( modifier & UIKeyModifierAlphaShift) {
+                modifier &= ~UIKeyModifierAlphaShift;
+            }
+            if ( key.keyCode == UIKeyboardHIDUsageKeyboardInsert || key.keyCode == UIKeyboardHIDUsageKeyboardHelp ) {
+                if ( modifier == 0) {
+                    [self insertRawText:@"\x1b[2~"];
+                    handled = true;
+                    break;
+                }
+                if ( modifier & UIKeyModifierShift )  {
+                    [self insertRawText:@"\x1b[2;2~"];
+                    handled = true;
+                    break;
+                }
+                if ( modifier & UIKeyModifierControl )  {
+                    [self insertRawText:@"\x1b[2;5~"];
+                    handled = true;
+                    break;
+                }
+            }
         }
     }
-    return [super pressesBegan:presses withEvent:event];
+    if ( !handled) {
+       return [super pressesBegan:presses withEvent:event];
+    }
 }
 
 - (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
