@@ -132,7 +132,7 @@ hterm.ScrollPort.prototype.syncScrollHeight = function() {
 };
 term.scrollPort_.screen_.addEventListener('scroll', syncScroll);
 
-exports.updateStyle = ({foregroundColor, backgroundColor, fontFamily, fontSize, colorPaletteOverrides, blinkCursor}) => {
+exports.updateStyle = ({foregroundColor, backgroundColor, fontFamily, fontSize, colorPaletteOverrides, blinkCursor, cursorShape}) => {
     term.getPrefs().set('background-color', backgroundColor);
     term.getPrefs().set('foreground-color', foregroundColor);
     term.getPrefs().set('cursor-color', foregroundColor);
@@ -140,6 +140,7 @@ exports.updateStyle = ({foregroundColor, backgroundColor, fontFamily, fontSize, 
     term.getPrefs().set('font-size', fontSize);
     term.getPrefs().set('color-palette-overrides', colorPaletteOverrides);
     term.getPrefs().set('cursor-blink', blinkCursor);
+    term.getPrefs().set('cursor-shape', cursorShape);
 };
 
 exports.getCharacterSize = () => {

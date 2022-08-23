@@ -165,6 +165,10 @@ enum {
             switch (indexPath.row) {
                 case 0:
                     _terminalView = [cell viewWithTag:1];
+<<<<<<< HEAD
+=======
+                    _terminalView.userInteractionEnabled = NO;
+>>>>>>> dceb486093a968a3ee7b1ad6f4f912ab134cc574
                     _terminalView.terminal = _terminal;
                     break;
                 case 1: {
@@ -241,7 +245,11 @@ enum {
 }
 
 - (void)changePreviewTheme:(UISegmentedControl *)sender {
+<<<<<<< HEAD
     [_terminalView setOverrideAppearance:sender.selectedSegmentIndex ? OverrideAppearanceDark : OverrideAppearanceLight];
+=======
+    _terminalView.overrideAppearance = sender.selectedSegmentIndex ? OverrideAppearanceDark : OverrideAppearanceLight;
+>>>>>>> dceb486093a968a3ee7b1ad6f4f912ab134cc574
     _terminalView.backgroundColor = [[UIColor alloc] ish_initWithHexString:(sender.selectedSegmentIndex ? UserPreferences.shared.theme.darkPalette : UserPreferences.shared.theme.lightPalette).backgroundColor];
 }
 
