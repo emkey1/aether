@@ -72,7 +72,7 @@ struct rowcol {
             self->_keyCommands = nil;
         });
     }];
-    [prefs observe:@[@"fontFamily", @"fontSize", @"theme"]
+    [prefs observe:@[@"colorScheme", @"fontFamily", @"fontSize", @"theme", @"cursorStyle", @"blinkCursor"]
            options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self _updateStyle];
@@ -195,6 +195,11 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     [self _updateStyle];
 }
 
+- (void)setOverrideAppearance:(enum OverrideAppearance)overrideAppearance {
+    _overrideAppearance = overrideAppearance;
+    [self _updateStyle];
+}
+
 - (CGFloat)effectiveFontSize {
     if (self.overrideFontSize != 0)
         return self.overrideFontSize;
@@ -275,7 +280,14 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 }
 
 - (void)setKeyboardAppearance:(UIKeyboardAppearance)keyboardAppearance {
+    BOOL needsFirstResponderDance = self.isFirstResponder && _keyboardAppearance != keyboardAppearance;
+    if (needsFirstResponderDance) {
+        [self resignFirstResponder];
+    }
     _keyboardAppearance = keyboardAppearance;
+    if (needsFirstResponderDance) {
+        [self becomeFirstResponder];
+    }
     if (keyboardAppearance == UIKeyboardAppearanceLight) {
         self.scrollbarView.indicatorStyle = UIScrollViewIndicatorStyleBlack;
     } else {
