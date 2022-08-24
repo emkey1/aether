@@ -45,14 +45,14 @@ void mm_release(struct mm *mm) {
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
-        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+        while((critical_region_count(current) > 1) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         
         if(doEnableExtraLocking)
             extra_lockf(0);
         mem_destroy(&mm->mem);
-        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+        while((critical_region_count(current) > 1) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         free(mm);

@@ -49,12 +49,12 @@ void mem_destroy(struct mem *mem) {
    //    elock_fail = extra_lockf(0);
     
     write_lock(&mem->lock);
-    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     pt_unmap_always(mem, 0, MEM_PAGES);
 #if ENGINE_JIT
-    while((critical_region_count(current)) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) && (current->pid > 1) ){ // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     jit_free(mem->mmu.jit);
@@ -64,7 +64,7 @@ void mem_destroy(struct mem *mem) {
         do {
             mycount++;
             nanosleep(&lock_pause, NULL);
-        } while((critical_region_count(current)) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
+        } while((critical_region_count(current) > 1) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
         
         
         if (mem->pgdir[i] != NULL)
@@ -392,7 +392,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
     }
 
     void *ptr = mem_ptr_nofault(mem, addr, type);
-    assert(old_ptr == NULL || old_ptr == ptr);
+    assert(old_ptr == NULL || old_ptr == ptr || type == MEM_WRITE_PTRACE);
     return ptr;
 }
 

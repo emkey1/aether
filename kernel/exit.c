@@ -17,7 +17,7 @@ extern const char extra_lock_comm;
 static void halt_system(void);
 
 static bool exit_tgroup(struct task *task) {
-    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 2) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     struct tgroup *group = task->group;
@@ -52,7 +52,7 @@ static struct task *find_new_parent(struct task *task) {
 noreturn void do_exit(int status) {
     current->exiting = true;
     // has to happen before mm_release
-    while(critical_region_count(current) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
     //while(critical_region_count(current)) {
         nanosleep(&lock_pause, NULL);
     }
@@ -66,15 +66,15 @@ noreturn void do_exit(int status) {
     // release all our resources
     do {
         nanosleep(&lock_pause, NULL);
-    } while((critical_region_count(current)) || (locks_held_count(current))); // Wait for now, task is in one or more critical sections, and/or has locks
+    } while((critical_region_count(current) > 1) || (locks_held_count(current))); // Wait for now, task is in one or more critical sections, and/or has locks
     mm_release(current->mm);
     current->mm = NULL;
-    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     fdtable_release(current->files);
     current->files = NULL;
-    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     fs_info_release(current->fs);
@@ -83,7 +83,7 @@ noreturn void do_exit(int status) {
     // since it can be accessed by other threads
 
     //while(critical_region_count(current)) {
-    while((critical_region_count(current)) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     // save things that our parent might be interested in
@@ -99,7 +99,7 @@ noreturn void do_exit(int status) {
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     // release the sighand
     //while(critical_region_count(current)) {
-    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 2) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     sighand_release(current->sighand);
@@ -120,8 +120,7 @@ noreturn void do_exit(int status) {
         list_add(&new_parent->children, &child->siblings);
     }
     
-    //while(critical_region_count(current)) {
-    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 2) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     
@@ -239,7 +238,7 @@ dword_t sys_exit_group(dword_t status) {
 static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     if (!task->zombie)
         return false;
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     complex_lockt(&task->group->lock, 0, __FILE__, __LINE__);
@@ -268,23 +267,23 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
    // lock(&pids_lock); //mkemkemke  Doesn't work
     //if(doEnableExtraLocking) //mke Doesn't work
      //   extra_lockf(task->pid);
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     cond_destroy(&task->group->child_exit);
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     task_leave_session(task);
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     list_remove(&task->group->pgroup);
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     free(task->group);
-    while((critical_region_count(task)) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(task) > 1) || (locks_held_count(task))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
     task_destroy(task);
