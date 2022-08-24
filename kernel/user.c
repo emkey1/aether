@@ -25,24 +25,19 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
     return 0;
 }
 
-static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
-    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
+static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count, bool ptrace) {
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
     while (p < addr + count) {
         addr_t chunk_end = (PAGE(p) + 1) << PAGE_BITS;
         if (chunk_end > addr + count)
             chunk_end = addr + count;
-        char *ptr = mem_ptr(task->mem, p, MEM_WRITE);
-        if (ptr == NULL) {
-            //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
+        char *ptr = mem_ptr(task->mem, p, ptrace ? MEM_WRITE_PTRACE : MEM_WRITE);
+        if (ptr == NULL)
             return 1;
-        }
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
         p = chunk_end;
     }
-    
-    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     return 0;
 }
 
@@ -61,12 +56,17 @@ int user_read(addr_t addr, void *buf, size_t count) {
     return user_read_task(current, addr, buf, count);
 }
 
-int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) { // This function has 'write' in the name, yet uses a read lock?  -mke
-    //modify_critical_region_counter(task, 1, __FILE__, __LINE__);
+int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
     read_lock(&task->mem->lock, __FILE__, __LINE__);
-    int res = __user_write_task(task, addr, buf, count);
+    int res = __user_write_task(task, addr, buf, count, false);
     read_unlock(&task->mem->lock, __FILE__, __LINE__);
-    //modify_critical_region_counter(task, -1, __FILE__, __LINE__);
+    return res;
+}
+
+int user_write_task_ptrace(struct task *task, addr_t addr, const void *buf, size_t count) {
+    read_lock(&task->mem->lock, __FILE__, __LINE__);
+    int res = __user_write_task(task, addr, buf, count, true);
+    read_unlock(&task->mem->lock, __FILE__, __LINE__);
     return res;
 }
 
@@ -84,9 +84,8 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     read_lock(&current->mem->lock, __FILE__, __LINE__);
     size_t i = 0;
     while (i < max) {
-        if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
+        if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i])), false) {
             read_unlock(&current->mem->lock, __FILE__, __LINE__);
-            ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return 1;
         }
         if (buf[i] == '\0')
@@ -107,10 +106,8 @@ int user_write_string(addr_t addr, const char *buf) {
     read_lock(&current->mem->lock, __FILE__, __LINE__);
     size_t i = 0;
     do {
-        //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-        if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
+        if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]), false)) {
             read_unlock(&current->mem->lock, __FILE__, __LINE__);
-            //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return 1;
         }
         //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
