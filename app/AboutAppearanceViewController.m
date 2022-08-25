@@ -62,20 +62,26 @@ char *previewString = "# cat /proc/ish/colors\r\n"
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [UserPreferences.shared observe:@[@"theme", @"fontSize", @"fontFamily", @"colorScheme", @"cursorStyle", @"blinkCursor", @"hideStatusBar"]
+    [UserPreferences.shared observe:@[@"theme", @"fontSize", @"fontFamily", @"colorScheme"]
                             options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.tableView reloadData];
-            [self setNeedsStatusBarAppearanceUpdate];
         });
     }];
-    self.hideStatusBar.on = UserPreferences.shared.hideStatusBar;
-    self.cursorStyle.selectedSegmentIndex = UserPreferences.shared.cursorStyle;
-    self.blinkCursor.on = UserPreferences.shared.blinkCursor;
-    
+
+    [UserPreferences.shared observe:@[@"cursorStyle", @"blinkCursor", @"hideStatusBar"]
+                            options:0 owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateOtherControls];
+        });
+    }];
+    [self updateOtherControls];
+
 #if !ISH_LINUX
-    _terminal = [Terminal createPseudoTerminal:&_tty];
-    [_terminal sendOutput:previewString length:(int)strlen(previewString)];
+    if (![NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
+        _terminal = [Terminal createPseudoTerminal:&_tty];
+        [_terminal sendOutput:previewString length:(int)strlen(previewString)];
+    }
 #endif
 }
 
@@ -151,7 +157,7 @@ enum {
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == PreviewSection && indexPath.row == 0) {
         // Try a best-effort guess as to how big the preview should be.
-        return [@" " sizeWithAttributes:@{NSFontAttributeName: UserPreferences.shared.approximateFont}].height * 7;
+        return [@"\n\n\n\n\n\n" sizeWithAttributes:@{NSFontAttributeName: UserPreferences.shared.approximateFont}].height + 10;
     } else {
         return UITableViewAutomaticDimension;
     }
@@ -239,6 +245,13 @@ enum {
         case ColorSchemeSection:
             [UserPreferences.shared setColorScheme:indexPath.row];
     }
+}
+
+- (void)updateOtherControls {
+    self.hideStatusBar.on = UserPreferences.shared.hideStatusBar;
+    self.cursorStyle.selectedSegmentIndex = UserPreferences.shared.cursorStyle;
+    self.blinkCursor.on = UserPreferences.shared.blinkCursor;
+    [self setNeedsStatusBarAppearanceUpdate];
 }
 
 - (void)changePreviewTheme:(UISegmentedControl *)sender {

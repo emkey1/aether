@@ -13,16 +13,18 @@ char *get_documents_directory_impl(void) {
     return strdup(NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject.UTF8String);
 }
 
+#define THEME_VERSION 1
+
 @implementation UIColor (iSH)
 - (nullable instancetype)ish_initWithHexString:(NSString *)string {
-    if (!string.length) {
+    if (![string hasPrefix:@"#"]) {
         return nil;
     }
     NSScanner *scanner = [NSScanner scannerWithString:string];
     // Skip the leading #
     [scanner setScanLocation:1];
     unsigned int value;
-    if (![scanner scanHexInt:&value]) {
+    if (![scanner scanHexInt:&value] || scanner.scanLocation != string.length) {
         return nil;
     }
     unsigned int red;
@@ -184,6 +186,11 @@ char *(*get_documents_directory)(void);
     if (![json isKindOfClass:NSDictionary.class]) {
         return nil;
     }
+       id version = json[@"version"];
+    if (![version isKindOfClass:NSNumber.class] || ((NSNumber *)version).integerValue <= 0 || ((NSNumber *)version).integerValue > THEME_VERSION) {
+        NSLog(@"Rejecting theme %@ with invalid version number", name);
+        return nil;
+    }
     id shared = json[@"shared"];
     id light = json[@"light"];
     id dark = json[@"dark"];
@@ -195,6 +202,7 @@ char *(*get_documents_directory)(void);
         Palette *darkPalette = [[Palette alloc] initWithSerializedRepresentation:dark];
         return lightPalette && darkPalette ? [self initWithName:name lightPalette:lightPalette darkPalette:darkPalette] : nil;
     } else {
+        NSLog(@"Rejecting theme %@ with invalid palette(s)", name);
         return nil;
     }
 }
@@ -317,8 +325,10 @@ char *(*get_documents_directory)(void);
 
 - (NSData *)data {
     return [NSJSONSerialization dataWithJSONObject:self.lightPalette == self.darkPalette ? @{
+        @"version": @(THEME_VERSION),
         @"shared" : self.lightPalette.serializedRepresentation,
     } : @{
+        @"version": @(THEME_VERSION),
         @"light": self.lightPalette.serializedRepresentation,
         @"dark": self.darkPalette.serializedRepresentation,
     } options:NSJSONWritingSortedKeys | NSJSONWritingPrettyPrinted error:nil];

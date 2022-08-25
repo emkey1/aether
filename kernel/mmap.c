@@ -50,14 +50,14 @@ void mm_release(struct mm *mm) {
         }
         
         if(doEnableExtraLocking)
-            extra_lockf(0);
+            extra_lockf(0, __FILE__, __LINE__);
         mem_destroy(&mm->mem);
         while((critical_region_count(current) > 1) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         free(mm);
         if(doEnableExtraLocking)
-           extra_unlockf(0);
+           extra_unlockf(0, __FILE__, __LINE__);
     }
 }
 

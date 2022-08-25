@@ -354,15 +354,13 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (UIFont *)approximateFont {
-    if ([self.fontFamily isEqualToString:kSystemMonospacedFontName]) {
-        if (@available(iOS 13.4, *)) {
+    if (@available(iOS 13.4, *)) {
+        if ([self.fontFamily isEqualToString:kSystemMonospacedFontName]) {
             return [UIFont monospacedSystemFontOfSize:self.fontSize.doubleValue weight:UIFontWeightRegular];
-        } else {
-            return [UIFont fontWithName:@"Menlo" size:self.fontSize.doubleValue];
         }
-    } else {
-        return [UIFont fontWithName:self.fontFamily size:self.fontSize.doubleValue];
     }
+    UIFont *font = [UIFont fontWithName:self.fontFamily size:self.fontSize.doubleValue];
+    return font ? font : [UIFont fontWithName:@"Menlo" size:self.fontSize.doubleValue];
 }
 
 // MARK: theme

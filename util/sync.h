@@ -314,7 +314,7 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
 
 static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    if(lock->val <=0) {
+    if(lock->val <= 0) {
         printk("ERROR: read_unlock(%d) error(PID: %d Process: %s count %d) (%s:%d)\n",lock, current_pid(), current_comm(), lock->val, file, line);
         lock->val = 0;
         modify_locks_held_count_wrapper(-1);
@@ -399,7 +399,10 @@ static inline void _write_lock(wrlock_t *lock, const char *file, int line) {
 
 static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+    unsigned count = 0;
+    atomic_l_lockf(count, __FILE__, __LINE__);
     int status = pthread_rwlock_trywrlock(&lock->l);
+    atomic_l_unlockf();
 #if LOCK_DEBUG
     if (!status) {
         lock->debug.file = file;
@@ -421,7 +424,10 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
 
 static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+    unsigned count = 0;
+    atomic_l_lockf(count, __FILE__, __LINE__);
     int status = pthread_mutex_trylock(&lock->m);
+    atomic_l_unlockf();
 #if LOCK_DEBUG
     if (!status) {
         lock->debug.file = file;
