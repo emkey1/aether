@@ -155,13 +155,6 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 
 #pragma mark Styling
 
-- (NSString *)cssColor:(UIColor *)color {
-    CGFloat red, green, blue, alpha;
-    [color getRed:&red green:&green blue:&blue alpha:&alpha];
-    return [NSString stringWithFormat:@"rgba(%ld, %ld, %ld, %ld)",
-            lround(red * 255), lround(green * 255), lround(blue * 255), lround(alpha * 255)];
-}
-
 - (void)_updateStyle {
     NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
     if (!self.terminal.loaded)

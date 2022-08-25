@@ -284,7 +284,6 @@ enum {
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
     [self.tableView deselectRowAtIndexPath:self.tableView.indexPathForSelectedRow animated:YES];
-    [self setEditing:NO animated:YES];
 }
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
