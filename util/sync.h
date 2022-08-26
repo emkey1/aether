@@ -168,7 +168,7 @@ typedef struct {
     const char *file;
     int line;
     int pid;
-    const char *comm;
+    char comm[16];
 } wrlock_t;
 
 
@@ -277,7 +277,7 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
             _read_unlock(lock, __FILE__, __LINE__);
             lock->val = 0;
             lock->pid = 0;
-            lock->comm = NULL;
+            strcpy(lock->comm, NULL);
             loop_lock_write(lock, file, line);
             
             modify_locks_held_count_wrapper(-1);
@@ -355,7 +355,7 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
     //assert(lock->val == -1);
     lock->val = lock->line = lock->pid = 0;
     STRACE("write_unlock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
-    lock->comm = NULL;
+    //strcpy(lock->comm, NULL);
     lock->file = NULL;
     modify_locks_held_count_wrapper(-1);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -496,7 +496,7 @@ static inline void wrlock_init(wrlock_t *lock) {
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
 #endif
     lock->val = lock->line = lock->pid = 0;
-    lock->comm = NULL;
+    //strcpy(lock->comm,NULL);
     lock->file = NULL;
 }
 
@@ -548,7 +548,7 @@ static inline void _read_lock(wrlock_t *lock, __attribute__((unused)) const char
     }
     
     lock->pid = current_pid();
-    lock->comm = current_comm();
+    strncpy(lock->comm, current_comm(), 16);
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
