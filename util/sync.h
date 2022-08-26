@@ -30,9 +30,9 @@ extern pthread_mutex_t atomic_l_lock; // Used to make all lock operations atomic
 typedef struct {
     pthread_mutex_t m;
     pthread_t owner;
-    char comm[16];
     //const char *comm;
     int pid;
+    char comm[16];
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
@@ -50,6 +50,7 @@ static inline void lock_init(lock_t *lock) {
         .initialized = true,
     };
 #endif
+    strncpy(lock->comm, "               ", 15);
 }
 
 #if LOCK_DEBUG
@@ -118,8 +119,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 
     lock->owner = pthread_self();
     lock->pid = current_pid();
-    //strcpy(lock->comm, current_comm());
-    //lock->comm = current_comm();
+    strncpy(lock->comm, current_comm(), 15);
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
     assert(!lock->debug.file && "Attempting to recursively lock");
@@ -136,8 +136,7 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
-    //lock->comm = current_comm();
-    //strcpy(lock->comm, current_comm());
+    strncpy(lock->comm, current_comm(), 15);
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
@@ -385,7 +384,10 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) { //
     lock->file = file;
     lock->line = line;
     lock->pid = current_pid();
-    lock->comm = current_comm();
+    char *IhateC = malloc(16);
+    IhateC = current_comm();
+    if(lock->pid > 9) 
+        strncpy((char *)lock->comm, IhateC, 16);
     STRACE("write_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }

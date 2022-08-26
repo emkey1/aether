@@ -2,6 +2,7 @@
 #include "kernel/calls.h"
 #include "kernel/fs.h"
 #include "fs/inode.h"
+#include <string.h>
 
 static bool file_locks_overlap(struct file_lock *a, struct file_lock *b) {
     return a->end >= b->start && b->end >= a->start;
@@ -38,6 +39,7 @@ static struct file_lock *file_lock_copy(struct file_lock *request) {
     lock->type = request->type;
     lock->owner = request->owner;
     lock->pid = request->pid;
+    strncpy(lock->comm, request->comm, 15);
     list_init(&lock->locks);
     return lock;
 }
@@ -174,6 +176,7 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
     lock->type = flock->type;
     lock->owner = current->files;
     lock->pid = current->pid;
+    strncpy(lock->comm, current->comm, 15);
     return 0;
 }
 
@@ -186,6 +189,7 @@ static int flock_from_file_lock(struct file_lock *lock, struct flock_ *flock) {
     else
         flock->len = 0;
     flock->pid = lock->pid;
+    strncpy(lock->comm, flock->comm, 15);
     return 0;
 }
 
