@@ -164,8 +164,10 @@ void task_destroy(struct task *task) {
     }
 
     bool IShould = false;
-    if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
-       printk("WARNING: pids_lock was not set\n");
+    if(!trylock(&pids_lock)) {  // Just in case, be sure pids_lock is set.  -mke
+        // Multiple threads in the same process tend to cause deadlocks when locking pids_lock.  So we skip the second attempt to lock pids_lock by the same pid.  Which
+        // sometimes causes pids_lock not to be set.  We lock it here, and then unlock below.  -mke
+       // printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
        IShould = true;
     }
     
@@ -306,7 +308,7 @@ int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribu
         time(&newest_extra_lock_time); // Initialize
     
     unsigned int count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
     struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - WAIT_SLEEP);  // As sleep time increases, decrease acceptable loops.  -mke
     
@@ -351,7 +353,7 @@ int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribu
 
     if(count > count_max * .90) {
         //printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
-        printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d) (%s:%d)\n",count, extra_lock_pid, file, line);
+        printk("WARNING: large lock attempt count(Function: extra_lockf(%x) PID: %d) (%s:%d)\n",count, extra_lock_pid, file, line);
     }
     
     time(&newest_extra_lock_time);  // Update time
@@ -366,6 +368,7 @@ void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attr
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
        modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    extra_lock_held = false;
     return;
     
     /* time_t now;
