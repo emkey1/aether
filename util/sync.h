@@ -319,7 +319,7 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         lock->val = 0;
         modify_locks_held_count_wrapper(-1);
         //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-        STRACE("read_unlockE(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+        STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
     assert(lock->val > 0);

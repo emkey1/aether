@@ -165,6 +165,7 @@ void task_destroy(struct task *task) {
 
     bool IShould = false;
     if(!trylock(&pids_lock)) {  // Just in case, be sure pids_lock is set.  -mke
+        
         // Multiple threads in the same process tend to cause deadlocks when locking pids_lock.  So we skip the second attempt to lock pids_lock by the same pid.  Which
         // sometimes causes pids_lock not to be set.  We lock it here, and then unlock below.  -mke
        // printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
@@ -291,6 +292,7 @@ void update_thread_name() {
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
 int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    return 0; // Disabled for now -mke
     //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     //pthread_mutex_lock(&extra_lock);
@@ -363,6 +365,7 @@ int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribu
 }
 
 void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    return; // Disabled for now.  -mke
     if(current != NULL)
        modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
