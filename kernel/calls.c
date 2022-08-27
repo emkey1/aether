@@ -8,14 +8,16 @@
 #include "kernel/resource_locking.h"
 
 dword_t syscall_stub() {
-    //STRACE("syscall_stub(%d)", f);
     STRACE("syscall_stub()");
+    //STRACE("syscall_stub()");
     return _ENOSYS;
 }
 dword_t syscall_stub_silent() {
+    STRACE("syscall_stub_silent()");
     return _ENOSYS;
 }
 dword_t syscall_success_stub() {
+    STRACE("syscall_stub_success()");
     return 0;
 }
 

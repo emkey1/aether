@@ -153,7 +153,7 @@ bool (*remove_user_default)(const char *name);
         _defaults = [NSUserDefaults standardUserDefaults];
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
-	        kPreferenceEnableExtraLockingKey: @(YES),
+	    kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -187,20 +187,20 @@ bool (*remove_user_default)(const char *name);
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
-             @"option_mapping": kPreferenceOptionMappingKey,
-             @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
-             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
-             @"override_control_space": kPreferenceOverrideControlSpaceKey,
-             @"font_family": kPreferenceFontFamilyKey,
-             @"font_size": kPreferenceFontSizeKey,
-             @"disable_dimming": kPreferenceDisableDimmingKey,
-             @"launch_command": kPreferenceLaunchCommandKey,
-             @"boot_command": kPreferenceBootCommandKey,
-             @"cursor_style": kPreferenceCursorStyleKey,
-             @"blink_cursor": kPreferenceBlinkCursorKey,
-             @"hide_status_bar": kPreferenceHideStatusBarKey,
-             @"color_scheme": kPreferenceColorSchemeKey,
-             @"theme": kPreferenceThemeKey,
+            @"option_mapping": kPreferenceOptionMappingKey,
+            @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
+            @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
+            @"override_control_space": kPreferenceOverrideControlSpaceKey,
+            @"font_family": kPreferenceFontFamilyKey,
+            @"font_size": kPreferenceFontSizeKey,
+            @"disable_dimming": kPreferenceDisableDimmingKey,
+            @"launch_command": kPreferenceLaunchCommandKey,
+            @"boot_command": kPreferenceBootCommandKey,
+            @"cursor_style": kPreferenceCursorStyleKey,
+            @"blink_cursor": kPreferenceBlinkCursorKey,
+            @"hide_status_bar": kPreferenceHideStatusBarKey,
+            @"color_scheme": kPreferenceColorSchemeKey,
+            @"theme": kPreferenceThemeKey,
         };
         NSMutableDictionary <NSString *, NSString *> *reverseMapping = [NSMutableDictionary new];
         for (NSString *key in friendlyPreferenceMapping) {
@@ -354,15 +354,13 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (UIFont *)approximateFont {
-    if ([self.fontFamily isEqualToString:kSystemMonospacedFontName]) {
-        if (@available(iOS 13.4, *)) {
+    if (@available(iOS 13.4, *)) {
+        if ([self.fontFamily isEqualToString:kSystemMonospacedFontName]) {
             return [UIFont monospacedSystemFontOfSize:self.fontSize.doubleValue weight:UIFontWeightRegular];
-        } else {
-            return [UIFont fontWithName:@"Menlo" size:self.fontSize.doubleValue];
         }
-    } else {
-        return [UIFont fontWithName:self.fontFamily size:self.fontSize.doubleValue];
     }
+    UIFont *font = [UIFont fontWithName:self.fontFamily size:self.fontSize.doubleValue];
+    return font ? font : [UIFont fontWithName:@"Menlo" size:self.fontSize.doubleValue];
 }
 
 // MARK: theme

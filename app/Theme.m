@@ -13,16 +13,18 @@ char *get_documents_directory_impl(void) {
     return strdup(NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject.UTF8String);
 }
 
+#define THEME_VERSION 1
+
 @implementation UIColor (iSH)
 - (nullable instancetype)ish_initWithHexString:(NSString *)string {
-    if (!string.length) {
+    if (![string hasPrefix:@"#"]) {
         return nil;
     }
     NSScanner *scanner = [NSScanner scannerWithString:string];
     // Skip the leading #
     [scanner setScanLocation:1];
     unsigned int value;
-    if (![scanner scanHexInt:&value]) {
+    if (![scanner scanHexInt:&value] || scanner.scanLocation != string.length) {
         return nil;
     }
     unsigned int red;
@@ -148,6 +150,11 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
 @property(readonly, nonnull) NSData *data;
 @end
 
+// TODO: Move these to Linux
+#if ISH_LINUX
+char *(*get_documents_directory)(void);
+#endif
+
 @implementation Theme {
 }
 
@@ -179,6 +186,11 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
     if (![json isKindOfClass:NSDictionary.class]) {
         return nil;
     }
+       id version = json[@"version"];
+    if (![version isKindOfClass:NSNumber.class] || ((NSNumber *)version).integerValue <= 0 || ((NSNumber *)version).integerValue > THEME_VERSION) {
+        NSLog(@"Rejecting theme %@ with invalid version number", name);
+        return nil;
+    }
     id shared = json[@"shared"];
     id light = json[@"light"];
     id dark = json[@"dark"];
@@ -190,6 +202,7 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
         Palette *darkPalette = [[Palette alloc] initWithSerializedRepresentation:dark];
         return lightPalette && darkPalette ? [self initWithName:name lightPalette:lightPalette darkPalette:darkPalette] : nil;
     } else {
+        NSLog(@"Rejecting theme %@ with invalid palette(s)", name);
         return nil;
     }
 }
@@ -312,8 +325,10 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
 
 - (NSData *)data {
     return [NSJSONSerialization dataWithJSONObject:self.lightPalette == self.darkPalette ? @{
+        @"version": @(THEME_VERSION),
         @"shared" : self.lightPalette.serializedRepresentation,
     } : @{
+        @"version": @(THEME_VERSION),
         @"light": self.lightPalette.serializedRepresentation,
         @"dark": self.darkPalette.serializedRepresentation,
     } options:NSJSONWritingSortedKeys | NSJSONWritingPrettyPrinted error:nil];
@@ -339,11 +354,11 @@ NSString *const ThemeUpdatedNotification = @"ThemeUpdatedNotification";
     [self.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[name stringByAppendingString:@".json"]] atomically:YES];
 }
 
-+ (BOOL)addUserTheme:(Theme *)theme {
-    if ([self.class themeForName:theme.name includingDefaultThemes:NO]) {
+- (BOOL)addUserTheme {
+    if ([self.class themeForName:self.name includingDefaultThemes:NO]) {
         return NO;
     } else {
-        [theme.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[theme.name stringByAppendingString:@".json"]] atomically:YES];
+        [self.data writeToURL:[self.class.themesDirectory URLByAppendingPathComponent:[self.name stringByAppendingString:@".json"]] atomically:YES];
         return YES;
     }
 }

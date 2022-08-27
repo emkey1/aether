@@ -249,9 +249,15 @@ int current_pid() {
 }
 
 char * current_comm() {
+    static char comm[16];
     if(current != NULL) {
+        if(strcmp(current->comm, "")) {
+            strncpy(comm, current->comm, 16);
+        } else {
+            return calloc(1, 1);
+        }
         if (current->exiting != true) {
-            return current->comm;
+            return comm;
         } else {
             return calloc(1, 1);
         }

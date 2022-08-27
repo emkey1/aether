@@ -103,6 +103,7 @@
 		5D8ACEFA284BF122003C50D3 /* net.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEF9284BF122003C50D3 /* net.c */; };
 		5D8ACEFD284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
 		5D8ACEFE284CE096003C50D3 /* sys.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D8ACEFC284CE096003C50D3 /* sys.c */; };
+		5D9897D028B6B953003D3670 /* AppStore.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 5D9897CE28B6B953003D3670 /* AppStore.xcconfig */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
 		BB10E5C9248DBAAC009C7A74 /* libarchive.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB10E5C8248DBAA1009C7A74 /* libarchive.a */; platformFilter = ios; };
 		BB10E5D0248DC21D009C7A74 /* Roots.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BB10E5CF248DC21D009C7A74 /* Roots.storyboard */; };
@@ -560,6 +561,8 @@
 		5D8ACEFC284CE096003C50D3 /* sys.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sys.c; sourceTree = "<group>"; };
 		5D8C94D3287E53AD0095EDEE /* fp_sync.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = fp_sync.c; sourceTree = "<group>"; };
 		5D8CEFF92894C81400D24ED8 /* resource_locking.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = resource_locking.h; sourceTree = "<group>"; };
+		5D9897CE28B6B953003D3670 /* AppStore.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = AppStore.xcconfig; sourceTree = "<group>"; };
+		5D9897CF28B6B953003D3670 /* ViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
@@ -1020,6 +1023,8 @@
 		BB792B521F96D90D00FFB7A4 /* app */ = {
 			isa = PBXGroup;
 			children = (
+				5D9897CE28B6B953003D3670 /* AppStore.xcconfig */,
+				5D9897CF28B6B953003D3670 /* ViewController.h */,
 				BB792B531F96D90D00FFB7A4 /* AppDelegate.h */,
 				BB792B541F96D90D00FFB7A4 /* AppDelegate.m */,
 				BB565EA52734F22D00C93EAE /* CurrentRoot.h */,
@@ -1723,6 +1728,7 @@
 				BB38599827BCEE6B000A1082 /* metal.png in Resources */,
 				BB2B4DAD231D998300CB578B /* term.js in Resources */,
 				BB38599A27BCEE6B000A1082 /* is.png in Resources */,
+				5D9897D028B6B953003D3670 /* AppStore.xcconfig in Resources */,
 				BB38599E27BCEE6B000A1082 /* circular.png in Resources */,
 				BB38599F27BCEE6B000A1082 /* icon1337.png in Resources */,
 				BB3859A127BCEE6B000A1082 /* iinhash.png in Resources */,
@@ -1802,6 +1808,7 @@
 		};
 		BB13F813200AEFAC003D1C4D /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -1816,6 +1823,7 @@
 		};
 		BB21A1692689041500BD19B4 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -1949,6 +1957,7 @@
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -2267,6 +2276,7 @@
 /* Begin XCBuildConfiguration section */
 		497F6CE8254E5E4C00C82F46 /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -2286,6 +2296,7 @@
 		};
 		497F6CE9254E5E4C00C82F46 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -2465,7 +2476,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 405;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
@@ -2475,7 +2486,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 405;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -2490,7 +2501,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2516,7 +2527,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2537,7 +2548,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 405;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
@@ -2551,7 +2562,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2575,7 +2586,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2599,7 +2610,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2669,6 +2680,7 @@
 		};
 		BB7F62102688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -2708,7 +2720,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2726,7 +2738,7 @@
 				CODE_SIGN_ENTITLEMENTS = iSHFileProviderRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2829,7 +2841,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2843,7 +2855,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2855,7 +2867,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 405;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -2870,7 +2882,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2893,7 +2905,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2917,7 +2929,7 @@
 				CODE_SIGN_ENTITLEMENTS = app/FileProvider/iSHFileProvider.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 403;
+				CURRENT_PROJECT_VERSION = 406;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				INFOPLIST_FILE = app/FileProvider/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK.FileProvider";
@@ -2986,6 +2998,7 @@
 		};
 		BBEF19B626806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = BB0B86D52587009D00208600 /* iOS.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";

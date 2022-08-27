@@ -76,7 +76,10 @@ struct PaletteTextFields {
         _paletteTextFields[i].cursorTextField = [self detailTextFieldWithText:palette.cursorColor monospaced:YES];
         NSMutableArray<UITextField *> *textFields = [NSMutableArray new];
         for (int j = 0; j < COLORS; ++j) {
-            [textFields addObject:[self detailTextFieldWithText:palette.colorPaletteOverrides ? palette.colorPaletteOverrides[j] : nil monospaced: YES]];
+            UITextField *textField = [self detailTextFieldWithText:palette.colorPaletteOverrides ? palette.colorPaletteOverrides[j] : nil monospaced: YES];
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            [textFields addObject:textField];
         }
         _paletteTextFields[i].colorTextFields = textFields;
     }
@@ -175,6 +178,14 @@ enum {
         default:
             return nil;
     }
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return UITableViewAutomaticDimension;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return UITableViewAutomaticDimension;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -281,17 +292,10 @@ enum {
 - (void)textFieldChanged:(UITextField *)sender {
     // Hack to keep the keyboard up across a table view update
     UITextRange *selectedRange = sender.isFirstResponder ? sender.selectedTextRange : nil;
-    UITextField *dummy;
-    if (selectedRange) {
-        dummy = [UITextField new];
-        [self.view addSubview:dummy];
-        [dummy becomeFirstResponder];
-    }
     [self validateTheme];
     if (selectedRange) {
         [sender becomeFirstResponder];
         [sender setSelectedTextRange:selectedRange];
-        [dummy removeFromSuperview];
     }
 }
 

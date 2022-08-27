@@ -157,15 +157,18 @@ struct task *task_create_(struct task *parent) {
 void task_destroy(struct task *task) {
     int elock_fail = 0;
     if(doEnableExtraLocking)
-        elock_fail = extra_lockf(task->pid);
+        elock_fail = extra_lockf(task->pid, __FILE__, __LINE__);
     
     while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
 
     bool IShould = false;
-    if(!trylock(&pids_lock)) {  // Non blocking, just in case, be sure pids_lock is set.  -mke
-       printk("WARNING: pids_lock was not set\n");
+    if(!trylock(&pids_lock)) {  // Just in case, be sure pids_lock is set.  -mke
+        
+        // Multiple threads in the same process tend to cause deadlocks when locking pids_lock.  So we skip the second attempt to lock pids_lock by the same pid.  Which
+        // sometimes causes pids_lock not to be set.  We lock it here, and then unlock below.  -mke
+       // printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
        IShould = true;
     }
     
@@ -182,7 +185,7 @@ void task_destroy(struct task *task) {
     }
     list_remove(&pid->alive);
     if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid);
+        extra_unlockf(task->pid, __FILE__, __LINE__);
     
     if(IShould)
         unlock(&pids_lock);
@@ -288,7 +291,8 @@ void update_thread_name() {
 /* Let me be clear here.  The following two functions (extra_lockf() & extra_unlockf() are horrible hacks.  
    If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
    years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
-int extra_lockf(dword_t pid) {
+int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    return 0; // Disabled for now -mke
     //if(current != NULL)
         ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     //pthread_mutex_lock(&extra_lock);
@@ -306,12 +310,12 @@ int extra_lockf(dword_t pid) {
         time(&newest_extra_lock_time); // Initialize
     
     unsigned int count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/2;
+    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
     struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - WAIT_SLEEP);  // As sleep time increases, decrease acceptable loops.  -mke
     
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(extra_lockf) has exceeded %d seconds (%d). Resetting\n", maxl, now - newest_extra_lock_time);
+        printk("ERROR: The newest_extra_lock time(extra_lockf) has exceeded %d seconds (%d). (%s:%d) Resetting\n", maxl, now - newest_extra_lock_time, file, line);
         pthread_mutex_unlock(&extra_lock);
         
         while(pthread_mutex_trylock(&extra_lock)) {
@@ -319,7 +323,7 @@ int extra_lockf(dword_t pid) {
             nanosleep(&mylock_pause, NULL);
             //mylock_pause.tv_nsec+=10;
             if(count > count_max) {
-                printk("ERROR: Possible deadlock(extra_lockf(), aborted lock attempt(PID: %d Process: %s)\n", current_pid(), current_comm() );
+                printk("ERROR: Possible deadlock(extra_lockf(), aborted lock attempt(PID: %d Process: %s) (%s:%d)\n", current_pid(), current_comm(), file, line );
                 extra_lock_pid = 0;
                 strcpy(extra_lock_comm, "");
                 pthread_mutex_unlock(&extra_lock);
@@ -340,7 +344,7 @@ int extra_lockf(dword_t pid) {
         nanosleep(&mylock_pause, NULL);
         //mylock_pause.tv_nsec+=10;
         if(count > count_max) {
-            printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d )\n", extra_lock_pid);
+            printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d) (%s:%d)\n", extra_lock_pid, file, line);
             extra_lock_pid = 0;
             pthread_mutex_unlock(&extra_lock);
             strcpy(extra_lock_comm, "");
@@ -351,7 +355,7 @@ int extra_lockf(dword_t pid) {
 
     if(count > count_max * .90) {
         //printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
-        printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d)\n",count, extra_lock_pid);
+        printk("WARNING: large lock attempt count(Function: extra_lockf(%x) PID: %d) (%s:%d)\n",count, extra_lock_pid, file, line);
     }
     
     time(&newest_extra_lock_time);  // Update time
@@ -360,16 +364,17 @@ int extra_lockf(dword_t pid) {
     return 0;
 }
 
-void extra_unlockf(dword_t pid) {
+void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    return; // Disabled for now.  -mke
     if(current != NULL)
-        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+       modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     pthread_mutex_unlock(&extra_lock);
     if(current != NULL)
-        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    
+       modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    extra_lock_held = false;
     return;
     
-    time_t now;
+    /* time_t now;
     time(&now);
     if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
         printk("ERROR: The newest_extra_lock time(unlockf) has exceeded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
@@ -397,4 +402,5 @@ void extra_unlockf(dword_t pid) {
     extra_lock_held = false; //
     current->locks_held.count--;
     return;
+     */
 }

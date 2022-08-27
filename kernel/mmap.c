@@ -45,19 +45,19 @@ void mm_release(struct mm *mm) {
     if (--mm->refcount == 0) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
-        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+        while((critical_region_count(current) > 1) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         
         if(doEnableExtraLocking)
-            extra_lockf(0);
+            extra_lockf(0, __FILE__, __LINE__);
         mem_destroy(&mm->mem);
-        while(critical_region_count(current) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
+        while((critical_region_count(current) > 1) || (current->process_info_being_read)) { // Wait for now, task is in one or more critical sections
             nanosleep(&lock_pause, NULL);
         }
         free(mm);
         if(doEnableExtraLocking)
-           extra_unlockf(0);
+           extra_unlockf(0, __FILE__, __LINE__);
     }
 }
 
@@ -135,7 +135,7 @@ dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid) {
             errno = ENOSYS;
             return -1;
         default:
-            //atomic_thread_fence(__ATOMIC_SEQ_CST);
+            atomic_thread_fence(__ATOMIC_SEQ_CST);
             __asm__ __volatile__("" : : : "memory");
     }
     return 0;

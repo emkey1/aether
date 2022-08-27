@@ -469,7 +469,7 @@ struct sighand *sighand_copy(struct sighand *sighand) {
 }
 
 void sighand_release(struct sighand *sighand) {
-    while(critical_region_count(current) > 1) { // Wait for now, task is in one or more critical sections
+    while(critical_region_count(current) > 2) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
     if (--sighand->refcount == 0) {

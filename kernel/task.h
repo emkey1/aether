@@ -216,8 +216,8 @@ extern void (*exit_hook)(struct task *task, int code);
 void update_thread_name(void);
 
 // Functions to implement additional locking and unlocking -mke
-int extra_lockf(dword_t pid);
-void extra_unlockf(dword_t pid);
+int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line);
+void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line);
 
 // To collect statics on which tasks are blocked we need to proccess areas
 // of code which could block our task (e.g reads or writes). Before executing

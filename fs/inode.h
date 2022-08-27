@@ -49,6 +49,7 @@ struct file_lock {
     off_t_ end;
     int type;
     pid_t_ pid;
+    char comm[16];
     void *owner;
     struct list locks;
 };
@@ -59,6 +60,7 @@ struct flock_ {
     off_t_ start;
     off_t_ len;
     pid_t_ pid;
+    char comm[16];
 } __attribute__((packed));
 struct flock32_ {
     word_t type;
@@ -66,6 +68,7 @@ struct flock32_ {
     dword_t start;
     dword_t len;
     pid_t_ pid;
+    char comm[16];
 } __attribute__((packed));
 
 int fcntl_getlk(struct fd *fd, struct flock_ *flock);
