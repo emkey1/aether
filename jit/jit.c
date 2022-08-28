@@ -299,7 +299,7 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     tlb_refresh(tlb, cpu->mmu);
     //////modify_critical_region_counter(current, 1);
-    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022. -mke
+    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke
     cpu->trapno = interrupt;
 
     struct jit *jit = cpu->mmu->jit;
