@@ -230,6 +230,19 @@ void vec_madd_d128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
                   (int32_t)((int16_t)dst->u16[7] * (int16_t)src->u16[7]);
 }
 
+void vec_sumabs_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    uint32_t sum[2] = { 0, 0 };
+    for (unsigned i = 0; i < 8; i++) {
+        int32_t difflo = dst->u8[i + 0] - src->u8[i + 0];
+        int32_t diffhi = dst->u8[i + 8] - src->u8[i + 8];
+        sum[0] += (difflo < 0) ? -(uint32_t)difflo : difflo;
+        sum[1] += (diffhi < 0) ? -(uint32_t)diffhi : diffhi;
+    }
+    dst->u32[0] = sum[0];
+    dst->u32[2] = sum[1];
+    dst->u32[1] = dst->u32[3] = 0;
+}
+
 void vec_mulu_dq128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
     dst->qw[0] = (uint64_t) src->u32[0] * dst->u32[0];
     dst->qw[1] = (uint64_t) src->u32[2] * dst->u32[2];
@@ -456,6 +469,9 @@ void vec_unpackh_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
     dst->f64[0] = dst->f64[1];
     dst->f64[1] = src->f64[1];
 }
+void vec_movlh_ps128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    dst->qw[1] = src->qw[0];
+}
 
 void vec_packss_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
     dst->u32[0] = (satw(dst->u16[0]) << 0x00) | (satw(dst->u16[1]) << 0x08) |
@@ -522,6 +538,19 @@ void vec_compare_eqd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
  * step4:    00000000000000000000000000000000000000000000000000000000zzzzzzzz...
  * After step4, 8 bits at the end of each 64bit lane are loaded into dst.
  */
+void vec_compares_gtb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < array_size(src->u8); i++)
+        dst->u8[i] = (int8_t)dst->u8[i] > (int8_t)src->u8[i] ? ~0 : 0;
+}
+void vec_compares_gtw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < array_size(src->u16); i++)
+        dst->u16[i] = (int16_t)dst->u16[i] > (int16_t)src->u16[i] ? ~0 : 0;
+}
+void vec_compares_gtd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < array_size(src->u32); i++)
+        dst->u32[i] = (int32_t)dst->u32[i] > (int32_t)src->u32[i] ? ~0 : 0;
+}
+
 void vec_movmask_b128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
     *dst = 0;
 #if defined(__ARM_NEON__) && defined(__LITTLE_ENDIAN__)
