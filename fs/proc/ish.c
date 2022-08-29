@@ -8,6 +8,13 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#import <ifaddrs.h>
+#import <netinet/in.h>
+#import <sys/socket.h>
+#import <unistd.h>
+#import <net/if_var.h>
+#include <arpa/inet.h>
+
 const char *proc_ish_version = "";
 char **(*get_all_defaults_keys)(void);
 char *(*get_friendly_name)(const char *name);
@@ -145,6 +152,79 @@ static bool proc_ish_defaults_readdir(struct proc_entry *entry, unsigned long *i
     return true;
 }
 
+char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen) {
+    switch(sa->sa_family) {
+        case AF_INET:
+            inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
+                    s, maxlen);
+            break;
+
+        case AF_INET6:
+            inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
+                    s, maxlen);
+            break;
+
+        default:
+            strncpy(s, "Unknown AF", maxlen);
+            return NULL;
+    }
+
+    return s;
+}
+
+static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    //proc_printf(buf, "Iface        IP                                         Family    Flags   Broadcast    Mask        \n");
+    proc_printf(buf, "Iface        IP                                         Family    \n");
+    struct ifaddrs *addrs;
+    bool success = (getifaddrs(&addrs) == 0);
+    if (success) {
+        const struct ifaddrs *cursor = addrs;
+        char * type = malloc(9);
+        while (cursor != NULL) {
+            if ((cursor->ifa_addr->sa_family == AF_INET) || (cursor->ifa_addr->sa_family == AF_INET6)) {
+                char * int_ip = malloc(100);
+                char * int_broadcast = malloc(100);
+                if(cursor->ifa_addr->sa_family == AF_INET) {
+                    strcpy(type, "IF_INET");
+                } else {
+                    strcpy(type, "IF_INET6");
+                }
+                //cursor->ifa_addr->sa_family = AF_INET;
+                get_ip_str(cursor->ifa_addr, int_ip, 100);
+                if(cursor->ifa_dstaddr != NULL) {
+                    if(cursor->ifa_dstaddr->sa_family == AF_INET) {
+                        strcpy(type, "IF_INET");
+                    } else {
+                        strcpy(type, "IF_INET6");
+                        cursor->ifa_dstaddr->sa_family = AF_INET6;
+                    }
+                    get_ip_str(cursor->ifa_dstaddr, int_broadcast, 100);
+                } else {
+                    strcpy(int_broadcast," ");
+                }
+                /*proc_printf(buf, "%-10.10s   %-40s   %-8s  %-x     %-40s     %8.8d\n",
+                            cursor->ifa_name,
+                            int_ip,
+                            type,
+                            cursor->ifa_flags,
+                            int_broadcast,
+                            cursor->ifa_netmask
+                            ); */
+                proc_printf(buf, "%-10.10s   %-40s   %-8s\n",
+                            cursor->ifa_name,
+                            int_ip,
+                            type
+                );
+                free(int_ip);
+            }
+            cursor = cursor->ifa_next;
+        }
+        freeifaddrs(addrs);
+        free(type);
+    }
+    return 0;
+}
+
 static int proc_ish_show_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     proc_printf(buf, "%s\n", proc_ish_version);
     return 0;
@@ -155,5 +235,6 @@ struct proc_children proc_ish_children = PROC_CHILDREN({
     {".defaults", S_IFDIR, .readdir = proc_ish_underlying_defaults_readdir},
     {"defaults", S_IFDIR, .readdir = proc_ish_defaults_readdir},
     {"documents", .show = proc_ish_show_documents},
+    {"ips", .show = proc_ish_show_ips},
     {"version", .show = proc_ish_show_version},
 });
