@@ -100,7 +100,6 @@ static int proc_show_route(struct proc_entry *UNUSED(entry), struct proc_data *b
                 proc_printf(buf, "%-6.6s   %8.8d       %8.8x    %+4.4x     %1.1d         %3.3d    %8.8d  %8.8d    %1.1d   %1.1d         %1.1d\n",
                             cursor->ifa_name,
                             (unsigned long)0, // Destination
-                            //cursor->ifa_addr, // Gateway
                             (unsigned long)0, // Gateway IP
                             cursor->ifa_flags,
                             (unsigned long)0, //RefCnt
