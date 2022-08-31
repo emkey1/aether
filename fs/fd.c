@@ -75,10 +75,12 @@ static int fdtable_close(struct fdtable *table, fd_t f);
 
 // FIXME this looks like it has the classic refcount UAF
 void fdtable_release(struct fdtable *table) {
+    // mkefee
     lock(&table->lock, 0);
     if (--table->refcount == 0) {
-        for (fd_t f = 0; (unsigned) f < table->size; f++)
+        for (fd_t f = 0; (unsigned) f < table->size; f++) {
             fdtable_close(table, f);
+        }
         free(table->files);
         free(table->cloexec);
         unlock(&table->lock);

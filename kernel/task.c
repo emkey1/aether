@@ -163,13 +163,13 @@ void task_destroy(struct task *task) {
         nanosleep(&lock_pause, NULL);
     }
 
-    bool IShould = false;
+    bool Ishould = false;
     if(!trylock(&pids_lock)) {  // Just in case, be sure pids_lock is set.  -mke
         
         // Multiple threads in the same process tend to cause deadlocks when locking pids_lock.  So we skip the second attempt to lock pids_lock by the same pid.  Which
         // sometimes causes pids_lock not to be set.  We lock it here, and then unlock below.  -mke
        // printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
-       IShould = true;
+       Ishould = true;
     }
     
     while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
@@ -187,7 +187,7 @@ void task_destroy(struct task *task) {
     if((doEnableExtraLocking) && (!elock_fail))
         extra_unlockf(task->pid, __FILE__, __LINE__);
     
-    if(IShould)
+    if(Ishould)
         unlock(&pids_lock);
     
     while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks

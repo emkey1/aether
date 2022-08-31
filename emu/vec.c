@@ -37,8 +37,7 @@ static inline uint32_t satub(uint32_t dw) {
         dw = 0xff;
     return dw;
 }
-static inline uint32_t satsb(uint32_t dw)
-{
+static inline uint32_t satsb(uint32_t dw) {
     if (dw > 0xffffff80)
         dw &= 0xff;
     else if (dw > 0x7fffffff)

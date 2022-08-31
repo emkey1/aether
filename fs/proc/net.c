@@ -85,6 +85,15 @@ static int proc_show_udp6(struct proc_entry *UNUSED(entry), struct proc_data *UN
     return 0;
 }
 
+// /proc/net/arp?
+/*
+IP address       HW type     Flags       HW address            Mask     Device
+192.168.36.53    0x1         0x2         a0:8e:78:2f:1d:68     *        eth0
+192.168.1.10     0x1         0x2         ac:d1:b8:ac:d9:fe     *        wlan0
+192.168.36.1     0x1         0x2         20:6d:31:01:65:75     *        eth0
+192.168.1.59     0x1         0x2         a4:11:62:05:34:99     *        wlan0
+*/
+
 static int proc_show_route(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     
     proc_printf(buf, "Iface    Destination    Gateway     Flags    RefCnt    Use    Metric    Mask        MTU    Window    IRTT \n");

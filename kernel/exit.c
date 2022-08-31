@@ -51,6 +51,10 @@ static struct task *find_new_parent(struct task *task) {
 
 noreturn void do_exit(int status) {
     current->exiting = true;
+    if(!strcmp(current->comm, "rustc")) {
+        struct timespec lock_pause = {120 /*secs*/, WAIT_SLEEP /*nanosecs*/};
+        nanosleep(&lock_pause, NULL);
+    }
     // has to happen before mm_release
     while((critical_region_count(current) > 1) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
     //while(critical_region_count(current)) {
