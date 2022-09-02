@@ -57,7 +57,7 @@ static int proc_show_arp(struct proc_entry * UNUSED(entry), struct proc_data *bu
      10.211.55.1      0x1         0x2         00:1c:42:00:00:18     *        eth0
      */
     proc_printf(buf, "IP address       HW type     Flags       HW address            Mask     Device\n");
-    proc_printf(buf, "192.168.1.1      0x1         0x2         00:1c:00:00:00:00     *        en0\n");
+    proc_printf(buf, "192.168.1.1      0x1         0x2         00:BE:EF:CA:FE:00     *        en0\n");
     return 0;
 }
 
@@ -85,14 +85,6 @@ static int proc_show_udp6(struct proc_entry *UNUSED(entry), struct proc_data *UN
     return 0;
 }
 
-// /proc/net/arp?
-/*
-IP address       HW type     Flags       HW address            Mask     Device
-192.168.36.53    0x1         0x2         a0:8e:78:2f:1d:68     *        eth0
-192.168.1.10     0x1         0x2         ac:d1:b8:ac:d9:fe     *        wlan0
-192.168.36.1     0x1         0x2         20:6d:31:01:65:75     *        eth0
-192.168.1.59     0x1         0x2         a4:11:62:05:34:99     *        wlan0
-*/
 
 static int proc_show_route(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     

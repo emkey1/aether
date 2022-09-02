@@ -268,7 +268,7 @@ char *parse_if_flags(int flags) {
 
 static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     //proc_printf(buf, "Iface        IP                                         Family    Flags   Broadcast    Mask        \n");
-    proc_printf(buf, "Iface        IP                                         Family    Flags\n");
+    proc_printf(buf, "Iface        IP                                         Broedcast                                   Family    Flags\n");
     struct ifaddrs *addrs;
     bool success = (getifaddrs(&addrs) == 0);
     if (success) {
@@ -277,7 +277,7 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
         while (cursor != NULL) {
             if ((cursor->ifa_addr->sa_family == AF_INET) || (cursor->ifa_addr->sa_family == AF_INET6)) {
                 char * int_ip = malloc(100);
-                char * int_broadcast = malloc(100);
+                char * int_dstaddr = malloc(100);
                 if(cursor->ifa_addr->sa_family == AF_INET) {
                     strcpy(type, "IF_INET");
                 } else {
@@ -285,6 +285,7 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
                 }
                 //cursor->ifa_addr->sa_family = AF_INET;
                 get_ip_str(cursor->ifa_addr, int_ip, 100);
+                char * mac = malloc(100);
                 if(cursor->ifa_dstaddr != NULL) {
                     if(cursor->ifa_dstaddr->sa_family == AF_INET) {
                         strcpy(type, "IF_INET");
@@ -292,9 +293,9 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
                         strcpy(type, "IF_INET6");
                         cursor->ifa_dstaddr->sa_family = AF_INET6;
                     }
-                    get_ip_str(cursor->ifa_dstaddr, int_broadcast, 100);
+                    get_ip_str(cursor->ifa_dstaddr, int_dstaddr, 100);
                 } else {
-                    strcpy(int_broadcast," ");
+                    strcpy(int_dstaddr," ");
                 }
                 char * int_flags = malloc(250);
                 int_flags = parse_if_flags(cursor->ifa_flags);
@@ -303,12 +304,13 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
                             int_ip,
                             type,
                             cursor->ifa_flags,
-                            int_broadcast,
+                            int_dstaddr,
                             cursor->ifa_netmask
                             ); */
-                proc_printf(buf, "%-10.10s   %-40s   %-8s  %-60s\n",
+                proc_printf(buf, "%-10.10s   %-40s   %-40s    %-8s  %-60s\n",
                             cursor->ifa_name,
                             int_ip,
+                            int_dstaddr,
                             type,
                             int_flags
                 );
