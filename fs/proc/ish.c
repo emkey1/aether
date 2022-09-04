@@ -268,7 +268,7 @@ char *parse_if_flags(int flags) {
 
 static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     //proc_printf(buf, "Iface        IP                                         Family    Flags   Broadcast    Mask        \n");
-    proc_printf(buf, "Iface        IP                                         Broedcast                                   Family    Flags\n");
+    proc_printf(buf, "Iface        IP                                         Broedcast/Multicast                         Family    Flags\n");
     struct ifaddrs *addrs;
     bool success = (getifaddrs(&addrs) == 0);
     if (success) {

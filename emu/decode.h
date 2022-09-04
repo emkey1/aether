@@ -423,6 +423,8 @@ restart:
                            READMODRM; V_OP(mulu, xmm_modrm_val, xmm_modrm_reg, 128); break;
                 case 0xe6: TRACEI("cvttpd2dq xmm:modrm, xmm");
                            READMODRM; V_OP(cvttpd2dq, xmm_modrm_val, xmm_modrm_reg,64); break;
+		case 0xe7: TRACEI("movntdq xmm:modrm, xmm");
+                           READMODRM_MEM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
                 case 0xe8: TRACEI("psubsb xmm:modrm, xmm");
                            READMODRM; V_OP(subss_b, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xe9: TRACEI("psubsw xmm:modrm, xmm");
@@ -527,6 +529,9 @@ restart:
 
                 case 0xe5: TRACEI("pmulhw mm:modrm, mm");
                            READMODRM; V_OP(mulu, mm_modrm_val, mm_modrm_reg,64); break;
+
+                case 0xe7: TRACEI("movntq mm:modrm, mm");
+                           READMODRM_MEM; VMOV(mm_modrm_reg, mm_modrm_val,64); break;
 
                 case 0xef: TRACEI("pxor mm:modrm, mm");
                            READMODRM; V_OP(xor, mm_modrm_val, mm_modrm_reg,64); break;
