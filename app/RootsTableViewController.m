@@ -90,11 +90,9 @@
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error;
-        BOOL success = NO;
-        if ([url startAccessingSecurityScopedResource]) {
-            success = [Roots.instance importRootFromArchive:url name:name error:&error progressReporter:progressVC];
-            [url stopAccessingSecurityScopedResource];
-        }
+        [url startAccessingSecurityScopedResource];
+        BOOL success = [Roots.instance importRootFromArchive:url name:name error:&error progressReporter:progressVC];
+        [url stopAccessingSecurityScopedResource];
         dispatch_async(dispatch_get_main_queue(), ^{
             [progressVC dismissViewControllerAnimated:YES completion:^{
                 if (!success && error != nil)
