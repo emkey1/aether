@@ -189,6 +189,7 @@ syscall_t syscall_table[] = {
     [264] = (syscall_t) sys_clock_settime,
     [265] = (syscall_t) sys_clock_gettime,
     [266] = (syscall_t) sys_clock_getres,
+    [267] = (syscall_t) syscall_stub, // lookup_dcookie
     [268] = (syscall_t) sys_statfs64,
     [269] = (syscall_t) sys_fstatfs64,
     [270] = (syscall_t) sys_tgkill,
@@ -196,6 +197,7 @@ syscall_t syscall_table[] = {
     [272] = (syscall_t) syscall_success_stub,
     [274] = (syscall_t) sys_mbind,
     [284] = (syscall_t) sys_waitid,
+    [288] = (syscall_t) syscall_stub, // sys_keyctl
     [289] = (syscall_t) sys_ioprio_set,
     [290] = (syscall_t) sys_ioprio_get,
     [291] = (syscall_t) syscall_stub, // inotify_init
@@ -234,6 +236,7 @@ syscall_t syscall_table[] = {
     [332] = (syscall_t) syscall_stub, // inotify_init1
     [336] = (syscall_t) syscall_stub, // perf_event_open
     [340] = (syscall_t) sys_prlimit64,
+    [341] = (syscall_t) syscall_stub, // signalfd4
     [345] = (syscall_t) sys_sendmmsg,
     [347] = (syscall_t) syscall_stub, // process_vm_readv
     [352] = (syscall_t) syscall_stub, // sched_getattr
@@ -258,6 +261,9 @@ syscall_t syscall_table[] = {
     [377] = (syscall_t) sys_copy_file_range,
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
+    [403] = (syscall_t) syscall_stub,
+    [407] = (syscall_t) syscall_stub,
+    [436] = (syscall_t) syscall_stub,
     [439] = (syscall_t) syscall_stub_silent, // faccessat2
 };
 
@@ -328,7 +334,7 @@ void handle_interrupt(int interrupt) {
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
-        printk("WARNING: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
+        printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
         for (int i = 0; i < 8; i++) {
             uint8_t b;
             if (user_get(cpu->eip + i, b))
