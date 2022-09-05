@@ -529,7 +529,6 @@ restart:
 
                 case 0xe5: TRACEI("pmulhw mm:modrm, mm");
                            READMODRM; V_OP(mulu, mm_modrm_val, mm_modrm_reg,64); break;
-
                 case 0xe7: TRACEI("movntq mm:modrm, mm");
                            READMODRM_MEM; VMOV(mm_modrm_reg, mm_modrm_val,64); break;
 
@@ -933,6 +932,14 @@ restart:
                     case 0xd87: TRACE("fdivr st(i), st"); FDIVR(st_i, st_0); break;
                     case 0xd90: TRACE("fld st(i)"); FLD(); break;
                     case 0xd91: TRACE("fxch st"); FXCH(); break;
+                    case 0xda0: TRACE("fcmovb st, st(i)"); FCMOVB(st_i); break;
+                    case 0xda1: TRACE("fcmove st, st(i)"); FCMOVE(st_i); break;
+                    case 0xda2: TRACE("fcmovbe st, st(i)"); FCMOVBE(st_i); break;
+                    case 0xda3: TRACE("fcmovu st, st(i)"); FCMOVU(st_i); break;
+                    case 0xdb0: TRACE("fcmovnb st, st(i)"); FCMOVNB(st_i); break;
+                    case 0xdb1: TRACE("fcmovne st, st(i)"); FCMOVNE(st_i); break;
+                    case 0xdb2: TRACE("fcmovnbe st, st(i)"); FCMOVNBE(st_i); break;
+                    case 0xdb3: TRACE("fcmovnu st, st(i)"); FCMOVNU(st_i); break;
                     case 0xdb5: TRACE("fucomi st"); FUCOMI(); break;
                     case 0xdb6: TRACE("fcomi st"); FCOMI(); break;
                     case 0xdc0: TRACE("fadd st, st(i)"); FADD(st_0, st_i); break;
@@ -1180,6 +1187,8 @@ restart:
                                    READMODRM; V_OP(cvtsi2ss, modrm_val, xmm_modrm_reg,32); break;
                         case 0x2c: TRACEI("cvttss2si reg, xmm:modrm");
                                    READMODRM; V_OP(cvttss2si, xmm_modrm_val, modrm_reg,32); break;
+                        case 0x51: TRACEI("sqrtss xmm:modrm, xmm");
+                                   READMODRM; V_OP(single_fsqrt, xmm_modrm_val, xmm_modrm_reg,32); break;
                         case 0x5a: TRACEI("cvtss2sd xmm:modrm, xmm");
                                    READMODRM; V_OP(cvtss2sd, xmm_modrm_val, xmm_modrm_reg,32); break;
                         case 0x5b: TRACEI("cvttps2dq xmm:modrm, xmm");
@@ -1191,9 +1200,12 @@ restart:
                                    READMODRM; V_OP(single_fmul, xmm_modrm_val, xmm_modrm_reg,32); break;
                         case 0x5c: TRACEI("subss xmm:modrm, xmm");
                                    READMODRM; V_OP(single_fsub, xmm_modrm_val, xmm_modrm_reg,32); break;
+                        case 0x5d: TRACEI("minss xmm:modrm, xmm");
+                                   READMODRM; V_OP(single_fmin, xmm_modrm_val, xmm_modrm_reg,32); break;
                         case 0x5e: TRACEI("divss xmm:modrm, xmm");
                                    READMODRM; V_OP(single_fdiv, xmm_modrm_val, xmm_modrm_reg,32); break;
-
+                        case 0x5f: TRACEI("maxss xmm:modrm, xmm");
+                                   READMODRM; V_OP(single_fmax, xmm_modrm_val, xmm_modrm_reg,32); break;
                         case 0x6f: TRACEI("movdqu xmm:modrm, xmm");
                                    READMODRM; VMOV(xmm_modrm_val, xmm_modrm_reg,128); break;
 
@@ -1214,6 +1226,9 @@ restart:
                                    READMODRM; BSF(modrm_val, modrm_reg,oz); break;
                         case 0xbd: TRACEI("~~lzcnt~~ bsr modrm, reg");
                                    READMODRM; BSR(modrm_val, modrm_reg,oz); break;
+
+                        case 0xc2: TRACEI("cmpss xmm:modrm, xmm, imm8");
+                                   READMODRM; READIMM8; V_OP_IMM(single_fcmp, xmm_modrm_val, xmm_modrm_reg,32); break;
 
                         default: TRACE("undefined"); UNDEFINED;
                     }
