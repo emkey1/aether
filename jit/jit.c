@@ -263,17 +263,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
-<<<<<<< HEAD
-        if(block != NULL) {
-            interrupt = jit_enter(block, frame, tlb);
-        } else {
-            interrupt = INT_NONE; // Try to recover.  -mke
-        }
-=======
         interrupt = jit_enter(block, frame, tlb);
         if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
             interrupt = INT_TIMER;
->>>>>>> b58d576032c492ed2394027f6fbb2b909e9ecc74
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
         *cpu = frame->cpu;
@@ -283,6 +275,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     free(cache);
     read_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
     return interrupt;
+
 }
 
 static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
