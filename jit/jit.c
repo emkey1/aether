@@ -263,11 +263,17 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(), ip, frame->cpu.cycle);
 
+<<<<<<< HEAD
         if(block != NULL) {
             interrupt = jit_enter(block, frame, tlb);
         } else {
             interrupt = INT_NONE; // Try to recover.  -mke
         }
+=======
+        interrupt = jit_enter(block, frame, tlb);
+        if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
+            interrupt = INT_TIMER;
+>>>>>>> b58d576032c492ed2394027f6fbb2b909e9ecc74
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
         *cpu = frame->cpu;
@@ -297,6 +303,8 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 }
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    if (cpu->poked_ptr == NULL)
+        cpu->poked_ptr = &cpu->_poked;
     tlb_refresh(tlb, cpu->mmu);
     //////modify_critical_region_counter(current, 1);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke
@@ -321,4 +329,8 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     //////modify_critical_region_counter(current, -1);
 
     return interrupt;
+}
+
+void cpu_poke(struct cpu_state *cpu) {
+    __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
 }
