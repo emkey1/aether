@@ -643,16 +643,23 @@ void vec_fmovmask_d128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
     }
 }
 
+void vec_movl_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    dst->qw[0] = src->qw[0];
+}
+void vec_movl_mem_pd128(NO_CPU, const union xmm_reg *src, uint64_t *dst) {
+    *dst = src->qw[0];
+}
+
 void vec_extract_w128(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index) {
     *dst = src->u16[index % 8];
 }
 
 void vec_avg_b128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
-    for(unsigned i = 0; i < 16; i++)
+    for (unsigned i = 0; i < 16; i++)
         dst->u8[i] = (1 + dst->u8[i] + src->u8[i]) >> 1;
 }
 void vec_avg_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
-    for(unsigned i = 0; i < 8; i++)
+    for (unsigned i = 0; i < 8; i++)
         dst->u16[i] = (1 + dst->u16[i] + src->u16[i]) >> 1;
 }
 
