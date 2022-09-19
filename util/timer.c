@@ -32,7 +32,7 @@ void timer_free(struct timer *timer) {
 
 static void *timer_thread(void *param) {
     struct timer *timer = param;
-    lock(&timer->lock, 0);
+    lock(&timer->lock, 1);
     while (true) {
         struct timespec remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         while (timer->active && timespec_positive(remaining)) {

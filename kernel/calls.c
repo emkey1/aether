@@ -288,6 +288,7 @@ void handle_interrupt(int interrupt) {
             }
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
                 // Fail silently
+                //printk("WARNING:(PID: %d(%s)) silent stub syscall %d\n", current->pid, current->comm, syscall_num);
             }
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {

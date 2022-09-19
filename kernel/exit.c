@@ -189,6 +189,7 @@ noreturn void do_exit_group(int status) {
     
     list_for_each_entry(&group->threads, task, group_links) {
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
+        //printk("INFO: Killing %s(%d)\n", current->comm, current->pid);
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
     }

@@ -56,11 +56,8 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        //struct timespec abs_timeout; // Short circuit for now.  -mke
-        //abs_timeout.tv_sec = 50;
-        //abs_timeout.tv_nsec = 0;
-        //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &abs_timeout);
-        pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
+        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, timeout);
+        //pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -139,7 +136,9 @@ unsigned locks_held_count(struct task *task) {
 }
 
 unsigned locks_held_count_wrapper() { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-    return(locks_held_count(current));
+    if(current != NULL)
+        return(locks_held_count(current));
+    return 0;
 }
 
 void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
@@ -173,7 +172,9 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
 }
 
 void modify_critical_region_counter_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
-    modify_critical_region_counter(current, value, file, line);
+    if(current != NULL)
+        modify_critical_region_counter(current, value, file, line);
+    return;
 }
 
 void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
@@ -194,7 +195,9 @@ void modify_locks_held_count(struct task *task, int value) { // value Should onl
 }
 
 void modify_locks_held_count_wrapper(int value) { // sync.h can't know about the definition of struct due to recursive include files.  -mke
-    modify_locks_held_count(current, value);
+    if(current != NULL)
+        modify_locks_held_count(current, value);
+    return;
 }
 
 // This is how you would mitigate the unlock/wait race if the wait

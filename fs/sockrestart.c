@@ -49,12 +49,29 @@ void sockrestart_end_listen_wait(struct fd *sock) {
     unlock(&sockrestart_lock);
 }
 
-bool sockrestart_should_restart_listen_wait() {
+bool sockrestart_should_restart_listen_wait(int skip) {
     lock(&sockrestart_lock, 0);
     bool punt = current->sockrestart.punt;
+
     current->sockrestart.punt = false;
     unlock(&sockrestart_lock);
-    return punt;
+    
+    if(skip)
+        return punt;
+    
+    if(punt == false) {
+        current->stuck_count++;
+    } else {
+        current->stuck_count = 0;
+    }
+    
+    if(current->stuck_count < 3) {
+        return punt;
+    } else {
+        printk("INFO: punting (%s:%d) \n", current->comm, current->pid);
+        current->stuck_count = 0;
+        return true;
+    }
 }
 
 struct saved_socket {
