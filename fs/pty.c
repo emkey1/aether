@@ -281,7 +281,7 @@ static int devpts_readdir(struct fd *fd, struct dir_entry *entry) {
     sprintf(entry->name, "%d", pty_num);
     entry->inode = pty_num + 3;
    // if (minor == DEV_PTMX_MINOR) 
-       ptmx_open(fd);
+       //ptmx_open(fd);
     return 1;
 }
 
