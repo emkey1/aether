@@ -181,7 +181,7 @@ static struct fd *devpts_open(struct mount *UNUSED(mount), const char *path, int
         return ERR_PTR(_ENOENT);
     struct fd *fd = fd_create(&devpts_fdops);
     fd->devpts.num = pty_num;
-    printk("INFO: devpts (%s:%d) %d\n", current->comm, current->pid, pty_num);
+    // printk("INFO: devpts (%s:%d) %d\n", current->comm, current->pid, pty_num);
     return fd;
 }
 
