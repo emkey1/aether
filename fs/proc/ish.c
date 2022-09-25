@@ -115,6 +115,7 @@ struct proc_dir_entry proc_ish_underlying_defaults_fd = { NULL,
     .update = proc_ish_underlying_defaults_update,
     .unlink = proc_ish_underlying_defaults_unlink,
 };
+
 struct proc_dir_entry proc_ish_defaults_fd = { NULL, S_IFLNK,
     .getname = proc_ish_defaults_getname,
     .readlink = proc_ish_defaults_readlink,
@@ -157,13 +158,11 @@ static bool proc_ish_defaults_readdir(struct proc_entry *entry, unsigned long *i
 char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen) {
     switch(sa->sa_family) {
         case AF_INET:
-            inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
-                    s, maxlen);
+            inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr), s, maxlen);
             break;
 
         case AF_INET6:
-            inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
-                    s, maxlen);
+            inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr), s, maxlen);
             break;
 
         default:

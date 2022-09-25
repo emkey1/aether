@@ -37,6 +37,7 @@ typedef struct {
     struct lock_debug {
         const char *file; // doubles as locked
         int line;
+        int pid;
         bool initialized;
     } debug;
 #endif

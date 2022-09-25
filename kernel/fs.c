@@ -93,6 +93,15 @@ fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode) {
     return sys_openat(AT_FDCWD_, path_addr, flags, mode);
 }
 
+fd_t sys_creat(addr_t path_addr, mode_t_ mode) {
+    dword_t flags = 0;
+    flags |= O_CREAT_;
+    flags |= O_WRONLY_;
+    flags |= O_TRUNC_;
+    return sys_openat(AT_FDCWD_, path_addr, flags, mode);
+}
+
+
 dword_t sys_readlinkat(fd_t at_f, addr_t path_addr, addr_t buf_addr, dword_t bufsize) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))

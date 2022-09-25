@@ -108,6 +108,7 @@ int_t sys_eventfd(uint_t initval);
 
 // file management
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode);
+fd_t sys_creat(addr_t path_addr, mode_t_ mode);
 fd_t sys_openat(fd_t at, addr_t path_addr, dword_t flags, mode_t_ mode);
 dword_t sys_close(fd_t fd);
 dword_t sys_link(addr_t src_addr, addr_t dst_addr);
