@@ -343,11 +343,19 @@ void vec_min_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
             dst->u8[i] = src->u8[i];
 #endif
 }
-
 void vec_max_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
     for (unsigned i = 0; i < array_size(src->u8); i++)
         if (src->u8[i] > dst->u8[i])
             dst->u8[i] = src->u8[i];
+}
+void vec_mins_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < 8; i++)
+        dst->u16[i] = (int16_t)dst->u16[i] < (int16_t)src->u16[i] ? dst->u16[i] : src->u16[i];
+}
+
+void vec_maxs_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < 8; i++)
+        dst->u16[i] = (int16_t)dst->u16[i] > (int16_t)src->u16[i] ? dst->u16[i] : src->u16[i];
 }
 
 static bool cmpd(double a, double b, int type) {
@@ -361,7 +369,6 @@ static bool cmpd(double a, double b, int type) {
     if (type >= 4) res = !res;
     return res;
 }
-
 static bool cmps(float a, float b, int type) {
     bool res;
     switch (type % 4) {

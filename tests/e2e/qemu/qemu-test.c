@@ -2466,11 +2466,11 @@ void test_sse(void)
 
     SSE_OP2(psubsb);
     SSE_OP2(psubsw);
-    // MMX_OP2(pminsw);
+    SSE_OP2(pminsw);
     SSE_OP2(por);
     SSE_OP2(paddsb);
     SSE_OP2(paddsw);
-    // MMX_OP2(pmaxsw);
+    SSE_OP2(pmaxsw);
     MMX_OP2(pxor);
     MMX_OP2(pmuludq);
     SSE_OP2(pmaddwd);

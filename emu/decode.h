@@ -433,12 +433,16 @@ restart:
                            READMODRM; V_OP(subss_b, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xe9: TRACEI("psubsw xmm:modrm, xmm");
                            READMODRM; V_OP(subss_w, xmm_modrm_val, xmm_modrm_reg,128); break;
+                case 0xea: TRACEI("pminsw xmm:modrm, xmm");
+                           READMODRM; V_OP(mins_w, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xeb: TRACEI("por xmm:modrm, xmm");
                            READMODRM; V_OP(or, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xec: TRACEI("paddsb xmm:modrm, xmm");
                            READMODRM; V_OP(addss_b, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xed: TRACEI("paddsw xmm:modrm, xmm");
                            READMODRM; V_OP(addss_w, xmm_modrm_val, xmm_modrm_reg,128); break;
+                case 0xee: TRACEI("pmaxsw xmm:modrm, xmm");
+                           READMODRM; V_OP(maxs_w, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xef: TRACEI("pxor xmm:modrm, xmm");
                            READMODRM; V_OP(xor, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xf3: TRACEI("psllq xmm:modrm, xmm");
