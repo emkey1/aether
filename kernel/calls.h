@@ -57,6 +57,7 @@ int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
 int_t sys_mlock(addr_t addr, dword_t len);
+int_t sys_munlock(addr_t addr, dword_t len);
 int_t sys_msync(addr_t addr, dword_t len, int_t flags);
 dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid);
 
@@ -142,6 +143,7 @@ dword_t sys_chown32(addr_t path_addr, uid_t_ owner, uid_t_ group);
 dword_t sys_lchown(addr_t path_addr, uid_t_ owner, uid_t_ group);
 dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high);
 dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high);
+dword_t sys_ftruncate(fd_t f, dword_t size);
 dword_t sys_fallocate(fd_t f, dword_t mode, dword_t offset_low, dword_t offset_high, dword_t len_low, dword_t len_high);
 dword_t sys_mkdir(addr_t path_addr, mode_t_ mode);
 dword_t sys_mkdirat(fd_t at_f, addr_t path_addr, mode_t_ mode);

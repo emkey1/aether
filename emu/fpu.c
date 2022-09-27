@@ -65,19 +65,6 @@ void fpu_st(struct cpu_state *cpu, int i) {
     ST(i) = ST(0);
 }
 
-static inline void fmov(bool cond, struct cpu_state *cpu, int i) {
-    if (cond)
-        ST(0) = ST(i);
-}
-void fpu_cmovb(struct cpu_state *cpu, int i)   { fmov(cpu->cf, cpu, i); }
-void fpu_cmove(struct cpu_state *cpu, int i)   { fmov(cpu->zf, cpu, i); }
-void fpu_cmovbe(struct cpu_state *cpu, int i)  { fmov(cpu->cf | cpu->zf, cpu, i); }
-void fpu_cmovu(struct cpu_state *cpu, int i)   { fmov(cpu->pf, cpu, i); }
-void fpu_cmovnb(struct cpu_state *cpu, int i)  { fmov(!cpu->cf, cpu, i); }
-void fpu_cmovne(struct cpu_state *cpu, int i)  { fmov(!cpu->zf, cpu, i); }
-void fpu_cmovnbe(struct cpu_state *cpu, int i) { fmov(!(cpu->cf | cpu->zf), cpu, i); }
-void fpu_cmovnu(struct cpu_state *cpu, int i)  { fmov(!cpu->pf, cpu, i); }
-
 void fpu_ist16(struct cpu_state *cpu, int16_t *i) {
     int64_t res = f80_to_int(ST(0));
     if (res < INT16_MIN || res > INT16_MAX)
@@ -104,6 +91,22 @@ void fpu_stm80(struct cpu_state *cpu, float80 *f) {
     // intel guarantees this will only write 10 bytes, not 12 or anything weird like that
     memcpy(f, &ST(0), 10);
 }
+
+// moves
+
+#define FCMOVcc(instr, cond) \
+    void fpu_cmov##instr(struct cpu_state *cpu, int i) { \
+        if (cond) \
+            ST(0) = ST(i); \
+    }
+FCMOVcc(b, cpu->cf)
+FCMOVcc(e, cpu->zf)
+FCMOVcc(be, cpu->cf | cpu->zf)
+FCMOVcc(u, cpu->pf)
+FCMOVcc(nb, !cpu->cf)
+FCMOVcc(ne, !cpu->zf)
+FCMOVcc(nbe, !(cpu->cf | cpu->zf))
+FCMOVcc(nu, !cpu->pf)
 
 // math
 

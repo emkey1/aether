@@ -88,6 +88,7 @@ syscall_t syscall_table[] = {
     [88]  = (syscall_t) sys_reboot,
     [90]  = (syscall_t) sys_mmap,
     [91]  = (syscall_t) sys_munmap,
+    [93]  = (syscall_t) sys_ftruncate,
     [94]  = (syscall_t) sys_fchmod,
     [96]  = (syscall_t) sys_getpriority,
     [97]  = (syscall_t) sys_setpriority,
@@ -117,6 +118,7 @@ syscall_t syscall_table[] = {
     [147] = (syscall_t) sys_getsid,
     [148] = (syscall_t) sys_fsync, // fdatasync
     [150] = (syscall_t) sys_mlock,
+    [151] = (syscall_t) sys_munlock,
     [152] = (syscall_t) syscall_stub, // mlockall
     [155] = (syscall_t) sys_sched_getparam,
     [156] = (syscall_t) sys_sched_setscheduler,
@@ -266,7 +268,7 @@ syscall_t syscall_table[] = {
     [403] = (syscall_t) syscall_stub, // clock_gettime64
     [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
     [436] = (syscall_t) syscall_stub,
-    [439] = (syscall_t) syscall_stub_silent, // faccessat2
+    [439] = (syscall_t) sys_faccessat, // faccessat2
 };
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))

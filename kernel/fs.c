@@ -102,6 +102,7 @@ fd_t sys_creat(addr_t path_addr, mode_t_ mode) {
 }
 
 
+
 dword_t sys_readlinkat(fd_t at_f, addr_t path_addr, addr_t buf_addr, dword_t bufsize) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
@@ -953,6 +954,14 @@ dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high) {
     if (fd == NULL)
         return _EBADF;
     return generic_fsetattr(fd, make_attr(size, size));
+}
+
+dword_t sys_ftruncate(fd_t f, dword_t size) { // In case we need to change it from what sys_ftruncate64 does.  -mke
+    off_t_ osize = (qword_t) size;
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return generic_fsetattr(fd, make_attr(size, osize));
 }
 
 dword_t sys_fallocate(fd_t f, dword_t UNUSED(mode), dword_t offset_low, dword_t offset_high, dword_t len_low, dword_t len_high) {
