@@ -56,6 +56,9 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot);
 int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
+long sys_get_mempolicy(int *mode, unsigned long *nodemask, unsigned long maxnode, void *addr, unsigned long flags);
+long sys_set_mempolicy(int mode, const unsigned long *nodemask, unsigned long maxnode);
+
 int_t sys_mlock(addr_t addr, dword_t len);
 int_t sys_munlock(addr_t addr, dword_t len);
 int_t sys_msync(addr_t addr, dword_t len, int_t flags);

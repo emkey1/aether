@@ -359,7 +359,7 @@ void vec_maxs_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
 }
 
 static bool cmpd(double a, double b, int type) {
-    bool res;
+    bool res = false;
     switch (type % 4) {
         case 0: res = a == b; break;
         case 1: res = a < b; break;
@@ -370,7 +370,7 @@ static bool cmpd(double a, double b, int type) {
     return res;
 }
 static bool cmps(float a, float b, int type) {
-    bool res;
+    bool res = false;
     switch (type % 4) {
         case 0: res = a == b; break;
         case 1: res = a < b; break;
