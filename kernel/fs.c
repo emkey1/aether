@@ -956,12 +956,11 @@ dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high) {
     return generic_fsetattr(fd, make_attr(size, size));
 }
 
-dword_t sys_ftruncate(fd_t f, dword_t size) { // In case we need to change it from what sys_ftruncate64 does.  -mke
-    off_t_ osize = (qword_t) size;
+dword_t sys_ftruncate(fd_t f, dword_t size) { 
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
-    return generic_fsetattr(fd, make_attr(size, osize));
+    return generic_fsetattr(fd, make_attr(size, size));
 }
 
 dword_t sys_fallocate(fd_t f, dword_t UNUSED(mode), dword_t offset_low, dword_t offset_high, dword_t len_low, dword_t len_high) {
