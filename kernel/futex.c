@@ -1,10 +1,39 @@
 #include "kernel/calls.h"
-
+#include "futex.h"
+// Apple doesn't implement futex, so we have to fake it
 #define FUTEX_WAIT_ 0
 #define FUTEX_WAKE_ 1
+#define FUTEX_FD_        2
 #define FUTEX_REQUEUE_ 3
+#define FUTEX_CMP_REQUEUE_    4
+#define FUTEX_WAKE_OP_        5
+#define FUTEX_LOCK_PI_        6
+#define FUTEX_UNLOCK_PI_        7
+#define FUTEX_TRYLOCK_PI_    8
+#define FUTEX_WAIT_BITSET_    9
+#define FUTEX_WAKE_BITSET_    10
+#define FUTEX_WAIT_REQUEUE_PI_    11
+#define FUTEX_CMP_REQUEUE_PI_    12
 #define FUTEX_PRIVATE_FLAG_ 128
-#define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_)
+#define FUTEX_CLOCK_REALTIME_    256
+
+#define FUTEX_CMD_MASK_        ~(FUTEX_PRIVATE_FLAG_ | FUTEX_CLOCK_REALTIME_)
+
+#define FUTEX_WAIT_PRIVATE_    (FUTEX_WAIT_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_WAKE_PRIVATE_    (FUTEX_WAKE_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_REQUEUE_PRIVATE_    (FUTEX_REQUEUE_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_CMP_REQUEUE_PRIVATE_ (FUTEX_CMP_REQUEUE_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_WAKE_OP_PRIVATE_    (FUTEX_WAKE_OP_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_LOCK_PI_PRIVATE_    (FUTEX_LOCK_PI_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_UNLOCK_PI_PRIVATE_    (FUTEX_UNLOCK_PI_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_TRYLOCK_PI_PRIVATE_ (FUTEX_TRYLOCK_PI_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_WAIT_BITSET_PRIVATE_    (FUTEX_WAIT_BITSET_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_WAKE_BITSET_PRIVATE_    (FUTEX_WAKE_BITSET_ | FUTEX_PRIVATE_FLAG_)
+#define FUTEX_WAIT_REQUEUE_PI_PRIVATE_    (FUTEX_WAIT_REQUEUE_PI_ | \
+                     FUTEX_PRIVATE_FLAG_)
+#define FUTEX_CMP_REQUEUE_PI_PRIVATE_    (FUTEX_CMP_REQUEUE_PI_ | \
+                     FUTEX_PRIVATE_FLAG_)
+//#define FUTEX_CMD_MASK_ ~(FUTEX_PRIVATE_FLAG_)
 
 extern bool doEnableMulticore;
 
@@ -168,12 +197,7 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
         timeout.tv_sec = timeout_.sec;
         timeout.tv_nsec = timeout_.nsec;
     }
-    if(op == 393) { // Hack to get aptitude working on Debian 10.  -mke
-        struct timespec mytime;  // Do evil stuff because it makes iSH-AOK work better. (I think) -mke
-        mytime.tv_sec = 0;
-        mytime.tv_nsec = 2000;
-        return futex_wait(uaddr, val, &mytime);
-    }
+    
     switch (op & FUTEX_CMD_MASK_) {
         case FUTEX_WAIT_:
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
@@ -191,6 +215,46 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
         case FUTEX_REQUEUE_:
             STRACE("futex(FUTEX_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
             return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, timeout_or_val2, uaddr2);
+        case FUTEX_FD_:
+            STRACE("Unimplemented futex(FUTEX_FD, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_FD) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_CMP_REQUEUE_:
+            STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_CMP_REQUEUE) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_WAKE_OP_:
+            STRACE("Unimplemented futex(FUTEX_WAKE_OP, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAKE_OP) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_LOCK_PI_:
+            STRACE("Unimplemented futex(FUTEX_LOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_LOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_UNLOCK_PI_:
+            STRACE("Unimplemented futex(FUTEX_UNLOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_UNLOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_TRYLOCK_PI_:
+            STRACE("Unimplemented futex(FUTEX_TRYLOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_TRYLOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_WAIT_BITSET_:
+            STRACE("Unimplemented futex(FUTEX_WAIT_BITSET, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAIT_BITSET) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_WAKE_BITSET_:
+            STRACE("Unimplemented futex(FUTEX_WAKE_BITSET, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAKE_BITSET) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_WAIT_REQUEUE_PI_:
+            STRACE("Unimplemented futex(FUTEX_WAIT_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAIT_REQUEUE_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
+        case FUTEX_CMP_REQUEUE_PI_:
+            STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_CMP_REQUEUE_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            return _ENOSYS;
     }
     STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
     FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
