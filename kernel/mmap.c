@@ -244,7 +244,19 @@ dword_t sys_mbind(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(mode),
     return 0;
 }
 
+long sys_get_mempolicy(int *UNUSED(mode), unsigned long *UNUSED(nodemask), unsigned long UNUSED(maxnode), void *UNUSED(addr), unsigned long UNUSED(flags)) {
+    return 0;
+}
+
+long sys_set_mempolicy(int UNUSED(mode), const unsigned long *UNUSED(nodemask), unsigned long UNUSED(maxnode)) {
+    return 0;
+}
+
 int_t sys_mlock(addr_t UNUSED(addr), dword_t UNUSED(len)) {
+    return 0;
+}
+
+int_t sys_munlock(addr_t UNUSED(addr), dword_t UNUSED(len)) {
     return 0;
 }
 

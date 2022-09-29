@@ -32,6 +32,7 @@ syscall_t syscall_table[] = {
     [5]   = (syscall_t) sys_open,
     [6]   = (syscall_t) sys_close,
     [7]   = (syscall_t) sys_waitpid,
+    [8]   = (syscall_t) sys_creat, // creat
     [9]   = (syscall_t) sys_link,
     [10]  = (syscall_t) sys_unlink,
     [11]  = (syscall_t) sys_execve,
@@ -87,6 +88,7 @@ syscall_t syscall_table[] = {
     [88]  = (syscall_t) sys_reboot,
     [90]  = (syscall_t) sys_mmap,
     [91]  = (syscall_t) sys_munmap,
+    [93]  = (syscall_t) sys_ftruncate,
     [94]  = (syscall_t) sys_fchmod,
     [96]  = (syscall_t) sys_getpriority,
     [97]  = (syscall_t) sys_setpriority,
@@ -116,6 +118,7 @@ syscall_t syscall_table[] = {
     [147] = (syscall_t) sys_getsid,
     [148] = (syscall_t) sys_fsync, // fdatasync
     [150] = (syscall_t) sys_mlock,
+    [151] = (syscall_t) sys_munlock,
     [152] = (syscall_t) syscall_stub, // mlockall
     [155] = (syscall_t) sys_sched_getparam,
     [156] = (syscall_t) sys_sched_setscheduler,
@@ -189,13 +192,17 @@ syscall_t syscall_table[] = {
     [264] = (syscall_t) sys_clock_settime,
     [265] = (syscall_t) sys_clock_gettime,
     [266] = (syscall_t) sys_clock_getres,
+    [267] = (syscall_t) syscall_stub, // lookup_dcookie
     [268] = (syscall_t) sys_statfs64,
     [269] = (syscall_t) sys_fstatfs64,
     [270] = (syscall_t) sys_tgkill,
     [271] = (syscall_t) sys_utimes,
     [272] = (syscall_t) syscall_success_stub,
     [274] = (syscall_t) sys_mbind,
+    [275] = (syscall_t) sys_get_mempolicy,
+    [276] = (syscall_t) sys_set_mempolicy,
     [284] = (syscall_t) sys_waitid,
+    [288] = (syscall_t) syscall_stub, // sys_keyctl
     [289] = (syscall_t) sys_ioprio_set,
     [290] = (syscall_t) sys_ioprio_get,
     [291] = (syscall_t) syscall_stub, // inotify_init
@@ -217,7 +224,7 @@ syscall_t syscall_table[] = {
     [311] = (syscall_t) sys_set_robust_list,
     [312] = (syscall_t) sys_get_robust_list,
     [313] = (syscall_t) sys_splice,
-    [314] = (syscall_t) syscall_stub, // sync_file_range
+    [314] = (syscall_t) syscall_stub_silent, // sync_file_range
     [318] = (syscall_t) syscall_success_stub, // getcpu
     [319] = (syscall_t) sys_epoll_pwait,
     [320] = (syscall_t) sys_utimensat,
@@ -234,11 +241,13 @@ syscall_t syscall_table[] = {
     [332] = (syscall_t) syscall_stub, // inotify_init1
     [336] = (syscall_t) syscall_stub, // perf_event_open
     [340] = (syscall_t) sys_prlimit64,
+    [341] = (syscall_t) syscall_stub, // signalfd4
     [345] = (syscall_t) sys_sendmmsg,
     [347] = (syscall_t) syscall_stub, // process_vm_readv
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
     [355] = (syscall_t) sys_getrandom,
+    [356] = (syscall_t) syscall_stub, // memfd_create
     [359] = (syscall_t) sys_socket,
     [360] = (syscall_t) sys_socketpair,
     [361] = (syscall_t) sys_bind,
@@ -258,7 +267,10 @@ syscall_t syscall_table[] = {
     [377] = (syscall_t) sys_copy_file_range,
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
-    [439] = (syscall_t) syscall_stub_silent, // faccessat2
+    [403] = (syscall_t) syscall_stub, // clock_gettime64
+    [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
+    [436] = (syscall_t) syscall_stub,
+    [439] = (syscall_t) sys_faccessat, // faccessat2
 };
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
@@ -282,6 +294,7 @@ void handle_interrupt(int interrupt) {
             }
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub_silent) {
                 // Fail silently
+                //printk("WARNING:(PID: %d(%s)) silent stub syscall %d\n", current->pid, current->comm, syscall_num);
             }
             lock(&current->ptrace.lock, 0);
             if (current->ptrace.stop_at_syscall) {
@@ -328,7 +341,7 @@ void handle_interrupt(int interrupt) {
             deliver_signal(current, SIGSEGV_, info);
         }
     } else if (interrupt == INT_UNDEFINED) {
-        printk("WARNING: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
+        printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
         for (int i = 0; i < 8; i++) {
             uint8_t b;
             if (user_get(cpu->eip + i, b))

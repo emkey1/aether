@@ -17,7 +17,7 @@
                <BreakpointActionProxy
                   ActionExtensionID = "Xcode.BreakpointAction.DebuggerCommand">
                   <ActionContent
-                     consoleCommand = "process handle SIGUSR1 -n true -p true -s false">
+                     consoleCommand = "process handle SIGUSR1 SIGPIPE -n true -p true -s false">
                   </ActionContent>
                </BreakpointActionProxy>
             </Actions>

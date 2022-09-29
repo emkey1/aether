@@ -181,6 +181,7 @@ static struct fd *devpts_open(struct mount *UNUSED(mount), const char *path, int
         return ERR_PTR(_ENOENT);
     struct fd *fd = fd_create(&devpts_fdops);
     fd->devpts.num = pty_num;
+    // printk("INFO: devpts (%s:%d) %d\n", current->comm, current->pid, pty_num);
     return fd;
 }
 
@@ -279,6 +280,8 @@ static int devpts_readdir(struct fd *fd, struct dir_entry *entry) {
     fd->offset = pty_num + 1;
     sprintf(entry->name, "%d", pty_num);
     entry->inode = pty_num + 3;
+   // if (minor == DEV_PTMX_MINOR) 
+       //ptmx_open(fd);
     return 1;
 }
 

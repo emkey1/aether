@@ -92,6 +92,22 @@ void fpu_stm80(struct cpu_state *cpu, float80 *f) {
     memcpy(f, &ST(0), 10);
 }
 
+// moves
+
+#define FCMOVcc(instr, cond) \
+    void fpu_cmov##instr(struct cpu_state *cpu, int i) { \
+        if (cond) \
+            ST(0) = ST(i); \
+    }
+FCMOVcc(b, cpu->cf)
+FCMOVcc(e, cpu->zf)
+FCMOVcc(be, cpu->cf | cpu->zf)
+FCMOVcc(u, cpu->pf)
+FCMOVcc(nb, !cpu->cf)
+FCMOVcc(ne, !cpu->zf)
+FCMOVcc(nbe, !(cpu->cf | cpu->zf))
+FCMOVcc(nu, !cpu->pf)
+
 // math
 
 void fpu_prem(struct cpu_state *cpu) {

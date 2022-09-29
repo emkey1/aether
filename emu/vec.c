@@ -37,8 +37,7 @@ static inline uint32_t satub(uint32_t dw) {
         dw = 0xff;
     return dw;
 }
-static inline uint32_t satsb(uint32_t dw)
-{
+static inline uint32_t satsb(uint32_t dw) {
     if (dw > 0xffffff80)
         dw &= 0xff;
     else if (dw > 0x7fffffff)
@@ -344,15 +343,34 @@ void vec_min_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
             dst->u8[i] = src->u8[i];
 #endif
 }
-
 void vec_max_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
     for (unsigned i = 0; i < array_size(src->u8); i++)
         if (src->u8[i] > dst->u8[i])
             dst->u8[i] = src->u8[i];
 }
+void vec_mins_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < 8; i++)
+        dst->u16[i] = (int16_t)dst->u16[i] < (int16_t)src->u16[i] ? dst->u16[i] : src->u16[i];
+}
+
+void vec_maxs_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst) {
+    for (unsigned i = 0; i < 8; i++)
+        dst->u16[i] = (int16_t)dst->u16[i] > (int16_t)src->u16[i] ? dst->u16[i] : src->u16[i];
+}
 
 static bool cmpd(double a, double b, int type) {
-    bool res;
+    bool res = false;
+    switch (type % 4) {
+        case 0: res = a == b; break;
+        case 1: res = a < b; break;
+        case 2: res = a <= b; break;
+        case 3: res = isnan(a) || isnan(b); break;
+    }
+    if (type >= 4) res = !res;
+    return res;
+}
+static bool cmps(float a, float b, int type) {
+    bool res = false;
     switch (type % 4) {
         case 0: res = a == b; break;
         case 1: res = a < b; break;
@@ -366,6 +384,9 @@ static bool cmpd(double a, double b, int type) {
 void vec_single_fcmp64(NO_CPU, const double *src, union xmm_reg *dst, uint8_t type) {
     dst->qw[0] = cmpd(dst->f64[0], *src, type) ? -1 : 0;
 }
+void vec_single_fcmp32(NO_CPU, const float *src, union xmm_reg *dst, uint8_t type) {
+    dst->u32[0] = cmps(dst->f32[0], *src, type) ? -1 : 0;
+}
 
 void vec_single_fadd64(NO_CPU, const double *src, double *dst) { *dst += *src; }
 void vec_single_fadd32(NO_CPU, const float *src, float *dst) { *dst += *src; }
@@ -377,11 +398,18 @@ void vec_single_fdiv64(NO_CPU, const double *src, double *dst) { *dst /= *src; }
 void vec_single_fdiv32(NO_CPU, const float *src, float *dst) { *dst /= *src; }
 
 void vec_single_fsqrt64(NO_CPU, const double *src, double *dst) { *dst = sqrt(*src); }
+void vec_single_fsqrt32(NO_CPU, const float *src, float *dst) { *dst = sqrtf(*src); }
 
 void vec_single_fmax64(NO_CPU, const double *src, double *dst) {
     if (*src > *dst || isnan(*src) || isnan(*dst)) *dst = *src;
 }
 void vec_single_fmin64(NO_CPU, const double *src, double *dst) {
+    if (*src < *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+}
+void vec_single_fmax32(NO_CPU, const float *src, float *dst) {
+    if (*src > *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+}
+void vec_single_fmin32(NO_CPU, const float *src, float *dst) {
     if (*src < *dst || isnan(*src) || isnan(*dst)) *dst = *src;
 }
 
@@ -644,16 +672,23 @@ void vec_fmovmask_d128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
     }
 }
 
+void vec_movl_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    dst->qw[0] = src->qw[0];
+}
+void vec_movl_mem_pd128(NO_CPU, const union xmm_reg *src, uint64_t *dst) {
+    *dst = src->qw[0];
+}
+
 void vec_extract_w128(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index) {
     *dst = src->u16[index % 8];
 }
 
 void vec_avg_b128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
-    for(unsigned i = 0; i < 16; i++)
+    for (unsigned i = 0; i < 16; i++)
         dst->u8[i] = (1 + dst->u8[i] + src->u8[i]) >> 1;
 }
 void vec_avg_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
-    for(unsigned i = 0; i < 8; i++)
+    for (unsigned i = 0; i < 8; i++)
         dst->u16[i] = (1 + dst->u16[i] + src->u16[i]) >> 1;
 }
 

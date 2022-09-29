@@ -99,7 +99,13 @@ int err_map(int err) {
 }
 
 int errno_map() {
-    if (errno == EPIPE)
-        send_signal(current, SIGPIPE_, SIGINFO_NIL);
+    if (errno == EPIPE) {
+        if(strcmp(current->comm, "dpkg-deb")) { // Ignore in the case of the dpkg-deb command so that apt will hopefully work.  -mke
+            send_signal(current, SIGPIPE_, SIGINFO_NIL);
+        } else {
+            printk("INFO: EPIPE in dpkg-deb (%d)\n", current->pid);
+            return(0);
+        }
+    }
     return err_map(errno);
 }

@@ -20,7 +20,7 @@ void sockrestart_begin_listen(struct fd *sock);
 void sockrestart_end_listen(struct fd *sock);
 void sockrestart_begin_listen_wait(struct fd *sock);
 void sockrestart_end_listen_wait(struct fd *sock);
-bool sockrestart_should_restart_listen_wait(void);
+bool sockrestart_should_restart_listen_wait(int);
 void sockrestart_on_suspend(void);
 void sockrestart_on_resume(void);
 

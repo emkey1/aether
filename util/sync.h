@@ -37,6 +37,7 @@ typedef struct {
     struct lock_debug {
         const char *file; // doubles as locked
         int line;
+        int pid;
         bool initialized;
     } debug;
 #endif
@@ -132,13 +133,16 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 }
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+    if(!log_lock)
+       modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_lock(&lock->m);
-    modify_locks_held_count_wrapper(1);
+    if(!log_lock)
+        modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
     strncpy(lock->comm, current_comm(), 16);
-    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    if(!log_lock)
+        modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     return;
 }
 
@@ -192,12 +196,12 @@ static inline void atomic_l_lockf(unsigned count, __attribute__((unused)) const 
             printk("ERROR: atomic_l_lockf max count attempts exceded(%d) (%s:%d)\n", myrand, file, line);
             pthread_mutex_unlock(&atomic_l_lock);
      //       //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
-            STRACE("\natomic_l_lockfE(%d)\n", count);
+            //STRACE("\natomic_l_lockf(%d)\n", count);
             return;
         }
         nanosleep(&lock_pause, NULL);
     }
-    STRACE("\natomic_l_lockf(%d)\n", count);
+    //STRACE("\natomic_l_lockf(%d)\n", count);
     ////modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
@@ -205,12 +209,29 @@ static inline void atomic_l_unlockf(void) {
     //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     pthread_mutex_unlock(&atomic_l_lock);
     modify_locks_held_count_wrapper(-1);
-    STRACE("atomic_l_unlockf()\n");
+    //STRACE("atomic_l_unlockf()\n");
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
 static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
+ /*   if((current_pid() == lock->pid) && current_pid() >9) {// Why would this happen?  -mke
+        if(lock->val == -1 ) { // Lock is not held
+            printk("WARNING: Read lock called by process(%s:%d) that already has write lock, called by (%s:%d)\n", current_comm(), current_pid(), file, line);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+            return;
+        } else if(lock->val > 1) {
+            printk("WARNING: Read lock called by process(%s:%d) that already has read lock, called by (%s:%d)\n", current_comm(), current_pid(), file, line);
+            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+            return;
+        }
+    }
+    pthread_rwlock_rdlock(&lock->l); // Short circuiting for now -mke
+    lock->val++;
+    modify_locks_held_count_wrapper(1); // No, it hasn't been granted yet, but since it can take some time, we set it here to avoid problems.  -mke
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    return;
+  */
     modify_locks_held_count_wrapper(1); // No, it hasn't been granted yet, but since it can take some time, we set it here to avoid problems.  -mke
     unsigned count = 0;
     int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP/4; // Try read locks more frequently -mke
@@ -319,7 +340,7 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         lock->val = 0;
         modify_locks_held_count_wrapper(-1);
         //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-        STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+        //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
     assert(lock->val > 0);
@@ -327,7 +348,7 @@ static inline void _read_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         printk("URGENT: read_unlock(%x) error(PID: %d Process: %s) (%s:%d)\n", lock, current_pid(), current_comm(), file, line);
     lock->val--;
     modify_locks_held_count_wrapper(-1);
-    STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
@@ -356,7 +377,7 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
     //assert(lock->val == -1);
     lock->val = lock->line = lock->pid = 0;
     strcpy(lock->comm, "");
-    STRACE("write_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("write_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     lock->file = NULL;
     modify_locks_held_count_wrapper(-1);
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -389,7 +410,7 @@ static inline void __write_lock(wrlock_t *lock, const char *file, int line) { //
     IhateC = current_comm();
     if(lock->pid > 9) 
         strncpy((char *)lock->comm, IhateC, 16);
-    STRACE("write_lock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("write_lock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
 }
 
@@ -416,7 +437,7 @@ static inline int trylockw(wrlock_t *lock, __attribute__((unused)) const char *f
 #endif
     if(status == 0)
         modify_locks_held_count_wrapper(1);
-    STRACE("trylockw(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("trylockw(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
     lock->pid = current_pid();
@@ -444,7 +465,7 @@ static inline int trylock(lock_t *lock, __attribute__((unused)) const char *file
        modify_locks_held_count_wrapper(1);
     
     //modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
-    STRACE("trylock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("trylock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     lock->pid = current_pid();
     strncpy(lock->comm, current_comm(), 16);
     return status;
@@ -546,14 +567,14 @@ static inline void _read_lock(wrlock_t *lock, __attribute__((unused)) const char
         printk("WARNING: _read_lock(%x) has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock, lock->file, lock->line,lock->pid, lock->comm);
         read_unlock_and_destroy(lock);
         modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-        STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+        //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
     
     lock->pid = current_pid();
     strncpy(lock->comm, current_comm(), 16);
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-    STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
 static inline void read_lock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrapper so that external calls lock, internal calls using _read_unlock() don't -mke

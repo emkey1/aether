@@ -30,6 +30,8 @@ struct task {
         pthread_mutex_t lock;
         unsigned count; // Count of locks held by current task
     } locks_held;
+    
+    int stuck_count;
 
     struct tgroup *group; // immutable
     struct list group_links;

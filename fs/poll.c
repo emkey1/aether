@@ -285,7 +285,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
       
             lock(&poll_->lock, 0);
-        } while (sockrestart_should_restart_listen_wait() && errno == EINTR);
+        } while (sockrestart_should_restart_listen_wait(1) && errno == EINTR);
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
             sockrestart_end_listen_wait(poll_fd->fd);
         }
