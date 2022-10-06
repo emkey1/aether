@@ -1,4 +1,4 @@
-# [iSH](https://ish.app)
+# [iSH-AOK](https://ish-aok.app)
 
 [![Build Status](https://travis-ci.org/ish-app/ish.svg?branch=master)](https://travis-ci.org/ish-app/ish)
 [![goto counter](https://img.shields.io/github/search/ish-app/ish/goto.svg)](https://github.com/ish-app/ish/search?q=goto)
@@ -16,7 +16,7 @@ For the current status of the project, check the issues tab, and the commit logs
 
 - [App Store page](https://apps.apple.com/us/app/ish-shell/id1436902243)
 - [TestFlight beta](https://testflight.apple.com/join/97i7KM8O)
-- [Discord server](https://discord.gg/HFAXj44)
+- [Discord server](https://discord.gg/RDEN5gJ4H6)
 - [Wiki with help and tutorials](https://github.com/ish-app/ish/wiki)
 - [README中文](https://github.com/ish-app/ish/blob/master/README_ZH.md) (如若未能保持最新，请提交PR以更新)
 
