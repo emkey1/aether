@@ -215,19 +215,17 @@ void task_run_current() {
     while (true) {
         read_lock(&current->mem->lock, __FILE__, __LINE__);
         
-        if(doEnableMulticore) {
-            // Do nothing
-        } else {
-            //pthread_mutex_lock(&multicore_lock);
+        if(!doEnableMulticore) {
             threaded_lock(&multicore_lock, 1);
         }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
         
+        read_unlock(&current->mem->lock, __FILE__, __LINE__);
+        
         if(!doEnableMulticore)
             pthread_mutex_unlock(&multicore_lock);
  
-        read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(current->parent != NULL) {
             current->parent->group->group_count_in_int++; // Keep track of how many children the parent has

@@ -51,10 +51,7 @@ static struct task *find_new_parent(struct task *task) {
 
 noreturn void do_exit(int status) {
     current->exiting = true;
-    if(!strcmp(current->comm, "rustc")) {
-        struct timespec lock_pause = {120 /*secs*/, WAIT_SLEEP /*nanosecs*/};
-        nanosleep(&lock_pause, NULL);
-    }
+    
     // has to happen before mm_release
     while((critical_region_count(current) > 1) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
     //while(critical_region_count(current)) {
@@ -186,7 +183,7 @@ noreturn void do_exit_group(int status) {
     //while((critical_region_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
      //   nanosleep(&lock_pause, NULL);
    // }
-    
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     list_for_each_entry(&group->threads, task, group_links) {
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         //printk("INFO: Killing %s(%d)\n", current->comm, current->pid);
@@ -196,6 +193,7 @@ noreturn void do_exit_group(int status) {
 
     unlock(&group->lock);
     unlock(&pids_lock);
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     do_exit(status);
 }
 

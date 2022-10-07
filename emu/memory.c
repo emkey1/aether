@@ -371,13 +371,14 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         if (entry->flags & P_COW) {
             lock(&current->general_lock, 0);  // prevent elf_exec from doing mm_release while we are in flight?  -mke
             //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+            read_to_write_lock(&mem->lock);
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
             //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 
             // copy/paste from above
-            read_to_write_lock(&mem->lock);
             modify_critical_region_counter(current, 1,__FILE__, __LINE__);
+            //read_to_write_lock(&mem->lock);
             memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
             modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);

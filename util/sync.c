@@ -57,6 +57,10 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #endif
     if (!timeout) {
         //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, timeout);
+        if(lock->pid == -1) {
+            // Weird
+        }
+            
         pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
     } else {
 #if __linux__

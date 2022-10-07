@@ -201,14 +201,14 @@ dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
     switch (op & FUTEX_CMD_MASK_) {
         case FUTEX_WAIT_:
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
-            if(!doEnableMulticore) {
-                struct timespec mytime;  // Do evil stuff because it makes iSH-AOK work better. (I think) -mke
-                mytime.tv_sec = 2;
-                mytime.tv_nsec = 0;
-                return futex_wait(uaddr, val, &mytime);
-            } else {
+           // if(!doEnableMulticore) {
+           //     struct timespec mytime;  // Do evil stuff because it makes iSH-AOK work better. (I think) -mke
+           //     mytime.tv_sec = 2;
+          //      mytime.tv_nsec = 0;
+           //     return futex_wait(uaddr, val, &mytime);
+           // } else {
                 return futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
-            }
+           // }
         case FUTEX_WAKE_:
             STRACE("futex(FUTEX_WAKE, %#x, %d)", uaddr, val);
             return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, 0, 0);
