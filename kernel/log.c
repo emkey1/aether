@@ -237,14 +237,18 @@ void die(const char *msg, ...) {
 
 // fun little utility function
 int current_pid() {
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     if(current != NULL) {
         if (current->exiting != true) {
-           return current->pid;
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            return current->pid;
         } else {
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
             return -1;
         }
     }
     
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     return -1;
 }
 

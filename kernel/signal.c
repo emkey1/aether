@@ -54,6 +54,9 @@ static int signal_action(struct sighand *sighand, int sig) {
 static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ info) {
     if (sigset_has(task->pending, sig))
         return;
+    
+    if(task->exiting)
+        return; // Do nothing when a task is in the process of exiting.  -mke
 
     sigset_add(&task->pending, sig);
     struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
@@ -102,12 +105,13 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
     // signal zero is for testing whether a process exists
+    if(task->exiting)
+        return;  // I'm not sure this is correct.  -mke
+    
     if(sig == 0)
         return;
     if(task->zombie)
         return;
-    if(task->exiting)
-        return;  // I'm not sure this is correct.  -mke
         
         
     //critical_region_count_increase(task);

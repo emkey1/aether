@@ -57,7 +57,12 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #endif
     if (!timeout) {
         //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, timeout);
-        if(lock->pid == -1) {
+        if(lock->pid == -1) {  // Something has gone wrong.  -mke
+            lock(&current->waiting_cond_lock, 0);
+            current->waiting_cond = NULL;
+            current->waiting_lock = NULL;
+            unlock(&current->waiting_cond_lock);
+            return _ETIMEDOUT;
             // Weird
         }
             
@@ -152,6 +157,8 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
         } else {
             return;
         }
+    } else if(task->exiting) { // Don't mess with tasks that are exiting.  -mke
+        return;
     }
     
     pthread_mutex_lock(&task->critical_region.lock);

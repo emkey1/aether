@@ -50,6 +50,11 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    //atomic_l_lockf(0,__FILE__, __LINE__);
+    pthread_mutex_lock(&current->death_lock);
+  //  if(!lock(current->death_lock))
+   //    return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+       
     current->exiting = true;
     
     // has to happen before mm_release
@@ -145,7 +150,7 @@ noreturn void do_exit(int status) {
             if (leader->exit_signal != 0)
                 send_signal(parent, leader->exit_signal, info);
         }
-
+        
         if (exit_hook != NULL)
             exit_hook(current, status);
     }
@@ -156,6 +161,7 @@ noreturn void do_exit(int status) {
         task_destroy(current);
     
     unlock(&pids_lock);
+    //atomic_l_unlockf();
 
     pthread_exit(NULL);
 }
