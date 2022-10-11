@@ -155,6 +155,9 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
+    if(!pthread_mutex_trylock(&task->death_lock))
+       return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+    task->exiting = true;
     int elock_fail = 0;
     if(doEnableExtraLocking)
         elock_fail = extra_lockf(task->pid, __FILE__, __LINE__);
@@ -168,7 +171,7 @@ void task_destroy(struct task *task) {
         
         // Multiple threads in the same process tend to cause deadlocks when locking pids_lock.  So we skip the second attempt to lock pids_lock by the same pid.  Which
         // sometimes causes pids_lock not to be set.  We lock it here, and then unlock below.  -mke
-       // printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
+       //printk("WARNING: pids_lock was not set (Me: %d:%s) (Current: %d:%s) (Last: %d:%s)\n", task->pid, task->comm, current->pid, current->comm, pids_lock.pid, pids_lock.comm);
        Ishould = true;
     }
     
@@ -215,19 +218,17 @@ void task_run_current() {
     while (true) {
         read_lock(&current->mem->lock, __FILE__, __LINE__);
         
-        if(doEnableMulticore) {
-            // Do nothing
-        } else {
-            //pthread_mutex_lock(&multicore_lock);
+        if(!doEnableMulticore) {
             threaded_lock(&multicore_lock, 1);
         }
         
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
         
+        read_unlock(&current->mem->lock, __FILE__, __LINE__);
+        
         if(!doEnableMulticore)
             pthread_mutex_unlock(&multicore_lock);
  
-        read_unlock(&current->mem->lock, __FILE__, __LINE__);
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(current->parent != NULL) {
             current->parent->group->group_count_in_int++; // Keep track of how many children the parent has

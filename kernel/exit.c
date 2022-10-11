@@ -50,11 +50,13 @@ static struct task *find_new_parent(struct task *task) {
 }
 
 noreturn void do_exit(int status) {
+    //atomic_l_lockf(0,__FILE__, __LINE__);
+    pthread_mutex_lock(&current->death_lock);
+  //  if(!lock(current->death_lock))
+   //    return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+       
     current->exiting = true;
-    if(!strcmp(current->comm, "rustc")) {
-        struct timespec lock_pause = {120 /*secs*/, WAIT_SLEEP /*nanosecs*/};
-        nanosleep(&lock_pause, NULL);
-    }
+    
     // has to happen before mm_release
     while((critical_region_count(current) > 1) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
     //while(critical_region_count(current)) {
@@ -148,7 +150,7 @@ noreturn void do_exit(int status) {
             if (leader->exit_signal != 0)
                 send_signal(parent, leader->exit_signal, info);
         }
-
+        
         if (exit_hook != NULL)
             exit_hook(current, status);
     }
@@ -159,6 +161,7 @@ noreturn void do_exit(int status) {
         task_destroy(current);
     
     unlock(&pids_lock);
+    //atomic_l_unlockf();
 
     pthread_exit(NULL);
 }
@@ -186,8 +189,9 @@ noreturn void do_exit_group(int status) {
     //while((critical_region_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
      //   nanosleep(&lock_pause, NULL);
    // }
-    
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     list_for_each_entry(&group->threads, task, group_links) {
+        task->exiting = true;
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         //printk("INFO: Killing %s(%d)\n", current->comm, current->pid);
         task->group->stopped = false;
@@ -196,6 +200,7 @@ noreturn void do_exit_group(int status) {
 
     unlock(&group->lock);
     unlock(&pids_lock);
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     do_exit(status);
 }
 
@@ -417,7 +422,7 @@ error:
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
     STRACE("waitid(%d, %d, %#x, %#x)", idtype, id, info_addr, options);
     struct siginfo_ info = {};
-    int_t res;
+    int_t res = 0;
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, NULL, options);
     }
@@ -448,7 +453,7 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
 
     struct siginfo_ info = {.child.pid = 0xbaba};
     struct rusage_ rusage;
-    int_t res;
+    int_t res = 0;
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, &rusage, options | WEXITED_);
     }

@@ -19,16 +19,18 @@ struct task {
     pthread_t thread;
     uint64_t threadid;
 
-    bool process_info_being_read; // Set when something like ps, top, etc wants to access task info.
+    bool process_info_being_read; // Set when something like ps, top, etc wants to access task info. -mke
+
+    pthread_mutex_t death_lock; // Set when process is about to be reaped.  Immediately cease all activity on this task.  -mke
     
     struct {
         pthread_mutex_t lock;
-        unsigned count; // If positive, don't delete yet, wait_to_delete
+        unsigned count; // If positive, don't delete yet, wait_to_delete -mke
     } critical_region;
     
     struct {
         pthread_mutex_t lock;
-        unsigned count; // Count of locks held by current task
+        unsigned count; // Count of locks held by current task =mke
     } locks_held;
     
     int stuck_count;
