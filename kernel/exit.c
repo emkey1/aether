@@ -191,6 +191,7 @@ noreturn void do_exit_group(int status) {
    // }
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     list_for_each_entry(&group->threads, task, group_links) {
+        task->exiting = true;
         deliver_signal(task, SIGKILL_, SIGINFO_NIL);
         //printk("INFO: Killing %s(%d)\n", current->comm, current->pid);
         task->group->stopped = false;
@@ -421,7 +422,7 @@ error:
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
     STRACE("waitid(%d, %d, %#x, %#x)", idtype, id, info_addr, options);
     struct siginfo_ info = {};
-    int_t res;
+    int_t res = 0;
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, NULL, options);
     }
@@ -452,7 +453,7 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
 
     struct siginfo_ info = {.child.pid = 0xbaba};
     struct rusage_ rusage;
-    int_t res;
+    int_t res = 0;
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, &rusage, options | WEXITED_);
     }
