@@ -51,9 +51,12 @@ static struct task *find_new_parent(struct task *task) {
 
 noreturn void do_exit(int status) {
     //atomic_l_lockf(0,__FILE__, __LINE__);
-    pthread_mutex_lock(&current->death_lock);
-  //  if(!lock(current->death_lock))
-   //    return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+   // pthread_mutex_lock(&current->death_lock);
+    if(!pthread_mutex_trylock(&current->death_lock)) {
+        goto EXIT;
+    } else {
+        //nanosleep(&lock_pause, NULL); // Stupid place holder
+    }
        
     current->exiting = true;
     
@@ -151,8 +154,8 @@ noreturn void do_exit(int status) {
                 send_signal(parent, leader->exit_signal, info);
         }
         
-        if (exit_hook != NULL)
-            exit_hook(current, status);
+        //if (exit_hook != NULL)
+         //   exit_hook(current, status);
     }
 
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -163,7 +166,7 @@ noreturn void do_exit(int status) {
     unlock(&pids_lock);
     //atomic_l_unlockf();
 
-    pthread_exit(NULL);
+EXIT:pthread_exit(NULL);
 }
 
 noreturn void do_exit_group(int status) {
@@ -198,9 +201,9 @@ noreturn void do_exit_group(int status) {
         notify(&task->group->stopped_cond);
     }
 
-    unlock(&group->lock);
     unlock(&pids_lock);
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    unlock(&group->lock);
     do_exit(status);
 }
 

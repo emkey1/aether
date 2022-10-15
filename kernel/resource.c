@@ -260,6 +260,13 @@ int_t sys_sched_get_priority_max(int_t policy) {
     return _EINVAL;
 }
 
+int_t sys_sched_get_priority_min(int_t policy) {
+    STRACE("sched_get_priority_min(%d)", policy);
+    if (policy == 0)
+        return 0;
+    return _EINVAL;
+}
+
 int_t sys_ioprio_get(int_t UNUSED(which), int_t UNUSED(who), int_t UNUSED(ioprio)) {
     return 0;
 }
