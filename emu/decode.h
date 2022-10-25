@@ -269,15 +269,18 @@ restart:
                            READMODRM; VMOV(xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0x11: TRACEI("movupd xmm, xmm:modrm");
                            READMODRM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
-                case 0x12: TRACEI("movlpd xmm, xmm:modrm");
-                           READMODRM; V_OP(movl_pd, xmm_modrm_val, xmm_modrm_reg,128); break;
-                case 0x13: TRACEI("movlpd xmm:modrm, reg");
-                           READMODRM; V_OP(movl_mem_pd, xmm_modrm_val, modrm_reg,128); break;
+                case 0x12: TRACEI("movlpd xmm, modrm");
+                           READMODRM; V_OP(movl_p, modrm_val, xmm_modrm_reg,64); break;
+                case 0x13: TRACEI("movlpd modrm, xmm");
+                           READMODRM; V_OP(movl_pm, xmm_modrm_reg, modrm_val,64); break;
                 case 0x14: TRACEI("unpcklpd xmm, xmm:modrm");
                            READMODRM; V_OP(unpackl_pd, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0x15: TRACEI("unpckhpd xmm, xmm:modrm");
                            READMODRM; V_OP(unpackh_pd, xmm_modrm_val, xmm_modrm_reg,128); break;
-
+                case 0x16: TRACEI("movhpd xmm, modrm");
+                           READMODRM; V_OP(movh_p, modrm_val, xmm_modrm_reg,64); break;
+                case 0x17: TRACEI("movhpd modrm, xmm");
+                           READMODRM; V_OP(movh_pm, xmm_modrm_reg, modrm_val,64); break;
                 case 0x2e: TRACEI("ucomisd xmm, xmm:modrm");
                            READMODRM; V_OP(single_ucomi, xmm_modrm_val, xmm_modrm_reg,64); break;
                 case 0x2f: TRACEI("comisd xmm, xmm:modrm");
@@ -427,8 +430,8 @@ restart:
                            READMODRM; V_OP(mulu, xmm_modrm_val, xmm_modrm_reg, 128); break;
                 case 0xe6: TRACEI("cvttpd2dq xmm:modrm, xmm");
                            READMODRM; V_OP(cvttpd2dq, xmm_modrm_val, xmm_modrm_reg,64); break;
-		case 0xe7: TRACEI("movntdq xmm:modrm, xmm");
-                           READMODRM_MEM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
+                case 0xe7: TRACEI("movntdq xmm, xmm:modrm");
+                           READMODRM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
                 case 0xe8: TRACEI("psubsb xmm:modrm, xmm");
                            READMODRM; V_OP(subss_b, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0xe9: TRACEI("psubsw xmm:modrm, xmm");
@@ -472,14 +475,18 @@ restart:
                            READMODRM; VMOV(xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0x11: TRACEI("movups xmm, xmm:modrm");
                            READMODRM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
-
+                case 0x12: TRACEI("movlps xmm, modrm");
+                           READMODRM; V_OP(movl_p, modrm_val, xmm_modrm_reg,64); break;
+                case 0x13: TRACEI("movlps modrm, xmm");
+                           READMODRM; V_OP(movl_pm, xmm_modrm_reg, modrm_val,64); break;
                 case 0x14: TRACEI("unpcklps xmm, xmm:modrm");
                            READMODRM; V_OP(unpackl_ps, xmm_modrm_val, xmm_modrm_reg,128); break;
                 case 0x15: TRACEI("unpckhps xmm, xmm:modrm");
                            READMODRM; V_OP(unpackh_ps, xmm_modrm_val, xmm_modrm_reg,128); break;
-                case 0x16: TRACEI("movlhps xmm, xmm:modrm");
-                           READMODRM; V_OP(movlh_ps, xmm_modrm_val, xmm_modrm_reg,128); break;
-
+                case 0x16: TRACEI("movhps xmm, modrm");
+                           READMODRM; V_OP(movh_p, modrm_val, xmm_modrm_reg,64); break;
+                case 0x17: TRACEI("movhps modrm, xmm");
+                           READMODRM; V_OP(movh_pm, xmm_modrm_reg, modrm_val,64); break;
                 case 0x2e: TRACEI("ucomiss xmm, xmm:modrm");
                            READMODRM; V_OP(single_ucomi, xmm_modrm_val, xmm_modrm_reg,32); break;
                 case 0x2f: TRACEI("comiss xmm, xmm:modrm");
@@ -537,9 +544,8 @@ restart:
 
                 case 0xe5: TRACEI("pmulhw mm:modrm, mm");
                            READMODRM; V_OP(mulu, mm_modrm_val, mm_modrm_reg,64); break;
-                case 0xe7: TRACEI("movntq mm:modrm, mm");
+                case 0xe7: TRACEI("movntq mm, mm:modrm");
                            READMODRM_MEM; VMOV(mm_modrm_reg, mm_modrm_val,64); break;
-
                 case 0xef: TRACEI("pxor mm:modrm, mm");
                            READMODRM; V_OP(xor, mm_modrm_val, mm_modrm_reg,64); break;
 
