@@ -162,8 +162,10 @@ void task_destroy(struct task *task) {
     if(doEnableExtraLocking)
         elock_fail = extra_lockf(task->pid, __FILE__, __LINE__);
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    bool signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
 
     bool Ishould = false;
@@ -175,16 +177,19 @@ void task_destroy(struct task *task) {
        Ishould = true;
     }
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
-        nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
     list_remove(&pid->alive);
     if((doEnableExtraLocking) && (!elock_fail))
@@ -193,14 +198,17 @@ void task_destroy(struct task *task) {
     if(Ishould)
         unlock(&pids_lock);
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    
+    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked); // Be less stringent -mke
     }
     
     free(task);
 }
 
-void run_at_boot() {  // Stuff we run only once, at boot time.
+void run_at_boot(void) {  // Stuff we run only once, at boot time.
     //atomic_thread_fence(__ATOMIC_SEQ_CST);
     struct uname uts;
     do_uname(&uts);

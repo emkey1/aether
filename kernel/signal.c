@@ -32,6 +32,10 @@ static int signal_is_blockable(int sig) {
 static int signal_action(struct sighand *sighand, int sig) {
     if (signal_is_blockable(sig)) {
         struct sigaction_ *action = &sighand->action[sig];
+        if(sig > 63) // Bogus -mke
+            //return SIGNAL_IGNORE;
+            return 0;
+        
         if (action->handler == SIG_IGN_)
             return SIGNAL_IGNORE;
         if (action->handler != SIG_DFL_)
@@ -117,7 +121,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     //critical_region_count_increase(task);
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
-    if (signal_action(sighand, sig) != SIGNAL_IGNORE) {
+    if ((signal_action(sighand, sig) != SIGNAL_IGNORE) && (task->pid <= MAX_PID)) { // Deal with normal and crazy.  -mke
         deliver_signal_unlocked(task, sig, info);
     }
     unlock(&sighand->lock);

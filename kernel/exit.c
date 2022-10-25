@@ -60,10 +60,11 @@ noreturn void do_exit(int status) {
        
     current->exiting = true;
     
+    bool signal_pending = !!(current->pending & ~current->blocked);
     // has to happen before mm_release
-    while((critical_region_count(current) > 1) || locks_held_count(current) || current->process_info_being_read) { // Wait for now, task is in one or more critical sections, and/or has locks
-    //while(critical_region_count(current)) {
+    while((critical_region_count(current) > 1) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     addr_t clear_tid = current->clear_tid;
     if (clear_tid) {
@@ -75,25 +76,31 @@ noreturn void do_exit(int status) {
     // release all our resources
     do {
         nanosleep(&lock_pause, NULL);
-    } while((critical_region_count(current) > 1) || (locks_held_count(current))); // Wait for now, task is in one or more critical sections, and/or has locks
+        signal_pending = !!(current->pending & ~current->blocked);
+    } while((critical_region_count(current) > 1) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)); // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
     mm_release(current->mm);
     current->mm = NULL;
-    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(current) > 1) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     fdtable_release(current->files);
     current->files = NULL;
-    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     fs_info_release(current->fs);
     current->fs = NULL;
+    signal_pending = !!(current->pending & ~current->blocked);
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
     //while(critical_region_count(current)) {
-    while((critical_region_count(current) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while((critical_region_count(current) > 1) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     // save things that our parent might be interested in
     current->exit_code = status; // FIXME locking
@@ -107,9 +114,10 @@ noreturn void do_exit(int status) {
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     // release the sighand
-    //while(critical_region_count(current)) {
-    while((critical_region_count(current) > 2) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(current) > 2) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     sighand_release(current->sighand);
     current->sighand = NULL;
@@ -129,8 +137,11 @@ noreturn void do_exit(int status) {
         list_add(&new_parent->children, &child->siblings);
     }
     
-    while((critical_region_count(current) > 2) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    
+    while((critical_region_count(current) > 2) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
     }
     
     if (exit_tgroup(current)) {
@@ -154,8 +165,8 @@ noreturn void do_exit(int status) {
                 send_signal(parent, leader->exit_signal, info);
         }
         
-        //if (exit_hook != NULL)
-         //   exit_hook(current, status);
+        if (exit_hook != NULL)
+            exit_hook(current, status);
     }
 
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -204,7 +215,8 @@ noreturn void do_exit_group(int status) {
     unlock(&pids_lock);
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     unlock(&group->lock);
-    do_exit(status);
+    if(current->pid <= MAX_PID) // abort if crazy.  -mke
+        do_exit(status);
 }
 
 // always called from init process
