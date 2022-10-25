@@ -383,7 +383,7 @@ void handle_interrupt(int interrupt) {
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
 }
 
-void dump_maps() {
+void dump_maps(void) {
     extern void proc_maps_dump(struct task *task, struct proc_data *buf);
     struct proc_data buf = {};
     proc_maps_dump(current, &buf);
