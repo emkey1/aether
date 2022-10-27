@@ -158,9 +158,6 @@ void task_destroy(struct task *task) {
     if(!pthread_mutex_trylock(&task->death_lock))
        return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
     task->exiting = true;
-    int elock_fail = 0;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(task->pid, __FILE__, __LINE__);
     
     bool signal_pending = !!(current->pending & ~current->blocked);
     while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
@@ -192,8 +189,6 @@ void task_destroy(struct task *task) {
         signal_pending = !!(current->blocked);
     }
     list_remove(&pid->alive);
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid, __FILE__, __LINE__);
     
     if(Ishould)
         unlock(&pids_lock);
@@ -251,17 +246,10 @@ void task_run_current() {
 static void *task_thread(void *task) {
     
     current = task;
-    // int elock_fail = 0;
     
     current->critical_region.count = 0; // Is this needed?  -mke
     
-    //////modify_critical_region_counter(task, 1);
-   // if(doEnableExtraLocking)
-    //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    //////modify_critical_region_counter(task, -1);
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(0);
     
     task_run_current();
     die("task_thread returned"); // above function call should never return
