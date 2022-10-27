@@ -55,18 +55,36 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     struct lock_debug lock_tmp = lock->debug;
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
+    unsigned attempts = 0;
     if (!timeout) {
-        //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, timeout);
+        if(current->pid <= 20) {
+            pthread_cond_wait(&cond->cond, &lock->m);
+            goto SKIP;
+        }
+    AGAIN:
         if(lock->pid == -1) {  // Something has gone wrong.  -mke
             lock(&current->waiting_cond_lock, 0);
             current->waiting_cond = NULL;
             current->waiting_lock = NULL;
             unlock(&current->waiting_cond_lock);
-            return _ETIMEDOUT;
+            //return _ETIMEDOUT;
+            printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery", current->comm, current->pid);
+            return 0;
             // Weird
         }
-            
-        pthread_cond_wait(&cond->cond, &lock->m);// Sometimes things get stuck here for some reason.  -mke
+        struct timespec trigger_time;
+        clock_gettime(CLOCK_MONOTONIC, &trigger_time);
+        trigger_time.tv_sec = trigger_time.tv_sec + 6;
+        trigger_time.tv_nsec = 0;
+        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+        if(rc == ETIMEDOUT) {
+            attempts++;
+            if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke
+                goto AGAIN;
+            printk("ERROR: Deadlock in wait_for_ignore_signals() (%s:%d).  Attempting recovery", current->comm, current->pid);
+            //return _ETIMEDOUT;
+            return 0;
+        }
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -84,6 +102,8 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #error Unimplemented pthread_cond_wait relative timeout.
 #endif
     }
+    
+SKIP:
 #if LOCK_DEBUG
     lock->debug = lock_tmp;
 #endif
@@ -109,7 +129,7 @@ void notify_once(cond_t *cond) {
 __thread sigjmp_buf unwind_buf;
 __thread bool should_unwind = false;
 
-void sigusr1_handler() {
+void sigusr1_handler(void) {
     if (should_unwind) {
         should_unwind = false;
         siglongjmp(unwind_buf, 1);

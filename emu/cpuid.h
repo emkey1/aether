@@ -20,7 +20,7 @@ static inline void do_cpuid(dword_t *eax, dword_t *ebx, dword_t *ecx, dword_t *e
             *edx = (1 << 0) // fpu
                 | (1 << 15) // cmov
                 | (1 << 23) // mmx
-                | (1 << 25) // sse
+               // | (1 << 25) // sse
                 | (1 << 26) // sse2
                 ;
             break;
