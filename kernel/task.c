@@ -88,6 +88,15 @@ dword_t get_count_of_blocked_tasks() {
     return res;
 }
 
+dword_t zero_critical_regions_count(void) { // If doEnableExtraLocking is changed to false, we need to zero out critical_region.count for active processes
+    dword_t res = 0;
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        pid_entry->task->critical_region.count = 0;  // Bad things happen if this isn't done.  -mke
+    }
+    return 0;
+}
+
 dword_t get_count_of_alive_tasks() {
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     dword_t res = 0;
@@ -191,15 +200,15 @@ void task_destroy(struct task *task) {
     }
     list_remove(&pid->alive);
     
-    if(Ishould)
-        unlock(&pids_lock);
-    
     signal_pending = !!(current->pending & ~current->blocked);
     
     while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked); // Be less stringent -mke
     }
+    
+    if(Ishould)
+        unlock(&pids_lock);
     
     free(task);
 }
