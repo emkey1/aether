@@ -45,6 +45,10 @@
 static void ios_handle_exit(struct task *task, int code) {
     // we are interested in init and in children of init
     // this is called with pids_lock as an implementation side effect, please do not cite as an example of good API design
+    if(task->pid > MAX_PID) {// Corruption
+        printk("ERROR: Insane PID in ios_handle_exit(%d)\n", task->pid);
+        return;
+    }
     if (task->parent != NULL && task->parent->parent != NULL)
         return;
     // pid should be saved now since task would be freed

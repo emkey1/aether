@@ -204,6 +204,7 @@ struct task *pid_get_task_zombie(dword_t id); // don't return null if the task e
 
 dword_t get_count_of_blocked_tasks(void);
 dword_t get_count_of_alive_tasks(void);
+dword_t zero_critical_regions_count(void);
 
 #define MAX_PID (1 << 15) // oughta be enough
 

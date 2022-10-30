@@ -7,6 +7,13 @@
 
 #import "UserPreferences.h"
 #import "fs/proc/ish.h"
+#include "sync.h"
+#include "task.h"
+
+// Stuff to allow for cleaning up when doEnableExtraLocking is disabled.  -mke
+extern bool doEnableExtraLocking;
+extern lock_t pids_lock;
+extern struct list alive_pids_list;
 
 // IMPORTANT: If you add a constant here and expose it via UserPreferences,
 // consider if it also needs to be exposed as a friendly preference and included
@@ -438,6 +445,12 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldEnableExtraLocking:(id *)value error:(NSError **)error {
+    // Should set task->critical_region.count to 0 for all active processes when this is set to false.  Otherwise stuff blows up.  -mke
+    if(doEnableExtraLocking == true) {  // This needs to be the opposite of what you would expect because of reasons.  -mke
+        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+        dword_t res = zero_critical_regions_count();
+        unlock(&pids_lock);
+    }
     return [*value isKindOfClass:NSNumber.class];
 }
 

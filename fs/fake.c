@@ -356,10 +356,10 @@ static void __attribute__((constructor)) init_fake_fdops() {
 
 static int fakefs_mount(struct mount *mount) {
     char db_path[PATH_MAX];
-    strcpy(db_path, mount->source);
+    strncpy(db_path, mount->source, PATH_MAX -1);
     char *basename = strrchr(db_path, '/') + 1;
     assert(strcmp(basename, "data") == 0);
-    strcpy(basename, "meta.db");
+    strncpy(basename, "meta.db", 8);
 
     // do this now so rebuilding can use root_fd
     int err = realfs.mount(mount);

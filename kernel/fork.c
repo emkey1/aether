@@ -211,7 +211,7 @@ dword_t sys_vfork() {
 
 void vfork_notify(struct task *task) {
     lock(&task->general_lock, 0);
-    if (task->vfork) {
+    if ((task->vfork) && task->pid <= MAX_PID) { // If task->pid is large, badness.  -mke
         lock(&task->vfork->lock, 0);
         task->vfork->done = true;
         notify(&task->vfork->cond);

@@ -26,6 +26,7 @@ unsigned maxl = 10; // Max age of an extra_lock
 bool BOOTING = true;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
+bool isGlibC = false; // Try to guess if we're running a non musl distro.  -mke
 bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
 unsigned doLockSleepNanoseconds; // How many nanoseconds should __lock() sleep between retries
 
@@ -85,6 +86,15 @@ dword_t get_count_of_blocked_tasks() {
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     unlock(&pids_lock);
     return res;
+}
+
+dword_t zero_critical_regions_count(void) { // If doEnableExtraLocking is changed to false, we need to zero out critical_region.count for active processes
+    dword_t res = 0;
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        pid_entry->task->critical_region.count = 0;  // Bad things happen if this isn't done.  -mke
+    }
+    return 0;
 }
 
 dword_t get_count_of_alive_tasks() {
@@ -158,12 +168,11 @@ void task_destroy(struct task *task) {
     if(!pthread_mutex_trylock(&task->death_lock))
        return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
     task->exiting = true;
-    int elock_fail = 0;
-    if(doEnableExtraLocking)
-        elock_fail = extra_lockf(task->pid, __FILE__, __LINE__);
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    bool signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
 
     bool Ishould = false;
@@ -175,32 +184,36 @@ void task_destroy(struct task *task) {
        Ishould = true;
     }
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
-        nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked);
     }
     list_remove(&pid->alive);
-    if((doEnableExtraLocking) && (!elock_fail))
-        extra_unlockf(task->pid, __FILE__, __LINE__);
+    
+    signal_pending = !!(current->pending & ~current->blocked);
+    
+    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
+        nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->blocked); // Be less stringent -mke
+    }
     
     if(Ishould)
         unlock(&pids_lock);
     
-    while((critical_region_count(task) || (locks_held_count(task))) && (task->exiting == false)) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
-    
     free(task);
 }
 
-void run_at_boot() {  // Stuff we run only once, at boot time.
+void run_at_boot(void) {  // Stuff we run only once, at boot time.
     //atomic_thread_fence(__ATOMIC_SEQ_CST);
     struct uname uts;
     do_uname(&uts);
@@ -243,17 +256,10 @@ void task_run_current() {
 static void *task_thread(void *task) {
     
     current = task;
-    // int elock_fail = 0;
     
     current->critical_region.count = 0; // Is this needed?  -mke
     
-    //////modify_critical_region_counter(task, 1);
-   // if(doEnableExtraLocking)
-    //    elock_fail = extra_lockf(current->pid);
     update_thread_name();
-    //////modify_critical_region_counter(task, -1);
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(0);
     
     task_run_current();
     die("task_thread returned"); // above function call should never return

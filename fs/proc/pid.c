@@ -34,9 +34,6 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true))
         return _ESRCH;
-    //int elock_fail;
- //   if(doEnableExtraLocking)
-  //      elock_fail = extra_lockf(entry->pid);
         
     ////modify_critical_region_counter(task, 1, __FILE__, __LINE__);
     lock(&task->general_lock, 0);
@@ -114,9 +111,6 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // that's enough for now
     proc_printf(buf, "\n");
     
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(entry->pid);
-    
     //unlock(&task->sighand->lock);
     unlock(&task->group->lock);
     unlock(&task->general_lock);
@@ -175,10 +169,6 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     int err = 0;
     lock(&task->general_lock, 0);
     
-    //int elock_fail = 0;
-   // if(doEnableExtraLocking)
-    //    elock_fail = extra_lockf(task->pid);
-    
     if (task->mm == NULL)
         goto out_free_task;
 
@@ -195,10 +185,7 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 out_free_task:
     unlock(&task->general_lock);
     //proc_put_task(task);
-    ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
     
-    //if((doEnableExtraLocking) && (!elock_fail))
-     //   extra_unlockf(task->pid);
     return err;
 }
 
