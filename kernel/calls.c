@@ -7,16 +7,18 @@
 #include "kernel/task.h"
 #include "kernel/resource_locking.h"
 
-dword_t syscall_stub() {
+extern bool isGlibC;
+
+dword_t syscall_stub(void) {
     STRACE("syscall_stub()");
     //STRACE("syscall_stub()");
     return _ENOSYS;
 }
-dword_t syscall_stub_silent() {
+dword_t syscall_stub_silent(void) {
     STRACE("syscall_stub_silent()");
     return _ENOSYS;
 }
-dword_t syscall_success_stub() {
+dword_t syscall_success_stub(void) {
     STRACE("syscall_stub_success()");
     return 0;
 }

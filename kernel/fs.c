@@ -12,6 +12,7 @@
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
+extern bool isGlibC;
 
 static struct fd *at_fd(fd_t f) {
     if (f == AT_FDCWD_)
@@ -94,6 +95,7 @@ fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode) {
 }
 
 fd_t sys_creat(addr_t path_addr, mode_t_ mode) {
+    isGlibC = true; // In theory, musl should never call creat  -mk
     dword_t flags = 0;
     flags |= O_CREAT_;
     flags |= O_WRONLY_;

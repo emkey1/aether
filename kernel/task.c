@@ -26,6 +26,7 @@ unsigned maxl = 10; // Max age of an extra_lock
 bool BOOTING = true;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
+bool isGlibC = false; // Try to guess if we're running a non musl distro.  -mke
 bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
 unsigned doLockSleepNanoseconds; // How many nanoseconds should __lock() sleep between retries
 

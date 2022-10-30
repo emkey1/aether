@@ -7,6 +7,7 @@
 #include <string.h>
 
 int noprintk = 0; // Used to suprress calls to printk.  -mke
+extern bool doEnableExtraLocking;
 
 void cond_init(cond_t *cond) {
     pthread_condattr_t attr;
@@ -32,6 +33,7 @@ static bool is_signal_pending(lock_t *lock) {
 }
 
 void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
+    
     if(task == NULL) {
         if(current != NULL) {
             task = current;
@@ -41,6 +43,9 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     } else if(task->exiting) { // Don't mess with tasks that are exiting.  -mke
         return;
     }
+    
+    if((!doEnableExtraLocking) && (task->pid > 9))
+        return;
     
     pthread_mutex_lock(&task->critical_region.lock);
     
@@ -64,8 +69,9 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
 }
 
 void modify_critical_region_counter_wrapper(int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // sync.h can't know about the definition of task struct due to recursive include files.  -mke
-    if(current != NULL)
+    if((current != NULL) && (doEnableExtraLocking))
         modify_critical_region_counter(current, value, file, line);
+    
     return;
 }
 

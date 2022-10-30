@@ -28,7 +28,14 @@ struct jit *jit_new(struct mmu *mmu) {
     return jit;
 }
 
+
+
 void jit_free(struct jit *jit) {
+    bool signal_pending = !!(current->pending & ~current->blocked);
+    while((critical_region_count(current) > 2) || (locks_held_count(current)) || (current->process_info_being_read) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+        nanosleep(&lock_pause, NULL);
+        signal_pending = !!(current->pending & ~current->blocked);
+    }
     for (size_t i = 0; i < jit->hash_size; i++) {
         struct jit_block *block, *tmp;
         if (list_null(&jit->hash[i]))
