@@ -52,16 +52,17 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
         //int skipme = strcmp(task->comm, "init");
         //if((task->pid > 2) && (skipme != 0))  // Why ask why?  -mke
-        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
+        if(task->pid > 10)
+            printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
         return;
     }
     
     
-    if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
+    /* if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
         noprintk = 1; // Avoid recursive logging -mke
         printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count + value);
         noprintk = 0;
-    }
+    } */
     
     task->critical_region.count = task->critical_region.count + value;
         
@@ -139,7 +140,8 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
             current->waiting_lock = NULL;
             unlock(&current->waiting_cond_lock);
             //return _ETIMEDOUT;
-            printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
+            if(!strcmp("go", current->comm)) // go causes this a lot.  To no particularly positive effect -mke
+                printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
             unlock(lock);
             modify_critical_region_counter(current, -1,__FILE__, __LINE__);
             return 0;
@@ -152,7 +154,11 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         if((lock->pid == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
             goto AGAIN;  // Ugh.  -mke
         }
-        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+        if(lock->pid != -1) {
+            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+        } else {
+            return 0;  // More Kludgery.  -mke
+        }
         if(rc == ETIMEDOUT) {
             attempts++;
             if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke
@@ -232,6 +238,14 @@ unsigned critical_region_count(struct task *task) {
 unsigned critical_region_count_wrapper() { // sync.h can't know about the definition of struct due to recursive include files.  -mke
     return(critical_region_count(current));
 }
+
+bool current_is_valid(void) {
+    if(current != NULL)
+        return true;
+    
+    return false;
+}
+
 unsigned locks_held_count(struct task *task) {
    // return 0; // Short circuit for now
     if(task->pid < 10)  // Here be monsters.  -mke

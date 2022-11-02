@@ -23,6 +23,7 @@ extern void modify_critical_region_counter_wrapper(int, const char*, int);
 extern unsigned locks_held_count_wrapper(void);
 extern void modify_locks_held_count_wrapper(int);
 extern struct pid *pid_get(dword_t id);
+extern bool current_is_valid(void);
 
 extern struct timespec lock_pause;
 
