@@ -18,11 +18,6 @@ pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
 
-dword_t extra_lock_pid = -1;
-char extra_lock_comm[16] = "";
-bool extra_lock_held = false;
-time_t newest_extra_lock_time = 0;
-unsigned maxl = 10; // Max age of an extra_lock
 bool BOOTING = true;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
@@ -88,13 +83,11 @@ dword_t get_count_of_blocked_tasks() {
     return res;
 }
 
-dword_t zero_critical_regions_count(void) { // If doEnableExtraLocking is changed to false, we need to zero out critical_region.count for active processes
-    dword_t res = 0;
+void zero_critical_regions_count(void) { // If doEnableExtraLocking is changed to false, we need to zero out critical_region.count for active processes
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         pid_entry->task->critical_region.count = 0;  // Bad things happen if this isn't done.  -mke
     }
-    return 0;
 }
 
 dword_t get_count_of_alive_tasks() {
@@ -293,121 +286,4 @@ void update_thread_name() {
 #else
     pthread_setname_np(pthread_self(), name);
 #endif
-}
-
-/* Let me be clear here.  The following two functions (extra_lockf() & extra_unlockf() are horrible hacks.  
-   If I were a better programmer I'd actually figure out and fix the problems they are mitigating.  After a couple of
-   years of trying the better programmer approach on and off I've given up and gone full on kludge King.  -mke */
-int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    return 0; // Disabled for now -mke
-    //if(current != NULL)
-        ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    //pthread_mutex_lock(&extra_lock);
-    //extra_lock_pid = pid;
-    //extra_lock_pid = current->pid;
-    extra_lock_held = true; //
-    //if(current != NULL)
-        ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    //return 0;
-    
-    time_t now;
-    time(&now);
-
-    if(!newest_extra_lock_time)
-        time(&newest_extra_lock_time); // Initialize
-    
-    unsigned int count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
-    struct timespec mylock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
-    long count_max = (WAIT_MAX_UPPER - WAIT_SLEEP);  // As sleep time increases, decrease acceptable loops.  -mke
-    
-    if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(extra_lockf) has exceeded %d seconds (%d). (%s:%d) Resetting\n", maxl, now - newest_extra_lock_time, file, line);
-        pthread_mutex_unlock(&extra_lock);
-        
-        while(pthread_mutex_trylock(&extra_lock)) {
-            count++;
-            nanosleep(&mylock_pause, NULL);
-            //mylock_pause.tv_nsec+=10;
-            if(count > count_max) {
-                printk("ERROR: Possible deadlock(extra_lockf(), aborted lock attempt(PID: %d Process: %s) (%s:%d)\n", current_pid(), current_comm(), file, line );
-                extra_lock_pid = 0;
-                strcpy(extra_lock_comm, "");
-                pthread_mutex_unlock(&extra_lock);
-                return 1;
-            }
-            // Loop until lock works.  Maybe this will help make the multithreading work? -mke
-        }
-        
-        extra_lock_pid = pid;
-        extra_lock_held = true; //
-        time(&newest_extra_lock_time);  // Update time
-        current->locks_held.count++;
-        return 0;
-    }
-        
-    while(pthread_mutex_trylock(&extra_lock)) {
-        count++;
-        nanosleep(&mylock_pause, NULL);
-        //mylock_pause.tv_nsec+=10;
-        if(count > count_max) {
-            printk("ERROR: Possible deadlock(extra_lockf), aborted lock attempt(PID: %d) (%s:%d)\n", extra_lock_pid, file, line);
-            extra_lock_pid = 0;
-            pthread_mutex_unlock(&extra_lock);
-            strcpy(extra_lock_comm, "");
-            return 1;
-        }
-            // Loop until lock works.  Maybe this will help make the multithreading work? -mke
-    }
-
-    if(count > count_max * .90) {
-        //printk("WARNING: large lock attempt count(Function: extra_lockf(%d) PID: %d Process: %s)\n",count, current->pid, current->comm);
-        printk("WARNING: large lock attempt count(Function: extra_lockf(%x) PID: %d) (%s:%d)\n",count, extra_lock_pid, file, line);
-    }
-    
-    time(&newest_extra_lock_time);  // Update time
-    extra_lock_pid = pid;  //Save, we may need it later to make sure the lock gets removed if the pid is killed
-    extra_lock_held = true; //
-    return 0;
-}
-
-void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    return; // Disabled for now.  -mke
-    if(current != NULL)
-       modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    pthread_mutex_unlock(&extra_lock);
-    if(current != NULL)
-       modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    extra_lock_held = false;
-    return;
-    
-    /* time_t now;
-    time(&now);
-    if((now - newest_extra_lock_time > maxl) && (extra_lock_held)) { // If we have a lock, and there has been no activity for awhile, kill it
-        printk("ERROR: The newest_extra_lock time(unlockf) has exceeded %d seconds (%d) (%d).  Resetting\n", maxl, now, newest_extra_lock_time);
-        pthread_mutex_unlock(&extra_lock);
-        current->locks_held.count--;
-        extra_lock_pid = 0;
-        strcpy(extra_lock_comm, "");
-        extra_lock_held = false;
-        return;
-    }
-    
-    if((pid_get(extra_lock_pid) == NULL) && (extra_lock_pid)) {
-        printk("WARNING: Previous extra_lock() PID(%d) missing\n", extra_lock_pid); // It will be zero if not relevant
-    }
-    
-    if(pid)
-        // Placeholder
-        if(!extra_lock_held) {
-            printk("WARNING: Trying to extra_unlockf() when no lock exists\n");
-            return;
-        }
-    pthread_mutex_unlock(&extra_lock);
-    extra_lock_pid = 0;
-    strcpy(extra_lock_comm, "");
-    extra_lock_held = false; //
-    current->locks_held.count--;
-    return;
-     */
 }

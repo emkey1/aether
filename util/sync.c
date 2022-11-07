@@ -147,18 +147,35 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
             return 0;
             // Weird
         }
-        struct timespec trigger_time;
-        clock_gettime(CLOCK_MONOTONIC, &trigger_time);
-        trigger_time.tv_sec = trigger_time.tv_sec + 6;
-        trigger_time.tv_nsec = 0;
+
         if((lock->pid == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
             goto AGAIN;  // Ugh.  -mke
         }
+        
+        struct timespec trigger_time;
+        clock_gettime(CLOCK_REALTIME, &trigger_time);
+        trigger_time.tv_sec += 6;
+        trigger_time.tv_nsec = 0;
+        
         if(lock->pid != -1) {
-            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+        
+            //pthread_mutex_lock(&lock->m);
+            //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+
+            if((pthread_mutex_trylock(&lock->m) == EBUSY)) { // Be sure lock is still held.  -mke
+                rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+            } else {
+                printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
+                modify_critical_region_counter(current, -1,__FILE__, __LINE__);
+                unlock(lock);
+                //pthread_mutex_unlock(&lock->m);
+                return 0;  // Process that held lock exited.  Bad, but what can you do? -mke
+            }
+            //pthread_mutex_unlock(&lock->m);
         } else {
             return 0;  // More Kludgery.  -mke
         }
+        
         if(rc == ETIMEDOUT) {
             attempts++;
             if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke

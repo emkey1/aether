@@ -204,7 +204,7 @@ struct task *pid_get_task_zombie(dword_t id); // don't return null if the task e
 
 dword_t get_count_of_blocked_tasks(void);
 dword_t get_count_of_alive_tasks(void);
-dword_t zero_critical_regions_count(void);
+void zero_critical_regions_count(void);
 
 #define MAX_PID (1 << 15) // oughta be enough
 
@@ -219,10 +219,6 @@ extern void (*exit_hook)(struct task *task, int code);
 // Update the thread name to match the current task, in the format "comm-pid".
 // Will ensure that the -pid part always fits, then will fit as much of comm as possible.
 void update_thread_name(void);
-
-// Functions to implement additional locking and unlocking -mke
-int extra_lockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line);
-void extra_unlockf(dword_t pid, __attribute__((unused)) const char *file, __attribute__((unused)) int line);
 
 // To collect statics on which tasks are blocked we need to proccess areas
 // of code which could block our task (e.g reads or writes). Before executing

@@ -11,7 +11,6 @@ extern bool isGlibC;
 
 dword_t syscall_stub(void) {
     STRACE("syscall_stub()");
-    //STRACE("syscall_stub()");
     return _ENOSYS;
 }
 dword_t syscall_stub_silent(void) {
@@ -271,6 +270,7 @@ syscall_t syscall_table[] = {
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
     [403] = (syscall_t) syscall_stub, // clock_gettime64
+    [406] = (syscall_t) syscall_stub, // clock_getres_time64
     [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
     [412] = (syscall_t) syscall_stub, // utimensat_time64
     [436] = (syscall_t) syscall_stub,

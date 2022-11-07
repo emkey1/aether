@@ -112,7 +112,7 @@ static void itimer_notify(struct task *task) {
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 }
 
-static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
+static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
     if (which != ITIMER_REAL_) {
         FIXME("unimplemented setitimer %d", which);
         return _EINVAL;
@@ -128,7 +128,7 @@ static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, s
     return timer_set(group->itimer, spec, old_spec);
 }
 
-int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
+long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     struct itimerval_ val;
     if (user_get(new_val_addr, val))
         return _EFAULT;
@@ -144,7 +144,7 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
 
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
-    int err = itimer_set(group, which, spec, &old_spec);
+    long err = itimer_set(group, which, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
         return err;
@@ -162,7 +162,7 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     return 0;
 }
 
-uint_t sys_alarm(uint_t seconds) {
+long sys_alarm(uint_t seconds) {
     STRACE("alarm(%d)", seconds);
     struct timer_spec spec = {
         .value.tv_sec = seconds,
@@ -171,7 +171,7 @@ uint_t sys_alarm(uint_t seconds) {
 
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
-    int err = itimer_set(group, ITIMER_REAL_, spec, &old_spec);
+    long err = itimer_set(group, ITIMER_REAL_, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
         return err;

@@ -358,8 +358,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 #endif
         
         // if page is cow, ~~milk~~ copy it
-        if(doEnableExtraLocking)
-           extra_lockf(0, __FILE__, __LINE__);
         
         if (entry->flags & P_COW) {
             lock(&current->general_lock, 0);  // prevent elf_exec from doing mm_release while we are in flight?  -mke
@@ -379,9 +377,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
-        
-        if(doEnableExtraLocking)
-           extra_unlockf(0, __FILE__, __LINE__);
         
     }
 
