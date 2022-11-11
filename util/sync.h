@@ -67,7 +67,7 @@ static inline void atomic_l_lockf(unsigned count, __attribute__((unused)) const 
     pthread_mutex_lock(&atomic_l_lock);
     modify_locks_held_count_wrapper(1);
     modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
-    STRACE("atomic_l_lockf(%d)\n", count);
+    //STRACE("atomic_l_lockf(%d)\n", count); // This is too verbose most of the time
 }
 
 static inline void atomic_l_unlockf(void) {
@@ -168,6 +168,11 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
 static inline void unlock(lock_t *lock) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
+    unsigned count = 0;
+    while((lock->pid == -33) && (count < 1000)) { // Pending signal, wait.  -mke
+        nanosleep(&lock_pause, NULL);
+        count++;
+    }
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
     lock->pid = -1; //
@@ -196,12 +201,9 @@ typedef struct {
     char comm[16];
 } wrlock_t;
 
-
 static inline void _read_unlock(wrlock_t *lock, const char*, int);
 static inline void _write_unlock(wrlock_t *lock, const char*, int);
 static inline void write_unlock_and_destroy(wrlock_t *lock);
-
-
 
 static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);

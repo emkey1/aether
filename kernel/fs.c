@@ -120,7 +120,7 @@ dword_t sys_readlinkat(fd_t at_f, addr_t path_addr, addr_t buf_addr, dword_t buf
         if (user_write(buf_addr, buf, size))
             return _EFAULT;
     }
-    return size;
+    return (dword_t)size;
 }
 
 dword_t sys_readlink(addr_t path_addr, addr_t buf_addr, dword_t bufsize) {

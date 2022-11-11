@@ -17,12 +17,13 @@ pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
+time_t boot_time;  // Store the boot time.  -mke
 
 bool BOOTING = true;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
 bool isGlibC = false; // Try to guess if we're running a non musl distro.  -mke
-bool doEnableExtraLocking; // Enable extra locking if toggled, should default to false
+bool doEnableExtraLocking; // Enable extra locking if toggled, should default to true
 unsigned doLockSleepNanoseconds; // How many nanoseconds should __lock() sleep between retries
 
 __thread struct task *current;
@@ -212,6 +213,11 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
     printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
+    // Get boot time
+    extern time_t boot_time;
+         
+    boot_time = time(NULL);
+    //printk("Seconds since January 1, 1970 = %ld\n", boot_time);
     BOOTING = false;
 
 }

@@ -119,9 +119,8 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         unlock(&current->waiting_cond_lock);
     }
     
-    modify_critical_region_counter(current, 1,__FILE__, __LINE__);
-    int savepid = current->pid;
-        
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    
     int rc = 0;
 #if LOCK_DEBUG
     struct lock_debug lock_tmp = lock->debug;
@@ -129,6 +128,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #endif
     unsigned attempts = 0;
     if (!timeout) {
+        unsigned save_pid = lock->pid;
         if(current->pid <= 20) {
             pthread_cond_wait(&cond->cond, &lock->m);
             goto SKIP;
@@ -158,21 +158,31 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         trigger_time.tv_nsec = 0;
         
         if(lock->pid != -1) {
-        
-            //pthread_mutex_lock(&lock->m);
-            //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+            lock->pid = -33;
 
             if((pthread_mutex_trylock(&lock->m) == EBUSY)) { // Be sure lock is still held.  -mke
                 rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
             } else {
                 printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
+                lock(&current->waiting_cond_lock, 0);
+                current->waiting_cond = NULL;
+                current->waiting_lock = NULL;
+                unlock(&current->waiting_cond_lock);
                 modify_critical_region_counter(current, -1,__FILE__, __LINE__);
                 unlock(lock);
+                lock->pid = save_pid;
                 //pthread_mutex_unlock(&lock->m);
                 return 0;  // Process that held lock exited.  Bad, but what can you do? -mke
             }
             //pthread_mutex_unlock(&lock->m);
         } else {
+            lock(&current->waiting_cond_lock, 0);
+            current->waiting_cond = NULL;
+            current->waiting_lock = NULL;
+            unlock(&current->waiting_cond_lock);
+            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
+            unlock(lock);
+            lock->pid = save_pid;
             return 0;  // More Kludgery.  -mke
         }
         
@@ -181,6 +191,11 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
             if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke
                 goto AGAIN;
             printk("ERROR: Deadlock in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
+            lock(&current->waiting_cond_lock, 0);
+            current->waiting_cond = NULL;
+            current->waiting_lock = NULL;
+            unlock(&current->waiting_cond_lock);
+            lock->pid = save_pid;
             unlock(lock);
             modify_critical_region_counter(current, -1,__FILE__, __LINE__);
             return 0;
@@ -247,6 +262,8 @@ unsigned critical_region_count(struct task *task) {
     unsigned tmp = 0;
 //    pthread_mutex_lock(task->critical_region.lock); // This would make more
     tmp = task->critical_region.count;
+    if(tmp > 1000)  // Not likely
+        tmp = 0;
  //   pthread_mutex_unlock(task->critical_region.lock);
 
     return tmp;

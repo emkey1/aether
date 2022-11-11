@@ -13,6 +13,7 @@ static fd_t pipe_f_create(int pipe_fd, int flags) {
     fd->stat.mode = S_IFIFO | 0660;
     fd->stat.uid = current->uid;
     fd->stat.gid = current->gid;
+    fd->stat.ctime = (dword_t)time(NULL);
     return f_install(fd, flags);
 }
 

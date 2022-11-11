@@ -10,12 +10,13 @@
 #endif
 
 const char *uname_version = "iSH-AOK";
-const char *uname_hostname_override = NULL;
+char *uname_hostname_override = NULL;
+
 
 void do_uname(struct uname *uts) {
     struct utsname real_uname;
     uname(&real_uname);
-    const char *hostname = real_uname.nodename;
+    char *hostname = real_uname.nodename;
     if (uname_hostname_override)
         hostname = uname_hostname_override;
     
@@ -44,8 +45,18 @@ dword_t sys_uname(addr_t uts_addr) {
     return 0;
 }
 
-dword_t sys_sethostname(addr_t UNUSED(hostname_addr), dword_t UNUSED(hostname_len)) {
-    return _EPERM;
+dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len) {
+    if(current->uid != 0) {
+        return _EPERM;
+    } else {
+        free(uname_hostname_override);
+        uname_hostname_override = malloc(hostname_len + 1);
+        int result = 0;
+        // user_read(addr, &(var), sizeof(var))
+        result = user_read(hostname_addr, uname_hostname_override, hostname_len + 1);
+            
+        return result;
+    }
 }
 
 #if __APPLE__
@@ -55,7 +66,7 @@ static uint64_t get_total_ram() {
     return total_ram;
 }
 static void sysinfo_specific(struct sys_info *info) {
-    info->totalram = get_total_ram();
+    info->totalram = (dword_t)get_total_ram();
     // TODO: everything else
 }
 #elif __linux__
@@ -77,10 +88,10 @@ static void sysinfo_specific(struct sys_info *info) {
 dword_t sys_sysinfo(addr_t info_addr) {
     struct sys_info info = {0};
     struct uptime_info uptime = get_uptime();
-    info.uptime = uptime.uptime_ticks;
-    info.loads[0] = uptime.load_1m;
-    info.loads[1] = uptime.load_5m;
-    info.loads[2] = uptime.load_15m;
+    info.uptime = (dword_t)uptime.uptime_ticks;
+    info.loads[0] = (dword_t)uptime.load_1m;
+    info.loads[1] = (dword_t)uptime.load_5m;
+    info.loads[2] = (dword_t)uptime.load_15m;
     sysinfo_specific(&info);
 
     if (user_put(info_addr, info))

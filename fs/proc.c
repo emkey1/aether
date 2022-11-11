@@ -78,10 +78,14 @@ static int proc_getpath(struct fd *fd, char *buf) {
 
 static int proc_stat(struct mount *UNUSED(mount), const char *path, struct statbuf *stat) {
     struct proc_entry entry = {0};
+    extern time_t boot_time;
     int err = proc_lookup(path, &entry);
     if (err < 0)
         return err;
     int ret = proc_entry_stat(&entry, stat);
+    stat->atime = (dword_t)time(NULL);
+    stat->mtime = (dword_t)boot_time;
+    stat->ctime = (dword_t)boot_time;
     proc_entry_cleanup(&entry);
     return ret;
 }

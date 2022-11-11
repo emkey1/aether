@@ -112,7 +112,6 @@ noreturn void do_exit(int status) {
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
-    //while(critical_region_count(current)) {
     while((critical_region_count(current) > 1) ||
           (locks_held_count(current)) ||
           (current->process_info_being_read) ||
