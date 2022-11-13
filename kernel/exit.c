@@ -197,7 +197,7 @@ noreturn void do_exit(int status) {
     if(current != leader) 
         task_destroy(current);
     
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     //atomic_l_unlockf();
 
 EXIT:pthread_exit(NULL);
@@ -235,7 +235,7 @@ noreturn void do_exit_group(int status) {
         notify(&task->group->stopped_cond);
     }
 
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     unlock(&group->lock);
     if(current->pid <= MAX_PID) // abort if crazy.  -mke
@@ -371,7 +371,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     }
     //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     task_destroy(task);
-    //unlock(&pids_lock);
+    //unlock_pids(&pids_lock);
     
     return true;
 }
@@ -485,12 +485,12 @@ retry:
     info->sig = SIGCHLD_;
 found_something:
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     return 0;
 
 error:
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     return err;
 }
 

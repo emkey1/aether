@@ -35,6 +35,7 @@ typedef struct {
     //const char *comm;
     int pid;
     char comm[16];
+    bool flag_wait;
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
@@ -54,6 +55,7 @@ static inline void lock_init(lock_t *lock) {
     };
 #endif
     strncpy(lock->comm, "               ", 15);
+    lock->flag_wait = false;
 }
 
 #if LOCK_DEBUG
@@ -111,10 +113,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     
-   // if((!log_lock) && (current_pid() > 10 ))
-    //    printk("INFO: Attempting Lock(lock(%d)), (PID: %d Process: %s) (File: %s Line: %d)\n", lock->m, current_pid(), current_comm(), file, line);
-    //modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
-    while(pthread_mutex_trylock(&lock->m)) {
+    while((pthread_mutex_trylock(&lock->m))) {
         count++;
         nanosleep(&lock_pause, NULL);
         if(count > count_max) {
@@ -125,7 +124,6 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
             }
             return;
         }
-        
         // Loop until lock works.  Maybe this will help make the multithreading work? -mke
     }
     
@@ -151,8 +149,13 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 }
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
+    
     if(!log_lock)
        modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+    
+//    do { // Wait for pending waitfor -mke
+//        nanosleep(&lock_pause, NULL);
+//    } while (lock->flag_wait == true);
     pthread_mutex_lock(&lock->m);
     if(!log_lock)
         modify_locks_held_count_wrapper(1);
@@ -166,13 +169,29 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 
 #define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
 
+static inline void unlock_pids(lock_t *lock) {
+    //int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
+    //struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
+    //unsigned count = 0;
+    /* while((lock->flag_wait == true) && (count < 5000)) {
+        count++;
+        nanosleep(&lock_pause, NULL);
+        if(count == 50) {
+            int foo = 1;
+        }
+    } */
+    
+    lock->owner = zero_init(pthread_t);
+    pthread_mutex_unlock(&lock->m);
+    lock->pid = -1; //
+    lock->comm[0] = 0;
+    modify_locks_held_count_wrapper(-1);
+    
+}
+
 static inline void unlock(lock_t *lock) {
     //modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
-    unsigned count = 0;
-    while((lock->pid == -33) && (count < 1000)) { // Pending signal, wait.  -mke
-        nanosleep(&lock_pause, NULL);
-        count++;
-    }
+    
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
     lock->pid = -1; //

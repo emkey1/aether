@@ -23,11 +23,11 @@ static struct task *proc_get_task(struct proc_entry *entry) {
     complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
     return task;
 }
 static void proc_put_task(struct task *UNUSED(task)) {
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {

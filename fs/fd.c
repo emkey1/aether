@@ -50,8 +50,6 @@ int fd_close(struct fd *fd) {
             mount_release(fd->mount);
         free(fd);
     }
-    if(fd->inode != NULL)
-        fd->stat.atime = (dword_t)time(NULL);
     return err;
 }
 

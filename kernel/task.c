@@ -17,6 +17,7 @@ pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t wait_for_lock = PTHREAD_MUTEX_INITIALIZER;
 time_t boot_time;  // Store the boot time.  -mke
 
 bool BOOTING = true;
@@ -80,7 +81,7 @@ dword_t get_count_of_blocked_tasks() {
         }
     }
     modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     return res;
 }
 
@@ -98,7 +99,7 @@ dword_t get_count_of_alive_tasks() {
     list_for_each(&alive_pids_list, item) {
         res++;
     }
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
     return res;
 }
 
@@ -116,7 +117,7 @@ struct task *task_create_(struct task *parent) {
 
     struct task *task = malloc(sizeof(struct task));
     if (task == NULL) {
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
         return NULL;
     }
     *task = (struct task) {};
@@ -133,7 +134,7 @@ struct task *task_create_(struct task *parent) {
         task->parent = parent;
         list_add(&parent->children, &task->siblings);
     }
-    unlock(&pids_lock);
+    unlock_pids(&pids_lock);
 
     task->pending = 0;
     list_init(&task->queue);
@@ -202,7 +203,7 @@ void task_destroy(struct task *task) {
     }
     
     if(Ishould)
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
     
     free(task);
 }
