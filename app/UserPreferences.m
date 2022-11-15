@@ -263,7 +263,7 @@ bool (*remove_user_default)(const char *name);
         return NO;
     }
     int _value = [(NSNumber *)(*value) intValue];
-    return _value >= __CapsLockMapLast && value < __CapsLockMapFirst;
+    return _value >= __CapsLockMapFirst && _value < __CapsLockMapLast;
 }
 
 // MARK: optionMapping
@@ -280,7 +280,7 @@ bool (*remove_user_default)(const char *name);
         return NO;
     }
     int _value = [(NSNumber *)(*value) intValue];
-    return _value >= __OptionMapFirst && value < __OptionMapFirst;
+    return _value >= __OptionMapFirst && _value < __OptionMapLast;
 }
 
 // MARK: backtickMapEscape
@@ -406,7 +406,16 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (Palette *)palette {
-    return self.requestingDarkAppearance ? self.theme.darkPalette : self.theme.lightPalette;
+    switch (self.colorScheme) {
+        case ColorSchemeMatchSystem:
+            return self.class.systemThemeIsDark ? self.theme.darkPalette : self.theme.lightPalette;
+        case ColorSchemeAlwaysDark:
+            return self.theme.darkPalette;
+        default:
+            NSAssert(NO, @"invalid color scheme");
+        case ColorSchemeAlwaysLight:
+            return self.theme.lightPalette;
+    }
 }
 
 // MARK: shouldDisableDimming
@@ -576,26 +585,22 @@ bool (*remove_user_default)(const char *name);
     return _value >= __ColorSchemeLast && value < __ColorSchemeFirst;
 }
 
-- (BOOL)requestingDarkAppearance {
-    switch (self.colorScheme) {
-        case ColorSchemeAlwaysDark:
-            return YES;
-        default:
-            NSAssert(NO, @"invalid color scheme");
-        case ColorSchemeMatchSystem:
-            if (@available(iOS 12.0, *)) {
-                switch (UIScreen.mainScreen.traitCollection.userInterfaceStyle) {
-                    case UIUserInterfaceStyleLight:
-                        return NO;
-                    case UIUserInterfaceStyleDark:
-                        return YES;
-                    default:
-                        break;
-                }
-            }
-        case ColorSchemeAlwaysLight:
-            return NO;
++ (BOOL)systemThemeIsDark {
+    if (@available(iOS 12.0, *)) {
+        switch (UIScreen.mainScreen.traitCollection.userInterfaceStyle) {
+            case UIUserInterfaceStyleLight:
+                return NO;
+            case UIUserInterfaceStyleDark:
+                return YES;
+            default:
+                break;
+        }
     }
+    return NO;
+}
+
+- (BOOL)requestingDarkAppearance {
+    return (self.class.systemThemeIsDark && !self.theme.appearance.darkOverride) || (!self.class.systemThemeIsDark && self.theme.appearance.lightOverride);
 }
 
 - (UIUserInterfaceStyle)userInterfaceStyle {
@@ -607,7 +612,7 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (UIStatusBarStyle)statusBarStyle {
-    return 0;
+    return self.requestingDarkAppearance ? UIStatusBarStyleLightContent : UIStatusBarStyleDefault;
 }
 
 @end

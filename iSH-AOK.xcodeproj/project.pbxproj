@@ -409,6 +409,7 @@
 		491C4C1E27C8FB65008B1DFA /* Theme.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Theme.m; sourceTree = "<group>"; };
 		49302D8D277669D300C9885A /* ish.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = ish.c; sourceTree = "<group>"; };
 		49302D972777FAB400C9885A /* ish.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ish.h; sourceTree = "<group>"; };
+		493B378F290F5320000C41ED /* CLI.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = CLI.xcconfig; sourceTree = "<group>"; };
 		494D03F72727DAC6004F0CCE /* xcode-ninja.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "xcode-ninja.sh"; sourceTree = "<group>"; };
 		497F6BDA254E5C0D00C82F46 /* mem.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = mem.h; sourceTree = "<group>"; };
 		497F6BDB254E5C0D00C82F46 /* path.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = path.c; sourceTree = "<group>"; };
@@ -554,7 +555,7 @@
 		497F6CD2254E5CC800C82F46 /* sync.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sync.c; sourceTree = "<group>"; };
 		497F6CD3254E5CC800C82F46 /* bits.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bits.h; sourceTree = "<group>"; };
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
-		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "ish-AOK"; sourceTree = BUILT_PRODUCTS_DIR; };
+		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; name = "ish-AOK"; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D8ACEF9284BF122003C50D3 /* net.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = net.c; sourceTree = "<group>"; };
 		5D8ACEFB284CE096003C50D3 /* sys.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = sys.h; sourceTree = "<group>"; };
@@ -842,21 +843,22 @@
 		BB0B848D2586A4B100208600 /* Configs */ = {
 			isa = PBXGroup;
 			children = (
-				BB0B85AD2586F3EB00208600 /* Project.xcconfig */,
 				BB0B86CD2586FD8800208600 /* App.xcconfig */,
 				BBEF192C26806546001225BD /* AppLib.xcconfig */,
+				493B378F290F5320000C41ED /* CLI.xcconfig */,
 				BB0B86D52587009D00208600 /* iOS.xcconfig */,
-				BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */,
-				BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */,
 				BBEF19BA26806D7E001225BD /* Linux.xcconfig */,
 				BB21A18C268951CA00BD19B4 /* NotLinux.xcconfig */,
-				BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */,
-				BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */,
-				BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */,
+				BB0B85AD2586F3EB00208600 /* Project.xcconfig */,
 				BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */,
-				BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */,
 				BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */,
+				BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */,
 				BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */,
+				BBFB2CDA259028DC00545EAB /* StaticLib.xcconfig */,
+				BBECF3BA2691379100DEC937 /* StaticLibLinux.xcconfig */,
+				BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */,
+				BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */,
+				BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */,
 			);
 			name = Configs;
 			sourceTree = "<group>";
@@ -1583,7 +1585,7 @@
 			isa = PBXProject;
 			attributes = {
 				CLASSPREFIX = "";
-				LastUpgradeCheck = 1400;
+				LastUpgradeCheck = 1410;
 				TargetAttributes = {
 					497F6CE3254E5E4C00C82F46 = {
 						CreatedOnToolsVersion = 12.2;
@@ -2313,23 +2315,9 @@
 			};
 			name = Release;
 		};
-		497F6D4C254E605F00C82F46 /* Debug-ApplePleaseFixFB19282108 */ = {
+		497F6D4C254E605F00C82F46 /* Release */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = UYU5FM4LQ4;
-				ENABLE_HARDENED_RUNTIME = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)";
-				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SUPPORTED_PLATFORMS = macosx;
-			};
-			name = "Debug-ApplePleaseFixFB19282108";
-		};
-		497F6D4D254E605F00C82F46 /* Release */ = {
-			isa = XCBuildConfiguration;
+			baseConfigurationReference = 493B378F290F5320000C41ED /* CLI.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				DEAD_CODE_STRIPPING = YES;
@@ -2342,6 +2330,13 @@
 				SUPPORTED_PLATFORMS = macosx;
 			};
 			name = Release;
+		};
+		5D09CC092923DDA10054A524 /* Debug-ApplePleaseFixFB19282108 */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = ish;
+			};
+			name = "Debug-ApplePleaseFixFB19282108";
 		};
 		BB13F7CC200ACC31003D1C4D /* Debug-ApplePleaseFixFB19282108 */ = {
 			isa = XCBuildConfiguration;
@@ -2476,7 +2471,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A42586F1CB00208600 /* ProjectDebug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 429;
+				CURRENT_PROJECT_VERSION = 432;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
@@ -2486,7 +2481,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB0B85A52586F1E100208600 /* ProjectRelease.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 429;
+				CURRENT_PROJECT_VERSION = 432;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -2548,7 +2543,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7532689522C00BDC834 /* ProjectDebugLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 429;
+				CURRENT_PROJECT_VERSION = 432;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
@@ -2700,6 +2695,7 @@
 		};
 		BB7F62112688EAB5003C0220 /* DebugLinux */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 493B378F290F5320000C41ED /* CLI.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				DEAD_CODE_STRIPPING = YES;
@@ -2867,7 +2863,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = BB28C7522689522700BDC834 /* ProjectReleaseLinux.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 429;
+				CURRENT_PROJECT_VERSION = 432;
 				DEAD_CODE_STRIPPING = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -3017,6 +3013,7 @@
 		};
 		BBEF19B726806D1F001225BD /* ReleaseLinux */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 493B378F290F5320000C41ED /* CLI.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				DEAD_CODE_STRIPPING = YES;
@@ -3063,10 +3060,10 @@
 		497F6D4B254E605F00C82F46 /* Build configuration list for PBXNativeTarget "ish-AOK" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				497F6D4C254E605F00C82F46 /* Debug-ApplePleaseFixFB19282108 */,
+				497F6D4C254E605F00C82F46 /* Release */,
 				BB7F62112688EAB5003C0220 /* DebugLinux */,
-				497F6D4D254E605F00C82F46 /* Release */,
 				BBEF19B726806D1F001225BD /* ReleaseLinux */,
+				5D09CC092923DDA10054A524 /* Debug-ApplePleaseFixFB19282108 */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
