@@ -111,160 +111,6 @@ int wait_for(cond_t *cond, lock_t *lock, struct timespec *timeout) {
     return 0;
 }
 
-/* int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout) {
-    
-    if (current) {
-        lock(&current->waiting_cond_lock, 0);
-        current->waiting_cond = cond;
-        current->waiting_lock = lock;
-        unlock(&current->waiting_cond_lock);
-    }
-    
-    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
-    
-    int rc = 0;
-#if LOCK_DEBUG
-    struct lock_debug lock_tmp = lock->debug;
-    lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
-#endif
-    unsigned attempts = 0;
-    if (!timeout) {
-        if(current->pid <= 20) {
-            pthread_cond_wait(&cond->cond, &lock->m);
-            goto SKIP;
-        }
-    AGAIN:
-        if((lock->flag_wait == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
-            lock(&current->waiting_cond_lock, 0);
-            current->waiting_cond = NULL;
-            current->waiting_lock = NULL;
-            unlock(&current->waiting_cond_lock);
-            //return _ETIMEDOUT;
-            if(!strcmp("go", current->comm)) // go causes this a lot.  To no particularly positive effect -mke
-                printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
-            unlock(lock);
-            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-            return 0;
-            // Weird
-        }
-
-        if((lock->pid == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
-            goto AGAIN;  // Ugh.  -mke
-        }
-        
-        struct timespec trigger_time;
-        struct timespec save_time;
-        
-        clock_gettime(CLOCK_MONOTONIC, &trigger_time);
-        trigger_time.tv_sec += 6;
-        trigger_time.tv_nsec = 0;
-        
-        if(!lock->flag_wait) {
-            
-            pthread_mutex_lock(&wait_for_lock);
-            lock->flag_wait = true;
-            pthread_mutex_unlock(&wait_for_lock);
-
-            //atomic_l_unlockf();
-
-            if((pthread_mutex_trylock(&lock->m) == EBUSY)) { // Be sure lock is still held.  -mke
-                clock_gettime(CLOCK_MONOTONIC, &save_time);
-                //rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-                rc = pthread_cond_wait(&cond->cond, &lock->m);
-                pthread_mutex_lock(&wait_for_lock);
-                lock->flag_wait = true;
-                pthread_mutex_unlock(&wait_for_lock);
-            } else {
-                printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
-                lock(&current->waiting_cond_lock, 0);
-                current->waiting_cond = NULL;
-                current->waiting_lock = NULL;
-                unlock(&current->waiting_cond_lock);
-                modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-                unlock(lock);
-                //atomic_l_lockf(mycount, __FILE__, __LINE__);
-                pthread_mutex_lock(&wait_for_lock);
-                lock->pid = save_pid;
-                pthread_mutex_unlock(&wait_for_lock);
-
-                //pthread_mutex_unlock(&lock->m);
-                return 0;  // Process that held lock exited.  Bad, but what can you do? -mke
-            }
-            //pthread_mutex_unlock(&lock->m);
-        } else {
-            lock(&current->waiting_cond_lock, 0);
-            current->waiting_cond = NULL;
-            current->waiting_lock = NULL;
-            unlock(&current->waiting_cond_lock);
-            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-            unlock(lock);
-            //atomic_l_lockf(mycount, __FILE__, __LINE__);
-            pthread_mutex_lock(&wait_for_lock);
-            lock->pid = save_pid;
-            pthread_mutex_unlock(&wait_for_lock);
-
-            return 0;  // More Kludgery.  -mke
-        }
-        
-        if(rc == ETIMEDOUT) {
-            attempts++;
-            if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke
-                goto AGAIN;
-            printk("ERROR: Deadlock in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
-            lock(&current->waiting_cond_lock, 0);
-            current->waiting_cond = NULL;
-            current->waiting_lock = NULL;
-            unlock(&current->waiting_cond_lock);
-            unlock(lock);
-            
-            pthread_mutex_lock(&wait_for_lock);
-            lock->pid = save_pid;
-            pthread_mutex_unlock(&wait_for_lock);
-
-            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-            return 0;
-        } else if(rc == 0) {
-            goto SKIP;
-        }
-    } else {
-#if __linux__
-        struct timespec abs_timeout;
-        clock_gettime(CLOCK_MONOTONIC, &abs_timeout);
-        abs_timeout.tv_sec += timeout->tv_sec;
-        abs_timeout.tv_nsec += timeout->tv_nsec;
-        if (abs_timeout.tv_nsec > 1000000000) {
-            abs_timeout.tv_sec++;
-            abs_timeout.tv_nsec -= 1000000000;
-        }
-        rc = pthread_cond_timedwait(&cond->cond, &lock->m, &abs_timeout);
-#elif __APPLE__
-        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, timeout);
-#else
-#error Unimplemented pthread_cond_wait relative timeout.
-#endif
-    }
-    
-SKIP:
-#if LOCK_DEBUG
-    lock->debug = lock_tmp;
-#endif
-
-    if (current) {
-        lock(&current->waiting_cond_lock, 0);
-        current->waiting_cond = NULL;
-        current->waiting_lock = NULL;
-        unlock(&current->waiting_cond_lock);
-    }
-    if (rc == ETIMEDOUT) {
-        modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-        return _ETIMEDOUT;
-    }
-    
-    modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-    return 0;
-}
-*/
-
 int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout) {
     if (current) {
         lock(&current->waiting_cond_lock, 0);
@@ -278,16 +124,19 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        if(lock->pid > 11) {
-            pthread_mutex_lock(&wait_for_lock);
-            lock->flag_wait = true;
-            pthread_mutex_unlock(&wait_for_lock);
+        struct timespec trigger_time;
+        trigger_time.tv_sec = 1800;
+        trigger_time.tv_nsec = 0;
+    LOOP:
+        if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
+            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+            if((rc == ETIMEDOUT) && current->parent != NULL) {
+                printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
+                goto LOOP;
+            }
+        } else {
+            pthread_cond_wait(&cond->cond, &lock->m);
         }
-        pthread_cond_wait(&cond->cond, &lock->m);
-        
-        pthread_mutex_lock(&wait_for_lock);
-        lock->flag_wait = false;
-        pthread_mutex_unlock(&wait_for_lock);
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -309,13 +158,13 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = lock_tmp;
 #endif
 
-    if (current) {
+    if(current) {
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = NULL;
         current->waiting_lock = NULL;
         unlock(&current->waiting_cond_lock);
     }
-    if (rc == ETIMEDOUT)
+    if(rc == ETIMEDOUT)
         return _ETIMEDOUT;
     return 0;
 }

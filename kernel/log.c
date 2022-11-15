@@ -107,9 +107,9 @@ static int do_syslog(int type, addr_t buf_addr, int_t len) {
             return 0;
 
         case SYSLOG_ACTION_SIZE_UNREAD_:
-            return fifo_size(&log_buf);
+            return (int)fifo_size(&log_buf);
         case SYSLOG_ACTION_SIZE_BUFFER_:
-            return fifo_capacity(&log_buf);
+            return (int)fifo_capacity(&log_buf);
 
         case SYSLOG_ACTION_CLOSE_:
         case SYSLOG_ACTION_OPEN_:
@@ -236,7 +236,7 @@ void die(const char *msg, ...) {
 }
 
 // fun little utility function
-int current_pid() {
+int current_pid(void) {
     modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     if(current != NULL) {
         if (current->exiting != true) {
@@ -252,7 +252,23 @@ int current_pid() {
     return -1;
 }
 
-char * current_comm() {
+int current_uid(void) {
+    modify_critical_region_counter(current, 1, __FILE__, __LINE__);
+    if(current != NULL) {
+        if (current->exiting != true) {
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            return current->uid;
+        } else {
+            modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+            return -1;
+        }
+    }
+    
+    modify_critical_region_counter(current, -1, __FILE__, __LINE__);
+    return -1;
+}
+
+char * current_comm(void) {
     static char comm[16];
     if(current != NULL) {
         if(strcmp(current->comm, "")) {

@@ -17,6 +17,7 @@
 #define LOCK_DEBUG 0
 
 extern int current_pid(void);
+extern int current_uid(void);
 extern char* current_comm(void);
 extern unsigned critical_region_count_wrapper(void);
 extern void modify_critical_region_counter_wrapper(int, const char*, int);
@@ -35,7 +36,7 @@ typedef struct {
     //const char *comm;
     int pid;
     char comm[16];
-    bool flag_wait;
+    int uid;
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
@@ -55,7 +56,7 @@ static inline void lock_init(lock_t *lock) {
     };
 #endif
     strncpy(lock->comm, "               ", 15);
-    lock->flag_wait = false;
+    lock->uid = -1;
 }
 
 #if LOCK_DEBUG
@@ -137,6 +138,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 
     lock->owner = pthread_self();
     lock->pid = current_pid();
+    lock->uid = current_uid();
     strncpy(lock->comm, current_comm(), 16);
 #if LOCK_DEBUG
     assert(lock->debug.initialized);
@@ -153,14 +155,12 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
     if(!log_lock)
        modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
     
-//    do { // Wait for pending waitfor -mke
-//        nanosleep(&lock_pause, NULL);
-//    } while (lock->flag_wait == true);
     pthread_mutex_lock(&lock->m);
     if(!log_lock)
         modify_locks_held_count_wrapper(1);
     lock->owner = pthread_self();
     lock->pid = current_pid();
+    lock->uid = current_uid();
     strncpy(lock->comm, current_comm(), 16);
     if(!log_lock)
         modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
@@ -170,23 +170,11 @@ static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) co
 #define lock(lock, log_lock) __lock(lock, log_lock, __FILE__, __LINE__)
 
 static inline void unlock_pids(lock_t *lock) {
-    //int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
-    //struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
-    //unsigned count = 0;
-    /* while((lock->flag_wait == true) && (count < 5000)) {
-        count++;
-        nanosleep(&lock_pause, NULL);
-        if(count == 50) {
-            int foo = 1;
-        }
-    } */
-    
     lock->owner = zero_init(pthread_t);
     pthread_mutex_unlock(&lock->m);
     lock->pid = -1; //
     lock->comm[0] = 0;
-    modify_locks_held_count_wrapper(-1);
-    
+    //modify_locks_held_count_wrapper(-1);
 }
 
 static inline void unlock(lock_t *lock) {
