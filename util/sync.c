@@ -124,19 +124,19 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
     if (!timeout) {
-        struct timespec trigger_time;
-        trigger_time.tv_sec = 1800;
-        trigger_time.tv_nsec = 0;
-    LOOP:
-        if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
-            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-            if((rc == ETIMEDOUT) && current->parent != NULL) {
-                printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
-                goto LOOP;
-            }
-        } else {
+ //       struct timespec trigger_time;
+  //      trigger_time.tv_sec = 1800;
+   //     trigger_time.tv_nsec = 0;
+//    LOOP:
+ //       if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
+  //          rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+   //         if((rc == ETIMEDOUT) && current->parent != NULL) {
+    //            printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
+     //           goto LOOP;
+      //      }
+       // } else {
             pthread_cond_wait(&cond->cond, &lock->m);
-        }
+        //}
     } else {
 #if __linux__
         struct timespec abs_timeout;

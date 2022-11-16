@@ -165,9 +165,11 @@ void task_destroy(struct task *task) {
     task->exiting = true;
     
     bool signal_pending = !!(current->pending & ~current->blocked);
-    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    int count = -4000; // Maybe this is more efficient? -mke
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
+        count++;
     }
 
     bool Ishould = false;
@@ -180,26 +182,31 @@ void task_destroy(struct task *task) {
     }
     
     signal_pending = !!(current->pending & ~current->blocked);
-    while((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    count = -4000;
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
+        count++;
     }
     list_remove(&task->siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     
     signal_pending = !!(current->pending & ~current->blocked);
-    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    count = -4000;
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
+        count++;
     }
     list_remove(&pid->alive);
     
     signal_pending = !!(current->pending & ~current->blocked);
-    
-    while((critical_region_count(task) >1) || (locks_held_count(task)) || (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    count = -4000;
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked); // Be less stringent -mke
+        count++;
     }
     
     if(Ishould)

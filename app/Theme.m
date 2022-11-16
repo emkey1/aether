@@ -263,7 +263,8 @@ char *(*get_documents_directory)(void);
                            darkPalette:[[Palette alloc] initWithForegroundColor:@"#FD9F20"
                                                                 backgroundColor:@"#000"
                                                                     cursorColor:nil
-                                                          colorPaletteOverrides:nil]],
+                                                          colorPaletteOverrides:nil]
+                            appearance:nil],
             [[self alloc] initWithName:@"iSH-Default"
                           lightPalette:[[Palette alloc] initWithForegroundColor:@"#000"
                                                                 backgroundColor:@"#fff"

@@ -1262,7 +1262,7 @@ int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
         return _EINVAL;
     struct socket_call call = socket_calls[call_num];
     if (call.func == NULL) {
-        FIXME("socketcall %d", call_num);
+        FIXME("socketcall %d (%s:%d)", call_num, current->comm, current->pid);
         return _ENOSYS;
     }
 
