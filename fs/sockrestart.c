@@ -68,7 +68,7 @@ bool sockrestart_should_restart_listen_wait(int skip) {
     if(current->stuck_count < 3) {
         return punt;
     } else {
-        printk("INFO: punting (%s:%d) \n", current->comm, current->pid);
+        printk("INFO: punting(%d) (%s:%d) \n", current->stuck_count, current->comm, current->pid);
         current->stuck_count = 0;
         return true;
     }

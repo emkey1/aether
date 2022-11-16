@@ -232,32 +232,32 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
             modify_locks_held_count_wrapper(-1);
             modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
             return;
-        } else if(count > (count_max * 10)) { // Need to be more persistent for RO locks
-            printk("ERROR: loop_lock_write(%x) tries exceeded %d, dealing with likely deadlock.(Lock held by PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
+        } else if(count > count_max) {
+            // For now, print error and reset count.  --mke
+            printk("ERROR: loop_lock_read(%x) tries exceeded %d, dealing with likely deadlock.(Lock held by PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
             count = 0;
         
             if(pid_get((dword_t)lock->pid) == NULL) {  // Oops, a task exited without clearing lock. BAD!  -mke
-                if(lock->val > 1) {
-                    lock->val--; // Subtract one, as dead task must have heald a read lock, right?  -mke
-                } else if(lock->val == 1) {
-                    _read_unlock(lock, __FILE__, __LINE__);
-                } else if(lock->val < 0) {
-                    _write_unlock(lock, __FILE__, __LINE__);
-                } else {
-                    // Weird, there is no lock?
-                }
-            
+                printk("ERROR: loop_lock_read(%x) locking PID(%d) is gone for task %s\n", lock, lock->pid, lock->comm);
             } else {
-                atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
-                nanosleep(&lock_pause, NULL);
-                unsigned mycount = 0;
-                atomic_l_lockf(mycount, __FILE__, __LINE__);
+                printk("ERROR: loop_lock_read(%x) locking PID(%d), %s is apparently wedged\n", lock, lock->pid, lock->comm);
+            }
+            
+            if(lock->val > 1) {
+                lock->val--; // Subtract one, as dead task must have heald a read lock, right?  -mke
+            } else if(lock->val == 1) {
+                _read_unlock(lock, __FILE__, __LINE__);
+            } else if(lock->val < 0) {
+                _write_unlock(lock, __FILE__, __LINE__);
+            } else {
+                // Weird, there is no lock?
             }
         }
         
-        atomic_l_unlockf(); // Give some other process a little time to get the lock.  Bad perhaps?  This breaks go. Not having it here breaks other stuff.  -mke
+        atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
         nanosleep(&lock_pause, NULL);
-        atomic_l_lockf(count, __FILE__, __LINE__);
+        unsigned mycount = 0;
+        atomic_l_lockf(0, __FILE__, __LINE__);
     }
     
     if(lock->favor_read > 24)
@@ -300,28 +300,25 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
             count = 0;
         
             if(pid_get((dword_t)lock->pid) == NULL) {  // Oops, a task exited without clearing lock. BAD!  -mke
-                if(lock->val > 1) {
-                    lock->val--; // Subtract one, as dead task must have heald a read lock, right?  -mke
-                } else if(lock->val == 1) {
-                    _read_unlock(lock, __FILE__, __LINE__);
-                } else if(lock->val < 0) {
-                    _write_unlock(lock, __FILE__, __LINE__);
-                } else {
-                    // Weird, there is no lock?
-                }
-            
+                printk("ERROR: loop_lock_write(%x:%d) locking PID(%d) is gone for task %s\n", lock, lock->val, lock->pid, lock->comm);
             } else {
-                atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
-                nanosleep(&lock_pause, NULL);
-                unsigned mycount = 0;
-                atomic_l_lockf(mycount, __FILE__, __LINE__);
+                printk("ERROR: loop_lock_write(%x:%d) locking PID(%d), %s is apparently wedged\n", lock, lock->val, lock->pid, lock->comm);
+            }
+            
+            if(lock->val > 1) {
+                lock->val--; // Subtract one, as dead task must have heald a read lock, right?  -mke
+            } else if(lock->val == 1) {
+                _read_unlock(lock, __FILE__, __LINE__);
+            } else if(lock->val < 0) {
+                _write_unlock(lock, __FILE__, __LINE__);
+            } else {
+                // Weird, there is no lock?
             }
         }
         
         atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
         nanosleep(&lock_pause, NULL);
-        unsigned mycount = 0;
-        atomic_l_lockf(mycount, __FILE__, __LINE__);
+        atomic_l_lockf(0, __FILE__, __LINE__);
     }
     
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);

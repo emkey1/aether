@@ -411,7 +411,7 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     }
 
     char sockaddr[sockaddr_len];
-    int client;
+    int client =0;
     TASK_MAY_BLOCK {
         do {
             sockrestart_begin_listen_wait(sock);
