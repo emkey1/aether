@@ -8,6 +8,7 @@
 
 int noprintk = 0; // Used to suprress calls to printk.  -mke
 extern bool doEnableExtraLocking;
+extern pthread_mutex_t wait_for_lock; // Synchroniztion lock
 
 void cond_init(cond_t *cond) {
     pthread_condattr_t attr;
@@ -52,16 +53,17 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
         //int skipme = strcmp(task->comm, "init");
         //if((task->pid > 2) && (skipme != 0))  // Why ask why?  -mke
-        printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
+        if(task->pid > 10)
+            printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
         return;
     }
     
     
-    if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
+    /* if((strcmp(task->comm, "easter_egg") == 0) && ( !noprintk)) { // Extra logging for the some command
         noprintk = 1; // Avoid recursive logging -mke
         printk("INFO: MCRC(%d(%s):%s:%d:%d:%d)\n", task->pid, task->comm, file, line, value, task->critical_region.count + value);
         noprintk = 0;
-    }
+    } */
     
     task->critical_region.count = task->critical_region.count + value;
         
@@ -110,60 +112,31 @@ int wait_for(cond_t *cond, lock_t *lock, struct timespec *timeout) {
 }
 
 int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout) {
-    
     if (current) {
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = cond;
         current->waiting_lock = lock;
         unlock(&current->waiting_cond_lock);
     }
-    
-    modify_critical_region_counter(current, 1,__FILE__, __LINE__);
-    int savepid = current->pid;
-        
     int rc = 0;
 #if LOCK_DEBUG
     struct lock_debug lock_tmp = lock->debug;
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
-    unsigned attempts = 0;
     if (!timeout) {
-        if(current->pid <= 20) {
+ //       struct timespec trigger_time;
+  //      trigger_time.tv_sec = 1800;
+   //     trigger_time.tv_nsec = 0;
+//    LOOP:
+ //       if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
+  //          rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+   //         if((rc == ETIMEDOUT) && current->parent != NULL) {
+    //            printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
+     //           goto LOOP;
+      //      }
+       // } else {
             pthread_cond_wait(&cond->cond, &lock->m);
-            goto SKIP;
-        }
-    AGAIN:
-        if((lock->pid == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
-            lock(&current->waiting_cond_lock, 0);
-            current->waiting_cond = NULL;
-            current->waiting_lock = NULL;
-            unlock(&current->waiting_cond_lock);
-            //return _ETIMEDOUT;
-            printk("ERROR: Locking PID is gone in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
-            unlock(lock);
-            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-            return 0;
-            // Weird
-        }
-        struct timespec trigger_time;
-        clock_gettime(CLOCK_MONOTONIC, &trigger_time);
-        trigger_time.tv_sec = trigger_time.tv_sec + 6;
-        trigger_time.tv_nsec = 0;
-        if((lock->pid == -1) && (lock->comm[0] == 0)) {  // Something has gone wrong.  -mke
-            goto AGAIN;  // Ugh.  -mke
-        }
-        rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-        if(rc == ETIMEDOUT) {
-            attempts++;
-            if(attempts <= 6)  // We are likely deadlocked if more than ten attempts -mke
-                goto AGAIN;
-            printk("ERROR: Deadlock in wait_for_ignore_signals() (%s:%d).  Attempting recovery\n", current->comm, current->pid);
-            unlock(lock);
-            modify_critical_region_counter(current, -1,__FILE__, __LINE__);
-            return 0;
-        } else if(rc == 0) {
-            goto SKIP;
-        }
+        //}
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -181,24 +154,18 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #error Unimplemented pthread_cond_wait relative timeout.
 #endif
     }
-    
-SKIP:
 #if LOCK_DEBUG
     lock->debug = lock_tmp;
 #endif
 
-    if (current) {
+    if(current) {
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = NULL;
         current->waiting_lock = NULL;
         unlock(&current->waiting_cond_lock);
     }
-    if (rc == ETIMEDOUT) {
-        modify_critical_region_counter(current, -1,__FILE__, __LINE__);
+    if(rc == ETIMEDOUT)
         return _ETIMEDOUT;
-    }
-    
-    modify_critical_region_counter(current, -1,__FILE__, __LINE__);
     return 0;
 }
 
@@ -224,6 +191,8 @@ unsigned critical_region_count(struct task *task) {
     unsigned tmp = 0;
 //    pthread_mutex_lock(task->critical_region.lock); // This would make more
     tmp = task->critical_region.count;
+    if(tmp > 1000)  // Not likely
+        tmp = 0;
  //   pthread_mutex_unlock(task->critical_region.lock);
 
     return tmp;
@@ -232,6 +201,14 @@ unsigned critical_region_count(struct task *task) {
 unsigned critical_region_count_wrapper() { // sync.h can't know about the definition of struct due to recursive include files.  -mke
     return(critical_region_count(current));
 }
+
+bool current_is_valid(void) {
+    if(current != NULL)
+        return true;
+    
+    return false;
+}
+
 unsigned locks_held_count(struct task *task) {
    // return 0; // Short circuit for now
     if(task->pid < 10)  // Here be monsters.  -mke

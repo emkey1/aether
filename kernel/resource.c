@@ -200,7 +200,7 @@ int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) 
     if (pid != 0) {
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         struct task *task = pid_get_task(pid);
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
         if (task == NULL)
             return _ESRCH;
     }

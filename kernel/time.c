@@ -36,16 +36,16 @@ static struct timer_spec timer_spec_to_real(struct itimerspec_ itspec) {
 
 static struct itimerspec_ timer_spec_from_real(struct timer_spec spec) {
     struct itimerspec_ itspec = {
-        .value.sec = spec.value.tv_sec,
-        .value.nsec = spec.value.tv_nsec,
-        .interval.sec = spec.interval.tv_sec,
-        .interval.nsec = spec.interval.tv_nsec,
+        .value.sec = (dword_t)spec.value.tv_sec,
+        .value.nsec = (dword_t)spec.value.tv_nsec,
+        .interval.sec = (dword_t)spec.interval.tv_sec,
+        .interval.nsec = (dword_t)spec.interval.tv_nsec,
     };
     return itspec;
 };
 
 dword_t sys_time(addr_t time_out) {
-    dword_t now = time(NULL);
+    dword_t now = (dword_t)time(NULL);
     if (time_out != 0)
         if (user_put(time_out, now))
             return _EFAULT;
@@ -73,8 +73,9 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
             return errno_map();
     }
     struct timespec_ t;
-    t.sec = ts.tv_sec;
-    t.nsec = ts.tv_nsec;
+    t.sec = (dword_t)ts.tv_sec;
+    t.nsec = (dword_t)ts.tv_nsec;
+    
     if (user_put(tp, t))
         return _EFAULT;
     STRACE(" {%lds %ldns}", t.sec, t.nsec);
@@ -91,8 +92,8 @@ dword_t sys_clock_getres(dword_t clock, addr_t res_addr) {
     if (err < 0)
         return errno_map();
     struct timespec_ t;
-    t.sec = res.tv_sec;
-    t.nsec = res.tv_nsec;
+    t.sec = (dword_t)res.tv_sec;
+    t.nsec = (dword_t)res.tv_nsec;
     if (user_put(res_addr, t))
         return _EFAULT;
     return 0;
@@ -111,7 +112,7 @@ static void itimer_notify(struct task *task) {
     ////modify_critical_region_counter(task, -1, __FILE__, __LINE__);
 }
 
-static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
+static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
     if (which != ITIMER_REAL_) {
         FIXME("unimplemented setitimer %d", which);
         return _EINVAL;
@@ -127,7 +128,7 @@ static int itimer_set(struct tgroup *group, int which, struct timer_spec spec, s
     return timer_set(group->itimer, spec, old_spec);
 }
 
-int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
+long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     struct itimerval_ val;
     if (user_get(new_val_addr, val))
         return _EFAULT;
@@ -143,17 +144,17 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
 
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
-    int err = itimer_set(group, which, spec, &old_spec);
+    long err = itimer_set(group, which, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
         return err;
 
     if (old_val_addr != 0) {
         struct itimerval_ old_val;
-        old_val.interval.sec = old_spec.interval.tv_sec;
-        old_val.interval.usec = old_spec.interval.tv_nsec / 1000;
-        old_val.value.sec = old_spec.value.tv_sec;
-        old_val.value.usec = old_spec.value.tv_nsec / 1000;
+        old_val.interval.sec = (dword_t)old_spec.interval.tv_sec;
+        old_val.interval.usec = (dword_t)old_spec.interval.tv_nsec / 1000;
+        old_val.value.sec = (dword_t)old_spec.value.tv_sec;
+        old_val.value.usec = (dword_t)old_spec.value.tv_nsec / 1000;
         if (user_put(old_val_addr, old_val))
             return _EFAULT;
     }
@@ -161,7 +162,7 @@ int_t sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
     return 0;
 }
 
-uint_t sys_alarm(uint_t seconds) {
+long sys_alarm(uint_t seconds) {
     STRACE("alarm(%d)", seconds);
     struct timer_spec spec = {
         .value.tv_sec = seconds,
@@ -170,13 +171,13 @@ uint_t sys_alarm(uint_t seconds) {
 
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
-    int err = itimer_set(group, ITIMER_REAL_, spec, &old_spec);
+    long err = itimer_set(group, ITIMER_REAL_, spec, &old_spec);
     unlock(&group->lock);
     if (err < 0)
         return err;
 
     // Round up, and make sure to not return 0 if old_spec is > 0
-    seconds = old_spec.value.tv_sec;
+    seconds = (dword_t)old_spec.value.tv_sec;
     if (old_spec.value.tv_nsec >= 500000000)
         seconds++;
     if (seconds == 0 && !timespec_is_zero(old_spec.value))
@@ -203,8 +204,8 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
         return errno_map();
     if (rem_addr != 0) {
         struct timespec_ rem_ts;
-        rem_ts.sec = rem.tv_sec;
-        rem_ts.nsec = rem.tv_nsec;
+        rem_ts.sec = (dword_t)rem.tv_sec;
+        rem_ts.nsec = (dword_t)rem.tv_nsec;
         if (user_put(rem_addr, rem_ts))
             return _EFAULT;
     }
@@ -235,8 +236,8 @@ dword_t sys_gettimeofday(addr_t tv, addr_t tz) {
     }
     struct timeval_ tv_;
     struct timezone_ tz_;
-    tv_.sec = timeval.tv_sec;
-    tv_.usec = timeval.tv_usec;
+    tv_.sec = (dword_t)timeval.tv_sec;
+    tv_.usec = (dword_t)timeval.tv_usec;
     tz_.minuteswest = timezone.tz_minuteswest;
     tz_.dsttime = timezone.tz_dsttime;
     if ((tv && user_put(tv, tv_)) || (tz && user_put(tz, tz_))) {

@@ -411,7 +411,7 @@ int_t sys_accept(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     }
 
     char sockaddr[sockaddr_len];
-    int client;
+    int client =0;
     TASK_MAY_BLOCK {
         do {
             sockrestart_begin_listen_wait(sock);
@@ -1262,7 +1262,7 @@ int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
         return _EINVAL;
     struct socket_call call = socket_calls[call_num];
     if (call.func == NULL) {
-        FIXME("socketcall %d", call_num);
+        FIXME("socketcall %d (%s:%d)", call_num, current->comm, current->pid);
         return _ENOSYS;
     }
 

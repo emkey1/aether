@@ -55,12 +55,12 @@ void mem_destroy(struct mem *mem) {
     }
     jit_free(mem->mmu.jit);
 #endif
-    int mycount = 0;
+    int count = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
         do {
-            mycount++;
+            count++;
             nanosleep(&lock_pause, NULL);
-        } while((critical_region_count(current) > 1) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
+        } while((critical_region_count(current) > 1) && (current->pid > 1) && (count < 5000000)); // Wait for now, task is in one or more critical sections
         
         
         if (mem->pgdir[i] != NULL)
@@ -358,8 +358,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
 #endif
         
         // if page is cow, ~~milk~~ copy it
-        if(doEnableExtraLocking)
-           extra_lockf(0, __FILE__, __LINE__);
         
         if (entry->flags & P_COW) {
             lock(&current->general_lock, 0);  // prevent elf_exec from doing mm_release while we are in flight?  -mke
@@ -379,9 +377,6 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
             write_to_read_lock(&mem->lock, __FILE__, __LINE__);
             
         }
-        
-        if(doEnableExtraLocking)
-           extra_unlockf(0, __FILE__, __LINE__);
         
     }
 

@@ -11,7 +11,6 @@ extern bool isGlibC;
 
 dword_t syscall_stub(void) {
     STRACE("syscall_stub()");
-    //STRACE("syscall_stub()");
     return _ENOSYS;
 }
 dword_t syscall_stub_silent(void) {
@@ -271,7 +270,9 @@ syscall_t syscall_table[] = {
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
     [403] = (syscall_t) syscall_stub, // clock_gettime64
+    [406] = (syscall_t) syscall_stub, // clock_getres_time64
     [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
+    [412] = (syscall_t) syscall_stub, // utimensat_time64
     [436] = (syscall_t) syscall_stub,
     [439] = (syscall_t) sys_faccessat, // faccessat2
 };
@@ -363,14 +364,14 @@ void handle_interrupt(int interrupt) {
             .sig = SIGTRAP_,
             .code = SI_KERNEL_,
         });
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
     } else if (interrupt == INT_DEBUG) {
         complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
         send_signal(current, SIGTRAP_, (struct siginfo_) {
             .sig = SIGTRAP_,
             .code = TRAP_TRACE_,
         });
-        unlock(&pids_lock);
+        unlock_pids(&pids_lock);
     } else if (interrupt != INT_TIMER) {
         printk("WARNING: %d(%s) unhandled interrupt %d\n", current->pid, current->comm, interrupt);
         sys_exit(interrupt);

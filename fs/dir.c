@@ -15,6 +15,7 @@ static unsigned long fd_telldir(struct fd *fd) {
 
 static void fd_seekdir(struct fd *fd, unsigned long off) {
     fd->offset = off;
+
     if (fd->ops->seekdir)
         fd->ops->seekdir(fd, off);
 }
@@ -72,6 +73,8 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
     int printed = 0;
     while (true) {
         ptr = fd_telldir(fd);
+        extern time_t boot_time;
+        fd->stat.atime = (dword_t)boot_time;
         struct dir_entry entry;
         err = fd->ops->readdir(fd, &entry);
         if (err < 0)
@@ -81,6 +84,7 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
 
         size_t max_reclen = sizeof(struct linux_dirent64_) + strlen(entry.name) + 4;
         char dirent_data[max_reclen];
+        dirent_data[0] = 0;
         ino_t inode = entry.inode;
         off_t_ offset = fd_telldir(fd);
         const char *name = entry.name;

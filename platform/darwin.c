@@ -70,6 +70,7 @@ struct uptime_info get_uptime() {
     sysctlbyname("kern.boottime", &kern_boottime, &size, NULL, 0);
     struct timeval now;
     gettimeofday(&now, NULL);
+    extern time_t boot_time;
 
     struct {
         uint32_t ldavg[3];
@@ -88,7 +89,8 @@ struct uptime_info get_uptime() {
 
     struct uptime_info uptime = {
         //.uptime_ticks = now.tv_sec - kern_boottime[0],
-        .uptime_ticks = getSystemUptime() * 100, // This works but shouldn't.  -mke
+        .uptime_ticks = (now.tv_sec - boot_time) * 100, // Note that busybox uptime doesn't like the multiplier.  -mke
+        //.uptime_ticks = getSystemUptime() * 100, // This works but shouldn't.  -mke
         .load_1m = vm_loadavg.ldavg[0],
         .load_5m = vm_loadavg.ldavg[1],
         .load_15m = vm_loadavg.ldavg[2],

@@ -18,6 +18,7 @@ struct fd *fd_create(const struct fd_ops *ops) {
     fd->flags = 0;
     fd->mount = NULL;
     fd->offset = 0;
+    fd->stat.ctime = (dword_t)time(NULL);
     list_init(&fd->poll_fds);
     lock_init(&fd->poll_lock);
     lock_init(&fd->lock);
