@@ -432,6 +432,7 @@ static int real_poll_wait(struct real_poll *real, struct real_poll_event *events
 static void *rpe_data(struct real_poll_event *rpe) {
     return rpe->real.udata;
 }
+
 static int rpe_events(struct real_poll_event *rpe) {
     if (rpe->real.filter == EVFILT_READ) {
         int events = 0;

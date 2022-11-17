@@ -55,12 +55,12 @@ void mem_destroy(struct mem *mem) {
     }
     jit_free(mem->mmu.jit);
 #endif
-    int mycount = 0;
+    int count = 0;
     for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
         do {
-            mycount++;
+            count++;
             nanosleep(&lock_pause, NULL);
-        } while((critical_region_count(current) > 1) && (current->pid > 1) && (mycount < 5000000)); // Wait for now, task is in one or more critical sections
+        } while((critical_region_count(current) > 1) && (current->pid > 1) && (count < 5000000)); // Wait for now, task is in one or more critical sections
         
         
         if (mem->pgdir[i] != NULL)
