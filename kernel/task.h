@@ -25,12 +25,12 @@ struct task {
     
     struct {
         pthread_mutex_t lock;
-        unsigned count; // If positive, don't delete yet, wait_to_delete -mke
+        int count; // If positive, don't delete yet, wait_to_delete -mke
     } critical_region;
     
     struct {
         pthread_mutex_t lock;
-        unsigned count; // Count of locks held by current task =mke
+        int count; // Count of locks held by current task =mke
     } locks_held;
     
     int stuck_count;
