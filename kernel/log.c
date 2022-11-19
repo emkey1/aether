@@ -274,16 +274,16 @@ char * current_comm(void) {
         if(strcmp(current->comm, "")) {
             strncpy(comm, current->comm, 16);
         } else {
-            return calloc(1, 1);
+            return "";
         }
         if (current->exiting != true) {
             return comm;
         } else {
-            return calloc(1, 1);
+            return "";
         }
     }
     
-    return calloc(1, 1); 
+    return "";
 }
 
 
