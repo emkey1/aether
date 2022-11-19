@@ -369,6 +369,7 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(task->pending & ~task->blocked);
     }
+    // &pids_lock is locked already at this point
     //complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
     task_destroy(task);
     //unlock_pids(&pids_lock);

@@ -151,7 +151,7 @@ static int proc_show_dev(struct proc_entry * UNUSED(entry), struct proc_data *bu
                                  (unsigned long)stats->ifi_ibytes,   // stats->rx_bytes,
                                  (unsigned long)stats->ifi_ipackets,   // stats->rx_packets,
                                  (unsigned long)stats->ifi_ierrors,  // stats->rx_errors,
-                                 (unsigned long)0,  // stats->rx_dropped + stats->rx_missed_errors,
+                                 (unsigned long)stats->ifi_iqdrops,  // stats->rx_dropped + stats->rx_missed_errors,
                                  (unsigned long)0,  // stats->rx_fifo_errors,
                                  (unsigned long)0,  // stats->rx_length_errors + stats->rx_over_errors +
                                  (unsigned long)0,  // stats->rx_crc_errors + stats->rx_frame_errors,

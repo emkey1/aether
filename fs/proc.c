@@ -26,7 +26,7 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
                 // this asserts that an entry has a unique parent
                 assert(next_entry.meta->parent == entry->meta);
             if (next_entry.meta->inode == 0)
-                next_entry.meta->inode = index + 1;
+                next_entry.meta->inode = (int)index + 1;
 
             proc_entry_getname(&next_entry, entry_name);
             if (strcmp(entry_name, component) == 0)
