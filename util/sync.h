@@ -35,8 +35,8 @@ typedef struct {
     pthread_t owner;
     //const char *comm;
     int pid;
-    char comm[16];
     int uid;
+    char comm[16];
 #if LOCK_DEBUG
     struct lock_debug {
         const char *file; // doubles as locked
@@ -55,7 +55,8 @@ static inline void lock_init(lock_t *lock) {
         .initialized = true,
     };
 #endif
-    strncpy(lock->comm, "               ", 15);
+//    strncpy(lock->comm, "               ", 15);
+    lock->comm[0] = 0;
     lock->uid = -1;
 }
 
@@ -66,19 +67,19 @@ static inline void lock_init(lock_t *lock) {
 #endif
 
 static inline void atomic_l_lockf(const char *file, int line) {  // Make all locks atomic by wrapping them.  -mke
-    modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+  //  modify_critical_region_counter_wrapper(1, file, line);
     pthread_mutex_lock(&atomic_l_lock);
     modify_locks_held_count_wrapper(1);
-    modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+ //   modify_critical_region_counter_wrapper(-1, file, line);
     //STRACE("atomic_l_lockf(%d)\n", count); // This is too verbose most of the time
 }
 
 static inline void atomic_l_unlockf(void) {
-    modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+  //  modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     pthread_mutex_unlock(&atomic_l_lock);
     modify_locks_held_count_wrapper(-1);
     //STRACE("atomic_l_unlockf()\n");
-    modify_critical_region_counter_wrapper(-1,__FILE__, __LINE__);
+  //  modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void threaded_lock(pthread_mutex_t *lock, int log_lock) {
@@ -151,19 +152,22 @@ static inline void complex_lockt(lock_t *lock, int log_lock, __attribute__((unus
 }
 
 static inline void __lock(lock_t *lock, int log_lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) {
-    
-    if(!log_lock)
-       modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
-    
-    pthread_mutex_lock(&lock->m);
-    if(!log_lock)
+    if(!log_lock) {
+        modify_critical_region_counter_wrapper(1,__FILE__, __LINE__);
+        pthread_mutex_lock(&lock->m);
         modify_locks_held_count_wrapper(1);
-    lock->owner = pthread_self();
-    lock->pid = current_pid();
-    lock->uid = current_uid();
-    strncpy(lock->comm, current_comm(), 16);
-    if(!log_lock)
+        lock->owner = pthread_self();
+        lock->pid = current_pid();
+        lock->uid = current_uid();
+        strncpy(lock->comm, current_comm(), 16);
         modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    } else {
+        pthread_mutex_lock(&lock->m);
+        lock->owner = pthread_self();
+        lock->pid = current_pid();
+        lock->uid = current_uid();
+        strncpy(lock->comm, current_comm(), 16);
+    }
     return;
 }
 
@@ -221,18 +225,19 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     while(pthread_rwlock_tryrdlock(&lock->l)) {
         count++;
-        if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_read(%x) failure.  Pending read locks > 1000(%d), loops = %d.  Faking it to make it (PID: %d, Process: %s) (%s:%d).\n", lock, count, lock->val, current_pid(), current_comm(), file, line);
-            _read_unlock(lock, __FILE__, __LINE__);
-            lock->val = 0;
+ //       if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
+ //           printk("ERROR: loop_lock_read(%x) failure.  Pending read locks > 1000(%d), loops = %d.  Faking it to make it (PID: %d, Process: %s) (%s:%d).\n", lock, count, lock->val, current_pid(), current_comm(), file, line);
+ //           _read_unlock(lock, __FILE__, __LINE__);
+ //           lock->val = 0;
             //loop_lock_read(lock, file, line);
-            if(lock->favor_read > 24)
-                lock->favor_read = lock->favor_read - 25;
+ //           if(lock->favor_read > 24)
+ //               lock->favor_read = lock->favor_read - 25;
             
-            modify_locks_held_count_wrapper(-1);
-            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-            return;
-        } else if(count > count_max) {
+ //           modify_locks_held_count_wrapper(-1);
+ //           modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+ //           return;
+  //      } else
+            if(count > count_max) {
             // For now, print error and reset count.  --mke
             printk("ERROR: loop_lock_read(%x) tries exceeded %d, dealing with likely deadlock.(Lock held by PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
             count = 0;
@@ -259,8 +264,8 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
         atomic_l_lockf(__FILE__, __LINE__);
     }
     
-    if(lock->favor_read > 24)
-        lock->favor_read = lock->favor_read - 25;
+//    if(lock->favor_read > 24)
+//        lock->favor_read = lock->favor_read - 25;
     
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
@@ -269,12 +274,13 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     modify_locks_held_count_wrapper(1);  // Set this here to avoid problems elsewhere in the complicated webs of execution
     unsigned count = 0;
-    if(lock->favor_read < 50001) {
-        lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
-    } else {
-        lock->favor_read = lock->favor_read - 5000;
-    }
-    int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
+//    if(lock->favor_read < 50001) {
+//        lock->favor_read = lock->favor_read + 50; // Push weighting towards reads after a write
+//    } else {
+//        lock->favor_read = lock->favor_read - 5000;
+//    }
+ //   int random_wait = WAIT_SLEEP + rand() % lock->favor_read;
+    int random_wait = WAIT_SLEEP + rand() % 100;
     struct timespec lock_pause = {0 /*secs*/, random_wait /*nanosecs*/};
     long count_max = (WAIT_MAX_UPPER - random_wait);  // As sleep time increases, decrease acceptable loops.  -mke
     if(count_max < 25000)
@@ -282,18 +288,19 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
 
     while(pthread_rwlock_trywrlock(&lock->l)) {
         count++;
-        if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
-            printk("ERROR: loop_lock_write(%x) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s) (%s:%d)\n", lock, count, lock->pid, lock->comm, file, line);
-            _read_unlock(lock, __FILE__, __LINE__);
-            lock->val = 0;
-            lock->pid = 0;
-            strcpy(lock->comm, NULL);
-            loop_lock_write(lock, file, line);
+ //       if(lock->val > 1000) {  // Housten, we have a problem. most likely the associated task has been reaped.  Ugh  --mke
+ //           printk("ERROR: loop_lock_write(%x) failure.  Pending read locks > 1000, loops = %d.  Faking it to make it.(PID: %d Process: %s) (%s:%d)\n", lock, count, lock->pid, lock->comm, file, line);
+ //           _read_unlock(lock, __FILE__, __LINE__);
+ //           lock->val = 0;
+ //           lock->pid = 0;
+ //           strcpy(lock->comm, NULL);
+ //           loop_lock_write(lock, file, line);
             
-            modify_locks_held_count_wrapper(-1);
-            modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
-            return;
-        } else if(count > count_max) {
+ //           modify_locks_held_count_wrapper(-1);
+ //           modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+ //           return;
+//        } else
+            if(count > count_max) {
             // For now, print error and reset count.  --mke
             printk("ERROR: loop_lock_write(%x) tries exceeded %d, dealing with likely deadlock.(Lock held by PID: %d Process: %s) (%s:%d)\n", lock, count_max, lock->pid, lock->comm, file, line);
             count = 0;

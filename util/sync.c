@@ -34,6 +34,7 @@ static bool is_signal_pending(lock_t *lock) {
 }
 
 void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
+
     
     if(task == NULL) {
         if(current != NULL) {
@@ -50,11 +51,9 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
     
     pthread_mutex_lock(&task->critical_region.lock);
     
-    if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-        //int skipme = strcmp(task->comm, "init");
-        //if((task->pid > 2) && (skipme != 0))  // Why ask why?  -mke
-        if(task->pid > 10)
-            printk("ERROR: Attempt to decrement critical_region count when it is already zero, ignoring(%s:%d) (%s:%d)\n", task->comm, task->pid, file, line);
+    if(((task->critical_region.count + value) < 0) && (task->pid > 9)) { // Prevent our unsigned value attempting to go negative.  -mke
+    //if(!task->critical_region.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
+        printk("ERROR: Attempt to decrement critical_region count to be negative, ignoring(%s:%d) (%d - %d) (%s:%d)\n", task->comm, task->pid, task->critical_region.count, value, file, line);
         return;
     }
     
@@ -85,9 +84,9 @@ void modify_locks_held_count(struct task *task, int value) { // value Should onl
     }
     
     pthread_mutex_lock(&task->locks_held.lock);
-    if(!task->locks_held.count && (value < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
-       if((task->pid > 2) && (!strcmp(task->comm, "init")))  // Why ask why?  -mke
-            printk("ERROR: Attempt to decrement locks_held count when it is already zero, ignoring\n");
+    if((task->locks_held.count + value < 0) && task->pid > 9) {
+     //  if((task->pid > 2) && (!strcmp(task->comm, "init")))  // Why ask why?  -mke
+            printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
         return;
     }
     task->locks_held.count = task->locks_held.count + value;

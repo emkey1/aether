@@ -12,6 +12,7 @@
 #include "util/sync.h"
 #include <pthread.h>
 #include <libkern/OSAtomic.h>
+#include <os/proc.h>
 
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -160,13 +161,14 @@ struct task *task_create_(struct task *parent) {
 }
 
 void task_destroy(struct task *task) {
-    if(!pthread_mutex_trylock(&task->death_lock))
-       return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+   // if(!pthread_mutex_trylock(&task->death_lock))
+    //   return; // Task is already in the process of being deleted, most likely by do_exit().  -mke
+    
     task->exiting = true;
     
     bool signal_pending = !!(current->pending & ~current->blocked);
     int count = -4000; // Maybe this is more efficient? -mke
-    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count < 1)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
         count++;
@@ -183,7 +185,7 @@ void task_destroy(struct task *task) {
     
     signal_pending = !!(current->pending & ~current->blocked);
     count = -4000;
-    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count < 0)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
         count++;
@@ -194,7 +196,7 @@ void task_destroy(struct task *task) {
     
     signal_pending = !!(current->pending & ~current->blocked);
     count = -4000;
-    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count < 0)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked);
         count++;
@@ -203,7 +205,7 @@ void task_destroy(struct task *task) {
     
     signal_pending = !!(current->pending & ~current->blocked);
     count = -4000;
-    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count)) { // Wait for now, task is in one or more critical sections, and/or has locks
+    while(((critical_region_count(task) > 1) || (locks_held_count(task)) || (signal_pending)) && (count < 0)) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
         signal_pending = !!(current->blocked); // Be less stringent -mke
         count++;
@@ -221,6 +223,10 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
     printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
+    API_UNAVAILABLE(macos) API_AVAILABLE(ios(13.0))
+    size_t proc_mem_avail = os_proc_available_memory();
+    if(proc_mem_avail > 0)
+        printk("%d memory available for iSH-AOK\n", proc_mem_avail);
     // Get boot time
     extern time_t boot_time;
          

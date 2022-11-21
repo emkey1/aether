@@ -981,6 +981,8 @@ out_free_scm:
 out_free_iov:
     for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
         free(msg_iov[i].iov_base);
+  //  if(scm != NULL)
+  //      scm_free(scm);
     return err;
 }
 

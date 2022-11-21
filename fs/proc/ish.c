@@ -284,7 +284,6 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
                 }
                 //cursor->ifa_addr->sa_family = AF_INET;
                 get_ip_str(cursor->ifa_addr, int_ip, 100);
-                char * mac = malloc(100);
                 if(cursor->ifa_dstaddr != NULL) {
                     if(cursor->ifa_dstaddr->sa_family == AF_INET) {
                         strncpy(type, "IF_INET", 9);
@@ -314,8 +313,8 @@ static int proc_ish_show_ips(struct proc_entry *UNUSED(entry), struct proc_data 
                             int_flags
                 );
                 free(int_ip);
-                free(int_flags);
                 free(int_dstaddr);
+                free(int_flags);
             }
             cursor = cursor->ifa_next;
         }
