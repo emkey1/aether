@@ -248,6 +248,7 @@ syscall_t syscall_table[] = {
     [347] = (syscall_t) syscall_stub, // process_vm_readv
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
+    [354] = (syscall_t) syscall_stub, //seccomp
     [355] = (syscall_t) sys_getrandom,
     [356] = (syscall_t) syscall_stub, // memfd_create
     [359] = (syscall_t) sys_socket,

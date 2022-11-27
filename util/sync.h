@@ -67,19 +67,19 @@ static inline void lock_init(lock_t *lock) {
 #endif
 
 static inline void atomic_l_lockf(const char *file, int line) {  // Make all locks atomic by wrapping them.  -mke
-  //  modify_critical_region_counter_wrapper(1, file, line);
+    modify_critical_region_counter_wrapper(1, file, line);
     pthread_mutex_lock(&atomic_l_lock);
     modify_locks_held_count_wrapper(1);
- //   modify_critical_region_counter_wrapper(-1, file, line);
+    modify_critical_region_counter_wrapper(-1, file, line);
     //STRACE("atomic_l_lockf(%d)\n", count); // This is too verbose most of the time
 }
 
 static inline void atomic_l_unlockf(void) {
-  //  modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     pthread_mutex_unlock(&atomic_l_lock);
     modify_locks_held_count_wrapper(-1);
     //STRACE("atomic_l_unlockf()\n");
-  //  modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
 static inline void threaded_lock(pthread_mutex_t *lock, int log_lock) {
@@ -322,9 +322,9 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
             }
         }
         
-        atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
+        //atomic_l_unlockf(); // Need to give others a chance.  Though this likely isn't good enough.  -mke
         nanosleep(&lock_pause, NULL);
-        atomic_l_lockf(__FILE__, __LINE__);
+        //atomic_l_lockf(__FILE__, __LINE__);
     }
     
     modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
