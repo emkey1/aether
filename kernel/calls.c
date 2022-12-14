@@ -273,6 +273,7 @@ syscall_t syscall_table[] = {
     [403] = (syscall_t) syscall_stub, // clock_gettime64
     [406] = (syscall_t) syscall_stub, // clock_getres_time64
     [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
+    [424] = (syscall_t) syscall_stub, // pidfd_send_signal?
     [412] = (syscall_t) syscall_stub, // utimensat_time64
     [436] = (syscall_t) syscall_stub,
     [439] = (syscall_t) sys_faccessat, // faccessat2

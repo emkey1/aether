@@ -23,7 +23,7 @@ struct jit *jit_new(struct mmu *mmu) {
     jit_resize_hash(jit, JIT_INITIAL_HASH_SIZE);
     jit->page_hash = calloc(JIT_PAGE_HASH_SIZE, sizeof(*jit->page_hash));
     list_init(&jit->jetsam);
-    lock_init(&jit->lock);
+    lock_init(&jit->lock, "jit_new\0");
     wrlock_init(&jit->jetsam_lock);
     return jit;
 }

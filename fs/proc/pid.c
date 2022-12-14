@@ -20,7 +20,7 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
+    complex_lockt(&pids_lock, 1, __FILE__, __LINE__);
     struct task *task = pid_get_task(entry->pid);
     if (task == NULL)
         unlock_pids(&pids_lock);

@@ -20,8 +20,8 @@ struct fd *fd_create(const struct fd_ops *ops) {
     fd->offset = 0;
     fd->stat.ctime = (dword_t)time(NULL);
     list_init(&fd->poll_fds);
-    lock_init(&fd->poll_lock);
-    lock_init(&fd->lock);
+    lock_init(&fd->poll_lock, "fd_create_poll\0");
+    lock_init(&fd->lock, "fd_create\0");
     cond_init(&fd->cond);
     return fd;
 }
@@ -63,7 +63,7 @@ struct fdtable *fdtable_new(int size) {
     fdt->size = 0;
     fdt->files = NULL;
     fdt->cloexec = NULL;
-    lock_init(&fdt->lock);
+    lock_init(&fdt->lock, "fdtable_new\0");
     int err = fdtable_resize(fdt, size);
     if (err < 0) {
         free(fdt);

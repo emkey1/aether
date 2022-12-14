@@ -118,24 +118,35 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         unlock(&current->waiting_cond_lock);
     }
     int rc = 0;
+    char saveme[16];
+    strncpy(saveme, lock->lname, 16); // Save for later
 #if LOCK_DEBUG
     struct lock_debug lock_tmp = lock->debug;
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
-    if (!timeout) {
- //       struct timespec trigger_time;
-  //      trigger_time.tv_sec = 1800;
-   //     trigger_time.tv_nsec = 0;
-//    LOOP:
- //       if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
-  //          rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-   //         if((rc == ETIMEDOUT) && current->parent != NULL) {
-    //            printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
-     //           goto LOOP;
-      //      }
-       // } else {
+    if (!timeout) { // We timeout anyway after sixty seconds.  It appears the process wakes up briefly before returning here if there is nothing else pending.  This is kluge.  -mke
+        struct timespec trigger_time;
+        trigger_time.tv_sec = 90;
+        trigger_time.tv_nsec = 0;
+        lock->wait4 = true;
+    LOOP:
+        if(current->uid == 501) {  // This is here for testing of the process lockup issue.  -mke
+            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+            if((rc == ETIMEDOUT) && current->parent != NULL) {
+                //printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d:(%s:%d))\n", current->comm, current->pid, current->parent, current->parent->comm, current->parent->pid);
+                if(current->children.next != NULL) {
+                //if(current->children.next == NULL) {
+                    notify_once(cond);  // This is a terrible hack that seems to avoid processes getting stuck.
+                                        // The basic idea being that it can't get stuck if the signal being waited for is
+                                        // sent after sixty seconds.  --mke
+                    goto LOOP;
+                }
+            }
+            
+            rc = 0;
+        } else {
             pthread_cond_wait(&cond->cond, &lock->m);
-        //}
+        }
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -163,6 +174,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         current->waiting_lock = NULL;
         unlock(&current->waiting_cond_lock);
     }
+    lock->wait4 = false;
     if(rc == ETIMEDOUT)
         return _ETIMEDOUT;
     return 0;

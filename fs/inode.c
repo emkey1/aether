@@ -34,7 +34,7 @@ struct inode_data *inode_get_unlocked(struct mount *mount, ino_t ino) {
         cond_init(&inode->posix_unlock);
         list_init(&inode->posix_locks);
         list_init(&inode->chain);
-        lock_init(&inode->lock);
+        lock_init(&inode->lock, "inode_data\0");
         list_add(&inodes_hash[ino % INODES_HASH_SIZE], &inode->chain);
     }
 

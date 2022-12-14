@@ -464,7 +464,7 @@ struct sighand *sighand_new() {
         return NULL;
     memset(sighand, 0, sizeof(struct sighand));
     sighand->refcount = 1;
-    lock_init(&sighand->lock);
+    lock_init(&sighand->lock, "sighand_new\0");
     return sighand;
 }
 

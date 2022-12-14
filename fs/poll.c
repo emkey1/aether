@@ -50,7 +50,7 @@ struct poll *poll_create() {
     poll->notify_pipe[1] = -1;
     list_init(&poll->poll_fds);
     list_init(&poll->pollfd_freelist);
-    lock_init(&poll->lock);
+    lock_init(&poll->lock, "poll_create\0");
     return poll;
 }
 

@@ -12,7 +12,7 @@ struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data
     timer->data = data;
     timer->active = false;
     timer->thread_running = false;
-    lock_init(&timer->lock);
+    lock_init(&timer->lock, "timer_new\0");
     timer->dead = false;
     return timer;
 }
