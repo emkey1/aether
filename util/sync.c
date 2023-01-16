@@ -126,20 +126,25 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 #endif
     if (!timeout) { // We timeout anyway after sixty seconds.  It appears the process wakes up briefly before returning here if there is nothing else pending.  This is kluge.  -mke
         struct timespec trigger_time;
-        trigger_time.tv_sec = 90;
+        trigger_time.tv_sec = 45;
         trigger_time.tv_nsec = 0;
         lock->wait4 = true;
-    LOOP:
+    //LOOP:
         if(current->uid == 501) {  // This is here for testing of the process lockup issue.  -mke
             rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-            if((rc == ETIMEDOUT) && current->parent != NULL) {
-                //printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d:(%s:%d))\n", current->comm, current->pid, current->parent, current->parent->comm, current->parent->pid);
+            //if((rc == ETIMEDOUT) && current->parent != NULL) {
+            if(rc == ETIMEDOUT) {
                 if(current->children.next != NULL) {
+                    printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d:(%s:%d))\n", current->comm, current->pid, current->parent, current->parent->comm, current->parent->pid);
                 //if(current->children.next == NULL) {
-                    notify_once(cond);  // This is a terrible hack that seems to avoid processes getting stuck.
+                    //notify_once(cond);  // This is a terrible hack that seems to avoid processes getting stuck.
+                    notify(cond);  // This is a terrible hack that seems to avoid processes getting stuck.
                                         // The basic idea being that it can't get stuck if the signal being waited for is
                                         // sent after sixty seconds.  --mke
-                    goto LOOP;
+                    //printk("ERROR: Stuck process(%s:%d).  Trying to fix...\n", current->comm, current->pid);
+                    //goto LOOP;
+                } else if(current->parent == NULL) {
+                    printk("NULL\n");
                 }
             }
             

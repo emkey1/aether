@@ -76,8 +76,15 @@ static inline void lock_init(lock_t *lock, char lname[16]) {
 static inline void atomic_l_lockf(char lname[16], const char *file, int line) {  // Make all locks atomic by wrapping them.  -mke
     int res = 0;
     modify_critical_region_counter_wrapper(1, file, line);
-    //atomic_l_lock->pid = current_pid(); Fucking idiocy. I hate C -mke
-    res = pthread_mutex_lock(&atomic_l_lock.m);
+    if(atomic_l_lock.pid > 0) {
+        if(current_pid() != atomic_l_lock.pid) { // Potential deadlock situation.  Also weird.  --mke
+            res = pthread_mutex_lock(&atomic_l_lock.m);
+            atomic_l_lock.pid = current_pid();
+        } else {
+            printk("WARNING: Odd attempt by process (%s:%d) to attain same locking lock twice.  Ignoring\n", current_comm(), current_pid());
+            res = 0;
+        }
+    }
     if(!res) {
         strncpy((char *)&atomic_l_lock.comm, current_comm(), 16);
         strncpy((char *)&atomic_l_lock.lname, lname, 16);
@@ -96,10 +103,14 @@ static inline void atomic_l_unlockf(void) {
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     strncpy((char *)&atomic_l_lock.lname,"\0", 1);
     res = pthread_mutex_unlock(&atomic_l_lock.m);
-    if(res)
-        printk("Error on unlocking lock\n");
+    if(res) {
+        printk("ERROR: unlocking locking lock\n");
+    } else {
+        atomic_l_lock.pid = -1; // Reset
+    }
     
     modify_locks_held_count_wrapper(-1);
+    modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
     //STRACE("atomic_l_unlockf()\n");
   //  modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
@@ -301,8 +312,10 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
         
             if(pid_get((dword_t)lock->pid) == NULL) {  // Oops, a task exited without clearing lock. BAD!  -mke
                 printk("ERROR: loop_lock_write(%x:%d) locking PID(%d) is gone for task %s\n", lock, lock->val, lock->pid, lock->comm);
+                pthread_rwlock_unlock(&lock->l);
             } else {
                 printk("ERROR: loop_lock_write(%x:%d) locking PID(%d), %s is apparently wedged\n", lock, lock->val, lock->pid, lock->comm);
+                pthread_rwlock_unlock(&lock->l);
             }
             
             if(lock->val > 1) {
@@ -381,7 +394,9 @@ static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const ch
         atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
         _write_unlock(lock, file, line);
     } else { // We can unlock our own lock regardless.  -mke
+        atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
         _write_unlock(lock, file, line);
+        atomic_l_unlockf();
         return;
     }
     if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
@@ -514,7 +529,7 @@ static inline void wrlock_init(wrlock_t *lock) {
 }
 
 static inline void _lock_destroy(wrlock_t *lock) {
-    while((critical_region_count_wrapper() > 2) && (current_pid() != 1)) { // Wait for now, task is in one or more critical sections
+    while((critical_region_count_wrapper() > 1) && (current_pid() != 1)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
 #ifdef JUSTLOG
