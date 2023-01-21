@@ -33,6 +33,12 @@ static inline dev_t_ dev_fake_from_real(dev_t dev) {
 #define DEV_BLOCK 0
 #define DEV_CHAR 1
 
+struct dev_rtc {
+    int (*open)(int major, int minor, struct fd *fd);
+    int (*close)(int major, int minor, struct fd *fd);
+    int (*time)(struct time * timeinfo);
+};
+
 struct dev_ops {
     int (*open)(int major, int minor, struct fd *fd);
     struct fd_ops fd;

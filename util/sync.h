@@ -389,7 +389,7 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
-static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
+/* static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
     if(lock->pid != current_pid() && (lock->pid != -1)) {
         atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
         _write_unlock(lock, file, line);
@@ -401,6 +401,12 @@ static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const ch
     }
     if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
         atomic_l_unlockf();
+} */
+static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
+    atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
+    _write_unlock(lock, file, line);
+    atomic_l_unlockf();
+    return;
 }
 
 static inline void __write_lock(wrlock_t *lock, const char *file, int line) { // Write lock

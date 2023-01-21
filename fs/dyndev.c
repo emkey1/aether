@@ -5,6 +5,8 @@
 
 #define MAX_MINOR 255
 
+typedef struct fd rtc_fd;
+
 // Handles DYNDEV_MAJOR device number
 // XXX(stek29): unregister might be added later
 struct dyn_dev_info {
@@ -67,6 +69,39 @@ static int dyn_open(int type, int major, int minor, struct fd *fd) {
 static int dyn_open_char(int major, int minor, struct fd *fd) {
     return dyn_open(DEV_CHAR, major, minor, fd);
 }
+
+static int rtc_open(int major, int minor, struct fd *fd) {
+    return dyn_open(DEV_CHAR, major, minor, fd);
+}
+
+static int rtc_close(int major, int minor, struct fd *fd) {
+    return 0;
+}
+
+static struct tm rtc_read(int major, int minor, struct fd *fd) {
+    time_t rawtime;
+    struct tm * timeinfo;
+
+    time ( &rawtime );
+    timeinfo = localtime ( &rawtime );
+    return *timeinfo;
+}
+
 struct dev_ops dyn_dev_char = {
     .open = dyn_open_char,
 };
+struct dev_rtc rtc_dev = {
+    .open = rtc_open,
+    .time = rtc_read,
+    .close = rtc_close,
+};
+
+/* struct dev_ops clipboard_dev = {
+    .open = clipboard_open,
+    .fd.read = clipboard_read,
+    .fd.write = clipboard_write,
+    .fd.lseek = clipboard_lseek,
+    .fd.poll = clipboard_poll,
+    .fd.close = clipboard_close,
+    .fd.fsync = clipboard_write_sync,
+}; */
