@@ -138,8 +138,8 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
     if (err != 0)
         return err;
     generic_mknodat(AT_PWD, "/dev/location", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_LOCATION_MINOR));
-    generic_mknodat(AT_PWD, "/dev/rtc0", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR));
-    generic_mknodat(AT_PWD, "/dev/rtc", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR)); // Technically this should be a link to /dev/rtc0, but I don't want to wrestle with that right now. -mke
+    //generic_mknodat(AT_PWD, "/dev/rtc0", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR));
+    //generic_mknodat(AT_PWD, "/dev/rtc", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR)); // Technically this should be a link to /dev/rtc0, but I don't want to wrestle with that right now. -mke
 
     do_mount(&procfs, "proc", "/proc", "", 0);
     do_mount(&devptsfs, "devpts", "/dev/pts", "", 0);

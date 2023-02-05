@@ -51,19 +51,25 @@ int dyn_dev_register(struct dev_ops *ops, int type, int major, int minor) {
 }
 
 static int dyn_open(int type, int major, int minor, struct fd *fd) {
-    assert(type == DEV_CHAR);
-    assert(major == DYN_DEV_MAJOR);
+    assert((type == DEV_CHAR) || (type == DEV_BLOCK));
+    assert(major == DYN_DEV_MAJOR || major == DEV_RTC_MAJOR); // mkemkemke
     // it's safe to access devs without locking (read-only)
-    struct dev_ops *ops = dyn_info_char.devs[minor];
-    if (ops == NULL) {
-        return _ENXIO;
+    
+    if(major == DEV_RTC_MAJOR) {
+        struct dev_ops *ops = dyn_info_char.devs[minor];
+        return ops->open(major, minor, fd);
+    } else {
+        struct dev_ops *ops = dyn_info_char.devs[minor];
+        if (ops == NULL) {
+            return _ENXIO;
+        }
+        fd->ops = &ops->fd;
+        
+        // Succeed if there's no open provided by ops
+        if (!ops->open)
+            return 0;
+        return ops->open(major, minor, fd);
     }
-    fd->ops = &ops->fd;
-
-    // Succeed if there's no open provided by ops
-    if (!ops->open)
-        return 0;
-    return ops->open(major, minor, fd);
 }
 
 static int dyn_open_char(int major, int minor, struct fd *fd) {
@@ -71,16 +77,12 @@ static int dyn_open_char(int major, int minor, struct fd *fd) {
 }
 
 static int rtc_open(int major, int minor, struct fd *fd) {
-    return dyn_open(DEV_CHAR, major, minor, fd);
+    return dyn_open(DEV_BLOCK, major, minor, fd);
 }
 
-static int rtc_close(int major, int minor, struct fd *fd) {
-    return 0;
-}
-
-static struct tm rtc_read(int major, int minor, struct fd *fd) {
+struct tm rtc_read(struct tm *timeinfo) {
     time_t rawtime;
-    struct tm * timeinfo;
+    //struct tm timeinfo;
 
     time ( &rawtime );
     timeinfo = localtime ( &rawtime );
@@ -90,18 +92,8 @@ static struct tm rtc_read(int major, int minor, struct fd *fd) {
 struct dev_ops dyn_dev_char = {
     .open = dyn_open_char,
 };
-struct dev_rtc rtc_dev = {
-    .open = rtc_open,
-    .time = rtc_read,
-    .close = rtc_close,
-};
 
-/* struct dev_ops clipboard_dev = {
-    .open = clipboard_open,
-    .fd.read = clipboard_read,
-    .fd.write = clipboard_write,
-    .fd.lseek = clipboard_lseek,
-    .fd.poll = clipboard_poll,
-    .fd.close = clipboard_close,
-    .fd.fsync = clipboard_write_sync,
-}; */
+struct dev_ops rtc_dev = {
+    .open = rtc_open,
+    .read = rtc_read,
+};

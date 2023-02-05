@@ -26,6 +26,8 @@ extern void modify_locks_held_count_wrapper(int);
 extern struct pid *pid_get(dword_t id);
 extern bool current_is_valid(void);
 
+extern bool doEnableExtraLocking;
+
 extern struct timespec lock_pause;
 
 
@@ -74,6 +76,8 @@ static inline void lock_init(lock_t *lock, char lname[16]) {
 #endif
 
 static inline void atomic_l_lockf(char lname[16], const char *file, int line) {  // Make all locks atomic by wrapping them.  -mke
+    if(!doEnableExtraLocking)
+        return;
     int res = 0;
     modify_critical_region_counter_wrapper(1, file, line);
     if(atomic_l_lock.pid > 0) {
@@ -99,6 +103,8 @@ static inline void atomic_l_lockf(char lname[16], const char *file, int line) { 
 }
 
 static inline void atomic_l_unlockf(void) {
+    if(!doEnableExtraLocking)
+        return;
     int res = 0;
     modify_critical_region_counter_wrapper(1, __FILE__, __LINE__);
     strncpy((char *)&atomic_l_lock.lname,"\0", 1);
@@ -266,8 +272,12 @@ static inline void loop_lock_read(wrlock_t *lock, __attribute__((unused)) const 
         
             if(pid_get((dword_t)lock->pid) == NULL) {  // Oops, a task exited without clearing lock. BAD!  -mke
                 printk("ERROR: loop_lock_read(%x) locking PID(%d) is gone for task %s\n", lock, lock->pid, lock->comm);
+                //pthread_rwlock_unlock(&lock->l);
+               // lock->pid = current_pid();
             } else {
                 printk("ERROR: loop_lock_read(%x) locking PID(%d), %s is apparently wedged\n", lock, lock->pid, lock->comm);
+                //pthread_rwlock_unlock(&lock->l);
+                //lock->pid = current_pid();
             }
             
             if(lock->val > 1) {
@@ -313,13 +323,17 @@ static inline void loop_lock_write(wrlock_t *lock, const char *file, int line) {
             if(pid_get((dword_t)lock->pid) == NULL) {  // Oops, a task exited without clearing lock. BAD!  -mke
                 printk("ERROR: loop_lock_write(%x:%d) locking PID(%d) is gone for task %s\n", lock, lock->val, lock->pid, lock->comm);
                 pthread_rwlock_unlock(&lock->l);
+                //lock->pid = current_pid();
             } else {
                 printk("ERROR: loop_lock_write(%x:%d) locking PID(%d), %s is apparently wedged\n", lock, lock->val, lock->pid, lock->comm);
                 pthread_rwlock_unlock(&lock->l);
+                //lock->pid = current_pid();
             }
             
             if(lock->val > 1) {
                 lock->val--; // Subtract one, as dead task must have heald a read lock, right?  -mke
+                modify_locks_held_count_wrapper(-1);  // I'm thinking this is correct, but may be wrong.  -mke
+                                                      //  _read_unlock and _write_unlock decrement for the other cases
             } else if(lock->val == 1) {
                 _read_unlock(lock, __FILE__, __LINE__);
             } else if(lock->val < 0) {
@@ -389,19 +403,6 @@ static inline void _write_unlock(wrlock_t *lock, __attribute__((unused)) const c
     //modify_critical_region_counter_wrapper(-1, __FILE__, __LINE__);
 }
 
-/* static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
-    if(lock->pid != current_pid() && (lock->pid != -1)) {
-        atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
-        _write_unlock(lock, file, line);
-    } else { // We can unlock our own lock regardless.  -mke
-        atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
-        _write_unlock(lock, file, line);
-        atomic_l_unlockf();
-        return;
-    }
-    if(lock->pid != current_pid() && (lock->pid != -1)) // We can unlock our own lock regardless.  -mke
-        atomic_l_unlockf();
-} */
 static inline void write_unlock(wrlock_t *lock, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
     atomic_l_lockf("w_unlock\0", __FILE__, __LINE__);
     _write_unlock(lock, file, line);
