@@ -8,7 +8,7 @@ struct fs_info *fs_info_new() {
     fs->refcount = 1;
     fs->umask = 0;
     fs->pwd = fs->root = NULL;
-    lock_init(&fs->lock);
+    lock_init(&fs->lock, "fs_info\0");
     return fs;
 }
 

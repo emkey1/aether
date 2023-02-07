@@ -5,6 +5,8 @@
 
 #define MAX_MINOR 255
 
+typedef struct fd rtc_fd;
+
 // Handles DYNDEV_MAJOR device number
 // XXX(stek29): unregister might be added later
 struct dyn_dev_info {
@@ -49,24 +51,49 @@ int dyn_dev_register(struct dev_ops *ops, int type, int major, int minor) {
 }
 
 static int dyn_open(int type, int major, int minor, struct fd *fd) {
-    assert(type == DEV_CHAR);
-    assert(major == DYN_DEV_MAJOR);
+    assert((type == DEV_CHAR) || (type == DEV_BLOCK));
+    assert(major == DYN_DEV_MAJOR || major == DEV_RTC_MAJOR); // mkemkemke
     // it's safe to access devs without locking (read-only)
-    struct dev_ops *ops = dyn_info_char.devs[minor];
-    if (ops == NULL) {
-        return _ENXIO;
+    
+    if(major == DEV_RTC_MAJOR) {
+        struct dev_ops *ops = dyn_info_char.devs[minor];
+        return ops->open(major, minor, fd);
+    } else {
+        struct dev_ops *ops = dyn_info_char.devs[minor];
+        if (ops == NULL) {
+            return _ENXIO;
+        }
+        fd->ops = &ops->fd;
+        
+        // Succeed if there's no open provided by ops
+        if (!ops->open)
+            return 0;
+        return ops->open(major, minor, fd);
     }
-    fd->ops = &ops->fd;
-
-    // Succeed if there's no open provided by ops
-    if (!ops->open)
-        return 0;
-    return ops->open(major, minor, fd);
 }
 
 static int dyn_open_char(int major, int minor, struct fd *fd) {
     return dyn_open(DEV_CHAR, major, minor, fd);
 }
+
+static int rtc_open(int major, int minor, struct fd *fd) {
+    return dyn_open(DEV_BLOCK, major, minor, fd);
+}
+
+struct tm rtc_read(struct tm *timeinfo) {
+    time_t rawtime;
+    //struct tm timeinfo;
+
+    time ( &rawtime );
+    timeinfo = localtime ( &rawtime );
+    return *timeinfo;
+}
+
 struct dev_ops dyn_dev_char = {
     .open = dyn_open_char,
+};
+
+struct dev_ops rtc_dev = {
+    .open = rtc_open,
+    .read = rtc_read,
 };

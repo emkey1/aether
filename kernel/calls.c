@@ -248,6 +248,7 @@ syscall_t syscall_table[] = {
     [347] = (syscall_t) syscall_stub, // process_vm_readv
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
+    [354] = (syscall_t) syscall_stub, //seccomp
     [355] = (syscall_t) sys_getrandom,
     [356] = (syscall_t) syscall_stub, // memfd_create
     [359] = (syscall_t) sys_socket,
@@ -269,13 +270,56 @@ syscall_t syscall_table[] = {
     [377] = (syscall_t) sys_copy_file_range,
     [383] = (syscall_t) syscall_stub_silent, // statx
     [384] = (syscall_t) sys_arch_prctl,
-    [403] = (syscall_t) syscall_stub, // clock_gettime64
+    //[403] = (syscall_t) sys_clock_gettime, // clock_gettime64
     [406] = (syscall_t) syscall_stub, // clock_getres_time64
-    [407] = (syscall_t) syscall_stub, // clock_nanosleep_time64
-    [412] = (syscall_t) syscall_stub, // utimensat_time64
+    //[407] = (syscall_t) sys_clock_nanosleep_time64, // clock_nanosleep_time64
+    [424] = (syscall_t) syscall_stub, // pidfd_send_signal?
+    //[412] = (syscall_t) sys_utimensat, // utimensat_time64
     [436] = (syscall_t) syscall_stub,
     [439] = (syscall_t) sys_faccessat, // faccessat2
 };
+/*
+SYS_MSGRCV                       = 401
+SYS_MSGCTL                       = 402
+SYS_CLOCK_GETTIME64              = 403
+SYS_CLOCK_SETTIME64              = 404
+SYS_CLOCK_ADJTIME64              = 405
+SYS_CLOCK_GETRES_TIME64          = 406
+SYS_CLOCK_NANOSLEEP_TIME64       = 407
+SYS_TIMER_GETTIME64              = 408
+SYS_TIMER_SETTIME64              = 409
+SYS_TIMERFD_GETTIME64            = 410
+SYS_TIMERFD_SETTIME64            = 411
+SYS_UTIMENSAT_TIME64             = 412
+SYS_PSELECT6_TIME64              = 413
+SYS_PPOLL_TIME64                 = 414
+SYS_IO_PGETEVENTS_TIME64         = 416
+SYS_RECVMMSG_TIME64              = 417
+SYS_MQ_TIMEDSEND_TIME64          = 418
+SYS_MQ_TIMEDRECEIVE_TIME64       = 419
+SYS_SEMTIMEDOP_TIME64            = 420
+SYS_RT_SIGTIMEDWAIT_TIME64       = 421
+SYS_FUTEX_TIME64                 = 422
+SYS_SCHED_RR_GET_INTERVAL_TIME64 = 423
+SYS_PIDFD_SEND_SIGNAL            = 424
+SYS_IO_URING_SETUP               = 425
+SYS_IO_URING_ENTER               = 426
+SYS_IO_URING_REGISTER            = 427
+SYS_OPEN_TREE                    = 428
+SYS_MOVE_MOUNT                   = 429
+SYS_FSOPEN                       = 430
+SYS_FSCONFIG                     = 431
+SYS_FSMOUNT                      = 432
+SYS_FSPICK                       = 433
+SYS_PIDFD_OPEN                   = 434
+SYS_CLONE3                       = 435
+SYS_CLOSE_RANGE                  = 436
+SYS_OPENAT2                      = 437
+SYS_PIDFD_GETFD                  = 438
+SYS_FACCESSAT2                   = 439
+SYS_PROCESS_MADVISE              = 440
+SYS_EPOLL_PWAIT2                 = 441
+ */
 
 #define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
 
@@ -285,13 +329,15 @@ void handle_interrupt(int interrupt) {
     ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
     if (interrupt == INT_SYSCALL) { // Flag as critical?  -mke MKEMKEMKE
         unsigned syscall_num = cpu->eax;
-        if (syscall_num >= NUM_SYSCALLS || syscall_table[syscall_num] == NULL) {
+        if (syscall_num >= NUM_SYSCALLS) {
             printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
             
             ////modify_critical_region_counter(current, 1, __FILE__, __LINE__);
             deliver_signal(current, SIGSYS_, SIGINFO_NIL);
             ////modify_critical_region_counter(current, -1, __FILE__, __LINE__);
-            
+        } else if (syscall_table[syscall_num] == NULL) {
+            printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);
+            syscall_stub();
         } else {
             if (syscall_table[syscall_num] == (syscall_t) syscall_stub) {
                 printk("WARNING:(PID: %d(%s)) stub syscall %d\n", current->pid, current->comm, syscall_num);

@@ -41,8 +41,8 @@ struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
     memcpy(tty->termios.cc, "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0\0\0", 19);
     memset(&tty->winsize, 0, sizeof(tty->winsize));
 
-    lock_init(&tty->lock);
-    lock_init(&tty->fds_lock);
+    lock_init(&tty->lock, "tty_alloc\0");
+    lock_init(&tty->fds_lock, "tty_alloc_fds\0");
     cond_init(&tty->produced);
     cond_init(&tty->consumed);
     memset(tty->buf_flag, false, sizeof(tty->buf_flag));
@@ -440,7 +440,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     int err = 0;
     struct tty *tty = fd->tty;
-    complex_lockt(&pids_lock, 0, __FILE__, __LINE__); // MKEMKE
+    complex_lockt(&pids_lock, 1, __FILE__, __LINE__); // MKEMKE
     lock(&tty->lock, 0);
     if (tty->hung_up) {
         unlock_pids(&pids_lock);

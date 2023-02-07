@@ -17,7 +17,7 @@
 pthread_mutex_t multicore_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t atomic_l_lock = PTHREAD_MUTEX_INITIALIZER;
+lock_t atomic_l_lock;
 pthread_mutex_t wait_for_lock = PTHREAD_MUTEX_INITIALIZER;
 time_t boot_time;  // Store the boot time.  -mke
 
@@ -32,8 +32,8 @@ __thread struct task *current;
 
 static dword_t last_allocated_pid = 0;
 static struct pid pids[MAX_PID + 1] = {};
-lock_t pids_lock = LOCK_INITIALIZER;
-lock_t block_lock = LOCK_INITIALIZER;
+lock_t pids_lock;
+lock_t block_lock;
 struct list alive_pids_list;
 
 static bool pid_empty(struct pid *pid) {
@@ -142,17 +142,17 @@ struct task *task_create_(struct task *parent) {
     task->clear_tid = 0;
     task->robust_list = 0;
     task->did_exec = false;
-    lock_init(&task->general_lock);
+    lock_init(&task->general_lock, "task_creat_gen\0");
 
     task->sockrestart = (struct task_sockrestart) {};
     list_init(&task->sockrestart.listen);
 
     task->waiting_cond = NULL;
     task->waiting_lock = NULL;
-    lock_init(&task->waiting_cond_lock);
+    lock_init(&task->waiting_cond_lock, "task_creat_wait\0");
     cond_init(&task->pause);
 
-    lock_init(&task->ptrace.lock);
+    lock_init(&task->ptrace.lock, "task_creat_ptr\0");
     cond_init(&task->ptrace.cond);
     
     task->locks_held.count = 0; // counter used to keep track of pending locks associated with task.  Do not delete when locks are present.  -mke
@@ -222,11 +222,14 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     struct uname uts;
     do_uname(&uts);
     unsigned short ncpu = get_cpu_count();
+    lock_init(&pids_lock, "pids\0");
+    lock_init(&block_lock, "block\0");
+    lock_init(&atomic_l_lock, "run_at_boot\0");
     printk("iSH-AOK %s booted on %d emulated %s CPU(s)\n",uts.release, ncpu, uts.arch);
-    API_UNAVAILABLE(macos) API_AVAILABLE(ios(13.0))
-    size_t proc_mem_avail = os_proc_available_memory();
-    if(proc_mem_avail > 0)
-        printk("%d memory available for iSH-AOK\n", proc_mem_avail);
+   // API_UNAVAILABLE(macos) API_AVAILABLE(ios(13.0))
+    //size_t proc_mem_avail = os_proc_available_memory();
+   // if(proc_mem_avail > 0)
+   //     printk("%d memory available for iSH-AOK\n", proc_mem_avail);
     // Get boot time
     extern time_t boot_time;
          

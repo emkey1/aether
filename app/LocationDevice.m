@@ -57,7 +57,7 @@ BOOL CLIsAuthorized(CLAuthorizationStatus status) {
             [self.locationManager requestAlwaysAuthorization];
         }
         
-        lock_init(&_lock);
+        lock_init(&_lock, "location_dev\0");
         cond_init(&_updateCond);
     }
     return self;

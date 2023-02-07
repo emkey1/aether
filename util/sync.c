@@ -34,8 +34,10 @@ static bool is_signal_pending(lock_t *lock) {
 }
 
 void modify_critical_region_counter(struct task *task, int value, __attribute__((unused)) const char *file, __attribute__((unused)) int line) { // value Should only be -1 or 1.  -mke
-
     
+    if(!doEnableExtraLocking) // If they want to fly by the seat of their pants...  -mke
+        return;
+
     if(task == NULL) {
         if(current != NULL) {
             task = current;
@@ -46,7 +48,7 @@ void modify_critical_region_counter(struct task *task, int value, __attribute__(
         return;
     }
     
-    if((!doEnableExtraLocking) && (task->pid > 9))
+    if(task->pid > 9) // Bad things happen if this is enabled for low number tasks.  For reasons I do not understand.  -mke
         return;
     
     pthread_mutex_lock(&task->critical_region.lock);
@@ -118,24 +120,32 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         unlock(&current->waiting_cond_lock);
     }
     int rc = 0;
+    char saveme[16];
+    strncpy(saveme, lock->lname, 16); // Save for later
 #if LOCK_DEBUG
     struct lock_debug lock_tmp = lock->debug;
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
-    if (!timeout) {
- //       struct timespec trigger_time;
-  //      trigger_time.tv_sec = 1800;
-   //     trigger_time.tv_nsec = 0;
-//    LOOP:
- //       if(lock->uid == 555) {  // This is here for testing of the process lockup issue.  -mke
-  //          rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
-   //         if((rc == ETIMEDOUT) && current->parent != NULL) {
-    //            printk("ERROR: wait_for_ignore_signals() timeout on no timeout call (%s:%d:%d)\n", current->comm, current->pid, current->parent);
-     //           goto LOOP;
-      //      }
-       // } else {
+    if (!timeout) { // We timeout anyway after fifteen seconds.  It appears the process wakes up briefly before returning here if there is nothing else pending.  This is kluge.  -mke
+        struct timespec trigger_time;
+        trigger_time.tv_sec = 15;
+        trigger_time.tv_nsec = 0;
+        lock->wait4 = true;
+        
+        if(current->uid == 501) {  // This is here for testing of the process lockup issue.  -mke
+            rc = pthread_cond_timedwait_relative_np(&cond->cond, &lock->m, &trigger_time);
+            //if((rc == ETIMEDOUT) && current->parent != NULL) {
+            if(rc == ETIMEDOUT) {
+                if(current->children.next != NULL) {
+                    notify(cond);  // This is a terrible hack that seems to avoid processes getting stuck.
+                }
+            }
+            
+            rc = 0;
+            
+        } else {
             pthread_cond_wait(&cond->cond, &lock->m);
-        //}
+        }
     } else {
 #if __linux__
         struct timespec abs_timeout;
@@ -163,6 +173,7 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
         current->waiting_lock = NULL;
         unlock(&current->waiting_cond_lock);
     }
+    lock->wait4 = false;
     if(rc == ETIMEDOUT)
         return _ETIMEDOUT;
     return 0;

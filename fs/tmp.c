@@ -27,7 +27,7 @@ static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
     if (node == NULL)
         return NULL;
     refcount_init(node);
-    lock_init(&node->lock);
+    lock_init(&node->lock, "tmp_inode_new\0");
 
     node->stat = (struct statbuf) {};
     static _Atomic ino_t next_inode = 1;
@@ -85,7 +85,7 @@ static void tmp_dirent_init(struct tmp_dirent *dirent) {
     refcount_init(dirent);
     list_init(&dirent->children);
     dirent->next_index = 0;
-    lock_init(&dirent->lock);
+    lock_init(&dirent->lock, "tmp_dirent_init\0");
 }
 
 // Frees the child inode on failure, so you don't need to! But be careful you don't free it yourself.

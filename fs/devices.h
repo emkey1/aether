@@ -35,6 +35,10 @@
 
 // --- dynamic devices ---
 #define DYN_DEV_MAJOR 240
+// /dev/rtc
+#define DEV_RTC_MAJOR 252
+#define DEV_RTC_MINOR 0
+
 
 // /dev/clipboard
 #define DEV_CLIPBOARD_MINOR 0

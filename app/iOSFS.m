@@ -29,7 +29,7 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
 
 - (instancetype)init {
     if (self = [super init]) {
-        lock_init(&_lock);
+        lock_init(&_lock, "iOSFS\0");
         cond_init(&_cond);
     }
     return self;

@@ -83,7 +83,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
             self.refreshTask = [[DelayedUITask alloc] initWithTarget:self action:@selector(refresh)];
             self.scrollToBottomTask = [[DelayedUITask alloc] initWithTarget:self action:@selector(scrollToBottom)];
 #if !ISH_LINUX
-            lock_init(&_dataLock);
+            lock_init(&_dataLock, "datalock\0");
             cond_init(&_dataConsumed);
 #endif
 

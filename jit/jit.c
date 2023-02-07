@@ -23,7 +23,7 @@ struct jit *jit_new(struct mmu *mmu) {
     jit_resize_hash(jit, JIT_INITIAL_HASH_SIZE);
     jit->page_hash = calloc(JIT_PAGE_HASH_SIZE, sizeof(*jit->page_hash));
     list_init(&jit->jetsam);
-    lock_init(&jit->lock);
+    lock_init(&jit->lock, "jit_new\0");
     wrlock_init(&jit->jetsam_lock);
     return jit;
 }
@@ -79,7 +79,6 @@ void jit_invalidate_page(struct jit *jit, page_t page) {
     while(critical_region_count(current) > 4) { // It's all a bit magic, but I think this is doing something useful.  -mke
         nanosleep(&lock_pause, NULL);
     }
-    
     //modify_critical_region_counter(current, 1, __FILE__, __LINE__);
     jit_invalidate_range(jit, page, page + 1);
     //modify_critical_region_counter(current, -1, __FILE__, __LINE__);
@@ -324,6 +323,8 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
         jit_free_jetsam(jit);
         write_unlock(&jit->jetsam_lock, __FILE__, __LINE__);
+        unlock(&jit->lock);
+        return interrupt;
     }
     unlock(&jit->lock);
     //////modify_critical_region_counter(current, -1);
