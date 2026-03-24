@@ -52,6 +52,9 @@ struct task {
     uid_t_ euid, egid;
     uid_t_ suid, sgid;
     uid_t_ fsuid, fsgid;
+    dword_t cap_effective[2];
+    dword_t cap_permitted[2];
+    dword_t cap_inheritable[2];
 #define MAX_GROUPS 32
     unsigned ngroups;
     uid_t_ groups[MAX_GROUPS];

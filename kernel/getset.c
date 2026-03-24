@@ -3,6 +3,33 @@
 #include "kernel/personality.h"
 #include "util/sync.h"
 
+#define _LINUX_CAPABILITY_VERSION_1_ 0x19980330
+#define _LINUX_CAPABILITY_VERSION_2_ 0x20071026
+#define _LINUX_CAPABILITY_VERSION_3_ 0x20080522
+
+struct cap_user_header_ {
+    dword_t version;
+    int_t pid;
+};
+
+struct cap_user_data_ {
+    dword_t effective;
+    dword_t permitted;
+    dword_t inheritable;
+};
+
+static int cap_data_count(dword_t version) {
+    switch (version) {
+        case _LINUX_CAPABILITY_VERSION_1_:
+            return 1;
+        case _LINUX_CAPABILITY_VERSION_2_:
+        case _LINUX_CAPABILITY_VERSION_3_:
+            return 2;
+        default:
+            return -1;
+    }
+}
+
 pid_t_ sys_getpid(void) {
     STRACE("getpid()");
     return current->tgid;
@@ -207,10 +234,60 @@ int_t sys_setgroups(dword_t size, addr_t list) {
 // this does not really work
 int_t sys_capget(addr_t header_addr, addr_t data_addr) {
     STRACE("capget(%#x, %#x)", header_addr, data_addr);
+    struct cap_user_header_ header;
+    if (user_read(header_addr, &header, sizeof(header)))
+        return _EFAULT;
+    int count = cap_data_count(header.version);
+    if (count < 0) {
+        header.version = _LINUX_CAPABILITY_VERSION_3_;
+        if (user_write(header_addr, &header, sizeof(header)))
+            return _EFAULT;
+        return _EINVAL;
+    }
+    if (header.pid != 0 && header.pid != current->pid)
+        return _EPERM;
+
+    struct cap_user_data_ data[2] = {};
+    data[0].effective = current->cap_effective[0];
+    data[0].permitted = current->cap_permitted[0];
+    data[0].inheritable = current->cap_inheritable[0];
+    if (count > 1) {
+        data[1].effective = current->cap_effective[1];
+        data[1].permitted = current->cap_permitted[1];
+        data[1].inheritable = current->cap_inheritable[1];
+    }
+    if (user_write(data_addr, data, sizeof(data[0]) * count))
+        return _EFAULT;
     return 0;
 }
 int_t sys_capset(addr_t header_addr, addr_t data_addr) {
     STRACE("capset(%#x, %#x)", header_addr, data_addr);
+    struct cap_user_header_ header;
+    if (user_read(header_addr, &header, sizeof(header)))
+        return _EFAULT;
+    int count = cap_data_count(header.version);
+    if (count < 0)
+        return _EINVAL;
+    if (header.pid != 0 && header.pid != current->pid)
+        return _EPERM;
+    if (!superuser())
+        return _EPERM;
+
+    struct cap_user_data_ data[2] = {};
+    if (user_read(data_addr, data, sizeof(data[0]) * count))
+        return _EFAULT;
+
+    current->cap_effective[0] = data[0].effective;
+    current->cap_permitted[0] = data[0].permitted;
+    current->cap_inheritable[0] = data[0].inheritable;
+    current->cap_effective[1] = 0;
+    current->cap_permitted[1] = 0;
+    current->cap_inheritable[1] = 0;
+    if (count > 1) {
+        current->cap_effective[1] = data[1].effective;
+        current->cap_permitted[1] = data[1].permitted;
+        current->cap_inheritable[1] = data[1].inheritable;
+    }
     return 0;
 }
 
