@@ -109,9 +109,25 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%lu ", 0l); // wchan (wtf)
     proc_printf(buf, "%lu ", 0l); // nswap
     proc_printf(buf, "%lu ", 0l); // cnswap
-    proc_printf(buf, "%d", task->exit_signal);
-    proc_printf(buf, "%d", 0); // processor
-    // that's enough for now
+    proc_printf(buf, "%d ", task->exit_signal);
+    proc_printf(buf, "%d ", 0); // processor
+
+    // htop and similar procfs consumers expect the modern trailing fields too.
+    // We don't track most of these yet, but the record still needs to be
+    // complete and correctly tokenized.
+    proc_printf(buf, "%u ", 0u); // rt_priority
+    proc_printf(buf, "%u ", 0u); // policy
+    proc_printf(buf, "%llu ", 0ull); // delayacct_blkio_ticks
+    proc_printf(buf, "%lu ", 0ul); // guest_time
+    proc_printf(buf, "%ld ", 0l); // cguest_time
+    proc_printf(buf, "%lu ", 0ul); // start_data
+    proc_printf(buf, "%lu ", 0ul); // end_data
+    proc_printf(buf, "%lu ", task->mm ? task->mm->start_brk : 0); // start_brk
+    proc_printf(buf, "%lu ", task->mm ? task->mm->argv_start : 0); // arg_start
+    proc_printf(buf, "%lu ", task->mm ? task->mm->argv_end : 0); // arg_end
+    proc_printf(buf, "%lu ", task->mm ? task->mm->env_start : 0); // env_start
+    proc_printf(buf, "%lu ", task->mm ? task->mm->env_end : 0); // env_end
+    proc_printf(buf, "%d", 0); // exit_code
     proc_printf(buf, "\n");
     
     //unlock(&task->sighand->lock);

@@ -7,6 +7,8 @@
 #include "platform/platform.h"
 #include <sys/utsname.h>
 
+void get_current_hostname(char *hostname, size_t size);
+
 #import <ifaddrs.h>
 #import <netinet/in.h>
 #import <sys/socket.h>
@@ -89,10 +91,10 @@ static bool proc_sys_debug_readdir(struct proc_entry *UNUSED(entry), unsigned lo
 }
 
 static int sys_show_net_unix_hostname(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
-    struct utsname real_uname;
-    uname(&real_uname);
-    
-    proc_printf(buf, "%s\n", real_uname.nodename);
+    struct uname uts;
+    char hostname[sizeof(uts.hostname)];
+    get_current_hostname(hostname, sizeof(hostname));
+    proc_printf(buf, "%s\n", hostname);
     return 0;
 }
 
@@ -153,4 +155,3 @@ struct proc_children proc_sys_children = PROC_CHILDREN({
     {"vm", S_IFDIR, .readdir = sys_show_vm},
    //{"dev", .show = proc_show_dev},
 });
-

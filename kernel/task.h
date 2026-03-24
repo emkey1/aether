@@ -95,6 +95,7 @@ struct task {
 
     addr_t clear_tid;
     addr_t robust_list;
+    dword_t pdeath_signal;
 
     // locked by pids_lock
     dword_t exit_code;

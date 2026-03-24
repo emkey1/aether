@@ -12,15 +12,28 @@
 const char *uname_version = "iSH-AOK";
 char *uname_hostname_override = NULL;
 
+void get_current_hostname(char *hostname, size_t size) {
+    if (uname_hostname_override != NULL && uname_hostname_override[0] != '\0') {
+        snprintf(hostname, size, "%s", uname_hostname_override);
+        return;
+    }
+
+    struct utsname real_uname;
+    if (uname(&real_uname) < 0) {
+        printk("ERROR: uname failed\n");
+        snprintf(hostname, size, "%s", "localhost");
+        return;
+    }
+    snprintf(hostname, size, "%s", real_uname.nodename);
+}
 
 void do_uname(struct uname *uts) {
     struct utsname real_uname;
     if (uname(&real_uname) < 0) {
         printk("ERROR: uname failed\n");
     }
-    char *hostname = real_uname.nodename;
-    if (uname_hostname_override)
-        hostname = uname_hostname_override;
+    char hostname[sizeof(uts->hostname)];
+    get_current_hostname(hostname, sizeof(hostname));
     
     // Get current date and format it in a sane way.  -mke
     char build_date[100];
@@ -58,8 +71,14 @@ dword_t sys_uname(addr_t uts_addr) {
 }
 
 dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len) {
+    struct uname uts;
+
     if (current->uid != 0) {
         return _EPERM;
+    }
+
+    if (hostname_len >= sizeof(uts.hostname)) {
+        return _EINVAL;
     }
     
     char *new_hostname = malloc(hostname_len + 1);
@@ -78,7 +97,7 @@ dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len) {
 
     free(uname_hostname_override);
     uname_hostname_override = new_hostname;
-    
+
     return 0;
 }
 

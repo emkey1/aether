@@ -76,6 +76,12 @@ static int pty_write(struct tty *tty, const void *buf, size_t len, bool blocking
     return tty_input(tty->pty.other, buf, len, blocking);
 }
 
+static int pty_master_open(struct tty *tty) {
+    if (tty->pty.other == NULL)
+        return _EIO;
+    return 0;
+}
+
 static int pty_return_eio(struct tty *UNUSED(tty)) {
     return _EIO;
 }
@@ -84,7 +90,7 @@ static int pty_return_eio(struct tty *UNUSED(tty)) {
 
 const struct tty_driver_ops pty_master_ops = {
     .init = pty_master_init,
-    .open = pty_return_eio,
+    .open = pty_master_open,
     .write = pty_write,
     .ioctl = pty_master_ioctl,
     .cleanup = pty_master_cleanup,

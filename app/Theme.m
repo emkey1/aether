@@ -255,7 +255,7 @@ char *(*get_documents_directory)(void);
     static NSArray<Theme *> *defaultThemes;
     if (!defaultThemes) {
         defaultThemes = @[
-            [[self alloc] initWithName:@"Default"
+            [[self alloc] initWithName:@"Amber"
                           lightPalette:[[Palette alloc] initWithForegroundColor:@"#FD9F20"
                                                                 backgroundColor:@"#fff"
                                                                     cursorColor:nil

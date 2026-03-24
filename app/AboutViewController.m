@@ -25,7 +25,6 @@
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *sendFeedback;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openGithub;
-@property (weak, nonatomic) IBOutlet UITableViewCell *openTwitter;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openDiscord;
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *upgradeApkCell;
@@ -103,8 +102,6 @@
         [UIApplication openURL:@"mailto:ish_aok_emkey1@icloud.com?subject=Feedback%20for%20iSH"];
     } else if (cell == self.openGithub) {
         [UIApplication openURL:@"https://github.com/emkey1/ish-AOK"];
-    } else if (cell == self.openTwitter) {
-        [UIApplication openURL:@"https://twitter.com/emkey1"];
     } else if (cell == self.openDiscord) {
         [UIApplication openURL:@"https://discord.com/channels/776432683302649866/776432683302649870"];
     } else if (cell == self.exportContainerCell) {

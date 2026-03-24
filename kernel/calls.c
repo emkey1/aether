@@ -360,10 +360,6 @@ static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const 
         cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp, cpu->eip);
 }
 
-static bool should_trace_startpar_syscalls(void) {
-    return current != NULL && strcmp(current->comm, "startpar") == 0;
-}
-
 void handle_syscall_interrupt(struct cpu_state *cpu) {
     unsigned syscall_num = cpu->eax;
     if (syscall_num >= NUM_SYSCALLS) {
@@ -381,18 +377,9 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     if (syscall_is_logged_stub(syscall))
         log_stub_syscall(cpu, syscall_num, "stub");
 
-    if (should_trace_startpar_syscalls()) {
-        printk("TRACE: startpar(%d) syscall=%u args=%#x,%#x,%#x,%#x,%#x,%#x ip=%#x\n",
-            current->pid, syscall_num,
-            cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp, cpu->eip);
-    }
     STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
     int result = syscall(cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
     STRACE(" = 0x%x\n", result);
-    if (should_trace_startpar_syscalls()) {
-        printk("TRACE: startpar(%d) syscall=%u result=%#x next_ip=%#x\n",
-            current->pid, syscall_num, result, cpu->eip);
-    }
     cpu->eax = result;
 }
 

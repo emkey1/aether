@@ -3,6 +3,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include "misc.h"
 #include "util/list.h"
 #include "kernel/errno.h"
@@ -47,6 +48,7 @@ struct poll *poll_create(void) {
     poll->waiters = 0;
     poll->notify_pipe[0] = -1;
     poll->notify_pipe[1] = -1;
+    poll->notify_pending = false;
     list_init(&poll->poll_fds);
     list_init(&poll->pollfd_freelist);
     lock_init(&poll->lock, "poll_create\0");
@@ -73,6 +75,22 @@ static void poll_fd_free(struct poll_fd *poll_fd) {
     memset(poll_fd, 0xba, sizeof(*poll_fd));
     poll_fd->poll = NULL; // used to mark it as free
     list_add(&poll->pollfd_freelist, &poll_fd->fds);
+}
+
+// Host poll backends can return stale udata pointers after a watched fd has
+// been removed. Only trust pointers that still correspond to poll_fd storage
+// owned by this poll instance.
+static struct poll_fd *poll_find_ptr(struct poll *poll, struct poll_fd *candidate) {
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        if (poll_fd == candidate)
+            return poll_fd;
+    }
+    list_for_each_entry(&poll->pollfd_freelist, poll_fd, fds) {
+        if (poll_fd == candidate)
+            return poll_fd;
+    }
+    return NULL;
 }
 
 bool poll_has_fd(struct poll *poll, struct fd *fd) {
@@ -201,8 +219,11 @@ void poll_wakeup(struct fd *fd, int events) {
         lock(&poll->lock,0);
         if (poll_fd->types & POLL_EDGETRIGGERED)
             poll_fd->triggered_types &= ~events;
-        if (poll->notify_pipe[1] != -1)
-            write(poll->notify_pipe[1], "", 1);
+        if (poll->notify_pipe[1] != -1 && !poll->notify_pending) {
+            poll->notify_pending = true;
+            if (write(poll->notify_pipe[1], "", 1) < 0 && errno != EAGAIN && errno != EINTR)
+                FIXME("poll wake notify write failed: %s", strerror(errno));
+        }
         unlock(&poll->lock);
         // oneshot?
     }
@@ -253,7 +274,9 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                     if (poll_fd_is_real(poll_fd)) {
                         real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
                     }
-                    free(poll_fd);
+                    // Keep poll_fd storage alive on the freelist so stale host
+                    // readiness events cannot turn into a use-after-free.
+                    poll_fd_free(poll_fd);
                 }
 
                 if (poll_fd->types & POLL_EDGETRIGGERED) {
@@ -280,8 +303,29 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         struct real_poll_event e[4];
         do {
             unlock(&poll_->lock);
-
-            err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
+            sigset_t sigusr1, oldmask;
+            sigemptyset(&sigusr1);
+            sigaddset(&sigusr1, SIGUSR1);
+            pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
+            if (sigunwind_start()) {
+                pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                errno = EINTR;
+                err = -1;
+            } else {
+                lock(&current->sighand->lock, 0);
+                bool signal_pending = !!(current->pending & ~current->blocked);
+                unlock(&current->sighand->lock);
+                if (signal_pending) {
+                    sigunwind_end();
+                    pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                    errno = EINTR;
+                    err = -1;
+                } else {
+                    pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                    err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
+                    sigunwind_end();
+                }
+            }
       
             lock(&poll_->lock, 0);
         } while (sockrestart_should_restart_listen_wait(1) && errno == EINTR);
@@ -300,18 +344,28 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
 
         // dead with any edge-triggered notifications
         for (int i = 0; i < err; i++) {
-            struct poll_fd *triggered_poll_fd = rpe_data(&e[i]);
-            if (triggered_poll_fd != NULL && triggered_poll_fd->poll != NULL &&
+            struct poll_fd *candidate = rpe_data(&e[i]);
+            struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
+            if (triggered_poll_fd != NULL && triggered_poll_fd->poll == poll_ &&
                     triggered_poll_fd->types & POLL_EDGETRIGGERED) {
                 triggered_poll_fd->triggered_types &= ~rpe_events(&e[i]);
             }
         }
 
-        char fuck;
-        if (read(poll_->notify_pipe[0], &fuck, 1) < 0 && errno != EAGAIN) {
-            res = errno_map();
+        while (poll_->notify_pipe[0] != -1) {
+            char byte;
+            ssize_t drained = read(poll_->notify_pipe[0], &byte, 1);
+            if (drained > 0)
+                continue;
+            if (drained < 0 && errno != EAGAIN) {
+                res = errno_map();
+                break;
+            }
+            poll_->notify_pending = false;
             break;
         }
+        if (res < 0)
+            break;
     }
 
     // release the pipe
@@ -320,6 +374,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         close(poll_->notify_pipe[1]);
         poll_->notify_pipe[0] = -1;
         poll_->notify_pipe[1] = -1;
+        poll_->notify_pending = false;
     }
 
     unlock(&poll_->lock);

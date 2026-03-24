@@ -36,30 +36,46 @@ struct epoll_event_ {
 
 int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
     STRACE("epoll_ctl(%d, %d, %d, %#x)", epoll_f, op, f, event_addr);
-    struct fd *epoll = f_get(epoll_f);
+    struct fd *epoll = f_get_retain(epoll_f);
     if (epoll == NULL)
         return _EBADF;
-    if (epoll->ops != &epoll_ops)
+    if (epoll->ops != &epoll_ops) {
+        fd_close(epoll);
         return _EINVAL;
-    struct fd *fd = f_get(f);
-    if (fd == NULL)
+    }
+    struct fd *fd = f_get_retain(f);
+    if (fd == NULL) {
+        fd_close(epoll);
         return _EBADF;
+    }
 
-    if (op == EPOLL_CTL_DEL_)
-        return poll_del_fd(epoll->epollfd.poll, fd);
+    if (op == EPOLL_CTL_DEL_) {
+        int_t res = poll_del_fd(epoll->epollfd.poll, fd);
+        fd_close(fd);
+        fd_close(epoll);
+        return res;
+    }
 
     struct epoll_event_ event;
-    if (user_get(event_addr, event))
+    if (user_get(event_addr, event)) {
+        fd_close(fd);
+        fd_close(epoll);
         return _EFAULT;
+    }
     STRACE(" {events: %#x, data: %#x}", event.events, event.data);
 
+    int_t res;
     if (op == EPOLL_CTL_ADD_) {
         if (poll_has_fd(epoll->epollfd.poll, fd))
-            return _EEXIST;
-        return poll_add_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
+            res = _EEXIST;
+        else
+            res = poll_add_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
     } else {
-        return poll_mod_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
+        res = poll_mod_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
     }
+    fd_close(fd);
+    fd_close(epoll);
+    return res;
 }
 
 struct epoll_context {
@@ -77,14 +93,18 @@ static int epoll_callback(void *context, int types, union poll_fd_info info) {
 }
 
 static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events, struct timespec *timeout_ts_ptr) {
-    struct fd *epoll = f_get(epoll_f);
+    struct fd *epoll = f_get_retain(epoll_f);
     if (epoll == NULL)
         return _EBADF;
-    if (epoll->ops != &epoll_ops)
+    if (epoll->ops != &epoll_ops) {
+        fd_close(epoll);
         return _EINVAL;
+    }
 
-    if (max_events <= 0)
+    if (max_events <= 0) {
+        fd_close(epoll);
         return _EINVAL;
+    }
     struct epoll_event_ events[max_events];
 
     struct epoll_context context = {.events = events, .n = 0, .max_events = max_events};
@@ -103,9 +123,12 @@ static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events,
         for (int i = 0; i < res; i++) {
             STRACE(" {events: %#x, data: %#x}", events[i].events, events[i].data);
         }
-        if (user_write(events_addr, events, sizeof(struct epoll_event_) * res))
+        if (user_write(events_addr, events, sizeof(struct epoll_event_) * res)) {
+            fd_close(epoll);
             return _EFAULT;
+        }
     }
+    fd_close(epoll);
     return res;
 }
 

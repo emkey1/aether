@@ -256,8 +256,6 @@ static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
         return false;
 
     if (tty->fg_group != 0) {
-        printk("APTTRACE tty_input_signal ch=%#x sig=%d fg_group=%d type=%d num=%d lflags=%#x\n",
-            (unsigned char) ch, sig, tty->fg_group, tty->type, tty->num, tty->termios.lflags);
         if (!(tty->termios.lflags & NOFLSH_))
             tty->bufsize = 0;
         sigset_add(queue, sig);
@@ -359,6 +357,11 @@ no_special:
             if (tty_send_input_signal(tty, input[i], &queue))
                 continue;
             while (tty->bufsize >= sizeof(tty->buf)) {
+                // Wake readers before sleeping for space, otherwise a large
+                // blocking PTY write can deadlock waiting on a consumer that
+                // was never notified data is available.
+                if (tty->bufsize > 0)
+                    tty_input_wakeup(tty);
                 err = _EAGAIN;
                 if (!blocking)
                     break;
@@ -384,9 +387,6 @@ no_special:
     if (fg_group != 0) {
         for (int sig = 1; sig < NUM_SIGS; sig++) {
             if (sigset_has(queue, sig)) {
-                if (sig == SIGINT_)
-                    printk("APTTRACE tty_flush_signal fg_group=%d sig=%d type=%d num=%d\n",
-                        fg_group, sig, tty->type, tty->num);
                 send_group_signal(fg_group, sig, SIGINFO_NIL);
             }
         }

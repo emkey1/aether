@@ -1,13 +1,21 @@
 #include <sys/stat.h>
 #include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
 #include "fs/proc.h"
 #include "fs/proc/net.h"
+#include "fs/devices.h"
 #include "platform/platform.h"
 #include <sys/param.h> // for MIN and MAX
 #include "emu/cpuid.h"
+#include "kernel/init.h"
+
+extern int console_major;
+extern int console_minor;
+
+char ish_boot_command_line[4096];
 
 static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct uname uts;
@@ -95,6 +103,22 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "\n");
     }
 
+    return 0;
+}
+
+static int proc_show_cmdline(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%s\n", ish_boot_command_line);
+    return 0;
+}
+
+static int proc_show_consoles(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    if (console_major == TTY_CONSOLE_MAJOR) {
+        proc_printf(buf, "tty%d                 -WU (E  ) %d:%d\n", console_minor, console_major, console_minor);
+    } else if (console_major == TTY_PSEUDO_SLAVE_MAJOR) {
+        proc_printf(buf, "pts/%d                -WU (E  ) %d:%d\n", console_minor, console_major, console_minor);
+    } else {
+        proc_printf(buf, "console               -WU (E  ) %d:%d\n", console_major, console_major, console_minor);
+    }
     return 0;
 }
 
@@ -301,6 +325,8 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
 
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
+    {"cmdline", .show = proc_show_cmdline},
+    {"consoles", .show = proc_show_consoles},
     {"cpuinfo", .show = proc_show_cpuinfo},
     {"diskstats", .show = proc_show_diskstats},
     {"filesystems", .show = proc_show_filesystems},
@@ -347,3 +373,365 @@ static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *i
 }
 
 struct proc_dir_entry proc_root = {NULL, S_IFDIR, .readdir = proc_root_readdir};
+
+enum sysfs_node_kind {
+    sysfs_root,
+    sysfs_devices,
+    sysfs_system,
+    sysfs_cpu,
+    sysfs_online,
+    sysfs_possible,
+    sysfs_present,
+    sysfs_kernel_max,
+    sysfs_offline,
+    sysfs_cpu_dir,
+};
+
+struct sysfs_node {
+    enum sysfs_node_kind kind;
+    int cpu;
+};
+
+static const struct fd_ops sysfs_fdops;
+
+static inline void *sysfs_encode_node(struct sysfs_node node) {
+    uintptr_t value = ((uintptr_t) node.kind << 16) | (unsigned short) (node.cpu + 1);
+    return (void *) value;
+}
+
+static inline struct sysfs_node sysfs_decode_node(void *value) {
+    uintptr_t encoded = (uintptr_t) value;
+    return (struct sysfs_node) {
+        .kind = (enum sysfs_node_kind) (encoded >> 16),
+        .cpu = ((int) (encoded & 0xffff)) - 1,
+    };
+}
+
+static int sysfs_cpu_count(void) {
+    return MAX(get_cpu_count(), 1);
+}
+
+static bool sysfs_node_name(struct sysfs_node node, char *buf, size_t bufsize) {
+    switch (node.kind) {
+        case sysfs_root:
+            return snprintf(buf, bufsize, "") >= 0;
+        case sysfs_devices:
+            return snprintf(buf, bufsize, "devices") >= 0;
+        case sysfs_system:
+            return snprintf(buf, bufsize, "system") >= 0;
+        case sysfs_cpu:
+            return snprintf(buf, bufsize, "cpu") >= 0;
+        case sysfs_online:
+            return snprintf(buf, bufsize, "online") >= 0;
+        case sysfs_possible:
+            return snprintf(buf, bufsize, "possible") >= 0;
+        case sysfs_present:
+            return snprintf(buf, bufsize, "present") >= 0;
+        case sysfs_kernel_max:
+            return snprintf(buf, bufsize, "kernel_max") >= 0;
+        case sysfs_offline:
+            return snprintf(buf, bufsize, "offline") >= 0;
+        case sysfs_cpu_dir:
+            return snprintf(buf, bufsize, "cpu%d", node.cpu) >= 0;
+    }
+    return false;
+}
+
+static mode_t_ sysfs_node_mode(struct sysfs_node node) {
+    switch (node.kind) {
+        case sysfs_root:
+        case sysfs_devices:
+        case sysfs_system:
+        case sysfs_cpu:
+        case sysfs_cpu_dir:
+            return S_IFDIR | 0555;
+        case sysfs_online:
+        case sysfs_possible:
+        case sysfs_present:
+        case sysfs_kernel_max:
+        case sysfs_offline:
+            return S_IFREG | 0444;
+    }
+    return S_IFREG | 0444;
+}
+
+static ino_t sysfs_node_inode(struct sysfs_node node) {
+    switch (node.kind) {
+        case sysfs_root: return 1;
+        case sysfs_devices: return 2;
+        case sysfs_system: return 3;
+        case sysfs_cpu: return 4;
+        case sysfs_online: return 5;
+        case sysfs_possible: return 6;
+        case sysfs_present: return 7;
+        case sysfs_kernel_max: return 8;
+        case sysfs_offline: return 9;
+        case sysfs_cpu_dir: return 100 + node.cpu;
+    }
+    return 0;
+}
+
+static bool sysfs_lookup_node(const char *path, struct sysfs_node *node_out) {
+    if (path[0] == '/')
+        path++;
+    if (strcmp(path, "") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_root, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_system, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_cpu, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu/online") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_online, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu/possible") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_possible, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu/present") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_present, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu/kernel_max") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_kernel_max, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "devices/system/cpu/offline") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_offline, .cpu = -1};
+        return true;
+    }
+
+    int cpu;
+    if (sscanf(path, "devices/system/cpu/cpu%d", &cpu) == 1 && cpu >= 0 && cpu < sysfs_cpu_count()) {
+        char exact[32];
+        snprintf(exact, sizeof(exact), "devices/system/cpu/cpu%d", cpu);
+        if (strcmp(path, exact) == 0) {
+            *node_out = (struct sysfs_node) {.kind = sysfs_cpu_dir, .cpu = cpu};
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static size_t sysfs_file_size(struct sysfs_node node) {
+    int last_cpu = sysfs_cpu_count() - 1;
+    switch (node.kind) {
+        case sysfs_online:
+        case sysfs_possible:
+        case sysfs_present:
+            if (last_cpu == 0)
+                return strlen("0\n");
+            return strlen("0-\n") + 10;
+        case sysfs_kernel_max:
+            return 12;
+        case sysfs_offline:
+            return strlen("\n");
+        default:
+            return 0;
+    }
+}
+
+static size_t sysfs_file_data(struct sysfs_node node, char *buf, size_t bufsize) {
+    int last_cpu = sysfs_cpu_count() - 1;
+    switch (node.kind) {
+        case sysfs_online:
+        case sysfs_possible:
+        case sysfs_present:
+            if (last_cpu == 0)
+                return snprintf(buf, bufsize, "0\n");
+            return snprintf(buf, bufsize, "0-%d\n", last_cpu);
+        case sysfs_kernel_max:
+            return snprintf(buf, bufsize, "%d\n", last_cpu);
+        case sysfs_offline:
+            return snprintf(buf, bufsize, "\n");
+        default:
+            return 0;
+    }
+}
+
+static struct fd *sysfs_open(struct mount *mount, const char *path, int UNUSED(flags), int UNUSED(mode)) {
+    struct sysfs_node node;
+    if (!sysfs_lookup_node(path, &node))
+        return ERR_PTR(_ENOENT);
+    struct fd *fd = fd_create(&sysfs_fdops);
+    if (fd == NULL)
+        return ERR_PTR(_ENOMEM);
+    mount_retain(mount);
+    fd->mount = mount;
+    fd->type = sysfs_node_mode(node) & S_IFMT;
+    fd->fs_data = sysfs_encode_node(node);
+    return fd;
+}
+
+static int sysfs_stat_common(struct sysfs_node node, struct statbuf *stat) {
+    memset(stat, 0, sizeof(*stat));
+    stat->inode = sysfs_node_inode(node);
+    stat->mode = sysfs_node_mode(node);
+    stat->nlink = S_ISDIR(stat->mode) ? 2 : 1;
+    stat->size = sysfs_file_size(node);
+    return 0;
+}
+
+static int sysfs_stat(struct mount *UNUSED(mount), const char *path, struct statbuf *stat) {
+    struct sysfs_node node;
+    if (!sysfs_lookup_node(path, &node))
+        return _ENOENT;
+    return sysfs_stat_common(node, stat);
+}
+
+static int sysfs_fstat(struct fd *fd, struct statbuf *stat) {
+    return sysfs_stat_common(sysfs_decode_node(fd->fs_data), stat);
+}
+
+static int sysfs_getpath(struct fd *fd, char *buf) {
+    struct sysfs_node node = sysfs_decode_node(fd->fs_data);
+    switch (node.kind) {
+        case sysfs_root:
+            strcpy(buf, "");
+            break;
+        case sysfs_devices:
+            strcpy(buf, "/devices");
+            break;
+        case sysfs_system:
+            strcpy(buf, "/devices/system");
+            break;
+        case sysfs_cpu:
+            strcpy(buf, "/devices/system/cpu");
+            break;
+        case sysfs_online:
+            strcpy(buf, "/devices/system/cpu/online");
+            break;
+        case sysfs_possible:
+            strcpy(buf, "/devices/system/cpu/possible");
+            break;
+        case sysfs_present:
+            strcpy(buf, "/devices/system/cpu/present");
+            break;
+        case sysfs_kernel_max:
+            strcpy(buf, "/devices/system/cpu/kernel_max");
+            break;
+        case sysfs_offline:
+            strcpy(buf, "/devices/system/cpu/offline");
+            break;
+        case sysfs_cpu_dir:
+            sprintf(buf, "/devices/system/cpu/cpu%d", node.cpu);
+            break;
+    }
+    return 0;
+}
+
+static ssize_t sysfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
+    struct sysfs_node node = sysfs_decode_node(fd->fs_data);
+    if (S_ISDIR(sysfs_node_mode(node)))
+        return _EISDIR;
+
+    char data[32];
+    size_t size = sysfs_file_data(node, data, sizeof(data));
+    if ((size_t) off > size)
+        return 0;
+    size_t remaining = size - off;
+    if (bufsize > remaining)
+        bufsize = remaining;
+    memcpy(buf, data + off, bufsize);
+    return bufsize;
+}
+
+static ssize_t sysfs_read(struct fd *fd, void *buf, size_t bufsize) {
+    ssize_t res = sysfs_pread(fd, buf, bufsize, fd->offset);
+    if (res > 0)
+        fd->offset += res;
+    return res;
+}
+
+static ssize_t sysfs_write(struct fd *UNUSED(fd), const void *UNUSED(buf), size_t UNUSED(bufsize)) {
+    return _EROFS;
+}
+
+static off_t_ sysfs_lseek(struct fd *fd, off_t_ off, int whence) {
+    struct sysfs_node node = sysfs_decode_node(fd->fs_data);
+    if (S_ISDIR(sysfs_node_mode(node)))
+        return _EINVAL;
+    return generic_seek(fd, off, whence, sysfs_file_size(node));
+}
+
+static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
+    struct sysfs_node node = sysfs_decode_node(fd->fs_data);
+    unsigned long index = fd->offset++;
+    struct sysfs_node child;
+
+    switch (node.kind) {
+        case sysfs_root:
+            if (index != 0)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
+            break;
+        case sysfs_devices:
+            if (index != 0)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_system, .cpu = -1};
+            break;
+        case sysfs_system:
+            if (index != 0)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_cpu, .cpu = -1};
+            break;
+        case sysfs_cpu: {
+            int ncpus = sysfs_cpu_count();
+            switch (index) {
+                case 0: child = (struct sysfs_node) {.kind = sysfs_online, .cpu = -1}; break;
+                case 1: child = (struct sysfs_node) {.kind = sysfs_possible, .cpu = -1}; break;
+                case 2: child = (struct sysfs_node) {.kind = sysfs_present, .cpu = -1}; break;
+                case 3: child = (struct sysfs_node) {.kind = sysfs_kernel_max, .cpu = -1}; break;
+                case 4: child = (struct sysfs_node) {.kind = sysfs_offline, .cpu = -1}; break;
+                default:
+                    if ((int) index - 5 >= ncpus)
+                        return 0;
+                    child = (struct sysfs_node) {.kind = sysfs_cpu_dir, .cpu = (int) index - 5};
+                    break;
+            }
+            break;
+        }
+        case sysfs_cpu_dir:
+            return 0;
+        default:
+            return _ENOTDIR;
+    }
+
+    sysfs_node_name(child, entry->name, sizeof(entry->name));
+    entry->inode = sysfs_node_inode(child);
+    return 1;
+}
+
+static int sysfs_close(struct fd *UNUSED(fd)) {
+    return 0;
+}
+
+static const struct fd_ops sysfs_fdops = {
+    .read = sysfs_read,
+    .write = sysfs_write,
+    .pread = sysfs_pread,
+    .pwrite = NULL,
+    .lseek = sysfs_lseek,
+    .readdir = sysfs_readdir,
+    .close = sysfs_close,
+};
+
+const struct fs_ops sysfs = {
+    .name = "sysfs",
+    .magic = 0x62656572,
+    .open = sysfs_open,
+    .stat = sysfs_stat,
+    .fstat = sysfs_fstat,
+    .getpath = sysfs_getpath,
+};

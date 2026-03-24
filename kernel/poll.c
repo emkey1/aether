@@ -78,9 +78,13 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
                     bit_test(i, readfds) ? "r" : "",
                     bit_test(i, writefds) ? "w" : "",
                     bit_test(i, exceptfds) ? "x" : "");
-            struct fd *fd = f_get(i);
+            struct fd *fd = f_get_retain(i);
             if (fd == NULL) {
                 poll_destroy(poll);
+                for (fd_t j = 0; j < i; j++) {
+                    if (files[j] != NULL)
+                        fd_close(files[j]);
+                }
                 return _EBADF;
             }
             files[i] = fd;
@@ -106,6 +110,10 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
         }
     }
     poll_destroy(poll);
+    for (fd_t i = 0; i < nfds; i++) {
+        if (files[i] != NULL)
+            fd_close(files[i]);
+    }
     if (err < 0)
         return err;
 
@@ -169,10 +177,7 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
 
     struct fd *files[nfds];
     for (unsigned i = 0; i < nfds; i++) {
-        files[i] = f_get(polls[i].fd);
-        if (files[i] != NULL)
-            // FIXME it might have been closed by now by another thread
-            fd_retain(files[i]);
+        files[i] = f_get_retain(polls[i].fd);
         // clear revents, which is reused to mark whether a pollfd has been added or not
         polls[i].revents = 0;
     }

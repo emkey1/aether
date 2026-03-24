@@ -31,7 +31,7 @@
             self.timer = nil;
             ((void (*)(id, SEL)) [self.target methodForSelector:self.action])(self.target, self.action);
         }];
-        [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSDefaultRunLoopMode];
+        [NSRunLoop.mainRunLoop addTimer:self.timer forMode:NSRunLoopCommonModes];
     }
 }
 

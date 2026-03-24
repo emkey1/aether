@@ -54,10 +54,19 @@
 
 @property BOOL ignoreKeyboardMotion;
 @property (nonatomic) BOOL hasExternalKeyboard;
+@property (nonatomic) BOOL didApplyDeferredSafeAreaUpdate;
 
 @end
 
 @implementation TerminalViewController
+
+- (BOOL)shouldPreferConsoleForFreshSession {
+    NSArray<NSString *> *bootCommand = UserPreferences.shared.bootCommand;
+    if (bootCommand.count == 0)
+        return NO;
+    NSString *program = bootCommand.firstObject.lastPathComponent.lowercaseString;
+    return [program isEqualToString:@"init"];
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -224,14 +233,26 @@
 - (void)viewDidAppear:(BOOL)animated {
     [AppDelegate maybePresentStartupMessageOnViewController:self];
     [super viewDidAppear:animated];
+    [self _updateSafeAreaCompensation];
+    if (!self.didApplyDeferredSafeAreaUpdate) {
+        self.didApplyDeferredSafeAreaUpdate = YES;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _updateSafeAreaCompensation];
+            [self.view layoutIfNeeded];
+        });
+    }
 }
 
 - (void)startNewSession {
+    BOOL shouldShowConsole = self.terminal == nil && [self shouldPreferConsoleForFreshSession];
     intptr_t err = [self startSession];
     if (err < 0) {
         [self showMessage:@"could not start session"
                  subtitle:[NSString stringWithFormat:@"error code %ld", err]];
+        return;
     }
+    if (shouldShowConsole)
+        self.terminal = [Terminal terminalWithType:TTY_CONSOLE_MAJOR number:1];
 }
 
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid {
@@ -410,9 +431,7 @@
     return UserPreferences.shared.hideStatusBar;
 }
 
-- (void)viewSafeAreaInsetsDidChange {
-    [super viewSafeAreaInsetsDidChange];
-
+- (void)_updateSafeAreaCompensation {
     CGFloat statusBarHeight = 0;
     if (@available(iOS 13.0, *)) {
         statusBarHeight = self.view.window.windowScene.statusBarManager.statusBarFrame.size.height;
@@ -434,6 +453,11 @@
         self.bottomConstraint.constant = self.view.safeAreaInsets.bottom;
     }
     [self _updateFloatingSettingsButtonVisibility];
+}
+
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    [self _updateSafeAreaCompensation];
 }
 
 - (void)keyboardDidSomething:(NSNotification *)notification {
@@ -600,10 +624,14 @@
     if (commands == nil) {
         commands = [NSMutableArray new];
         for (unsigned i = 1; i <= 7; i++) {
+            NSString *title = i == 7
+                ? @"Switch to Session Shell"
+                : [NSString stringWithFormat:@"Switch to tty%u", i];
             [commands addObject:
              [UIKeyCommand keyCommandWithInput:[NSString stringWithFormat:@"%d", i]
                                  modifierFlags:UIKeyModifierCommand|UIKeyModifierAlternate|UIKeyModifierShift
-                                        action:@selector(switchTerminal:)]];
+                                        action:@selector(switchTerminal:)
+                          discoverabilityTitle:title]];
         }
         [commands addObject:
          [UIKeyCommand keyCommandWithInput:@"+"

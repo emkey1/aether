@@ -11,6 +11,7 @@ struct poll {
     struct real_poll real;
     int notify_pipe[2];
     int waiters; // if nonzero, notify_pipe exists
+    bool notify_pending;
 
     // This is used to solve the race/UaF described here: https://lwn.net/Articles/520012/
     // thread 1: calls poll_wait, real_poll_wait returns an event with a pointer to a poll_fd

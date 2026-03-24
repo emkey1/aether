@@ -548,6 +548,13 @@ void vec_movmask_b128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
             *dst |= 1 << i;
     }
 }
+void vec_fmovmask_s128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
+    *dst = 0;
+    for (unsigned i = 0; i < array_size(src->f32); i++) {
+        if (signbit(src->f32[i]))
+            *dst |= 1 << i;
+    }
+}
 void vec_fmovmask_d128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
     *dst = 0;
     for (unsigned i = 0; i < array_size(src->f64); i++) {

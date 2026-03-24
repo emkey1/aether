@@ -64,22 +64,6 @@ static int signal_is_blockable(int sig) {
 #define SIGNAL_CALL_HANDLER 2
 #define SIGNAL_STOP 3
 
-static bool is_apt_trace_comm(const char *comm) {
-    return strcmp(comm, "apt") == 0 ||
-        strcmp(comm, "sudo") == 0 ||
-        strcmp(comm, "http") == 0;
-}
-
-static bool should_trace_apt_signal_task(struct task *task) {
-    if (task == NULL)
-        return false;
-    if (is_apt_trace_comm(task->comm))
-        return true;
-    if (task->parent != NULL && is_apt_trace_comm(task->parent->comm))
-        return true;
-    return false;
-}
-
 static int signal_action(struct sighand *sighand, int sig) {
     if (signal_is_blockable(sig)) {
         struct sigaction_ *action = &sighand->action[sig];
@@ -109,9 +93,9 @@ static int signal_action(struct sighand *sighand, int sig) {
 static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ info) {
     if (sigset_has(task->pending, sig))
         return;
-    
-    if(task->exiting)
-        return; // Do nothing when a task is in the process of exiting.  -mke
+
+    if (task->exiting)
+        return;
 
     sigset_add(&task->pending, sig);
     struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
@@ -128,37 +112,42 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
 
         // wake up any pthread condition waiters
         // actual madness, I hope to god it's correct
-        // must release the sighand lock while going insane, to avoid a deadlock
-        unlock(&task->sighand->lock);
-retry:
-        lock(&task->waiting_cond_lock, 0);
+        // must release the sighand lock while going insane, to avoid a deadlock.
+        // Use only nonblocking/raw pthread operations here: this path can run on
+        // a non-emulation thread (for example the UI thread during SIGWINCH
+        // delivery), and stalling here can wedge the app. If the target task is
+        // in the middle of publishing its wait state, skip the condvar poke and
+        // rely on the pending signal once it reaches a stable point.
+        memset(&task->sighand->lock.owner, 0, sizeof(task->sighand->lock.owner));
+        pthread_mutex_unlock(&task->sighand->lock.m);
+        if (pthread_mutex_trylock(&task->waiting_cond_lock.m) != 0)
+            goto relock_sighand;
+        task->waiting_cond_lock.owner = pthread_self();
         if (task->waiting_cond != NULL) {
             bool mine = false;
-            if (trylock(task->waiting_lock) == _EBUSY) {
+            int wait_lock_status = pthread_mutex_trylock(&task->waiting_lock->m);
+            if (wait_lock_status == EBUSY) {
                 if (pthread_equal(task->waiting_lock->owner, pthread_self()))
                     mine = true;
-                if (!mine) {
-                    unlock(&task->waiting_cond_lock);
-                    goto retry;
-                }
+                if (!mine)
+                    goto unlock_waiting_cond;
+            } else if (wait_lock_status != 0) {
+                goto unlock_waiting_cond;
             }
             notify(task->waiting_cond);
             if (!mine)
-                unlock(task->waiting_lock);
+                pthread_mutex_unlock(&task->waiting_lock->m);
         }
-        unlock(&task->waiting_cond_lock);
-        lock(&task->sighand->lock, 0);
+unlock_waiting_cond:
+        memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
+        pthread_mutex_unlock(&task->waiting_cond_lock.m);
+relock_sighand:
+        pthread_mutex_lock(&task->sighand->lock.m);
+        task->sighand->lock.owner = pthread_self();
     }
 }
 
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    if (should_trace_apt_signal_task(task) &&
-            sig != SIGCHLD_ && sig != SIGWINCH_ && sig != SIGURG_) {
-        const char *sender_comm = current != NULL ? current->comm : "<none>";
-        int sender_pid = current != NULL ? current->pid : -1;
-        printk("APTTRACE signal sender_pid=%d sender_comm=%s target_pid=%d target_comm=%s did_exec=%d sig=%d code=%d\n",
-            sender_pid, sender_comm, task->pid, task->comm, task->did_exec, sig, info.code);
-    }
     lock(&task->sighand->lock, 0);
     deliver_signal_unlocked(task, sig, info);
     unlock(&task->sighand->lock);
@@ -322,13 +311,6 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     if (task->zombie || task->exiting)
         return;
 
-    if (sig == SIGINT_ && should_trace_apt_signal_task(task)) {
-        const char *sender_comm = current != NULL ? current->comm : "<none>";
-        int sender_pid = current != NULL ? current->pid : -1;
-        printk("APTTRACE send_signal sender_pid=%d sender_comm=%s target_pid=%d target_comm=%s did_exec=%d code=%d\n",
-            sender_pid, sender_comm, task->pid, task->comm, task->did_exec, info.code);
-    }
-        
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
     if ((signal_action(sighand, sig) != SIGNAL_IGNORE) && (task->pid <= MAX_PID)) { // Deal with normal and crazy.  -mke
@@ -358,12 +340,6 @@ bool try_self_signal(int sig) {
 }
 
 int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
-    if (sig == SIGINT_) {
-        const char *sender_comm = current != NULL ? current->comm : "<none>";
-        int sender_pid = current != NULL ? current->pid : -1;
-        printk("APTTRACE send_group_signal sender_pid=%d sender_comm=%s pgid=%d code=%d\n",
-            sender_pid, sender_comm, pgid, info.code);
-    }
     complex_lockt(&pids_lock, 0);
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
@@ -449,9 +425,6 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
-    if (should_trace_apt_signal_task(current) && sig == SIGINT_)
-        printk("APTTRACE receive_signal pid=%d comm=%s did_exec=%d sig=%d action=%d\n",
-            current->pid, current->comm, current->did_exec, sig, signal_action(sighand, sig));
 
     switch (signal_action(sighand, sig)) {
         case SIGNAL_IGNORE:
@@ -586,9 +559,6 @@ void receive_signals(void) {
             continue;
         list_remove(&sigqueue->queue);
         sigset_del(&current->pending, sig);
-        if (should_trace_apt_signal_task(current) && sig == SIGINT_)
-            printk("APTTRACE dequeue_signal pid=%d comm=%s did_exec=%d sig=%d blocked=%#llx\n",
-                current->pid, current->comm, current->did_exec, sig, (unsigned long long) blocked);
 
         if (current->ptrace.traced && sig != SIGKILL_) {
             // This notifies the parent, goes to sleep, and waits for the
@@ -610,11 +580,21 @@ void receive_signals(void) {
         bool now_stopped = current->group->stopped;
         unlock(&current->group->lock);
         if (now_stopped) {
+            struct task *parent = NULL;
+            int signal_no = 0;
             complex_lockt(&pids_lock, 0);
-            notify(&current->parent->group->child_exit);
-            // TODO add siginfo
-            send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
+            parent = current->parent;
+            if (parent != NULL) {
+                task_ref_cnt_mod(parent, 1);
+                signal_no = current->group->leader->exit_signal;
+                notify(&parent->group->child_exit);
+            }
             unlock(&pids_lock);
+            if (parent != NULL) {
+                if (signal_no != 0)
+                    send_signal(parent, signal_no, SIGINFO_NIL);
+                task_ref_cnt_mod(parent, -1);
+            }
         }
     }
 }
@@ -995,7 +975,6 @@ static int kill_group(pid_t_ pgid, dword_t sig) {
     }
     struct tgroup *tgroup;
     int err = _EPERM;
-    struct task* foo = current; // Debugging
     while((task_ref_cnt_get(current, 0) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
@@ -1056,21 +1035,15 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
 }
 
 dword_t sys_kill(pid_t_ pid, dword_t sig) {
-    if (strcmp(current->comm, "apt") == 0 && sig == SIGINT_)
-        printk("APTTRACE sys_kill pid=%d target=%d sig=%u\n", current->pid, pid, sig);
     return do_kill(pid, sig, 0);
 }
 dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig) {
     if (tid <= 0 || tgid <= 0)
         return _EINVAL;
-    if (strcmp(current->comm, "apt") == 0 && sig == SIGINT_)
-        printk("APTTRACE sys_tgkill pid=%d tgid=%d tid=%d sig=%u\n", current->pid, tgid, tid, sig);
     return do_kill(tid, sig, tgid);
 }
 dword_t sys_tkill(pid_t_ tid, dword_t sig) {
     if (tid <= 0)
         return _EINVAL;
-    if (strcmp(current->comm, "apt") == 0 && sig == SIGINT_)
-        printk("APTTRACE sys_tkill pid=%d tid=%d sig=%u\n", current->pid, tid, sig);
     return do_kill(tid, sig, 0);
 }

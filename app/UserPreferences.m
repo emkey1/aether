@@ -169,8 +169,8 @@ bool (*remove_user_default)(const char *name);
             kPreferenceBlinkCursorKey: @(NO),
             kPreferenceCursorStyleKey: @(CursorStyleBlock),
             kPreferenceHideStatusBarKey: @(NO),
-            kPreferenceColorSchemeKey: @(ColorSchemeMatchSystem),
-            kPreferenceThemeKey: @"Default",
+            kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
+            kPreferenceThemeKey: @"Solarized",
         }];
         // https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/
         if (@available(iOS 13.4, *)) {

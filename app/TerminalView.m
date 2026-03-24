@@ -105,13 +105,12 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     }
 
     _terminal = terminal;
+    [_terminal webView];
     [_terminal addObserver:self forKeyPath:@"loaded" options:NSKeyValueObservingOptionInitial context:nil];
-    if (_terminal.loaded)
-        [self installTerminalView];
+    [self installTerminalView];
 }
 
 - (void)installTerminalView {
-    NSAssert(_terminal.loaded, @"should probably not be installing a non-loaded terminal");
     UIView *superview = self.terminal.webView.superview;
     if (superview != nil) {
         NSAssert(superview == self.scrollbarView, @"installing terminal that is already installed elsewhere");
@@ -203,6 +202,8 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 
 - (void)setTerminalFocused:(BOOL)terminalFocused {
     _terminalFocused = terminalFocused;
+    if (!self.terminal.loaded)
+        return;
     NSString *script = terminalFocused ? @"exports.setFocused(true)" : @"exports.setFocused(false)";
     [self.terminal.webView evaluateJavaScript:script completionHandler:nil];
 }
@@ -269,6 +270,8 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (!self.terminal.loaded)
+        return;
     [self.terminal.webView evaluateJavaScript:[NSString stringWithFormat:@"exports.newScrollTop(%f)", scrollView.contentOffset.y] completionHandler:nil];
 }
 
@@ -517,12 +520,16 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 static const char *alphabet = "abcdefghijklmnopqrstuvwxyz";
 static const char *controlKeys = "abcdefghijklmnopqrstuvwxyz@^26-=[]\\ ";
 static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
+static const char *viRepeatKeys = "hjkl";
 
 - (NSArray<UIKeyCommand *> *)keyCommands {
     if (_keyCommands != nil)
         return _keyCommands;
     _keyCommands = [NSMutableArray new];
     [self addKeys:controlKeys withModifiers:UIKeyModifierControl];
+    // Route vi movement keys through UIKeyCommand so held keys repeat instead of
+    // falling back to system accent handling.
+    [self addKeys:viRepeatKeys withModifiers:0];
 
     if (@available(iOS 13.4, *)) {
         [self addFunctionKey:UIKeyInputUpArrow withName:@"Up" withNormalEscapeSequence:@"\x1b[A" withShiftEscapeSequence:@"\x1b[1;2A" withControlEscapeSequence:@"\x1b[1;5A" withAltEscapeSequence:@"\x1b[1;3A"];
@@ -617,7 +624,16 @@ static const char *metaKeys = "abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./";
 
     UIKeyCommand *command;
 
-    command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:0 propertyList:normalEscapeSequence];
+    if ([keyName isEqualToString:UIKeyInputUpArrow] ||
+            [keyName isEqualToString:UIKeyInputDownArrow] ||
+            [keyName isEqualToString:UIKeyInputLeftArrow] ||
+            [keyName isEqualToString:UIKeyInputRightArrow]) {
+        command = [UIKeyCommand keyCommandWithInput:keyName
+                                      modifierFlags:0
+                                             action:@selector(handleKeyCommand:)];
+    } else {
+        command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:0 propertyList:normalEscapeSequence];
+    }
     if (@available(iOS 15, *)) {
         command.wantsPriorityOverSystemBehavior = YES;
     }

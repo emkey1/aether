@@ -5,6 +5,7 @@
 #include "kernel/fs.h"
 #include "fs/path.h"
 #include "util/refcount.h"
+#include "util/timer.h"
 #include "debug.h"
 
 // ========================
@@ -55,6 +56,20 @@ static void tmp_inode_cleanup(struct tmp_inode *inode) {
     free(inode);
 }
 
+static void tmpfs_update_ctime(struct tmp_inode *inode) {
+    struct timespec now = timespec_now(CLOCK_REALTIME);
+    inode->stat.ctime = now.tv_sec;
+    inode->stat.ctime_nsec = now.tv_nsec;
+}
+
+static void tmpfs_update_mtime_and_ctime(struct tmp_inode *inode) {
+    struct timespec now = timespec_now(CLOCK_REALTIME);
+    inode->stat.mtime = now.tv_sec;
+    inode->stat.mtime_nsec = now.tv_nsec;
+    inode->stat.ctime = now.tv_sec;
+    inode->stat.ctime_nsec = now.tv_nsec;
+}
+
 // ===================================
 // ======== DIRECTORY ENTRIES ========
 // ===================================
@@ -76,7 +91,8 @@ struct tmp_dirent {
 DEFINE_REFCOUNT_STATIC(tmp_dirent)
 
 static void tmp_dirent_cleanup(struct tmp_dirent *dirent) {
-    list_remove(&dirent->dir); // TODO locking thinking emoji
+    if (dirent->parent != NULL)
+        tmp_dirent_release(dirent->parent);
     tmp_inode_release(dirent->inode);
     free(dirent);
 }
@@ -196,6 +212,35 @@ static int tmpfs_file_resize(struct tmp_inode *file, size_t size) {
     file->file_data = new_data;
     file->stat.size = size;
     memset((char *) file->file_data + old_size, 0, file->stat.size - old_size);
+    tmpfs_update_mtime_and_ctime(file);
+    return 0;
+}
+
+static int tmpfs_dir_unlink(struct tmp_dirent *parent, const char *name, bool remove_dir) {
+    struct tmp_dirent *dirent = tmpfs_dir_lookup(parent, name);
+    if (IS_ERR(dirent))
+        return PTR_ERR(dirent);
+
+    int err = 0;
+    lock(&dirent->lock, 0);
+    if (S_ISDIR(dirent->inode->stat.mode)) {
+        if (!remove_dir)
+            err = _EISDIR;
+        else if (!list_empty(&dirent->children))
+            err = _ENOTEMPTY;
+    } else if (remove_dir) {
+        err = _ENOTDIR;
+    }
+    unlock(&dirent->lock);
+    if (err < 0) {
+        tmp_dirent_release(dirent);
+        return err;
+    }
+
+    list_remove(&dirent->dir);
+    tmpfs_update_mtime_and_ctime(parent->inode);
+    tmp_dirent_release(dirent); // drop tree reference
+    tmp_dirent_release(dirent); // drop lookup reference
     return 0;
 }
 
@@ -305,6 +350,84 @@ static int tmpfs_stat(struct mount *mount, const char *path, struct statbuf *sta
     return 0;
 }
 
+static int tmpfs_unlink(struct mount *mount, const char *path) {
+    const char *filename;
+    struct tmp_dirent *parent = tmpfs_lookup_parent(mount, path, &filename);
+    if (IS_ERR(parent))
+        return PTR_ERR(parent);
+    if (parent == NULL)
+        return _EPERM;
+    lock(&parent->lock, 0);
+    int err = tmpfs_dir_unlink(parent, filename, false);
+    unlock(&parent->lock);
+    tmp_dirent_release(parent);
+    return err;
+}
+
+static int tmpfs_rmdir(struct mount *mount, const char *path) {
+    const char *filename;
+    struct tmp_dirent *parent = tmpfs_lookup_parent(mount, path, &filename);
+    if (IS_ERR(parent))
+        return PTR_ERR(parent);
+    if (parent == NULL)
+        return _EBUSY;
+    lock(&parent->lock, 0);
+    int err = tmpfs_dir_unlink(parent, filename, true);
+    unlock(&parent->lock);
+    tmp_dirent_release(parent);
+    return err;
+}
+
+static int tmpfs_setattr(struct mount *mount, const char *path, struct attr attr) {
+    struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
+    if (IS_ERR(dirent))
+        return PTR_ERR(dirent);
+    struct tmp_inode *inode = dirent->inode;
+    int err = 0;
+    lock(&inode->lock, 0);
+    switch (attr.type) {
+        case attr_uid:
+            inode->stat.uid = attr.uid;
+            tmpfs_update_ctime(inode);
+            break;
+        case attr_gid:
+            inode->stat.gid = attr.gid;
+            tmpfs_update_ctime(inode);
+            break;
+        case attr_mode:
+            inode->stat.mode = (inode->stat.mode & S_IFMT) | (attr.mode & ~S_IFMT);
+            tmpfs_update_ctime(inode);
+            break;
+        case attr_size:
+            if (S_ISDIR(inode->stat.mode))
+                err = _EISDIR;
+            else
+                err = tmpfs_file_resize(inode, attr.size);
+            break;
+        default:
+            err = _EPERM;
+    }
+    unlock(&inode->lock);
+    tmp_dirent_release(dirent);
+    return err;
+}
+
+static int tmpfs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime) {
+    struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
+    if (IS_ERR(dirent))
+        return PTR_ERR(dirent);
+    struct tmp_inode *inode = dirent->inode;
+    lock(&inode->lock, 0);
+    inode->stat.atime = atime.tv_sec;
+    inode->stat.atime_nsec = atime.tv_nsec;
+    inode->stat.mtime = mtime.tv_sec;
+    inode->stat.mtime_nsec = mtime.tv_nsec;
+    tmpfs_update_ctime(inode);
+    unlock(&inode->lock);
+    tmp_dirent_release(dirent);
+    return 0;
+}
+
 static int tmpfs_close(struct fd *fd) {
     // shouldn't need locking as this is the last reference to the fd
     tmp_dirent_release(fd->tmpfs.dirent);
@@ -329,6 +452,8 @@ static int tmpfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
         goto out;
 
     err = tmpfs_dir_link(parent, filename, inode, NULL);
+    if (err == 0)
+        tmpfs_update_mtime_and_ctime(parent->inode);
 out:
     unlock(&parent->lock);
     tmp_dirent_release(parent);
@@ -355,6 +480,7 @@ static int tmpfs_getpath(struct fd *fd, char *buf) {
             return _ENAMETOOLONG;
         p[0] = '/';
         memcpy(&p[1], dirent->name, name_len);
+        dirent = dirent->parent;
     }
     memmove(buf, p, strlen(p) + 1);
     return 0;
@@ -487,7 +613,11 @@ const struct fs_ops tmpfs = {
     .open = tmpfs_open,
     .close = tmpfs_close,
     .stat = tmpfs_stat,
+    .unlink = tmpfs_unlink,
+    .rmdir = tmpfs_rmdir,
     .fstat = tmpfs_fstat,
+    .setattr = tmpfs_setattr,
+    .utime = tmpfs_utime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
 };

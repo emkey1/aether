@@ -200,6 +200,7 @@ void vec_movh_pm64(NO_CPU, const union xmm_reg *src, uint64_t *dst);
 
 void vec_movmask_b64(NO_CPU, const union mm_reg *src, uint32_t *dst);
 void vec_movmask_b128(NO_CPU, const union xmm_reg *src, uint32_t *dst);
+void vec_fmovmask_s128(NO_CPU, const union xmm_reg *src, uint32_t *dst);
 void vec_fmovmask_d128(NO_CPU, const union xmm_reg *src, uint32_t *dst);
 
 void vec_insert_w64(NO_CPU, const uint32_t *src, union mm_reg *dst, uint8_t index);

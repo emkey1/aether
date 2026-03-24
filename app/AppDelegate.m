@@ -8,6 +8,7 @@
 #include <resolv.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <ctype.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 #import "AboutViewController.h"
 #import "AppDelegate.h"
@@ -228,12 +229,95 @@ const char *DefaultRootPath() {
     return [Roots.instance rootUrl:Roots.instance.defaultRoot].fileSystemRepresentation;
 }
 
+static BOOL GuestHostnameFromFile(char *hostname, size_t size) {
+    if (size == 0)
+        return NO;
+
+    ssize_t len = linux_read_file("/etc/hostname", hostname, size - 1);
+    if (len <= 0)
+        return NO;
+
+    hostname[len] = '\0';
+    while (len > 0 && isspace((unsigned char) hostname[len - 1])) {
+        hostname[--len] = '\0';
+    }
+    size_t start = 0;
+    while (hostname[start] != '\0' && isspace((unsigned char) hostname[start])) {
+        start++;
+    }
+    if (start != 0) {
+        memmove(hostname, hostname + start, len - start + 1);
+    }
+    return hostname[0] != '\0';
+}
+
+static void EnsureGuestHostsEntry(const char *hostname) {
+    if (hostname == NULL || hostname[0] == '\0')
+        return;
+
+    current = pid_get_task(1);
+
+    char hosts[8192];
+    ssize_t len = linux_read_file("/etc/hosts", hosts, sizeof(hosts) - 1);
+    NSMutableString *updatedHosts = nil;
+    BOOL hasHostname = NO;
+
+    if (len >= 0) {
+        hosts[len] = '\0';
+        NSString *existingHosts = [[NSString alloc] initWithBytes:hosts
+                                                           length:len
+                                                         encoding:NSUTF8StringEncoding];
+        if (existingHosts == nil) {
+            existingHosts = [[NSString alloc] initWithCString:hosts encoding:NSISOLatin1StringEncoding];
+        }
+        if (existingHosts != nil) {
+            NSArray<NSString *> *lines = [existingHosts componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
+            for (NSString *line in lines) {
+                NSString *content = [[line componentsSeparatedByString:@"#"] firstObject];
+                NSArray<NSString *> *fields = [content componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+                for (NSString *field in fields) {
+                    if ([field length] == 0)
+                        continue;
+                    if ([field isEqualToString:@(hostname)]) {
+                        hasHostname = YES;
+                        break;
+                    }
+                }
+                if (hasHostname)
+                    break;
+            }
+            updatedHosts = [existingHosts mutableCopy];
+        }
+    }
+
+    if (hasHostname)
+        return;
+
+    if (updatedHosts == nil) {
+        updatedHosts = [NSMutableString stringWithString:@"127.0.0.1\tlocalhost\n"];
+    } else if (![updatedHosts hasSuffix:@"\n"]) {
+        [updatedHosts appendString:@"\n"];
+    }
+    [updatedHosts appendFormat:@"127.0.1.1\t%s\n", hostname];
+
+    struct fd *fd = generic_open("/etc/hosts", O_WRONLY_ | O_CREAT_ | O_TRUNC_, 0644);
+    if (IS_ERR(fd)) {
+        NSLog(@"failed to write /etc/hosts: %d", PTR_ERR(fd));
+        return;
+    }
+    fd->ops->write(fd, updatedHosts.UTF8String, [updatedHosts lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    fd_close(fd);
+}
+
 void SyncHostname(void) {
     async_do_in_workqueue(^{
         char hostname[256];
-        if (gethostname(hostname, sizeof(hostname)) < 0)
-            return;
+        if (!GuestHostnameFromFile(hostname, sizeof(hostname))) {
+            if (gethostname(hostname, sizeof(hostname)) < 0)
+                return;
+        }
         linux_sethostname(hostname);
+        EnsureGuestHostsEntry(hostname);
     });
 }
 #endif
@@ -341,7 +425,8 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     extern pthread_mutex_t extra_lock;
     NSString *hostnameOverride = [NSUserDefaults.standardUserDefaults stringForKey:@"hostnameOverride"];
     if (hostnameOverride) {
-        uname_hostname_override = strdup(uname_hostname_override);
+        free((void *) uname_hostname_override);
+        uname_hostname_override = strdup(hostnameOverride.UTF8String);
     }
 #endif
     

@@ -1,0 +1,7 @@
+
+
+
+sqlite3 /tmp/package_info.db 'select priority,section,name,is_leaf FROM packages ORDER By priority,section,is_leaf,name' | grep -v required
+
+
+xkb-data libx11-data adwaita-icon-theme fontconfig fontconfig-config fonts-dejavu-core libgdk-pixbuf-2.0-0:i386 x11-common

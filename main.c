@@ -40,6 +40,7 @@ int main(int argc, char *const argv[]) {
         return err;
     }
     do_mount(&procfs, "proc", "/proc", "", 0);
+    do_mount(&sysfs, "sysfs", "/sys", "", 0);
     do_mount(&devptsfs, "devpts", " ", "", 0);
     
     task_set_exception_ports(

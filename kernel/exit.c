@@ -41,6 +41,10 @@ static bool exit_tgroup(struct task *task) {
 // A function pointer that can be assigned to a cleanup function to be called upon task exit.
 void (*exit_hook)(struct task *task, int code) = NULL;
 
+static inline bool exit_wait_needed(struct task *task) {
+    return task_ref_cnt_get(task, 0) > 2 || locks_held_count(task);
+}
+
 // Finds a new parent for the children of a task that is exiting. If no suitable parent
 // is found within the task's group, it returns the 'init' task.
 static struct task *find_new_parent(struct task *task) {
@@ -64,14 +68,9 @@ noreturn void do_exit(struct task *task, int status) {
     
     lock(&task->general_lock, 0);
     
-    bool signal_pending = !!(task->pending & ~task->blocked);
     // has to happen before mm_release
-    
-    while((task_ref_cnt_get(task, 0) > 2) ||
-          (locks_held_count(task)) ||
-          (signal_pending)) { // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+    while (exit_wait_needed(task)) { // Wait for other references and locks, but ignore extra pending signals while exiting.
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
     }
     addr_t clear_tid = task->clear_tid;
     if (clear_tid) {
@@ -83,42 +82,27 @@ noreturn void do_exit(struct task *task, int status) {
     // release all our resources
     do {
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
-        int tmp = task_ref_cnt_get(task, 0);
         nanosleep(&lock_pause, NULL);
-    } while((task_ref_cnt_get(task, 0) > 2) ||
-            (locks_held_count(task)) ||
-            (signal_pending)); // Wait for now, task is in one or more critical
+    } while (exit_wait_needed(task)); // Wait for now, task is in one or more critical
     mm_release(task->mm);
     task->mm = NULL;
     
-    signal_pending = !!(task->pending & ~task->blocked);
-    while((task_ref_cnt_get(task, 0) > 2) ||
-          (locks_held_count(task)) ||
-          (signal_pending)) { // Wait for now, task is in one or more critical // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+    while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
     }
     fdtable_release(task->files);
     task->files = NULL;
     
-    while((task_ref_cnt_get(task, 0) > 2) ||
-          (locks_held_count(task)) ||
-          (signal_pending)) { // Wait for now, task is in one or more critical // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+    while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
     }
     fs_info_release(task->fs);
     task->fs = NULL;
-    signal_pending = !!(task->pending & ~task->blocked);
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
-    while((task_ref_cnt_get(task, 0) > 2) ||
-          (locks_held_count(task)) ||
-          (signal_pending)) { // Wait for now, task is in one or more critical// Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+    while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
     }
     // save things that our parent might be interested in
     task->exit_code = status; // FIXME locking
@@ -130,13 +114,13 @@ noreturn void do_exit(struct task *task, int status) {
 
     // the actual freeing needs pids_lock
     // release the sighand
-    signal_pending = !!(task->pending & ~task->blocked);
-    while((task_ref_cnt_get(task, 0) > 2) || // We added one to the task reference count above, thus the check is 2, in case any other thread is accessing.
-          (locks_held_count(task)) ||
-          (signal_pending)) { // Wait for now, task is in one or more critical // Wait for now, task is in one or more critical sections, and/or has locks, or signals in flight
+    while (exit_wait_needed(task)) { // We added one to the task reference count above, thus the check is 2, in case any other thread is accessing.
         nanosleep(&lock_pause, NULL);
-        signal_pending = !!(task->pending & ~task->blocked);
     }
+
+    struct task *signal_parent = NULL;
+    struct siginfo_ signal_info = {};
+    int signal_no = 0;
 
     // Only hold pids_lock for the process-tree and thread-group teardown below.
     // Holding it across mm/files/fs release and the wait loops above wedges task
@@ -169,10 +153,13 @@ noreturn void do_exit(struct task *task, int status) {
             // init died
             halt_system();
         } else {
+            task_ref_cnt_mod(parent, 1);
+            signal_parent = parent;
+            signal_no = leader->exit_signal;
             lock(&parent->general_lock, 0);
             leader->zombie = true;
             notify(&parent->group->child_exit);
-            struct siginfo_ info = { //mkemkemke  This is interesting.  Need to think about possibilities.  TODO
+            signal_info = (struct siginfo_) {
                 .code = SI_KERNEL_,
                 .child.pid = task->pid,
                 .child.uid = task->uid,
@@ -180,15 +167,11 @@ noreturn void do_exit(struct task *task, int status) {
                 .child.utime = clock_from_timeval(group_rusage.utime),
                 .child.stime = clock_from_timeval(group_rusage.stime),
             };
-            if (leader->exit_signal != 0)
-                send_signal(parent, leader->exit_signal, info);
+            unlock(&parent->general_lock);
         }
-        
+
         if (exit_hook != NULL)
             exit_hook(task, status);
-
-        if (parent != NULL)
-            unlock(&parent->general_lock);
     }
 
     vfork_notify(task);
@@ -200,6 +183,12 @@ noreturn void do_exit(struct task *task, int status) {
     }
     
     unlock(&pids_lock);
+
+    if (signal_parent != NULL) {
+        if (signal_no != 0)
+            send_signal(signal_parent, signal_no, signal_info);
+        task_ref_cnt_mod(signal_parent, -1);
+    }
     
 EXIT:pthread_exit(NULL);
 }

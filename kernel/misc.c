@@ -2,6 +2,8 @@
 #include "kernel/calls.h"
 
 #define PRCTL_SET_KEEPCAPS_ 8
+#define PRCTL_SET_PDEATHSIG_ 1
+#define PRCTL_GET_PDEATHSIG_ 2
 #define PRCTL_GET_SECCOMP_ 21
 #define PRCTL_SET_SECCOMP_ 22
 #define PRCTL_SET_NAME_ 15
@@ -17,6 +19,13 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t UNUSED(arg3), uint_t UNUSED(
     switch (option) {
         case PRCTL_SET_KEEPCAPS_:
             // stub
+            return 0;
+        case PRCTL_SET_PDEATHSIG_:
+            current->pdeath_signal = arg2;
+            return 0;
+        case PRCTL_GET_PDEATHSIG_:
+            if (user_put(arg2, current->pdeath_signal))
+                return _EFAULT;
             return 0;
         case PRCTL_GET_SECCOMP_:
             // Report "disabled" rather than erroring out during helper setup.

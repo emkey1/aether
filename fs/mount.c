@@ -11,6 +11,7 @@ static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
     &procfs,
     &devptsfs,
     &tmpfs,
+    &sysfs,
 };
 
 void fs_register(const struct fs_ops *fs) {
@@ -182,16 +183,6 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
         return _EINVAL;
     }
 
-    const struct fs_ops *fs = NULL;
-    for (size_t i = 0; i < sizeof(filesystems)/sizeof(filesystems[0]); i++) {
-        if (filesystems[i] && (strcmp(filesystems[i]->name, type) == 0)) {
-            fs = filesystems[i];
-            break;
-        }
-    }
-    if (fs == NULL)
-        return _EINVAL;
-
     struct statbuf stat;
     int err = generic_statat(AT_PWD, point_raw, &stat, 0);
     if (err < 0)
@@ -209,7 +200,8 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
         struct mount *mount;
         bool found = false;
         list_for_each_entry(&mounts, mount, mounts) {
-            if (strcmp(point, mount->point) == 0) {
+            bool is_root_remount = strcmp(point, "/") == 0 && mount->point[0] == '\0';
+            if (strcmp(point, mount->point) == 0 || is_root_remount) {
                 mount->flags = (mount->flags & ~MS_FLAGS) | (flags & MS_FLAGS);
                 found = true;
                 break;
@@ -217,6 +209,18 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
         }
         unlock(&mounts_lock);
         return found ? 0 : _EINVAL;
+    }
+
+    const struct fs_ops *fs = NULL;
+    for (size_t i = 0; i < sizeof(filesystems)/sizeof(filesystems[0]); i++) {
+        if (filesystems[i] && (strcmp(filesystems[i]->name, type) == 0)) {
+            fs = filesystems[i];
+            break;
+        }
+    }
+    if (fs == NULL) {
+        unlock(&mounts_lock);
+        return _EINVAL;
     }
 
     err = do_mount(fs, source, point, data, flags & MS_FLAGS);

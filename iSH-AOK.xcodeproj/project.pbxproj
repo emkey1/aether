@@ -590,7 +590,7 @@
 		497F6CD2254E5CC800C82F46 /* sync.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = sync.c; sourceTree = "<group>"; };
 		497F6CD3254E5CC800C82F46 /* bits.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bits.h; sourceTree = "<group>"; };
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
-		497F6D47254E605F00C82F46 /* ish-AOK */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; name = "ish-AOK"; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
+		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
 		5D59DADA2B17999500FA995C /* rw_locks.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rw_locks.h; sourceTree = "<group>"; };
@@ -1057,7 +1057,7 @@
 				BB13F7DC200AD81D003D1C4D /* libish.a */,
 				BBFB2C5B2590257E00545EAB /* libish_emu.a */,
 				BB41591C255EF9E300E0950C /* iSH-AOKUITests.xctest */,
-				497F6D47254E605F00C82F46 /* ish-AOK */,
+				497F6D47254E605F00C82F46 /* ish */,
 				497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */,
 				BBEF191E26806364001225BD /* libiSH-AOKApp.a */,
 				BBEF199C268066D1001225BD /* iSH-AOK.app */,
@@ -1457,7 +1457,7 @@
 			);
 			name = "ish-AOK";
 			productName = ish;
-			productReference = 497F6D47254E605F00C82F46 /* ish-AOK */;
+			productReference = 497F6D47254E605F00C82F46 /* ish */;
 			productType = "com.apple.product-type.tool";
 		};
 		BB13F7DB200AD81D003D1C4D /* libish */ = {
@@ -1965,6 +1965,8 @@
 				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/root.tar.gz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2012,6 +2014,7 @@
 			files = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/root.tar.gz",
 			);
 			name = "Download Root";
 			outputPaths = (
@@ -2019,7 +2022,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cp /Users/mke/git/iSH-AOK/root.tar.gz \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "cp \"$SRCROOT/root.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
@@ -2553,6 +2556,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 484;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
@@ -2563,6 +2567,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 484;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -2576,7 +2581,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 508;
+				CURRENT_PROJECT_VERSION = 516;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2602,7 +2607,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 508;
+				CURRENT_PROJECT_VERSION = 516;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2625,6 +2630,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 484;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 			};
 			name = DebugLinux;
@@ -2637,7 +2643,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 508;
+				CURRENT_PROJECT_VERSION = 516;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2948,6 +2954,7 @@
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 484;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
@@ -2961,7 +2968,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 508;
+				CURRENT_PROJECT_VERSION = 516;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

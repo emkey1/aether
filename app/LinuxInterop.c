@@ -26,8 +26,10 @@
 #include <user/irq.h>
 
 extern void run_kernel(void);
+extern char *uname_hostname_override;
 
 void actuate_kernel(const char *cmdline) {
+    strlcpy(ish_boot_command_line, cmdline, sizeof(ish_boot_command_line));
     strcpy(boot_command_line, cmdline);
     run_kernel();
 }
@@ -156,9 +158,18 @@ void linux_sethostname(const char *hostname) {
     int len = strlen(hostname);
     if (len > __NEW_UTS_LEN)
         len = __NEW_UTS_LEN;
+
+    char *override = malloc(len + 1);
+    if (override != NULL) {
+        memcpy(override, hostname, len);
+        override[len] = '\0';
+        free(uname_hostname_override);
+        uname_hostname_override = override;
+    }
+
     down_write(&uts_sem);
     struct new_utsname *u = utsname();
-    if (strncmp(u->nodename, hostname, len) != 0) {
+    if (strncmp(u->nodename, hostname, sizeof(u->nodename)) != 0) {
         memcpy(u->nodename, hostname, len);
         memset(u->nodename + len, 0, sizeof(u->nodename) - len);
         uts_proc_notify(UTS_PROC_HOSTNAME);

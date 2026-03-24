@@ -176,6 +176,7 @@ extern const struct fs_ops procfs;
 extern const struct fs_ops fakefs;
 extern const struct fs_ops devptsfs;
 extern const struct fs_ops tmpfs;
+extern const struct fs_ops sysfs;
 void fs_register(const struct fs_ops *fs);
 char* get_filesystems(void); // For /proc/filesystems
 

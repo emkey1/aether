@@ -20,6 +20,8 @@ void async_do_in_workqueue(void (^block)(void));
 void async_do_in_ios(void (^block)(void));
 void sync_do_in_workqueue(void (^block)(void (^done)(void)));
 
+extern char ish_boot_command_line[4096];
+
 // call into ios from kernel:
 
 void actuate_kernel(const char *cmdline);

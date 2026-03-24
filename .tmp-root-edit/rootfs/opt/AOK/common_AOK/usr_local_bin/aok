@@ -1,0 +1,350 @@
+#!/bin/sh
+#
+#  Part of https://github.com/emkey1/AOK-Filesystem-Tools
+#
+#  License: MIT
+#
+#  Copyright (c) 2022,2023: Jacob.Lundqvist@gmail.com
+#
+#  Script to do various things related to the configuration of ish
+#
+
+show_help() {
+    echo "Usage: $prog_name [-h] [-v] [-l login procedure]
+
+An AOK-only script that manages iSH/AOK specific things.
+
+Currently only login procedure can be altered.
+
+Available options:
+
+-h, --help      Print this help and exit
+-v, --verbose   Be verbose
+-l, --login     Decides login procedure [once|disable|enable] Now: $(display_login_method)
+-H, --hostname  Reads hostname from syncfile [disable|enable] Now: $(display_hostname_method)"
+    exit 0
+}
+
+#  shellcheck disable=SC2317
+destfs_is_alpine() {
+    test -f /etc/alpine-release
+}
+
+change_login_procedure() {
+    requested_method="$1"
+
+    if [ ! "$requested_method" = "disable" ] && [ "$(find /home -mindepth 1 -maxdepth 1 | wc -l)" -lt 1 ]; then
+        echo
+        echo "WARNING: an active login method was selected,"
+        echo "however no user accounts were found, thus switching to disable."
+        echo "Otherwise you would most likely get stuck on the login prompt next boot."
+        echo
+        requested_method="disable"
+    fi
+
+    case "$requested_method" in
+
+    "once")
+        echo "Enabling login prompt, but only for initial login."
+        echo "  This App will exit when you logout"
+        rm -f /bin/login
+        ln -sf /bin/login.once /bin/login
+        echo "once" >"$login_method_stored"
+        exit 0
+        ;;
+
+    "enable")
+        echo "Enabling login prompt."
+        echo "  You will be prompted for your login name and password"
+        echo "  if one has been set when launching this App"
+        rm -f /bin/login
+        ln -sf /bin/login.loop /bin/login
+        echo "enabled" >"$login_method_stored"
+        exit 0
+        ;;
+
+    "disable")
+        echo "Disabling login prompt on startup. You will start at root prompt"
+        echo "  when launching this App"
+        rm -f /bin/login
+
+        if [ -f "$login_original" ]; then
+            #
+            #  This will also be the case for Alpine when shadow-login
+            #  is installed
+            #
+            ln -sf "$login_original" /bin/login
+        elif destfs_is_alpine; then
+            ln -sf "/bin/busybox" /bin/login
+        else
+            echo "ERROR: not Alpine and no $login_original"
+            exit 1
+        fi
+
+        echo "disabled" >"$login_method_stored"
+        exit 0
+        ;;
+
+    "")
+        echo
+        echo "ERROR: Missing param indicating new login procedure"
+        exit 1
+        ;;
+
+    *)
+        echo
+        echo "ERROR: Bad param to change login procedure: $1"
+        exit 1
+        ;;
+
+    esac
+}
+
+check_login_method() {
+    if [ "$(readlink -f /bin/login)" = "/bin/login.loop" ]; then
+        echo "enabled"
+    elif [ "$(readlink -f /bin/login)" = "/bin/login.once" ]; then
+        echo "once"
+    else
+        echo "disabled"
+    fi
+}
+
+display_login_method() {
+    mthd_active="$(check_login_method)"
+    mthd_intended="$(cat "$login_method_stored" 2>/dev/null)"
+
+    if [ "$mthd_active" = "$mthd_intended" ]; then
+        echo "$mthd_active"
+        if [ ! -f /bin/login ]; then
+            if [ -f /bin/login.original ]; then
+                ln -sf /bin/login.original /bin/login
+            else
+                echo "ERROR: /bin/login missing"
+            fi
+        fi
+        exit 0
+    fi
+
+    echo "Inconsistency detected"
+    echo
+    echo "WARNING: active login method not the intended one"
+    echo "         attempting to fix"
+    echo
+    echo "current:   $mthd_active"
+    echo "intended: $mthd_intended"
+    echo
+
+    #
+    #  If stored setting not available repeat usage of active, in order
+    #  to set the selected to match
+    #
+    [ -z "$mthd_intended" ] && mthd_intended="$mthd_active"
+
+    case "$mthd_intended" in
+    "disabled") mthd="disable" ;;
+    "once") mthd="once" ;;
+    "enabled") mthd="enable" ;;
+    *) mthd="$mthd_active" ;; # not sure how this works, my attempt for a deault
+    esac
+
+    change_login_procedure "$mthd"
+}
+
+install_hostname_alt() {
+    echo "Enabling alternate hostname $hostname_alt"
+    cp /opt/AOK/common_AOK/hostname_handling/hostname_alt "$hostname_alt"
+    chmod 755 "$hostname_alt"
+}
+
+remove_hostname_alt() {
+    rm -f "$hostname_alt"
+}
+
+change_hostname_method() {
+    # msg_2 "change_hostname_method()"
+    requested_method="$1"
+    source_file="$2"
+
+    case "$requested_method" in
+
+    "enable")
+        if [ -z "$source_file" ]; then
+            f_current="$(cat "$hostname_source_fname" 2>/dev/null)"
+            if [ "$f_current" = "$f_etc_hostname" ]; then
+                s_old_value="$(cat "$f_etc_hostname" 2>/dev/null)"
+            else
+                s_old_value="$f_current"
+            fi
+            echo "Enter hostname, or if sourcefile should be used start with / and give full path"
+            [ -n "$s_old_value" ] && echo "  $s_old_value"
+            read -r s_new_value
+            if [ -z "$s_new_value" ]; then
+                if [ -z "$s_old_value" ]; then
+                    echo "ERROR: Nothing given and no old value was found - will not activate $hostname_alt"
+                    echo "       this can be activated later by doing: aok -H enable"
+                    echo
+                    remove_hostname_alt
+                    exit 1
+                fi
+                s_new_value="$s_old_value"
+            fi
+        else
+            s_new_value="$source_file"
+        fi
+
+        if [ "${s_new_value%"${s_new_value#?}"}" = "/" ]; then
+            #
+            #  Use it as a path
+            #
+            if [ -f "$s_new_value" ]; then
+                install_hostname_alt
+                echo "hostname will be sourced from: $s_new_value"
+                "$hostname_alt" -S "$s_new_value"
+            else
+                echo "ERROR: Aborting install of alternate hostname - File not found: $s_new_value"
+                echo "       this can be activated later by doing: aok -H enable"
+                echo
+                remove_hostname_alt
+                exit 1
+            fi
+        else
+            #
+            #  Use it as old style hostname
+            #
+            install_hostname_alt
+            echo "$s_new_value" >"$f_etc_hostname"
+            echo "/etc/hostname will be used, so no syncing will be done."
+            "$hostname_alt" -S "$f_etc_hostname"
+        fi
+        "$hostname_alt" -U
+        echo "hostname set to: $($hostname_alt)"
+        if [ -z "$source_file" ]; then
+            #
+            #  source_file would typically only be set during initial deploy
+            #  and in that case this disclaimer wont be needed
+            #
+            echo "Your shell prompt might have cached the hostname when the session started."
+        fi
+        exit 0
+        ;;
+
+    "disable")
+        if [ -f "$hostname_alt" ]; then
+            echo "Removing $hostname_alt"
+            remove_hostname_alt
+        fi
+        exit 0
+        ;;
+
+    *)
+        echo
+        echo "ERROR: Bad param to change_hostname_method: $1"
+        exit 1
+        ;;
+
+    esac
+    # msg_3 "change_hostname_method() - done"
+}
+
+display_hostname_method() {
+    # msg_2 "display_hostname_method()"
+    if [ -f "$hostname_alt" ]; then
+        echo "Enabled"
+    else
+        echo "Disabled"
+    fi
+    # msg_3 "display_hostname_method() - done"
+}
+
+#===============================================================
+#
+#   Main
+#
+#===============================================================
+
+. /opt/AOK/tools/utils.sh
+
+f_etc_hostname=/etc/hostname
+
+#
+#  Store login method, so that if /bin/login was updated
+#  it can be restored to intended state.
+#
+login_method_stored="/etc/opt/AOK-login_method"
+
+login_original="/bin/login.original"
+
+# execute again as root
+if [ "$(whoami)" != "root" ]; then
+    echo "Executing as root"
+    # using $0 instead of full path makes location not hardcoded
+    if ! sudo "$0" "$@"; then
+        echo
+        echo "ERROR: Failed to sudo $0"
+        echo
+    fi
+    exit 0
+fi
+
+if destfs_is_alpine && [ ! -L /bin/login ] && [ -f /bin/login ]; then
+    #
+    #  If /bin/login has been updated, ie is a file, this would indicate
+    #  shadow-login or similar has been updated. Update $login_original
+    #
+    mv /bin/login "$login_original"
+
+    # will restore it to its previous state, if need be
+    display_login_method
+fi
+
+verbose=0
+prog_name=$(basename "$0")
+
+while true; do
+    case "$1" in
+
+    "" | "-h" | "--help")
+        show_help
+        ;;
+
+    "-v" | "--verbose")
+        if [ "$verbose" -eq 0 ]; then
+            echo "===  Enabling verbose mode  ==="
+            verbose=1
+            set -x
+        else
+            echo
+            echo "WARNING: Multiple verbose options are ignored"
+        fi
+        ;;
+
+    "-l" | "--login")
+        if [ -n "$2" ]; then
+            change_login_procedure "$2"
+        else
+            printf "Current login method: "
+            display_login_method
+        fi
+        ;;
+
+    "-H" | "--hostname")
+        if [ -n "$2" ]; then
+            change_hostname_method "$2" "$3"
+        else
+            printf "Current login method: "
+            display_hostname_method
+        fi
+        ;;
+
+    *)
+        echo
+        echo "ERROR: Bad option: $1"
+        echo
+        show_help
+        ;;
+
+    esac
+    shift
+    [ -z "$1" ] && break # no more options
+done

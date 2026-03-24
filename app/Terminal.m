@@ -135,6 +135,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if ([message.name isEqualToString:@"load"]) {
         self.loaded = YES;
+        [self syncWindowSize];
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
         self.enableVoiceOverAnnounce = self.enableVoiceOverAnnounce;
@@ -151,7 +152,11 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 }
 
 - (void)syncWindowSize {
+    if (!self.loaded)
+        return;
     [self.webView evaluateJavaScript:@"exports.getSize()" completionHandler:^(NSArray<NSNumber *> *dimensions, NSError *error) {
+        if (error != nil || dimensions.count < 2)
+            return;
         int cols = dimensions[0].intValue;
         int rows = dimensions[1].intValue;
         if (self.tty == NULL)
@@ -170,6 +175,8 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
 - (void)setEnableVoiceOverAnnounce:(BOOL)enableVoiceOverAnnounce {
     _enableVoiceOverAnnounce = enableVoiceOverAnnounce;
+    if (!self.loaded)
+        return;
     [self.webView evaluateJavaScript:[NSString stringWithFormat:@"term.setAccessibilityEnabled(%@)",
                                       enableVoiceOverAnnounce ? @"true" : @"false"]
                    completionHandler:nil];
@@ -222,11 +229,15 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         self.tty->ops->send_input(self.tty, inputRef.bytes, inputRef.length);
     });
 #endif
-    [self.webView evaluateJavaScript:@"exports.setUserGesture()" completionHandler:nil];
-    [self.scrollToBottomTask schedule];
+    if (self.loaded) {
+        [self.webView evaluateJavaScript:@"exports.setUserGesture()" completionHandler:nil];
+        [self.scrollToBottomTask schedule];
+    }
 }
 
 - (void)scrollToBottom {
+    if (!self.loaded)
+        return;
     [self.webView evaluateJavaScript:@"exports.scrollToBottom()" completionHandler:nil];
 }
 
@@ -280,9 +291,19 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         self->_outputInProgress = NO;
         unlock(&self->_dataLock);
 #else
+        bool hasPendingData;
         @synchronized (self) {
             self->_outputInProgress = NO;
+            hasPendingData = self->_pendingData.length > 0;
         }
+        if (self->_tty != NULL) {
+            async_do_in_irq(^{
+                if (self->_tty != NULL)
+                    self->_tty->ops->can_output(self->_tty);
+            });
+        }
+        if (hasPendingData)
+            [self.refreshTask schedule];
 #endif
         if (error != nil) {
             NSLog(@"error sending bytes to the terminal: %@", error);

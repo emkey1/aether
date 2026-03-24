@@ -171,6 +171,7 @@ struct task *task_create_(struct task *parent) {
     task->has_saved_mask = false;
     task->clear_tid = 0;
     task->robust_list = 0;
+    task->pdeath_signal = 0;
     task->did_exec = false;
     task->exit_code = 0;
     task->zombie = false;

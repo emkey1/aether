@@ -233,18 +233,25 @@ static int sockaddr_read_bind(addr_t sockaddr_addr, void *sockaddr, uint_t *sock
 
     if (user_read(sockaddr_addr, sockaddr, *sockaddr_len))
         return _EFAULT;
-    struct sockaddr *real_addr = sockaddr;
     struct sockaddr_ *fake_addr = sockaddr;
-    real_addr->sa_family = sock_family_to_real(fake_addr->family);
+    int real_family = sock_family_to_real(fake_addr->family);
 
-    switch (real_addr->sa_family) {
+    switch (real_family) {
         case PF_INET:
             if (*sockaddr_len < sizeof(struct sockaddr_in))
                 return _EINVAL;
+#ifdef __APPLE__
+            ((struct sockaddr_in *) sockaddr)->sin_len = sizeof(struct sockaddr_in);
+#endif
+            ((struct sockaddr_in *) sockaddr)->sin_family = PF_INET;
             break;
         case PF_INET6:
             if (*sockaddr_len < sizeof(struct sockaddr_in6))
                 return _EINVAL;
+#ifdef __APPLE__
+            ((struct sockaddr_in6 *) sockaddr)->sin6_len = sizeof(struct sockaddr_in6);
+#endif
+            ((struct sockaddr_in6 *) sockaddr)->sin6_family = PF_INET6;
             break;
 
         case PF_LOCAL: {
@@ -273,7 +280,11 @@ static int sockaddr_read_bind(addr_t sockaddr_addr, void *sockaddr, uint_t *sock
             }
 
             struct sockaddr_un *real_addr_un = sockaddr;
-            size_t path_len = sprintf(real_addr_un->sun_path, "%s%d.%u", sock_tmp_prefix, getpid(), socket_id);
+            size_t path_len = sprintf(real_addr_un->sun_path, "%s.%u", sock_tmp_prefix, socket_id);
+#ifdef __APPLE__
+            real_addr_un->sun_len = offsetof(struct sockaddr_un, sun_path) + path_len;
+#endif
+            real_addr_un->sun_family = PF_LOCAL;
             // The call to real bind will fail if the backing socket already
             // exists from a previous run or something. We already checked that
             // the fake file doesn't exist in unix_socket_get, so try a simple
@@ -697,6 +708,7 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     // Unbound and similar daemons expect these Linux options to exist, but
     // they are not required for correctness in our single-process emulation.
     if ((level == SOL_SOCKET_ && option == SO_REUSEPORT_) ||
+            (level == SOL_SOCKET_ && option == SO_PASSCRED_) ||
             (level == IPPROTO_IPV6 && option == IPV6_MTU_))
         return 0;
     // Modern glibc enables asynchronous ICMP reporting for DNS sockets and

@@ -65,15 +65,10 @@ static inline void _read_unlock(wrlock_t *lock) {
 }
 
 static inline void read_unlock(wrlock_t *lock) {
-  /*  if(lock->pid != current_pid(current) && (lock->pid != -1)) {
-        atomic_l_lockf("r_unlock\0", 0);
-        _read_unlock(lock);
-    } else { */ // We can unlock our own lock without additional locking.  -mke
-        _read_unlock(lock);
-        return;
-    //}
-    //if(lock->pid != current_pid(current) && (lock->pid != -1))
-    //    atomic_l_unlockf();
+    atomic_l_lockf("r_unlock\0", 0);
+    _read_unlock(lock);
+    atomic_l_unlockf();
+    return;
 }
 
 static inline void _write_unlock(wrlock_t *lock) {
