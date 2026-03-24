@@ -20,6 +20,8 @@ struct tty;
 
 + (Terminal *)terminalWithUUID:(NSUUID *)uuid;
 @property (readonly) NSUUID *uuid;
+@property (readonly) int type;
+@property (readonly) int number;
 
 + (void)convertCommand:(NSArray<NSString *> *)command toArgs:(char *)argv limitSize:(size_t)maxSize;
 

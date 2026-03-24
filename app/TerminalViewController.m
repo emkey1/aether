@@ -43,9 +43,11 @@
 @property (weak, nonatomic) IBOutlet UIView *settingsBadge;
 
 @property (weak, nonatomic) IBOutlet UIButton *infoButton;
+@property (strong, nonatomic) UIButton *terminalSwitcherButton;
 @property (weak, nonatomic) IBOutlet UIButton *pasteButton;
 @property (weak, nonatomic) IBOutlet UIButton *hideKeyboardButton;
 @property (strong, nonatomic) UIButton *floatingSettingsButton;
+@property (strong, nonatomic) UIButton *floatingTerminalSwitcherButton;
 @property (strong, nonatomic) UIView *floatingSettingsBadge;
 @property (strong, nonatomic) NSLayoutConstraint *floatingSettingsBottomConstraint;
 
@@ -61,18 +63,18 @@
 @implementation TerminalViewController
 
 - (BOOL)shouldPreferConsoleForFreshSession {
-    NSArray<NSString *> *bootCommand = UserPreferences.shared.bootCommand;
-    if (bootCommand.count == 0)
-        return NO;
-    NSString *program = bootCommand.firstObject.lastPathComponent.lowercaseString;
-    return [program isEqualToString:@"init"];
+    // Booting via init also starts the app's session shell on a private pty.
+    // Preferring tty1 here leaves the user on a getty/login console while the
+    // actual interactive shell is running elsewhere, which looks like a
+    // missing prompt or an immediate logout.
+    return NO;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
 
 #if !ISH_LINUX
-    intptr_t bootError = [AppDelegate bootError];
+    intptr_t bootError = [AppDelegate ensureBooted];
     if (bootError < 0) {
         NSString *message = [NSString stringWithFormat:@"could not boot"];
         NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
@@ -103,6 +105,8 @@
 
     [self _updateStyleFromPreferences:NO];
     [self _installFloatingSettingsButton];
+    [self _installFloatingTerminalSwitcherButton];
+    [self _installTerminalSwitcherButton];
     
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
         [self.bar removeArrangedSubview:self.hideKeyboardButton];
@@ -139,6 +143,7 @@
     self.controlKey.accessibilityHint = @"Toggles the control key modifier.";
     self.escapeKey.accessibilityLabel = @"Escape";
     self.escapeKey.accessibilityHint = @"Sends an escape character.";
+    [self _installTerminalSwitcherGestureOnView:self.infoButton];
     
     [UserPreferences.shared observe:@[@"hideStatusBar"] options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -178,6 +183,7 @@
     [button addTarget:self action:@selector(showAbout:) forControlEvents:UIControlEventPrimaryActionTriggered];
     [self.view addSubview:button];
     self.floatingSettingsButton = button;
+    [self _installTerminalSwitcherGestureOnView:button];
 
     UIView *badge = [[UIView alloc] init];
     badge.translatesAutoresizingMaskIntoConstraints = NO;
@@ -204,6 +210,71 @@
     ]];
 }
 
+- (void)_installFloatingTerminalSwitcherButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.hidden = YES;
+    button.accessibilityLabel = @"Switch Terminal";
+    button.accessibilityHint = @"Switches between the session shell and tty terminals.";
+    button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+    button.layer.cornerRadius = 22;
+    button.layer.masksToBounds = NO;
+    button.layer.shadowColor = UIColor.blackColor.CGColor;
+    button.layer.shadowOpacity = 0.2;
+    button.layer.shadowRadius = 8;
+    button.layer.shadowOffset = CGSizeMake(0, 2);
+    if (@available(iOS 13, *)) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+        UIImage *image = [UIImage systemImageNamed:@"rectangle.3.group" withConfiguration:config];
+        [button setImage:image forState:UIControlStateNormal];
+    } else {
+        [button setTitle:@"TTY" forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
+    }
+    [button addTarget:self action:@selector(showTerminalSwitcherFromButton:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    [self.view addSubview:button];
+    self.floatingTerminalSwitcherButton = button;
+    [self _installTerminalSwitcherGestureOnView:button];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [button.trailingAnchor constraintEqualToAnchor:self.floatingSettingsButton.leadingAnchor constant:-12],
+        [button.bottomAnchor constraintEqualToAnchor:self.floatingSettingsButton.bottomAnchor],
+        [button.widthAnchor constraintEqualToConstant:44],
+        [button.heightAnchor constraintEqualToConstant:44],
+    ]];
+}
+
+- (void)_installTerminalSwitcherButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.accessibilityLabel = @"Switch Terminal";
+    button.accessibilityHint = @"Switches between the session shell and tty terminals.";
+    if (@available(iOS 13, *)) {
+        [button setImage:[UIImage systemImageNamed:@"rectangle.3.group"] forState:UIControlStateNormal];
+    } else {
+        [button setTitle:@"TTY" forState:UIControlStateNormal];
+    }
+    [button addTarget:self action:@selector(showTerminalSwitcherFromButton:) forControlEvents:UIControlEventPrimaryActionTriggered];
+
+    UIView *infoContainer = self.infoButton.superview;
+    NSUInteger infoIndex = [self.bar.arrangedSubviews indexOfObject:infoContainer];
+    if (infoIndex == NSNotFound)
+        infoIndex = self.bar.arrangedSubviews.count;
+    [self.bar insertArrangedSubview:button atIndex:infoIndex];
+    [button.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
+
+    self.terminalSwitcherButton = button;
+    [self _installTerminalSwitcherGestureOnView:button];
+}
+
+- (void)_installTerminalSwitcherGestureOnView:(UIView *)view {
+    UILongPressGestureRecognizer *recognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self
+                                                      action:@selector(showTerminalSwitcher:)];
+    recognizer.minimumPressDuration = 0.5;
+    [view addGestureRecognizer:recognizer];
+}
+
 - (BOOL)_shouldShowFloatingSettingsButton {
     return self.termView.inputAccessoryView == nil;
 }
@@ -212,6 +283,10 @@
     BOOL visible = [self _shouldShowFloatingSettingsButton];
     self.floatingSettingsButton.hidden = !visible;
     self.floatingSettingsButton.userInteractionEnabled = visible;
+    self.floatingTerminalSwitcherButton.hidden = !visible;
+    self.floatingTerminalSwitcherButton.userInteractionEnabled = visible;
+    self.terminalSwitcherButton.hidden = visible;
+    self.terminalSwitcherButton.userInteractionEnabled = !visible;
     self.floatingSettingsBottomConstraint.constant = -12;
 }
 
@@ -244,24 +319,30 @@
 }
 
 - (void)startNewSession {
-    BOOL shouldShowConsole = self.terminal == nil && [self shouldPreferConsoleForFreshSession];
     intptr_t err = [self startSession];
     if (err < 0) {
         [self showMessage:@"could not start session"
                  subtitle:[NSString stringWithFormat:@"error code %ld", err]];
         return;
     }
-    if (shouldShowConsole)
-        self.terminal = [Terminal terminalWithType:TTY_CONSOLE_MAJOR number:1];
+    if (self.sessionTerminal != nil)
+        self.terminal = self.sessionTerminal;
 }
 
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid {
-    self.sessionTerminal = [Terminal terminalWithUUID:uuid];
-    if (self.sessionTerminal == nil)
+    Terminal *terminal = [Terminal terminalWithUUID:uuid];
+    if (terminal == nil || terminal.type != TTY_PSEUDO_SLAVE_MAJOR) {
+        self.sessionTerminal = nil;
         [self startNewSession];
+        return;
+    }
+    self.sessionTerminal = terminal;
+    self.terminal = self.sessionTerminal;
 }
 
 - (NSUUID *)sessionTerminalUUID {
+    if (self.sessionTerminal != nil)
+        return self.sessionTerminal.uuid;
     return self.terminal.uuid;
 }
 
@@ -269,7 +350,10 @@
     NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
 
 #if !ISH_LINUX
-    intptr_t err = become_new_init_child();
+    intptr_t err = [AppDelegate ensureBooted];
+    if (err < 0)
+        return err;
+    err = become_new_init_child();
     if (err < 0)
         return err;
     struct tty *tty;
@@ -390,6 +474,11 @@
         for (UIControl *control in self.barControls) {
             control.tintColor = tintColor;
         }
+        self.terminalSwitcherButton.tintColor = tintColor;
+        self.floatingTerminalSwitcherButton.tintColor = tintColor;
+        self.floatingTerminalSwitcherButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
+            [UIColor colorWithWhite:1 alpha:0.78] :
+            [UIColor colorWithWhite:0 alpha:0.45];
         self.floatingSettingsButton.tintColor = tintColor;
         self.floatingSettingsButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
             [UIColor colorWithWhite:1 alpha:0.78] :
@@ -552,6 +641,74 @@
     [self.termView resignFirstResponder];
 }
 
+- (NSString *)terminalDisplayName:(Terminal *)terminal {
+    if (terminal == nil)
+        return @"Unknown Terminal";
+    if (terminal == self.sessionTerminal)
+        return [NSString stringWithFormat:@"Session Shell (pts/%d)", terminal.number];
+    if (terminal.type == TTY_CONSOLE_MAJOR)
+        return [NSString stringWithFormat:@"Terminal (tty%d)", terminal.number];
+    if (terminal.type == TTY_PSEUDO_SLAVE_MAJOR)
+        return [NSString stringWithFormat:@"Pseudo Terminal (pts/%d)", terminal.number];
+    return [NSString stringWithFormat:@"Terminal (%d:%d)", terminal.type, terminal.number];
+}
+
+- (IBAction)showTerminalSwitcherFromButton:(id)sender {
+    UIView *sourceView = [sender isKindOfClass:UIView.class] ? sender : self.infoButton;
+    [self presentTerminalSwitcherFromView:sourceView];
+}
+
+- (void)showTerminalSwitcher:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+
+    [self presentTerminalSwitcherFromView:recognizer.view];
+}
+
+- (void)presentTerminalSwitcherFromView:(UIView *)sourceView {
+    if (sourceView == nil)
+        sourceView = self.infoButton;
+
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Switch Terminal"
+                                            message:@"Boot via init creates both a session shell and system consoles."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    Terminal *sessionTerminal = self.sessionTerminal;
+    if (sessionTerminal != nil) {
+        NSString *title = (self.terminal == sessionTerminal)
+            ? [[self terminalDisplayName:sessionTerminal] stringByAppendingString:@" (Current)"]
+            : [self terminalDisplayName:sessionTerminal];
+        [alert addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            self.terminal = sessionTerminal;
+        }]];
+    }
+
+    for (int i = 1; i <= 7; i++) {
+        Terminal *console = [Terminal terminalWithType:TTY_CONSOLE_MAJOR number:i];
+        NSString *title = [self.terminal.uuid isEqual:console.uuid]
+            ? [[self terminalDisplayName:console] stringByAppendingString:@" (Current)"]
+            : [self terminalDisplayName:console];
+        [alert addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            self.terminal = console;
+        }]];
+    }
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+    }
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)resizeBar {
     CGSize bar = self.barView.bounds.size;
     // set sizing parameters on bar
@@ -663,6 +820,12 @@
 
 - (void)setTerminal:(Terminal *)terminal {
     _terminal = terminal;
+    if (terminal != nil) {
+        NSLog(@"INFO: attach terminal type=%d num=%d uuid=%@",
+              terminal.type, terminal.number, terminal.uuid.UUIDString);
+    } else {
+        NSLog(@"INFO: attach terminal (null)");
+    }
     self.termView.terminal = self.terminal;
 }
 

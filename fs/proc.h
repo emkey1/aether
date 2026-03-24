@@ -67,6 +67,8 @@ extern struct proc_children proc_ish_children;
 extern struct proc_children proc_net_children;
 extern struct proc_children proc_sys_children;
 
+int proc_show_mountinfo(struct proc_entry *entry, struct proc_data *buf);
+
 mode_t_ proc_entry_mode(struct proc_entry *entry);
 void proc_entry_getname(struct proc_entry *entry, char *buf);
 int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat);

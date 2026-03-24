@@ -220,9 +220,15 @@ void poll_wakeup(struct fd *fd, int events) {
         if (poll_fd->types & POLL_EDGETRIGGERED)
             poll_fd->triggered_types &= ~events;
         if (poll->notify_pipe[1] != -1 && !poll->notify_pending) {
-            poll->notify_pending = true;
-            if (write(poll->notify_pipe[1], "", 1) < 0 && errno != EAGAIN && errno != EINTR)
+            ssize_t wrote;
+            do {
+                wrote = write(poll->notify_pipe[1], "", 1);
+            } while (wrote < 0 && errno == EINTR);
+            if (wrote >= 0 || errno == EAGAIN) {
+                poll->notify_pending = true;
+            } else if (wrote < 0) {
                 FIXME("poll wake notify write failed: %s", strerror(errno));
+            }
         }
         unlock(&poll->lock);
         // oneshot?

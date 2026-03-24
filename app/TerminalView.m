@@ -84,7 +84,11 @@ struct rowcol {
 }
 
 - (void)dealloc {
-    self.terminal = nil;
+    if (_terminal != nil) {
+        [_terminal removeObserver:self forKeyPath:@"loaded"];
+        [self uninstallTerminalView];
+        _terminal = nil;
+    }
 }
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context {
@@ -99,12 +103,18 @@ struct rowcol {
 static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight", @"newScrollTop", @"openLink"};
 
 - (void)setTerminal:(Terminal *)terminal {
+    if (_terminal == terminal)
+        return;
+
     if (_terminal) {
         [_terminal removeObserver:self forKeyPath:@"loaded"];
         [self uninstallTerminalView];
     }
 
     _terminal = terminal;
+    if (_terminal == nil)
+        return;
+
     [_terminal webView];
     [_terminal addObserver:self forKeyPath:@"loaded" options:NSKeyValueObservingOptionInitial context:nil];
     [self installTerminalView];

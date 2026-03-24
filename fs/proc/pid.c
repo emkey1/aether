@@ -404,6 +404,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"fd", S_IFDIR, .readdir = proc_pid_fd_readdir},
     {"maps", .show = proc_pid_maps_show},
     {"mem", .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite},
+    {"mountinfo", .show = proc_show_mountinfo},
     {"root", S_IFLNK, .readlink = proc_pid_root_readlink},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},

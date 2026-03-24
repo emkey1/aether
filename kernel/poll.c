@@ -2,8 +2,10 @@
 #include "debug.h"
 #include "kernel/fs.h"
 #include "kernel/time.h"
+#include "fs/devices.h"
 #include "fs/fd.h"
 #include "fs/poll.h"
+#include "fs/tty.h"
 #include "kernel/calls.h"
 
 static int user_read_or_zero(addr_t addr, void *data, size_t size) {
@@ -147,6 +149,57 @@ struct poll_context {
     struct fd **files;
     int nfds;
 };
+
+static bool poll_trace_script_enabled(void) {
+    return current != NULL && strcmp(current->comm, "script") == 0;
+}
+
+static void poll_trace_script_fd(struct fd *fd, int requested, int ready) {
+    if (fd == NULL)
+        return;
+    if (fd->ops == &tty_dev.fd) {
+        struct tty *tty = fd->tty;
+        int slave_entries = -1;
+        int slave_refs = -1;
+        int master_entries = -1;
+        int master_refs = -1;
+        int half_closed = 0;
+        if (tty != NULL) {
+            if (tty->type == TTY_PSEUDO_MASTER_MAJOR && tty->pty.other != NULL) {
+                struct tty *slave = tty->pty.other;
+                lock(&slave->fds_lock, 0);
+                struct fd *slave_fd;
+                slave_entries = 0;
+                slave_refs = 0;
+                list_for_each_entry(&slave->fds, slave_fd, tty_other_fds) {
+                    slave_entries++;
+                    slave_refs += slave_fd->refcount;
+                }
+                unlock(&slave->fds_lock);
+                half_closed = slave->ever_opened && slave_entries == 0;
+            }
+            lock(&tty->fds_lock, 0);
+            struct fd *tty_fd;
+            master_entries = 0;
+            master_refs = 0;
+            list_for_each_entry(&tty->fds, tty_fd, tty_other_fds) {
+                master_entries++;
+                master_refs += tty_fd->refcount;
+            }
+            unlock(&tty->fds_lock);
+            printk("INFO: script poll fd tty major=%d num=%d requested=%#x ready=%#x hung=%d packet=%#x tty_fds=%d tty_refs=%d slave_fds=%d slave_refs=%d half_closed=%d\n",
+                   tty->driver->major, tty->num, requested, ready, tty->hung_up,
+                   tty->packet_flags, master_entries, master_refs, slave_entries, slave_refs, half_closed);
+        }
+    } else {
+        char path[MAX_PATH];
+        path[0] = '\0';
+        generic_getpath(fd, path);
+        printk("INFO: script poll fd real=%d requested=%#x ready=%#x path=%s\n",
+               fd->real_fd, requested, ready, path);
+    }
+}
+
 #define POLL_ALWAYS_LISTENING (POLL_ERR|POLL_HUP|POLL_NVAL)
 static int poll_event_callback(void *context, int types, union poll_fd_info info) {
     struct poll_context *c = context;
@@ -215,12 +268,17 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
         timeout_ts.tv_sec = timeout / 1000;
         timeout_ts.tv_nsec = (timeout % 1000) * 1000000;
     }
+    if (poll_trace_script_enabled()) {
+        for (unsigned i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            poll_trace_script_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready);
+        }
+    }
     int res = 0;
     TASK_MAY_BLOCK {
         res = poll_wait(poll, poll_event_callback, &context, timeout < 0 ? NULL : &timeout_ts);
-    }
-    while(task_ref_cnt_get(current, 0) > 1) { // Wait for now, task is in one or more critical sections
-        nanosleep(&lock_pause, NULL);
     }
     poll_destroy(poll);
     for (unsigned i = 0; i < nfds; i++) {

@@ -9,6 +9,7 @@
 #import "DelayedUITask.h"
 #import "UserPreferences.h"
 #include "LinuxInterop.h"
+#include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/tty.h"
 #include "fs/devices.h"
@@ -109,7 +110,8 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         _webView = [[CustomWebView alloc] initWithFrame:webviewSize configuration:config];
         _webView.scrollView.scrollEnabled = NO;
         NSURL *xtermHtmlFile = [NSBundle.mainBundle URLForResource:@"term" withExtension:@"html"];
-        [_webView loadFileURL:xtermHtmlFile allowingReadAccessToURL:xtermHtmlFile];
+        NSURL *readAccessURL = xtermHtmlFile.URLByDeletingLastPathComponent ?: NSBundle.mainBundle.resourceURL ?: xtermHtmlFile;
+        [_webView loadFileURL:xtermHtmlFile allowingReadAccessToURL:readAccessURL];
     }
     return _webView;
 }
@@ -334,6 +336,14 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     @synchronized (Terminal.class) {
         return [terminalsByUUID objectForKey:uuid];
     }
+}
+
+- (int)type {
+    return dev_major((dev_t_) self.terminalsKey.unsignedIntValue);
+}
+
+- (int)number {
+    return dev_minor((dev_t_) self.terminalsKey.unsignedIntValue);
 }
 
 - (void)destroy {

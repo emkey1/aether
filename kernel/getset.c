@@ -30,6 +30,14 @@ static int cap_data_count(dword_t version) {
     }
 }
 
+static bool cap_words_subset(const dword_t *subset, const dword_t *superset, int count) {
+    for (int i = 0; i < count; i++) {
+        if ((subset[i] & ~superset[i]) != 0)
+            return false;
+    }
+    return true;
+}
+
 pid_t_ sys_getpid(void) {
     STRACE("getpid()");
     return current->tgid;
@@ -268,25 +276,50 @@ int_t sys_capset(addr_t header_addr, addr_t data_addr) {
     int count = cap_data_count(header.version);
     if (count < 0)
         return _EINVAL;
-    if (header.pid != 0 && header.pid != current->pid)
-        return _EPERM;
-    if (!superuser())
+    if (header.pid != 0 && header.pid != current->pid && header.pid != current->tgid)
         return _EPERM;
 
     struct cap_user_data_ data[2] = {};
     if (user_read(data_addr, data, sizeof(data[0]) * count))
         return _EFAULT;
 
-    current->cap_effective[0] = data[0].effective;
-    current->cap_permitted[0] = data[0].permitted;
-    current->cap_inheritable[0] = data[0].inheritable;
+    dword_t new_effective[2] = {data[0].effective, 0};
+    dword_t new_permitted[2] = {data[0].permitted, 0};
+    dword_t new_inheritable[2] = {data[0].inheritable, 0};
+    if (count > 1) {
+        new_effective[1] = data[1].effective;
+        new_permitted[1] = data[1].permitted;
+        new_inheritable[1] = data[1].inheritable;
+    }
+
+    // Linux allows an unprivileged task to drop capabilities it already has
+    // and to toggle effective bits within its permitted set. The old
+    // superuser-only gate breaks helpers like ping that reduce their
+    // capability set after a uid transition.
+    if (!superuser()) {
+        if (!cap_words_subset(new_permitted, current->cap_permitted, count))
+            return _EPERM;
+        if (!cap_words_subset(new_inheritable, current->cap_inheritable, count))
+            return _EPERM;
+        if (!cap_words_subset(new_effective, new_permitted, count))
+            return _EPERM;
+        if (!cap_words_subset(new_effective, current->cap_permitted, count))
+            return _EPERM;
+    }
+
+    if (!cap_words_subset(new_effective, new_permitted, count))
+        return _EPERM;
+
+    current->cap_effective[0] = new_effective[0];
+    current->cap_permitted[0] = new_permitted[0];
+    current->cap_inheritable[0] = new_inheritable[0];
     current->cap_effective[1] = 0;
     current->cap_permitted[1] = 0;
     current->cap_inheritable[1] = 0;
     if (count > 1) {
-        current->cap_effective[1] = data[1].effective;
-        current->cap_permitted[1] = data[1].permitted;
-        current->cap_inheritable[1] = data[1].inheritable;
+        current->cap_effective[1] = new_effective[1];
+        current->cap_permitted[1] = new_permitted[1];
+        current->cap_inheritable[1] = new_inheritable[1];
     }
     return 0;
 }

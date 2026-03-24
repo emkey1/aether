@@ -15,6 +15,7 @@
 #include "kernel/random.h"
 #include "kernel/errno.h"
 #include "fs/fd.h"
+#include "fs/tty.h"
 #include "fs/path.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
@@ -38,6 +39,56 @@ static inline dword_t args_copy(dword_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
 static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t *argc_out,
         char **argv_out, char **envp_out);
+
+static bool trace_session_exec_name(const char *name) {
+    return strcmp(name, "login") == 0 ||
+        strcmp(name, "sh") == 0 ||
+        strcmp(name, "bash") == 0 ||
+        strcmp(name, "dash") == 0 ||
+        strcmp(name, "getty") == 0 ||
+        strcmp(name, "agetty") == 0;
+}
+
+static void trace_exec_argv(const struct exec_args *argv, char *buf, size_t size) {
+    if (size == 0)
+        return;
+    buf[0] = '\0';
+    if (argv == NULL || argv->args == NULL || argv->count == 0)
+        return;
+
+    size_t used = 0;
+    const char *arg = argv->args;
+    size_t shown = 0;
+    for (size_t i = 0; i < argv->count && shown < 4 && *arg != '\0'; i++) {
+        const char *sep = shown == 0 ? "" : " ";
+        int wrote = snprintf(buf + used, size - used, "%s\"%.48s\"", sep, arg);
+        if (wrote < 0 || (size_t) wrote >= size - used) {
+            used = size - 1;
+            break;
+        }
+        used += wrote;
+        shown++;
+        arg += strlen(arg) + 1;
+    }
+    if (shown < argv->count && used + 4 < size)
+        strcpy(buf + used, " ...");
+}
+
+static void trace_exec_tty(struct task *task, int *type_out, int *num_out) {
+    int type = -1;
+    int num = -1;
+    lock(&task->group->lock, 0);
+    struct tty *tty = task->group->tty;
+    if (tty != NULL) {
+        type = tty->type;
+        num = tty->num;
+    }
+    unlock(&task->group->lock);
+    if (type_out != NULL)
+        *type_out = type;
+    if (num_out != NULL)
+        *num_out = num;
+}
 
 static int read_header(struct fd *fd, struct elf_header *header) {
     ssize_t err;
@@ -622,6 +673,12 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         current->fsgid = current->egid;
     }
 
+    char old_comm[sizeof(current->comm)];
+    lock(&current->general_lock, 0);
+    strncpy(old_comm, current->comm, sizeof(old_comm));
+    old_comm[sizeof(old_comm) - 1] = '\0';
+    unlock(&current->general_lock);
+
     // save current->comm
     lock(&current->general_lock, 0);
     const char *basename = strrchr(file, '/');
@@ -630,7 +687,19 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     else
         basename++;
     strncpy(current->comm, basename, sizeof(current->comm));
+    current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
+
+    if (trace_session_exec_name(old_comm) || trace_session_exec_name(basename)) {
+        char argv_trace[256];
+        int tty_type = -1;
+        int tty_num = -1;
+        trace_exec_argv(&argv, argv_trace, sizeof(argv_trace));
+        trace_exec_tty(current, &tty_type, &tty_num);
+        printk("INFO: exec session pid=%d tgid=%d old=%s new=%s file=%s tty=%d:%d argv=%s\n",
+               current->pid, current->tgid, old_comm, basename, file,
+               tty_type, tty_num, argv_trace);
+    }
 
     update_thread_name();
 

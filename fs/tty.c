@@ -89,6 +89,64 @@ static struct tty *get_slave_side_tty(struct tty *tty) {
   }
 }
 
+static bool tty_has_open_fds(struct tty *tty) {
+    lock(&tty->fds_lock, 0);
+    bool has_open_fds = !list_empty(&tty->fds);
+    unlock(&tty->fds_lock);
+    return has_open_fds;
+}
+
+static void tty_fd_summary(struct tty *tty, int *entries_out, int *refs_out) {
+    int entries = 0;
+    int refs = 0;
+    lock(&tty->fds_lock, 0);
+    struct fd *fd;
+    list_for_each_entry(&tty->fds, fd, tty_other_fds) {
+        entries++;
+        refs += fd->refcount;
+    }
+    unlock(&tty->fds_lock);
+    if (entries_out != NULL)
+        *entries_out = entries;
+    if (refs_out != NULL)
+        *refs_out = refs;
+}
+
+static void tty_debug_dump_fd_owners(struct fd *target, const char *reason, int tty_num) {
+    if (target == NULL)
+        return;
+
+    bool found = false;
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->files == NULL)
+            continue;
+        lock(&task->files->lock, 0);
+        for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
+            struct fd *fd = fdtable_get(task->files, fd_no);
+            if (fd != target)
+                continue;
+            found = true;
+            printk("INFO: tty slave %d %s owner pid=%d tgid=%d comm=%s fd=%d cloexec=%d shared_ref=%u\n",
+                   tty_num, reason, task->pid, task->tgid, task->comm, fd_no,
+                   bit_test(fd_no, task->files->cloexec), target->refcount);
+        }
+        unlock(&task->files->lock);
+    }
+    unlock(&pids_lock);
+
+    if (!found) {
+        printk("INFO: tty slave %d %s owner none shared_ref=%u\n",
+               tty_num, reason, target->refcount);
+    }
+}
+
+static bool pty_slave_closed_by_users(struct tty *tty) {
+    return tty->driver == &pty_slave && tty->ever_opened && !tty_has_open_fds(tty);
+}
+
 static void tty_poll_wakeup(struct tty *tty, int events) {
     unlock(&tty->lock);
     struct fd *fd;
@@ -113,10 +171,10 @@ void tty_release(struct tty *tty) {
     } else {
         // bit of a hack
         struct tty *master = NULL;
-        if (tty->driver == &pty_slave && tty->refcount == 1)
+        if (tty->driver == &pty_slave && tty->pty.other != NULL)
             master = tty->pty.other;
         unlock(&tty->lock);
-        if (master != NULL) {
+        if (master != NULL && pty_slave_closed_by_users(tty)) {
             lock(&master->lock, 0);
             tty_poll_wakeup(master, POLL_READ | POLL_HUP);
             unlock(&master->lock);
@@ -208,9 +266,47 @@ static int tty_device_open(int major, int minor, struct fd *fd) {
 
 static int tty_close(struct fd *fd) {
     if (fd->tty != NULL) {
+        struct tty *wake_master = NULL;
+        struct fd *remaining_fd = NULL;
+        int slave_entries = 0;
+        int slave_refs = 0;
+        if (fd->tty->driver == &pty_slave) {
+            printk("INFO: tty slave %d close by pid=%d tgid=%d comm=%s fd_ref=%u exiting=%d did_exec=%d\n",
+                   fd->tty->num, current != NULL ? current->pid : -1,
+                   current != NULL ? current->tgid : -1,
+                   current != NULL ? current->comm : "<none>",
+                   fd->refcount, current != NULL ? current->exiting : 0,
+                   current != NULL ? current->did_exec : 0);
+        }
         lock(&fd->tty->fds_lock, 0);
         list_remove_safe(&fd->tty_other_fds);
+        if (fd->tty->driver == &pty_slave &&
+                fd->tty->ever_opened &&
+                list_empty(&fd->tty->fds) &&
+                fd->tty->pty.other != NULL)
+            wake_master = fd->tty->pty.other;
+        struct fd *tty_fd;
+        list_for_each_entry(&fd->tty->fds, tty_fd, tty_other_fds) {
+            slave_entries++;
+            slave_refs += tty_fd->refcount;
+            if (remaining_fd == NULL)
+                remaining_fd = tty_fd;
+        }
         unlock(&fd->tty->fds_lock);
+        if (wake_master != NULL) {
+            int master_entries = 0;
+            int master_refs = 0;
+            tty_fd_summary(wake_master, &master_entries, &master_refs);
+            printk("INFO: tty slave %d close woke master %d (slave_fds=%d slave_refs=%d master_fds=%d master_refs=%d)\n",
+                   fd->tty->num, wake_master->num, slave_entries, slave_refs, master_entries, master_refs);
+            lock(&wake_master->lock, 0);
+            tty_poll_wakeup(wake_master, POLL_READ | POLL_HUP);
+            unlock(&wake_master->lock);
+        } else if (fd->tty->driver == &pty_slave) {
+            printk("INFO: tty slave %d close left slave_fds=%d slave_refs=%d peer=%p ever_opened=%d\n",
+                   fd->tty->num, slave_entries, slave_refs, fd->tty->pty.other, fd->tty->ever_opened);
+            tty_debug_dump_fd_owners(remaining_fd, "close-left", fd->tty->num);
+        }
         lock(&ttys_lock, 0);
         tty_release(fd->tty);
         unlock(&ttys_lock);
@@ -419,11 +515,9 @@ static bool pty_is_half_closed_master(struct tty *tty) {
         return false;
 
     struct tty *slave = tty->pty.other;
-    // only time one tty lock is nested in another
-    lock(&slave->lock, 0);
-    bool half_closed = slave->ever_opened && slave->refcount == 1;
-    unlock(&slave->lock);
-    return half_closed;
+    if (slave == NULL)
+        return false;
+    return pty_slave_closed_by_users(slave);
 }
 
 static bool tty_is_current(struct tty *tty) {

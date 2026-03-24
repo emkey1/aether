@@ -29,6 +29,8 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 #if !ISH_LINUX
+    if ([AppDelegate ensureBooted] < 0)
+        return;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(processExited:) name:ProcessExitedNotification object:nil];
 
     complex_lockt(&pids_lock, 0);
@@ -91,7 +93,10 @@
     if (self.upgradePid != 0)
         return _EEXIST;
 #if !ISH_LINUX
-    intptr_t err = become_new_init_child();
+    intptr_t err = [AppDelegate ensureBooted];
+    if (err < 0)
+        return err;
+    err = become_new_init_child();
     if (err < 0)
         return err;
     FsUpdateOnlyRepositoriesFile();

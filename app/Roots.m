@@ -27,6 +27,25 @@ static NSURL *RootsDir(void) {
 
 static NSString *kDefaultRoot = @"Default Root";
 
+static BOOL RootURLLooksValid(NSURL *url) {
+    if (url == nil)
+        return NO;
+
+    BOOL isDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:url.path isDirectory:&isDirectory] || !isDirectory)
+        return NO;
+
+    NSURL *dataURL = [url URLByAppendingPathComponent:@"data"];
+    NSURL *metaURL = [url URLByAppendingPathComponent:@"meta.db"];
+    BOOL isDataDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:dataURL.path isDirectory:&isDataDirectory] || !isDataDirectory)
+        return NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:metaURL.path])
+        return NO;
+
+    return YES;
+}
+
 @interface Roots ()
 @property NSMutableOrderedSet<NSString *> *roots;
 @property BOOL updatingDomains;
@@ -41,7 +60,15 @@ static NSString *kDefaultRoot = @"Default Root";
         NSError *error = nil;
         NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:RootsDir().path error:&error];
         NSAssert(error == nil, @"couldn't list roots: %@", error);
-        self.roots = [rootNames mutableCopy];
+        NSMutableOrderedSet<NSString *> *roots = [NSMutableOrderedSet orderedSet];
+        for (NSString *rootName in rootNames) {
+            if (RootURLLooksValid([self rootUrl:rootName])) {
+                [roots addObject:rootName];
+            } else {
+                NSLog(@"ignoring invalid root entry %@", rootName);
+            }
+        }
+        self.roots = roots;
         if (!self.roots.count) {
             // import default root
             NSError *error;

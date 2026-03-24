@@ -102,6 +102,19 @@ static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 
 @implementation AppDelegate
 
++ (intptr_t)ensureBooted {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        AppDelegate *delegate = (AppDelegate *) UIApplication.sharedApplication.delegate;
+        if ([delegate isKindOfClass:AppDelegate.class]) {
+            bootError = [delegate boot];
+        } else {
+            bootError = _ESRCH;
+        }
+    });
+    return bootError;
+}
+
 - (intptr_t)boot {
 #if !ISH_LINUX
     
@@ -387,7 +400,7 @@ void SyncHostname(void) {
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])
         return YES;
 
-    bootError = [self boot];
+    bootError = [AppDelegate ensureBooted];
 
 #if ISH_LINUX
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillEnterForegroundNotification object:UIApplication.sharedApplication queue:nil usingBlock:^(NSNotification * _Nonnull note) {

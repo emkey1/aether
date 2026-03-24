@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -9,15 +10,122 @@
 #include "fs/fd.h"
 #include "fs/inode.h"
 #include "fs/path.h"
+#include "fs/poll.h"
 #include "fs/real.h"
 #include "fs/sock.h"
 #include "debug.h"
 
 #define SOCKET_TYPE_MASK 0xf
 
+#define NLMSG_ALIGNTO 4
+#define NLMSG_ALIGN(len) (((len) + NLMSG_ALIGNTO - 1) & ~(NLMSG_ALIGNTO - 1))
+#define NLMSG_HDRLEN ((int) NLMSG_ALIGN(sizeof(struct nlmsghdr_)))
+#define NLA_ALIGNTO 4
+#define NLA_ALIGN(len) (((len) + NLA_ALIGNTO - 1) & ~(NLA_ALIGNTO - 1))
+
+#define NLMSG_NOOP_ 1
+#define NLMSG_ERROR_ 2
+#define NLMSG_DONE_ 3
+
+#define NLM_F_REQUEST_ 0x1
+#define NLM_F_MULTI_ 0x2
+#define NLM_F_ROOT_ 0x100
+#define NLM_F_MATCH_ 0x200
+#define NLM_F_DUMP_ (NLM_F_ROOT_ | NLM_F_MATCH_)
+
+#define SOCK_DIAG_BY_FAMILY_ 20
+
+#define TCPF_ALL_ 0xFFF
+#define UDIAG_SHOW_NAME_ (1 << 0)
+
+struct sockaddr_nl_ {
+    uint16_t nl_family;
+    uint16_t nl_pad;
+    uint32_t nl_pid;
+    uint32_t nl_groups;
+};
+
+struct nlmsghdr_ {
+    uint32_t nlmsg_len;
+    uint16_t nlmsg_type;
+    uint16_t nlmsg_flags;
+    uint32_t nlmsg_seq;
+    uint32_t nlmsg_pid;
+};
+
+struct nlmsgerr_ {
+    int32_t error;
+    struct nlmsghdr_ msg;
+};
+
+struct nlattr_ {
+    uint16_t nla_len;
+    uint16_t nla_type;
+};
+
+struct inet_diag_sockid_ {
+    uint16_t idiag_sport;
+    uint16_t idiag_dport;
+    uint32_t idiag_src[4];
+    uint32_t idiag_dst[4];
+    uint32_t idiag_if;
+    uint32_t idiag_cookie[2];
+};
+
+struct inet_diag_req_v2_ {
+    uint8_t sdiag_family;
+    uint8_t sdiag_protocol;
+    uint8_t idiag_ext;
+    uint8_t pad;
+    uint32_t idiag_states;
+    struct inet_diag_sockid_ id;
+};
+
+struct inet_diag_msg_ {
+    uint8_t idiag_family;
+    uint8_t idiag_state;
+    uint8_t idiag_timer;
+    uint8_t idiag_retrans;
+    struct inet_diag_sockid_ id;
+    uint32_t idiag_expires;
+    uint32_t idiag_rqueue;
+    uint32_t idiag_wqueue;
+    uint32_t idiag_uid;
+    uint32_t idiag_inode;
+};
+
+struct unix_diag_req_ {
+    uint8_t sdiag_family;
+    uint8_t sdiag_protocol;
+    uint16_t pad;
+    uint32_t udiag_states;
+    uint32_t udiag_ino;
+    uint32_t udiag_show;
+    uint32_t udiag_cookie[2];
+};
+
+struct unix_diag_msg_ {
+    uint8_t udiag_family;
+    uint8_t udiag_type;
+    uint8_t udiag_state;
+    uint8_t pad;
+    uint32_t udiag_ino;
+    uint32_t udiag_cookie[2];
+};
+
+struct diag_socket_entry {
+    struct fd **fds;
+    unsigned count;
+    unsigned cap;
+};
+
+static uint32_t netlink_next_port_id(void);
+
 const struct fd_ops socket_fdops;
 
 static lock_t peer_lock = LOCK_INITIALIZER;
+
+static int unix_socket_finish_peer(struct fd *sock, bool wait);
 
 static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
     struct fd *fd = adhoc_fd_create(&socket_fdops);
@@ -37,6 +145,24 @@ static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
 
 int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
+    if (domain == AF_NETLINK_) {
+        int socket_type = type & SOCKET_TYPE_MASK;
+        if (protocol != NETLINK_SOCK_DIAG_)
+            return _EPROTONOSUPPORT;
+        if (socket_type != SOCK_RAW_ && socket_type != SOCK_DGRAM_)
+            return _EINVAL;
+        struct fd *fd = adhoc_fd_create(&socket_fdops);
+        if (fd == NULL)
+            return _ENOMEM;
+        fd->stat.mode = S_IFSOCK | 0666;
+        fd->real_fd = -1;
+        fd->socket.domain = domain;
+        fd->socket.type = socket_type;
+        fd->socket.protocol = protocol;
+        fd->socket.netlink_port_id = netlink_next_port_id();
+        fd->fake_inode = fd->socket.netlink_port_id;
+        return f_install(fd, type & ~SOCKET_TYPE_MASK);
+    }
     int real_domain = sock_family_to_real(domain);
     if (real_domain < 0)
         return _EINVAL;
@@ -79,6 +205,201 @@ static struct fd *sock_getfd(fd_t sock_fd) {
     return sock;
 }
 
+static uint32_t netlink_next_port_id(void) {
+    static uint32_t next_port_id = 0x10000;
+    static lock_t next_port_id_lock = LOCK_INITIALIZER;
+    lock(&next_port_id_lock, 0);
+    uint32_t port_id = ++next_port_id;
+    unlock(&next_port_id_lock);
+    return port_id;
+}
+
+static void netlink_reply_reset(struct fd *sock) {
+    free(sock->socket.netlink_reply);
+    sock->socket.netlink_reply = NULL;
+    sock->socket.netlink_reply_len = 0;
+    sock->socket.netlink_reply_off = 0;
+}
+
+static int netlink_reply_append(struct fd *sock, const void *data, size_t len) {
+    size_t old_len = sock->socket.netlink_reply_len;
+    char *new_reply = realloc(sock->socket.netlink_reply, old_len + len);
+    if (new_reply == NULL)
+        return _ENOMEM;
+    memcpy(new_reply + old_len, data, len);
+    sock->socket.netlink_reply = new_reply;
+    sock->socket.netlink_reply_len = old_len + len;
+    return 0;
+}
+
+static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
+        uint32_t seq, const void *payload, size_t payload_len) {
+    struct nlmsghdr_ hdr = {
+        .nlmsg_len = NLMSG_HDRLEN + payload_len,
+        .nlmsg_type = type,
+        .nlmsg_flags = flags,
+        .nlmsg_seq = seq,
+        .nlmsg_pid = 0,
+    };
+    int err = netlink_reply_append(sock, &hdr, sizeof(hdr));
+    if (err < 0)
+        return err;
+    if (payload_len != 0) {
+        err = netlink_reply_append(sock, payload, payload_len);
+        if (err < 0)
+            return err;
+    }
+    size_t aligned_len = NLMSG_ALIGN(hdr.nlmsg_len);
+    size_t pad_len = aligned_len - hdr.nlmsg_len;
+    if (pad_len != 0) {
+        static const char zeros[NLMSG_ALIGNTO] = {};
+        err = netlink_reply_append(sock, zeros, pad_len);
+        if (err < 0)
+            return err;
+    }
+    return 0;
+}
+
+static int netlink_append_error(struct fd *sock, uint32_t seq,
+        const struct nlmsghdr_ *req, int err_code) {
+    struct nlmsgerr_ err = {
+        .error = err_code,
+        .msg = req ? *req : (struct nlmsghdr_) {},
+    };
+    return netlink_append_nlmsg(sock, NLMSG_ERROR_, 0, seq, &err, sizeof(err));
+}
+
+static int diag_socket_push(struct diag_socket_entry *entries, struct fd *fd) {
+    for (unsigned i = 0; i < entries->count; i++) {
+        if (entries->fds[i] == fd)
+            return 0;
+    }
+    if (entries->count == entries->cap) {
+        unsigned new_cap = entries->cap ? entries->cap * 2 : 16;
+        struct fd **new_fds = realloc(entries->fds, sizeof(*new_fds) * new_cap);
+        if (new_fds == NULL)
+            return _ENOMEM;
+        entries->fds = new_fds;
+        entries->cap = new_cap;
+    }
+    entries->fds[entries->count++] = fd_retain(fd);
+    return 0;
+}
+
+static void diag_socket_release(struct diag_socket_entry *entries) {
+    for (unsigned i = 0; i < entries->count; i++)
+        fd_close(entries->fds[i]);
+    free(entries->fds);
+}
+
+static int diag_collect_sockets(struct diag_socket_entry *entries, int domain, int type) {
+    int err = 0;
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->files == NULL)
+            continue;
+        lock(&task->files->lock, 0);
+        for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
+            struct fd *fd = fdtable_get(task->files, fd_no);
+            if (fd == NULL || fd->ops != &socket_fdops)
+                continue;
+            if (fd->socket.domain != domain)
+                continue;
+            if (type >= 0 && fd->socket.type != type)
+                continue;
+            if (domain != AF_LOCAL_ && fd->real_fd < 0)
+                continue;
+            err = diag_socket_push(entries, fd);
+            if (err < 0)
+                break;
+        }
+        unlock(&task->files->lock);
+        if (err < 0)
+            break;
+    }
+    unlock(&pids_lock);
+    return err;
+}
+
+static unsigned long diag_socket_inode(const struct fd *fd) {
+    if (fd->inode != NULL)
+        return (unsigned long) fd->inode;
+    if (fd->fake_inode != 0)
+        return (unsigned long) fd->fake_inode;
+    return (unsigned long) (uintptr_t) fd;
+}
+
+static int diag_recv_q(struct fd *fd) {
+    int bytes = 0;
+    if (fd->real_fd >= 0 && ioctl(fd->real_fd, FIONREAD, &bytes) == 0 && bytes > 0)
+        return bytes;
+    return 0;
+}
+
+static int diag_tcp_state(struct fd *fd) {
+#if defined(__APPLE__)
+    struct tcp_connection_info conn_info;
+    socklen_t conn_info_size = sizeof(conn_info);
+    if (getsockopt(fd->real_fd, IPPROTO_TCP, TCP_CONNECTION_INFO, &conn_info, &conn_info_size) == 0) {
+        static const uint8_t tcp_state_table[] = {
+            7, 10, 2, 3, 1, 8, 4, 11, 9, 5, 6,
+        };
+        if (conn_info.tcpi_state < sizeof(tcp_state_table))
+            return tcp_state_table[conn_info.tcpi_state];
+    }
+#endif
+    int acceptconn = 0;
+    socklen_t len = sizeof(acceptconn);
+    if (getsockopt(fd->real_fd, SOL_SOCKET, SO_ACCEPTCONN, &acceptconn, &len) == 0 && acceptconn)
+        return 10;
+
+    struct sockaddr_storage peer;
+    len = sizeof(peer);
+    if (getpeername(fd->real_fd, (struct sockaddr *) &peer, &len) == 0)
+        return 1;
+    return 7;
+}
+
+static int diag_unix_state(struct fd *fd) {
+    int acceptconn = 0;
+    socklen_t len = sizeof(acceptconn);
+    if (fd->real_fd >= 0 &&
+            getsockopt(fd->real_fd, SOL_SOCKET, SO_ACCEPTCONN, &acceptconn, &len) == 0 &&
+            acceptconn)
+        return 10;
+    if (fd->socket.unix_peer != NULL)
+        return 1;
+    return 7;
+}
+
+static int diag_copy_to_iov(struct iovec *iov, size_t iovlen, size_t offset,
+        const void *src, size_t len) {
+    const char *src_bytes = src;
+    for (size_t i = 0; i < iovlen && len != 0; i++) {
+        if (offset >= iov[i].iov_len) {
+            offset -= iov[i].iov_len;
+            continue;
+        }
+        size_t chunk = iov[i].iov_len - offset;
+        if (chunk > len)
+            chunk = len;
+        memcpy((char *) iov[i].iov_base + offset, src_bytes, chunk);
+        src_bytes += chunk;
+        len -= chunk;
+        offset = 0;
+    }
+    return len == 0 ? 0 : _EINVAL;
+}
+
+static size_t diag_iov_capacity(const struct iovec *iov, size_t iovlen) {
+    size_t len = 0;
+    for (size_t i = 0; i < iovlen; i++)
+        len += iov[i].iov_len;
+    return len;
+}
+
 static uint32_t unix_socket_next_id(void) {
     static uint32_t next_id = 0;
     static lock_t next_id_lock = LOCK_INITIALIZER;
@@ -86,6 +407,208 @@ static uint32_t unix_socket_next_id(void) {
     uint32_t id = ++next_id;
     unlock(&next_id_lock);
     return id;
+}
+
+static int netlink_append_inet_diag(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const struct inet_diag_req_v2_ *req) {
+    int type = -1;
+    if (req->sdiag_protocol == IPPROTO_TCP)
+        type = SOCK_STREAM_;
+    else if (req->sdiag_protocol == IPPROTO_UDP)
+        type = SOCK_DGRAM_;
+    else
+        return netlink_append_error(sock, req_hdr->nlmsg_seq, req_hdr, -err_map(_EOPNOTSUPP));
+
+    struct diag_socket_entry entries = {};
+    int err = diag_collect_sockets(&entries, req->sdiag_family, type);
+    if (err < 0)
+        return err;
+
+    for (unsigned i = 0; i < entries.count; i++) {
+        struct fd *fd = entries.fds[i];
+        struct sockaddr_storage local = {};
+        struct sockaddr_storage peer = {};
+        socklen_t local_len = sizeof(local);
+        socklen_t peer_len = sizeof(peer);
+        if (getsockname(fd->real_fd, (struct sockaddr *) &local, &local_len) < 0)
+            continue;
+
+        bool has_peer = getpeername(fd->real_fd, (struct sockaddr *) &peer, &peer_len) == 0;
+        int state = type == SOCK_STREAM_ ? diag_tcp_state(fd) : (has_peer ? 1 : 7);
+        if (req->idiag_states != 0 && !(req->idiag_states & (1u << state)))
+            continue;
+
+        struct inet_diag_msg_ msg = {};
+        msg.idiag_family = req->sdiag_family;
+        msg.idiag_state = state;
+        msg.idiag_uid = current->euid;
+        msg.idiag_inode = diag_socket_inode(fd);
+        msg.idiag_rqueue = diag_recv_q(fd);
+        msg.id.idiag_cookie[0] = 0xffffffffu;
+        msg.id.idiag_cookie[1] = 0xffffffffu;
+
+        if (req->sdiag_family == AF_INET_ && local.ss_family == AF_INET) {
+            struct sockaddr_in *local4 = (struct sockaddr_in *) &local;
+            msg.id.idiag_sport = local4->sin_port;
+            msg.id.idiag_src[0] = local4->sin_addr.s_addr;
+            if (has_peer && peer.ss_family == AF_INET) {
+                struct sockaddr_in *peer4 = (struct sockaddr_in *) &peer;
+                msg.id.idiag_dport = peer4->sin_port;
+                msg.id.idiag_dst[0] = peer4->sin_addr.s_addr;
+            }
+        } else if (req->sdiag_family == AF_INET6_ && local.ss_family == AF_INET6) {
+            struct sockaddr_in6 *local6 = (struct sockaddr_in6 *) &local;
+            memcpy(msg.id.idiag_src, &local6->sin6_addr, sizeof(local6->sin6_addr));
+            msg.id.idiag_sport = local6->sin6_port;
+            if (has_peer && peer.ss_family == AF_INET6) {
+                struct sockaddr_in6 *peer6 = (struct sockaddr_in6 *) &peer;
+                memcpy(msg.id.idiag_dst, &peer6->sin6_addr, sizeof(peer6->sin6_addr));
+                msg.id.idiag_dport = peer6->sin6_port;
+            }
+        } else {
+            continue;
+        }
+
+        err = netlink_append_nlmsg(sock, SOCK_DIAG_BY_FAMILY_, NLM_F_MULTI_,
+                req_hdr->nlmsg_seq, &msg, sizeof(msg));
+        if (err < 0)
+            break;
+    }
+
+    if (err >= 0)
+        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+    diag_socket_release(&entries);
+    return err;
+}
+
+static int netlink_append_unix_diag(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const struct unix_diag_req_ *req) {
+    struct diag_socket_entry entries = {};
+    int err = diag_collect_sockets(&entries, AF_LOCAL_, -1);
+    if (err < 0)
+        return err;
+
+    for (unsigned i = 0; i < entries.count; i++) {
+        struct fd *fd = entries.fds[i];
+        struct unix_diag_msg_ msg = {};
+        msg.udiag_family = AF_LOCAL_;
+        msg.udiag_type = fd->socket.type;
+        msg.udiag_state = diag_unix_state(fd);
+        msg.udiag_ino = diag_socket_inode(fd);
+        msg.udiag_cookie[0] = 0xffffffffu;
+        msg.udiag_cookie[1] = 0xffffffffu;
+        if (req->udiag_states != 0 && !(req->udiag_states & (1u << msg.udiag_state)))
+            continue;
+
+        err = netlink_append_nlmsg(sock, SOCK_DIAG_BY_FAMILY_, NLM_F_MULTI_,
+                req_hdr->nlmsg_seq, &msg, sizeof(msg));
+        if (err < 0)
+            break;
+    }
+
+    if (err >= 0)
+        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+    diag_socket_release(&entries);
+    return err;
+}
+
+static int netlink_handle_diag_request(struct fd *sock, const struct nlmsghdr_ *hdr,
+        const void *payload, size_t payload_len) {
+    if (hdr->nlmsg_type != SOCK_DIAG_BY_FAMILY_)
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+
+    if (payload_len < 1)
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+
+    uint8_t family = *(const uint8_t *) payload;
+    if (family == AF_INET_ || family == AF_INET6_) {
+        if (payload_len < sizeof(struct inet_diag_req_v2_))
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+        return netlink_append_inet_diag(sock, hdr, payload);
+    }
+    if (family == AF_LOCAL_) {
+        if (payload_len < sizeof(struct unix_diag_req_))
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+        return netlink_append_unix_diag(sock, hdr, payload);
+    }
+    return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+}
+
+static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
+    size_t req_len = 0;
+    for (size_t i = 0; i < msg->msg_iovlen; i++)
+        req_len += msg->msg_iov[i].iov_len;
+    char *req = malloc(req_len);
+    if (req == NULL)
+        return _ENOMEM;
+    size_t offset = 0;
+    for (size_t i = 0; i < msg->msg_iovlen; i++) {
+        memcpy(req + offset, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
+        offset += msg->msg_iov[i].iov_len;
+    }
+
+    netlink_reply_reset(sock);
+    int err = 0;
+    offset = 0;
+    while (offset + sizeof(struct nlmsghdr_) <= req_len) {
+        struct nlmsghdr_ *hdr = (struct nlmsghdr_ *) (req + offset);
+        if (hdr->nlmsg_len < sizeof(*hdr) || offset + hdr->nlmsg_len > req_len) {
+            err = netlink_append_error(sock, 0, hdr, -err_map(_EINVAL));
+            break;
+        }
+        const void *payload = req + offset + NLMSG_HDRLEN;
+        size_t payload_len = hdr->nlmsg_len - NLMSG_HDRLEN;
+        err = netlink_handle_diag_request(sock, hdr, payload, payload_len);
+        if (err < 0)
+            break;
+        offset += NLMSG_ALIGN(hdr->nlmsg_len);
+    }
+    free(req);
+    return err < 0 ? err : (int) req_len;
+}
+
+static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg) {
+    size_t capacity = diag_iov_capacity(msg->msg_iov, msg->msg_iovlen);
+    if (capacity == 0)
+        return 0;
+    if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
+        return _EAGAIN;
+
+    size_t copied = 0;
+    while (sock->socket.netlink_reply_off + sizeof(struct nlmsghdr_) <= sock->socket.netlink_reply_len) {
+        struct nlmsghdr_ *hdr = (struct nlmsghdr_ *)
+            (sock->socket.netlink_reply + sock->socket.netlink_reply_off);
+        size_t msg_len = NLMSG_ALIGN(hdr->nlmsg_len);
+        if (copied != 0 && copied + msg_len > capacity)
+            break;
+        if (copied == 0 && msg_len > capacity) {
+            msg->msg_flags |= MSG_TRUNC;
+            msg_len = capacity;
+        }
+        int err = diag_copy_to_iov(msg->msg_iov, msg->msg_iovlen, copied,
+                sock->socket.netlink_reply + sock->socket.netlink_reply_off, msg_len);
+        if (err < 0)
+            return err;
+        copied += msg_len;
+        sock->socket.netlink_reply_off += NLMSG_ALIGN(hdr->nlmsg_len);
+        if (msg_len < NLMSG_ALIGN(hdr->nlmsg_len))
+            break;
+        if (copied == capacity)
+            break;
+    }
+
+    if (msg->msg_name != NULL && msg->msg_namelen >= sizeof(struct sockaddr_nl_)) {
+        struct sockaddr_nl_ *name = msg->msg_name;
+        *name = (struct sockaddr_nl_) {
+            .nl_family = AF_NETLINK_,
+            .nl_pid = 0,
+            .nl_groups = 0,
+        };
+        msg->msg_namelen = sizeof(*name);
+    }
+    if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
+        netlink_reply_reset(sock);
+    return copied;
 }
 
 static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *socket_id) {
@@ -148,6 +671,64 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
 out:
     mount_release(mount);
     return err;
+}
+
+static int unix_socket_finish_peer(struct fd *sock, bool wait) {
+    if (sock->socket.domain != AF_LOCAL_)
+        return 0;
+
+    if (sock->socket.unix_peer_pending) {
+        int recv_flags = 0;
+        if (!wait || (fd_getflags(sock) & O_NONBLOCK_))
+            recv_flags |= MSG_DONTWAIT;
+        else
+            recv_flags |= MSG_WAITALL;
+
+        while (sock->socket.unix_peer_off < sizeof(struct fd *)) {
+            ssize_t res = 0;
+            TASK_MAY_BLOCK {
+                do {
+                    errno = 0;
+                    res = recv(sock->real_fd,
+                               sock->socket.unix_peer_buf + sock->socket.unix_peer_off,
+                               sizeof(struct fd *) - sock->socket.unix_peer_off,
+                               recv_flags);
+                } while (res < 0 && errno == EINTR);
+            }
+            if (res < 0)
+                return errno_map();
+            if (res == 0)
+                return _ECONNRESET;
+            sock->socket.unix_peer_off += res;
+            if (!wait || (fd_getflags(sock) & O_NONBLOCK_))
+                break;
+        }
+        if (sock->socket.unix_peer_off < sizeof(struct fd *))
+            return _EAGAIN;
+
+        struct fd *peer = NULL;
+        memcpy(&peer, sock->socket.unix_peer_buf, sizeof(peer));
+        lock(&peer_lock, 0);
+        if (sock->socket.unix_peer == NULL && peer != NULL) {
+            sock->socket.unix_peer = peer;
+            peer->socket.unix_peer = sock;
+            sock->socket.unix_peer_cred = peer->socket.unix_cred;
+            sock->socket.unix_peer_cred_valid = true;
+            peer->socket.unix_peer_cred = sock->socket.unix_cred;
+            peer->socket.unix_peer_cred_valid = true;
+            notify(&peer->socket.unix_got_peer);
+        }
+        sock->socket.unix_peer_pending = false;
+        sock->socket.unix_peer_off = 0;
+        unlock(&peer_lock);
+        return 0;
+    }
+
+    // Once there is no pending peer token left to consume, ordinary AF_UNIX
+    // I/O must keep following the underlying socket state. Returning ENOTCONN
+    // here breaks clients that read EOF or continue using the socket after the
+    // peer has already closed.
+    return 0;
 }
 
 // Dan Bernstein's simple and decently effective hash function
@@ -253,6 +834,10 @@ static int sockaddr_read_bind(addr_t sockaddr_addr, void *sockaddr, uint_t *sock
 #endif
             ((struct sockaddr_in6 *) sockaddr)->sin6_family = PF_INET6;
             break;
+        case PF_NETLINK_:
+            if (*sockaddr_len < sizeof(struct sockaddr_nl_))
+                return _EINVAL;
+            break;
 
         case PF_LOCAL: {
             // First pull out the path, being careful to not overflow anything.
@@ -324,6 +909,8 @@ static int sockaddr_write(addr_t sockaddr_addr, void *sockaddr, uint_t buffer_le
         case PF_INET_:
         case PF_INET6_:
             break;
+        case PF_NETLINK_:
+            break;
         default:
             return _EINVAL;
     }
@@ -347,6 +934,16 @@ int_t sys_bind(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     int err = sockaddr_read_bind(sockaddr_addr, &sockaddr, &sockaddr_len, sock);
     if (err < 0)
         return err;
+
+    if (sock->socket.domain == AF_NETLINK_) {
+        struct sockaddr_nl_ *addr = (struct sockaddr_nl_ *) &sockaddr;
+        if (addr->nl_family != AF_NETLINK_)
+            return _EINVAL;
+        sock->socket.netlink_groups = addr->nl_groups;
+        if (addr->nl_pid != 0)
+            sock->socket.netlink_port_id = addr->nl_pid;
+        return 0;
+    }
 
     err = bind(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0) {
@@ -375,6 +972,16 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     if (err < 0)
         return err;
 
+    if (sock->socket.domain == AF_NETLINK_) {
+        struct sockaddr_nl_ *addr = (struct sockaddr_nl_ *) &sockaddr;
+        if (addr->nl_family != AF_NETLINK_)
+            return _EINVAL;
+        if (addr->nl_pid != 0)
+            return _ECONNREFUSED;
+        sock->socket.netlink_groups = addr->nl_groups;
+        return 0;
+    }
+
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0)
         return errno_map();
@@ -382,17 +989,11 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
         assert(sock->socket.unix_peer == NULL);
-        // Send a pointer to ourselves to the other end so they can set up the peer pointers.
-        ssize_t res = write(sock->real_fd, &sock, sizeof(struct fd *));
-        if (res == sizeof(struct fd *)) {
-            // Wait for acknowledgement that it happened.
-            lock(&peer_lock, 0);
-            TASK_MAY_BLOCK {
-                while (sock->socket.unix_peer == NULL)
-                    wait_for_ignore_signals(&sock->socket.unix_got_peer, &peer_lock, NULL);
-            }
-            unlock(&peer_lock);
-        }
+        // Send a pointer to ourselves so the accept side can link unix_peer
+        // later, but do not wait for that acknowledgement here. Linux connect()
+        // completes once the transport connection exists; waiting for accept()
+        // to run can wedge clients on daemons that accept asynchronously.
+        (void) write(sock->real_fd, &sock, sizeof(struct fd *));
     }
 
     return err;
@@ -457,17 +1058,13 @@ int_t sys_accept4(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr, 
         close(client);
 
     if (sock->socket.domain == AF_LOCAL_) {
-        lock(&peer_lock, 0);
         struct fd *client_fd = f_get(client_f);
         fill_cred(&client_fd->socket.unix_cred);
-        struct fd *peer;
-        ssize_t res = read(client, &peer, sizeof(peer));
-        if (res == sizeof(peer)) {
-            client_fd->socket.unix_peer = peer;
-            peer->socket.unix_peer = client_fd;
-            notify(&peer->socket.unix_got_peer);
-        }
-        unlock(&peer_lock);
+        client_fd->socket.unix_peer_pending = true;
+        client_fd->socket.unix_peer_off = 0;
+        int peer_err = unix_socket_finish_peer(client_fd, !(fd_getflags(client_fd) & O_NONBLOCK_));
+        if (peer_err < 0 && peer_err != _EAGAIN)
+            STRACE("accept4(%d) deferred unix peer link err=%d", sock_fd, peer_err);
     }
 
     return client_f;
@@ -495,6 +1092,23 @@ int_t sys_getsockname(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_ad
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
     char sockaddr[sockaddr_len];
+
+    if (sock->socket.domain == AF_NETLINK_) {
+        if (sockaddr_len < sizeof(struct sockaddr_nl_))
+            return _EINVAL;
+        struct sockaddr_nl_ *addr = (struct sockaddr_nl_ *) sockaddr;
+        *addr = (struct sockaddr_nl_) {
+            .nl_family = AF_NETLINK_,
+            .nl_pid = sock->socket.netlink_port_id,
+            .nl_groups = sock->socket.netlink_groups,
+        };
+        sockaddr_len = sizeof(*addr);
+        if (user_write(sockaddr_addr, sockaddr, sockaddr_len))
+            return _EFAULT;
+        if (user_put(sockaddr_len_addr, sockaddr_len))
+            return _EFAULT;
+        return 0;
+    }
 
     // if this is a unix socket, return the same string passed to bind
     if (sock->socket.domain == PF_LOCAL_) {
@@ -526,6 +1140,22 @@ int_t sys_getpeername(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_ad
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
+
+    if (sock->socket.domain == AF_NETLINK_) {
+        if (sockaddr_len < sizeof(struct sockaddr_nl_))
+            return _EINVAL;
+        struct sockaddr_nl_ sockaddr = {
+            .nl_family = AF_NETLINK_,
+            .nl_pid = 0,
+            .nl_groups = 0,
+        };
+        dword_t out_len = sizeof(sockaddr);
+        if (user_write(sockaddr_addr, &sockaddr, sizeof(sockaddr)))
+            return _EFAULT;
+        if (user_put(sockaddr_len_addr, out_len))
+            return _EFAULT;
+        return 0;
+    }
 
     // TODO if this is a unix socket, return the same string the peer passed to
     // bind once the peer pointer is available
@@ -771,12 +1401,20 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         struct ucred_ *cred = (struct ucred_ *) value;
         if (value_len != sizeof(*cred))
             return _EINVAL;
+        int err = unix_socket_finish_peer(sock, true);
+        if (err < 0 && err != _ENOTCONN)
+            return err;
         lock(&peer_lock, 0);
-        if (sock->socket.domain != AF_LOCAL_ || sock->socket.unix_peer == NULL) {
+        if (sock->socket.domain != AF_LOCAL_) {
             cred->pid = 0;
             cred->uid = cred->gid = -1;
-        } else {
+        } else if (sock->socket.unix_peer_cred_valid) {
+            *cred = sock->socket.unix_peer_cred;
+        } else if (sock->socket.unix_peer != NULL) {
             *cred = sock->socket.unix_peer->socket.unix_cred;
+        } else {
+            cred->pid = 0;
+            cred->uid = cred->gid = -1;
         }
         unlock(&peer_lock);
     } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
@@ -904,6 +1542,11 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             goto out_free_iov;
     }
 
+    if (sock->socket.domain == AF_NETLINK_) {
+        err = netlink_handle_sendmsg(sock, &msg);
+        goto out_free_iov;
+    }
+
     // msg_control
     uint8_t msg_control_buf[2048];
     uint8_t *msg_control = NULL;
@@ -920,9 +1563,18 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     msg.msg_control = NULL;
     msg.msg_controllen = 0;
 
+    int real_flags = sock_flags_to_real(flags);
+    if (real_flags < 0) {
+        err = _EINVAL;
+        goto out_free_iov;
+    }
+
     struct scm *scm = NULL;
     char real_msg_control[CMSG_SPACE(sizeof(int))]; // only used if actually sending an fd
     if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL && msg_fake.msg_controllen >= sizeof(struct cmsghdr_)) {
+        err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
+        if (err < 0)
+            goto out_free_iov;
         // figure out how many file descriptors we're sending
         uint8_t *mhdr_end = msg_control + msg_fake.msg_controllen;
         unsigned num_fds = 0;
@@ -983,9 +1635,6 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     msg.msg_flags = sock_flags_to_real(msg_fake.msg_flags);
     err = _EINVAL;
     if (msg.msg_flags < 0)
-        goto out_free_scm;
-    int real_flags = sock_flags_to_real(flags);
-    if (real_flags < 0)
         goto out_free_scm;
 
     TASK_MAY_BLOCK {
@@ -1062,6 +1711,31 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
         msg_iov[i].iov_len = msg_iov_fake[i].len;
         msg_iov[i].iov_base = malloc(msg_iov_fake[i].len);
+    }
+
+    if (sock->socket.domain == AF_NETLINK_) {
+        ssize_t res = netlink_handle_recvmsg(sock, &msg);
+        for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
+            free(msg_iov[i].iov_base);
+        if (res < 0)
+            return res;
+        if (msg.msg_name != 0) {
+            int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, sizeof(msg_name), &msg.msg_namelen);
+            if (err < 0)
+                return err;
+        }
+        msg_fake.msg_namelen = msg.msg_namelen;
+        msg_fake.msg_controllen = 0;
+        msg_fake.msg_flags = sock_flags_from_real(msg.msg_flags);
+        if (user_put(msghdr_addr, msg_fake))
+            return _EFAULT;
+        return res;
+    }
+
+    if (sock->socket.domain == AF_LOCAL_) {
+        int peer_err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
+        if (peer_err < 0)
+            return peer_err;
     }
 
     ssize_t res = 0;
@@ -1215,20 +1889,66 @@ static void sock_translate_err(struct fd *fd, int *err) {
     }
 }
 
+static int sock_poll(struct fd *fd) {
+    if (fd->real_fd < 0) {
+        int types = POLL_WRITE;
+        if (fd->socket.netlink_reply_off < fd->socket.netlink_reply_len)
+            types |= POLL_READ;
+        return types;
+    }
+    return realfs_poll(fd);
+}
+
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
+    if (fd->real_fd < 0)
+        return _EOPNOTSUPP;
+    if (fd->socket.domain == AF_LOCAL_) {
+        int err = unix_socket_finish_peer(fd, !(fd->flags & O_NONBLOCK_));
+        if (err < 0)
+            return err;
+    }
     int err = realfs_read(fd, buf, size);
     sock_translate_err(fd, &err);
     return err;
 }
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
+    if (fd->real_fd < 0)
+        return _EOPNOTSUPP;
     int err = realfs_write(fd, buf, size);
     sock_translate_err(fd, &err);
     return err;
 }
 
+static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
+    if (fd->real_fd < 0) {
+        if (cmd == FIONREAD_)
+            *(dword_t *) arg = (dword_t) (fd->socket.netlink_reply_len - fd->socket.netlink_reply_off);
+        else
+            return _EINVAL;
+        return 0;
+    }
+    return realfs_ioctl(fd, cmd, arg);
+}
+
+static int sock_getflags(struct fd *fd) {
+    if (fd->real_fd < 0)
+        return fd->flags;
+    return realfs_getflags(fd);
+}
+
+static int sock_setflags(struct fd *fd, dword_t flags) {
+    if (fd->real_fd < 0) {
+        fd->flags = (fd->flags & ~(O_APPEND_ | O_NONBLOCK_)) | (flags & (O_APPEND_ | O_NONBLOCK_));
+        return 0;
+    }
+    return realfs_setflags(fd, flags);
+}
+
 static int sock_close(struct fd *fd) {
     sockrestart_end_listen(fd);
+    if (fd->socket.domain == AF_NETLINK_)
+        netlink_reply_reset(fd);
     // FIXME next 3 lines should go in a function like release_unix_names
     inode_release_if_exist(fd->socket.unix_name_inode);
     if (fd->socket.unix_name_abstract != NULL)
@@ -1247,6 +1967,8 @@ static int sock_close(struct fd *fd) {
         }
         unlock(&fd->lock);
     }
+    if (fd->real_fd < 0)
+        return 0;
     return realfs_close(fd);
 }
 
@@ -1254,11 +1976,11 @@ const struct fd_ops socket_fdops = {
     .read = sock_read,
     .write = sock_write,
     .close = sock_close,
-    .poll = realfs_poll,
-    .getflags = realfs_getflags,
-    .setflags = realfs_setflags,
+    .poll = sock_poll,
+    .getflags = sock_getflags,
+    .setflags = sock_setflags,
     .ioctl_size = realfs_ioctl_size,
-    .ioctl = realfs_ioctl,
+    .ioctl = sock_ioctl,
 };
 
 #if defined(__GNUC__) && __GNUC__ >= 8

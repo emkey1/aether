@@ -323,6 +323,67 @@ static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *
     return 0;
 }
 
+static int proc_mountinfo_id(struct mount *target) {
+    int id = 1;
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (mount == target)
+            return id;
+        id++;
+    }
+    return 1;
+}
+
+static int proc_mountinfo_parent_id(struct mount *target) {
+    const char *point = target->point;
+    if (point[0] == '\0')
+        return 1;
+
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (mount == target)
+            continue;
+        size_t n = mount->point_len;
+        if (n >= target->point_len)
+            continue;
+        if (strncmp(point, mount->point, n) != 0)
+            continue;
+        if (point[n] != '/' && point[n] != '\0')
+            continue;
+        return proc_mountinfo_id(mount);
+    }
+    return 1;
+}
+
+int proc_show_mountinfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        const char *point = mount->point;
+        if (point[0] == '\0')
+            point = "/";
+
+        int id = proc_mountinfo_id(mount);
+        int parent_id = proc_mountinfo_parent_id(mount);
+
+        proc_printf(buf, "%d %d 0:0 / ", id, parent_id);
+        proc_print_escaped(buf, point);
+        proc_printf(buf, " %s", mount->flags & MS_READONLY_ ? "ro" : "rw");
+        if (mount->flags & MS_NOSUID_)
+            proc_printf(buf, ",nosuid");
+        if (mount->flags & MS_NODEV_)
+            proc_printf(buf, ",nodev");
+        if (mount->flags & MS_NOEXEC_)
+            proc_printf(buf, ",noexec");
+        proc_printf(buf, " - %s ", mount->fs->name);
+        proc_print_escaped(buf, mount->source[0] == '\0' ? "/" : mount->source);
+        proc_printf(buf, " %s", mount->flags & MS_READONLY_ ? "ro" : "rw");
+        if (mount->info && mount->info[0] != '\0')
+            proc_printf(buf, ",%s", mount->info);
+        proc_printf(buf, "\n");
+    }
+    return 0;
+}
+
 // in alphabetical order
 struct proc_dir_entry proc_root_entries[] = {
     {"cmdline", .show = proc_show_cmdline},
@@ -333,6 +394,7 @@ struct proc_dir_entry proc_root_entries[] = {
     {"ish", S_IFDIR, .children = &proc_ish_children},
     {"loadavg", .show = proc_show_loadavg},
     {"meminfo", .show = proc_show_meminfo},
+    {"mountinfo", .show = proc_show_mountinfo},
     {"mounts", .show = proc_show_mounts},
     {"net", S_IFDIR, .children = &proc_net_children},
     {"self", S_IFLNK, .readlink = proc_readlink_self},

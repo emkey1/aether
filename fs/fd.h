@@ -53,6 +53,9 @@ struct fd {
             char unix_name[108];
             struct fd *unix_peer; // locked by peer_lock, for simplicity
             cond_t unix_got_peer;
+            bool unix_peer_pending;
+            size_t unix_peer_off;
+            char unix_peer_buf[sizeof(struct fd *)];
             // Queue of struct scm for sending file descriptors
             // locked by fd->lock
             struct list unix_scm;
@@ -61,6 +64,14 @@ struct fd {
                 uid_t_ uid;
                 uid_t_ gid;
             } unix_cred;
+            struct ucred_ unix_peer_cred;
+            bool unix_peer_cred_valid;
+
+            uint32_t netlink_port_id;
+            uint32_t netlink_groups;
+            char *netlink_reply;
+            size_t netlink_reply_len;
+            size_t netlink_reply_off;
         } socket;
 
         // See app/Pasteboard.m

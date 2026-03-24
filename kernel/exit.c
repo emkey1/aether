@@ -17,6 +17,15 @@ extern const char extra_lock_comm;
 
 static void halt_system(void);
 
+static bool trace_session_exit_task(struct task *task) {
+    return strcmp(task->comm, "login") == 0 ||
+        strcmp(task->comm, "sh") == 0 ||
+        strcmp(task->comm, "bash") == 0 ||
+        strcmp(task->comm, "dash") == 0 ||
+        strcmp(task->comm, "getty") == 0 ||
+        strcmp(task->comm, "agetty") == 0;
+}
+
 // Removes a task from its thread group. The caller is responsible for ensuring
 // the task is quiescent before taking pids_lock and calling this helper.
 static bool exit_tgroup(struct task *task) {
@@ -64,6 +73,12 @@ noreturn void do_exit(struct task *task, int status) {
         goto EXIT;
     } else {
         task->exiting = true;
+    }
+
+    if (trace_session_exit_task(task)) {
+        printk("INFO: exit session pid=%d tgid=%d comm=%s status=%#x did_exec=%d parent=%d\n",
+               task->pid, task->tgid, task->comm, status, task->did_exec,
+               task->parent != NULL ? task->parent->pid : -1);
     }
     
     lock(&task->general_lock, 0);

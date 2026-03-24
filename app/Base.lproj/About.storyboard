@@ -771,9 +771,6 @@
                                         <view tag="1" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="8Hp-uz-xk8" customClass="TerminalView">
                                             <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
                                             <color key="backgroundColor" systemColor="systemBackgroundColor"/>
-                                            <constraints>
-                                                <constraint firstAttribute="width" constant="10000" id="cS3-3L-ORC"/>
-                                            </constraints>
                                         </view>
                                     </subviews>
                                     <constraints>

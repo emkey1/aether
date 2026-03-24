@@ -9,6 +9,8 @@
 #include "misc.h"
 #include "debug.h"
 
+extern const struct fd_ops socket_fdops;
+
 int_t sys_socketcall(dword_t call_num, addr_t args_addr);
 
 int_t sys_socket(dword_t domain, dword_t type, dword_t protocol);
@@ -78,14 +80,17 @@ struct scm {
 
 #define PF_LOCAL_ 1
 #define PF_INET_ 2
+#define PF_NETLINK_ 16
 #define PF_INET6_ 10
 #define AF_LOCAL_ PF_LOCAL_
 #define AF_INET_ PF_INET_
+#define AF_NETLINK_ PF_NETLINK_
 #define AF_INET6_ PF_INET6_
 static inline int sock_family_to_real(int fake) {
     switch (fake) {
         case PF_LOCAL_: return PF_LOCAL;
         case PF_INET_: return PF_INET;
+        case PF_NETLINK_: return PF_NETLINK_;
         case PF_INET6_: return PF_INET6;
     }
     return -1;
@@ -173,6 +178,8 @@ static inline int sock_flags_from_real(int real) {
 }
 
 #define SOL_SOCKET_ 1
+
+#define NETLINK_SOCK_DIAG_ 4
 
 #define SO_REUSEADDR_ 2
 #define SO_TYPE_ 3
