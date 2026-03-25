@@ -1065,9 +1065,11 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     }
 
     if (sock_trace_enabled()) {
-        printk("INFO: net connect enter pid=%d comm=%s guest_domain=%d guest_type=%d real=%d family=%d addrlen=%u\n",
+        int host_flags = sock->real_fd >= 0 ? fcntl(sock->real_fd, F_GETFL, 0) : -1;
+        printk("INFO: net connect enter pid=%d comm=%s guest_domain=%d guest_type=%d real=%d family=%d addrlen=%u guest_flags=%#x host_flags=%#x\n",
                current->pid, current->comm, sock->socket.domain, sock->socket.type,
-               sock->real_fd, ((struct sockaddr_ *) &sockaddr)->family, sockaddr_len);
+               sock->real_fd, ((struct sockaddr_ *) &sockaddr)->family, sockaddr_len,
+               fd_getflags(sock), host_flags);
     }
 
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
