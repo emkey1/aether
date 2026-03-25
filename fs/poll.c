@@ -36,7 +36,7 @@ static void *rpe_data(struct real_poll_event *rpe);
 static int rpe_events(struct real_poll_event *rpe);
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout);
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
-static inline bool poll_fd_is_real(struct poll_fd *pollfd);
+static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd);
 static void poll_fd_free(struct poll_fd *poll_fd);
 
 static bool poll_deadline_remaining(const struct timespec *deadline, struct timespec *remaining) {
@@ -165,7 +165,7 @@ static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, 
         if (poll_fd->types & POLL_ONESHOT) {
             list_remove(&poll_fd->polls);
             list_remove(&poll_fd->fds);
-            if (poll_fd_is_real(poll_fd))
+            if (poll_fd_has_host_wait(poll_fd))
                 real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
             // Keep poll_fd storage alive on the freelist so stale host
             // readiness events cannot turn into a use-after-free.
@@ -197,8 +197,8 @@ struct poll *poll_create(void) {
     return poll;
 }
 
-static inline bool poll_fd_is_real(struct poll_fd *pollfd) {
-    return pollfd->fd->ops->poll == realfs_poll;
+static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd) {
+    return pollfd->fd != NULL && pollfd->fd->real_fd >= 0;
 }
 
 // does not do its own locking
@@ -270,7 +270,7 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     poll_fd->info = info;
     poll_fd->triggered_types = 0;
 
-    if (poll_fd_is_real(poll_fd)) {
+    if (poll_fd_has_host_wait(poll_fd)) {
         err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
         if (err < 0) {
             free(poll_fd);
@@ -299,7 +299,7 @@ int poll_del_fd(struct poll *poll, struct fd *fd) {
         goto out;
     }
 
-    if (poll_fd_is_real(poll_fd)) {
+    if (poll_fd_has_host_wait(poll_fd)) {
         err = real_poll_update(&poll->real, fd->real_fd, 0, poll_fd);
         if (err < 0) {
             err = errno_map();
@@ -328,7 +328,7 @@ int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
         goto out;
     }
 
-    if (poll_fd_is_real(poll_fd)) {
+    if (poll_fd_has_host_wait(poll_fd)) {
         err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
         if (err < 0) {
             err = errno_map();
@@ -352,7 +352,7 @@ void poll_cleanup_fd(struct fd *fd) {
     struct poll_fd *poll_fd, *tmp;
     list_for_each_entry_safe(&fd->poll_fds, poll_fd, tmp, polls) {
         lock(&poll_fd->poll->lock, 0);
-        if (poll_fd_is_real(poll_fd))
+        if (poll_fd_has_host_wait(poll_fd))
             real_poll_update(&poll_fd->poll->real, fd->real_fd, 0, poll_fd);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
