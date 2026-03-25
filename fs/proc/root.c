@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
@@ -406,32 +407,82 @@ struct proc_dir_entry proc_root_entries[] = {
 };
 #define PROC_ROOT_LEN sizeof(proc_root_entries)/sizeof(proc_root_entries[0])
 
-static bool proc_root_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+static int proc_root_pid_compare(const void *lhs, const void *rhs) {
+    pid_t_ a = *(const pid_t_ *) lhs;
+    pid_t_ b = *(const pid_t_ *) rhs;
+    return (a > b) - (a < b);
+}
+
+static void proc_root_refresh_pid_snapshot(struct proc_entry *entry) {
+    if (entry->child_names != NULL) {
+        free_string_array(entry->child_names);
+        entry->child_names = NULL;
+    }
+
+    unsigned count = 0;
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task != NULL && !task->zombie)
+            count++;
+    }
+    unlock(&pids_lock);
+
+    char **names = calloc(count + 1, sizeof(*names));
+    if (names == NULL)
+        return;
+    pid_t_ *pids = count ? malloc(sizeof(*pids) * count) : NULL;
+    if (count != 0 && pids == NULL) {
+        free(names);
+        return;
+    }
+
+    unsigned used = 0;
+    complex_lockt(&pids_lock, 0);
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->zombie)
+            continue;
+        if (used >= count)
+            break;
+        pids[used++] = pid_entry->id;
+    }
+    unlock(&pids_lock);
+
+    qsort(pids, used, sizeof(*pids), proc_root_pid_compare);
+    for (unsigned i = 0; i < used; i++) {
+        names[i] = malloc(16);
+        if (names[i] == NULL) {
+            free(pids);
+            free_string_array(names);
+            return;
+        }
+        snprintf(names[i], 16, "%d", pids[i]);
+    }
+    free(pids);
+    entry->child_names = names;
+}
+
+static bool proc_root_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_ROOT_LEN) {
         *next_entry = (struct proc_entry) {&proc_root_entries[*index], *index, NULL, NULL, 0, 0};
         (*index)++;
         return true;
     }
 
-    pid_t_ pid = *index - PROC_ROOT_LEN;
-    if (pid <= MAX_PID) {
-        task_ref_cnt_mod(current, 1);
-        //lock(&pids_lock, 0);
-        do {
-            pid++;
-        } while (pid <= MAX_PID && pid_get_task(pid) == NULL);
-        //unlock(&pids_lock);
-        if (pid > MAX_PID) {
-            task_ref_cnt_mod(current, -1);
-            return false;
-        }
-        *next_entry = (struct proc_entry) {&proc_pid, .pid = pid};
-        *index = pid + PROC_ROOT_LEN;
-        task_ref_cnt_mod(current, -1);
-        return true;
-    }
+    unsigned long pid_index = *index - PROC_ROOT_LEN;
+    if (pid_index == 0 || entry->child_names == NULL)
+        proc_root_refresh_pid_snapshot(entry);
+    if (entry->child_names == NULL || entry->child_names[pid_index] == NULL)
+        return false;
 
-    return false;
+    *next_entry = (struct proc_entry) {
+        &proc_pid,
+        .pid = (pid_t_) strtoul(entry->child_names[pid_index], NULL, 10),
+    };
+    (*index)++;
+    return true;
 }
 
 struct proc_dir_entry proc_root = {NULL, S_IFDIR, .readdir = proc_root_readdir};

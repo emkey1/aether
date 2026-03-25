@@ -80,6 +80,51 @@ struct proc_net_socket_entry {
     unsigned cap;
 };
 
+struct proc_net_task_snapshot {
+    struct task **tasks;
+    unsigned count;
+};
+
+static void proc_net_task_snapshot_release(struct proc_net_task_snapshot *snapshot) {
+    for (unsigned i = 0; i < snapshot->count; i++)
+        task_ref_cnt_mod(snapshot->tasks[i], -1);
+    free(snapshot->tasks);
+    snapshot->tasks = NULL;
+    snapshot->count = 0;
+}
+
+static int proc_net_task_snapshot_collect(struct proc_net_task_snapshot *snapshot) {
+    unsigned cap = 0;
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task != NULL && !task->zombie)
+            cap++;
+    }
+    unlock(&pids_lock);
+
+    if (cap == 0)
+        return 0;
+
+    snapshot->tasks = calloc(cap, sizeof(*snapshot->tasks));
+    if (snapshot->tasks == NULL)
+        return _ENOMEM;
+
+    complex_lockt(&pids_lock, 0);
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->zombie)
+            continue;
+        if (snapshot->count >= cap)
+            break;
+        task_ref_cnt_mod(task, 1);
+        snapshot->tasks[snapshot->count++] = task;
+    }
+    unlock(&pids_lock);
+    return 0;
+}
+
 static int proc_net_socket_push(struct proc_net_socket_entry *entries, struct fd *fd) {
     for (unsigned i = 0; i < entries->count; i++) {
         if (entries->fds[i] == fd)
@@ -104,11 +149,13 @@ static void proc_net_socket_release(struct proc_net_socket_entry *entries) {
 }
 
 static int proc_net_collect_sockets(struct proc_net_socket_entry *entries, int domain, int type) {
-    int err = 0;
-    complex_lockt(&pids_lock, 0);
-    struct pid *pid_entry;
-    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
-        struct task *task = pid_entry->task;
+    struct proc_net_task_snapshot snapshot = {};
+    int err = proc_net_task_snapshot_collect(&snapshot);
+    if (err < 0)
+        return err;
+
+    for (unsigned i = 0; i < snapshot.count; i++) {
+        struct task *task = snapshot.tasks[i];
         if (task == NULL || task->files == NULL)
             continue;
         lock(&task->files->lock, 0);
@@ -128,16 +175,18 @@ static int proc_net_collect_sockets(struct proc_net_socket_entry *entries, int d
         if (err < 0)
             break;
     }
-    unlock(&pids_lock);
+    proc_net_task_snapshot_release(&snapshot);
     return err;
 }
 
 static int proc_net_collect_sockets_any_type(struct proc_net_socket_entry *entries, int domain) {
-    int err = 0;
-    complex_lockt(&pids_lock, 0);
-    struct pid *pid_entry;
-    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
-        struct task *task = pid_entry->task;
+    struct proc_net_task_snapshot snapshot = {};
+    int err = proc_net_task_snapshot_collect(&snapshot);
+    if (err < 0)
+        return err;
+
+    for (unsigned i = 0; i < snapshot.count; i++) {
+        struct task *task = snapshot.tasks[i];
         if (task == NULL || task->files == NULL)
             continue;
         lock(&task->files->lock, 0);
@@ -155,7 +204,7 @@ static int proc_net_collect_sockets_any_type(struct proc_net_socket_entry *entri
         if (err < 0)
             break;
     }
-    unlock(&pids_lock);
+    proc_net_task_snapshot_release(&snapshot);
     return err;
 }
 
