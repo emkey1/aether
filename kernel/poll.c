@@ -1,6 +1,9 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#if defined(__APPLE__)
+#include <netinet/tcp.h>
+#endif
 #include "debug.h"
 #include "kernel/fs.h"
 #include "kernel/time.h"
@@ -101,14 +104,36 @@ static void select_trace_net_fd(struct fd *fd, int requested, int ready, const c
     generic_getpath(fd, path);
     int recv_q = -1;
     int so_error = -1;
+#if defined(__APPLE__)
+    struct tcp_connection_info tcp_info = {};
+    socklen_t tcp_info_len = sizeof(tcp_info);
+    bool have_tcp_info = false;
+#endif
     if (fd->real_fd >= 0) {
         (void) ioctl(fd->real_fd, FIONREAD, &recv_q);
         socklen_t so_error_len = sizeof(so_error);
         if (getsockopt(fd->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
             so_error = -1;
+#if defined(__APPLE__)
+        have_tcp_info = getsockopt(fd->real_fd, IPPROTO_TCP, TCP_CONNECTION_INFO,
+                                   &tcp_info, &tcp_info_len) == 0;
+#endif
     }
     printk("INFO: net select %s pid=%d comm=%s real=%d requested=%#x ready=%#x recv_q=%d so_error=%d path=%s\n",
            phase, current->pid, current->comm, fd->real_fd, requested, ready, recv_q, so_error, path);
+#if defined(__APPLE__)
+    if (have_tcp_info) {
+        printk("INFO: net select-tcp %s pid=%d comm=%s real=%d state=%u options=%#x flags=%#x snd_sbbytes=%u snd_cwnd=%u snd_wnd=%u rcv_wnd=%u rtt=%u srtt=%u txbytes=%llu rxbytes=%llu retrans=%llu\n",
+               phase, current->pid, current->comm, fd->real_fd,
+               tcp_info.tcpi_state, tcp_info.tcpi_options, tcp_info.tcpi_flags,
+               tcp_info.tcpi_snd_sbbytes, tcp_info.tcpi_snd_cwnd,
+               tcp_info.tcpi_snd_wnd, tcp_info.tcpi_rcv_wnd,
+               tcp_info.tcpi_rttcur, tcp_info.tcpi_srtt,
+               (unsigned long long) tcp_info.tcpi_txbytes,
+               (unsigned long long) tcp_info.tcpi_rxbytes,
+               (unsigned long long) tcp_info.tcpi_txretransmitbytes);
+    }
+#endif
 }
 
 static bool select_timeout_valid(struct timespec timeout_ts) {
