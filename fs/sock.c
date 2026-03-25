@@ -1,6 +1,8 @@
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -203,6 +205,79 @@ static void sock_trace(const char *op, struct fd *sock, ssize_t result, int err_
     printk("INFO: net %s pid=%d comm=%s guest_domain=%d guest_type=%d protocol=%d real=%d result=%zd err=%d\n",
            op, current->pid, current->comm, sock->socket.domain, sock->socket.type,
            sock->socket.protocol, sock->real_fd, result, err_code);
+}
+
+static void sock_trace_sockaddr(const char *label, int real_fd) {
+    if (!sock_trace_enabled() || real_fd < 0)
+        return;
+
+    struct sockaddr_storage addr = {};
+    socklen_t len = sizeof(addr);
+    int rc = strcmp(label, "peer") == 0
+        ? getpeername(real_fd, (struct sockaddr *) &addr, &len)
+        : getsockname(real_fd, (struct sockaddr *) &addr, &len);
+    if (rc < 0) {
+        printk("INFO: net %s real=%d unavailable errno=%d\n", label, real_fd, errno);
+        return;
+    }
+
+    char host[INET6_ADDRSTRLEN];
+    host[0] = '\0';
+    unsigned port = 0;
+    switch (addr.ss_family) {
+        case AF_INET: {
+            struct sockaddr_in *addr4 = (struct sockaddr_in *) &addr;
+            if (inet_ntop(AF_INET, &addr4->sin_addr, host, sizeof(host)) == NULL)
+                snprintf(host, sizeof(host), "<inet4-err>");
+            port = ntohs(addr4->sin_port);
+            break;
+        }
+        case AF_INET6: {
+            struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) &addr;
+            if (inet_ntop(AF_INET6, &addr6->sin6_addr, host, sizeof(host)) == NULL)
+                snprintf(host, sizeof(host), "<inet6-err>");
+            port = ntohs(addr6->sin6_port);
+            break;
+        }
+        default:
+            snprintf(host, sizeof(host), "<family-%d>", addr.ss_family);
+            break;
+    }
+
+    printk("INFO: net %s real=%d family=%d host=%s port=%u len=%u\n",
+           label, real_fd, addr.ss_family, host, port, (unsigned) len);
+}
+
+static void sock_trace_write_preview(struct fd *sock, const void *buf, size_t size) {
+    if (!sock_trace_enabled() || sock == NULL || sock->real_fd < 0)
+        return;
+    if (sock->socket.type != SOCK_STREAM_)
+        return;
+
+    size_t limit = size;
+    if (limit > 160)
+        limit = 160;
+
+    char preview[limit * 2 + 1];
+    size_t out = 0;
+    const unsigned char *bytes = buf;
+    for (size_t i = 0; i < limit && out + 2 < sizeof(preview); i++) {
+        unsigned char c = bytes[i];
+        if (c == '\r') {
+            preview[out++] = '\\';
+            preview[out++] = 'r';
+        } else if (c == '\n') {
+            preview[out++] = '\\';
+            preview[out++] = 'n';
+        } else if (c >= 32 && c <= 126) {
+            preview[out++] = (char) c;
+        } else {
+            preview[out++] = '.';
+        }
+    }
+    preview[out] = '\0';
+    printk("INFO: net write-preview real=%d size=%zu text=\"%s\"\n",
+           sock->real_fd, size, preview);
 }
 
 static int unix_socket_finish_peer(struct fd *sock, bool wait);
@@ -1103,6 +1178,8 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     }
 
     sock_trace("connect", sock, err, 0);
+    sock_trace_sockaddr("local", sock->real_fd);
+    sock_trace_sockaddr("peer", sock->real_fd);
     return err;
 }
 
@@ -2250,6 +2327,7 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
+    sock_trace_write_preview(fd, buf, size);
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         do {
