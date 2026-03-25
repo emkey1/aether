@@ -1148,6 +1148,20 @@ static void copy_unix_name(char *sockaddr, dword_t *sockaddr_len, struct fd *soc
     *sockaddr_len = offsetof(struct sockaddr_, data) + name_len;
 }
 
+static int copy_unix_peer_name(char *sockaddr, dword_t *sockaddr_len, struct fd *sock) {
+    int err = unix_socket_finish_peer(sock, true);
+    if (err < 0 && err != _ENOTCONN)
+        return err;
+
+    lock(&peer_lock, 0);
+    struct fd *peer = sock->socket.unix_peer;
+    if (peer != NULL)
+        copy_unix_name(sockaddr, sockaddr_len, peer);
+    unlock(&peer_lock);
+
+    return peer == NULL ? _ENOTCONN : 0;
+}
+
 int_t sys_getsockname(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_addr) {
     STRACE("getsockname(%d, 0x%x, 0x%x)", sock_fd, sockaddr_addr, sockaddr_len_addr);
     struct fd *sock = sock_getfd(sock_fd);
@@ -1205,6 +1219,7 @@ int_t sys_getpeername(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_ad
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
+    char sockaddr[sockaddr_len];
 
     if (sock->socket.domain == AF_NETLINK_) {
         if (sockaddr_len < sizeof(struct sockaddr_nl_))
@@ -1222,10 +1237,17 @@ int_t sys_getpeername(fd_t sock_fd, addr_t sockaddr_addr, addr_t sockaddr_len_ad
         return 0;
     }
 
-    // TODO if this is a unix socket, return the same string the peer passed to
-    // bind once the peer pointer is available
+    if (sock->socket.domain == PF_LOCAL_) {
+        int err = copy_unix_peer_name(sockaddr, &sockaddr_len, sock);
+        if (err < 0)
+            return err;
+        if (user_write(sockaddr_addr, sockaddr, sizeof(sockaddr)))
+            return _EFAULT;
+        if (user_put(sockaddr_len_addr, sockaddr_len))
+            return _EFAULT;
+        return 0;
+    }
 
-    char sockaddr[sockaddr_len];
     int res = getpeername(sock->real_fd, (void *) sockaddr, &sockaddr_len);
     if (res < 0)
         return errno_map();
