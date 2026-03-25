@@ -57,6 +57,8 @@ int main(void) {
     if (memcmp(actual, congestion, strlen(congestion)) != 0)
         fail("TCP_CONGESTION value mismatch");
 
+    expect_int_sockopt(tcp, IPPROTO_TCP, TCP_DEFER_ACCEPT, 7, "TCP_DEFER_ACCEPT");
+
     puts("sockopt state ok");
 
     close(tcp);

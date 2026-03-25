@@ -1460,6 +1460,12 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         sock->socket.tcp_congestion[congestion_len] = '\0';
         return 0;
     }
+    if (level == IPPROTO_TCP && option == TCP_DEFER_ACCEPT_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.tcp_defer_accept = *(dword_t *) value;
+        return 0;
+    }
 
     if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
         if (value_len < sizeof(dword_t))
@@ -1477,10 +1483,8 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     if (real_level < 0)
         return _EINVAL;
 
-    // 0 means the option is not implemented, but things rely on it, so we
-    // should just ignore attempts to set it.
     if (real_opt == 0)
-        return 0;
+        return _ENOPROTOOPT;
 
     int err = setsockopt(sock->real_fd, real_level, real_opt, value, value_len);
     if (err < 0)
@@ -1577,6 +1581,11 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         if (err < 0)
             return errno_map();
         *(dword_t *) value = real_error == 0 ? 0 : -err_map(real_error);
+    } else if (level == IPPROTO_TCP && option == TCP_DEFER_ACCEPT_) {
+        dword_t *defer_accept = (dword_t *) value;
+        if (value_len != sizeof(*defer_accept))
+            return _EINVAL;
+        *defer_accept = sock->socket.tcp_defer_accept;
     } else if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
         value_len = strlen(sock->socket.tcp_congestion);
         memcpy(value, sock->socket.tcp_congestion, value_len);
