@@ -302,6 +302,7 @@ syscall_t syscall_table[] = {
     [437] = (syscall_t) sys_openat2,
     [439] = (syscall_t) sys_faccessat, // faccessat2
     [441] = (syscall_t) sys_epoll_pwait2, // epoll_pwait2
+    [452] = (syscall_t) sys_fchmodat2,
 };
 /*
 SYS_MSGRCV                       = 401
