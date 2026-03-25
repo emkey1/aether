@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -168,6 +169,32 @@ static bool socket_should_retry_io_eintr(struct fd *sock, int real_flags) {
         return false;
 #endif
     return !socket_guest_signal_pending();
+}
+
+static int socket_finish_blocking_connect(struct fd *sock) {
+    struct pollfd pfd = {
+        .fd = sock->real_fd,
+        .events = POLLOUT,
+    };
+    for (;;) {
+        errno = 0;
+        int wait_res = poll(&pfd, 1, -1);
+        if (wait_res < 0) {
+            if (errno == EINTR && !socket_guest_signal_pending())
+                continue;
+            return errno_map();
+        }
+        if (wait_res == 0)
+            continue;
+
+        int real_error = 0;
+        socklen_t real_error_len = sizeof(real_error);
+        if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len) < 0)
+            return errno_map();
+        if (real_error != 0)
+            return err_map(real_error);
+        return 0;
+    }
 }
 
 static void sock_trace(const char *op, struct fd *sock, ssize_t result, int err_code) {
@@ -1045,8 +1072,22 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
 
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0) {
-        sock_trace("connect", sock, -1, errno_map());
-        return errno_map();
+        int mapped_err = errno_map();
+        if (mapped_err == _EINPROGRESS && !(fd_getflags(sock) & O_NONBLOCK_)) {
+            if (sock_trace_enabled()) {
+                printk("INFO: net connect wait pid=%d comm=%s real=%d blocking=1\n",
+                       current->pid, current->comm, sock->real_fd);
+            }
+            mapped_err = socket_finish_blocking_connect(sock);
+            if (mapped_err < 0) {
+                sock_trace("connect", sock, -1, mapped_err);
+                return mapped_err;
+            }
+            err = 0;
+        } else {
+            sock_trace("connect", sock, -1, mapped_err);
+            return mapped_err;
+        }
     }
 
     if (sock->socket.domain == AF_LOCAL_) {
@@ -1345,8 +1386,9 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
     }
     free(buffer);
     if (res < 0) {
-        sock_trace("sendto", sock, -1, errno_map());
-        return errno_map();
+        int mapped_err = errno_map();
+        sock_trace("sendto", sock, -1, mapped_err);
+        return mapped_err;
     }
     sock_trace("sendto", sock, res, 0);
     return res;
@@ -1382,8 +1424,9 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     }
     if (res < 0) {
         free(buffer);
-        sock_trace("recvfrom", sock, -1, errno_map());
-        return errno_map();
+        int mapped_err = errno_map();
+        sock_trace("recvfrom", sock, -1, mapped_err);
+        return mapped_err;
     }
 
     if (res > 0 && user_write(buffer_addr, buffer, res)) {
@@ -1879,8 +1922,8 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         } while (send_res < 0 && socket_should_retry_io_eintr(sock, real_flags));
     }
     if (send_res < 0) {
-        sock_trace("sendmsg", sock, -1, errno_map());
         err = errno_map();
+        sock_trace("sendmsg", sock, -1, err);
         goto out_free_scm;
     }
     err = send_res;
@@ -1988,8 +2031,8 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
     int err = 0;
     if (res < 0) {
-        sock_trace("recvmsg", sock, -1, errno_map());
         err = errno_map();
+        sock_trace("recvmsg", sock, -1, err);
     } else {
         sock_trace("recvmsg", sock, res, 0);
     }
