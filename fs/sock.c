@@ -280,6 +280,44 @@ static void sock_trace_write_preview(struct fd *sock, const void *buf, size_t si
            sock->real_fd, size, preview);
 }
 
+static void sock_trace_iov_preview(struct fd *sock, const struct iovec *iov, size_t iovlen) {
+    if (!sock_trace_enabled() || sock == NULL || sock->real_fd < 0)
+        return;
+    if (sock->socket.type != SOCK_STREAM_)
+        return;
+
+    size_t total = 0;
+    for (size_t i = 0; i < iovlen; i++)
+        total += iov[i].iov_len;
+
+    char preview[321];
+    size_t out = 0;
+    for (size_t i = 0; i < iovlen && out + 2 < sizeof(preview); i++) {
+        const unsigned char *bytes = iov[i].iov_base;
+        for (size_t j = 0; j < iov[i].iov_len && out + 2 < sizeof(preview); j++) {
+            unsigned char c = bytes[j];
+            if (c == '\r') {
+                preview[out++] = '\\';
+                preview[out++] = 'r';
+            } else if (c == '\n') {
+                preview[out++] = '\\';
+                preview[out++] = 'n';
+            } else if (c >= 32 && c <= 126) {
+                preview[out++] = (char) c;
+            } else {
+                preview[out++] = '.';
+            }
+            if (out >= 160)
+                break;
+        }
+        if (out >= 160)
+            break;
+    }
+    preview[out] = '\0';
+    printk("INFO: net write-preview real=%d size=%zu text=\"%s\"\n",
+           sock->real_fd, total, preview);
+}
+
 static int unix_socket_finish_peer(struct fd *sock, bool wait);
 
 static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
@@ -1992,6 +2030,10 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     err = _EINVAL;
     if (msg.msg_flags < 0)
         goto out_free_scm;
+
+    sock_trace_sockaddr("local", sock->real_fd);
+    sock_trace_sockaddr("peer", sock->real_fd);
+    sock_trace_iov_preview(sock, msg.msg_iov, msg.msg_iovlen);
 
     ssize_t send_res = 0;
     TASK_MAY_BLOCK {
