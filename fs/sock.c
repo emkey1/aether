@@ -155,7 +155,7 @@ static bool sock_trace_comm(const char *comm) {
 static bool sock_trace_enabled(void) {
     if (current == NULL)
         return false;
-    return sock_trace_comm(current->comm);
+    return sock_trace_comm(current->comm) && false;
 }
 
 #if defined(__APPLE__)

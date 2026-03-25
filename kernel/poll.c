@@ -40,7 +40,7 @@ static bool poll_trace_comm(const char *comm) {
 static bool poll_trace_net_enabled(void) {
     if (current == NULL)
         return false;
-    return poll_trace_comm(current->comm);
+    return poll_trace_comm(current->comm) && false;
 }
 
 static void poll_trace_net_fd(struct fd *fd, int requested, int ready, int revents, const char *phase) {

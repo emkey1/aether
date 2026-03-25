@@ -72,7 +72,7 @@ static bool poll_trace_comm(const char *comm) {
 static bool poll_wait_trace_enabled(void) {
     if (current == NULL)
         return false;
-    return poll_trace_comm(current->comm);
+    return poll_trace_comm(current->comm) && false;
 }
 
 static void poll_wait_trace_fd(struct poll_fd *poll_fd, int host_events, const char *phase) {
