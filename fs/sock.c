@@ -158,6 +158,37 @@ static bool sock_trace_enabled(void) {
     return sock_trace_comm(current->comm);
 }
 
+#if defined(__APPLE__)
+static void sock_trace_tcp_info(const char *label, struct fd *sock) {
+    if (!sock_trace_enabled() || sock == NULL || sock->real_fd < 0)
+        return;
+    if (sock->socket.type != SOCK_STREAM_)
+        return;
+    if (sock->socket.domain != AF_INET_ && sock->socket.domain != AF_INET6_)
+        return;
+
+    struct tcp_connection_info info = {};
+    socklen_t info_len = sizeof(info);
+    if (getsockopt(sock->real_fd, IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &info_len) < 0)
+        return;
+
+    int so_error = 0;
+    socklen_t so_error_len = sizeof(so_error);
+    if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
+        so_error = -1;
+
+    printk("INFO: net tcp %s pid=%d comm=%s real=%d state=%u options=%#x flags=%#x so_error=%d snd_sbbytes=%u snd_cwnd=%u snd_wnd=%u rcv_wnd=%u rtt=%u srtt=%u txbytes=%llu rxbytes=%llu retrans=%llu\n",
+           label, current->pid, current->comm, sock->real_fd,
+           info.tcpi_state, info.tcpi_options, info.tcpi_flags, so_error,
+           info.tcpi_snd_sbbytes, info.tcpi_snd_cwnd,
+           info.tcpi_snd_wnd, info.tcpi_rcv_wnd,
+           info.tcpi_rttcur, info.tcpi_srtt,
+           (unsigned long long) info.tcpi_txbytes,
+           (unsigned long long) info.tcpi_rxbytes,
+           (unsigned long long) info.tcpi_txretransmitbytes);
+}
+#endif
+
 static bool socket_guest_signal_pending(void) {
     lock(&current->sighand->lock, 0);
     bool signal_pending = !!(current->pending & ~current->blocked);
@@ -2077,6 +2108,9 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     sock_trace_sockaddr("local", sock->real_fd);
     sock_trace_sockaddr("peer", sock->real_fd);
     sock_trace_iov_preview(sock, msg.msg_iov, msg.msg_iovlen);
+#if defined(__APPLE__)
+    sock_trace_tcp_info("sendmsg-before", sock);
+#endif
 
     ssize_t send_res = 0;
     TASK_MAY_BLOCK {
@@ -2092,6 +2126,9 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
     err = send_res;
     sock_trace("sendmsg", sock, err, 0);
+#if defined(__APPLE__)
+    sock_trace_tcp_info("sendmsg-after", sock);
+#endif
     goto out_free_iov;
 
 out_free_scm:
@@ -2388,6 +2425,8 @@ static int sock_poll(struct fd *fd) {
     }
     int types = realfs_poll(fd);
 #if defined(__APPLE__)
+    if (types & POLL_WRITE)
+        sock_trace_tcp_info("poll-write", fd);
     if ((types & POLL_WRITE) && !socket_tcp_connect_write_ready(fd))
         types &= ~POLL_WRITE;
 #endif
