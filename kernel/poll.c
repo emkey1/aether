@@ -1,4 +1,6 @@
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include "debug.h"
 #include "kernel/fs.h"
 #include "kernel/time.h"
@@ -97,8 +99,16 @@ static void select_trace_net_fd(struct fd *fd, int requested, int ready, const c
     char path[MAX_PATH];
     path[0] = '\0';
     generic_getpath(fd, path);
-    printk("INFO: net select %s pid=%d comm=%s real=%d requested=%#x ready=%#x path=%s\n",
-           phase, current->pid, current->comm, fd->real_fd, requested, ready, path);
+    int recv_q = -1;
+    int so_error = -1;
+    if (fd->real_fd >= 0) {
+        (void) ioctl(fd->real_fd, FIONREAD, &recv_q);
+        socklen_t so_error_len = sizeof(so_error);
+        if (getsockopt(fd->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
+            so_error = -1;
+    }
+    printk("INFO: net select %s pid=%d comm=%s real=%d requested=%#x ready=%#x recv_q=%d so_error=%d path=%s\n",
+           phase, current->pid, current->comm, fd->real_fd, requested, ready, recv_q, so_error, path);
 }
 
 static bool select_timeout_valid(struct timespec timeout_ts) {
