@@ -217,6 +217,11 @@ static bool socket_tcp_connect_established(struct fd *sock) {
     if (sock->socket.domain != AF_INET_ && sock->socket.domain != AF_INET6_)
         return true;
 
+    struct sockaddr_storage peer = {};
+    socklen_t peer_len = sizeof(peer);
+    if (getpeername(sock->real_fd, (struct sockaddr *) &peer, &peer_len) == 0)
+        return true;
+
     struct tcp_connection_info info = {};
     socklen_t info_len = sizeof(info);
     if (getsockopt(sock->real_fd, IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &info_len) < 0)
