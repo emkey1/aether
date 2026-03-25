@@ -252,14 +252,6 @@ void fdtable_do_cloexec(struct fdtable *table) {
     lock(&table->lock, 0);
     for (fd_t f = 0; (unsigned) f < table->size; f++)
         if (bit_test(f, table->cloexec)) {
-            struct fd *fd = fdtable_get(table, f);
-            if (fd != NULL && fd->ops == &tty_dev.fd && fd->tty != NULL &&
-                    fd->tty->type == TTY_PSEUDO_SLAVE_MAJOR) {
-                printk("INFO: cloexec closing tty slave %d via pid=%d tgid=%d comm=%s fd=%d\n",
-                       fd->tty->num, current != NULL ? current->pid : -1,
-                       current != NULL ? current->tgid : -1,
-                       current != NULL ? current->comm : "<none>", f);
-            }
             fdtable_close(table, f);
         }
     unlock(&table->lock);
