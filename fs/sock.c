@@ -2230,17 +2230,41 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
         if (err < 0)
             return err;
     }
-    int err = realfs_read(fd, buf, size);
-    sock_translate_err(fd, &err);
-    return err;
+    ssize_t res = 0;
+    TASK_MAY_BLOCK {
+        do {
+            errno = 0;
+            res = read(fd->real_fd, buf, size);
+        } while (res < 0 && socket_should_retry_io_eintr(fd, 0));
+    }
+    if (res < 0) {
+        int err = errno_map();
+        sock_translate_err(fd, &err);
+        sock_trace("read", fd, -1, err);
+        return err;
+    }
+    sock_trace("read", fd, res, 0);
+    return res;
 }
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
-    int err = realfs_write(fd, buf, size);
-    sock_translate_err(fd, &err);
-    return err;
+    ssize_t res = 0;
+    TASK_MAY_BLOCK {
+        do {
+            errno = 0;
+            res = write(fd->real_fd, buf, size);
+        } while (res < 0 && socket_should_retry_io_eintr(fd, 0));
+    }
+    if (res < 0) {
+        int err = errno_map();
+        sock_translate_err(fd, &err);
+        sock_trace("write", fd, -1, err);
+        return err;
+    }
+    sock_trace("write", fd, res, 0);
+    return res;
 }
 
 static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
