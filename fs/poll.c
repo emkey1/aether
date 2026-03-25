@@ -6,6 +6,7 @@
 #include <signal.h>
 #include "misc.h"
 #include "util/list.h"
+#include "util/timer.h"
 #include "kernel/errno.h"
 #include "kernel/fs.h"
 #include "fs/fd.h"
@@ -37,6 +38,19 @@ static int real_poll_wait(struct real_poll *real, struct real_poll_event *events
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
 static inline bool poll_fd_is_real(struct poll_fd *pollfd);
 static void poll_fd_free(struct poll_fd *poll_fd);
+
+static bool poll_deadline_remaining(const struct timespec *deadline, struct timespec *remaining) {
+    if (deadline == NULL || remaining == NULL)
+        return false;
+    struct timespec now = timespec_now(CLOCK_MONOTONIC);
+    if ((deadline->tv_sec < now.tv_sec) ||
+            (deadline->tv_sec == now.tv_sec && deadline->tv_nsec <= now.tv_nsec)) {
+        *remaining = (struct timespec) {0};
+        return false;
+    }
+    *remaining = timespec_subtract(*deadline, now);
+    return timespec_positive(*remaining);
+}
 
 static bool poll_trace_comm(const char *comm) {
     if (comm == NULL)
@@ -388,7 +402,13 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         real_poll_update(&poll_->real, poll_->notify_pipe[0], POLL_READ, NULL);
     }
 
-    // TODO this is pretty broken with regards to timeouts
+    struct timespec deadline_storage = {0};
+    struct timespec *deadline = NULL;
+    if (timeout != NULL) {
+        deadline_storage = timespec_add(timespec_now(CLOCK_MONOTONIC), *timeout);
+        deadline = &deadline_storage;
+    }
+
     int res = 0;
     while (true) {
         // check if any fds are ready
@@ -431,19 +451,31 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                     errno = EINTR;
                     err = -1;
                 } else {
+                    struct timespec remaining_timeout = {0};
+                    struct timespec *wait_timeout = NULL;
+                    if (deadline != NULL) {
+                        if (!poll_deadline_remaining(deadline, &remaining_timeout)) {
+                            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                            errno = 0;
+                            err = 0;
+                            sigunwind_end();
+                            goto poll_wait_done;
+                        }
+                        wait_timeout = &remaining_timeout;
+                    }
                     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
                     if (poll_wait_trace_enabled()) {
                         printk("INFO: net poll_wait sleep pid=%d comm=%s timeout=%lds.%09ld waiters=%d\n",
                                current->pid, current->comm,
-                               timeout != NULL ? timeout->tv_sec : -1L,
-                               timeout != NULL ? timeout->tv_nsec : -1L,
+                               wait_timeout != NULL ? wait_timeout->tv_sec : -1L,
+                               wait_timeout != NULL ? wait_timeout->tv_nsec : -1L,
                                poll_->waiters);
                     }
-                    err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
+                    err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), wait_timeout);
                     sigunwind_end();
                 }
             }
-      
+poll_wait_done:
             lock(&poll_->lock, 0);
         } while (sockrestart_should_restart_listen_wait(1) && errno == EINTR);
         if (poll_wait_trace_enabled()) {

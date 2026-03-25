@@ -66,6 +66,7 @@ struct fd {
             } unix_cred;
             struct ucred_ unix_peer_cred;
             bool unix_peer_cred_valid;
+            bool unix_passcred;
 
             uint32_t netlink_port_id;
             uint32_t netlink_groups;

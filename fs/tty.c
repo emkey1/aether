@@ -831,7 +831,7 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
         case TCSETSF_:
             tty->bufsize = 0;
             notify(&tty->consumed);
-            fallthrough;
+                FALLTHROUGH;
         case TCSETSW_:
             // we have no output buffer currently
         case TCSETS_:

@@ -26,6 +26,7 @@ void sockrestart_on_resume(void);
 
 struct fd_sockrestart {
     struct list listen;
+    int backlog;
 };
 
 struct task_sockrestart {

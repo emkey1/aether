@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <string.h>
 #include <signal.h>
 #include <pthread.h>
@@ -78,6 +79,8 @@ struct saved_socket {
     struct fd *sock;
     int type;
     int proto;
+    int backlog;
+    int flags;
     union {
         char name[128];
         struct sockaddr name_addr;
@@ -100,6 +103,8 @@ void sockrestart_on_suspend() {
             continue; // better than a crash
         saved->sock = fd_retain(sock);
         saved->proto = sock->socket.protocol;
+        saved->backlog = sock->sockrestart.backlog;
+        saved->flags = fcntl(sock->real_fd, F_GETFL);
         unsigned size = sizeof(saved->type);
         getsockopt(sock->real_fd, SOL_SOCKET, SO_TYPE, &saved->type, &size);
         assert(size == sizeof(saved->type));
@@ -123,9 +128,22 @@ void sockrestart_on_resume() {
         }
         if (bind(new_sock, (struct sockaddr *) &saved->name, saved->name_len) < 0) {
             printk("WARNING: rebinding socket failed: %s\n", strerror(errno));
+            close(new_sock);
             goto thank_u_next;
         }
-        dup2(new_sock, saved->sock->real_fd);
+        if (saved->flags >= 0)
+            fcntl(new_sock, F_SETFL, saved->flags);
+        if (listen(new_sock, saved->backlog) < 0) {
+            printk("WARNING: relistening socket failed: %s\n", strerror(errno));
+            close(new_sock);
+            goto thank_u_next;
+        }
+        if (dup2(new_sock, saved->sock->real_fd) < 0) {
+            printk("WARNING: replacing socket fd failed: %s\n", strerror(errno));
+            close(new_sock);
+            goto thank_u_next;
+        }
+        close(new_sock);
 
 thank_u_next:
         fd_close(saved->sock);

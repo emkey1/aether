@@ -65,6 +65,7 @@ struct cmsghdr_ {
     uint8_t data[];
 };
 #define SCM_RIGHTS_ 1
+#define SCM_CREDENTIALS_ 2
 // copied and ported from musl
 #define CMSG_LEN_(cmsg) (((cmsg)->len + sizeof(dword_t) - 1) & ~(dword_t)(sizeof(dword_t) - 1))
 #define CMSG_NEXT_(cmsg) ((uint8_t *)(cmsg) + CMSG_LEN_(cmsg))
@@ -228,6 +229,9 @@ static inline int sock_opt_to_real(int fake, int level) {
             case SO_LINGER_: return SO_LINGER;
             case SO_SNDBUF_: return SO_SNDBUF;
             case SO_RCVBUF_: return SO_RCVBUF;
+#ifdef SO_REUSEPORT
+            case SO_REUSEPORT_: return SO_REUSEPORT;
+#endif
             case SO_TIMESTAMP_: return SO_TIMESTAMP;
             case SO_RCVTIMEO_: return SO_RCVTIMEO;
             case SO_SNDTIMEO_: return SO_SNDTIMEO;

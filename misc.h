@@ -51,9 +51,9 @@
 #define container_of(ptr, type, member) \
     ((type *) ((char *) (ptr) - offsetof(type, member)))
 #if has_attribute(fallthrough)
-#define fallthrough __attribute__((fallthrough))
+#define FALLTHROUGH __attribute__((fallthrough))
 #else
-#define fallthrough
+#define FALLTHROUGH
 #endif
 #endif
 
