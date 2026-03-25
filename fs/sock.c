@@ -1292,9 +1292,10 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
             sock_trace("connect", sock, -1, mapped_err);
             return mapped_err;
         }
+        // Darwin can report connect() success before TCP_CONNECTION_INFO
+        // catches up. Do not turn a successful connect into ECONNRESET here;
+        // later poll/send/recv paths already re-check real socket state.
         sock_trace_tcp_info("connect-postcheck", sock);
-        sock_trace("connect", sock, -1, _ECONNRESET);
-        return _ECONNRESET;
     }
 #endif
 
