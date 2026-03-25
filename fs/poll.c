@@ -12,6 +12,7 @@
 #include "fs/fd.h"
 #include "fs/poll.h"
 #include "fs/real.h"
+#include "fs/sock.h"
 
 #include "fs/sockrestart.h"
 
@@ -198,7 +199,9 @@ struct poll *poll_create(void) {
 }
 
 static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd) {
-    return pollfd->fd != NULL && pollfd->fd->real_fd >= 0;
+    if (pollfd->fd == NULL || pollfd->fd->real_fd < 0)
+        return false;
+    return pollfd->fd->ops == &realfs_fdops || pollfd->fd->ops == &socket_fdops;
 }
 
 // does not do its own locking
