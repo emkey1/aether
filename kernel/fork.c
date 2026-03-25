@@ -6,6 +6,7 @@
 #include "kernel/mm.h"
 #include "kernel/ptrace.h"
 #include "util/sync.h"
+#include <string.h>
 
 #define CSIGNAL_ 0x000000ff
 #define CLONE_VM_ 0x00000100
@@ -34,6 +35,31 @@
 #define CLONE_IO_ 0x80000000
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
         CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_)
+
+static bool trace_session_fork_name(const char *name) {
+    return strcmp(name, "login") == 0 ||
+        strcmp(name, "sh") == 0 ||
+        strcmp(name, "bash") == 0 ||
+        strcmp(name, "dash") == 0 ||
+        strcmp(name, "getty") == 0 ||
+        strcmp(name, "agetty") == 0;
+}
+
+static void trace_fork_tty(struct task *task, int *type_out, int *num_out) {
+    int type = -1;
+    int num = -1;
+    lock(&task->group->lock, 0);
+    struct tty *tty = task->group->tty;
+    if (tty != NULL) {
+        type = tty->type;
+        num = tty->num;
+    }
+    unlock(&task->group->lock);
+    if (type_out != NULL)
+        *type_out = type;
+    if (num_out != NULL)
+        *num_out = num;
+}
 
 static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
@@ -152,6 +178,17 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
     if (flags & CLONE_THREAD_ && !(flags & CLONE_SIGHAND_))
         return _EINVAL;
 
+    char parent_comm[sizeof(current->comm)];
+    lock(&current->general_lock, 0);
+    strncpy(parent_comm, current->comm, sizeof(parent_comm));
+    parent_comm[sizeof(parent_comm) - 1] = '\0';
+    unlock(&current->general_lock);
+    bool trace_fork = trace_session_fork_name(parent_comm);
+    int tty_type = -1;
+    int tty_num = -1;
+    if (trace_fork)
+        trace_fork_tty(current, &tty_type, &tty_num);
+
     struct task *task = task_create_(current);
     if (task == NULL)
         return _ENOMEM;
@@ -185,6 +222,18 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
     }
 
     task_start(task);
+
+    if (trace_fork) {
+        lock(&task->general_lock, 0);
+        char child_comm[sizeof(task->comm)];
+        strncpy(child_comm, task->comm, sizeof(child_comm));
+        child_comm[sizeof(child_comm) - 1] = '\0';
+        unlock(&task->general_lock);
+        printk("INFO: fork session parent=%d/%d(%s) child=%d/%d(%s) flags=%#x tty=%d:%d\n",
+               current->pid, current->tgid, parent_comm,
+               task->pid, task->tgid, child_comm, flags,
+               tty_type, tty_num);
+    }
 
     if (flags & CLONE_VFORK_) {
         lock(&vfork.lock, 0);

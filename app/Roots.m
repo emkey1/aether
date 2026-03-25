@@ -26,6 +26,32 @@ static NSURL *RootsDir(void) {
 }
 
 static NSString *kDefaultRoot = @"Default Root";
+static NSString *const kBundledRootIdentifierKey = @"identifier";
+static NSString *const kBundledRootDisplayNameKey = @"displayName";
+static NSString *const kBundledRootArchiveNameKey = @"archiveName";
+static NSString *const kBundledRootImportNameKey = @"importName";
+
+static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void) {
+    static NSArray<NSDictionary<NSString *, NSString *> *> *choices;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        choices = @[
+            @{
+                kBundledRootIdentifierKey: @"devuan-5",
+                kBundledRootDisplayNameKey: @"Devuan 5",
+                kBundledRootArchiveNameKey: @"root",
+                kBundledRootImportNameKey: @"Devuan 5",
+            },
+            @{
+                kBundledRootIdentifierKey: @"alpine-3.18",
+                kBundledRootDisplayNameKey: @"Old Distros",
+                kBundledRootArchiveNameKey: @"root",
+                kBundledRootImportNameKey: @"Old Distros",
+            },
+        ];
+    });
+    return choices;
+}
 
 static BOOL RootURLLooksValid(NSURL *url) {
     if (url == nil)
@@ -70,7 +96,7 @@ static BOOL RootURLLooksValid(NSURL *url) {
         }
         self.roots = roots;
         if (!self.roots.count) {
-            // import default root
+            // Import the bundled default root on first launch.
             NSError *error;
             if (![self importRootFromArchive:[NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"]
                                         name:@"default"
@@ -98,6 +124,14 @@ static BOOL RootURLLooksValid(NSURL *url) {
 }
 - (void)setDefaultRoot:(NSString *)defaultRoot {
     [NSUserDefaults.standardUserDefaults setObject:defaultRoot forKey:kDefaultRoot];
+}
+
+- (BOOL)needsInitialRootSelection {
+    return self.roots.count == 0;
+}
+
+- (NSArray<NSDictionary<NSString *,NSString *> *> *)bundledRootChoices {
+    return BundledRootChoices();
 }
 
 - (NSURL *)rootUrl:(NSString *)name {
@@ -144,6 +178,43 @@ static BOOL RootURLLooksValid(NSURL *url) {
 
 - (BOOL)accessInstanceVariablesDirectly {
     return YES;
+}
+
+- (BOOL)importBundledRootChoice:(NSString *)identifier error:(NSError **)error progressReporter:(id<ProgressReporter>)progress {
+    NSDictionary<NSString *, NSString *> *selectedChoice = nil;
+    for (NSDictionary<NSString *, NSString *> *choice in BundledRootChoices()) {
+        if ([choice[kBundledRootIdentifierKey] isEqualToString:identifier]) {
+            selectedChoice = choice;
+            break;
+        }
+    }
+    if (selectedChoice == nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{
+                NSLocalizedDescriptionKey: @"Unknown bundled root choice"
+            }];
+        }
+        return NO;
+    }
+
+    NSURL *archive = [NSBundle.mainBundle URLForResource:selectedChoice[kBundledRootArchiveNameKey]
+                                           withExtension:@"tar.gz"];
+    if (archive == nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{
+                NSLocalizedDescriptionKey: @"Bundled root archive is missing"
+            }];
+        }
+        return NO;
+    }
+
+    BOOL ok = [self importRootFromArchive:archive
+                                     name:selectedChoice[kBundledRootImportNameKey]
+                                    error:error
+                         progressReporter:progress];
+    if (ok)
+        _wantsVersionFile = YES;
+    return ok;
 }
 
 void root_progress_callback(void *cookie, double progress, const char *message, bool *should_cancel) {

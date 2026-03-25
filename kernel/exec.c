@@ -49,6 +49,17 @@ static bool trace_session_exec_name(const char *name) {
         strcmp(name, "agetty") == 0;
 }
 
+static bool trace_session_exec_attempt(const char *current_name, const char *file) {
+    if (trace_session_exec_name(current_name))
+        return true;
+    const char *basename = strrchr(file, '/');
+    if (basename == NULL)
+        basename = file;
+    else
+        basename++;
+    return trace_session_exec_name(basename);
+}
+
 static void trace_exec_argv(const struct exec_args *argv, char *buf, size_t size) {
     if (size == 0)
         return;
@@ -637,20 +648,51 @@ static int shebang_exec(struct fd *fd, const char *file, struct exec_args argv, 
 }
 
 int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) {
+    char current_comm[sizeof(current->comm)];
+    lock(&current->general_lock, 0);
+    strncpy(current_comm, current->comm, sizeof(current_comm));
+    current_comm[sizeof(current_comm) - 1] = '\0';
+    unlock(&current->general_lock);
+
+    bool trace_attempt = trace_session_exec_attempt(current_comm, file);
+    char argv_trace[256];
+    int tty_type = -1;
+    int tty_num = -1;
+    if (trace_attempt) {
+        trace_exec_argv(&argv, argv_trace, sizeof(argv_trace));
+        trace_exec_tty(current, &tty_type, &tty_num);
+    }
+
     struct fd *fd = generic_open(file, O_RDONLY, 0);
-    if (IS_ERR(fd))
+    if (IS_ERR(fd)) {
+        if (trace_attempt) {
+            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
+                   current->pid, current->tgid, current_comm, file, (int) PTR_ERR(fd),
+                   tty_type, tty_num, argv_trace);
+        }
         return (int) PTR_ERR(fd);
+    }
 
     struct statbuf stat;
     int err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0) {
         fd_close(fd);
+        if (trace_attempt) {
+            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
+                   current->pid, current->tgid, current_comm, file, err,
+                   tty_type, tty_num, argv_trace);
+        }
         return err;
     }
 
     // if nobody has permission to execute, it should be safe to not execute
     if (!(stat.mode & 0111)) {
         fd_close(fd);
+        if (trace_attempt) {
+            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
+                   current->pid, current->tgid, current_comm, file, _EACCES,
+                   tty_type, tty_num, argv_trace);
+        }
         return _EACCES;
     }
 
@@ -658,8 +700,14 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     if (err == _ENOEXEC)
         err = shebang_exec(fd, file, argv, envp);
     fd_close(fd);
-    if (err < 0)
+    if (err < 0) {
+        if (trace_attempt) {
+            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
+                   current->pid, current->tgid, current_comm, file, err,
+                   tty_type, tty_num, argv_trace);
+        }
         return err;
+    }
 
     // setuid/setgid
     if (stat.mode & S_ISUID) {
@@ -674,10 +722,8 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     }
 
     char old_comm[sizeof(current->comm)];
-    lock(&current->general_lock, 0);
-    strncpy(old_comm, current->comm, sizeof(old_comm));
+    strncpy(old_comm, current_comm, sizeof(old_comm));
     old_comm[sizeof(old_comm) - 1] = '\0';
-    unlock(&current->general_lock);
 
     // save current->comm
     lock(&current->general_lock, 0);
@@ -691,11 +737,6 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     unlock(&current->general_lock);
 
     if (trace_session_exec_name(old_comm) || trace_session_exec_name(basename)) {
-        char argv_trace[256];
-        int tty_type = -1;
-        int tty_num = -1;
-        trace_exec_argv(&argv, argv_trace, sizeof(argv_trace));
-        trace_exec_tty(current, &tty_type, &tty_num);
         printk("INFO: exec session pid=%d tgid=%d old=%s new=%s file=%s tty=%d:%d argv=%s\n",
                current->pid, current->tgid, old_comm, basename, file,
                tty_type, tty_num, argv_trace);

@@ -22,6 +22,30 @@ static bool is_on_altstack(dword_t sp, struct sighand *sighand);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
+static bool signal_trace_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "wget") == 0 ||
+        strcmp(comm, "curl") == 0 ||
+        strcmp(comm, "ping") == 0 ||
+        strcmp(comm, "cat") == 0 ||
+        strcmp(comm, "grep") == 0 ||
+        strcmp(comm, "which") == 0 ||
+        strcmp(comm, "install") == 0 ||
+        strncmp(comm, "deboots", 7) == 0 ||
+        strncmp(comm, "debootstrap", 11) == 0 ||
+        strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool signal_trace_enabled_task(struct task *task, int sig) {
+    if (task == NULL)
+        return false;
+    if (sig != SIGINT_)
+        return false;
+    return signal_trace_comm(task->comm);
+}
+
 struct signalfd_state {
     sigset_t_ mask;
 };
@@ -103,6 +127,14 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
     sigqueue->info.sig = sig;
     list_add_tail(&task->queue, &sigqueue->queue);
     signalfd_wakeup_task(task, sig);
+    if (signal_trace_enabled_task(task, sig)) {
+        printk("INFO: signal deliver pid=%d tgid=%d comm=%s sig=%d blocked=%#llx pending=%#llx waiting=%#llx exiting=%d\n",
+               task->pid, task->tgid, task->comm, sig,
+               (unsigned long long) task->blocked,
+               (unsigned long long) task->pending,
+               (unsigned long long) task->waiting,
+               task->exiting);
+    }
 
     if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig))
         return;

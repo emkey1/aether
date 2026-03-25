@@ -13,7 +13,9 @@
 #import "UserPreferences.h"
 #import "AboutViewController.h"
 #import "CurrentRoot.h"
+#import "Roots.h"
 #import "NSObject+SaneKVO.h"
+#import "UIViewController+Extras.h"
 #import "LinuxInterop.h"
 #include "kernel/init.h"
 #include "kernel/task.h"
@@ -53,7 +55,6 @@
 
 @property int sessionPid;
 @property (nonatomic) Terminal *sessionTerminal;
-
 @property BOOL ignoreKeyboardMotion;
 @property (nonatomic) BOOL hasExternalKeyboard;
 @property (nonatomic) BOOL didApplyDeferredSafeAreaUpdate;
@@ -74,14 +75,16 @@
     [super viewDidLoad];
 
 #if !ISH_LINUX
-    intptr_t bootError = [AppDelegate ensureBooted];
-    if (bootError < 0) {
-        NSString *message = [NSString stringWithFormat:@"could not boot"];
-        NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
-        if (bootError == _EINVAL)
-            subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
-        [self showMessage:message subtitle:subtitle];
-        NSLog(@"boot failed with code %ld", bootError);
+    if (!Roots.instance.needsInitialRootSelection) {
+        intptr_t bootError = [AppDelegate ensureBooted];
+        if (bootError < 0) {
+            NSString *message = [NSString stringWithFormat:@"could not boot"];
+            NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
+            if (bootError == _EINVAL)
+                subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
+            [self showMessage:message subtitle:subtitle];
+            NSLog(@"boot failed with code %ld", bootError);
+        }
     }
 #endif
 

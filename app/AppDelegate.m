@@ -100,6 +100,28 @@ void ReportPanic(const char *message) {
 static intptr_t bootError;
 static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 
+static bool PushInitTaskAsCurrent(struct task **previousCurrent) {
+    *previousCurrent = current;
+
+    complex_lockt(&pids_lock, 0);
+    struct task *init = pid_get_task(1);
+    if (init != NULL) {
+        task_ref_cnt_mod(init, 1);
+    }
+    unlock(&pids_lock);
+
+    current = init;
+    return init != NULL;
+}
+
+static void PopCurrentTask(struct task *previousCurrent) {
+    struct task *borrowedCurrent = current;
+    current = previousCurrent;
+    if (borrowedCurrent != NULL) {
+        task_ref_cnt_mod(borrowedCurrent, -1);
+    }
+}
+
 @implementation AppDelegate
 
 + (intptr_t)ensureBooted {
@@ -268,7 +290,9 @@ static void EnsureGuestHostsEntry(const char *hostname) {
     if (hostname == NULL || hostname[0] == '\0')
         return;
 
-    current = pid_get_task(1);
+    struct task *previousCurrent;
+    if (!PushInitTaskAsCurrent(&previousCurrent))
+        return;
 
     char hosts[8192];
     ssize_t len = linux_read_file("/etc/hosts", hosts, sizeof(hosts) - 1);
@@ -304,7 +328,7 @@ static void EnsureGuestHostsEntry(const char *hostname) {
     }
 
     if (hasHostname)
-        return;
+        goto out;
 
     if (updatedHosts == nil) {
         updatedHosts = [NSMutableString stringWithString:@"127.0.0.1\tlocalhost\n"];
@@ -316,10 +340,13 @@ static void EnsureGuestHostsEntry(const char *hostname) {
     struct fd *fd = generic_open("/etc/hosts", O_WRONLY_ | O_CREAT_ | O_TRUNC_, 0644);
     if (IS_ERR(fd)) {
         NSLog(@"failed to write /etc/hosts: %d", PTR_ERR(fd));
-        return;
+        goto out;
     }
     fd->ops->write(fd, updatedHosts.UTF8String, [updatedHosts lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
     fd_close(fd);
+
+out:
+    PopCurrentTask(previousCurrent);
 }
 
 void SyncHostname(void) {
@@ -361,8 +388,13 @@ void SyncHostname(void) {
                     NULL, 0, NI_NUMERICHOST);
         [resolvConf appendFormat:@"nameserver %s\n", address];
     }
-    
-    current = pid_get_task(1);
+
+    struct task *previousCurrent;
+    if (!PushInitTaskAsCurrent(&previousCurrent)) {
+        NSLog(@"failed to resolve init task while updating DNS");
+        return;
+    }
+
     struct fd *fd = generic_open("/etc/resolv.conf", O_WRONLY_ | O_CREAT_ | O_TRUNC_, 0666);
     if (IS_ERR(fd) && PTR_ERR(fd) == _ENOENT) {
         // Newer roots often ship /etc/resolv.conf as a symlink into /run.
@@ -377,6 +409,7 @@ void SyncHostname(void) {
     } else {
         NSLog(@"failed to write /etc/resolv.conf: %d", PTR_ERR(fd));
     }
+    PopCurrentTask(previousCurrent);
 #endif
 }
 
@@ -400,7 +433,10 @@ void SyncHostname(void) {
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])
         return YES;
 
-    bootError = [AppDelegate ensureBooted];
+    [Roots instance];
+    if (!Roots.instance.needsInitialRootSelection) {
+        bootError = [AppDelegate ensureBooted];
+    }
 
 #if ISH_LINUX
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillEnterForegroundNotification object:UIApplication.sharedApplication queue:nil usingBlock:^(NSNotification * _Nonnull note) {

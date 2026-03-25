@@ -335,6 +335,28 @@ static void tty_echo(struct tty *tty, const char *data, size_t size) {
     tty->driver->ops->write(tty, data, size, false);
 }
 
+static bool tty_trace_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "wget") == 0 ||
+        strcmp(comm, "curl") == 0 ||
+        strcmp(comm, "ping") == 0 ||
+        strcmp(comm, "cat") == 0 ||
+        strcmp(comm, "grep") == 0 ||
+        strcmp(comm, "which") == 0 ||
+        strcmp(comm, "install") == 0 ||
+        strncmp(comm, "deboots", 7) == 0 ||
+        strncmp(comm, "debootstrap", 11) == 0 ||
+        strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool tty_trace_signal_enabled(void) {
+    if (current == NULL)
+        return false;
+    return tty_trace_comm(current->comm);
+}
+
 static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
     if (!(tty->termios.lflags & ISIG_))
         return false;
@@ -355,6 +377,12 @@ static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
         if (!(tty->termios.lflags & NOFLSH_))
             tty->bufsize = 0;
         sigset_add(queue, sig);
+        if (sig == SIGINT_ || tty_trace_signal_enabled()) {
+            printk("INFO: tty signal input tty=%d fg_group=%d ch=%#x sig=%d current_pid=%d comm=%s\n",
+                   tty->num, tty->fg_group, (unsigned char) ch, sig,
+                   current != NULL ? current->pid : -1,
+                   current != NULL ? current->comm : "<none>");
+        }
     }
     return true;
 }

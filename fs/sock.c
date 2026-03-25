@@ -125,6 +125,36 @@ const struct fd_ops socket_fdops;
 
 static lock_t peer_lock = LOCK_INITIALIZER;
 
+static bool sock_trace_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "wget") == 0 ||
+        strcmp(comm, "curl") == 0 ||
+        strcmp(comm, "ping") == 0 ||
+        strcmp(comm, "cat") == 0 ||
+        strcmp(comm, "grep") == 0 ||
+        strcmp(comm, "which") == 0 ||
+        strcmp(comm, "install") == 0 ||
+        strncmp(comm, "deboots", 7) == 0 ||
+        strncmp(comm, "debootstrap", 11) == 0 ||
+        strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool sock_trace_enabled(void) {
+    if (current == NULL)
+        return false;
+    return sock_trace_comm(current->comm);
+}
+
+static void sock_trace(const char *op, struct fd *sock, ssize_t result, int err_code) {
+    if (!sock_trace_enabled())
+        return;
+    printk("INFO: net %s pid=%d comm=%s guest_domain=%d guest_type=%d protocol=%d real=%d result=%zd err=%d\n",
+           op, current->pid, current->comm, sock->socket.domain, sock->socket.type,
+           sock->socket.protocol, sock->real_fd, result, err_code);
+}
+
 static int unix_socket_finish_peer(struct fd *sock, bool wait);
 
 static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
@@ -982,9 +1012,17 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         return 0;
     }
 
+    if (sock_trace_enabled()) {
+        printk("INFO: net connect enter pid=%d comm=%s guest_domain=%d guest_type=%d real=%d family=%d addrlen=%u\n",
+               current->pid, current->comm, sock->socket.domain, sock->socket.type,
+               sock->real_fd, ((struct sockaddr_ *) &sockaddr)->family, sockaddr_len);
+    }
+
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
-    if (err < 0)
+    if (err < 0) {
+        sock_trace("connect", sock, -1, errno_map());
         return errno_map();
+    }
 
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
@@ -996,6 +1034,7 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         (void) write(sock->real_fd, &sock, sizeof(struct fd *));
     }
 
+    sock_trace("connect", sock, err, 0);
     return err;
 }
 
@@ -1248,8 +1287,11 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
                      sockaddr_addr ? (void *) &sockaddr : NULL, sockaddr_len);
     }
     free(buffer);
-    if (res < 0)
+    if (res < 0) {
+        sock_trace("sendto", sock, -1, errno_map());
         return errno_map();
+    }
+    sock_trace("sendto", sock, res, 0);
     return res;
 
 error:
@@ -1280,6 +1322,7 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     }
     if (res < 0) {
         free(buffer);
+        sock_trace("recvfrom", sock, -1, errno_map());
         return errno_map();
     }
 
@@ -1296,6 +1339,7 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     if (sockaddr_len_addr != 0)
         if (user_put(sockaddr_len_addr, sockaddr_len))
             return _EFAULT;
+    sock_trace("recvfrom", sock, res, 0);
     return res;
 }
 
@@ -1641,9 +1685,11 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         err = sendmsg(sock->real_fd, &msg, real_flags);
     }
     if (err < 0) {
+        sock_trace("sendmsg", sock, -1, errno_map());
         err = errno_map();
         goto out_free_scm;
     }
+    sock_trace("sendmsg", sock, err, 0);
     goto out_free_iov;
 
 out_free_scm:
@@ -1743,8 +1789,12 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         res = recvmsg(sock->real_fd, &msg, real_flags);
     }
     int err = 0;
-    if (res < 0)
+    if (res < 0) {
+        sock_trace("recvmsg", sock, -1, errno_map());
         err = errno_map();
+    } else {
+        sock_trace("recvmsg", sock, res, 0);
+    }
     // don't return err quite yet, there are outstanding mallocs
 
     // msg_iovec (changed)

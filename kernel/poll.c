@@ -16,6 +16,49 @@ static int user_read_or_zero(addr_t addr, void *data, size_t size) {
     return 0;
 }
 
+static bool poll_trace_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "wget") == 0 ||
+        strcmp(comm, "curl") == 0 ||
+        strcmp(comm, "ping") == 0 ||
+        strcmp(comm, "cat") == 0 ||
+        strcmp(comm, "grep") == 0 ||
+        strcmp(comm, "which") == 0 ||
+        strcmp(comm, "install") == 0 ||
+        strncmp(comm, "deboots", 7) == 0 ||
+        strncmp(comm, "debootstrap", 11) == 0 ||
+        strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool poll_trace_net_enabled(void) {
+    if (current == NULL)
+        return false;
+    return poll_trace_comm(current->comm);
+}
+
+static void poll_trace_net_fd(struct fd *fd, int requested, int ready, int revents, const char *phase) {
+    if (fd == NULL || !poll_trace_net_enabled())
+        return;
+
+    if (fd->ops == &tty_dev.fd) {
+        struct tty *tty = fd->tty;
+        printk("INFO: net poll %s pid=%d comm=%s tty=%d:%d requested=%#x ready=%#x revents=%#x\n",
+               phase, current->pid, current->comm,
+               tty != NULL ? tty->driver->major : -1,
+               tty != NULL ? tty->num : -1,
+               requested, ready, revents);
+        return;
+    }
+
+    char path[MAX_PATH];
+    path[0] = '\0';
+    generic_getpath(fd, path);
+    printk("INFO: net poll %s pid=%d comm=%s real=%d requested=%#x ready=%#x revents=%#x path=%s\n",
+           phase, current->pid, current->comm, fd->real_fd, requested, ready, revents, path);
+}
+
 #define SELECT_READ (POLL_READ | POLL_HUP | POLL_ERR)
 #define SELECT_WRITE (POLL_WRITE | POLL_ERR)
 #define SELECT_EX (POLL_PRI)
@@ -229,6 +272,7 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
     STRACE("...\n");
 
     struct fd *files[nfds];
+    int add_err = 0;
     for (unsigned i = 0; i < nfds; i++) {
         files[i] = f_get_retain(polls[i].fd);
         // clear revents, which is reused to mark whether a pollfd has been added or not
@@ -254,7 +298,9 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
             }
         }
 
-        poll_add_fd(poll, files[i], events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) files[i]);
+        add_err = poll_add_fd(poll, files[i], events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) files[i]);
+        if (add_err < 0)
+            goto out;
     }
 
     for (unsigned i = 0; i < nfds; i++) {
@@ -276,17 +322,38 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
             poll_trace_script_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready);
         }
     }
+    if (poll_trace_net_enabled()) {
+        for (unsigned i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "enter");
+        }
+    }
     int res = 0;
     TASK_MAY_BLOCK {
         res = poll_wait(poll, poll_event_callback, &context, timeout < 0 ? NULL : &timeout_ts);
     }
+out:
     poll_destroy(poll);
     for (unsigned i = 0; i < nfds; i++) {
         if (files[i] != NULL)
             fd_close(files[i]);
     }
     STRACE("%d end poll", current->pid);
+    if (poll_trace_net_enabled()) {
+        printk("INFO: net poll return pid=%d comm=%s res=%d timeout_ms=%d\n",
+               current->pid, current->comm, res, timeout);
+        for (unsigned i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "exit");
+        }
+    }
 
+    if (add_err < 0)
+        return add_err;
     if (res < 0)
         return res;
     if (fds != 0 || nfds != 0)

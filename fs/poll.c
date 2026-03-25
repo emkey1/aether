@@ -35,6 +35,134 @@ static void *rpe_data(struct real_poll_event *rpe);
 static int rpe_events(struct real_poll_event *rpe);
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout);
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
+static inline bool poll_fd_is_real(struct poll_fd *pollfd);
+static void poll_fd_free(struct poll_fd *poll_fd);
+
+static bool poll_trace_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "wget") == 0 ||
+        strcmp(comm, "curl") == 0 ||
+        strcmp(comm, "ping") == 0 ||
+        strcmp(comm, "cat") == 0 ||
+        strcmp(comm, "grep") == 0 ||
+        strcmp(comm, "which") == 0 ||
+        strcmp(comm, "install") == 0 ||
+        strncmp(comm, "deboots", 7) == 0 ||
+        strncmp(comm, "debootstrap", 11) == 0 ||
+        strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool poll_wait_trace_enabled(void) {
+    if (current == NULL)
+        return false;
+    return poll_trace_comm(current->comm);
+}
+
+static void poll_wait_trace_fd(struct poll_fd *poll_fd, int host_events, const char *phase) {
+    if (!poll_wait_trace_enabled() || poll_fd == NULL || poll_fd->fd == NULL)
+        return;
+
+    char path[MAX_PATH];
+    path[0] = '\0';
+    generic_getpath(poll_fd->fd, path);
+    printk("INFO: net poll_wait %s pid=%d comm=%s real=%d types=%#x host=%#x path=%s\n",
+           phase, current->pid, current->comm, poll_fd->fd->real_fd,
+           poll_fd->types, host_events, path);
+}
+
+static void poll_wait_trace_raw_event(struct poll *poll_, struct real_poll_event *event, const char *phase) {
+    if (!poll_wait_trace_enabled() || event == NULL)
+        return;
+#if HAVE_KQUEUE
+    printk("INFO: net poll_wait %s pid=%d comm=%s ident=%llu filter=%d flags=%#x fflags=%#x data=%lld udata=%p notify_fd=%d\n",
+           phase, current->pid, current->comm,
+           (unsigned long long) event->real.ident, event->real.filter,
+           event->real.flags, event->real.fflags,
+           (long long) event->real.data, event->real.udata,
+           poll_ != NULL ? poll_->notify_pipe[0] : -1);
+#elif HAVE_EPOLL
+    printk("INFO: net poll_wait %s pid=%d comm=%s events=%#x udata=%p notify_fd=%d\n",
+           phase, current->pid, current->comm,
+           event->real.events, event->real.data.ptr,
+           poll_ != NULL ? poll_->notify_pipe[0] : -1);
+#endif
+}
+
+static void poll_drop_unknown_event(struct poll *poll_, struct real_poll_event *event) {
+#if HAVE_KQUEUE
+    if (poll_ == NULL || event == NULL)
+        return;
+    int ident = (int) event->real.ident;
+    if (ident < 0 || ident == poll_->notify_pipe[0])
+        return;
+    int err = real_poll_update(&poll_->real, ident, 0, NULL);
+    if (poll_wait_trace_enabled()) {
+        printk("INFO: net poll_wait drop-raw pid=%d comm=%s ident=%d err=%d errno=%d\n",
+               current->pid, current->comm, ident, err, err < 0 ? errno : 0);
+    }
+#else
+    (void) poll_;
+    (void) event;
+#endif
+}
+
+static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, void *context) {
+    int res = 0;
+    struct poll_fd *poll_fd, *tmp;
+    list_for_each_entry_safe(&poll_->poll_fds, poll_fd, tmp, fds) {
+        struct fd *fd = poll_fd->fd;
+        int raw_poll_types = 0;
+        if (fd->ops->poll)
+            raw_poll_types = fd->ops->poll(fd);
+        int poll_types = raw_poll_types;
+        poll_types &= poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL;
+        if (poll_fd->types & POLL_EDGETRIGGERED)
+            poll_types &= ~poll_fd->triggered_types;
+        if (poll_wait_trace_enabled()) {
+            char path[MAX_PATH];
+            path[0] = '\0';
+            if (fd != NULL)
+                generic_getpath(fd, path);
+            printk("INFO: net poll_wait scan pid=%d comm=%s real=%d raw=%#x masked=%#x types=%#x path=%s\n",
+                   current->pid, current->comm,
+                   fd != NULL ? fd->real_fd : -1,
+                   raw_poll_types, poll_types,
+                   poll_fd->types, path);
+        }
+        if (!poll_types)
+            continue;
+
+        int handled = callback(context, poll_types, poll_fd->info);
+        if (poll_wait_trace_enabled()) {
+            printk("INFO: net poll_wait callback pid=%d comm=%s real=%d events=%#x handled=%d\n",
+                   current->pid, current->comm,
+                   fd != NULL ? fd->real_fd : -1, poll_types, handled);
+        }
+        if (handled == 1)
+            res++;
+
+        // The real poll does not actually get the FDs set as oneshot.
+        // But this loop is done while holding the lock, so only one
+        // thread can get each oneshot event. This doesn't solve the
+        // thundering herd problem at all, but at least the semantics
+        // are right. I'll just leave that as a TODO.
+        if (poll_fd->types & POLL_ONESHOT) {
+            list_remove(&poll_fd->polls);
+            list_remove(&poll_fd->fds);
+            if (poll_fd_is_real(poll_fd))
+                real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
+            // Keep poll_fd storage alive on the freelist so stale host
+            // readiness events cannot turn into a use-after-free.
+            poll_fd_free(poll_fd);
+        }
+
+        if (poll_fd->types & POLL_EDGETRIGGERED)
+            poll_fd->triggered_types |= poll_types;
+    }
+    return res;
+}
 
 // lock order: fd, then poll
 
@@ -88,6 +216,15 @@ static struct poll_fd *poll_find_ptr(struct poll *poll, struct poll_fd *candidat
     }
     list_for_each_entry(&poll->pollfd_freelist, poll_fd, fds) {
         if (poll_fd == candidate)
+            return poll_fd;
+    }
+    return NULL;
+}
+
+static struct poll_fd *poll_find_real_fd(struct poll *poll, int real_fd) {
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        if (poll_fd->fd != NULL && poll_fd->fd->real_fd == real_fd)
             return poll_fd;
     }
     return NULL;
@@ -255,41 +392,8 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
     int res = 0;
     while (true) {
         // check if any fds are ready
-        struct poll_fd *poll_fd, *tmp;
-        list_for_each_entry_safe(&poll_->poll_fds, poll_fd, tmp, fds) {
-            struct fd *fd = poll_fd->fd;
-            int poll_types = 0;
-            if (fd->ops->poll)
-                poll_types = fd->ops->poll(fd);
-            poll_types &= poll_fd->types | POLL_HUP | POLL_ERR;
-            if (poll_fd->types & POLL_EDGETRIGGERED) {
-                poll_types &= ~poll_fd->triggered_types;
-            }
-            if (poll_types) {
-                if (callback(context, poll_types, poll_fd->info) == 1)
-                    res++;
-
-                // The real poll does not actually get the FDs set as oneshot.
-                // But this loop is done while holding the lock, so only one
-                // thread can get each oneshot event. This doesn't solve the
-                // thundering herd problem at all, but at least the semantics
-                // are right. I'll just leave that as a TODO.
-                if (poll_fd->types & POLL_ONESHOT) {
-                    list_remove(&poll_fd->polls);
-                    list_remove(&poll_fd->fds);
-                    if (poll_fd_is_real(poll_fd)) {
-                        real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
-                    }
-                    // Keep poll_fd storage alive on the freelist so stale host
-                    // readiness events cannot turn into a use-after-free.
-                    poll_fd_free(poll_fd);
-                }
-
-                if (poll_fd->types & POLL_EDGETRIGGERED) {
-                    poll_fd->triggered_types |= poll_types;
-                }
-            }
-        }
+        struct poll_fd *poll_fd;
+        res += poll_scan_ready_locked(poll_, callback, context);
         if (res > 0)
             break;
 
@@ -328,6 +432,13 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                     err = -1;
                 } else {
                     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                    if (poll_wait_trace_enabled()) {
+                        printk("INFO: net poll_wait sleep pid=%d comm=%s timeout=%lds.%09ld waiters=%d\n",
+                               current->pid, current->comm,
+                               timeout != NULL ? timeout->tv_sec : -1L,
+                               timeout != NULL ? timeout->tv_nsec : -1L,
+                               poll_->waiters);
+                    }
                     err = real_poll_wait(&poll_->real, e, sizeof(e)/sizeof(e[0]), timeout);
                     sigunwind_end();
                 }
@@ -335,6 +446,26 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
       
             lock(&poll_->lock, 0);
         } while (sockrestart_should_restart_listen_wait(1) && errno == EINTR);
+        if (poll_wait_trace_enabled()) {
+            printk("INFO: net poll_wait wake pid=%d comm=%s err=%d errno=%d notify_pending=%d\n",
+                   current->pid, current->comm, err, err < 0 ? errno : 0, poll_->notify_pending);
+            if (err > 0) {
+                for (int i = 0; i < err; i++) {
+                    struct poll_fd *candidate = rpe_data(&e[i]);
+                    struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
+#if HAVE_KQUEUE
+                    if (triggered_poll_fd == NULL)
+                        triggered_poll_fd = poll_find_real_fd(poll_, (int) e[i].real.ident);
+#endif
+                    if (triggered_poll_fd != NULL)
+                        poll_wait_trace_fd(triggered_poll_fd, rpe_events(&e[i]), "host-event");
+                    else {
+                        poll_wait_trace_raw_event(poll_, &e[i], "raw-event");
+                        poll_drop_unknown_event(poll_, &e[i]);
+                    }
+                }
+            }
+        }
         list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
             sockrestart_end_listen_wait(poll_fd->fd);
         }
@@ -344,7 +475,10 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
             break;
         }
         if (err == 0) {
-            // timed out and still nobody is ready
+            // Re-probe once before timing out. The host wait backend can miss
+            // a transition even when a direct readiness probe already says the
+            // fd is ready.
+            res += poll_scan_ready_locked(poll_, callback, context);
             break;
         }
 
@@ -352,6 +486,10 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         for (int i = 0; i < err; i++) {
             struct poll_fd *candidate = rpe_data(&e[i]);
             struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
+#if HAVE_KQUEUE
+            if (triggered_poll_fd == NULL)
+                triggered_poll_fd = poll_find_real_fd(poll_, (int) e[i].real.ident);
+#endif
             if (triggered_poll_fd != NULL && triggered_poll_fd->poll == poll_ &&
                     triggered_poll_fd->types & POLL_EDGETRIGGERED) {
                 triggered_poll_fd->triggered_types &= ~rpe_events(&e[i]);
@@ -453,6 +591,27 @@ static int real_poll_init(struct real_poll *real) {
     return 0;
 }
 
+static int real_poll_check_receipts(struct kevent *events, int count) {
+    for (int i = 0; i < count; i++) {
+        if (!(events[i].flags & EV_ERROR))
+            continue;
+        if (events[i].data == 0)
+            continue;
+        // Deleting a filter that was never installed is harmless.
+        if (events[i].data == ENOENT)
+            continue;
+        // EVFILT_EXCEPT is not supported for all Darwin fd types, including
+        // regular files. Treat that as "filter unavailable" rather than
+        // failing the whole poll registration.
+        if (events[i].filter == EVFILT_EXCEPT &&
+                (events[i].data == EINVAL || events[i].data == ENOTSUP || events[i].data == EPERM))
+            continue;
+        errno = (int) events[i].data;
+        return -1;
+    }
+    return 0;
+}
+
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data) {
     struct kevent e[3] = {
         {.filter = EVFILT_READ, .flags = types & (POLL_READ | POLL_HUP) ? EV_ADD : EV_DELETE},
@@ -472,7 +631,10 @@ static int real_poll_update(struct real_poll *real, int fd, int types, void *dat
             e[i].flags |= EV_CLEAR;
     }
 
-    return kevent(real->fd, e, 3, e, 3, NULL);
+    int count = kevent(real->fd, e, 3, e, 3, NULL);
+    if (count < 0)
+        return -1;
+    return real_poll_check_receipts(e, count);
 }
 
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout) {//mkemke
@@ -484,6 +646,14 @@ static void *rpe_data(struct real_poll_event *rpe) {
 }
 
 static int rpe_events(struct real_poll_event *rpe) {
+    if (rpe->real.flags & EV_ERROR) {
+        int err = (int) rpe->real.data;
+        if (err == 0)
+            return POLL_ERR;
+        if (err == EBADF || err == ENOENT)
+            return POLL_NVAL;
+        return POLL_ERR;
+    }
     if (rpe->real.filter == EVFILT_READ) {
         int events = 0;
         if (rpe->real.data > 0)
