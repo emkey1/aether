@@ -80,6 +80,27 @@ static int select_event_callback(void *context, int types, union poll_fd_info in
     return 1;
 }
 
+static void select_trace_net_fd(struct fd *fd, int requested, int ready, const char *phase) {
+    if (fd == NULL || !poll_trace_net_enabled())
+        return;
+
+    if (fd->ops == &tty_dev.fd) {
+        struct tty *tty = fd->tty;
+        printk("INFO: net select %s pid=%d comm=%s tty=%d:%d requested=%#x ready=%#x\n",
+               phase, current->pid, current->comm,
+               tty != NULL ? tty->driver->major : -1,
+               tty != NULL ? tty->num : -1,
+               requested, ready);
+        return;
+    }
+
+    char path[MAX_PATH];
+    path[0] = '\0';
+    generic_getpath(fd, path);
+    printk("INFO: net select %s pid=%d comm=%s real=%d requested=%#x ready=%#x path=%s\n",
+           phase, current->pid, current->comm, fd->real_fd, requested, ready, path);
+}
+
 static bool select_timeout_valid(struct timespec timeout_ts) {
     return timeout_ts.tv_sec >= 0 && timeout_ts.tv_nsec >= 0 && timeout_ts.tv_nsec < 1000000000;
 }
@@ -137,6 +158,25 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
         }
     }
     STRACE("...\n");
+
+    if (poll_trace_net_enabled()) {
+        for (fd_t i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int requested = 0;
+            if (bit_test(i, readfds))
+                requested |= SELECT_READ;
+            if (bit_test(i, writefds))
+                requested |= SELECT_WRITE;
+            if (bit_test(i, exceptfds))
+                requested |= SELECT_EX;
+            if (requested == 0)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            select_trace_net_fd(files[i], requested, ready, "enter");
+        }
+    }
+
     memset(readfds, 0, fdset_size);
     memset(writefds, 0, fdset_size);
     memset(exceptfds, 0, fdset_size);
@@ -161,6 +201,24 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
     }
     if (err < 0)
         return err;
+
+    if (poll_trace_net_enabled()) {
+        for (fd_t i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int revents = 0;
+            if (bit_test(i, readfds))
+                revents |= SELECT_READ;
+            if (bit_test(i, writefds))
+                revents |= SELECT_WRITE;
+            if (bit_test(i, exceptfds))
+                revents |= SELECT_EX;
+            if (revents == 0)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            select_trace_net_fd(files[i], revents, ready, "exit");
+        }
+    }
 
     if (readfds_addr && user_write(readfds_addr, readfds, fdset_size))
         return _EFAULT;
