@@ -1886,7 +1886,7 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     if (sock == NULL)
         return _EBADF;
 
-    struct msghdr msg;
+    struct msghdr msg = {};
     struct msghdr_ msg_fake;
     if (user_get(msghdr_addr, msg_fake))
         return _EFAULT;
@@ -2077,7 +2077,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     if (sock == NULL)
         return _EBADF;
 
-    struct msghdr msg;
+    struct msghdr msg = {};
     struct msghdr_ msg_fake;
     if (user_get(msghdr_addr, msg_fake))
         return _EFAULT;
@@ -2156,6 +2156,11 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         sock_trace("recvmsg", sock, -1, err);
     } else {
         sock_trace("recvmsg", sock, res, 0);
+        if (sock_trace_enabled()) {
+            printk("INFO: net recvmsg-flags pid=%d comm=%s real=%d flags=%#x namelen=%u controllen=%zu\n",
+                   current->pid, current->comm, sock->real_fd, msg.msg_flags,
+                   (unsigned) msg.msg_namelen, msg.msg_controllen);
+        }
     }
     // don't return err quite yet, there are outstanding mallocs
     msg_fake.msg_flags = sock_flags_from_real(msg.msg_flags);
