@@ -9,3 +9,6 @@ gcc -Wall -Wextra -O2 test_recvfrom_short.c -o ./test_recvfrom_short
 
 gcc -Wall -Wextra -O2 test_passcred.c -o ./test_passcred
 ./test_passcred
+
+gcc -Wall -Wextra -O2 test_sockopt_state.c -o ./test_sockopt_state
+./test_sockopt_state

@@ -125,6 +125,10 @@ const struct fd_ops socket_fdops;
 
 static lock_t peer_lock = LOCK_INITIALIZER;
 
+#define DEFAULT_TCP_CONGESTION "cubic"
+
+static void sock_init_emulation_defaults(struct fd *fd);
+
 static bool sock_trace_comm(const char *comm) {
     if (comm == NULL)
         return false;
@@ -185,6 +189,7 @@ static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
     fd->socket.domain = domain;
     fd->socket.type = type & SOCKET_TYPE_MASK;
     fd->socket.protocol = protocol;
+    sock_init_emulation_defaults(fd);
     if (domain == AF_LOCAL_) {
         cond_init(&fd->socket.unix_got_peer);
         list_init(&fd->socket.unix_scm);
@@ -208,6 +213,7 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
         fd->socket.domain = domain;
         fd->socket.type = socket_type;
         fd->socket.protocol = protocol;
+        sock_init_emulation_defaults(fd);
         fd->socket.netlink_port_id = netlink_next_port_id();
         fd->fake_inode = fd->socket.netlink_port_id;
         return f_install(fd, type & ~SOCKET_TYPE_MASK);
@@ -1394,7 +1400,9 @@ int_t sys_shutdown(fd_t sock_fd, dword_t how) {
     return 0;
 }
 
-#define DEFAULT_TCP_CONGESTION "cubic"
+static void sock_init_emulation_defaults(struct fd *fd) {
+    strcpy(fd->socket.tcp_congestion, DEFAULT_TCP_CONGESTION);
+}
 
 int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
     STRACE("setsockopt(%d, %d, %d, 0x%x, %d)", sock_fd, level, option, value_addr, value_len);
@@ -1405,31 +1413,53 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     if (user_read(value_addr, value, value_len))
         return _EFAULT;
 
-    // ICMP6_FILTER can only be set on real SOCK_RAW
-    if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_)
+    if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_) {
+        if (value_len != sizeof(sock->socket.icmp6_filter))
+            return _EINVAL;
+        if (sock->socket.type != SOCK_RAW_ || sock->socket.protocol != IPPROTO_ICMPV6)
+            return _ENOPROTOOPT;
+        memcpy(sock->socket.icmp6_filter, value, sizeof(sock->socket.icmp6_filter));
+        sock->socket.icmp6_filter_valid = true;
         return 0;
-    // Linux path-MTU discovery knobs have no Darwin equivalent.
-    if ((level == IPPROTO_IP && option == IP_MTU_DISCOVER_) ||
-            (level == IPPROTO_IPV6 && option == IPV6_MTU_DISCOVER_))
-        return 0;
-    // Unbound and similar daemons expect these Linux options to exist, but
-    // they are not required for correctness in our single-process emulation.
-    if (level == IPPROTO_IPV6 && option == IPV6_MTU_)
-        return 0;
-    // Modern glibc enables asynchronous ICMP reporting for DNS sockets and
-    // treats failure here as fatal. Darwin has no Linux error-queue equivalent,
-    // so accept the option as a no-op instead of returning EINVAL.
-    if ((level == IPPROTO_IP && option == IP_RECVERR_) ||
-            (level == IPPROTO_IPV6 && option == IPV6_RECVERR_))
-        return 0;
-    // TCP_CONGESTION also has no equivalent on Darwin
-#if defined(__APPLE__)
-    if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
-        if (strncmp(value, DEFAULT_TCP_CONGESTION, sizeof(value)) == 0)
-            return 0;
-        return _ENOENT;
     }
-#endif
+    if (level == IPPROTO_IP && option == IP_MTU_DISCOVER_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.ip_mtu_discover = *(dword_t *) value;
+        return 0;
+    }
+    if (level == IPPROTO_IPV6 && option == IPV6_MTU_DISCOVER_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.ipv6_mtu_discover = *(dword_t *) value;
+        return 0;
+    }
+    if (level == IPPROTO_IPV6 && option == IPV6_MTU_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.ipv6_mtu = *(dword_t *) value;
+        return 0;
+    }
+    if (level == IPPROTO_IP && option == IP_RECVERR_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.ip_recverr = (*(dword_t *) value) != 0;
+        return 0;
+    }
+    if (level == IPPROTO_IPV6 && option == IPV6_RECVERR_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        sock->socket.ipv6_recverr = (*(dword_t *) value) != 0;
+        return 0;
+    }
+    if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
+        size_t congestion_len = strnlen(value, value_len);
+        if (congestion_len == 0 || congestion_len >= sizeof(sock->socket.tcp_congestion))
+            return _EINVAL;
+        memcpy(sock->socket.tcp_congestion, value, congestion_len);
+        sock->socket.tcp_congestion[congestion_len] = '\0';
+        return 0;
+    }
 
     if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
         if (value_len < sizeof(dword_t))
@@ -1507,6 +1537,37 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         if (sock->socket.domain != AF_LOCAL_)
             return _ENOPROTOOPT;
         *passcred = sock->socket.unix_passcred;
+    } else if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_) {
+        if (value_len != sizeof(sock->socket.icmp6_filter))
+            return _EINVAL;
+        if (sock->socket.type != SOCK_RAW_ || sock->socket.protocol != IPPROTO_ICMPV6)
+            return _ENOPROTOOPT;
+        memcpy(value, sock->socket.icmp6_filter, sizeof(sock->socket.icmp6_filter));
+    } else if (level == IPPROTO_IP && option == IP_MTU_DISCOVER_) {
+        dword_t *mtu_discover = (dword_t *) value;
+        if (value_len != sizeof(*mtu_discover))
+            return _EINVAL;
+        *mtu_discover = sock->socket.ip_mtu_discover;
+    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_DISCOVER_) {
+        dword_t *mtu_discover = (dword_t *) value;
+        if (value_len != sizeof(*mtu_discover))
+            return _EINVAL;
+        *mtu_discover = sock->socket.ipv6_mtu_discover;
+    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_) {
+        dword_t *mtu = (dword_t *) value;
+        if (value_len != sizeof(*mtu))
+            return _EINVAL;
+        *mtu = sock->socket.ipv6_mtu;
+    } else if (level == IPPROTO_IP && option == IP_RECVERR_) {
+        dword_t *recverr = (dword_t *) value;
+        if (value_len != sizeof(*recverr))
+            return _EINVAL;
+        *recverr = sock->socket.ip_recverr;
+    } else if (level == IPPROTO_IPV6 && option == IPV6_RECVERR_) {
+        dword_t *recverr = (dword_t *) value;
+        if (value_len != sizeof(*recverr))
+            return _EINVAL;
+        *recverr = sock->socket.ipv6_recverr;
     } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
         if (value_len != sizeof(dword_t))
             return _EINVAL;
@@ -1517,8 +1578,8 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
             return errno_map();
         *(dword_t *) value = real_error == 0 ? 0 : -err_map(real_error);
     } else if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
-        value_len = strlen(DEFAULT_TCP_CONGESTION);
-        memcpy(value, DEFAULT_TCP_CONGESTION, value_len);
+        value_len = strlen(sock->socket.tcp_congestion);
+        memcpy(value, sock->socket.tcp_congestion, value_len);
 #if defined(__APPLE__)
     } else if (level == IPPROTO_TCP && option == TCP_INFO_) {
         // This one's fun. On Linux, the struct is not ABI dependent, so no

@@ -67,6 +67,14 @@ struct fd {
             struct ucred_ unix_peer_cred;
             bool unix_peer_cred_valid;
             bool unix_passcred;
+            dword_t ip_mtu_discover;
+            dword_t ipv6_mtu_discover;
+            dword_t ipv6_mtu;
+            bool ip_recverr;
+            bool ipv6_recverr;
+            bool icmp6_filter_valid;
+            uint32_t icmp6_filter[8];
+            char tcp_congestion[16];
 
             uint32_t netlink_port_id;
             uint32_t netlink_groups;

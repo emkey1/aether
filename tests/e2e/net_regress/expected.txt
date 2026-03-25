@@ -1,3 +1,4 @@
 SO_REUSEPORT ok
 recvfrom short ok
 SO_PASSCRED ok
+sockopt state ok
