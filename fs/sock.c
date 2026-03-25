@@ -41,6 +41,10 @@
 #define TCPF_ALL_ 0xFFF
 #define UDIAG_SHOW_NAME_ (1 << 0)
 
+#if defined(__APPLE__)
+#define DARWIN_TCPS_ESTABLISHED 4
+#endif
+
 struct sockaddr_nl_ {
     uint16_t nl_family;
     uint16_t nl_pad;
@@ -173,6 +177,23 @@ static bool socket_should_retry_io_eintr(struct fd *sock, int real_flags) {
     return !socket_guest_signal_pending();
 }
 
+#if defined(__APPLE__)
+static bool socket_tcp_connect_established(struct fd *sock) {
+    if (sock == NULL)
+        return true;
+    if (sock->socket.type != SOCK_STREAM_)
+        return true;
+    if (sock->socket.domain != AF_INET_ && sock->socket.domain != AF_INET6_)
+        return true;
+
+    struct tcp_connection_info info = {};
+    socklen_t info_len = sizeof(info);
+    if (getsockopt(sock->real_fd, IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &info_len) < 0)
+        return true;
+    return info.tcpi_state >= DARWIN_TCPS_ESTABLISHED;
+}
+#endif
+
 static int socket_finish_blocking_connect(struct fd *sock) {
     struct pollfd pfd = {
         .fd = sock->real_fd,
@@ -195,6 +216,10 @@ static int socket_finish_blocking_connect(struct fd *sock) {
             return errno_map();
         if (real_error != 0)
             return err_map(real_error);
+#if defined(__APPLE__)
+        if (!socket_tcp_connect_established(sock))
+            continue;
+#endif
         return 0;
     }
 }
