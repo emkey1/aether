@@ -1279,6 +1279,25 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
         }
     }
 
+#if defined(__APPLE__)
+    if (!(fd_getflags(sock) & O_NONBLOCK_) &&
+            (sock->socket.domain == AF_INET_ || sock->socket.domain == AF_INET6_) &&
+            sock->socket.type == SOCK_STREAM_ &&
+            !socket_tcp_connect_established(sock)) {
+        int real_error = 0;
+        socklen_t real_error_len = sizeof(real_error);
+        if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len) == 0 &&
+                real_error != 0) {
+            int mapped_err = err_map(real_error);
+            sock_trace("connect", sock, -1, mapped_err);
+            return mapped_err;
+        }
+        sock_trace_tcp_info("connect-postcheck", sock);
+        sock_trace("connect", sock, -1, _ECONNRESET);
+        return _ECONNRESET;
+    }
+#endif
+
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
         assert(sock->socket.unix_peer == NULL);
