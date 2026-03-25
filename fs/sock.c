@@ -192,6 +192,24 @@ static bool socket_tcp_connect_established(struct fd *sock) {
         return true;
     return info.tcpi_state >= DARWIN_TCPS_ESTABLISHED;
 }
+
+static bool socket_tcp_connect_write_ready(struct fd *sock) {
+    if (sock == NULL)
+        return true;
+    if (sock->socket.type != SOCK_STREAM_)
+        return true;
+    if (sock->socket.domain != AF_INET_ && sock->socket.domain != AF_INET6_)
+        return true;
+
+    int so_error = 0;
+    socklen_t so_error_len = sizeof(so_error);
+    if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
+        return true;
+    if (so_error != 0)
+        return true;
+
+    return socket_tcp_connect_established(sock);
+}
 #endif
 
 static int socket_finish_blocking_connect(struct fd *sock) {
@@ -2368,7 +2386,12 @@ static int sock_poll(struct fd *fd) {
             types |= POLL_READ;
         return types;
     }
-    return realfs_poll(fd);
+    int types = realfs_poll(fd);
+#if defined(__APPLE__)
+    if ((types & POLL_WRITE) && !socket_tcp_connect_write_ready(fd))
+        types &= ~POLL_WRITE;
+#endif
+    return types;
 }
 
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
