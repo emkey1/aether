@@ -341,8 +341,13 @@ static int fakefs_fstat(struct fd *fd, struct statbuf *fake_stat) {
         return err;
     sqlite3_mutex_enter(fs->lock);
     struct ish_stat ishstat;
-    inode_read_stat(fs, fd->fake_inode, &ishstat);
+    bool found = inode_read_stat(fs, fd->fake_inode, &ishstat);
     sqlite3_mutex_leave(fs->lock);
+    if (!found) {
+        // File was deleted while fd was still open - return ENOENT
+        printk("WARNING: inode_read_stat(%llu): missing inode for open fd\n", (unsigned long long) fd->fake_inode);
+        return _ENOENT;
+    }
     fake_stat->inode = fd->fake_inode;
     fake_stat->mode = ishstat.mode;
     fake_stat->uid = ishstat.uid;
@@ -388,7 +393,12 @@ static int fakefs_fsetattr(struct fd *fd, struct attr attr) {
         return realfs.fsetattr(fd, attr);
     db_begin(fs);
     struct ish_stat ishstat;
-    inode_read_stat(fs, fd->fake_inode, &ishstat);
+    if (!inode_read_stat(fs, fd->fake_inode, &ishstat)) {
+        // File was deleted while fd was still open - return ENOENT
+        db_rollback(fs);
+        printk("WARNING: inode_read_stat(%llu): missing inode for open fd in fsetattr\n", (unsigned long long) fd->fake_inode);
+        return _ENOENT;
+    }
     fake_stat_setattr(&ishstat, attr);
     inode_write_stat(fs, fd->fake_inode, &ishstat);
     db_commit(fs);

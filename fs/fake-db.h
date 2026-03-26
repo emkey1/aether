@@ -52,7 +52,7 @@ bool path_read_stat(struct fakefs_db *fs, const char *path, struct ish_stat *sta
 inode_t path_create(struct fakefs_db *fs, const char *path, struct ish_stat *stat);
 
 bool inode_exists(struct fakefs_db *fs, inode_t inode);
-void inode_read_stat(struct fakefs_db *fs, inode_t inode, struct ish_stat *stat);
+bool inode_read_stat(struct fakefs_db *fs, inode_t inode, struct ish_stat *stat);
 void inode_write_stat(struct fakefs_db *fs, inode_t inode, struct ish_stat *stat);
 
 void path_link(struct fakefs_db *fs, const char *src, const char *dst);
