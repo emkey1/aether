@@ -103,8 +103,23 @@ static int sys_show_net_version(struct proc_entry *UNUSED(entry), struct proc_da
     return 0;
 }
 
+static int sys_show_kernel_osrelease(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    struct uname uts;
+    do_uname(&uts);
+    proc_printf(buf, "%s\n", uts.release);
+    return 0;
+}
+
+static int sys_show_kernel_cap_last_cap(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // Keep this aligned with the advertised 4.20 kernel release.
+    proc_printf(buf, "%d\n", 37);
+    return 0;
+}
+
 struct proc_dir_entry proc_sys_kernel[] = {
+    {"cap_last_cap", .show = sys_show_kernel_cap_last_cap},
     {"hostname", .show = sys_show_net_unix_hostname},
+    {"osrelease", .show = sys_show_kernel_osrelease},
     {"version", .show = sys_show_net_version},
 };
 

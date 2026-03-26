@@ -135,6 +135,7 @@ static lock_t peer_lock = LOCK_INITIALIZER;
 #define DEFAULT_TCP_CONGESTION "cubic"
 
 static void sock_init_emulation_defaults(struct fd *fd);
+static bool sockopt_is_linux_soft_unsupported(dword_t level, dword_t option);
 
 static bool sock_trace_comm(const char *comm) {
     if (comm == NULL)
@@ -156,6 +157,85 @@ static bool sock_trace_enabled(void) {
     if (current == NULL)
         return false;
     return sock_trace_comm(current->comm) && false;
+}
+
+static bool sock_is_devlog_sink(const struct fd *sock) {
+    return sock != NULL && sock->socket.domain == AF_LOCAL_ &&
+        sock->socket.unix_devlog_sink;
+}
+
+static bool sock_is_initctl_sink(const struct fd *sock) {
+    return sock != NULL && sock->socket.domain == AF_LOCAL_ &&
+        sock->socket.unix_initctl_sink;
+}
+
+static bool guest_sockaddr_is_devlog(addr_t sockaddr_addr, uint_t sockaddr_len) {
+    if (sockaddr_addr == 0)
+        return false;
+    if (sockaddr_len < offsetof(struct sockaddr_, data))
+        return false;
+    if (sockaddr_len > sizeof(struct sockaddr_max_))
+        return false;
+
+    struct sockaddr_max_ fake_addr = {};
+    if (user_read(sockaddr_addr, &fake_addr, sockaddr_len))
+        return false;
+    if (fake_addr.family != AF_LOCAL_)
+        return false;
+
+    size_t path_size = sockaddr_len - offsetof(struct sockaddr_, data);
+    if (path_size == 0 || fake_addr.data[0] == '\0')
+        return false;
+
+    static const char devlog_path[] = "/dev/log";
+    size_t guest_len = strnlen(fake_addr.data, path_size);
+    return guest_len == strlen(devlog_path) &&
+        memcmp(fake_addr.data, devlog_path, strlen(devlog_path)) == 0;
+}
+
+static bool guest_sockaddr_is_initctl(addr_t sockaddr_addr, uint_t sockaddr_len) {
+    if (sockaddr_addr == 0)
+        return false;
+    if (sockaddr_len < offsetof(struct sockaddr_, data))
+        return false;
+    if (sockaddr_len > sizeof(struct sockaddr_max_))
+        return false;
+
+    struct sockaddr_max_ fake_addr = {};
+    if (user_read(sockaddr_addr, &fake_addr, sockaddr_len))
+        return false;
+    if (fake_addr.family != AF_LOCAL_)
+        return false;
+
+    size_t path_size = sockaddr_len - offsetof(struct sockaddr_, data);
+    if (path_size == 0 || fake_addr.data[0] == '\0')
+        return false;
+
+    static const char run_initctl_path[] = "/run/initctl";
+    static const char dev_initctl_path[] = "/dev/initctl";
+    size_t guest_len = strnlen(fake_addr.data, path_size);
+    return (guest_len == strlen(run_initctl_path) &&
+            memcmp(fake_addr.data, run_initctl_path, strlen(run_initctl_path)) == 0) ||
+        (guest_len == strlen(dev_initctl_path) &&
+            memcmp(fake_addr.data, dev_initctl_path, strlen(dev_initctl_path)) == 0);
+}
+
+static bool guest_sockaddr_is_abstract_local(addr_t sockaddr_addr, uint_t sockaddr_len) {
+    if (sockaddr_addr == 0)
+        return false;
+    if (sockaddr_len < offsetof(struct sockaddr_, data))
+        return false;
+    if (sockaddr_len > sizeof(struct sockaddr_max_))
+        return false;
+
+    struct sockaddr_max_ fake_addr = {};
+    if (user_read(sockaddr_addr, &fake_addr, sockaddr_len))
+        return false;
+    if (fake_addr.family != AF_LOCAL_)
+        return false;
+
+    size_t path_size = sockaddr_len - offsetof(struct sockaddr_, data);
+    return path_size != 0 && fake_addr.data[0] == '\0';
 }
 
 #if defined(__APPLE__)
@@ -420,7 +500,8 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
     if (domain == AF_NETLINK_) {
         int socket_type = type & SOCKET_TYPE_MASK;
-        if (protocol != NETLINK_SOCK_DIAG_)
+        if (protocol != NETLINK_SOCK_DIAG_ &&
+                protocol != NETLINK_KOBJECT_UEVENT_)
             return _EPROTONOSUPPORT;
         if (socket_type != SOCK_RAW_ && socket_type != SOCK_DGRAM_)
             return _EINVAL;
@@ -1241,10 +1322,30 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
+    if (sock->socket.domain == AF_LOCAL_) {
+        sock->socket.unix_devlog_sink = false;
+        sock->socket.unix_initctl_sink = false;
+        if (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len)) {
+            sock->socket.unix_devlog_sink = true;
+            fill_cred(&sock->socket.unix_cred);
+            return 0;
+        }
+        if (guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)) {
+            sock->socket.unix_initctl_sink = true;
+            fill_cred(&sock->socket.unix_cred);
+            return 0;
+        }
+    }
     struct sockaddr_max_ sockaddr;
     int err = sockaddr_read(sockaddr_addr, &sockaddr, &sockaddr_len);
-    if (err < 0)
+    if (err < 0) {
+        // Linux reports connect() to a missing abstract UNIX socket as
+        // ECONNREFUSED, which util-linux agetty expects for its Plymouth probe.
+        if (err == _ENOENT && sock->socket.domain == AF_LOCAL_ &&
+                guest_sockaddr_is_abstract_local(sockaddr_addr, sockaddr_len))
+            return _ECONNREFUSED;
         return err;
+    }
 
     if (sock->socket.domain == AF_NETLINK_) {
         struct sockaddr_nl_ *addr = (struct sockaddr_nl_ *) &sockaddr;
@@ -1585,6 +1686,13 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
     int err = _EINVAL;
     if (real_flags < 0)
         goto error;
+    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock) ||
+            (sock->socket.domain == AF_LOCAL_ &&
+             (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len) ||
+              guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)))) {
+        free(buffer);
+        return len;
+    }
     struct sockaddr_max_ sockaddr;
     if (sockaddr_addr) {
         err = sockaddr_read(sockaddr_addr, &sockaddr, &sockaddr_len);
@@ -1626,6 +1734,13 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
     if (sockaddr_len_addr != 0)
         if (user_get(sockaddr_len_addr, sockaddr_len))
             return _EFAULT;
+    if (sock_is_initctl_sink(sock)) {
+        uint_t zero = 0;
+        if (sockaddr_len_addr != 0)
+            if (user_put(sockaddr_len_addr, zero))
+                return _EFAULT;
+        return 0;
+    }
 
     char *buffer = malloc(len);
     char sockaddr[sockaddr_len];
@@ -1751,15 +1866,54 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
         if (value_len < sizeof(dword_t))
             return _EINVAL;
+        if (sock->socket.domain == AF_NETLINK_) {
+            sock->socket.unix_passcred = (*(dword_t *) value) != 0;
+            return 0;
+        }
         if (sock->socket.domain != AF_LOCAL_)
             return _ENOPROTOOPT;
         sock->socket.unix_passcred = (*(dword_t *) value) != 0;
         return 0;
     }
+    if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
+        if (level == SOL_SOCKET_ &&
+                (option == SO_RCVBUF_ || option == SO_SNDBUF_ ||
+                 option == SO_SNDBUFFORCE_ || option == SO_RCVTIMEO_OLD_ ||
+                 option == SO_SNDTIMEO_OLD_ || option == SO_RCVTIMEO_ ||
+                 option == SO_SNDTIMEO_ || option == SO_ATTACH_FILTER_ ||
+                 option == SO_DETACH_FILTER_)) {
+            return 0;
+        }
+    }
+    if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
+        if (value_len < sizeof(struct timeval_))
+            return _EINVAL;
+        struct timeval_ guest_timeout;
+        memcpy(&guest_timeout, value, sizeof(guest_timeout));
+        struct timeval host_timeout = {
+            .tv_sec = guest_timeout.sec,
+            .tv_usec = guest_timeout.usec,
+        };
+        int err = setsockopt(sock->real_fd, SOL_SOCKET,
+                option == SO_RCVTIMEO_OLD_ ? SO_RCVTIMEO : SO_SNDTIMEO,
+                &host_timeout, sizeof(host_timeout));
+        if (err < 0)
+            return errno_map();
+        return 0;
+    }
+    if (level == SOL_SOCKET_) {
+        if (option == SO_SNDBUFFORCE_) {
+            option = SO_SNDBUF_;
+        } else if (option == SO_RCVBUFFORCE_) {
+            option = SO_RCVBUF_;
+        } else if (sockopt_is_linux_soft_unsupported(level, option)) {
+            return _ENOPROTOOPT;
+        }
+    }
 
     int real_opt = sock_opt_to_real(option, level);
     if (real_opt < 0)
-        return _EINVAL;
+        return sockopt_is_linux_soft_unsupported(level, option) ? _ENOPROTOOPT : _EINVAL;
     int real_level = sock_level_to_real(level);
     if (real_level < 0)
         return _EINVAL;
@@ -1773,103 +1927,144 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     return 0;
 }
 
+static void sockopt_store_value(void *dst, dword_t dst_len, dword_t *result_len,
+        const void *src, dword_t src_len) {
+    size_t copy_len = dst_len < src_len ? dst_len : src_len;
+    if (copy_len != 0)
+        memcpy(dst, src, copy_len);
+    *result_len = src_len;
+}
+
+static bool sockopt_is_linux_soft_unsupported(dword_t level, dword_t option) {
+    if (level != SOL_SOCKET_)
+        return false;
+    switch (option) {
+        case SO_BINDTODEVICE_:
+        case SO_PEERSEC_:
+        case SO_PASSSEC_:
+        case SO_PEERGROUPS_:
+            return true;
+    }
+    return false;
+}
+
 int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
     STRACE("getsockopt(%d, %d, %d, %#x, %#x)", sock_fd, level, option, value_addr, len_addr);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
-    dword_t value_len;
-    if (user_get(len_addr, value_len))
+    dword_t user_value_len;
+    if (user_get(len_addr, user_value_len))
         return _EFAULT;
-    char value[value_len];
-    if (user_read(value_addr, value, value_len))
+    char value[user_value_len != 0 ? user_value_len : 1];
+    if (user_value_len != 0 && user_read(value_addr, value, user_value_len))
         return _EFAULT;
+    dword_t value_len = user_value_len;
 
     if (level == SOL_SOCKET_ && (option == SO_DOMAIN_ || option == SO_TYPE_ || option == SO_PROTOCOL_)) {
-        dword_t *value_p = (dword_t *) value;
-        if (value_len != sizeof(*value_p))
-            return _EINVAL;
+        dword_t value_p;
         if (option == SO_DOMAIN_)
-            *value_p = sock->socket.domain;
+            value_p = sock->socket.domain;
         else if (option == SO_TYPE_)
-            *value_p = sock->socket.type;
+            value_p = sock->socket.type;
         else if (option == SO_PROTOCOL_)
-            *value_p = sock->socket.protocol;
+            value_p = sock->socket.protocol;
+        sockopt_store_value(value, user_value_len, &value_len, &value_p, sizeof(value_p));
     } else if (level == SOL_SOCKET_ && option == SO_PEERCRED_) {
-        struct ucred_ *cred = (struct ucred_ *) value;
-        if (value_len != sizeof(*cred))
-            return _EINVAL;
+        struct ucred_ cred;
         int err = unix_socket_finish_peer(sock, true);
         if (err < 0 && err != _ENOTCONN)
             return err;
         lock(&peer_lock, 0);
         if (sock->socket.domain != AF_LOCAL_) {
-            cred->pid = 0;
-            cred->uid = cred->gid = -1;
+            cred.pid = 0;
+            cred.uid = cred.gid = -1;
         } else if (sock->socket.unix_peer_cred_valid) {
-            *cred = sock->socket.unix_peer_cred;
+            cred = sock->socket.unix_peer_cred;
         } else if (sock->socket.unix_peer != NULL) {
-            *cred = sock->socket.unix_peer->socket.unix_cred;
+            cred = sock->socket.unix_peer->socket.unix_cred;
         } else {
-            cred->pid = 0;
-            cred->uid = cred->gid = -1;
+            cred.pid = 0;
+            cred.uid = cred.gid = -1;
         }
         unlock(&peer_lock);
+        sockopt_store_value(value, user_value_len, &value_len, &cred, sizeof(cred));
     } else if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
-        dword_t *passcred = (dword_t *) value;
-        if (value_len != sizeof(*passcred))
-            return _EINVAL;
-        if (sock->socket.domain != AF_LOCAL_)
+        dword_t passcred;
+        if (sock->socket.domain == AF_NETLINK_) {
+            passcred = sock->socket.unix_passcred;
+        } else if (sock->socket.domain != AF_LOCAL_) {
             return _ENOPROTOOPT;
-        *passcred = sock->socket.unix_passcred;
-    } else if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_) {
-        if (value_len != sizeof(sock->socket.icmp6_filter))
-            return _EINVAL;
-        if (sock->socket.type != SOCK_RAW_ || sock->socket.protocol != IPPROTO_ICMPV6)
-            return _ENOPROTOOPT;
-        memcpy(value, sock->socket.icmp6_filter, sizeof(sock->socket.icmp6_filter));
-    } else if (level == IPPROTO_IP && option == IP_MTU_DISCOVER_) {
-        dword_t *mtu_discover = (dword_t *) value;
-        if (value_len != sizeof(*mtu_discover))
-            return _EINVAL;
-        *mtu_discover = sock->socket.ip_mtu_discover;
-    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_DISCOVER_) {
-        dword_t *mtu_discover = (dword_t *) value;
-        if (value_len != sizeof(*mtu_discover))
-            return _EINVAL;
-        *mtu_discover = sock->socket.ipv6_mtu_discover;
-    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_) {
-        dword_t *mtu = (dword_t *) value;
-        if (value_len != sizeof(*mtu))
-            return _EINVAL;
-        *mtu = sock->socket.ipv6_mtu;
-    } else if (level == IPPROTO_IP && option == IP_RECVERR_) {
-        dword_t *recverr = (dword_t *) value;
-        if (value_len != sizeof(*recverr))
-            return _EINVAL;
-        *recverr = sock->socket.ip_recverr;
-    } else if (level == IPPROTO_IPV6 && option == IPV6_RECVERR_) {
-        dword_t *recverr = (dword_t *) value;
-        if (value_len != sizeof(*recverr))
-            return _EINVAL;
-        *recverr = sock->socket.ipv6_recverr;
-    } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
-        if (value_len != sizeof(dword_t))
-            return _EINVAL;
-        int real_error;
-        socklen_t real_error_len = sizeof(real_error);
-        int err = getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len);
+        } else {
+            passcred = sock->socket.unix_passcred;
+        }
+        sockopt_store_value(value, user_value_len, &value_len, &passcred, sizeof(passcred));
+    } else if (level == SOL_SOCKET_ && option == SO_ACCEPTCONN_) {
+        dword_t acceptconn = 0;
+        if (!(sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0)) {
+            int real_acceptconn = 0;
+            socklen_t real_acceptconn_len = sizeof(real_acceptconn);
+            int err = getsockopt(sock->real_fd, SOL_SOCKET, SO_ACCEPTCONN,
+                    &real_acceptconn, &real_acceptconn_len);
+            if (err < 0)
+                return errno_map();
+            acceptconn = real_acceptconn != 0;
+        }
+        sockopt_store_value(value, user_value_len, &value_len, &acceptconn, sizeof(acceptconn));
+    } else if (sockopt_is_linux_soft_unsupported(level, option)) {
+        return _ENOPROTOOPT;
+    } else if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
+        struct timeval host_timeout;
+        socklen_t host_timeout_len = sizeof(host_timeout);
+        int err = getsockopt(sock->real_fd, SOL_SOCKET,
+                option == SO_RCVTIMEO_OLD_ ? SO_RCVTIMEO : SO_SNDTIMEO,
+                &host_timeout, &host_timeout_len);
         if (err < 0)
             return errno_map();
-        *(dword_t *) value = real_error == 0 ? 0 : -err_map(real_error);
+        struct timeval_ guest_timeout = {
+            .sec = host_timeout.tv_sec,
+            .usec = host_timeout.tv_usec,
+        };
+        sockopt_store_value(value, user_value_len, &value_len, &guest_timeout, sizeof(guest_timeout));
+    } else if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_) {
+        if (sock->socket.type != SOCK_RAW_ || sock->socket.protocol != IPPROTO_ICMPV6)
+            return _ENOPROTOOPT;
+        sockopt_store_value(value, user_value_len, &value_len,
+                sock->socket.icmp6_filter, sizeof(sock->socket.icmp6_filter));
+    } else if (level == IPPROTO_IP && option == IP_MTU_DISCOVER_) {
+        dword_t mtu_discover = sock->socket.ip_mtu_discover;
+        sockopt_store_value(value, user_value_len, &value_len, &mtu_discover, sizeof(mtu_discover));
+    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_DISCOVER_) {
+        dword_t mtu_discover = sock->socket.ipv6_mtu_discover;
+        sockopt_store_value(value, user_value_len, &value_len, &mtu_discover, sizeof(mtu_discover));
+    } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_) {
+        dword_t mtu = sock->socket.ipv6_mtu;
+        sockopt_store_value(value, user_value_len, &value_len, &mtu, sizeof(mtu));
+    } else if (level == IPPROTO_IP && option == IP_RECVERR_) {
+        dword_t recverr = sock->socket.ip_recverr;
+        sockopt_store_value(value, user_value_len, &value_len, &recverr, sizeof(recverr));
+    } else if (level == IPPROTO_IPV6 && option == IPV6_RECVERR_) {
+        dword_t recverr = sock->socket.ipv6_recverr;
+        sockopt_store_value(value, user_value_len, &value_len, &recverr, sizeof(recverr));
+    } else if (level == SOL_SOCKET_ && option == SO_ERROR_) {
+        dword_t socket_error;
+        if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
+            socket_error = 0;
+        } else {
+            int real_error;
+            socklen_t real_error_len = sizeof(real_error);
+            int err = getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len);
+            if (err < 0)
+                return errno_map();
+            socket_error = real_error == 0 ? 0 : -err_map(real_error);
+        }
+        sockopt_store_value(value, user_value_len, &value_len, &socket_error, sizeof(socket_error));
     } else if (level == IPPROTO_TCP && option == TCP_DEFER_ACCEPT_) {
-        dword_t *defer_accept = (dword_t *) value;
-        if (value_len != sizeof(*defer_accept))
-            return _EINVAL;
-        *defer_accept = sock->socket.tcp_defer_accept;
+        dword_t defer_accept = sock->socket.tcp_defer_accept;
+        sockopt_store_value(value, user_value_len, &value_len, &defer_accept, sizeof(defer_accept));
     } else if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
-        value_len = strlen(sock->socket.tcp_congestion);
-        memcpy(value, sock->socket.tcp_congestion, value_len);
+        sockopt_store_value(value, user_value_len, &value_len,
+                sock->socket.tcp_congestion, strlen(sock->socket.tcp_congestion));
 #if defined(__APPLE__)
     } else if (level == IPPROTO_TCP && option == TCP_INFO_) {
         // This one's fun. On Linux, the struct is not ABI dependent, so no
@@ -1913,26 +2108,27 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
             // https://lkml.org/lkml/2017/4/24/923
             .total_retrans = conn_info.tcpi_txretransmitpackets,
         };
-        if (value_len > sizeof(struct tcp_info_))
-            value_len = sizeof(struct tcp_info_);
-        memcpy(value, &info, value_len);
+        sockopt_store_value(value, user_value_len, &value_len, &info, sizeof(info));
 #endif
     } else {
         int real_opt = sock_opt_to_real(option, level);
         if (real_opt < 0)
-            return _EINVAL;
+            return sockopt_is_linux_soft_unsupported(level, option) ? _ENOPROTOOPT : _EINVAL;
         int real_level = sock_level_to_real(level);
         if (real_level < 0)
             return _EINVAL;
 
-        int err = getsockopt(sock->real_fd, real_level, real_opt, value, &value_len);
+        socklen_t host_value_len = user_value_len;
+        int err = getsockopt(sock->real_fd, real_level, real_opt, value, &host_value_len);
         if (err < 0)
             return errno_map();
+        value_len = host_value_len;
     }
 
     if (user_put(len_addr, value_len))
         return _EFAULT;
-    if (user_put(value_addr, value))
+    dword_t copy_value_len = user_value_len < value_len ? user_value_len : value_len;
+    if (copy_value_len != 0 && user_write(value_addr, value, copy_value_len))
         return _EFAULT;
     return 0;
 }
@@ -2016,6 +2212,17 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         err = _EFAULT;
         if (user_read(msg_iov_fake[i].base, msg_iov[i].iov_base, msg_iov_fake[i].len))
             goto out_free_iov;
+    }
+
+    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock) ||
+            (sock->socket.domain == AF_LOCAL_ &&
+             (guest_sockaddr_is_devlog(msg_fake.msg_name, msg_fake.msg_namelen) ||
+              guest_sockaddr_is_initctl(msg_fake.msg_name, msg_fake.msg_namelen)))) {
+        size_t total = 0;
+        for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
+            total += msg_iov[i].iov_len;
+        err = (int_t) total;
+        goto out_free_iov;
     }
 
     if (sock->socket.domain == AF_NETLINK_) {
@@ -2221,6 +2428,17 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
         msg_iov[i].iov_len = msg_iov_fake[i].len;
         msg_iov[i].iov_base = malloc(msg_iov_fake[i].len);
+    }
+
+    if (sock_is_initctl_sink(sock)) {
+        msg_fake.msg_namelen = 0;
+        msg_fake.msg_controllen = 0;
+        msg_fake.msg_flags = 0;
+        for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
+            free(msg_iov[i].iov_base);
+        if (user_put(msghdr_addr, msg_fake))
+            return _EFAULT;
+        return 0;
     }
 
     if (sock->socket.domain == AF_NETLINK_) {
@@ -2442,6 +2660,10 @@ static void sock_translate_err(struct fd *fd, int *err) {
 }
 
 static int sock_poll(struct fd *fd) {
+    if (sock_is_devlog_sink(fd))
+        return POLL_WRITE;
+    if (sock_is_initctl_sink(fd))
+        return POLL_READ | POLL_WRITE | POLL_HUP;
     if (fd->real_fd < 0) {
         int types = POLL_WRITE;
         if (fd->socket.netlink_reply_off < fd->socket.netlink_reply_len)
@@ -2459,6 +2681,8 @@ static int sock_poll(struct fd *fd) {
 }
 
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
+    if (sock_is_initctl_sink(fd))
+        return 0;
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
     if (fd->socket.domain == AF_LOCAL_) {
@@ -2484,6 +2708,9 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
 }
 
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
+    if (sock_is_devlog_sink(fd) || sock_is_initctl_sink(fd)) {
+        return size;
+    }
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
     sock_trace_write_preview(fd, buf, size);
@@ -2600,6 +2827,52 @@ static struct socket_call {
     {(syscall_t) sys_sendmmsg, 4},
 };
 
+static bool socketcall_trace_sshd_process(void) {
+    return current->comm != NULL && strcmp(current->comm, "sshd") == 0;
+}
+
+static const char *socketcall_name(dword_t call_num) {
+    switch (call_num) {
+        case 1: return "socket";
+        case 2: return "bind";
+        case 3: return "connect";
+        case 4: return "listen";
+        case 5: return "accept";
+        case 6: return "getsockname";
+        case 7: return "getpeername";
+        case 8: return "socketpair";
+        case 9: return "send";
+        case 10: return "recv";
+        case 11: return "sendto";
+        case 12: return "recvfrom";
+        case 13: return "shutdown";
+        case 14: return "setsockopt";
+        case 15: return "getsockopt";
+        case 16: return "sendmsg";
+        case 17: return "recvmsg";
+        case 18: return "accept4";
+        case 19: return "recvmmsg";
+        case 20: return "sendmmsg";
+        default: return "unknown";
+    }
+}
+
+static bool socketcall_trace_interesting(dword_t call_num, int_t result) {
+    if (result < 0)
+        return true;
+    switch (call_num) {
+        case 1:
+        case 8:
+        case 14:
+        case 15:
+        case 16:
+        case 17:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // #define SYS_SOCKET    1        /* sys_socket(2)        */
 // #define SYS_BIND    2        /* sys_bind(2)            */
 // #define SYS_CONNECT    3        /* sys_connect(2)        */
@@ -2634,5 +2907,11 @@ int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
     dword_t args[6];
     if (user_read(args_addr, args, sizeof(dword_t) * call.args))
         return _EFAULT;
-    return call.func(args[0], args[1], args[2], args[3], args[4], args[5]);
+    int_t result = call.func(args[0], args[1], args[2], args[3], args[4], args[5]);
+    if (socketcall_trace_sshd_process() && socketcall_trace_interesting(call_num, result)) {
+        printk("INFO: sshd socketcall pid=%d tgid=%d comm=%s call=%u(%s) args=%#x,%#x,%#x,%#x,%#x,%#x result=%d\n",
+               current->pid, current->tgid, current->comm, call_num, socketcall_name(call_num),
+               args[0], args[1], args[2], args[3], args[4], args[5], result);
+    }
+    return result;
 }

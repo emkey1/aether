@@ -42,6 +42,7 @@ static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t
 
 static bool trace_session_exec_name(const char *name) {
     return strcmp(name, "login") == 0 ||
+        strcmp(name, "sshd") == 0 ||
         strcmp(name, "sh") == 0 ||
         strcmp(name, "bash") == 0 ||
         strcmp(name, "dash") == 0 ||

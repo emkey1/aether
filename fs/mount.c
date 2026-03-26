@@ -12,7 +12,13 @@ static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
     &devptsfs,
     &tmpfs,
     &sysfs,
+    &cgroupfs,
+    &cgroup2fs,
 };
+
+static bool mount_trace_elogind(void) {
+    return false;
+}
 
 void fs_register(const struct fs_ops *fs) {
     for (unsigned i = 0; i < MAX_FILESYSTEMS; i++) {
@@ -160,8 +166,8 @@ bool mount_param_flag(const char *info, const char *flag) {
     return false;
 }
 
-#define MS_SUPPORTED (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_REMOUNT_|MS_SILENT_)
-#define MS_FLAGS (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_)
+#define MS_SUPPORTED (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_REMOUNT_|MS_NOATIME_|MS_NODIRATIME_|MS_SILENT_|MS_RELATIME_|MS_STRICTATIME_)
+#define MS_FLAGS (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_NOATIME_|MS_NODIRATIME_|MS_RELATIME_|MS_STRICTATIME_)
 
 dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword_t flags, addr_t data_addr) {
     char source[MAX_PATH] = "";
@@ -177,6 +183,9 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
     if (type_addr != 0 && user_read_string(type_addr, type, sizeof(type)))
         return _EFAULT;
     STRACE("mount(\"%s\", \"%s\", \"%s\", %#x, \"%s\")", source, point_raw, type, flags, data_addr != 0 ? data : NULL);
+    if (mount_trace_elogind())
+        printk("INFO: elogind mount pid=%d comm=%s source=%s target=%s type=%s flags=%#x data=%s\n",
+               current->pid, current->comm, source, point_raw, type, flags, data_addr != 0 ? data : "");
 
     if (flags & ~MS_SUPPORTED) {
         FIXME("missing mount flags %#x", flags & ~MS_SUPPORTED);
@@ -225,6 +234,9 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
 
     err = do_mount(fs, source, point, data, flags & MS_FLAGS);
     unlock(&mounts_lock);
+    if (mount_trace_elogind())
+        printk("INFO: elogind mount-result pid=%d comm=%s target=%s result=%d\n",
+               current->pid, current->comm, point, err);
     return err;
 }
 

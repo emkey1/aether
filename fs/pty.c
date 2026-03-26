@@ -12,6 +12,10 @@ extern struct tty_driver pty_slave;
 // the master holds a reference to the slave, so the slave will always be cleaned up second
 // when the master cleans up it hangs up the slave, making any operation that references the master unreachable
 
+static bool pty_trace_ssh(void) {
+    return current != NULL && strcmp(current->comm, "sshd") == 0;
+}
+
 static void pty_slave_init_inode(struct tty *tty) {
     tty->pty.uid = current->euid;
     // TODO make these mount options
@@ -53,6 +57,7 @@ static int pty_slave_open(struct tty *tty) {
 
 static int pty_master_ioctl(struct tty *tty, int cmd, void *arg) {
     struct tty *slave = tty->pty.other;
+    int err = 0;
     switch (cmd) {
         case TIOCSPTLCK_:
             slave->pty.locked = !!*(dword_t *) arg;
@@ -67,9 +72,17 @@ static int pty_master_ioctl(struct tty *tty, int cmd, void *arg) {
             *(dword_t *) arg = tty->pty.packet_mode;
             break;
         default:
-            return _ENOTTY;
+            err = _ENOTTY;
+            break;
     }
-    return 0;
+    if (pty_trace_ssh()) {
+        printk("INFO: sshd pty-ioctl pid=%d tgid=%d cmd=%#x master=%d slave=%d locked=%d packet=%d err=%d\n",
+               current->pid, current->tgid, cmd, tty->num,
+               slave != NULL ? slave->num : -1,
+               slave != NULL ? slave->pty.locked : -1,
+               tty->pty.packet_mode, err);
+    }
+    return err;
 }
 
 static int pty_write(struct tty *tty, const void *buf, size_t len, bool blocking) {
@@ -123,6 +136,10 @@ int ptmx_open(struct fd *fd) {
     struct tty *master = tty_get(&pty_master, TTY_PSEUDO_MASTER_MAJOR, pty_num);
     if (IS_ERR(master))
         return PTR_ERR(master);
+    if (pty_trace_ssh()) {
+        printk("INFO: sshd ptmx-open pid=%d tgid=%d master=%d flags=%#x\n",
+               current->pid, current->tgid, pty_num, fd->flags);
+    }
     return tty_open(master, fd);
 }
 

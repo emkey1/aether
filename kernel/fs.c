@@ -23,6 +23,28 @@ static struct fd *at_fd(fd_t f) {
     return f_get(f);
 }
 
+static bool fs_trace_elogind(void) {
+    return false;
+}
+
+static bool fs_trace_interesting_path(const char *path) {
+    static const char *prefixes[] = {
+        "/sys/fs/cgroup",
+        "/run/systemd",
+        "/run/elogind",
+        "/run/dbus",
+        "/dev/kmsg",
+        "/dev/log",
+        "/proc/",
+    };
+    for (unsigned i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        size_t len = strlen(prefixes[i]);
+        if (strncmp(path, prefixes[i], len) == 0)
+            return true;
+    }
+    return false;
+}
+
 static void apply_umask(mode_t_ *mode) {
     struct fs_info *fs = current->fs;
     lock(&fs->lock, 0);
@@ -122,9 +144,19 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     TASK_MAY_BLOCK {
         fd = generic_openat(at, path, flags, mode);
     }
-    if (IS_ERR(fd))
+    if (IS_ERR(fd)) {
+        if (fs_trace_elogind()) {
+            printk("INFO: elogind openat pid=%d comm=%s at=%d path=%s flags=%#x mode=%#o result=%d\n",
+                   current->pid, current->comm, at_f, path, flags, mode, PTR_ERR(fd));
+        }
         return PTR_ERR(fd);
-    return f_install(fd, flags);
+    }
+    fd_t installed = f_install(fd, flags);
+    if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
+        printk("INFO: elogind openat-ok pid=%d comm=%s at=%d path=%s flags=%#x mode=%#o fd=%d\n",
+               current->pid, current->comm, at_f, path, flags, mode, installed);
+    }
+    return installed;
 }
 
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode) {
@@ -295,7 +327,12 @@ dword_t sys_mknodat(fd_t at_f, addr_t path_addr, mode_t_ mode, dev_t_ dev) {
     struct fd *at = at_fd(at_f);
     if (at == NULL)
         return _EBADF;
-    return generic_mknodat(at, path, mode, dev);
+    int err = generic_mknodat(at, path, mode, dev);
+    if (fs_trace_elogind()) {
+        printk("INFO: elogind mknodat pid=%d comm=%s at=%d path=%s mode=%#o dev=%#x result=%d\n",
+               current->pid, current->comm, at_f, path, mode, dev, err);
+    }
+    return err;
 }
 
 dword_t sys_mknod(addr_t path_addr, mode_t_ mode, dev_t_ dev) {
@@ -322,6 +359,14 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
     }
 
     if (res >= 0) {
+        char path[MAX_PATH];
+        if (fs_trace_elogind() && generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
+            size_t print_size = res;
+            if (print_size > 80)
+                print_size = 80;
+            printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
+                   current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+        }
         size_t print_size = res;
         if (print_size > 100) print_size = 100;
         STRACE(" \"%.*s\"", print_size, buf);
@@ -374,8 +419,16 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     }
     if (res > 0) {
         char path[MAX_PATH];
-        if (generic_getpath(fd, path) == 0)
+        if (generic_getpath(fd, path) == 0) {
             inotify_notify_modify(path);
+            if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
+                size_t print_size = res;
+                if (print_size > 80)
+                    print_size = 80;
+                printk("INFO: elogind write pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
+                       current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+            }
+        }
     }
     return res;
 }
@@ -603,6 +656,14 @@ dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
         assert(lseek_res >= 0);
     }
     if (res >= 0) {
+        char path[MAX_PATH];
+        if (fs_trace_elogind() && generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
+            size_t print_size = res;
+            if (print_size > 80)
+                print_size = 80;
+            printk("INFO: elogind pread pid=%d comm=%s fd=%d path=%s off=%d size=%zd data=\"%.*s\"\n",
+                   current->pid, current->comm, f, path, off, res, (int) print_size, buf);
+        }
         buf[res] = '\0';
         STRACE(" \"%.99s\"", buf);
         if (user_write(buf_addr, buf, res))
@@ -713,6 +774,13 @@ dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
     dword_t res = 0;
     TASK_MAY_BLOCK {
         res = fd_ioctl(fd, cmd, arg);
+    }
+    if (fs_trace_elogind()) {
+        char path[MAX_PATH];
+        if (generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
+            printk("INFO: elogind ioctl pid=%d comm=%s fd=%d path=%s cmd=%#x arg=%#x result=%d\n",
+                   current->pid, current->comm, f, path, cmd, arg, res);
+        }
     }
     return res;
 }
@@ -895,11 +963,19 @@ dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr) {
 }
 
 dword_t sys_fstatfs(fd_t f, addr_t buf_addr) {
-    return statfs_mount(f_get(f)->mount, buf_addr);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs_mount(fd->mount, buf_addr);
 }
 
-dword_t sys_fstatfs64(fd_t f, addr_t buf_addr) {
-    return statfs64_mount(f_get(f)->mount, buf_addr);
+dword_t sys_fstatfs64(fd_t f, dword_t buf_size, addr_t buf_addr) {
+    if (buf_size != sizeof(struct statfs64_))
+        return _EINVAL;
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs64_mount(fd->mount, buf_addr);
 }
 
 dword_t sys_flock(fd_t f, dword_t operation) {
@@ -1178,7 +1254,11 @@ dword_t sys_mkdirat(fd_t at_f, addr_t path_addr, mode_t_ mode) {
         return _EBADF;
     apply_umask(&mode);
     mode &= 0777;
-    return generic_mkdirat(at, path, mode);
+    int err = generic_mkdirat(at, path, mode);
+    if (fs_trace_elogind())
+        printk("INFO: elogind mkdirat pid=%d comm=%s at=%d path=%s mode=%#o result=%d\n",
+               current->pid, current->comm, at_f, path, mode, err);
+    return err;
 }
 
 dword_t sys_mkdir(addr_t path_addr, mode_t_ mode) {

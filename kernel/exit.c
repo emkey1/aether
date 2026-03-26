@@ -19,6 +19,7 @@ static void halt_system(void);
 
 static bool trace_session_exit_task(struct task *task) {
     return strcmp(task->comm, "login") == 0 ||
+        strcmp(task->comm, "sshd") == 0 ||
         strcmp(task->comm, "sh") == 0 ||
         strcmp(task->comm, "bash") == 0 ||
         strcmp(task->comm, "dash") == 0 ||
@@ -65,6 +66,52 @@ static struct task *find_new_parent(struct task *task) {
     return pid_get_task(1);
 }
 
+static bool session_has_other_live_groups(struct pid *sid_pid, struct tgroup *group) {
+    struct tgroup *session_group;
+    list_for_each_entry(&sid_pid->session, session_group, session) {
+        if (session_group != group && !list_empty(&session_group->threads))
+            return true;
+    }
+    return false;
+}
+
+// Hang up the controlling terminal as soon as the session leader exits, but
+// only once the session is otherwise empty. Waiting until the zombie is reaped
+// is too late for PTY users such as script, but hanging up while sshd still
+// has a child shell running tears down the remote login immediately.
+static void exit_hangup_session_tty(struct task *leader) {
+    struct tgroup *group = leader->group;
+    if (group->tty == NULL || group->sid != leader->pid)
+        return;
+
+    struct pid *sid_pid = pid_get(group->sid);
+    if (sid_pid == NULL)
+        return;
+    if (session_has_other_live_groups(sid_pid, group))
+        return;
+
+    struct tty *tty = group->tty;
+    lock(&ttys_lock, 0);
+    lock(&tty->lock, 0);
+    tty->session = 0;
+    tty->fg_group = 0;
+    tty_hangup(tty);
+    unlock(&tty->lock);
+
+    struct tgroup *session_group;
+    list_for_each_entry(&sid_pid->session, session_group, session) {
+        lock(&session_group->lock, 0);
+        if (session_group->tty == tty) {
+            session_group->tty = NULL;
+            unlock(&session_group->lock);
+            tty_release(tty);
+        } else {
+            unlock(&session_group->lock);
+        }
+    }
+    unlock(&ttys_lock);
+}
+
 // Handles the termination of the current task. It releases resources, notifies the parent,
 // and re-parents any children. It ensures the task is not in a critical section and that
 // all locks are released before proceeding.  At least in theory
@@ -80,7 +127,7 @@ noreturn void do_exit(struct task *task, int status) {
                task->pid, task->tgid, task->comm, status, task->did_exec,
                task->parent != NULL ? task->parent->pid : -1);
     }
-    
+
     lock(&task->general_lock, 0);
     
     // has to happen before mm_release
@@ -162,6 +209,7 @@ noreturn void do_exit(struct task *task, int status) {
         list_add(&new_parent->children, &child->siblings);
     }
     if (exit_tgroup(task)) {
+        exit_hangup_session_tty(leader);
         // notify parent that we died
         struct task *parent = leader->parent;
         if (parent == NULL) {

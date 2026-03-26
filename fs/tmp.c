@@ -23,6 +23,10 @@ struct tmp_inode {
     };
 };
 
+static bool tmpfs_is_cgroup2_mount(struct mount *mount) {
+    return strcmp(mount->fs->name, "cgroup2") == 0;
+}
+
 static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
     struct tmp_inode *node = malloc(sizeof(struct tmp_inode));
     if (node == NULL)
@@ -167,6 +171,65 @@ static int tmpfs_dir_lookup_existence(struct tmp_dirent *dir, const char *name) 
     return _EEXIST;
 }
 
+static int tmpfs_init_regular_file(struct tmp_inode *inode, const char *contents) {
+    assert(S_ISREG(inode->stat.mode));
+    if (contents == NULL || contents[0] == '\0')
+        return 0;
+
+    size_t len = strlen(contents);
+    void *new_data = realloc(inode->file_data, len);
+    if (new_data == NULL)
+        return _ENOMEM;
+    inode->file_data = new_data;
+    memcpy(inode->file_data, contents, len);
+    inode->stat.size = len;
+    tmpfs_update_mtime_and_ctime(inode);
+    return 0;
+}
+
+static int tmpfs_add_file(struct tmp_dirent *dir, const char *name, mode_t_ mode, const char *contents) {
+    int err = tmpfs_dir_lookup_existence(dir, name);
+    if (err == _EEXIST)
+        return 0;
+    if (err < 0)
+        return err;
+
+    struct tmp_inode *inode = tmp_inode_new(S_IFREG | mode);
+    if (inode == NULL)
+        return _ENOMEM;
+
+    err = tmpfs_init_regular_file(inode, contents);
+    if (err == 0)
+        err = tmpfs_dir_link(dir, name, inode, NULL);
+    tmp_inode_release(inode);
+    return err;
+}
+
+static int tmpfs_populate_cgroup2_dir(struct tmp_dirent *dir) {
+    int err = tmpfs_add_file(dir, "cgroup.procs", 0644, "");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.threads", 0644, "");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.controllers", 0444, "cpu io memory pids\n");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.subtree_control", 0644, "");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.events", 0444, "populated 1\nfrozen 0\n");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.stat", 0444, "nr_descendants 0\nnr_dying_descendants 0\n");
+    if (err < 0)
+        return err;
+    err = tmpfs_add_file(dir, "cgroup.type", 0444, "domain\n");
+    if (err < 0)
+        return err;
+    return 0;
+}
+
 static struct tmp_dirent *__tmpfs_lookup(struct mount *mount, const char *path, bool parent, const char **filename_out) {
     struct tmp_dirent *root = mount->data;
     struct tmp_dirent *dirent = tmp_dirent_retain(root); // strong reference
@@ -267,6 +330,13 @@ static int tmpfs_mount(struct mount *mount) {
     root->parent = NULL;
 
     mount->data = root;
+    if (tmpfs_is_cgroup2_mount(mount)) {
+        lock(&root->lock, 0);
+        int err = tmpfs_populate_cgroup2_dir(root);
+        unlock(&root->lock);
+        if (err < 0)
+            return err;
+    }
     return 0;
 }
 
@@ -451,7 +521,45 @@ static int tmpfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
     if (inode == NULL)
         goto out;
 
+    struct tmp_dirent *new_dirent = NULL;
+    err = tmpfs_dir_link(parent, filename, inode, &new_dirent);
+    if (err == 0) {
+        if (tmpfs_is_cgroup2_mount(mount)) {
+            lock(&new_dirent->lock, 0);
+            err = tmpfs_populate_cgroup2_dir(new_dirent);
+            unlock(&new_dirent->lock);
+        }
+        tmpfs_update_mtime_and_ctime(parent->inode);
+    }
+    if (new_dirent != NULL)
+        tmp_dirent_release(new_dirent);
+out:
+    unlock(&parent->lock);
+    tmp_dirent_release(parent);
+    return err;
+}
+
+static int tmpfs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev_t_ dev) {
+    const char *filename;
+    struct tmp_dirent *parent = tmpfs_lookup_parent(mount, path, &filename);
+    if (IS_ERR(parent))
+        return PTR_ERR(parent);
+    if (parent == NULL)
+        return _EPERM;
+    lock(&parent->lock, 0);
+
+    int err = tmpfs_dir_lookup_existence(parent, filename);
+    if (err < 0)
+        goto out;
+
+    struct tmp_inode *inode = tmp_inode_new(mode);
+    err = _ENOMEM;
+    if (inode == NULL)
+        goto out;
+    inode->stat.rdev = dev;
+
     err = tmpfs_dir_link(parent, filename, inode, NULL);
+    tmp_inode_release(inode);
     if (err == 0)
         tmpfs_update_mtime_and_ctime(parent->inode);
 out:
@@ -620,6 +728,41 @@ const struct fs_ops tmpfs = {
     .utime = tmpfs_utime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
+    .mknod = tmpfs_mknod,
+};
+
+const struct fs_ops cgroupfs = {
+    .name = "cgroup", .magic = 0x27e0eb,
+    .mount = tmpfs_mount,
+    .umount = tmpfs_umount,
+    .open = tmpfs_open,
+    .close = tmpfs_close,
+    .stat = tmpfs_stat,
+    .unlink = tmpfs_unlink,
+    .rmdir = tmpfs_rmdir,
+    .fstat = tmpfs_fstat,
+    .setattr = tmpfs_setattr,
+    .utime = tmpfs_utime,
+    .getpath = tmpfs_getpath,
+    .mkdir = tmpfs_mkdir,
+    .mknod = tmpfs_mknod,
+};
+
+const struct fs_ops cgroup2fs = {
+    .name = "cgroup2", .magic = 0x63677270,
+    .mount = tmpfs_mount,
+    .umount = tmpfs_umount,
+    .open = tmpfs_open,
+    .close = tmpfs_close,
+    .stat = tmpfs_stat,
+    .unlink = tmpfs_unlink,
+    .rmdir = tmpfs_rmdir,
+    .fstat = tmpfs_fstat,
+    .setattr = tmpfs_setattr,
+    .utime = tmpfs_utime,
+    .getpath = tmpfs_getpath,
+    .mkdir = tmpfs_mkdir,
+    .mknod = tmpfs_mknod,
 };
 
 const struct fd_ops tmpfs_fdops = {

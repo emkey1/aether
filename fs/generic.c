@@ -349,6 +349,16 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
+    struct statbuf stat;
+    err = mount->fs->stat(mount, path, &stat);
+    if (err == 0) {
+        mount_release(mount);
+        return _EEXIST;
+    }
+    if (err < 0 && err != _ENOENT) {
+        mount_release(mount);
+        return err;
+    }
     err = _EPERM;
     if (mount->fs->mkdir)
         err = mount->fs->mkdir(mount, path, mode);

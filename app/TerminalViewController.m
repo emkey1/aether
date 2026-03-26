@@ -63,6 +63,9 @@
 
 @implementation TerminalViewController
 
+static const NSInteger kMinimumTerminalFontSize = 1;
+static const NSInteger kMaximumTerminalFontSize = 72;
+
 - (BOOL)shouldPreferConsoleForFreshSession {
     // Booting via init also starts the app's session shell on a private pty.
     // Preferring tty1 here leaves the user on a getty/login console while the
@@ -770,13 +773,19 @@
 }
 
 - (void)increaseFontSize:(UIKeyCommand *)command {
-    self.termView.overrideFontSize = self.termView.effectiveFontSize + 1;
+    [self updatePersistentFontSize:self.termView.effectiveFontSize + 1];
 }
 - (void)decreaseFontSize:(UIKeyCommand *)command {
-    self.termView.overrideFontSize = self.termView.effectiveFontSize - 1;
+    [self updatePersistentFontSize:self.termView.effectiveFontSize - 1];
 }
 - (void)resetFontSize:(UIKeyCommand *)command {
+    [self updatePersistentFontSize:UserPreferences.shared.defaultFontSize.doubleValue];
+}
+
+- (void)updatePersistentFontSize:(CGFloat)fontSize {
+    NSInteger clampedFontSize = MAX(kMinimumTerminalFontSize, MIN(kMaximumTerminalFontSize, lround(fontSize)));
     self.termView.overrideFontSize = 0;
+    UserPreferences.shared.fontSize = @(clampedFontSize);
 }
 
 - (NSArray<UIKeyCommand *> *)keyCommands {

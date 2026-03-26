@@ -67,6 +67,8 @@ struct fd {
             struct ucred_ unix_peer_cred;
             bool unix_peer_cred_valid;
             bool unix_passcred;
+            bool unix_devlog_sink;
+            bool unix_initctl_sink;
             dword_t ip_mtu_discover;
             dword_t ipv6_mtu_discover;
             dword_t ipv6_mtu;

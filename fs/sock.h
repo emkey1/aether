@@ -180,6 +180,7 @@ static inline int sock_flags_from_real(int real) {
 
 #define SOL_SOCKET_ 1
 
+#define NETLINK_KOBJECT_UEVENT_ 15
 #define NETLINK_SOCK_DIAG_ 4
 
 #define SO_REUSEADDR_ 2
@@ -193,9 +194,22 @@ static inline int sock_flags_from_real(int real) {
 #define SO_REUSEPORT_ 15
 #define SO_PASSCRED_ 16
 #define SO_PEERCRED_ 17
+#define SO_RCVLOWAT_ 18
+#define SO_SNDLOWAT_ 19
+#define SO_RCVTIMEO_OLD_ 20
+#define SO_SNDTIMEO_OLD_ 21
+#define SO_BINDTODEVICE_ 25
+#define SO_ATTACH_FILTER_ 26
+#define SO_DETACH_FILTER_ 27
 #define SO_TIMESTAMP_ 29
+#define SO_ACCEPTCONN_ 30
+#define SO_PEERSEC_ 31
+#define SO_SNDBUFFORCE_ 32
+#define SO_RCVBUFFORCE_ 33
+#define SO_PASSSEC_ 34
 #define SO_PROTOCOL_ 38
 #define SO_DOMAIN_ 39
+#define SO_PEERGROUPS_ 59
 #define SO_RCVTIMEO_ 66
 #define SO_SNDTIMEO_ 67
 #define IP_TOS_ 1
@@ -229,11 +243,16 @@ static inline int sock_opt_to_real(int fake, int level) {
             case SO_LINGER_: return SO_LINGER;
             case SO_SNDBUF_: return SO_SNDBUF;
             case SO_RCVBUF_: return SO_RCVBUF;
+            case SO_SNDLOWAT_: return SO_SNDLOWAT;
+            case SO_RCVLOWAT_: return SO_RCVLOWAT;
 #ifdef SO_REUSEPORT
             case SO_REUSEPORT_: return SO_REUSEPORT;
 #endif
             case SO_TIMESTAMP_: return SO_TIMESTAMP;
+            case SO_ACCEPTCONN_: return SO_ACCEPTCONN;
+            case SO_RCVTIMEO_OLD_:
             case SO_RCVTIMEO_: return SO_RCVTIMEO;
+            case SO_SNDTIMEO_OLD_:
             case SO_SNDTIMEO_: return SO_SNDTIMEO;
         } break;
         case IPPROTO_TCP: switch (fake) {

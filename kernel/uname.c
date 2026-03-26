@@ -3,9 +3,7 @@
 #include "kernel/calls.h"
 #include "platform/platform.h"
 
-#if __APPLE__
-#include <sys/sysctl.h>
-#elif __linux__
+#if __linux__
 #include <sys/sysinfo.h>
 #endif
 
@@ -102,14 +100,31 @@ dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len) {
 }
 
 #if __APPLE__
-static uint64_t get_total_ram(void) {
-    uint64_t total_ram;
-    sysctl((int []) {CTL_DEBUG, HW_PHYSMEM}, 2, &total_ram, NULL, NULL, 0);
-    return total_ram;
-}
 static void sysinfo_specific(struct sys_info *info) {
-    info->totalram = (dword_t)get_total_ram();
-    // TODO: everything else
+    struct mem_usage usage = get_mem_usage();
+    uint64_t total = usage.total != 0 ? usage.total : usage.available;
+    uint64_t free = usage.free;
+    uint64_t shared = 0;
+    uint64_t buffer = usage.cached;
+    uint64_t mem_unit = 1;
+
+    while ((total / mem_unit) > 0xffffffffu ||
+           (free / mem_unit) > 0xffffffffu ||
+           (shared / mem_unit) > 0xffffffffu ||
+           (buffer / mem_unit) > 0xffffffffu) {
+        mem_unit <<= 1;
+    }
+
+    info->totalram = (dword_t)(total / mem_unit);
+    info->freeram = (dword_t)(free / mem_unit);
+    info->sharedram = (dword_t)(shared / mem_unit);
+    info->bufferram = (dword_t)(buffer / mem_unit);
+    info->totalswap = 0;
+    info->freeswap = 0;
+    info->procs = 0;
+    info->totalhigh = 0;
+    info->freehigh = 0;
+    info->mem_unit = (dword_t)mem_unit;
 }
 #elif __linux__
 static void sysinfo_specific(struct sys_info *info) {

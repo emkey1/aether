@@ -10,6 +10,8 @@
 extern struct tty_driver pty_master;
 extern struct tty_driver pty_slave;
 
+static bool tty_trace_ssh_current(void);
+
 struct tty_driver *tty_drivers[256] = {
     [TTY_CONSOLE_MAJOR] = NULL, // will be filled in by create_stdio
     [TTY_PSEUDO_MASTER_MAJOR] = &pty_master,
@@ -111,6 +113,15 @@ static void tty_poll_wakeup(struct tty *tty, int events) {
     lock(&tty->lock, 0);
 }
 
+static void tty_poll_wakeup_unlocked(struct tty *tty, int events) {
+    struct fd *fd;
+    lock(&tty->fds_lock, 0);
+    list_for_each_entry(&tty->fds, fd, tty_other_fds) {
+        poll_wakeup(fd, events);
+    }
+    unlock(&tty->fds_lock);
+}
+
 void tty_release(struct tty *tty) {
     lock(&tty->lock, 0);
     if (--tty->refcount == 0) {
@@ -158,7 +169,7 @@ int tty_open(struct tty *tty, struct fd *fd) {
     list_add(&tty->fds, &fd->tty_other_fds);
     unlock(&tty->fds_lock);
 
-    if (!(fd->flags & O_NOCTTY_)) {
+    if (!(fd->flags & O_NOCTTY_) && tty->driver != &pty_master) {
         // Make this our controlling terminal if:
         // - the terminal doesn't already have a session
         // - we're a session leader
@@ -166,6 +177,20 @@ int tty_open(struct tty *tty, struct fd *fd) {
         lock(&tty->lock, 0);
         if (tty->session == 0 && current->group->sid == current->pid)
             tty_set_controlling(current->group, tty);
+        unlock(&tty->lock);
+        unlock(&pids_lock);
+    }
+
+    if (tty_trace_ssh_current()) {
+        complex_lockt(&pids_lock, 0);
+        lock(&tty->lock, 0);
+        lock(&current->group->lock, 0);
+        printk("INFO: sshd tty-open pid=%d tgid=%d tty=%d:%d flags=%#x sid=%d pgid=%d tty_session=%d group_tty=%d:%d\n",
+               current->pid, current->tgid, tty->type, tty->num, fd->flags,
+               current->group->sid, current->group->pgid, tty->session,
+               current->group->tty != NULL ? current->group->tty->type : -1,
+               current->group->tty != NULL ? current->group->tty->num : -1);
+        unlock(&current->group->lock);
         unlock(&tty->lock);
         unlock(&pids_lock);
     }
@@ -275,6 +300,10 @@ static bool tty_trace_comm(const char *comm) {
         strncmp(comm, "deboots", 7) == 0 ||
         strncmp(comm, "debootstrap", 11) == 0 ||
         strncmp(comm, "update-ca-certi", 15) == 0;
+}
+
+static bool tty_trace_ssh_current(void) {
+    return current != NULL && strcmp(current->comm, "sshd") == 0;
 }
 
 static bool tty_trace_signal_enabled(void) {
@@ -470,8 +499,8 @@ static bool pty_is_half_closed_master(struct tty *tty) {
 
     struct tty *slave = tty->pty.other;
     if (slave == NULL)
-        return false;
-    return pty_slave_closed_by_users(slave);
+        return true;
+    return slave->hung_up || pty_slave_closed_by_users(slave);
 }
 
 static bool tty_is_current(struct tty *tty) {
@@ -681,11 +710,21 @@ static ssize_t tty_ioctl_size(int cmd) {
 
 static int tiocsctty(struct tty *tty, int force) {
     int err = 0;
+    bool trace_ssh = tty_trace_ssh_current();
     unlock(&tty->lock); //aaaaaaaa
     // it's safe because literally nothing happens between that unlock and the last lock, and repulsive for the same reason
     // locking is ***hard**
     complex_lockt(&pids_lock, 0);
     lock(&tty->lock, 0);
+    if (trace_ssh) {
+        lock(&current->group->lock, 0);
+        printk("INFO: sshd tiocsctty-enter pid=%d tgid=%d tty=%d:%d force=%d sid=%d pgid=%d tty_session=%d group_tty=%d:%d\n",
+               current->pid, current->tgid, tty->type, tty->num, force,
+               current->group->sid, current->group->pgid, tty->session,
+               current->group->tty != NULL ? current->group->tty->type : -1,
+               current->group->tty != NULL ? current->group->tty->num : -1);
+        unlock(&current->group->lock);
+    }
     // do nothing if this is already our controlling tty
     if (current->group->sid == current->pid && current->group->sid == tty->session)
         goto out;
@@ -716,6 +755,15 @@ static int tiocsctty(struct tty *tty, int force) {
 
     tty_set_controlling(current->group, tty);
 out:
+    if (trace_ssh) {
+        lock(&current->group->lock, 0);
+        printk("INFO: sshd tiocsctty-exit pid=%d tgid=%d tty=%d:%d err=%d sid=%d pgid=%d tty_session=%d fg_group=%d group_tty=%d:%d\n",
+               current->pid, current->tgid, tty->type, tty->num, err,
+               current->group->sid, current->group->pgid, tty->session, tty->fg_group,
+               current->group->tty != NULL ? current->group->tty->type : -1,
+               current->group->tty != NULL ? current->group->tty->num : -1);
+        unlock(&current->group->lock);
+    }
     unlock(&pids_lock);
     return err;
 }
@@ -873,6 +921,8 @@ void tty_set_winsize(struct tty *tty, struct winsize_ winsize) {
 void tty_hangup(struct tty *tty) {
     tty->hung_up = true;
     tty_poll_wakeup(tty, POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP);
+    if (tty->driver == &pty_slave && tty->pty.other != NULL)
+        tty_poll_wakeup_unlocked(tty->pty.other, POLL_READ | POLL_HUP);
 }
 
 struct dev_ops tty_dev = {

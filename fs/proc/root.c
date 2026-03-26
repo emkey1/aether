@@ -490,6 +490,10 @@ struct proc_dir_entry proc_root = {NULL, S_IFDIR, .readdir = proc_root_readdir};
 enum sysfs_node_kind {
     sysfs_root,
     sysfs_devices,
+    sysfs_fs,
+    sysfs_cgroup,
+    sysfs_cgroup_unified,
+    sysfs_cgroup_elogind,
     sysfs_system,
     sysfs_cpu,
     sysfs_online,
@@ -530,6 +534,14 @@ static bool sysfs_node_name(struct sysfs_node node, char *buf, size_t bufsize) {
             return snprintf(buf, bufsize, "") >= 0;
         case sysfs_devices:
             return snprintf(buf, bufsize, "devices") >= 0;
+        case sysfs_fs:
+            return snprintf(buf, bufsize, "fs") >= 0;
+        case sysfs_cgroup:
+            return snprintf(buf, bufsize, "cgroup") >= 0;
+        case sysfs_cgroup_unified:
+            return snprintf(buf, bufsize, "unified") >= 0;
+        case sysfs_cgroup_elogind:
+            return snprintf(buf, bufsize, "elogind") >= 0;
         case sysfs_system:
             return snprintf(buf, bufsize, "system") >= 0;
         case sysfs_cpu:
@@ -554,6 +566,10 @@ static mode_t_ sysfs_node_mode(struct sysfs_node node) {
     switch (node.kind) {
         case sysfs_root:
         case sysfs_devices:
+        case sysfs_fs:
+        case sysfs_cgroup:
+        case sysfs_cgroup_unified:
+        case sysfs_cgroup_elogind:
         case sysfs_system:
         case sysfs_cpu:
         case sysfs_cpu_dir:
@@ -572,13 +588,17 @@ static ino_t sysfs_node_inode(struct sysfs_node node) {
     switch (node.kind) {
         case sysfs_root: return 1;
         case sysfs_devices: return 2;
-        case sysfs_system: return 3;
-        case sysfs_cpu: return 4;
-        case sysfs_online: return 5;
-        case sysfs_possible: return 6;
-        case sysfs_present: return 7;
-        case sysfs_kernel_max: return 8;
-        case sysfs_offline: return 9;
+        case sysfs_fs: return 3;
+        case sysfs_cgroup: return 4;
+        case sysfs_cgroup_unified: return 5;
+        case sysfs_cgroup_elogind: return 6;
+        case sysfs_system: return 7;
+        case sysfs_cpu: return 8;
+        case sysfs_online: return 9;
+        case sysfs_possible: return 10;
+        case sysfs_present: return 11;
+        case sysfs_kernel_max: return 12;
+        case sysfs_offline: return 13;
         case sysfs_cpu_dir: return 100 + node.cpu;
     }
     return 0;
@@ -593,6 +613,22 @@ static bool sysfs_lookup_node(const char *path, struct sysfs_node *node_out) {
     }
     if (strcmp(path, "devices") == 0) {
         *node_out = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "fs") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "fs/cgroup") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "fs/cgroup/unified") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup_unified, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "fs/cgroup/elogind") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup_elogind, .cpu = -1};
         return true;
     }
     if (strcmp(path, "devices/system") == 0) {
@@ -716,6 +752,18 @@ static int sysfs_getpath(struct fd *fd, char *buf) {
         case sysfs_devices:
             strcpy(buf, "/devices");
             break;
+        case sysfs_fs:
+            strcpy(buf, "/fs");
+            break;
+        case sysfs_cgroup:
+            strcpy(buf, "/fs/cgroup");
+            break;
+        case sysfs_cgroup_unified:
+            strcpy(buf, "/fs/cgroup/unified");
+            break;
+        case sysfs_cgroup_elogind:
+            strcpy(buf, "/fs/cgroup/elogind");
+            break;
         case sysfs_system:
             strcpy(buf, "/devices/system");
             break;
@@ -785,15 +833,36 @@ static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
 
     switch (node.kind) {
         case sysfs_root:
-            if (index != 0)
+            if (index == 0) {
+                child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
+                break;
+            }
+            if (index != 1)
                 return 0;
-            child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
+            child = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1};
             break;
         case sysfs_devices:
             if (index != 0)
                 return 0;
             child = (struct sysfs_node) {.kind = sysfs_system, .cpu = -1};
             break;
+        case sysfs_fs:
+            if (index != 0)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_cgroup, .cpu = -1};
+            break;
+        case sysfs_cgroup:
+            if (index == 0) {
+                child = (struct sysfs_node) {.kind = sysfs_cgroup_unified, .cpu = -1};
+                break;
+            }
+            if (index != 1)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_cgroup_elogind, .cpu = -1};
+            break;
+        case sysfs_cgroup_unified:
+        case sysfs_cgroup_elogind:
+            return 0;
         case sysfs_system:
             if (index != 0)
                 return 0;

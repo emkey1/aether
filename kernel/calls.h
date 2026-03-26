@@ -182,14 +182,18 @@ dword_t sys_copy_file_range(fd_t in_fd, addr_t in_off, fd_t out_fd, addr_t out_o
 dword_t sys_statfs(addr_t path_addr, addr_t buf_addr);
 dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr);
 dword_t sys_fstatfs(fd_t f, addr_t buf_addr);
-dword_t sys_fstatfs64(fd_t f, addr_t buf_addr);
+dword_t sys_fstatfs64(fd_t f, dword_t buf_size, addr_t buf_addr);
 
 #define MS_READONLY_ (1 << 0)
 #define MS_NOSUID_ (1 << 1)
 #define MS_NODEV_ (1 << 2)
 #define MS_NOEXEC_ (1 << 3)
 #define MS_REMOUNT_ (1 << 5)
+#define MS_NOATIME_ (1 << 10)
+#define MS_NODIRATIME_ (1 << 11)
 #define MS_SILENT_ (1 << 15)
+#define MS_RELATIME_ (1 << 21)
+#define MS_STRICTATIME_ (1 << 24)
 dword_t sys_mount(addr_t source_addr, addr_t target_addr, addr_t type_addr, dword_t flags, addr_t data_addr);
 dword_t sys_umount2(addr_t target_addr, dword_t flags);
 

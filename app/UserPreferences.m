@@ -333,6 +333,11 @@ bool (*remove_user_default)(const char *name);
     return [*value isKindOfClass:NSNumber.class];
 }
 
+- (NSNumber *)defaultFontSize {
+    NSNumber *defaultFontSize = [[[NSUserDefaults alloc] initWithSuiteName:NSRegistrationDomain] objectForKey:kPreferenceFontSizeKey];
+    return defaultFontSize ?: @12;
+}
+
 - (BOOL)validatesetLockSleepNanoseconds:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }

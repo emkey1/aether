@@ -7,6 +7,7 @@
 #include "fs/tty.h"
 #include "kernel/fs.h"
 #include "kernel/vdso.h"
+#include "platform/platform.h"
 #include "util/sync.h"
 
 extern pthread_mutex_t extra_lock;
@@ -16,6 +17,13 @@ extern const char extra_lock_comm;
 
 static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
+}
+
+static char proc_task_state_char(struct task *task) {
+    return (task->zombie ? 'Z' :
+            task->group->stopped ? 'T' :
+            task->io_block && task->pid != current->pid ? 'S' :
+            'R');
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
@@ -45,10 +53,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
     // information about itself, but it shouldn't be marked as blocked.
-    char proc_state = (task->zombie ? 'Z' :
-                       task->group->stopped ? 'T' :
-                       task->io_block && task->pid != current->pid ? 'S' :
-                       'R');
+    char proc_state = proc_task_state_char(task);
     
     proc_printf(buf, "%d ", task->pid);
     proc_printf(buf, "(%.16s) ", task->comm);
@@ -206,6 +211,124 @@ out_free_task:
     return err;
 }
 
+static int proc_pid_environ_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+
+    int err = 0;
+    lock(&task->general_lock, 0);
+    if (task->mm == NULL)
+        goto out_free_task;
+
+    size_t size = task->mm->env_end - task->mm->env_start;
+    char *data = malloc(size);
+    if (data == NULL) {
+        err = _ENOMEM;
+        goto out_free_task;
+    }
+    if (user_read_task(task, task->mm->env_start, data, size) == 0)
+        proc_buf_append(buf, data, size);
+    free(data);
+
+out_free_task:
+    unlock(&task->general_lock);
+    proc_put_task(task);
+    return err;
+}
+
+static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+
+    pid_t_ ppid = 0;
+    complex_lockt(&pids_lock, 0);
+    if (task->parent != NULL)
+        ppid = task->parent->pid;
+    unlock(&pids_lock);
+
+    lock(&task->general_lock, 0);
+    lock(&task->group->lock, 0);
+
+    unsigned cpu_count = get_cpu_count();
+    unsigned allowed_mask = cpu_count >= 31 ? 0x7fffffffU : ((1U << cpu_count) - 1U);
+
+    proc_printf(buf, "Name:\t%s\n", task->comm);
+    proc_printf(buf, "State:\t%c\n", proc_task_state_char(task));
+    proc_printf(buf, "Tgid:\t%d\n", task->tgid);
+    proc_printf(buf, "Ngid:\t0\n");
+    proc_printf(buf, "Pid:\t%d\n", task->pid);
+    proc_printf(buf, "PPid:\t%d\n", ppid);
+    proc_printf(buf, "TracerPid:\t0\n");
+    proc_printf(buf, "Uid:\t%u\t%u\t%u\t%u\n", task->uid, task->euid, task->suid, task->fsuid);
+    proc_printf(buf, "Gid:\t%u\t%u\t%u\t%u\n", task->gid, task->egid, task->sgid, task->fsgid);
+    proc_printf(buf, "FDSize:\t%u\n", task->files ? task->files->size : 0);
+    proc_printf(buf, "Groups:\t");
+    for (unsigned i = 0; i < task->ngroups; i++)
+        proc_printf(buf, "%s%u", i == 0 ? "" : " ", task->groups[i]);
+    proc_printf(buf, "\n");
+    proc_printf(buf, "VmPeak:\t0 kB\n");
+    proc_printf(buf, "VmSize:\t0 kB\n");
+    proc_printf(buf, "VmLck:\t0 kB\n");
+    proc_printf(buf, "VmPin:\t0 kB\n");
+    proc_printf(buf, "VmHWM:\t0 kB\n");
+    proc_printf(buf, "VmRSS:\t0 kB\n");
+    proc_printf(buf, "Threads:\t%lu\n", list_size(&task->group->threads));
+    proc_printf(buf, "SigQ:\t0/0\n");
+    proc_printf(buf, "SigPnd:\t%08x\n", task->pending);
+    proc_printf(buf, "ShdPnd:\t00000000\n");
+    proc_printf(buf, "SigBlk:\t%08x\n", task->blocked);
+    proc_printf(buf, "SigIgn:\t00000000\n");
+    proc_printf(buf, "SigCgt:\t00000000\n");
+    proc_printf(buf, "CapInh:\t%08x%08x\n", task->cap_inheritable[1], task->cap_inheritable[0]);
+    proc_printf(buf, "CapPrm:\t%08x%08x\n", task->cap_permitted[1], task->cap_permitted[0]);
+    proc_printf(buf, "CapEff:\t%08x%08x\n", task->cap_effective[1], task->cap_effective[0]);
+    proc_printf(buf, "CapBnd:\t%08x%08x\n", task->cap_permitted[1], task->cap_permitted[0]);
+    proc_printf(buf, "CapAmb:\t0000000000000000\n");
+    proc_printf(buf, "NoNewPrivs:\t0\n");
+    proc_printf(buf, "Seccomp:\t0\n");
+    proc_printf(buf, "Cpus_allowed:\t%x\n", allowed_mask);
+    proc_printf(buf, "Cpus_allowed_list:\t0-%u\n", cpu_count > 0 ? cpu_count - 1 : 0);
+    proc_printf(buf, "Mems_allowed:\t1\n");
+    proc_printf(buf, "Mems_allowed_list:\t0\n");
+
+    unlock(&task->group->lock);
+    unlock(&task->general_lock);
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_cgroup_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "0::/\n");
+    return 0;
+}
+
+static int proc_pid_sched_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+
+    lock(&task->group->lock, 0);
+    proc_printf(buf, "%s (%d, #threads: %lu)\n", task->comm, task->pid, list_size(&task->group->threads));
+    proc_printf(buf, "---------------------------------------------------------\n");
+    proc_printf(buf, "se.exec_start                                : 0.000000\n");
+    proc_printf(buf, "se.vruntime                                  : 0.000000\n");
+    proc_printf(buf, "se.sum_exec_runtime                          : 0.000000\n");
+    proc_printf(buf, "nr_switches                                  : 0\n");
+    proc_printf(buf, "nr_voluntary_switches                        : 0\n");
+    proc_printf(buf, "nr_involuntary_switches                      : 0\n");
+    unlock(&task->group->lock);
+    proc_put_task(task);
+    return 0;
+}
+
 void proc_maps_dump(struct task *task, struct proc_data *buf) {
     struct mem *mem = task->mem;
     if (mem == NULL)
@@ -300,6 +423,7 @@ static ssize_t proc_pid_mem_pwrite(struct proc_entry *entry, struct proc_data *b
 
 
 static struct proc_dir_entry proc_pid_fd;
+static struct proc_dir_entry proc_pid_fdinfo_entry;
 
 static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     struct task *task = proc_get_task(entry);
@@ -322,6 +446,23 @@ static void proc_pid_fd_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->fd);
 }
 
+static bool proc_pid_fdinfo_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true) || task->files == NULL) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    lock(&task->files->lock, 0);
+    while (*index < task->files->size && task->files->files[*index] == NULL)
+        (*index)++;
+    fd_t f = (*index)++;
+    bool any_left = (unsigned) f < task->files->size;
+    unlock(&task->files->lock);
+    proc_put_task(task);
+    *next_entry = (struct proc_entry) {&proc_pid_fdinfo_entry, .pid = entry->pid, .fd = f};
+    return any_left;
+}
+
 static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true) || task->files == NULL) {
@@ -334,6 +475,27 @@ static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     unlock(&task->files->lock);
     proc_put_task(task);
     return err;
+}
+
+static int proc_pid_fdinfo_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true) || task->files == NULL) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    lock(&task->files->lock, 0);
+    struct fd *fd = fdtable_get(task->files, entry->fd);
+    if (fd == NULL) {
+        unlock(&task->files->lock);
+        proc_put_task(task);
+        return _ENOENT;
+    }
+    proc_printf(buf, "pos:\t%lu\n", fd->offset);
+    proc_printf(buf, "flags:\t0%o\n", fd_getflags(fd));
+    proc_printf(buf, "mnt_id:\t1\n");
+    unlock(&task->files->lock);
+    proc_put_task(task);
+    return 0;
 }
 
 static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
@@ -398,16 +560,21 @@ static int proc_pid_root_readlink(struct proc_entry *entry, char *buf) {
 
 struct proc_children proc_pid_children = PROC_CHILDREN({
     {"auxv", .show = proc_pid_auxv_show},
+    {"cgroup", .show = proc_pid_cgroup_show},
     {"cmdline", .show = proc_pid_cmdline_show},
     {"cwd", S_IFLNK, .readlink = proc_pid_cwd_readlink},
+    {"environ", .show = proc_pid_environ_show},
     {"exe", S_IFLNK, .readlink = proc_pid_exe_readlink},
     {"fd", S_IFDIR, .readdir = proc_pid_fd_readdir},
+    {"fdinfo", S_IFDIR, .readdir = proc_pid_fdinfo_readdir},
     {"maps", .show = proc_pid_maps_show},
     {"mem", .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite},
     {"mountinfo", .show = proc_show_mountinfo},
     {"root", S_IFLNK, .readlink = proc_pid_root_readlink},
+    {"sched", .show = proc_pid_sched_show},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},
+    {"status", .show = proc_pid_status_show},
     {"task", S_IFDIR, .readdir = proc_pid_task_readdir},
 });
 
@@ -416,6 +583,9 @@ struct proc_dir_entry proc_pid = {NULL, S_IFDIR,
 
 static struct proc_dir_entry proc_pid_fd = {NULL, S_IFLNK,
     .getname = proc_pid_fd_getname, .readlink = proc_pid_fd_readlink};
+
+static struct proc_dir_entry proc_pid_fdinfo_entry = {NULL, S_IFREG,
+    .getname = proc_pid_fd_getname, .show = proc_pid_fdinfo_show};
 
 static struct proc_dir_entry proc_pid_task = {NULL, S_IFLNK,
     .getname = proc_pid_task_getname, .readlink = proc_pid_task_readlink};

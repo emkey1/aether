@@ -8,10 +8,14 @@ struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data
 //    assert(clockid == CLOCK_MONOTONIC || clockid == CLOCK_REALTIME);
     struct timer *timer = malloc(sizeof(struct timer));
     timer->clockid = clockid;
+    timer->start = (struct timespec) {};
+    timer->end = (struct timespec) {};
+    timer->interval = (struct timespec) {};
     timer->callback = callback;
     timer->data = data;
     timer->active = false;
     timer->thread_running = false;
+    timer->generation = 0;
     lock_init(&timer->lock, "timer_new\0");
     timer->dead = false;
     return timer;
@@ -34,18 +38,34 @@ static void *timer_thread(void *param) {
     struct timer *timer = param;
     lock(&timer->lock, 1);
     while (true) {
+        uint64_t generation = timer->generation;
+        struct timespec end = timer->end;
+        struct timespec interval = timer->interval;
         struct timespec remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
-        while (timer->active && timespec_positive(remaining)) {
+        while (timer->active &&
+                timer->generation == generation &&
+                timespec_positive(remaining)) {
             unlock(&timer->lock);
             nanosleep(&remaining, NULL);
             lock(&timer->lock, 0);
             remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         }
-        if (timer->active)
-            timer->callback(timer->data);
-        if (timer->active && timespec_positive(timer->interval)) {
-            timer->start = timer->end;
-            timer->end = timespec_add(timer->start, timer->interval);
+        if (!timer->active)
+            break;
+        if (timer->generation != generation)
+            continue;
+
+        // Only fire the callback for the arm we actually slept on. A later
+        // arm/cancel updates the generation and should not inherit this wakeup.
+        if (timespec_positive(timespec_subtract(timer->end, timespec_now(timer->clockid))))
+            continue;
+
+        timer->callback(timer->data);
+        if (timer->generation != generation)
+            continue;
+        if (timer->active && timespec_positive(interval)) {
+            timer->start = end;
+            timer->end = timespec_add(timer->start, interval);
         } else {
             break;
         }
@@ -62,10 +82,16 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
     lock(&timer->lock, 0);
     struct timespec now = timespec_now(timer->clockid);
     if (oldspec != NULL) {
-        oldspec->value = timespec_subtract(timer->end, now);
-        oldspec->interval = timer->interval;
+        *oldspec = (struct timer_spec) {};
+        if (timer->active) {
+            oldspec->value = timespec_subtract(timer->end, now);
+            if (!timespec_positive(oldspec->value))
+                oldspec->value = (struct timespec) {};
+            oldspec->interval = timer->interval;
+        }
     }
 
+    timer->generation++;
     timer->start = now;
     timer->end = timespec_add(timer->start, spec.value);
     timer->interval = spec.interval;

@@ -21,6 +21,10 @@ dword_t syscall_success_stub(void) {
     STRACE("syscall_stub_success()");
     return 0;
 }
+dword_t syscall_eopnotsupp_stub(void) {
+    STRACE("syscall_stub_eopnotsupp()");
+    return _EOPNOTSUPP;
+}
 
 #if is_gcc(8)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
@@ -253,7 +257,8 @@ syscall_t syscall_table[] = {
     [336] = (syscall_t) syscall_stub, // perf_event_open
     [337] = (syscall_t) sys_recvmmsg,
     [340] = (syscall_t) sys_prlimit64,
-    [341] = (syscall_t) sys_signalfd4,
+    [341] = (syscall_t) syscall_eopnotsupp_stub, // name_to_handle_at
+    [342] = (syscall_t) syscall_eopnotsupp_stub, // open_by_handle_at
     [345] = (syscall_t) sys_sendmmsg,
     [347] = (syscall_t) syscall_stub, // process_vm_readv
     [352] = (syscall_t) syscall_stub, // sched_getattr
@@ -355,6 +360,43 @@ static bool syscall_is_logged_stub(syscall_t syscall) {
     return syscall == (syscall_t) syscall_stub;
 }
 
+static bool syscall_trace_sshd(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "sshd") == 0;
+}
+
+static bool syscall_trace_interesting(unsigned syscall_num, int result) {
+    if (result < 0)
+        return true;
+    switch (syscall_num) {
+        case 2:   // fork
+        case 11:  // execve
+        case 54:  // ioctl
+        case 57:  // setpgid
+        case 66:  // setsid
+        case 63:  // dup2
+        case 292: // dup3
+        case 114: // wait4
+        case 120: // clone
+        case 172: // prctl
+        case 190: // vfork
+        case 252: // exit_group
+        case 284: // waitid
+        case 295: // openat
+        case 310: // unshare
+        case 322: // timerfd_create
+        case 327: // signalfd4
+        case 328: // eventfd2
+        case 331: // pipe2
+        case 360: // socketpair
+        case 435: // clone3
+            return true;
+        default:
+            return false;
+    }
+}
+
 static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
     printk("WARNING: (PID: %d(%s)) %s syscall %u args=%#x,%#x,%#x,%#x,%#x,%#x ip=%#x\n",
         current->pid, current->comm, kind, syscall_num,
@@ -381,6 +423,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
     int result = syscall(cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
     STRACE(" = 0x%x\n", result);
+    if (syscall_trace_sshd(current->comm) && syscall_trace_interesting(syscall_num, result)) {
+        printk("INFO: sshd syscall pid=%d tgid=%d comm=%s nr=%u args=%#x,%#x,%#x,%#x,%#x,%#x result=%d ip=%#x\n",
+               current->pid, current->tgid, current->comm, syscall_num,
+               cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp,
+               result, cpu->eip);
+    }
     cpu->eax = result;
 }
 

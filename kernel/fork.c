@@ -38,6 +38,7 @@
 
 static bool trace_session_fork_name(const char *name) {
     return strcmp(name, "login") == 0 ||
+        strcmp(name, "sshd") == 0 ||
         strcmp(name, "sh") == 0 ||
         strcmp(name, "bash") == 0 ||
         strcmp(name, "dash") == 0 ||

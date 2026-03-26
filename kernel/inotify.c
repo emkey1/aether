@@ -135,38 +135,71 @@ static int inotify_queue_event_locked(struct fd *fd, int_t wd, dword_t mask, dwo
     return 0;
 }
 
-static void inotify_notify_exact_locked(struct inotify_state *state, const char *path, dword_t mask, dword_t cookie) {
+static bool inotify_notify_exact_locked(struct inotify_state *state, const char *path, dword_t mask, dword_t cookie) {
     struct inotify_watch *watch = inotify_find_watch(state, path);
     if (watch == NULL)
-        return;
+        return false;
     if ((watch->mask & mask) == 0)
-        return;
-    if (inotify_queue_event_locked(state->fd, watch->wd, mask, cookie, NULL) == 0)
-        poll_wakeup(state->fd, POLL_READ);
+        return false;
+    return inotify_queue_event_locked(state->fd, watch->wd, mask, cookie, NULL) == 0;
 }
 
-static void inotify_notify_parent_locked(struct inotify_state *state, const char *path, dword_t mask, dword_t cookie) {
+static bool inotify_notify_parent_locked(struct inotify_state *state, const char *path, dword_t mask, dword_t cookie) {
     char parent[MAX_PATH];
     const char *name;
     inotify_parent_and_name(path, parent, &name);
     struct inotify_watch *watch = inotify_find_watch(state, parent);
     if (watch == NULL)
-        return;
+        return false;
     if ((watch->mask & mask) == 0)
-        return;
-    if (inotify_queue_event_locked(state->fd, watch->wd, mask, cookie, name) == 0)
-        poll_wakeup(state->fd, POLL_READ);
+        return false;
+    return inotify_queue_event_locked(state->fd, watch->wd, mask, cookie, name) == 0;
 }
 
-static void inotify_for_each_instance(void (*cb)(struct inotify_state *, void *), void *ctx) {
+static struct fd **inotify_snapshot_instances(size_t *count_out) {
+    struct fd **fds = NULL;
+    size_t count = 0;
+
     lock(&inotify_instances_lock, 0);
     struct inotify_state *state;
     list_for_each_entry(&inotify_instances, state, all) {
-        lock(&state->fd->lock, 0);
-        cb(state, ctx);
-        unlock(&state->fd->lock);
+        count++;
+    }
+
+    if (count != 0) {
+        fds = malloc(sizeof(struct fd *) * count);
+        if (fds != NULL) {
+            size_t i = 0;
+            list_for_each_entry(&inotify_instances, state, all) {
+                fds[i++] = fd_retain(state->fd);
+            }
+        }
     }
     unlock(&inotify_instances_lock);
+
+    *count_out = count;
+    return fds;
+}
+
+static void inotify_for_each_instance(bool (*cb)(struct inotify_state *, void *), void *ctx) {
+    size_t count = 0;
+    struct fd **fds = inotify_snapshot_instances(&count);
+    if (count != 0 && fds == NULL)
+        return;
+
+    for (size_t i = 0; i < count; i++) {
+        struct fd *fd = fds[i];
+        bool wake = false;
+        lock(&fd->lock, 0);
+        struct inotify_state *state = inotify_state_get(fd);
+        if (state != NULL)
+            wake = cb(state, ctx);
+        unlock(&fd->lock);
+        if (wake)
+            poll_wakeup(fd, POLL_READ);
+        fd_close(fd);
+    }
+    free(fds);
 }
 
 struct inotify_path_event {
@@ -174,14 +207,14 @@ struct inotify_path_event {
     dword_t mask;
 };
 
-static void inotify_emit_exact_cb(struct inotify_state *state, void *ctx) {
+static bool inotify_emit_exact_cb(struct inotify_state *state, void *ctx) {
     struct inotify_path_event *event = ctx;
-    inotify_notify_exact_locked(state, event->path, event->mask, 0);
+    return inotify_notify_exact_locked(state, event->path, event->mask, 0);
 }
 
-static void inotify_emit_parent_cb(struct inotify_state *state, void *ctx) {
+static bool inotify_emit_parent_cb(struct inotify_state *state, void *ctx) {
     struct inotify_path_event *event = ctx;
-    inotify_notify_parent_locked(state, event->path, event->mask, 0);
+    return inotify_notify_parent_locked(state, event->path, event->mask, 0);
 }
 
 struct inotify_move_event {
@@ -193,21 +226,23 @@ struct inotify_move_event {
     dword_t cookie;
 };
 
-static void inotify_emit_move_cb(struct inotify_state *state, void *ctx) {
+static bool inotify_emit_move_cb(struct inotify_state *state, void *ctx) {
     struct inotify_move_event *event = ctx;
-    inotify_notify_parent_locked(state, event->old_path, event->old_mask, event->cookie);
-    inotify_notify_parent_locked(state, event->new_path, event->new_mask, event->cookie);
+    bool wake = false;
+    wake |= inotify_notify_parent_locked(state, event->old_path, event->old_mask, event->cookie);
+    wake |= inotify_notify_parent_locked(state, event->new_path, event->new_mask, event->cookie);
     struct inotify_watch *watch = inotify_find_watch(state, event->old_path);
     if (watch == NULL)
-        return;
+        return wake;
     if ((watch->mask & event->self_mask) == 0)
-        return;
+        return wake;
+    char *new_path = strdup(event->new_path);
+    if (new_path == NULL)
+        return wake;
     free(watch->path);
-    watch->path = strdup(event->new_path);
-    if (watch->path == NULL)
-        return;
-    if (inotify_queue_event_locked(state->fd, watch->wd, event->self_mask, event->cookie, NULL) == 0)
-        poll_wakeup(state->fd, POLL_READ);
+    watch->path = new_path;
+    wake |= inotify_queue_event_locked(state->fd, watch->wd, event->self_mask, event->cookie, NULL) == 0;
+    return wake;
 }
 
 int_t sys_inotify_init1(int_t flags) {

@@ -2,6 +2,7 @@
 #define UTIL_TIMER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 #include <pthread.h>
 #include <assert.h>
@@ -58,6 +59,7 @@ struct timer {
 
     bool active;
     bool thread_running;
+    uint64_t generation;
     pthread_t thread;
     timer_callback_t callback;
     void *data;

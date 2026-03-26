@@ -1,25 +1,58 @@
 #include <string.h>
 #include "kernel/calls.h"
 
-#define PRCTL_SET_KEEPCAPS_ 8
 #define PRCTL_SET_PDEATHSIG_ 1
 #define PRCTL_GET_PDEATHSIG_ 2
+#define PRCTL_GET_DUMPABLE_ 3
+#define PRCTL_SET_DUMPABLE_ 4
+#define PRCTL_GET_KEEPCAPS_ 7
+#define PRCTL_SET_KEEPCAPS_ 8
+#define PRCTL_SET_NAME_ 15
+#define PRCTL_GET_NAME_ 16
 #define PRCTL_GET_SECCOMP_ 21
 #define PRCTL_SET_SECCOMP_ 22
-#define PRCTL_SET_NAME_ 15
+#define PRCTL_CAPBSET_READ_ 23
+#define PRCTL_GET_SECUREBITS_ 27
+#define PRCTL_SET_SECUREBITS_ 28
+#define PRCTL_SET_TIMERSLACK_ 29
+#define PRCTL_GET_TIMERSLACK_ 30
+#define PRCTL_SET_MM_ 35
+#define PRCTL_SET_CHILD_SUBREAPER_ 36
+#define PRCTL_GET_CHILD_SUBREAPER_ 37
 #define PRCTL_SET_NO_NEW_PRIVS_ 38
 #define PRCTL_GET_NO_NEW_PRIVS_ 39
+#define PRCTL_CAP_AMBIENT_ 47
+
+#define PRCTL_CAP_AMBIENT_IS_SET_ 1
+#define PRCTL_CAP_AMBIENT_RAISE_ 2
+#define PRCTL_CAP_AMBIENT_LOWER_ 3
+#define PRCTL_CAP_AMBIENT_CLEAR_ALL_ 4
+
+#define PRCTL_SET_MM_ARG_START_ 8
+#define PRCTL_SET_MM_ARG_END_ 9
+#define PRCTL_SET_MM_ENV_START_ 10
+#define PRCTL_SET_MM_ENV_END_ 11
+
+#define PRCTL_CAP_LAST_CAP_ 63
+#define PRCTL_DEFAULT_TIMERSLACK_NS_ 50000
 
 #define KEYCTL_GET_KEYRING_ID_ 0
 #define KEYCTL_JOIN_SESSION_KEYRING_ 1
 #define KEYCTL_SETPERM_ 5
 #define KEYCTL_SESSION_TO_PARENT_ 18
 
-int_t sys_prctl(dword_t option, uint_t arg2, uint_t UNUSED(arg3), uint_t UNUSED(arg4), uint_t UNUSED(arg5)) {
+static bool prctl_cap_valid(uint_t cap) {
+    return cap <= PRCTL_CAP_LAST_CAP_;
+}
+
+static bool prctl_cap_test(const dword_t caps[2], uint_t cap) {
+    if (!prctl_cap_valid(cap))
+        return false;
+    return (caps[cap / 32] & (1u << (cap % 32))) != 0;
+}
+
+int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), uint_t UNUSED(arg5)) {
     switch (option) {
-        case PRCTL_SET_KEEPCAPS_:
-            // stub
-            return 0;
         case PRCTL_SET_PDEATHSIG_:
             current->pdeath_signal = arg2;
             return 0;
@@ -27,6 +60,25 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t UNUSED(arg3), uint_t UNUSED(
             if (user_put(arg2, current->pdeath_signal))
                 return _EFAULT;
             return 0;
+        case PRCTL_GET_DUMPABLE_:
+            return 1;
+        case PRCTL_SET_DUMPABLE_:
+            if (arg2 > 1)
+                return _EINVAL;
+            return 0;
+        case PRCTL_GET_KEEPCAPS_:
+        case PRCTL_SET_KEEPCAPS_:
+            // Compatibility stub: enough for capability-probing startup code.
+            return 0;
+        case PRCTL_GET_NAME_: {
+            char name[16] = {};
+            lock(&current->general_lock, 0);
+            strncpy(name, current->comm, sizeof(name) - 1);
+            unlock(&current->general_lock);
+            if (user_write(arg2, name, sizeof(name)))
+                return _EFAULT;
+            return 0;
+        }
         case PRCTL_GET_SECCOMP_:
             // Report "disabled" rather than erroring out during helper setup.
             return 0;
@@ -47,11 +99,65 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t UNUSED(arg3), uint_t UNUSED(
             unlock(&current->general_lock);
             return 0;
         }
+        case PRCTL_CAPBSET_READ_:
+            if (!prctl_cap_valid(arg2))
+                return _EINVAL;
+            // We do not model a separate bounding set. Use the permitted set so
+            // capability probes see a coherent answer instead of EINVAL.
+            return prctl_cap_test(current->cap_permitted, arg2) ? 1 : 0;
+        case PRCTL_GET_SECUREBITS_:
+            return 0;
+        case PRCTL_SET_SECUREBITS_:
+            return 0;
+        case PRCTL_SET_TIMERSLACK_:
+            return 0;
+        case PRCTL_GET_TIMERSLACK_:
+            return PRCTL_DEFAULT_TIMERSLACK_NS_;
+        case PRCTL_SET_MM_:
+            if (!superuser())
+                return _EPERM;
+            switch (arg2) {
+                case PRCTL_SET_MM_ARG_START_:
+                case PRCTL_SET_MM_ARG_END_:
+                case PRCTL_SET_MM_ENV_START_:
+                case PRCTL_SET_MM_ENV_END_:
+                    return 0;
+                default:
+                    return _EINVAL;
+            }
+        case PRCTL_SET_CHILD_SUBREAPER_:
+            if (arg2 > 1)
+                return _EINVAL;
+            return 0;
+        case PRCTL_GET_CHILD_SUBREAPER_: {
+            dword_t value = 0;
+            if (user_write(arg2, &value, sizeof(value)))
+                return _EFAULT;
+            return 0;
+        }
         case PRCTL_SET_NO_NEW_PRIVS_:
+            if (arg2 > 1)
+                return _EINVAL;
             STRACE("prctl(PR_SET_NO_NEW_PRIVS, %#x)", arg2);
             return 0;
         case PRCTL_GET_NO_NEW_PRIVS_:
             return 0;
+        case PRCTL_CAP_AMBIENT_:
+            switch (arg2) {
+                case PRCTL_CAP_AMBIENT_IS_SET_:
+                    if (!prctl_cap_valid(arg3))
+                        return _EINVAL;
+                    return 0;
+                case PRCTL_CAP_AMBIENT_RAISE_:
+                case PRCTL_CAP_AMBIENT_LOWER_:
+                    if (!prctl_cap_valid(arg3))
+                        return _EINVAL;
+                    return 0;
+                case PRCTL_CAP_AMBIENT_CLEAR_ALL_:
+                    return 0;
+                default:
+                    return _EINVAL;
+            }
         default:
             STRACE("prctl(%#x)", option);
             return _EINVAL;
