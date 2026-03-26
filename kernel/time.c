@@ -20,7 +20,30 @@ static int clockid_to_real(uint_t clock, clockid_t *real) {
         case CLOCK_REALTIME_:
         case CLOCK_REALTIME_COARSE_:
             *real = CLOCK_REALTIME; break;
-        case CLOCK_MONOTONIC_: *real = CLOCK_MONOTONIC; break;
+        case CLOCK_MONOTONIC_:
+        case CLOCK_MONOTONIC_COARSE_:
+            *real = CLOCK_MONOTONIC; break;
+        case CLOCK_PROCESS_CPUTIME_ID_:
+            *real = CLOCK_PROCESS_CPUTIME_ID; break;
+        case CLOCK_THREAD_CPUTIME_ID_:
+            *real = CLOCK_THREAD_CPUTIME_ID; break;
+        case CLOCK_MONOTONIC_RAW_:
+#ifdef CLOCK_MONOTONIC_RAW
+            *real = CLOCK_MONOTONIC_RAW; break;
+#else
+            *real = CLOCK_MONOTONIC; break;
+#endif
+        case CLOCK_BOOTTIME_:
+        case CLOCK_TAI_:
+            // Map to CLOCK_MONOTONIC on platforms without native BOOTTIME/TAI.
+            // On Linux, CLOCK_BOOTTIME (includes suspend time) is the closest
+            // match for monotone-from-boot semantics; fall back to MONOTONIC
+            // on macOS/iOS which do not expose these clocks.
+#ifdef CLOCK_BOOTTIME
+            *real = (clock == CLOCK_BOOTTIME_) ? CLOCK_BOOTTIME : CLOCK_MONOTONIC; break;
+#else
+            *real = CLOCK_MONOTONIC; break;
+#endif
         default: return _EINVAL;
     }
     return 0;
