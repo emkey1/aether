@@ -455,7 +455,7 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
     STRACE("write(%d, \"%.*s\", %d)", fd_no, print_size, buf, size);
 
     // Capture sshd writes to stderr so fatal() messages appear in the iSH log.
-    if (fd_no == 2 && current != NULL && current->comm != NULL &&
+    if (fd_no == 2 && current != NULL &&
             strcmp(current->comm, "sshd") == 0) {
         size_t log_size = size < 512 ? size : 512;
         printk("INFO: sshd stderr pid=%d tgid=%d data=\"%.*s\"\n",

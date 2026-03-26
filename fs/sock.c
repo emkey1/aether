@@ -1691,7 +1691,7 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
              (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len) ||
               guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)))) {
         // Log syslog messages from sshd so fatal() and other messages are visible.
-        if (sock_is_devlog_sink(sock) && current != NULL && current->comm != NULL &&
+        if (sock_is_devlog_sink(sock) && current != NULL &&
                 strcmp(current->comm, "sshd") == 0) {
             size_t log_len = len < 512 ? len : 512;
             printk("INFO: sshd syslog pid=%d tgid=%d data=\"%.*s\"\n",
@@ -2229,7 +2229,7 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
             total += msg_iov[i].iov_len;
         // Log syslog messages from sshd so fatal() and other messages are visible.
-        if (sock_is_devlog_sink(sock) && current != NULL && current->comm != NULL &&
+        if (sock_is_devlog_sink(sock) && current != NULL &&
                 strcmp(current->comm, "sshd") == 0 && msg.msg_iovlen > 0) {
             const char *data = (const char *) msg_iov[0].iov_base;
             size_t len = msg_iov[0].iov_len < 512 ? msg_iov[0].iov_len : 512;
@@ -2336,10 +2336,15 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             lock(&peer_lock, 0);
             struct fd *peer = sock->socket.unix_peer;
             if (peer == NULL) {
+                printk("INFO: scm-send pid=%d EPIPE: unix_peer is NULL on sock real_fd=%d\n",
+                       current ? current->pid : -1, sock->real_fd);
                 unlock(&peer_lock);
                 err = _EPIPE;
                 goto out_free_scm;
             }
+            printk("INFO: scm-send pid=%d num_fds=%u sock_real=%d peer_real=%d real_ctrl_len=%zu\n",
+                   current ? current->pid : -1, num_fds, sock->real_fd, peer->real_fd,
+                   msg.msg_controllen);
             lock(&peer->lock, 0);
             list_add_tail(&peer->socket.unix_scm, &scm->queue);
             unlock(&peer->lock);
@@ -2369,10 +2374,16 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     if (send_res < 0) {
         err = errno_map();
         sock_trace("sendmsg", sock, -1, err);
+        if (scm != NULL)
+            printk("INFO: scm-send pid=%d real sendmsg FAILED: errno=%d err=%d sock_real=%d\n",
+                   current ? current->pid : -1, errno, err, sock->real_fd);
         goto out_free_scm;
     }
     err = send_res;
     sock_trace("sendmsg", sock, err, 0);
+    if (scm != NULL)
+        printk("INFO: scm-send pid=%d real sendmsg OK: sent=%d sock_real=%d ctrl_len=%zu\n",
+               current ? current->pid : -1, err, sock->real_fd, msg.msg_controllen);
 #if defined(__APPLE__)
     sock_trace_tcp_info("sendmsg-after", sock);
 #endif
@@ -2520,10 +2531,16 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 
     // msg_control (changed)
+    uint_t guest_controllen_max = msg_fake.msg_controllen; // save before zeroing
     msg_fake.msg_controllen = 0;
     struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
     bool have_rights = sock->socket.domain == AF_LOCAL_ && cmsg != NULL &&
         cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS;
+    if (sock->socket.domain == AF_LOCAL_ && msg.msg_control != NULL)
+        printk("INFO: scm-recv pid=%d sock_real=%d res=%zd real_ctrl_after=%zu have_rights=%d unix_peer=%p scm_empty=%d\n",
+               current ? current->pid : -1, sock->real_fd, res, msg.msg_controllen,
+               (int) have_rights, (void *) sock->socket.unix_peer,
+               (int) list_empty(&sock->socket.unix_scm));
     bool want_passcred = sock->socket.domain == AF_LOCAL_ &&
         sock->socket.unix_passcred && res >= 0;
     struct scm *scm = NULL;
@@ -2556,12 +2573,13 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         if (have_passcred)
             required_msg_control += fake_cmsg_space(sizeof(cred));
 
-        if (msg_fake.msg_control == 0 || required_msg_control > msg_fake.msg_controllen) {
+        if (msg_fake.msg_control == 0 || required_msg_control > guest_controllen_max) {
             msg_fake.msg_flags |= MSG_CTRUNC_;
         } else {
             if (have_rights) {
                 fd_t fds[scm->num_fds];
                 for (unsigned i = 0; i < scm->num_fds; i++) {
+                    fd_retain(scm->fds[i]); // f_install takes ownership; scm_free releases separately
                     fds[i] = f_install(scm->fds[i], 0);
                     STRACE(" receiving fd %d", fds[i]);
                 }
@@ -2843,7 +2861,7 @@ static struct socket_call {
 };
 
 static bool socketcall_trace_sshd_process(void) {
-    return current->comm != NULL && strcmp(current->comm, "sshd") == 0;
+    return strcmp(current->comm, "sshd") == 0;
 }
 
 static const char *socketcall_name(dword_t call_num) {
