@@ -26,3 +26,6 @@ root.tar.gz
 .tmp-root-select-fastfix/
 com.apple.DeveloperTools/
 tests/host/
+
+.claude/
+CLAUDE.md
