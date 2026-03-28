@@ -48,6 +48,54 @@ static bool sys_show_vm(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(
     return 0;
 }
 
+static bool proc_empty_dir_readdir(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
+    return false;
+}
+
+static int proc_binfmt_misc_status_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "enabled\n");
+    return 0;
+}
+
+static int proc_binfmt_misc_empty_show(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
+    return 0;
+}
+
+static int proc_binfmt_misc_noop_update(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(data)) {
+    return 0;
+}
+
+static struct proc_dir_entry proc_binfmt_misc_entries[] = {
+    {"register", S_IFREG | 0200, .show = proc_binfmt_misc_empty_show, .update = proc_binfmt_misc_noop_update},
+    {"status", S_IFREG | 0644, .show = proc_binfmt_misc_status_show, .update = proc_binfmt_misc_noop_update},
+};
+
+#define PROC_BINFMT_MISC_LEN sizeof(proc_binfmt_misc_entries) / sizeof(proc_binfmt_misc_entries[0])
+
+static bool proc_binfmt_misc_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index < PROC_BINFMT_MISC_LEN) {
+        *next_entry = (struct proc_entry) {&proc_binfmt_misc_entries[*index], *index, NULL, NULL, 0, 0};
+        (*index)++;
+        return true;
+    }
+    return false;
+}
+
+static struct proc_dir_entry proc_sys_fs_entries[] = {
+    {"binfmt_misc", S_IFDIR, .readdir = proc_binfmt_misc_readdir},
+};
+
+#define PROC_SYS_FS_LEN sizeof(proc_sys_fs_entries) / sizeof(proc_sys_fs_entries[0])
+
+static bool proc_sys_fs_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index < PROC_SYS_FS_LEN) {
+        *next_entry = (struct proc_entry) {&proc_sys_fs_entries[*index], *index, NULL, NULL, 0, 0};
+        (*index)++;
+        return true;
+    }
+    return false;
+}
+
 static bool sys_show_net_core(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
@@ -161,7 +209,7 @@ struct proc_children proc_sys_children = PROC_CHILDREN({
     {"abi", S_IFDIR, .readdir = sys_show_abi},
     {"debug", S_IFDIR, .readdir = proc_sys_debug_readdir},
     {"dev", S_IFDIR, .readdir = sys_show_dev},
-    {"fs", S_IFDIR, .readdir = sys_show_fs},
+    {"fs", S_IFDIR, .readdir = proc_sys_fs_readdir},
     {"fscache", S_IFDIR, .readdir = sys_show_fscache},
     {"kernel", S_IFDIR, .readdir = &proc_sys_kernel_readdir},
     {"net", S_IFDIR, .readdir = &proc_sys_net_readdir},

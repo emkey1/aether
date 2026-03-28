@@ -249,7 +249,6 @@ static UIViewController *CreateRootSelectionViewController(void) {
     
     NSArray<NSString *> *command;
     command = UserPreferences.shared.bootCommand;
-    NSLog(@"%@", command);
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
     const char *envp = "TERM=xterm-256color\0";

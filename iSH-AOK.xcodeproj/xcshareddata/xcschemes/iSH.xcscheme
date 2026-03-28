@@ -41,32 +41,32 @@
          <AdditionalOption
             key = "MallocGuardEdges"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "MallocStackLogging"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "NSZombieEnabled"
             value = "YES"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "DYLD_INSERT_LIBRARIES"
             value = "/usr/lib/libgmalloc.dylib"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "PrefersMallocStackLoggingLite"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "MallocScribble"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
       </AdditionalOptions>
       <Testables>
@@ -117,12 +117,12 @@
          <AdditionalOption
             key = "MallocGuardEdges"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
          <AdditionalOption
             key = "MallocScribble"
             value = ""
-            isEnabled = "YES">
+            isEnabled = "NO">
          </AdditionalOption>
       </AdditionalOptions>
    </LaunchAction>

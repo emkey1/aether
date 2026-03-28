@@ -50,6 +50,11 @@ static bool trace_session_exec_name(const char *name) {
         strcmp(name, "agetty") == 0;
 }
 
+static bool exec_should_force_safe_cpu(const char *name) {
+    return strcmp(name, "node") == 0 ||
+        strcmp(name, "nodejs") == 0;
+}
+
 static bool trace_session_exec_attempt(const char *current_name, const char *file) {
     if (trace_session_exec_name(current_name))
         return true;
@@ -735,6 +740,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         basename++;
     strncpy(current->comm, basename, sizeof(current->comm));
     current->comm[sizeof(current->comm) - 1] = '\0';
+    current->force_safe_cpu = exec_should_force_safe_cpu(basename);
     unlock(&current->general_lock);
 
     if (trace_session_exec_name(old_comm) || trace_session_exec_name(basename)) {

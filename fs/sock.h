@@ -100,6 +100,7 @@ static inline int sock_family_from_real(int fake) {
     switch (fake) {
         case PF_LOCAL: return PF_LOCAL_;
         case PF_INET: return PF_INET_;
+        case PF_NETLINK_: return PF_NETLINK_;
         case PF_INET6: return PF_INET6_;
     }
     return -1;
@@ -182,6 +183,7 @@ static inline int sock_flags_from_real(int real) {
 
 #define NETLINK_KOBJECT_UEVENT_ 15
 #define NETLINK_SOCK_DIAG_ 4
+#define NETLINK_ROUTE_ 0
 
 #define SO_REUSEADDR_ 2
 #define SO_TYPE_ 3
@@ -224,6 +226,7 @@ static inline int sock_flags_from_real(int real) {
 #define TCP_DEFER_ACCEPT_ 9
 #define TCP_INFO_ 11
 #define TCP_CONGESTION_ 13
+#define TCP_FASTOPEN_ 23
 #define IPV6_MTU_DISCOVER_ 23
 #define IPV6_MTU_ 24
 #define IPV6_UNICAST_HOPS_ 16

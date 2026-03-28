@@ -271,6 +271,7 @@ static inline bool jit_should_yield(struct jit *jit, struct cpu_state *cpu) {
 
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
+    bool quarantine_jit_state = current != NULL && current->force_safe_cpu;
 
     // Install EXC_BAD_ACCESS on this thread once, for JIT crash recovery.
     // Thread-level exception ports are scoped to only this pthread; no other
@@ -436,7 +437,14 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
             last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
         }
-        if (last_block != NULL &&
+        if (quarantine_jit_state) {
+            // Node/V8 is currently only stable when cross-block state is not
+            // carried between jit_enter calls. Keep compiled blocks and the
+            // per-call fast path, but drop link/return-cache reuse.
+            last_block = frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        } else if (last_block != NULL &&
                 (last_block->jump_ip[0] != NULL ||
                  last_block->jump_ip[1] != NULL)) {
             lock(&jit->lock, 0);
@@ -470,8 +478,10 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             unlock(&jit->lock);
         }
         
-        frame->last_block = block;
-        last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        if (!quarantine_jit_state) {
+            frame->last_block = block;
+            last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        }
 
         // block may be jetsam, but that's ok, because it can't be freed until
         // every thread on this jit is not executing anything

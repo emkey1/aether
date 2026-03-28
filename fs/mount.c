@@ -227,6 +227,14 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
             break;
         }
     }
+    if (fs == NULL &&
+            strcmp(point, "/proc/sys/fs/binfmt_misc") == 0 &&
+            (strcmp(type, "binfmt_misc") == 0 ||
+             strcmp(source, "binfmt_misc") == 0 ||
+             strcmp(source, "none") == 0)) {
+        unlock(&mounts_lock);
+        return 0;
+    }
     if (fs == NULL) {
         unlock(&mounts_lock);
         return _EINVAL;

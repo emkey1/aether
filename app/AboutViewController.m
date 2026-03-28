@@ -17,6 +17,7 @@
 @interface AboutViewController ()
 @property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
+@property (weak, nonatomic) IBOutlet UITableViewCell *initialWindowCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
@@ -87,6 +88,7 @@
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
+    self.initialWindowCell.detailTextLabel.text = [self _initialWindowTitle];
     self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
     self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
 
@@ -100,6 +102,8 @@
     UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
     if (cell == self.sendFeedback) {
         [UIApplication openURL:@"mailto:ish_aok_emkey1@icloud.com?subject=Feedback%20for%20iSH"];
+    } else if (cell == self.initialWindowCell) {
+        [self _showInitialWindowPickerFromCell:cell];
     } else if (cell == self.openGithub) {
         [UIApplication openURL:@"https://github.com/emkey1/ish-AOK"];
     } else if (cell == self.openDiscord) {
@@ -116,6 +120,60 @@
         iosfs_clear_all_bookmarks();
     }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+}
+
+- (NSString *)_initialWindowPreferenceValue {
+    NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
+    if ([value isEqualToString:@"session-shell"])
+        return value;
+    return @"terminal";
+}
+
+- (NSString *)_initialWindowTitle {
+    if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
+        return @"Session Shell (pts/0)";
+    return @"Terminal (tty1)";
+}
+
+- (void)_setInitialWindowPreferenceValue:(NSString *)value {
+    [NSUserDefaults.standardUserDefaults setObject:value forKey:kPreferenceInitialWindowKey];
+    [self _updateUI];
+}
+
+- (void)_showInitialWindowPickerFromCell:(UITableViewCell *)cell {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Initial Window"
+                                            message:@"Choose which terminal window opens first for new app launches."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSString *currentValue = [self _initialWindowPreferenceValue];
+    NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
+        ? @"Terminal (tty1)  Current"
+        : @"Terminal (tty1)";
+    NSString *sessionTitle = [currentValue isEqualToString:@"session-shell"]
+        ? @"Session Shell (pts/0)  Current"
+        : @"Session Shell (pts/0)";
+
+    [alert addAction:[UIAlertAction actionWithTitle:terminalTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self _setInitialWindowPreferenceValue:@"terminal"];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:sessionTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self _setInitialWindowPreferenceValue:@"session-shell"];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = cell;
+        popover.sourceRect = cell.bounds;
+    }
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {

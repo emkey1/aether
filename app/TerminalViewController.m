@@ -67,11 +67,17 @@ static const NSInteger kMinimumTerminalFontSize = 1;
 static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (BOOL)shouldPreferConsoleForFreshSession {
-    // Booting via init also starts the app's session shell on a private pty.
-    // Preferring tty1 here leaves the user on a getty/login console while the
-    // actual interactive shell is running elsewhere, which looks like a
-    // missing prompt or an immediate logout.
-    return NO;
+    NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
+    if ([initialWindow isEqualToString:@"session-shell"])
+        return NO;
+    return YES;
+}
+
+- (Terminal *)preferredTerminalForFreshSession {
+    if (![self shouldPreferConsoleForFreshSession])
+        return self.sessionTerminal;
+    Terminal *console = [Terminal terminalWithType:TTY_CONSOLE_MAJOR number:1];
+    return console ?: self.sessionTerminal;
 }
 
 - (void)viewDidLoad {
@@ -331,8 +337,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                  subtitle:[NSString stringWithFormat:@"error code %ld", err]];
         return;
     }
-    if (self.sessionTerminal != nil)
-        self.terminal = self.sessionTerminal;
+    self.terminal = [self preferredTerminalForFreshSession];
 }
 
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid {
@@ -574,7 +579,6 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         return;
     CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
     keyboardFrame = intersection;
-    NSLog(@"%@ %@", notification.name, @(keyboardFrame));
     self.hasExternalKeyboard = keyboardFrame.size.height < 100;
     CGFloat pad = self.view.safeAreaInsets.bottom;
     if (!self.hasExternalKeyboard) {
@@ -832,12 +836,6 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (void)setTerminal:(Terminal *)terminal {
     _terminal = terminal;
-    if (terminal != nil) {
-        NSLog(@"INFO: attach terminal type=%d num=%d uuid=%@",
-              terminal.type, terminal.number, terminal.uuid.UUIDString);
-    } else {
-        NSLog(@"INFO: attach terminal (null)");
-    }
     self.termView.terminal = self.terminal;
 }
 

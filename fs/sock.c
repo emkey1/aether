@@ -1,5 +1,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <stdio.h>
@@ -38,6 +40,36 @@
 
 #define SOCK_DIAG_BY_FAMILY_ 20
 
+#define RTM_NEWLINK_ 16
+#define RTM_GETLINK_ 18
+#define RTM_NEWADDR_ 20
+#define RTM_GETADDR_ 22
+
+#define IFLA_ADDRESS_ 1
+#define IFLA_IFNAME_ 3
+#define IFLA_MTU_ 4
+
+#define IFA_ADDRESS_ 1
+#define IFA_LOCAL_ 2
+#define IFA_LABEL_ 3
+#define IFA_BROADCAST_ 4
+
+#define RT_SCOPE_UNIVERSE_ 0
+#define RT_SCOPE_LINK_ 253
+#define RT_SCOPE_HOST_ 254
+
+#define ARPHRD_ETHER_ 1
+#define ARPHRD_LOOPBACK_ 772
+
+#define IFF_UP_LINUX_ 0x1
+#define IFF_BROADCAST_LINUX_ 0x2
+#define IFF_LOOPBACK_LINUX_ 0x8
+#define IFF_POINTOPOINT_LINUX_ 0x10
+#define IFF_RUNNING_LINUX_ 0x40
+#define IFF_NOARP_LINUX_ 0x80
+#define IFF_PROMISC_LINUX_ 0x100
+#define IFF_MULTICAST_LINUX_ 0x1000
+
 #define TCPF_ALL_ 0xFFF
 #define UDIAG_SHOW_NAME_ (1 << 0)
 
@@ -69,6 +101,32 @@ struct nlattr_ {
     uint16_t nla_len;
     uint16_t nla_type;
 };
+
+struct ifinfomsg_ {
+    uint8_t ifi_family;
+    uint8_t __ifi_pad;
+    uint16_t ifi_type;
+    int32_t ifi_index;
+    uint32_t ifi_flags;
+    uint32_t ifi_change;
+};
+
+struct ifaddrmsg_ {
+    uint8_t ifa_family;
+    uint8_t ifa_prefixlen;
+    uint8_t ifa_flags;
+    uint8_t ifa_scope;
+    uint32_t ifa_index;
+};
+
+struct rtgenmsg_ {
+    uint8_t rtgen_family;
+};
+
+static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
+        uint32_t seq, const void *payload, size_t payload_len);
+static int netlink_append_error(struct fd *sock, uint32_t seq,
+        const struct nlmsghdr_ *req, int err_code);
 
 struct inet_diag_sockid_ {
     uint16_t idiag_sport;
@@ -119,6 +177,230 @@ struct unix_diag_msg_ {
     uint32_t udiag_ino;
     uint32_t udiag_cookie[2];
 };
+
+static int netlink_append_attr_raw(char *buf, size_t cap, size_t *len_io, uint16_t type,
+        const void *data, size_t data_len) {
+    size_t attr_len = sizeof(struct nlattr_) + data_len;
+    size_t aligned_len = NLA_ALIGN(attr_len);
+    if (*len_io + aligned_len > cap)
+        return _ENOBUFS;
+    struct nlattr_ *attr = (struct nlattr_ *) (buf + *len_io);
+    attr->nla_len = (uint16_t) attr_len;
+    attr->nla_type = type;
+    memcpy(attr + 1, data, data_len);
+    memset((char *) attr + attr_len, 0, aligned_len - attr_len);
+    *len_io += aligned_len;
+    return 0;
+}
+
+static uint32_t netlink_linux_if_flags(unsigned host_flags) {
+    uint32_t linux_flags = 0;
+    if (host_flags & IFF_UP)
+        linux_flags |= IFF_UP_LINUX_;
+    if (host_flags & IFF_BROADCAST)
+        linux_flags |= IFF_BROADCAST_LINUX_;
+    if (host_flags & IFF_LOOPBACK)
+        linux_flags |= IFF_LOOPBACK_LINUX_;
+    if (host_flags & IFF_POINTOPOINT)
+        linux_flags |= IFF_POINTOPOINT_LINUX_;
+    if (host_flags & IFF_RUNNING)
+        linux_flags |= IFF_RUNNING_LINUX_;
+#ifdef IFF_NOARP
+    if (host_flags & IFF_NOARP)
+        linux_flags |= IFF_NOARP_LINUX_;
+#endif
+#ifdef IFF_PROMISC
+    if (host_flags & IFF_PROMISC)
+        linux_flags |= IFF_PROMISC_LINUX_;
+#endif
+#ifdef IFF_MULTICAST
+    if (host_flags & IFF_MULTICAST)
+        linux_flags |= IFF_MULTICAST_LINUX_;
+#endif
+    return linux_flags;
+}
+
+static uint8_t netlink_guest_family_from_host(sa_family_t family) {
+    switch (family) {
+        case AF_INET:
+            return AF_INET_;
+        case AF_INET6:
+            return AF_INET6_;
+        default:
+            return 0;
+    }
+}
+
+static uint8_t netlink_prefixlen_from_sockaddr(const struct sockaddr *sa) {
+    if (sa == NULL)
+        return 0;
+    const uint8_t *bytes = NULL;
+    size_t len = 0;
+    if (sa->sa_family == AF_INET) {
+        bytes = (const uint8_t *) &((const struct sockaddr_in *) sa)->sin_addr;
+        len = sizeof(((const struct sockaddr_in *) sa)->sin_addr);
+    } else if (sa->sa_family == AF_INET6) {
+        bytes = (const uint8_t *) &((const struct sockaddr_in6 *) sa)->sin6_addr;
+        len = sizeof(((const struct sockaddr_in6 *) sa)->sin6_addr);
+    } else {
+        return 0;
+    }
+    uint8_t prefix = 0;
+    for (size_t i = 0; i < len; i++)
+        prefix += (uint8_t) __builtin_popcount(bytes[i]);
+    return prefix;
+}
+
+static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const char *ifname, unsigned ifflags, uint32_t mtu) {
+    char payload[256] = {};
+    size_t payload_len = sizeof(struct ifinfomsg_);
+    struct ifinfomsg_ *msg = (struct ifinfomsg_ *) payload;
+    msg->ifi_family = AF_UNSPEC;
+    msg->ifi_type = (strcmp(ifname, "lo0") == 0 || strcmp(ifname, "lo") == 0)
+        ? ARPHRD_LOOPBACK_
+        : ARPHRD_ETHER_;
+    msg->ifi_index = (int32_t) if_nametoindex(ifname);
+    msg->ifi_flags = netlink_linux_if_flags(ifflags);
+    msg->ifi_change = 0xffffffffu;
+
+    int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            IFLA_IFNAME_, ifname, strlen(ifname) + 1);
+    if (err < 0)
+        return err;
+    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            IFLA_MTU_, &mtu, sizeof(mtu));
+    if (err < 0)
+        return err;
+    return netlink_append_nlmsg(sock, RTM_NEWLINK_, NLM_F_MULTI_,
+            req_hdr->nlmsg_seq, payload, payload_len);
+}
+
+static int netlink_append_route_links(struct fd *sock, const struct nlmsghdr_ *req_hdr) {
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+
+    int err = 0;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        bool seen = false;
+        for (const struct ifaddrs *prev = addrs; prev != cursor; prev = prev->ifa_next) {
+            if (prev->ifa_name != NULL && strcmp(prev->ifa_name, cursor->ifa_name) == 0) {
+                seen = true;
+                break;
+            }
+        }
+        if (seen)
+            continue;
+        uint32_t mtu = 1500;
+        if (cursor->ifa_data != NULL) {
+            const struct if_data *stats = (const struct if_data *) cursor->ifa_data;
+            if (stats->ifi_mtu != 0)
+                mtu = (uint32_t) stats->ifi_mtu;
+        }
+        err = netlink_append_route_link(sock, req_hdr, cursor->ifa_name, cursor->ifa_flags, mtu);
+        if (err < 0)
+            break;
+    }
+    freeifaddrs(addrs);
+    if (err >= 0)
+        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+    return err;
+}
+
+static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const struct ifaddrs *ifa) {
+    char payload[256] = {};
+    size_t payload_len = sizeof(struct ifaddrmsg_);
+    struct ifaddrmsg_ *msg = (struct ifaddrmsg_ *) payload;
+    msg->ifa_family = netlink_guest_family_from_host(ifa->ifa_addr->sa_family);
+    msg->ifa_prefixlen = netlink_prefixlen_from_sockaddr(ifa->ifa_netmask);
+    msg->ifa_flags = 0;
+    msg->ifa_scope = (ifa->ifa_flags & IFF_LOOPBACK) ? RT_SCOPE_HOST_ : RT_SCOPE_UNIVERSE_;
+    msg->ifa_index = if_nametoindex(ifa->ifa_name);
+
+    if (ifa->ifa_addr->sa_family == AF_INET) {
+        const struct in_addr *addr = &((const struct sockaddr_in *) ifa->ifa_addr)->sin_addr;
+        int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFA_LOCAL_, addr, sizeof(*addr));
+        if (err < 0)
+            return err;
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFA_ADDRESS_, addr, sizeof(*addr));
+        if (err < 0)
+            return err;
+        if (ifa->ifa_dstaddr != NULL && (ifa->ifa_flags & IFF_POINTOPOINT)) {
+            const struct in_addr *dst = &((const struct sockaddr_in *) ifa->ifa_dstaddr)->sin_addr;
+            err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                    IFA_BROADCAST_, dst, sizeof(*dst));
+            if (err < 0)
+                return err;
+        } else if (ifa->ifa_broadaddr != NULL && (ifa->ifa_flags & IFF_BROADCAST)) {
+            const struct in_addr *bcast = &((const struct sockaddr_in *) ifa->ifa_broadaddr)->sin_addr;
+            err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                    IFA_BROADCAST_, bcast, sizeof(*bcast));
+            if (err < 0)
+                return err;
+        }
+    } else if (ifa->ifa_addr->sa_family == AF_INET6) {
+        const struct in6_addr *addr6 = &((const struct sockaddr_in6 *) ifa->ifa_addr)->sin6_addr;
+        int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFA_LOCAL_, addr6, sizeof(*addr6));
+        if (err < 0)
+            return err;
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFA_ADDRESS_, addr6, sizeof(*addr6));
+        if (err < 0)
+            return err;
+    } else {
+        return 0;
+    }
+
+    int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            IFA_LABEL_, ifa->ifa_name, strlen(ifa->ifa_name) + 1);
+    if (err < 0)
+        return err;
+    return netlink_append_nlmsg(sock, RTM_NEWADDR_, NLM_F_MULTI_,
+            req_hdr->nlmsg_seq, payload, payload_len);
+}
+
+static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *req_hdr) {
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+
+    int err = 0;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL || cursor->ifa_addr == NULL)
+            continue;
+        if (cursor->ifa_addr->sa_family != AF_INET && cursor->ifa_addr->sa_family != AF_INET6)
+            continue;
+        err = netlink_append_route_addr(sock, req_hdr, cursor);
+        if (err < 0)
+            break;
+    }
+    freeifaddrs(addrs);
+    if (err >= 0)
+        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+    return err;
+}
+
+static int netlink_handle_route_request(struct fd *sock, const struct nlmsghdr_ *hdr,
+        const void *payload, size_t payload_len) {
+    if (payload_len != 0 && payload_len < sizeof(struct rtgenmsg_))
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+    (void) payload;
+    switch (hdr->nlmsg_type) {
+        case RTM_GETLINK_:
+            return netlink_append_route_links(sock, hdr);
+        case RTM_GETADDR_:
+            return netlink_append_route_addrs(sock, hdr);
+        default:
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+    }
+}
 
 struct diag_socket_entry {
     struct fd **fds;
@@ -500,7 +782,8 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
     if (domain == AF_NETLINK_) {
         int socket_type = type & SOCKET_TYPE_MASK;
-        if (protocol != NETLINK_SOCK_DIAG_ &&
+        if (protocol != NETLINK_ROUTE_ &&
+                protocol != NETLINK_SOCK_DIAG_ &&
                 protocol != NETLINK_KOBJECT_UEVENT_)
             return _EPROTONOSUPPORT;
         if (socket_type != SOCK_RAW_ && socket_type != SOCK_DGRAM_)
@@ -913,7 +1196,10 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
         }
         const void *payload = req + offset + NLMSG_HDRLEN;
         size_t payload_len = hdr->nlmsg_len - NLMSG_HDRLEN;
-        err = netlink_handle_diag_request(sock, hdr, payload, payload_len);
+        if (sock->socket.protocol == NETLINK_ROUTE_)
+            err = netlink_handle_route_request(sock, hdr, payload, payload_len);
+        else
+            err = netlink_handle_diag_request(sock, hdr, payload, payload_len);
         if (err < 0)
             break;
         offset += NLMSG_ALIGN(hdr->nlmsg_len);
@@ -1862,6 +2148,11 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         sock->socket.tcp_defer_accept = *(dword_t *) value;
         return 0;
     }
+    if (level == IPPROTO_TCP && option == TCP_FASTOPEN_) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        return 0;
+    }
 
     if (level == SOL_SOCKET_ && option == SO_PASSCRED_) {
         if (value_len < sizeof(dword_t))
@@ -2062,6 +2353,9 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     } else if (level == IPPROTO_TCP && option == TCP_DEFER_ACCEPT_) {
         dword_t defer_accept = sock->socket.tcp_defer_accept;
         sockopt_store_value(value, user_value_len, &value_len, &defer_accept, sizeof(defer_accept));
+    } else if (level == IPPROTO_TCP && option == TCP_FASTOPEN_) {
+        dword_t fastopen = 0;
+        sockopt_store_value(value, user_value_len, &value_len, &fastopen, sizeof(fastopen));
     } else if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
         sockopt_store_value(value, user_value_len, &value_len,
                 sock->socket.tcp_congestion, strlen(sock->socket.tcp_congestion));
@@ -2454,11 +2748,26 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
 
     if (sock->socket.domain == AF_NETLINK_) {
         ssize_t res = netlink_handle_recvmsg(sock, &msg);
+        if (res >= 0) {
+            size_t n = (size_t) res;
+            for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
+                size_t chunk_size = msg_iov[i].iov_len;
+                if (chunk_size > n)
+                    chunk_size = n;
+                if (chunk_size != 0)
+                    if (user_write(msg_iov_fake[i].base, msg_iov[i].iov_base, chunk_size)) {
+                        for (size_t j = 0; j < (size_t) msg.msg_iovlen; j++)
+                            free(msg_iov[j].iov_base);
+                        return _EFAULT;
+                    }
+                n -= chunk_size;
+            }
+        }
         for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
             free(msg_iov[i].iov_base);
         if (res < 0)
             return res;
-        if (msg.msg_name != 0) {
+        if (msg.msg_name != NULL) {
             int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, sizeof(msg_name), &msg.msg_namelen);
             if (err < 0)
                 return err;

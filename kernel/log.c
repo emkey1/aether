@@ -132,6 +132,8 @@ static void log_buf_append(const char *msg) {
 static void log_line(const char *line);
 
 static void output_line(const char *line) {
+     if (strncmp(line, "INFO:", 5) == 0)
+         return;
      time_t t = time(NULL);
      char* c_time_string = ctime(&t);
      const size_t tlen = strlen(c_time_string); // We can trust c_time_string to be null terminated

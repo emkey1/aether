@@ -141,8 +141,6 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
         self.enableVoiceOverAnnounce = self.enableVoiceOverAnnounce;
-    } else if ([message.name isEqualToString:@"log"]) {
-        NSLog(@"%@", message.body);
     } else if ([message.name isEqualToString:@"sendInput"]) {
         NSData *data = [message.body dataUsingEncoding:NSUTF8StringEncoding];
         [self sendInput:data];
