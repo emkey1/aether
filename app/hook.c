@@ -22,6 +22,10 @@
 // No Foundation.h
 extern void NSLog(CFStringRef, ...);
 
+// Defined in jit/jit.c.  Called on the faulting JIT thread after a PC=0
+// EXC_BAD_ACCESS crash (null gadget dispatch); releases jetsam_lock and exits.
+extern void jit_crash_fn(void);
+
 kern_return_t catch_mach_exception_raise(
     mach_port_t exception_port,
     mach_port_t thread,
@@ -58,6 +62,7 @@ static int active_hooks;
 static int breakpoints;
 
 mach_port_t server;
+static mach_port_t jit_crash_port = MACH_PORT_NULL;
 
 kern_return_t catch_mach_exception_raise_state(
     mach_port_t exception_port,
@@ -71,6 +76,34 @@ kern_return_t catch_mach_exception_raise_state(
     mach_msg_type_number_t *new_stateCnt) {
     arm_thread_state64_t *old = (arm_thread_state64_t *)old_state;
     arm_thread_state64_t *new = (arm_thread_state64_t *)new_state;
+
+    // JIT crash recovery: any hardware exception on a JIT execution thread.
+    //
+    // EXC_BAD_ACCESS: null/bad gadget address (`br x8` with x8=0 or unmapped).
+    // EXC_BAD_INSTRUCTION: `br x8` dispatches into garbage that decodes as an
+    //   illegal/privileged instruction (udf, brk, svc from wrong EL, etc.).
+    // EXC_ARITHMETIC: divide-by-zero inside a gadget.
+    // EXC_BREAKPOINT: `br x8` dispatches to garbage containing a brk instruction.
+    //
+    // This handler is registered per-thread only on threads that called
+    // jit_install_thread_exception_handler(), so exception_port == jit_crash_port
+    // only for known JIT execution threads.
+    //
+    // jit_crash_fn() checks jit_crash_lock (thread-local): if non-NULL the
+    // thread is inside cpu_step_to_interrupt holding jetsam_lock (read); it
+    // releases the lock and calls pthread_exit().  If NULL the crash occurred
+    // outside JIT execution and jit_crash_fn() calls abort() to preserve
+    // normal crash semantics.
+    if (exception_port == jit_crash_port &&
+        (exception == EXC_BAD_ACCESS ||
+         exception == EXC_BAD_INSTRUCTION ||
+         exception == EXC_ARITHMETIC ||
+         exception == EXC_BREAKPOINT)) {
+        *new = *old;
+        *new_stateCnt = old_stateCnt;
+        arm_thread_state64_set_pc_fptr(*new, (void *)jit_crash_fn);
+        return KERN_SUCCESS;
+    }
 
     for (int i = 0; i < active_hooks; ++i) {
         if (hooks[i].old == arm_thread_state64_get_pc(*old)) {
@@ -118,6 +151,66 @@ static bool initialize_if_needed(void) {
 #undef CHECK
 
     return initialized = true;
+}
+
+
+// JIT crash recovery: dedicated Mach exception server for EXC_BAD_ACCESS on
+// JIT threads.  Completely independent of the breakpoint hook server — it never
+// touches EXC_MASK_BREAKPOINT, never calls initialize_if_needed(), and is safe
+// to set up from a background JIT thread during app startup without breaking
+// Xcode's debugger.
+//
+// Set up once (pthread_once) on first JIT thread entry; each subsequent JIT
+// thread adds itself via thread_set_exception_ports (thread-local flag in
+// jit.c ensures this is called at most once per pthread lifetime).
+
+static pthread_once_t jit_crash_port_once = PTHREAD_ONCE_INIT;
+
+static void *jit_crash_exception_handler(void *unused) {
+    mach_msg_server(mach_exc_server,
+                    sizeof(union __RequestUnion__catch_mach_exc_subsystem),
+                    jit_crash_port, MACH_MSG_OPTION_NONE);
+    abort();
+}
+
+static void setup_jit_crash_port(void) {
+    if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &jit_crash_port) != KERN_SUCCESS)
+        return;
+    if (mach_port_insert_right(mach_task_self(), jit_crash_port, jit_crash_port, MACH_MSG_TYPE_MAKE_SEND) != KERN_SUCCESS) {
+        mach_port_destroy(mach_task_self(), jit_crash_port);
+        jit_crash_port = MACH_PORT_NULL;
+        return;
+    }
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, jit_crash_exception_handler, NULL) != 0) {
+        mach_port_destroy(mach_task_self(), jit_crash_port);
+        jit_crash_port = MACH_PORT_NULL;
+        return;
+    }
+    pthread_detach(thread);
+}
+
+// Called once per JIT execution pthread.  Registers this thread for
+// EXC_BAD_ACCESS using the dedicated crash recovery port.  A PC=0 bad access
+// (null gadget dispatch) is redirected by catch_mach_exception_raise_state to
+// jit_crash_fn(), which releases jetsam_lock and exits the thread cleanly.
+void jit_install_thread_exception_handler(void) {
+    pthread_once(&jit_crash_port_once, setup_jit_crash_port);
+    if (jit_crash_port == MACH_PORT_NULL)
+        return;
+    mach_port_t thread = mach_thread_self();
+    // Catch bad-access (null/bad gadget address), bad-instruction (corrupt
+    // gadget decodes as udf/etc.), breakpoint (brk instruction in garbage
+    // bytes), and arithmetic (div-by-zero).  All redirect to jit_crash_fn.
+    thread_set_exception_ports(thread,
+                               EXC_MASK_BAD_ACCESS |
+                               EXC_MASK_BAD_INSTRUCTION |
+                               EXC_MASK_ARITHMETIC |
+                               EXC_MASK_BREAKPOINT,
+                               jit_crash_port,
+                               EXCEPTION_STATE | MACH_EXCEPTION_CODES,
+                               ARM_THREAD_STATE64);
+    mach_port_deallocate(mach_task_self(), thread);
 }
 
 // This is marked as available on iPhone in libproc.h but pulling in the header
@@ -277,6 +370,10 @@ void *find_symbol(void *base, char *symbol) {
 
 bool hook(void *old, void *new) {
     return false;
+}
+
+void jit_install_thread_exception_handler(void) {
+    // No-op on non-arm64
 }
 
 #endif
