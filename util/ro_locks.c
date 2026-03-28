@@ -24,7 +24,6 @@ lock_t atomic_l_lock;
 void lock_init(lock_t *lock, char lname[16]) {
     memset(lock, 0, sizeof(*lock));
     int ret = pthread_mutex_init(&lock->m, NULL);
-  //  pthread_cond_init(&lock->cond, NULL);
     if (ret != 0) {
         // Handle the error according to your application's needs
         printk("ERROR: Failed to initialize mutex: %s:(%s)\n", lname, strerror(ret));

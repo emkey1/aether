@@ -1690,13 +1690,6 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
             (sock->socket.domain == AF_LOCAL_ &&
              (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len) ||
               guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)))) {
-        // Log syslog messages from sshd so fatal() and other messages are visible.
-        if (sock_is_devlog_sink(sock) && current != NULL &&
-                strcmp(current->comm, "sshd") == 0) {
-            size_t log_len = len < 512 ? len : 512;
-            printk("INFO: sshd syslog pid=%d tgid=%d data=\"%.*s\"\n",
-                   current->pid, current->tgid, (int) log_len, buffer);
-        }
         free(buffer);
         return len;
     }
@@ -2228,14 +2221,6 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         size_t total = 0;
         for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
             total += msg_iov[i].iov_len;
-        // Log syslog messages from sshd so fatal() and other messages are visible.
-        if (sock_is_devlog_sink(sock) && current != NULL &&
-                strcmp(current->comm, "sshd") == 0 && msg.msg_iovlen > 0) {
-            const char *data = (const char *) msg_iov[0].iov_base;
-            size_t len = msg_iov[0].iov_len < 512 ? msg_iov[0].iov_len : 512;
-            printk("INFO: sshd syslog pid=%d tgid=%d data=\"%.*s\"\n",
-                   current->pid, current->tgid, (int) len, data);
-        }
         err = (int_t) total;
         goto out_free_iov;
     }
@@ -2941,10 +2926,5 @@ int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
     if (user_read(args_addr, args, sizeof(dword_t) * call.args))
         return _EFAULT;
     int_t result = call.func(args[0], args[1], args[2], args[3], args[4], args[5]);
-    if (socketcall_trace_sshd_process() && socketcall_trace_interesting(call_num, result)) {
-        printk("INFO: sshd socketcall pid=%d tgid=%d comm=%s call=%u(%s) args=%#x,%#x,%#x,%#x,%#x,%#x result=%d\n",
-               current->pid, current->tgid, current->comm, call_num, socketcall_name(call_num),
-               args[0], args[1], args[2], args[3], args[4], args[5], result);
-    }
     return result;
 }

@@ -1,6 +1,7 @@
 #ifndef JIT_H
 #define JIT_H
 #define ENGINE_JIT 1
+#include <stdatomic.h>
 #include "misc.h"
 #include "emu/mmu.h"
 #include "util/list.h"
@@ -38,6 +39,14 @@ struct jit {
 
     lock_t lock;
     wrlock_t jetsam_lock;
+    // Incremented after each jit_free_jetsam in OOM paths; frames compare
+    // against last_block_cleanup_seq to detect stale last_block pointers.
+    atomic_uint cleanup_seq;
+    // Set to true before acquiring jetsam_lock for write, cleared after. All
+    // goroutines point their cpu->poked_ptr here, so jit_ret_chain sees this
+    // flag on every block boundary and exits jit_enter, releasing the read
+    // lock promptly — even if a linked-block cycle somehow forms.
+    uint8_t write_wanted;
 };
 
 // this is roughly the average number of instructions in a basic block according to anonymous sources

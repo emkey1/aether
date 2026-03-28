@@ -104,11 +104,16 @@
 1:
     ldaxr x8, [_xaddr]
     cmp x9, x8
-    csel x9, x8, x9, ne
-    csel x8, x10, x8, eq
-    cset w11, eq
-    stlxr w12, x8, [_xaddr]
-    cbnz w12, 1b
+    b.ne 3f                   // CAS fails: actual != expected, don't corrupt x9
+    stlxr w12, x10, [_xaddr]  // CAS matches: try to store new value
+    cbnz w12, 1b              // exclusive store failed: retry (x9 unchanged = original expected)
+    mov w11, #1               // success
+    b 4f
+3:
+    clrex                     // clear exclusive reservation
+    mov x9, x8                // x9 = actual value (for edx:eax return)
+    mov w11, wzr              // failure
+4:
     write_done 64, atomic_cmpxchg8b
     ubfx xax, x9, 0, 32
     ubfx xdx, x9, 32, 32
@@ -257,7 +262,19 @@ do_helper 2
         .ifin(\rm, reg,imm)
             ldr x8, [_ip]
         .endifin
+        // store-release: flush prior stores before the 64-bit write reaches memory
+        .ifc \rm,write
+            .ifc \size,64
+                dmb ish
+            .endif
+        .endif
         blr x8
+        // load-acquire: ensure the 64-bit load is visible before subsequent loads
+        .ifc \rm,read
+            .ifc \size,64
+                dmb ish
+            .endif
+        .endif
 
         restore_c
         load_regs

@@ -28,12 +28,39 @@
 
 @implementation RootsTableViewController
 
+- (void)updateEmptyState {
+    if (Roots.instance.roots.count != 0) {
+        self.tableView.backgroundView = nil;
+        return;
+    }
+
+    UILabel *label = [[UILabel alloc] init];
+    label.numberOfLines = 0;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.textColor = UIColor.secondaryLabelColor;
+    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    label.text = @"No filesystems are available.\nTap Import to add a root filesystem.";
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+
+    UIView *container = [[UIView alloc] initWithFrame:self.tableView.bounds];
+    [container addSubview:label];
+    [NSLayoutConstraint activateConstraints:@[
+        [label.centerXAnchor constraintEqualToAnchor:container.centerXAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
+        [label.leadingAnchor constraintGreaterThanOrEqualToAnchor:container.leadingAnchor constant:24],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:container.trailingAnchor constant:-24],
+    ]];
+    self.tableView.backgroundView = container;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     [Roots.instance observe:@[@"roots", @"defaultRoot"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
+        [self updateEmptyState];
         [self.tableView reloadData];
     }];
+    [self updateEmptyState];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {

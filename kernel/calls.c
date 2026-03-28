@@ -423,12 +423,6 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
     int result = syscall(cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
     STRACE(" = 0x%x\n", result);
-    if (syscall_trace_sshd(current->comm) && syscall_trace_interesting(syscall_num, result)) {
-        printk("INFO: sshd syscall pid=%d tgid=%d comm=%s nr=%u args=%#x,%#x,%#x,%#x,%#x,%#x result=%d ip=%#x\n",
-               current->pid, current->tgid, current->comm, syscall_num,
-               cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp,
-               result, cpu->eip);
-    }
     cpu->eax = result;
 }
 

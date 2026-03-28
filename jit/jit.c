@@ -259,6 +259,16 @@ static inline size_t jit_cache_hash(addr_t ip) {
     return (ip ^ (ip >> 12)) % JIT_CACHE_SIZE;
 }
 
+static inline bool cpu_take_poke(struct cpu_state *cpu) {
+    return __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST);
+}
+
+static inline bool jit_should_yield(struct jit *jit, struct cpu_state *cpu) {
+    if (__atomic_load_n(&jit->write_wanted, __ATOMIC_SEQ_CST))
+        return true;
+    return cpu_take_poke(cpu);
+}
+
 static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
 
@@ -272,12 +282,12 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         exception_handler_installed = true;
     }
 
-    // Allocate before acquiring jetsam_lock: with iOS debug malloc (guard pages,
-    // scribbling) these calls can be slow, and holding jetsam_lock during them
-    // blocks OOM cleanup on all sibling threads sharing this jit.
-    struct jit_block **cache = calloc(JIT_CACHE_SIZE, sizeof(*cache));
-    struct jit_frame *frame = malloc(sizeof(struct jit_frame));
-    memset(frame, 0, sizeof(*frame));
+    // Keep the hot path off malloc/free. With iOS debug malloc enabled
+    // (guard pages + scribbling), even these small short-lived allocations
+    // are expensive enough to dominate guest startup helpers like /bin/uname.
+    struct jit_block *cache[JIT_CACHE_SIZE] = {};
+    struct jit_frame frame_storage = {};
+    struct jit_frame *frame = &frame_storage;
     frame->cpu = *cpu;
     assert(jit->mmu == cpu->mmu);
 
@@ -300,7 +310,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // compilation). This ensures we release the read lock promptly even if we
         // haven't reached jit_enter yet — e.g. while waiting for jit->lock or
         // inside jit_block_compile under debug malloc.
-        if (__atomic_load_n(cpu->poked_ptr, __ATOMIC_RELAXED)) {
+        if (jit_should_yield(jit, cpu)) {
             interrupt = INT_TIMER;
             break;
         }
@@ -320,7 +330,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 jit_crash_lock = NULL;  // Lock released; disable crash recovery until re-acquired
                 pthread_rwlock_unlock(&jit->jetsam_lock.l);
 
-                if (__atomic_load_n(cpu->poked_ptr, __ATOMIC_RELAXED)) {
+                if (jit_should_yield(jit, cpu)) {
                     interrupt = INT_TIMER;
                     goto done_unlocked;
                 }
@@ -339,13 +349,13 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                         unlock(&jit->lock);
                         atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
                         pthread_rwlock_unlock(&jit->jetsam_lock.l);
-                        memset(cache, 0, JIT_CACHE_SIZE * sizeof(*cache));
+                        memset(cache, 0, sizeof(cache));
                         memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
                         frame->last_block = NULL;
                     }
                     __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
 
-                    if (__atomic_load_n(cpu->poked_ptr, __ATOMIC_RELAXED)) {
+                    if (jit_should_yield(jit, cpu)) {
                         interrupt = INT_TIMER;
                         goto done_unlocked;
                     }
@@ -363,13 +373,13 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             unlock(&jit->lock);
                             atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
                             pthread_rwlock_unlock(&jit->jetsam_lock.l);
-                            memset(cache, 0, JIT_CACHE_SIZE * sizeof(*cache));
+                            memset(cache, 0, sizeof(cache));
                             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
                             frame->last_block = NULL;
                         }
                         __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
 
-                        if (__atomic_load_n(cpu->poked_ptr, __ATOMIC_RELAXED)) {
+                        if (jit_should_yield(jit, cpu)) {
                             interrupt = INT_TIMER;
                             goto done_unlocked;
                         }
@@ -379,8 +389,6 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             printk("JIT OOM at %#x pid %d: even after full flush, killing task\n",
                                    ip, current->pid);
                             jit_crash_lock = NULL;
-                            free(frame);
-                            free(cache);
                             return INT_GPF;
                         }
                     }
@@ -391,7 +399,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                 // be recompiled (or found in the hash) on the next call.
                 pthread_rwlock_rdlock(&jit->jetsam_lock.l);
                 jit_crash_lock = &jit->jetsam_lock;  // Re-enable crash recovery
-                if (__atomic_load_n(cpu->poked_ptr, __ATOMIC_RELAXED)) {
+                if (jit_should_yield(jit, cpu)) {
                     jit_block_free(NULL, block);
                     interrupt = INT_TIMER;
                     break;
@@ -420,7 +428,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // blocks whose memory has been reused — clear both.
         if (atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed) != last_block_cleanup_seq) {
             last_block = frame->last_block = NULL;
-            memset(cache, 0, JIT_CACHE_SIZE * sizeof(*cache));
+            memset(cache, 0, sizeof(cache));
             // Also clear the assembly-level return cache: it holds raw pointers
             // into jit_block code arrays. If jetsam freed those blocks, a ret
             // gadget reading a stale entry reads scribbled memory and stores
@@ -492,7 +500,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         interrupt = jit_enter(block, frame, tlb);
         // Use load (not exchange) so we don't clear write_wanted — only the
         // write-lock holder should clear it after jetsam cleanup completes.
-        if (interrupt == INT_NONE && __atomic_load_n(cpu->poked_ptr, __ATOMIC_SEQ_CST))
+        if (interrupt == INT_NONE && jit_should_yield(jit, cpu))
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
@@ -505,8 +513,6 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             // double-unlock if EXC_BAD_ACCESS fires during unlock)
     pthread_rwlock_unlock(&jit->jetsam_lock.l);
 done_unlocked:
-    free(frame);
-    free(cache);
     return interrupt;
 
 }
@@ -531,11 +537,10 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
-    // Point poked_ptr at the JIT-wide write_wanted flag. jit_ret_chain checks
-    // this on every block boundary, so when a jetsam write-lock is pending all
-    // goroutines in jit_enter exit at the next boundary, releasing their read
-    // locks promptly rather than being stuck until the cycle counter fires.
-    cpu->poked_ptr = (bool *)&jit->write_wanted;
+    // Keep normal signal/timer pokes per-CPU. The JIT checks write_wanted
+    // separately as a jetsam hint; sharing the same flag lets an ordinary poke
+    // leave the JIT permanently in "yield now" mode.
+    cpu->poked_ptr = &cpu->_poked;
 
     tlb_refresh(tlb, cpu->mmu);
     int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke

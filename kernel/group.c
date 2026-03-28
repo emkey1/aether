@@ -107,10 +107,6 @@ pid_t_ task_setsid(struct task *task) {
     pid_t_ old_pgid = group->pgid;
     pid_t_ new_sid = group->leader->pid;
     if (group->pgid == new_sid || group->sid == new_sid) {
-        if (session_trace_ssh(task->comm)) {
-            printk("INFO: sshd setsid pid=%d tgid=%d old_sid=%d old_pgid=%d result=%d\n",
-                   task->pid, task->tgid, old_sid, old_pgid, _EPERM);
-        }
         unlock(&pids_lock);
         return _EPERM;
     }
@@ -123,11 +119,6 @@ pid_t_ task_setsid(struct task *task) {
     list_remove_safe(&group->pgroup);
     list_add(&pid->pgroup, &group->pgroup);
     group->pgid = new_sid;
-
-    if (session_trace_ssh(task->comm)) {
-        printk("INFO: sshd setsid pid=%d tgid=%d old_sid=%d old_pgid=%d new_sid=%d new_pgid=%d\n",
-               task->pid, task->tgid, old_sid, old_pgid, group->sid, group->pgid);
-    }
 
     unlock(&pids_lock);
     return new_sid;

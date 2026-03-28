@@ -129,6 +129,10 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
         task->group = tgroup_copy(old_group);
         task->group->leader = task;
         task->tgid = task->pid;
+    } else {
+        // New threads do not inherit the parent's alternate signal stack
+        task->altstack = 0;
+        task->altstack_size = 0;
     }
     list_add(&task->group->threads, &task->group_links);
     unlock(&old_group->lock);

@@ -181,19 +181,6 @@ int tty_open(struct tty *tty, struct fd *fd) {
         unlock(&pids_lock);
     }
 
-    if (tty_trace_ssh_current()) {
-        complex_lockt(&pids_lock, 0);
-        lock(&tty->lock, 0);
-        lock(&current->group->lock, 0);
-        printk("INFO: sshd tty-open pid=%d tgid=%d tty=%d:%d flags=%#x sid=%d pgid=%d tty_session=%d group_tty=%d:%d\n",
-               current->pid, current->tgid, tty->type, tty->num, fd->flags,
-               current->group->sid, current->group->pgid, tty->session,
-               current->group->tty != NULL ? current->group->tty->type : -1,
-               current->group->tty != NULL ? current->group->tty->num : -1);
-        unlock(&current->group->lock);
-        unlock(&tty->lock);
-        unlock(&pids_lock);
-    }
 
     return 0;
 }
@@ -716,15 +703,6 @@ static int tiocsctty(struct tty *tty, int force) {
     // locking is ***hard**
     complex_lockt(&pids_lock, 0);
     lock(&tty->lock, 0);
-    if (trace_ssh) {
-        lock(&current->group->lock, 0);
-        printk("INFO: sshd tiocsctty-enter pid=%d tgid=%d tty=%d:%d force=%d sid=%d pgid=%d tty_session=%d group_tty=%d:%d\n",
-               current->pid, current->tgid, tty->type, tty->num, force,
-               current->group->sid, current->group->pgid, tty->session,
-               current->group->tty != NULL ? current->group->tty->type : -1,
-               current->group->tty != NULL ? current->group->tty->num : -1);
-        unlock(&current->group->lock);
-    }
     // do nothing if this is already our controlling tty
     if (current->group->sid == current->pid && current->group->sid == tty->session)
         goto out;
@@ -755,15 +733,6 @@ static int tiocsctty(struct tty *tty, int force) {
 
     tty_set_controlling(current->group, tty);
 out:
-    if (trace_ssh) {
-        lock(&current->group->lock, 0);
-        printk("INFO: sshd tiocsctty-exit pid=%d tgid=%d tty=%d:%d err=%d sid=%d pgid=%d tty_session=%d fg_group=%d group_tty=%d:%d\n",
-               current->pid, current->tgid, tty->type, tty->num, err,
-               current->group->sid, current->group->pgid, tty->session, tty->fg_group,
-               current->group->tty != NULL ? current->group->tty->type : -1,
-               current->group->tty != NULL ? current->group->tty->num : -1);
-        unlock(&current->group->lock);
-    }
     unlock(&pids_lock);
     return err;
 }

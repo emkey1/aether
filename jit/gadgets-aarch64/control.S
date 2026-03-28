@@ -59,6 +59,12 @@
     ldr _ip, [_ip, 24]
     cmp _ip, 0
     b.lt 1f
+    // check write_wanted before linking, same as jit_ret_chain does
+    ldr x9, [_cpu, CPU_poked_ptr]
+    ldrb w9, [x9]
+    cbz w9, 3f
+    b poke
+3:
     sub x8, _ip, JIT_BLOCK_code
     str x8, [_cpu, LOCAL_last_block]
     gret

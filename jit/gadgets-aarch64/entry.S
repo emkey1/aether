@@ -29,6 +29,7 @@ jit_ret_chain:
     str x8, [_cpu, LOCAL_last_block]
     gret
 
+.global poke
 poke:
     ldr eip, [_ip, -JIT_BLOCK_code+JIT_BLOCK_addr]
     # fallthrough

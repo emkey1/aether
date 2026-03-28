@@ -1,5 +1,8 @@
 #include <string.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 #include "emu/memory.h"
 #include "kernel/calls.h"
 #include "fs/proc.h"
@@ -39,13 +42,61 @@ static void proc_put_task(struct task *task) {
         task_ref_cnt_mod(task, -1);
 }
 
+// Get user and system CPU time for a task's thread, in jiffies (USER_HZ = 100).
+// Uses the Mach thread_info API so it works from any thread, not just the target.
+static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime) {
+#ifdef __APPLE__
+    mach_port_t mach_thread = pthread_mach_thread_np(task->thread);
+    if (mach_thread != MACH_PORT_NULL) {
+        thread_basic_info_data_t info;
+        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+        kern_return_t kr = thread_info(mach_thread, THREAD_BASIC_INFO,
+                                       (thread_info_t)&info, &count);
+        if (kr == KERN_SUCCESS) {
+            *out_utime = (unsigned long)info.user_time.seconds * 100
+                         + info.user_time.microseconds / 10000;
+            *out_stime = (unsigned long)info.system_time.seconds * 100
+                         + info.system_time.microseconds / 10000;
+            return;
+        }
+    }
+#endif
+    *out_utime = 0;
+    *out_stime = 0;
+}
+
+// Count the number of mapped pages in a mem.
+// Intentionally lock-free: second-level pgdir tables are never freed until
+// mem_destroy (impossible while caller holds a task ref), so the worst case is
+// a slightly stale count, which is fine for monitoring via /proc.
+static size_t proc_mem_count_pages(struct mem *mem) {
+    if (mem == NULL)
+        return 0;
+    size_t count = 0;
+    for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
+        struct pt_entry *pgdir = mem->pgdir[i];
+        if (pgdir == NULL) continue;
+        for (int j = 0; j < MEM_PGDIR_SIZE; j++) {
+            if (pgdir[j].data != NULL)
+                count++;
+        }
+    }
+    return count;
+}
+
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
         proc_put_task(task);
         return _ESRCH;
     }
-        
+
+    // Gather CPU time and memory before the main locks (independent of general_lock)
+    unsigned long utime_jiffies, stime_jiffies;
+    proc_task_cpu_time(task, &utime_jiffies, &stime_jiffies);
+
+    size_t page_count = proc_mem_count_pages(task->mem);
+
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
     // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
@@ -73,9 +124,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%lu ", 0l); // children major faults
 
     // values that would be returned from getrusage
-    // finding these for a given process isn't too easy
-    proc_printf(buf, "%lu ", 0l); // user time
-    proc_printf(buf, "%lu ", 0l); // system time
+    proc_printf(buf, "%lu ", utime_jiffies); // user time
+    proc_printf(buf, "%lu ", stime_jiffies); // system time
     proc_printf(buf, "%ld ", 0l); // children user time
     proc_printf(buf, "%ld ", 0l); // children system time
 
@@ -85,9 +135,9 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%ld ", 0l); // itimer value (deprecated, always 0)
     proc_printf(buf, "%lld ", 0ll); // jiffies on process start
 
-    proc_printf(buf, "%lu ", 0l); // vsize
-    proc_printf(buf, "%ld ", 0l); // rss
-    proc_printf(buf, "%lu ", 0l); // rss limit
+    proc_printf(buf, "%lu ", (unsigned long)(page_count * PAGE_SIZE)); // vsize in bytes
+    proc_printf(buf, "%ld ", (long)page_count); // rss in pages
+    proc_printf(buf, "%lu ", (unsigned long)-1); // rss limit (RLIM_INFINITY)
 
     // bunch of shit that can only be accessed by a debugger
     proc_printf(buf, "%lu ", 0l); // startcode
@@ -142,9 +192,16 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     return 0;
 }
 
-static int proc_pid_statm_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    proc_printf(buf, "%lu ", 0l); // size
-    proc_printf(buf, "%lu ", 0l); // resident
+static int proc_pid_statm_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    size_t page_count = proc_mem_count_pages(task->mem);
+    proc_put_task(task);
+    proc_printf(buf, "%lu ", (unsigned long)page_count); // size (total pages)
+    proc_printf(buf, "%lu ", (unsigned long)page_count); // resident (same, no swap)
     proc_printf(buf, "%lu ", 0l); // shared
     proc_printf(buf, "%lu ", 0l); // text
     proc_printf(buf, "%lu ", 0l); // lib (unused since Linux 2.6)
@@ -252,6 +309,9 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
         ppid = task->parent->pid;
     unlock(&pids_lock);
 
+    size_t page_count = proc_mem_count_pages(task->mem);
+    unsigned long vm_kb = (unsigned long)(page_count * (PAGE_SIZE / 1024));
+
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
 
@@ -272,12 +332,12 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     for (unsigned i = 0; i < task->ngroups; i++)
         proc_printf(buf, "%s%u", i == 0 ? "" : " ", task->groups[i]);
     proc_printf(buf, "\n");
-    proc_printf(buf, "VmPeak:\t0 kB\n");
-    proc_printf(buf, "VmSize:\t0 kB\n");
+    proc_printf(buf, "VmPeak:\t%lu kB\n", vm_kb);
+    proc_printf(buf, "VmSize:\t%lu kB\n", vm_kb);
     proc_printf(buf, "VmLck:\t0 kB\n");
     proc_printf(buf, "VmPin:\t0 kB\n");
-    proc_printf(buf, "VmHWM:\t0 kB\n");
-    proc_printf(buf, "VmRSS:\t0 kB\n");
+    proc_printf(buf, "VmHWM:\t%lu kB\n", vm_kb);
+    proc_printf(buf, "VmRSS:\t%lu kB\n", vm_kb);
     proc_printf(buf, "Threads:\t%lu\n", list_size(&task->group->threads));
     proc_printf(buf, "SigQ:\t0/0\n");
     proc_printf(buf, "SigPnd:\t%08x\n", task->pending);

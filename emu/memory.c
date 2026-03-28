@@ -74,7 +74,10 @@ void mem_destroy(struct mem *mem) {
 static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
     struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
     if (pgdir == NULL) {
-        pgdir = mem->pgdir[PGDIR_TOP(page)] = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry));
+        pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry));
+        if (pgdir == NULL)
+            return NULL;
+        mem->pgdir[PGDIR_TOP(page)] = pgdir;
         mem->pgdir_used++;
     }
     return &pgdir[PGDIR_BOTTOM(page)];
@@ -166,6 +169,12 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
             pt_unmap(mem, page, 1);
         data->refcount++;
         struct pt_entry *pt = mem_pt_new(mem, page);
+        if (pt == NULL) {
+            data->refcount--;
+            if (data->refcount == 0)
+                free(data);
+            return _ENOMEM;
+        }
         pt->data = data;
         pt->offset = ((page - start) << PAGE_BITS) + offset;
         pt->flags = flags;
@@ -250,6 +259,10 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
             entry->flags |= P_COW;
         entry->data->refcount++;
         struct pt_entry *dst_entry = mem_pt_new(dst, page);
+        if (dst_entry == NULL) {
+            entry->data->refcount--;
+            return -1;
+        }
         dst_entry->data = entry->data;
         dst_entry->offset = entry->offset;
         dst_entry->flags = entry->flags;

@@ -52,6 +52,11 @@ static int pty_slave_open(struct tty *tty) {
         return _EIO;
     if (tty->pty.locked)
         return _EIO;
+    // Clear a stale hung_up from a previous session: the master is still alive,
+    // so the PTY is functionally usable by the new opener.
+    lock(&tty->lock, 0);
+    tty->hung_up = false;
+    unlock(&tty->lock);
     return 0;
 }
 
@@ -74,13 +79,6 @@ static int pty_master_ioctl(struct tty *tty, int cmd, void *arg) {
         default:
             err = _ENOTTY;
             break;
-    }
-    if (pty_trace_ssh()) {
-        printk("INFO: sshd pty-ioctl pid=%d tgid=%d cmd=%#x master=%d slave=%d locked=%d packet=%d err=%d\n",
-               current->pid, current->tgid, cmd, tty->num,
-               slave != NULL ? slave->num : -1,
-               slave != NULL ? slave->pty.locked : -1,
-               tty->pty.packet_mode, err);
     }
     return err;
 }
@@ -136,10 +134,6 @@ int ptmx_open(struct fd *fd) {
     struct tty *master = tty_get(&pty_master, TTY_PSEUDO_MASTER_MAJOR, pty_num);
     if (IS_ERR(master))
         return PTR_ERR(master);
-    if (pty_trace_ssh()) {
-        printk("INFO: sshd ptmx-open pid=%d tgid=%d master=%d flags=%#x\n",
-               current->pid, current->tgid, pty_num, fd->flags);
-    }
     return tty_open(master, fd);
 }
 

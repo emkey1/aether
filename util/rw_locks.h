@@ -141,16 +141,17 @@ static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls
 
 
 static inline void _write_lock(wrlock_t *lock) { // Write lock
-    loop_lock_write(lock);
+    // Release atomic_l_lock before blocking so we don't hold the global
+    // meta-lock while waiting for readers to drain.  pthread_rwlock_wrlock
+    // (unlike trywrlock) registers writer intent on macOS, which prevents
+    // new readers from acquiring once a writer is pending — fixing write
+    // starvation under heavy reader load (e.g. many goroutine OS threads).
+    atomic_l_unlockf();
+    pthread_rwlock_wrlock(&lock->l);
+    atomic_l_lockf("_w_lock\0", 0);
 
     // assert(lock->val == 0);
     lock->val = -1;
-  //  lock->file = file;
-  //  lock->line = line;
-   /* lock->pid = current_pid(current);
-    if(lock->pid > 9)
-        strncpy((char *)lock->comm, current_comm(current), 16); */
-    //STRACE("write_lock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
 static inline void write_lock(wrlock_t *lock) {

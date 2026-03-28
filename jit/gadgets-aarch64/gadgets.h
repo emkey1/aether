@@ -23,6 +23,7 @@ _addr .req w3
 _xaddr .req x3
 
 .extern jit_exit
+.extern jit_ret
 
 .macro .gadget name
     .global NAME(gadget_\()\name)
@@ -33,7 +34,9 @@ _xaddr .req x3
     ldr x8, [_ip, \pop*8]!
     dmb ishld /* Jason Conway's Re Ordering patch (upstream PR #1944 */
     add _ip, _ip, 8 /* TODO get rid of this */
-    br x8
+    cbnz x8, 0f   /* null gadget safety: if non-null, execute normally */
+    b jit_ret     /* null gadget: bail safely (cbz can't reach external; unconditional branch can) */
+0:  br x8
 .endm
 
 # memory reading and writing

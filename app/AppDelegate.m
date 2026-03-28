@@ -124,6 +124,12 @@ static void PopCurrentTask(struct task *previousCurrent) {
 
 @implementation AppDelegate
 
+static UIViewController *CreateRootSelectionViewController(void) {
+    UIViewController *rootsViewController = [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
+    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:rootsViewController];
+    return navigationController;
+}
+
 + (intptr_t)ensureBooted {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -139,8 +145,11 @@ static void PopCurrentTask(struct task *previousCurrent) {
 
 - (intptr_t)boot {
 #if !ISH_LINUX
-    
-    NSURL *root = [Roots.instance rootUrl:Roots.instance.defaultRoot];
+    NSString *defaultRoot = Roots.instance.defaultRoot;
+    if (defaultRoot == nil)
+        return _ENOENT;
+
+    NSURL *root = [Roots.instance rootUrl:defaultRoot];
 
     intptr_t err = mount_root(&fakefs, [root URLByAppendingPathComponent:@"data"].fileSystemRepresentation);
     if (err < 0)
@@ -519,6 +528,10 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
             AboutViewController *avc = (AboutViewController *) vc.topViewController;
             avc.recoveryMode = YES;
             self.window.rootViewController = vc;
+            return YES;
+        }
+        if (Roots.instance.needsInitialRootSelection) {
+            self.window.rootViewController = CreateRootSelectionViewController();
             return YES;
         }
         TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;

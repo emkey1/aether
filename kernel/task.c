@@ -379,8 +379,8 @@ inline void modify_locks_held_count(struct task *task, int value) { // value Sho
     
     pthread_mutex_lock(&task->locks_held.lock);
     if((task->locks_held.count + value < 0) && task->pid > 9) {
+        pthread_mutex_unlock(&task->locks_held.lock); // release before printk to avoid self-deadlock
         printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
-        pthread_mutex_unlock(&task->locks_held.lock);
         return;
     }
     task->locks_held.count = task->locks_held.count + value;

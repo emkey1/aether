@@ -108,6 +108,29 @@ static int fakefs_getpath(struct fd *fd, char *buf) {
         snprintf(buf, MAX_PATH + 1, "%s", (char *) fd->fs_data);
         return 0;
     }
+    if (fd->mount != NULL && fd->fake_inode != 0) {
+        struct fakefs_db *fs = &fd->mount->fakefs;
+        sqlite3_mutex_enter(fs->lock);
+        sqlite3_stmt *stmt = fs->stmt.path_from_inode;
+        sqlite3_bind_int64(stmt, 1, fd->fake_inode);
+        bool found = db_exec(fs, stmt);
+        if (found) {
+            const void *path_blob = sqlite3_column_blob(stmt, 0);
+            int path_len = sqlite3_column_bytes(stmt, 0);
+            if (path_len < 0 || path_len > MAX_PATH) {
+                db_reset(fs, stmt);
+                sqlite3_mutex_leave(fs->lock);
+                return _ENAMETOOLONG;
+            }
+            memcpy(buf, path_blob, (size_t) path_len);
+            buf[path_len] = '\0';
+            db_reset(fs, stmt);
+            sqlite3_mutex_leave(fs->lock);
+            return 0;
+        }
+        db_reset(fs, stmt);
+        sqlite3_mutex_leave(fs->lock);
+    }
     return realfs_getpath(fd, buf);
 }
 

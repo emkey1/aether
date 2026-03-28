@@ -74,23 +74,16 @@ static inline void unlock(lock_t *lock) {
 static inline void atomic_l_lockf(char lname[16], int skiplog) {
     if(!doEnableExtraLocking)
         return;
-    
-    int res = 0;
-    /* if(atomic_l_lock.pid > 0) {
-        if(current_pid(current) != atomic_l_lock.pid) { // Potential deadlock situation.  Also weird.  --mke */
-            res = pthread_mutex_lock(&atomic_l_lock.m);
-     /*       atomic_l_lock.pid = current_pid(current);
-        } else if(!skiplog) {
-            printk("WARNING: Odd attempt by process (%s:%d) to attain same locking lock twice.  Ignoring\n", current_comm(current), current_pid(current));
-            res = 0;
-        }
-    } */
+
+    int res = pthread_mutex_lock(&atomic_l_lock.m);
     if(!res) {
-      //  strlcpy((char *)&atomic_l_lock.comm, current_comm(current), 16);
         strlcpy((char *)&atomic_l_lock.lname, lname, 16);
+        // Track owner so jit_crash_fn can release the mutex if the JIT thread
+        // faults while holding it (e.g. inside read_lock/read_unlock).
+        atomic_l_lock.owner = pthread_self();
         modify_locks_held_count(current, 1);
     } else if (!skiplog) {
-        printk("Error on locking lock (%s) Called from %s:%d\n", lname);
+        printk("Error on locking lock (%s)\n", lname);
     }
 }
 
@@ -141,13 +134,14 @@ static inline void atomic_l_unlockf(void) {
         return;
     int res = 0;
     strncpy((char *)&atomic_l_lock.lname,"\0", 1);
+    atomic_l_lock.owner = zero_init(pthread_t);  // Clear owner before unlock
     res = pthread_mutex_unlock(&atomic_l_lock.m);
     if(res) {
         printk("ERROR: unlocking locking lock\n");
     } else {
         atomic_l_lock.pid = -1; // Reset
     }
-    
+
     modify_locks_held_count(current, -1);
 }
 

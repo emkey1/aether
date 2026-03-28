@@ -71,6 +71,9 @@ struct task {
     sigset_t_ waiting; // if nonzero, an ongoing call to sigtimedwait is waiting on these
     struct list queue;
     cond_t pause; // please don't signal this
+    // per-thread alternate signal stack (not shared with CLONE_SIGHAND threads)
+    addr_t altstack;
+    dword_t altstack_size;
     // private
     sigset_t_ saved_mask;
     bool has_saved_mask;

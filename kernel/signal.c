@@ -141,6 +141,8 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
 
     if (task != current) {
         pthread_kill(task->thread, SIGUSR1);
+        if (task->cpu.poked_ptr)
+            cpu_poke(&task->cpu);
 
         // wake up any pthread condition waiters
         // actual madness, I hope to god it's correct

@@ -23,6 +23,8 @@ static void gen(struct gen_state *state, unsigned long thing) {
         struct jit_block *bigger_block = realloc(state->block,
                 sizeof(struct jit_block) + state->capacity * sizeof(unsigned long));
         if (bigger_block == NULL) {
+            if (state->oom_active)
+                longjmp(state->oom_recovery, 1);
             die("out of memory while jitting");
         }
         state->block = bigger_block;
@@ -31,18 +33,24 @@ static void gen(struct gen_state *state, unsigned long thing) {
     state->block->code[state->size++] = thing;
 }
 
-void gen_start(addr_t addr, struct gen_state *state) {
+bool gen_start(addr_t addr, struct gen_state *state) {
     state->capacity = JIT_BLOCK_INITIAL_CAPACITY;
     state->size = 0;
     state->ip = addr;
+    state->oom_active = false;
     for (int i = 0; i <= 1; i++) {
         state->jump_ip[i] = 0;
     }
     state->block_patch_ip = 0;
 
     struct jit_block *block = malloc(sizeof(struct jit_block) + state->capacity * sizeof(unsigned long));
+    if (block == NULL) {
+        state->block = NULL;
+        return false;
+    }
     state->block = block;
     block->addr = addr;
+    return true;
 }
 
 void gen_end(struct gen_state *state) {

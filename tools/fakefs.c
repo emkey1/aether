@@ -4,9 +4,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <search.h>
 #include <sys/stat.h>
 #include <archive.h>
 #include <archive_entry.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #define ISH_INTERNAL
 #include "fs/fake-db.h"
@@ -76,7 +81,76 @@ static const char *schema = Q(
     pragma user_version=3;
 );
 
+struct import_case_map_entry {
+    char *folded;
+    char *canonical;
+};
+
+static int import_case_map_compare(const void *a, const void *b) {
+    const struct import_case_map_entry *left = a;
+    const struct import_case_map_entry *right = b;
+    return strcmp(left->folded, right->folded);
+}
+
+static bool import_needs_casefold_mapping(void) {
+#if defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
+    return true;
+#else
+    return false;
+#endif
+}
+
+static char *path_ascii_lowercase(const char *path) {
+    size_t len = strlen(path);
+    char *lower = malloc(len + 1);
+    if (lower == NULL)
+        return NULL;
+    for (size_t i = 0; i < len; i++) {
+        lower[i] = (char) tolower((unsigned char) path[i]);
+    }
+    lower[len] = '\0';
+    return lower;
+}
+
+static const char *import_host_path(void **case_map, const char *guest_path, bool *already_exists) {
+    if (already_exists != NULL)
+        *already_exists = false;
+    if (!import_needs_casefold_mapping())
+        return guest_path;
+
+    struct import_case_map_entry *entry = malloc(sizeof(*entry));
+    if (entry == NULL)
+        return guest_path;
+    entry->folded = path_ascii_lowercase(guest_path);
+    entry->canonical = strdup(guest_path);
+    if (entry->folded == NULL || entry->canonical == NULL) {
+        free(entry->folded);
+        free(entry->canonical);
+        free(entry);
+        return guest_path;
+    }
+
+    void *node = tsearch(entry, case_map, import_case_map_compare);
+    if (node == NULL) {
+        free(entry->folded);
+        free(entry->canonical);
+        free(entry);
+        return guest_path;
+    }
+
+    struct import_case_map_entry *resolved = *(struct import_case_map_entry **) node;
+    if (resolved != entry) {
+        if (already_exists != NULL)
+            *already_exists = true;
+        free(entry->folded);
+        free(entry->canonical);
+        free(entry);
+    }
+    return resolved->canonical;
+}
+
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress p) {
+    void *case_map = NULL;
     int err = mkdir(fs, 0777);
     if (err < 0)
         POSIX_ERR();
@@ -140,8 +214,12 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
                 fprintf(stderr, "warning: almost pwned by hardlink %s\n", hardlink);
                 continue;
             }
-            if (linkat(root_fd, fix_path(hardlink_path), root_fd, fix_path(entry_path), 0) < 0)
-                POSIX_ERR();
+            bool host_path_exists = false;
+            const char *host_entry_path = import_host_path(&case_map, entry_path, &host_path_exists);
+            if (!host_path_exists) {
+                if (linkat(root_fd, fix_path(hardlink_path), root_fd, fix_path(host_entry_path), 0) < 0)
+                    POSIX_ERR();
+            }
             sqlite3_bind_blob64(insert_hardlink, 1, entry_path, strlen(entry_path), SQLITE_TRANSIENT);
             sqlite3_bind_blob64(insert_hardlink, 2, hardlink_path, strlen(hardlink_path), SQLITE_TRANSIENT);
             STEP_RESET(insert_hardlink);
@@ -153,35 +231,62 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         char *slash = entry_path_copy;
         while ((slash = strchr(*slash ? slash + 1 : slash, '/')) != NULL) {
             *slash = '\0';
-            int err = mkdirat(root_fd, fix_path(entry_path_copy), 0777);
+            const char *host_parent_path = import_host_path(&case_map, entry_path_copy, NULL);
+            int err = mkdirat(root_fd, fix_path(host_parent_path), 0777);
             *slash = '/';
             if (err < 0) {
                 if (errno == EEXIST) continue;
+                fprintf(stderr, "fakefs_import: mkdirat failed for '%s' (fix_path='%s'): %s\n",
+                        entry_path_copy, fix_path(host_parent_path), strerror(errno));
                 POSIX_ERR();
             }
         }
         free(entry_path_copy);
 
+        bool host_path_exists = false;
+        const char *host_entry_path = import_host_path(&case_map, entry_path, &host_path_exists);
+
         int fd = -1;
-        if (archive_entry_filetype(entry) != AE_IFDIR) {
-            fd = openat(root_fd, fix_path(entry_path), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (archive_entry_filetype(entry) != AE_IFDIR && !host_path_exists) {
+            fd = openat(root_fd, fix_path(host_entry_path), O_WRONLY | O_CREAT | O_TRUNC, 0666);
             if (fd < 0) {
                 if (errno == EISDIR) continue; // assuming it's case insensitivity
+                // Debug: check parent directory
+                char dbg_parent[MAX_PATH];
+                strlcpy(dbg_parent, fix_path(host_entry_path), sizeof(dbg_parent));
+                char *dbg_slash = strrchr(dbg_parent, '/');
+                if (dbg_slash) {
+                    *dbg_slash = '\0';
+                    struct stat dbg_st;
+                    int dbg_res = fstatat(root_fd, dbg_parent, &dbg_st, AT_SYMLINK_NOFOLLOW);
+                    fprintf(stderr, "fakefs_import: openat failed for '%s': %s; parent='%s' fstatat=%d mode=%06o\n",
+                            fix_path(host_entry_path), strerror(errno),
+                            dbg_parent, dbg_res, dbg_res == 0 ? dbg_st.st_mode : 0);
+                } else {
+                    fprintf(stderr, "fakefs_import: openat failed for '%s': %s (no parent)\n",
+                            fix_path(host_entry_path), strerror(errno));
+                }
                 POSIX_ERR();
             }
         }
 
         switch (archive_entry_filetype(entry)) {
             case AE_IFDIR:
-                err = mkdirat(root_fd, fix_path(entry_path), 0777);
+                if (host_path_exists)
+                    break;
+                err = mkdirat(root_fd, fix_path(host_entry_path), 0777);
                 if (err < 0 && errno != EEXIST)
                     POSIX_ERR();
                 break;
             case AE_IFREG:
+                if (host_path_exists)
+                    break;
                 if (archive_read_data_into_fd(archive, fd) != ARCHIVE_OK)
                     ARCHIVE_ERR(archive);
                 break;
             case AE_IFLNK:
+                if (host_path_exists)
+                    break;
                 err = (int) write(fd, archive_entry_symlink(entry), strlen(archive_entry_symlink(entry)));
                 if (err < 0)
                     POSIX_ERR();
@@ -199,8 +304,8 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
             times[0].tv_nsec = UTIME_OMIT;
         if (!archive_entry_mtime_is_set(entry))
             times[1].tv_nsec = UTIME_OMIT;
-        err = utimensat(root_fd, fix_path(entry_path), times, 0);
-        if (err < 0)
+        err = utimensat(root_fd, fix_path(host_entry_path), times, 0);
+        if (err < 0 && errno != ENOENT && errno != EPERM)
             POSIX_ERR();
 
         struct ish_stat stat = {

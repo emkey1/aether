@@ -10,6 +10,12 @@
 #import "AppGroup.h"
 #import "NSObject+SaneKVO.h"
 #include "tools/fakefs.h"
+#ifdef __APPLE__
+#include <errno.h>
+#include <sys/resource.h>
+#define IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY 1
+#define IOPOL_VFS_HFS_CASE_SENSITIVITY_FORCE_CASE_SENSITIVE 1
+#endif
 
 static NSURL *RootsDir(void) {
     static NSURL *rootsDir;
@@ -72,6 +78,20 @@ static BOOL RootURLLooksValid(NSURL *url) {
     return YES;
 }
 
+static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
+#ifdef __APPLE__
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        int err = setiopolicy_np(IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY,
+                                 IOPOL_SCOPE_PROCESS,
+                                 IOPOL_VFS_HFS_CASE_SENSITIVITY_FORCE_CASE_SENSITIVE);
+        if (err != 0 && errno != EPERM) {
+            NSLog(@"could not enable case-sensitive filesystem lookups: %s", strerror(errno));
+        }
+    });
+#endif
+}
+
 @interface Roots ()
 @property NSMutableOrderedSet<NSString *> *roots;
 @property BOOL updatingDomains;
@@ -83,6 +103,7 @@ static BOOL RootURLLooksValid(NSURL *url) {
 
 - (instancetype)init {
     if (self = [super init]) {
+        EnableCaseSensitiveFilesystemLookupsIfPossible();
         NSError *error = nil;
         NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:RootsDir().path error:&error];
         NSAssert(error == nil, @"couldn't list roots: %@", error);
@@ -98,13 +119,14 @@ static BOOL RootURLLooksValid(NSURL *url) {
         if (!self.roots.count) {
             // Import the bundled default root on first launch.
             NSError *error;
-            if (![self importRootFromArchive:[NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"]
-                                        name:@"default"
-                                       error:&error
-                            progressReporter:nil]) {
-                NSAssert(NO, @"failed to import default root, error %@", error);
+            if ([self importRootFromArchive:[NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"]
+                                       name:@"default"
+                                      error:&error
+                           progressReporter:nil]) {
+                _wantsVersionFile = YES;
+            } else {
+                NSLog(@"failed to import default root: %@", error);
             }
-            _wantsVersionFile = YES;
         }
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {
             if (self.defaultRoot == nil && self.roots.count)
@@ -225,6 +247,7 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
 }
 
 - (BOOL)importRootFromArchive:(NSURL *)archive name:(NSString *)name error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress {
+    EnableCaseSensitiveFilesystemLookupsIfPossible();
     NSAssert(![self.roots containsObject:name], @"root already exists: %@", name);
     struct fakefsify_error fs_err;
     NSURL *destination = [self rootUrl:name];
