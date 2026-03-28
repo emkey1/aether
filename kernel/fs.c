@@ -367,9 +367,7 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
             printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
                    current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
         }
-        size_t print_size = res;
-        if (print_size > 100) print_size = 100;
-        STRACE(" \"%.*s\"", print_size, buf);
+        STRACE(" -> %zd bytes", res);
     }
     return res;
 }
@@ -450,9 +448,7 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
     if (user_read(buf_addr, buf, size))
         goto out;
 
-    size_t print_size = size;
-    if (print_size > 100) print_size = 100;
-    STRACE("write(%d, \"%.*s\", %d)", fd_no, print_size, buf, size);
+    STRACE("write(%d, %#x, %d)", fd_no, buf_addr, size);
 
     TASK_MAY_BLOCK {
         res = sys_write_buf(fd_no, buf, size);
@@ -525,9 +521,7 @@ dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
         if (offset + len > res)
             len = res - offset;
 
-        size_t print_size = len;
-        if (print_size > 100) print_size = 100;
-        STRACE(" {\"%.*s\", %u}", print_size, buf + offset, iovec[i].len);
+        STRACE(" {base=%#x, len=%u}", iovec[i].base, iovec[i].len);
 
         if (user_write(iovec[i].base, buf + offset, len)) {
             res = _EFAULT;
@@ -574,9 +568,7 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
             goto error;
         }
 
-        size_t print_size = copy_len;
-        if (print_size > 100) print_size = 100;
-        STRACE(" {\"%.*s\", %u}", print_size, buf + offset, iovec[i].len);
+        STRACE(" {base=%#x, len=%u}", iovec[i].base, iovec[i].len);
         offset += copy_len;
     }
     TASK_MAY_BLOCK {
