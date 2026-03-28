@@ -17,8 +17,8 @@
 int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
-static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stack);
-static bool is_on_altstack(dword_t sp, struct sighand *sighand);
+static void altstack_to_user(struct task *task, struct stack_t_ *user_stack);
+static bool is_on_altstack(dword_t sp, struct task *task);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
@@ -223,7 +223,14 @@ static void signalfd_wakeup_task(struct task *task, int sig) {
     if (task == NULL || task->files == NULL)
         return;
 
-    lock(&task->files->lock, 0);
+    // Use trylock to avoid a deadlock: this function is called while
+    // sighand->lock (and often pids_lock) is held.  f_close holds
+    // files->lock during fdtable_close and may transitively need sighand or
+    // pids.  If the files table is currently locked, skip the wakeup — the
+    // signal is already pending in task->pending, so the task will find it
+    // when it next checks for signals.
+    if (trylock(&task->files->lock) != 0)
+        return;
     for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
         struct fd *fd = fdtable_get(task->files, fd_no);
         if (fd == NULL || fd->ops != &signalfd_ops || fd->data == NULL)
@@ -437,7 +444,7 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
     frame->info = *info;
     frame->uc.flags = 0;
     frame->uc.link = 0;
-    altstack_to_user(current->sighand, &frame->uc.stack);
+    altstack_to_user(current, &frame->uc.stack);
     setup_sigcontext(&frame->uc.mcontext, &current->cpu);
     frame->uc.sigmask = current->blocked;
 
@@ -496,8 +503,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     current->cpu.eip = sighand->action[info->sig].handler;
 
     dword_t sp = current->cpu.esp;
-    if (sighand->altstack && !is_on_altstack(sp, sighand)) {
-        sp = sighand->altstack + sighand->altstack_size;
+    if (current->altstack && !is_on_altstack(sp, current)) {
+        sp = current->altstack + current->altstack_size;
     }
     if (xsave_extra) {
         // do as the kernel does
@@ -660,10 +667,10 @@ dword_t sys_rt_sigreturn(void) {
 
     lock(&current->sighand->lock, 0);
     // FIXME this duplicates logic from sys_sigaltstack
-    if (!is_on_altstack(cpu->esp, current->sighand) &&
+    if (!is_on_altstack(cpu->esp, current) &&
             frame.uc.stack.size >= MINSIGSTKSZ_) {
-        current->sighand->altstack = frame.uc.stack.stack;
-        current->sighand->altstack_size = frame.uc.stack.size;
+        current->altstack = frame.uc.stack.stack;
+        current->altstack_size = frame.uc.stack.size;
     }
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
@@ -831,17 +838,17 @@ int_t sys_rt_sigpending(addr_t set_addr) {
     return 0;
 }
 
-static bool is_on_altstack(dword_t sp, struct sighand *sighand) {
-    return sp > sighand->altstack && sp <= sighand->altstack + sighand->altstack_size;
+static bool is_on_altstack(dword_t sp, struct task *task) {
+    return sp > task->altstack && sp <= task->altstack + task->altstack_size;
 }
 
-static void altstack_to_user(struct sighand *sighand, struct stack_t_ *user_stack) {
-    user_stack->stack = sighand->altstack;
-    user_stack->size = sighand->altstack_size;
+static void altstack_to_user(struct task *task, struct stack_t_ *user_stack) {
+    user_stack->stack = task->altstack;
+    user_stack->size = task->altstack_size;
     user_stack->flags = 0;
-    if (sighand->altstack == 0)
+    if (task->altstack == 0)
         user_stack->flags |= SS_DISABLE_;
-    if (is_on_altstack(current->cpu.esp, sighand))
+    if (is_on_altstack(task->cpu.esp, task))
         user_stack->flags |= SS_ONSTACK_;
 }
 
@@ -851,14 +858,14 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
     lock(&sighand->lock, 0);
     if (old_ss_addr != 0) {
         struct stack_t_ old_ss;
-        altstack_to_user(sighand, &old_ss);
+        altstack_to_user(current, &old_ss);
         if (user_put(old_ss_addr, old_ss)) {
             unlock(&sighand->lock);
             return _EFAULT;
         }
     }
     if (ss_addr != 0) {
-        if (is_on_altstack(current->cpu.esp, sighand)) {
+        if (is_on_altstack(current->cpu.esp, current)) {
             unlock(&sighand->lock);
             return _EPERM;
         }
@@ -868,12 +875,12 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
             return _EFAULT;
         }
         if (ss.flags & SS_DISABLE_) {
-            sighand->altstack = 0;
+            current->altstack = 0;
         } else {
             if (ss.size < MINSIGSTKSZ_)
                 return _ENOMEM;
-            sighand->altstack = ss.stack;
-            sighand->altstack_size = ss.size;
+            current->altstack = ss.stack;
+            current->altstack_size = ss.size;
         }
     }
     unlock(&sighand->lock);
