@@ -24,6 +24,7 @@ typedef struct linux_tty *tty_t;
 #endif
 
 NSNotificationName const TerminalLoadFailedNotification = @"TerminalLoadFailedNotification";
+NSNotificationName const TerminalDidLoadNotification = @"TerminalDidLoadNotification";
 
 @interface Terminal () <WKScriptMessageHandler, WKNavigationDelegate> {
 #if !ISH_LINUX
@@ -104,6 +105,9 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     if (self.didReportLoadFailure)
         return;
     self.didReportLoadFailure = YES;
+    NSLog(@"Terminal %@ failed to load: %@",
+          self.uuid.UUIDString ?: @"(unknown)",
+          error.localizedDescription ?: @"unknown error");
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:TerminalLoadFailedNotification
                                                           object:self
@@ -162,6 +166,11 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     if ([message.name isEqualToString:@"load"]) {
         self.loaded = YES;
         self.didReportLoadFailure = NO;
+        NSLog(@"Terminal %@ finished loading terminal UI", self.uuid.UUIDString ?: @"(unknown)");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:TerminalDidLoadNotification
+                                                              object:self];
+        });
         [self syncWindowSize];
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
@@ -181,6 +190,14 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    [self reportTerminalLoadFailure:error];
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    self.loaded = NO;
+    NSError *error = [NSError errorWithDomain:WKErrorDomain
+                                         code:WKErrorWebContentProcessTerminated
+                                     userInfo:@{NSLocalizedDescriptionKey: @"terminal web content process terminated"}];
     [self reportTerminalLoadFailure:error];
 }
 

@@ -52,6 +52,9 @@
 @property (strong, nonatomic) UIButton *floatingTerminalSwitcherButton;
 @property (strong, nonatomic) UIView *floatingSettingsBadge;
 @property (strong, nonatomic) NSLayoutConstraint *floatingSettingsBottomConstraint;
+@property (strong, nonatomic) UIView *terminalStartupOverlay;
+@property (strong, nonatomic) UIActivityIndicatorView *terminalStartupSpinner;
+@property (strong, nonatomic) UILabel *terminalStartupLabel;
 
 @property int sessionPid;
 @property (nonatomic) Terminal *sessionTerminal;
@@ -109,6 +112,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    [self _installTerminalStartupOverlay];
 
 #if !ISH_LINUX
     if (!Roots.instance.needsInitialRootSelection) {
@@ -118,6 +122,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
             NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
             if (bootError == _EINVAL)
                 subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
+            [self _showTerminalStartupFailureOverlayWithText:@"Could not boot iSH-AOK."];
             [self showMessage:message subtitle:subtitle];
             NSLog(@"boot failed with code %ld", bootError);
         }
@@ -139,6 +144,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [center addObserver:self
                selector:@selector(_updateBadge)
                    name:FsUpdatedNotification
+                 object:nil];
+    [center addObserver:self
+               selector:@selector(terminalDidLoad:)
+                   name:TerminalDidLoadNotification
                  object:nil];
     [center addObserver:self
                selector:@selector(terminalLoadFailed:)
@@ -318,6 +327,79 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [view addGestureRecognizer:recognizer];
 }
 
+- (void)_installTerminalStartupOverlay {
+    UIView *overlay = [[UIView alloc] init];
+    overlay.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13, *)) {
+        overlay.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.96];
+    } else {
+        overlay.backgroundColor = [UIColor colorWithWhite:1 alpha:0.96];
+    }
+
+    UIActivityIndicatorViewStyle style = UIActivityIndicatorViewStyleGray;
+    if (@available(iOS 13, *)) {
+        style = UIActivityIndicatorViewStyleMedium;
+    }
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:style];
+    spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [spinner startAnimating];
+    if (@available(iOS 13, *)) {
+        spinner.color = UIColor.secondaryLabelColor;
+    }
+
+    UILabel *label = [[UILabel alloc] init];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.text = @"Starting terminal...";
+    label.textAlignment = NSTextAlignmentCenter;
+    label.numberOfLines = 0;
+    label.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    if (@available(iOS 13, *)) {
+        label.textColor = UIColor.labelColor;
+    } else {
+        label.textColor = UIColor.blackColor;
+    }
+
+    [overlay addSubview:spinner];
+    [overlay addSubview:label];
+    [self.view addSubview:overlay];
+
+    self.terminalStartupOverlay = overlay;
+    self.terminalStartupSpinner = spinner;
+    self.terminalStartupLabel = label;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [overlay.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [overlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [overlay.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [overlay.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [spinner.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [spinner.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor constant:-18],
+        [label.topAnchor constraintEqualToAnchor:spinner.bottomAnchor constant:16],
+        [label.leadingAnchor constraintGreaterThanOrEqualToAnchor:overlay.leadingAnchor constant:24],
+        [label.trailingAnchor constraintLessThanOrEqualToAnchor:overlay.trailingAnchor constant:-24],
+        [label.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+    ]];
+}
+
+- (void)_showTerminalStartupOverlayWithText:(NSString *)text {
+    self.terminalStartupLabel.text = text;
+    self.terminalStartupOverlay.hidden = NO;
+    [self.terminalStartupSpinner startAnimating];
+    [self.view bringSubviewToFront:self.terminalStartupOverlay];
+}
+
+- (void)_showTerminalStartupFailureOverlayWithText:(NSString *)text {
+    self.terminalStartupLabel.text = text;
+    self.terminalStartupOverlay.hidden = NO;
+    [self.terminalStartupSpinner stopAnimating];
+    [self.view bringSubviewToFront:self.terminalStartupOverlay];
+}
+
+- (void)_hideTerminalStartupOverlay {
+    self.terminalStartupOverlay.hidden = YES;
+    [self.terminalStartupSpinner stopAnimating];
+}
+
 - (BOOL)_shouldShowFloatingSettingsButton {
     return self.termView.inputAccessoryView == nil;
 }
@@ -362,8 +444,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)startNewSession {
+    [self _showTerminalStartupOverlayWithText:@"Starting terminal..."];
     intptr_t err = [self startSession];
     if (err < 0) {
+        [self _showTerminalStartupFailureOverlayWithText:@"Could not start session."];
         [self showMessage:@"could not start session"
                  subtitle:[NSString stringWithFormat:@"error code %ld", err]];
         return;
@@ -494,11 +578,18 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     });
 }
 
+- (void)terminalDidLoad:(NSNotification *)notification {
+    if (notification.object != self.terminal)
+        return;
+    [self _hideTerminalStartupOverlay];
+}
+
 - (void)terminalLoadFailed:(NSNotification *)notification {
     if (notification.object != self.terminal)
         return;
     NSError *error = notification.userInfo[@"error"];
     NSString *subtitle = error.localizedDescription ?: @"unknown error";
+    [self _showTerminalStartupFailureOverlayWithText:@"Terminal UI failed to load."];
     [self showMessage:@"terminal UI failed to load" subtitle:subtitle];
 }
 
@@ -890,6 +981,13 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)setTerminal:(Terminal *)terminal {
     _terminal = terminal;
     self.termView.terminal = self.terminal;
+    if (_terminal != nil && _terminal.loaded) {
+        [self _hideTerminalStartupOverlay];
+    } else if (_terminal != nil) {
+        [self _showTerminalStartupOverlayWithText:@"Loading terminal UI..."];
+    } else {
+        [self _showTerminalStartupOverlayWithText:@"Starting terminal..."];
+    }
 }
 
 - (void)setSessionTerminal:(Terminal *)sessionTerminal {
