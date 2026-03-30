@@ -268,6 +268,7 @@
 				"$(DERIVED_FILE_DIR)/mach_excServer.h",
 				"$(DERIVED_FILE_DIR)/mach_excServer.c",
 			);
+			runOncePerArchitecture = 0;
 			script = "set -x\n\nunset IPHONEOS_DEPLOYMENT_TARGET\n\nsdk=\"$(dirname \"$SCRIPT_INPUT_FILE\")/../../../\"\ncd \"$DERIVED_FILE_DIR\"\nmig -sheader \"$DERIVED_FILE_DIR/mach_excServer.h\" -server \"$DERIVED_FILE_DIR/mach_excServer.c\" -Wno-incompatible-sysroot -isysroot \"$sdk\" \"$SCRIPT_INPUT_FILE\"\n";
 		};
 /* End PBXBuildRule section */
