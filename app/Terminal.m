@@ -23,7 +23,9 @@ typedef struct tty *tty_t;
 typedef struct linux_tty *tty_t;
 #endif
 
-@interface Terminal () <WKScriptMessageHandler> {
+NSNotificationName const TerminalLoadFailedNotification = @"TerminalLoadFailedNotification";
+
+@interface Terminal () <WKScriptMessageHandler, WKNavigationDelegate> {
 #if !ISH_LINUX
     lock_t _dataLock;
     cond_t _dataConsumed;
@@ -31,6 +33,7 @@ typedef struct linux_tty *tty_t;
 }
 
 @property BOOL loaded;
+@property BOOL didReportLoadFailure;
 @property (nonatomic) tty_t tty;
 // lock with dataLock for !linux and @synchronized(self) for linux
 @property (nonatomic) NSMutableData *pendingData;
@@ -97,6 +100,17 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     }
 }
 
+- (void)reportTerminalLoadFailure:(NSError *)error {
+    if (self.didReportLoadFailure)
+        return;
+    self.didReportLoadFailure = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:TerminalLoadFailedNotification
+                                                          object:self
+                                                        userInfo:error != nil ? @{@"error": error} : @{}];
+    });
+}
+
 - (WKWebView *)webView {
     if (_webView == nil) {
         WKWebViewConfiguration *config = [WKWebViewConfiguration new];
@@ -108,8 +122,18 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
         // Make the web view really big so that if a program tries to write to the terminal before it's displayed, the text probably won't wrap too badly.
         CGRect webviewSize = CGRectMake(0, 0, 10000, 10000);
         _webView = [[CustomWebView alloc] initWithFrame:webviewSize configuration:config];
+        _webView.navigationDelegate = self;
         _webView.scrollView.scrollEnabled = NO;
         NSURL *xtermHtmlFile = [NSBundle.mainBundle URLForResource:@"term" withExtension:@"html"];
+        if (xtermHtmlFile == nil) {
+            NSError *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                                 code:NSFileNoSuchFileError
+                                             userInfo:@{NSLocalizedDescriptionKey: @"missing bundled terminal UI"}];
+            [self reportTerminalLoadFailure:error];
+            [_webView loadHTMLString:@"<html><body style='background:black;color:white;font-family:-apple-system;padding:1rem'>Terminal UI failed to load.</body></html>"
+                             baseURL:nil];
+            return _webView;
+        }
         NSURL *readAccessURL = xtermHtmlFile.URLByDeletingLastPathComponent ?: NSBundle.mainBundle.resourceURL ?: xtermHtmlFile;
         [_webView loadFileURL:xtermHtmlFile allowingReadAccessToURL:readAccessURL];
     }
@@ -137,6 +161,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if ([message.name isEqualToString:@"load"]) {
         self.loaded = YES;
+        self.didReportLoadFailure = NO;
         [self syncWindowSize];
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
@@ -149,6 +174,14 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     } else if ([message.name isEqualToString:@"propUpdate"]) {
         [self setValue:message.body[1] forKey:message.body[0]];
     }
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    [self reportTerminalLoadFailure:error];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    [self reportTerminalLoadFailure:error];
 }
 
 - (void)syncWindowSize {

@@ -15,6 +15,7 @@ struct mm *mm_new(void) {
     if (mm == NULL)
         return NULL;
     mem_init(&mm->mem);
+    ipc_mm_init(mm);
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
     mm->exefile = NULL;
     mm->refcount = 1;
@@ -30,9 +31,11 @@ struct mm *mm_copy(struct mm *mm) {
     memset(&new_mm->mem.lock, 0, sizeof(new_mm->mem.lock));
     new_mm->refcount = 1;
     mem_init(&new_mm->mem);
+    ipc_mm_init(new_mm);
     fd_retain(new_mm->exefile);
     write_lock(&mm->mem.lock);
     pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
+    ipc_mm_copy(new_mm, mm);
     write_unlock(&mm->mem.lock);
     return new_mm;
 }
@@ -46,6 +49,7 @@ void mm_release(struct mm *mm) {
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
 
+        ipc_mm_release(mm);
         mem_destroy(&mm->mem);
         free(mm);
     }

@@ -389,16 +389,15 @@ static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *r
 
 static int netlink_handle_route_request(struct fd *sock, const struct nlmsghdr_ *hdr,
         const void *payload, size_t payload_len) {
-    if (payload_len != 0 && payload_len < sizeof(struct rtgenmsg_))
-        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
     (void) payload;
+    (void) payload_len;
     switch (hdr->nlmsg_type) {
         case RTM_GETLINK_:
             return netlink_append_route_links(sock, hdr);
         case RTM_GETADDR_:
             return netlink_append_route_addrs(sock, hdr);
         default:
-            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+            return netlink_append_nlmsg(sock, NLMSG_DONE_, 0, hdr->nlmsg_seq, NULL, 0);
     }
 }
 
@@ -877,7 +876,9 @@ static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
         .nlmsg_type = type,
         .nlmsg_flags = flags,
         .nlmsg_seq = seq,
-        .nlmsg_pid = 0,
+        // Linux route netlink replies are tagged with the destination socket's
+        // port ID, and glibc getifaddrs() filters on this value.
+        .nlmsg_pid = sock->socket.netlink_port_id,
     };
     int err = netlink_reply_append(sock, &hdr, sizeof(hdr));
     if (err < 0)
@@ -1238,18 +1239,34 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg) {
             break;
     }
 
-    if (msg->msg_name != NULL && msg->msg_namelen >= sizeof(struct sockaddr_nl_)) {
-        struct sockaddr_nl_ *name = msg->msg_name;
-        *name = (struct sockaddr_nl_) {
+    if (msg->msg_name != NULL) {
+        struct sockaddr_nl_ name = {
             .nl_family = AF_NETLINK_,
             .nl_pid = 0,
             .nl_groups = 0,
         };
-        msg->msg_namelen = sizeof(*name);
+        size_t copy_len = msg->msg_namelen;
+        if (copy_len > sizeof(name))
+            copy_len = sizeof(name);
+        if (copy_len != 0)
+            memcpy(msg->msg_name, &name, copy_len);
+        msg->msg_namelen = sizeof(name);
     }
     if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
         netlink_reply_reset(sock);
     return copied;
+}
+
+static int netlink_sockaddr_write(addr_t sockaddr_addr, const void *sockaddr, uint_t *sockaddr_len) {
+    uint_t actual_len = sizeof(struct sockaddr_nl_);
+    uint_t copy_len = *sockaddr_len;
+    if (copy_len > actual_len)
+        copy_len = actual_len;
+    if (copy_len != 0)
+        if (user_write(sockaddr_addr, sockaddr, copy_len))
+            return _EFAULT;
+    *sockaddr_len = actual_len;
+    return 0;
 }
 
 static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *socket_id) {
@@ -1986,6 +2003,22 @@ int_t sys_sendto(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags, a
             goto error;
     }
 
+    if (sock->socket.domain == AF_NETLINK_) {
+        struct iovec iov = {
+            .iov_base = buffer,
+            .iov_len = len,
+        };
+        struct msghdr msg = {
+            .msg_name = sockaddr_addr ? (void *) &sockaddr : NULL,
+            .msg_namelen = sockaddr_len,
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+        };
+        err = netlink_handle_sendmsg(sock, &msg);
+        free(buffer);
+        return err;
+    }
+
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         do {
@@ -2030,6 +2063,38 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
 
     char *buffer = malloc(len);
     char sockaddr[sockaddr_len];
+    if (sock->socket.domain == AF_NETLINK_) {
+        struct iovec iov = {
+            .iov_base = buffer,
+            .iov_len = len,
+        };
+        struct msghdr msg = {
+            .msg_name = sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+            .msg_namelen = sockaddr_len,
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+        };
+        ssize_t netlink_res = netlink_handle_recvmsg(sock, &msg);
+        if (netlink_res < 0) {
+            free(buffer);
+            return (int_t) netlink_res;
+        }
+        if (netlink_res > 0 && user_write(buffer_addr, buffer, netlink_res)) {
+            free(buffer);
+            return _EFAULT;
+        }
+        free(buffer);
+        if (sockaddr_addr != 0) {
+            int err = netlink_sockaddr_write(sockaddr_addr, sockaddr, &msg.msg_namelen);
+            if (err < 0)
+                return err;
+            sockaddr_len = msg.msg_namelen;
+        }
+        if (sockaddr_len_addr != 0)
+            if (user_put(sockaddr_len_addr, sockaddr_len))
+                return _EFAULT;
+        return (int_t) netlink_res;
+    }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         do {
@@ -2768,7 +2833,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         if (res < 0)
             return res;
         if (msg.msg_name != NULL) {
-            int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, sizeof(msg_name), &msg.msg_namelen);
+            int err = netlink_sockaddr_write(msg_fake.msg_name, msg.msg_name, &msg.msg_namelen);
             if (err < 0)
                 return err;
         }

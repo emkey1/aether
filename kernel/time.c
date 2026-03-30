@@ -6,6 +6,7 @@
 #include <time.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <string.h>
 #include "kernel/calls.h"
 #include "kernel/errno.h"
 #include "kernel/resource.h"
@@ -303,10 +304,19 @@ dword_t sys_clock_settime64(dword_t UNUSED(clock), addr_t UNUSED(tp)) {
     return _EPERM;
 }
 
+static bool time_warning_trace_enabled(void) {
+    return false;
+}
+
 static void itimer_notify(struct task *task) {
     struct siginfo_ info = {
         .code = SI_TIMER_,
     };
+    if (time_warning_trace_enabled())
+        printk("WARNING: itimer_notify pid=%d tgid=%d comm=%s sig=%d pending=%#llx blocked=%#llx\n",
+               task->pid, task->tgid, task->comm, SIGALRM_,
+               (unsigned long long) task->pending,
+               (unsigned long long) task->blocked);
     send_signal(task, SIGALRM_, info);
 }
 
@@ -321,7 +331,17 @@ static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, 
         if (IS_ERR(timer))
             return PTR_ERR(timer);
         group->itimer = timer;
+        if (time_warning_trace_enabled())
+            printk("WARNING: itimer_create pid=%d tgid=%d comm=%s timer=%p which=%d\n",
+                   current->pid, current->tgid, current->comm, (void *) timer, which);
     }
+
+    if (time_warning_trace_enabled())
+        printk("WARNING: itimer_set pid=%d tgid=%d comm=%s which=%d value=%lds.%09ld interval=%lds.%09ld timer=%p\n",
+               current->pid, current->tgid, current->comm, which,
+               (long) spec.value.tv_sec, spec.value.tv_nsec,
+               (long) spec.interval.tv_sec, spec.interval.tv_nsec,
+               (void *) group->itimer);
 
     return timer_set(group->itimer, spec, old_spec);
 }
@@ -362,6 +382,9 @@ long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
 
 long sys_alarm(uint_t seconds) {
     STRACE("alarm(%d)", seconds);
+    if (time_warning_trace_enabled())
+        printk("WARNING: alarm pid=%d tgid=%d comm=%s seconds=%u\n",
+               current->pid, current->tgid, current->comm, seconds);
     struct timer_spec spec = {
         .value.tv_sec = seconds,
     };
@@ -458,7 +481,17 @@ static void posix_timer_callback(struct posix_timer *timer) {
         .timer.value = timer->sig_value,
     };
     lock(&pids_lock,0);
-    struct task *thread = pid_get_task(timer->thread_pid);
+    struct task *thread = NULL;
+    if (timer->thread_pid != 0) {
+        thread = pid_get_task(timer->thread_pid);
+    } else if (timer->tgroup->leader != NULL) {
+        // SIGEV_SIGNAL targets the process, so fall back to the thread-group leader.
+        thread = timer->tgroup->leader;
+    }
+    if (time_warning_trace_enabled())
+        printk("WARNING: posix_timer_callback timer_id=%d signal=%d thread_pid=%d target_pid=%d found=%d\n",
+               timer->timer_id, timer->signal, timer->thread_pid,
+               thread != NULL ? thread->pid : 0, thread != NULL);
     // TODO: solve pid reuse. currently we have two ways of referring to a task: pid_t_ and struct task *. pids get reused. task struct pointers get freed on exit or reap. need a third option for cases like this, like a refcount layer.
     if (thread != NULL)
         send_signal(thread, timer->signal, info);
@@ -471,6 +504,9 @@ static void posix_timer_callback(struct posix_timer *timer) {
 
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
     STRACE("timer_create(%d, %#x, %#x)", clock, sigevent_addr, timer_addr);
+    if (time_warning_trace_enabled())
+        printk("WARNING: timer_create pid=%d tgid=%d comm=%s clock=%u sigevent=%#x timer_addr=%#x\n",
+               current->pid, current->tgid, current->comm, clock, sigevent_addr, timer_addr);
     clockid_t real_clockid;
     if (clockid_to_real(clock, &real_clockid))
         return _EINVAL;
@@ -482,8 +518,10 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
 
     if (sigev.method == SIGEV_THREAD_ID_) {
         lock(&pids_lock,0);
-        if (pid_get_task(sigev.tid) == NULL)
+        if (pid_get_task(sigev.tid) == NULL) {
+            unlock(&pids_lock);
             return _EINVAL;
+        }
         unlock(&pids_lock);
     }
 
@@ -514,7 +552,7 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
         timer->thread_pid = 0;
     } else if (sigev.method == SIGEV_THREAD_ID_) {
         timer->tgroup = group;
-        timer->thread_pid = group->leader->pid;
+        timer->thread_pid = sigev.tid;
     }
     unlock(&group->lock);
     return 0;
@@ -576,6 +614,9 @@ int_t sys_timer_getoverrun(dword_t timer_id) {
 static int_t sys_timer_settime_common(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr,
         bool time64) {
     STRACE("timer_settime(%d, %d, %#x, %#x)", timer_id, flags, new_value_addr, old_value_addr);
+    if (time_warning_trace_enabled())
+        printk("WARNING: timer_settime pid=%d tgid=%d comm=%s timer_id=%u flags=%d new=%#x old=%#x time64=%d\n",
+               current->pid, current->tgid, current->comm, timer_id, flags, new_value_addr, old_value_addr, time64);
     if (timer_id >= TIMERS_MAX)
         return _EINVAL;
 
@@ -660,6 +701,9 @@ static void timerfd_callback(struct fd *fd) {
 
 fd_t sys_timerfd_create(int_t clockid, int_t flags) {
     STRACE("timerfd_create(%d, %#x)", clockid, flags);
+    if (time_warning_trace_enabled())
+        printk("WARNING: timerfd_create pid=%d tgid=%d comm=%s clockid=%d flags=%#x\n",
+               current->pid, current->tgid, current->comm, clockid, flags);
     clockid_t real_clockid;
     if (clockid_to_real(clockid, &real_clockid)) return _EINVAL;
 
@@ -698,6 +742,9 @@ static struct timer_spec timerfd_current_spec(struct fd *fd) {
 static int_t sys_timerfd_settime_common(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr,
         bool time64) {
     STRACE("timerfd_settime(%d, %d, %#x, %#x)", f, flags, new_value_addr, old_value_addr);
+    if (time_warning_trace_enabled())
+        printk("WARNING: timerfd_settime pid=%d tgid=%d comm=%s fd=%d flags=%d new=%#x old=%#x time64=%d\n",
+               current->pid, current->tgid, current->comm, f, flags, new_value_addr, old_value_addr, time64);
     if (flags & ~(TIMER_ABSTIME_))
         return _EINVAL;
     struct fd *fd;

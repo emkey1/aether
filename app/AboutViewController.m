@@ -132,7 +132,7 @@
 - (NSString *)_initialWindowTitle {
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
         return @"Session Shell (pts/0)";
-    return @"Terminal (tty1)";
+    return @"System Console (/dev/console)";
 }
 
 - (void)_setInitialWindowPreferenceValue:(NSString *)value {
@@ -148,8 +148,8 @@
 
     NSString *currentValue = [self _initialWindowPreferenceValue];
     NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
-        ? @"Terminal (tty1)  Current"
-        : @"Terminal (tty1)";
+        ? @"System Console (/dev/console)  Current"
+        : @"System Console (/dev/console)";
     NSString *sessionTitle = [currentValue isEqualToString:@"session-shell"]
         ? @"Session Shell (pts/0)  Current"
         : @"Session Shell (pts/0)";

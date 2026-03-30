@@ -39,6 +39,8 @@ int fd_close(struct fd *fd) {
     int err = 0;
     if (--fd->refcount == 0) {
         poll_cleanup_fd(fd);
+        if (fd->inode != NULL)
+            flock_remove_owned_by(fd);
         if (fd->ops->close)
             err = fd->ops->close(fd);
         // see comment in close in kernel/fs.h

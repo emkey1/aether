@@ -3,6 +3,10 @@
 
 #include "misc.h"
 
+struct cpu_state;
+struct siginfo_;
+struct task;
+
 #define PTRACE_TRACEME_ 0
 #define PTRACE_PEEKTEXT_ 1
 #define PTRACE_PEEKDATA_ 2
@@ -18,11 +22,21 @@
 #define PTRACE_SETFPREGS_ 15
 #define PTRACE_SYSCALL_ 24
 #define PTRACE_SETOPTIONS_ 0x4200
+#define PTRACE_GETEVENTMSG_ 0x4201
 #define PTRACE_GETSIGINFO_ 0x4202
 
 #define PTRACE_EVENT_FORK_ 1
+#define PTRACE_EVENT_VFORK_ 2
+#define PTRACE_EVENT_CLONE_ 3
+#define PTRACE_EVENT_EXEC_ 4
+#define PTRACE_EVENT_EXIT_ 6
 
 #define PTRACE_O_TRACESYSGOOD_ 1
+#define PTRACE_O_TRACEFORK_ 2
+#define PTRACE_O_TRACEVFORK_ 4
+#define PTRACE_O_TRACECLONE_ 8
+#define PTRACE_O_TRACEEXEC_ 0x10
+#define PTRACE_O_TRACEEXIT_ 0x40
 
 struct user_regs_struct_ {
     dword_t ebx;
@@ -61,5 +75,9 @@ struct user_ {
 };
 
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data);
+void ptrace_signal_stop(int sig, struct siginfo_ *info);
+void ptrace_syscall_stop(struct cpu_state *cpu);
+void ptrace_event_stop(int sig, struct siginfo_ *info, int event, dword_t eventmsg);
+void ptrace_attach_fork_child(struct task *child, struct task *tracee);
 
 #endif /* KERNEL_PTRACE_H */

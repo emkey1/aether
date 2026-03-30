@@ -16,6 +16,8 @@ struct inode_data {
 
     struct list posix_locks;
     cond_t posix_unlock;
+    struct list flock_locks;
+    cond_t flock_unlock;
 
     uint32_t socket_id;
 
@@ -75,8 +77,10 @@ struct flock32_ {
 int fcntl_getlk(struct fd *fd, struct flock_ *flock);
 // cmd should be either F_SETLK or F_SETLKW
 int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool block);
+int flock_lock(struct fd *fd, int operation);
 
 // locks the inode internally
 void file_lock_remove_owned_by(struct fd *fd, void *owner);
+void flock_remove_owned_by(struct fd *fd);
 
 #endif

@@ -5,22 +5,46 @@
 #include "task.h"
 #include <string.h>
 
-// Returns stopped child with the given pid, locked with the ptrace lock
+static struct task *ptrace_tracer(struct task *task) {
+    if (task->ptrace.tracer != NULL)
+        return task->ptrace.tracer;
+    return task->parent;
+}
+
+// Returns stopped tracee with the given pid, locked with the ptrace lock
 static struct task *find_child(pid_t_ pid) {
     struct task *child = NULL;
     list_for_each_entry(&current->children, child, siblings) {
-        if (child->pid == pid) {
-            lock(&child->ptrace.lock, 0);
-            if (child->ptrace.stopped) {
-                goto found;
-            }
-
-            unlock(&child->ptrace.lock);
-        }
+        if (child->pid != pid)
+            continue;
+        lock(&child->ptrace.lock, 0);
+        if (child->ptrace.stopped)
+            return child;
+        unlock(&child->ptrace.lock);
     }
-    child = NULL;
-found:
-    return child;
+    list_for_each_entry(&current->ptracees, child, ptrace_siblings) {
+        if (child->pid != pid)
+            continue;
+        lock(&child->ptrace.lock, 0);
+        if (child->ptrace.stopped)
+            return child;
+        unlock(&child->ptrace.lock);
+    }
+    return NULL;
+}
+
+void ptrace_attach_fork_child(struct task *child, struct task *tracee) {
+    struct task *tracer = ptrace_tracer(tracee);
+    if (tracer == NULL)
+        return;
+
+    complex_lockt(&pids_lock, 0);
+    child->ptrace.traced = true;
+    child->ptrace.sysgood = tracee->ptrace.sysgood;
+    child->ptrace.options = tracee->ptrace.options;
+    child->ptrace.tracer = tracer;
+    list_add(&tracer->ptracees, &child->ptrace_siblings);
+    unlock(&pids_lock);
 }
 
 // Ensure stopped, ptrace locked, etc. before calling this
@@ -71,11 +95,71 @@ static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
 //  cpu->xss = user_regs_->xss;
 }
 
+static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscall_stop) {
+    lock(&current->ptrace.lock, 0);
+    current->ptrace.stopped = true;
+    current->ptrace.signal = sig;
+    if (syscall_stop && current->ptrace.sysgood)
+        current->ptrace.signal |= 0x80;
+    current->ptrace.info = *info;
+    unlock(&current->ptrace.lock);
+
+    struct task *tracer = ptrace_tracer(current);
+    if (tracer != NULL) {
+        notify(&tracer->group->child_exit);
+        send_signal(tracer, current->group->leader->exit_signal, SIGINFO_NIL);
+    }
+
+    lock(&current->ptrace.lock, 0);
+    TASK_MAY_BLOCK {
+        while (current->ptrace.stopped) {
+            wait_for_ignore_signals(&current->ptrace.cond, &current->ptrace.lock, NULL);
+            lock(&current->sighand->lock, 0);
+            bool got_sigkill = sigset_has(current->pending, SIGKILL_);
+            unlock(&current->sighand->lock);
+            if (got_sigkill) {
+                STRACE("%d received a SIGKILL in ptrace stop\n", current->pid);
+                unlock(&current->ptrace.lock);
+                do_exit_group(SIGKILL_);
+            }
+        }
+    }
+    unlock(&current->ptrace.lock);
+}
+
+void ptrace_signal_stop(int sig, struct siginfo_ *info) {
+    ptrace_stop_common(sig, info, false);
+}
+
+void ptrace_event_stop(int sig, struct siginfo_ *info, int event, dword_t eventmsg) {
+    lock(&current->ptrace.lock, 0);
+    current->ptrace.trap_event = event;
+    current->ptrace.eventmsg = eventmsg;
+    unlock(&current->ptrace.lock);
+    ptrace_stop_common(sig, info, false);
+}
+
+void ptrace_syscall_stop(struct cpu_state *cpu) {
+    struct siginfo_ info = {
+        .sig = SIGTRAP_,
+        .code = SIGTRAP_,
+    };
+
+    lock(&current->ptrace.lock, 0);
+    if (!current->ptrace.syscall_stopped)
+        current->ptrace.syscall = cpu->eax;
+    current->ptrace.syscall_stopped = !current->ptrace.syscall_stopped;
+    unlock(&current->ptrace.lock);
+
+    ptrace_stop_common(SIGTRAP_, &info, true);
+}
+
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
     switch (request) {
         case PTRACE_TRACEME_:
             STRACE("ptrace(PTRACE_TRACEME, %d, %#x, %#x)", pid, addr, data);
             current->ptrace.traced = true;
+            current->ptrace.tracer = current->parent;
             return 0;
 
         case PTRACE_PEEKTEXT_:
@@ -140,6 +224,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             if (!child) return _EPERM;
 
             child->cpu.tf = false;
+            child->ptrace.stop_at_syscall = false;
+            child->ptrace.syscall_stopped = false;
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
             unlock(&child->ptrace.lock);
@@ -165,6 +251,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             if (!child) return _EPERM;
 
             child->cpu.tf = true;
+            child->ptrace.stop_at_syscall = false;
+            child->ptrace.syscall_stopped = false;
             child->ptrace.stopped = false;
             notify(&child->ptrace.cond);
             unlock(&child->ptrace.lock);
@@ -263,6 +351,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             // if (data == PTRACE_O_TRACESYSGOOD_ || !data) {
             if (true) {
                 child->ptrace.sysgood = !!(data & PTRACE_O_TRACESYSGOOD_);
+                child->ptrace.options = data;
                 unlock(&child->ptrace.lock);
                 return 0;
             } else {
@@ -281,6 +370,20 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             }
             unlock(&child->ptrace.lock);
 
+            return 0;
+        }
+
+        case PTRACE_GETEVENTMSG_: {
+            STRACE("ptrace(PTRACE_GETEVENTMSG, %d, %#x, %#x)", pid, addr, data);
+            struct task *child = find_child(pid);
+            if (!child) return _EPERM;
+
+            dword_t eventmsg = child->ptrace.eventmsg;
+            if (data && user_put(data, eventmsg)) {
+                unlock(&child->ptrace.lock);
+                return _EFAULT;
+            }
+            unlock(&child->ptrace.lock);
             return 0;
         }
 

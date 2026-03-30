@@ -172,6 +172,8 @@ struct task *task_create_(struct task *parent) {
     list_init(&task->group_links);
     list_init(&task->children);
     list_init(&task->siblings);
+    list_init(&task->ptracees);
+    list_init(&task->ptrace_siblings);
     task->pending = 0;
     task->waiting = 0;
     list_init(&task->queue);
@@ -239,6 +241,7 @@ void task_destroy(struct task *task, int caller) {
     
     // Remove the task from the sibling and alive lists.
     list_remove(&task->siblings);
+    list_remove_safe(&task->ptrace_siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     list_remove(&pid->alive);

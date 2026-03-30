@@ -40,4 +40,6 @@ struct tty;
 
 @end
 
+extern NSNotificationName const TerminalLoadFailedNotification;
+
 extern struct tty_driver ios_console_driver;

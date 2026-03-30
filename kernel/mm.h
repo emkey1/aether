@@ -8,6 +8,7 @@
 struct mm {
     atomic_uint refcount;
     struct mem mem;
+    struct list shm_regions;
 
     addr_t vdso; // immutable
     addr_t start_brk; // immutable
@@ -32,5 +33,10 @@ struct mm *mm_copy(struct mm *mm);
 void mm_retain(struct mm *mem);
 // Decrement the refcount, destroy everything in the space if 0
 void mm_release(struct mm *mem);
+
+// SysV shm bookkeeping hooks owned by kernel/ipc.c.
+void ipc_mm_init(struct mm *mm);
+void ipc_mm_copy(struct mm *dst, struct mm *src);
+void ipc_mm_release(struct mm *mm);
 
 #endif

@@ -66,6 +66,33 @@
 static const NSInteger kMinimumTerminalFontSize = 1;
 static const NSInteger kMaximumTerminalFontSize = 72;
 
+- (Terminal *)currentConsoleTerminal {
+    int major = TTY_CONSOLE_MAJOR;
+    int minor = 1;
+    get_console_device(&major, &minor);
+    return [Terminal terminalWithType:major number:minor];
+}
+
+- (BOOL)isConsoleTerminal:(Terminal *)terminal {
+    if (terminal == nil)
+        return NO;
+    int major = TTY_CONSOLE_MAJOR;
+    int minor = 1;
+    get_console_device(&major, &minor);
+    return terminal.type == major && terminal.number == minor;
+}
+
+- (NSString *)consoleDisplayName {
+    int major = TTY_CONSOLE_MAJOR;
+    int minor = 1;
+    get_console_device(&major, &minor);
+    if (major == TTY_CONSOLE_MAJOR)
+        return [NSString stringWithFormat:@"System Console (/dev/console -> tty%d)", minor];
+    if (major == TTY_PSEUDO_SLAVE_MAJOR)
+        return [NSString stringWithFormat:@"System Console (/dev/console -> pts/%d)", minor];
+    return [NSString stringWithFormat:@"System Console (/dev/console -> %d:%d)", major, minor];
+}
+
 - (BOOL)shouldPreferConsoleForFreshSession {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
     if ([initialWindow isEqualToString:@"session-shell"])
@@ -76,7 +103,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (Terminal *)preferredTerminalForFreshSession {
     if (![self shouldPreferConsoleForFreshSession])
         return self.sessionTerminal;
-    Terminal *console = [Terminal terminalWithType:TTY_CONSOLE_MAJOR number:1];
+    Terminal *console = [self currentConsoleTerminal];
     return console ?: self.sessionTerminal;
 }
 
@@ -112,6 +139,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [center addObserver:self
                selector:@selector(_updateBadge)
                    name:FsUpdatedNotification
+                 object:nil];
+    [center addObserver:self
+               selector:@selector(terminalLoadFailed:)
+                   name:TerminalLoadFailedNotification
                  object:nil];
 
 
@@ -463,6 +494,14 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     });
 }
 
+- (void)terminalLoadFailed:(NSNotification *)notification {
+    if (notification.object != self.terminal)
+        return;
+    NSError *error = notification.userInfo[@"error"];
+    NSString *subtitle = error.localizedDescription ?: @"unknown error";
+    [self showMessage:@"terminal UI failed to load" subtitle:subtitle];
+}
+
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
     if (object == [UserPreferences shared]) {
         [self _updateStyleFromPreferences:YES];
@@ -656,6 +695,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         return @"Unknown Terminal";
     if (terminal == self.sessionTerminal)
         return [NSString stringWithFormat:@"Session Shell (pts/%d)", terminal.number];
+    if ([self isConsoleTerminal:terminal])
+        return [self consoleDisplayName];
     if (terminal.type == TTY_CONSOLE_MAJOR)
         return [NSString stringWithFormat:@"Terminal (tty%d)", terminal.number];
     if (terminal.type == TTY_PSEUDO_SLAVE_MAJOR)
@@ -693,6 +734,18 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
             self.terminal = sessionTerminal;
+        }]];
+    }
+
+    Terminal *consoleTerminal = [self currentConsoleTerminal];
+    if (consoleTerminal != nil && consoleTerminal.type != TTY_CONSOLE_MAJOR) {
+        NSString *title = [self.terminal.uuid isEqual:consoleTerminal.uuid]
+            ? [[self terminalDisplayName:consoleTerminal] stringByAppendingString:@" (Current)"]
+            : [self terminalDisplayName:consoleTerminal];
+        [alert addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            self.terminal = consoleTerminal;
         }]];
     }
 

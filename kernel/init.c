@@ -158,6 +158,13 @@ void set_console_device(int major, int minor) {
     console_minor = minor;
 }
 
+void get_console_device(int *major, int *minor) {
+    if (major != NULL)
+        *major = console_major;
+    if (minor != NULL)
+        *minor = console_minor;
+}
+
 int create_stdio(const char *file, int major, int minor) {
     struct fd *fd = generic_open(file, O_RDWR_, 0);
     if (IS_ERR(fd)) {

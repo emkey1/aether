@@ -1,6 +1,7 @@
 #include "debug.h"
 #include <string.h>
 #include <signal.h>
+#include <sched.h>
 #include "fs/poll.h"
 #include "kernel/calls.h"
 #include "kernel/signal.h"
@@ -22,28 +23,51 @@ static bool is_on_altstack(dword_t sp, struct task *task);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
-static bool signal_trace_comm(const char *comm) {
-    if (comm == NULL)
-        return false;
-    return strcmp(comm, "apk") == 0 ||
-        strcmp(comm, "wget") == 0 ||
-        strcmp(comm, "curl") == 0 ||
-        strcmp(comm, "ping") == 0 ||
-        strcmp(comm, "cat") == 0 ||
-        strcmp(comm, "grep") == 0 ||
-        strcmp(comm, "which") == 0 ||
-        strcmp(comm, "install") == 0 ||
-        strncmp(comm, "deboots", 7) == 0 ||
-        strncmp(comm, "debootstrap", 11) == 0 ||
-        strncmp(comm, "update-ca-certi", 15) == 0;
-}
+static void wake_waiting_task(struct task *task) {
+    if (pthread_mutex_trylock(&task->waiting_cond_lock.m) != 0)
+        return;
+    task->waiting_cond_lock.owner = pthread_self();
 
-static bool signal_trace_enabled_task(struct task *task, int sig) {
-    if (task == NULL)
-        return false;
-    if (sig != SIGINT_)
-        return false;
-    return signal_trace_comm(task->comm);
+    cond_t *waiting_cond = task->waiting_cond;
+    lock_t *waiting_lock = task->waiting_lock;
+    if (waiting_cond != NULL && waiting_lock != NULL) {
+        bool have_wait_lock = false;
+        bool using_existing_wait_lock = false;
+        int wait_lock_status = pthread_mutex_trylock(&waiting_lock->m);
+        if (wait_lock_status == 0) {
+            have_wait_lock = true;
+        } else if (wait_lock_status == EBUSY &&
+                   pthread_equal(waiting_lock->owner, pthread_self())) {
+            // The signal sender may already hold the mutex associated with the
+            // waiter (for example pids_lock during kill/wait interactions).
+            // In that case it is safe to notify directly while keeping the
+            // existing lock ownership.
+            have_wait_lock = true;
+            using_existing_wait_lock = true;
+        } else if (wait_lock_status == EBUSY &&
+                   pthread_equal(waiting_lock->owner, task->thread)) {
+            for (int attempt = 0; attempt < 64; attempt++) {
+                sched_yield();
+                wait_lock_status = pthread_mutex_trylock(&waiting_lock->m);
+                if (wait_lock_status == 0) {
+                    have_wait_lock = true;
+                    break;
+                }
+                if (wait_lock_status != EBUSY ||
+                    !pthread_equal(waiting_lock->owner, task->thread))
+                    break;
+            }
+        }
+
+        if (have_wait_lock) {
+            notify(waiting_cond);
+            if (!using_existing_wait_lock)
+                pthread_mutex_unlock(&waiting_lock->m);
+        }
+    }
+
+    memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
+    pthread_mutex_unlock(&task->waiting_cond_lock.m);
 }
 
 struct signalfd_state {
@@ -127,14 +151,6 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
     sigqueue->info.sig = sig;
     list_add_tail(&task->queue, &sigqueue->queue);
     signalfd_wakeup_task(task, sig);
-    if (signal_trace_enabled_task(task, sig)) {
-        printk("INFO: signal deliver pid=%d tgid=%d comm=%s sig=%d blocked=%#llx pending=%#llx waiting=%#llx exiting=%d\n",
-               task->pid, task->tgid, task->comm, sig,
-               (unsigned long long) task->blocked,
-               (unsigned long long) task->pending,
-               (unsigned long long) task->waiting,
-               task->exiting);
-    }
 
     if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig))
         return;
@@ -144,38 +160,13 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         if (task->cpu.poked_ptr)
             cpu_poke(&task->cpu);
 
-        // wake up any pthread condition waiters
-        // actual madness, I hope to god it's correct
-        // must release the sighand lock while going insane, to avoid a deadlock.
-        // Use only nonblocking/raw pthread operations here: this path can run on
-        // a non-emulation thread (for example the UI thread during SIGWINCH
-        // delivery), and stalling here can wedge the app. If the target task is
-        // in the middle of publishing its wait state, skip the condvar poke and
-        // rely on the pending signal once it reaches a stable point.
+        // Wake pthread condition waiters without keeping sighand->lock held.
+        // If the waiter is between publishing waiting_cond and entering
+        // pthread_cond_wait(), retry briefly for its lock handoff so the wake
+        // is not lost. This avoids global timed polling in wait_for().
         memset(&task->sighand->lock.owner, 0, sizeof(task->sighand->lock.owner));
         pthread_mutex_unlock(&task->sighand->lock.m);
-        if (pthread_mutex_trylock(&task->waiting_cond_lock.m) != 0)
-            goto relock_sighand;
-        task->waiting_cond_lock.owner = pthread_self();
-        if (task->waiting_cond != NULL) {
-            bool mine = false;
-            int wait_lock_status = pthread_mutex_trylock(&task->waiting_lock->m);
-            if (wait_lock_status == EBUSY) {
-                if (pthread_equal(task->waiting_lock->owner, pthread_self()))
-                    mine = true;
-                if (!mine)
-                    goto unlock_waiting_cond;
-            } else if (wait_lock_status != 0) {
-                goto unlock_waiting_cond;
-            }
-            notify(task->waiting_cond);
-            if (!mine)
-                pthread_mutex_unlock(&task->waiting_lock->m);
-        }
-unlock_waiting_cond:
-        memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
-        pthread_mutex_unlock(&task->waiting_cond_lock.m);
-relock_sighand:
+        wake_waiting_task(task);
         pthread_mutex_lock(&task->sighand->lock.m);
         task->sighand->lock.owner = pthread_self();
     }
@@ -546,31 +537,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 }
 
 void signal_delivery_stop(int sig, struct siginfo_ *info) {
-    lock(&current->ptrace.lock, 0);
-    current->ptrace.stopped = true;
-    current->ptrace.signal = sig | current->ptrace.stop_at_syscall << 7;
-    current->ptrace.info = *info;
-    unlock(&current->ptrace.lock);
-    notify(&current->parent->group->child_exit);
-    // TODO add siginfo
-    send_signal(current->parent, current->group->leader->exit_signal, SIGINFO_NIL);
-
     unlock(&current->sighand->lock);
-    lock(&current->ptrace.lock, 0);
-    TASK_MAY_BLOCK {
-        while (current->ptrace.stopped) {
-            wait_for_ignore_signals(&current->ptrace.cond, &current->ptrace.lock, NULL);
-            lock(&current->sighand->lock, 0);
-            bool got_sigkill = sigset_has(current->pending, SIGKILL_);
-            unlock(&current->sighand->lock);
-            if (got_sigkill) {
-                STRACE("%d received a SIGKILL in signal delivery stop\n", current->pid);
-                unlock(&current->ptrace.lock);
-                do_exit_group(SIGKILL_);
-            }
-        }
-    }
-    unlock(&current->ptrace.lock);
+    ptrace_signal_stop(sig, info);
     lock(&current->sighand->lock, 0);
 }
 
@@ -731,8 +699,9 @@ static int do_sigaction(int sig, const struct sigaction_ *action, struct sigacti
 
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
+    struct sigaction_ prev_action = sighand->action[sig];
     if (oldaction)
-        *oldaction = sighand->action[sig];
+        *oldaction = prev_action;
     if (action)
         sighand->action[sig] = *action;
     unlock(&sighand->lock);
@@ -896,7 +865,6 @@ int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {
     if (user_get(mask_addr, mask))
         return _EFAULT;
     STRACE("sigsuspend(0x%llx) = ...\n", (long long) mask);
-
     lock(&current->sighand->lock, 0);
     sigmask_set_temp_unlocked(mask);
     TASK_MAY_BLOCK {
@@ -996,14 +964,15 @@ static int kill_task(struct task *task, dword_t sig) {
             current->uid != task->uid &&
             current->uid != task->suid &&
             current->euid != task->uid &&
-            current->euid != task->suid)
+            current->euid != task->suid) {
         return _EPERM;
+    }
     struct siginfo_ info = {
         .code = SI_USER_,
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
-    
+
     send_signal(task, sig, info);
     return 0;
 }

@@ -221,12 +221,34 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
 
     // task might be destroyed by the time we finish, so save the pid
     pid_t pid = task->pid;
-    if (current->ptrace.traced) {
-        current->ptrace.trap_event = PTRACE_EVENT_FORK_;
+    bool trace_child = false;
+    if (current->ptrace.traced && !(flags & CLONE_UNTRACED_)) {
+        dword_t trace_option = 0;
+        if (flags & CLONE_VFORK_)
+            trace_option = PTRACE_O_TRACEVFORK_;
+        else if (flags & CLONE_THREAD_)
+            trace_option = PTRACE_O_TRACECLONE_;
+        else
+            trace_option = PTRACE_O_TRACEFORK_;
+
+        if (flags & CLONE_VFORK_)
+            current->ptrace.trap_event = PTRACE_EVENT_VFORK_;
+        else if (flags & CLONE_THREAD_)
+            current->ptrace.trap_event = PTRACE_EVENT_CLONE_;
+        else
+            current->ptrace.trap_event = PTRACE_EVENT_FORK_;
+        current->ptrace.eventmsg = pid;
         send_signal(current, SIGTRAP_, SIGINFO_NIL);
+
+        if (current->ptrace.options & trace_option) {
+            ptrace_attach_fork_child(task, current);
+            trace_child = true;
+        }
     }
 
     task_start(task);
+    if (trace_child)
+        send_signal(task, SIGSTOP_, SIGINFO_NIL);
 
     if (trace_fork) {
         lock(&task->general_lock, 0);

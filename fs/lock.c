@@ -23,6 +23,14 @@ static bool file_locks_adjacent(struct file_lock *a, struct file_lock *b) {
     return a->end == b->start - 1 || b->end == a->start - 1;
 }
 
+static bool flock_locks_conflict(struct file_lock *a, struct file_lock *b) {
+    if (a->owner == b->owner)
+        return false;
+    if (a->type == F_WRLCK_ || b->type == F_WRLCK_)
+        return true;
+    return false;
+}
+
 static struct file_lock *file_lock_test(struct inode_data *inode, struct file_lock *request) {
     struct file_lock *lock;
     list_for_each_entry(&inode->posix_locks, lock, locks) {
@@ -244,6 +252,70 @@ out:
     return err;
 }
 
+int flock_lock(struct fd *fd, int operation) {
+    int op = operation & (LOCK_SH_ | LOCK_EX_ | LOCK_UN_);
+    if (op != LOCK_SH_ && op != LOCK_EX_ && op != LOCK_UN_)
+        return _EINVAL;
+    if (fd->inode == NULL)
+        return _EBADF;
+
+    struct inode_data *inode = fd->inode;
+    lock(&inode->lock, 0);
+
+    struct file_lock *lock, *tmp;
+    bool removed = false;
+    list_for_each_entry_safe(&inode->flock_locks, lock, tmp, locks) {
+        if (lock->owner != fd)
+            continue;
+        file_lock_delete(lock);
+        removed = true;
+    }
+    if (removed)
+        notify(&inode->flock_unlock);
+
+    if (op == LOCK_UN_) {
+        unlock(&inode->lock);
+        return 0;
+    }
+
+    struct file_lock request = {
+        .start = 0,
+        .end = OFF_T_MAX,
+        .type = op == LOCK_EX_ ? F_WRLCK_ : F_RDLCK_,
+        .owner = fd,
+        .pid = current->pid,
+    };
+    strncpy(request.comm, current->comm, sizeof(request.comm));
+
+    TASK_MAY_BLOCK {
+        while (true) {
+            bool conflict = false;
+            list_for_each_entry(&inode->flock_locks, lock, locks) {
+                if (flock_locks_conflict(lock, &request)) {
+                    conflict = true;
+                    break;
+                }
+            }
+            if (!conflict)
+                break;
+            if (operation & LOCK_NB_) {
+                unlock(&inode->lock);
+                return _EAGAIN;
+            }
+            int err = wait_for(&inode->flock_unlock, &inode->lock, NULL);
+            if (err < 0) {
+                unlock(&inode->lock);
+                return err;
+            }
+        }
+    }
+
+    struct file_lock *new_lock = file_lock_copy(&request);
+    list_add_tail(&inode->flock_locks, &new_lock->locks);
+    unlock(&inode->lock);
+    return 0;
+}
+
 void file_lock_remove_owned_by(struct fd *fd, void *owner) {
     struct inode_data *inode = fd->inode;
     lock(&inode->lock, 0);
@@ -252,5 +324,21 @@ void file_lock_remove_owned_by(struct fd *fd, void *owner) {
         if (lock->owner == owner)
             file_lock_delete(lock);
     }
+    unlock(&inode->lock);
+}
+
+void flock_remove_owned_by(struct fd *fd) {
+    struct inode_data *inode = fd->inode;
+    lock(&inode->lock, 0);
+    struct file_lock *lock, *tmp;
+    bool removed = false;
+    list_for_each_entry_safe(&inode->flock_locks, lock, tmp, locks) {
+        if (lock->owner != fd)
+            continue;
+        file_lock_delete(lock);
+        removed = true;
+    }
+    if (removed)
+        notify(&inode->flock_unlock);
     unlock(&inode->lock);
 }

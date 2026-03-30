@@ -8,6 +8,7 @@
 #include "kernel/fs.h"
 #include "kernel/inotify.h"
 #include "fs/fd.h"
+#include "fs/inode.h"
 #include "fs/path.h"
 #include "fs/dev.h"
 
@@ -974,6 +975,8 @@ dword_t sys_flock(fd_t f, dword_t operation) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
+    if (fd->inode != NULL)
+        return flock_lock(fd, operation);
     // TODO: POSIX doesn't allow flock to fail in this way. The check is here
     // because a segfault is worse.
     if (fd->mount->fs->flock == NULL)

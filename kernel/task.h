@@ -88,16 +88,21 @@ struct task {
         bool sysgood;
         bool stop_at_syscall;
         bool syscall_stopped;
+        dword_t options;
         int signal;
         struct siginfo_ info;
         int trap_event;
+        dword_t eventmsg;
         int syscall;
+        struct task *tracer;
     } ptrace;
 
     // locked by pids_lock
     struct task *parent;
     struct list children;
     struct list siblings;
+    struct list ptracees;
+    struct list ptrace_siblings;
 
     addr_t clear_tid;
     addr_t robust_list;

@@ -3,6 +3,11 @@
 #include <time.h>
 #include "util/timer.h"
 #include "misc.h"
+#include "debug.h"
+
+static bool timer_warning_trace_enabled(void) {
+    return false;
+}
 
 struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data) {
 //    assert(clockid == CLOCK_MONOTONIC || clockid == CLOCK_REALTIME);
@@ -18,6 +23,8 @@ struct timer *timer_new(clockid_t clockid, timer_callback_t callback, void *data
     timer->generation = 0;
     lock_init(&timer->lock, "timer_new\0");
     timer->dead = false;
+    if (timer_warning_trace_enabled())
+        printk("WARNING: timer_new timer=%p clockid=%d data=%p\n", (void *) timer, (int) clockid, data);
     return timer;
 }
 
@@ -60,6 +67,11 @@ static void *timer_thread(void *param) {
         if (timespec_positive(timespec_subtract(timer->end, timespec_now(timer->clockid))))
             continue;
 
+        if (timer_warning_trace_enabled()) {
+            printk("WARNING: timer_fire timer=%p generation=%llu interval=%lds.%09ld data=%p\n",
+                   (void *) timer, (unsigned long long) generation,
+                   (long) interval.tv_sec, interval.tv_nsec, timer->data);
+        }
         timer->callback(timer->data);
         if (timer->generation != generation)
             continue;
@@ -96,6 +108,14 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
     timer->end = timespec_add(timer->start, spec.value);
     timer->interval = spec.interval;
     timer->active = !timespec_is_zero(spec.value);
+    if (timer_warning_trace_enabled()) {
+        printk("WARNING: timer_set timer=%p generation=%llu active=%d value=%lds.%09ld interval=%lds.%09ld now=%lds.%09ld end=%lds.%09ld\n",
+               (void *) timer, (unsigned long long) timer->generation, timer->active,
+               (long) spec.value.tv_sec, spec.value.tv_nsec,
+               (long) spec.interval.tv_sec, spec.interval.tv_nsec,
+               (long) now.tv_sec, now.tv_nsec,
+               (long) timer->end.tv_sec, timer->end.tv_nsec);
+    }
     if (timer->thread_running) {
         pthread_kill(timer->thread, SIGUSR1);
     } else if (timer->active) {

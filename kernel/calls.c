@@ -260,7 +260,7 @@ syscall_t syscall_table[] = {
     [341] = (syscall_t) syscall_eopnotsupp_stub, // name_to_handle_at
     [342] = (syscall_t) syscall_eopnotsupp_stub, // open_by_handle_at
     [345] = (syscall_t) sys_sendmmsg,
-    [347] = (syscall_t) syscall_stub, // process_vm_readv
+    [347] = (syscall_t) sys_process_vm_readv,
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
     [354] = (syscall_t) syscall_stub, //seccomp
@@ -287,6 +287,10 @@ syscall_t syscall_table[] = {
     [383] = (syscall_t) sys_statx,
     [384] = (syscall_t) sys_arch_prctl,
     [386] = (syscall_t) sys_rseq,
+    [395] = (syscall_t) sys_shmget,
+    [396] = (syscall_t) sys_shmctl,
+    [397] = (syscall_t) sys_shmat,
+    [398] = (syscall_t) sys_shmdt,
     [403] = (syscall_t) sys_clock_gettime64, // clock_gettime64
     [404] = (syscall_t) sys_clock_settime64, // clock_settime64
     [406] = (syscall_t) sys_clock_getres_time64, // clock_getres_time64
@@ -398,9 +402,9 @@ static bool syscall_trace_interesting(unsigned syscall_num, int result) {
 }
 
 static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
-    printk("WARNING: (PID: %d(%s)) %s syscall %u args=%#x,%#x,%#x,%#x,%#x,%#x ip=%#x\n",
-        current->pid, current->comm, kind, syscall_num,
-        cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp, cpu->eip);
+    (void) cpu;
+    (void) syscall_num;
+    (void) kind;
 }
 
 void handle_syscall_interrupt(struct cpu_state *cpu) {
@@ -410,6 +414,9 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
+
+    if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+        ptrace_syscall_stop(cpu);
 
     syscall_t syscall = syscall_table[syscall_num];
     if (syscall == NULL) {
@@ -422,8 +429,10 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
     int result = syscall(cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
-    STRACE(" = 0x%x\n", result);
     cpu->eax = result;
+    if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+        ptrace_syscall_stop(cpu);
+    STRACE(" = 0x%x\n", result);
 }
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {

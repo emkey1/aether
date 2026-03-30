@@ -25,12 +25,21 @@ static UIViewController *CreateRootSelectionViewController(void) {
     return navigationController;
 }
 
+static TerminalViewController *CreateTerminalViewController(void) {
+    UIViewController *viewController = [[UIStoryboard storyboardWithName:@"Terminal" bundle:nil] instantiateInitialViewController];
+    return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
+}
+
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
-    if (delegate.window != nil)
-        return;
-    if (![scene isKindOfClass:UIWindowScene.class])
-        return;
-    delegate.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *) scene];
+    if (delegate.window == nil) {
+        if (![scene isKindOfClass:UIWindowScene.class])
+            return;
+        delegate.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *) scene];
+    }
+    if (delegate.window.rootViewController == nil) {
+        delegate.window.rootViewController = CreateTerminalViewController();
+        [delegate.window makeKeyAndVisible];
+    }
 }
 
 @implementation SceneDelegate

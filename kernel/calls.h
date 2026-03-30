@@ -44,6 +44,8 @@ dword_t sys_exit_group(dword_t status);
 dword_t sys_wait4(pid_t_ pid, addr_t status_addr, dword_t options, addr_t rusage_addr);
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options);
 dword_t sys_waitpid(pid_t_ pid, addr_t status_addr, dword_t options);
+dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
+                             addr_t remote_iov_addr, dword_t riovcnt, dword_t flags);
 
 // memory management
 addr_t sys_brk(addr_t new_brk);
@@ -288,6 +290,10 @@ int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr);
 dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);
 size_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
+int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg);
+addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg);
+int_t sys_shmdt(addr_t shmaddr);
+int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
 

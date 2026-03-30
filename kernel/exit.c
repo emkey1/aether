@@ -75,6 +75,33 @@ static bool session_has_other_live_groups(struct pid *sid_pid, struct tgroup *gr
     return false;
 }
 
+static void ptrace_detach_from_tracer(struct task *tracer, struct task *tracee) {
+    bool traced_by_tracer = tracee->ptrace.tracer == tracer ||
+        (tracee->ptrace.traced && tracee->ptrace.tracer == NULL && tracee->parent == tracer);
+    if (!traced_by_tracer)
+        return;
+
+    lock(&tracee->ptrace.lock, 0);
+    traced_by_tracer = tracee->ptrace.tracer == tracer ||
+        (tracee->ptrace.traced && tracee->ptrace.tracer == NULL && tracee->parent == tracer);
+    if (traced_by_tracer) {
+        tracee->ptrace.traced = false;
+        tracee->ptrace.tracer = NULL;
+        tracee->ptrace.stop_at_syscall = false;
+        tracee->ptrace.syscall_stopped = false;
+        tracee->ptrace.signal = 0;
+        tracee->ptrace.trap_event = 0;
+        tracee->ptrace.eventmsg = 0;
+        if (tracee->ptrace.stopped) {
+            tracee->ptrace.stopped = false;
+            notify(&tracee->ptrace.cond);
+        }
+    }
+    unlock(&tracee->ptrace.lock);
+
+    list_remove_safe(&tracee->ptrace_siblings);
+}
+
 // Hang up the controlling terminal as soon as the session leader exits, but
 // only once the session is otherwise empty. Waiting until the zombie is reaped
 // is too late for PTY users such as script, but hanging up while sshd still
@@ -204,10 +231,13 @@ noreturn void do_exit(struct task *task, int status) {
     struct task *child, *tmp;
     
     list_for_each_entry_safe(&task->children, child, tmp, siblings) {
+        ptrace_detach_from_tracer(task, child);
         child->parent = new_parent;
         list_remove(&child->siblings);
         list_add(&new_parent->children, &child->siblings);
     }
+    list_for_each_entry_safe(&task->ptracees, child, tmp, ptrace_siblings)
+        ptrace_detach_from_tracer(task, child);
     if (exit_tgroup(task)) {
         exit_hangup_session_tty(leader);
         // notify parent that we died
@@ -386,6 +416,20 @@ static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
     return true;
 }
 
+static bool notify_if_ptrace_stopped(struct task *task, struct siginfo_ *info_out) {
+    lock(&task->ptrace.lock, 0);
+    if (task->ptrace.stopped && task->ptrace.signal) {
+        info_out->child.status = task->ptrace.trap_event << 16 | task->ptrace.signal << 8 | 0x7f;
+        task->ptrace.signal = 0;
+        task->ptrace.trap_event = 0;
+        task->ptrace.eventmsg = 0;
+        unlock(&task->ptrace.lock);
+        return true;
+    }
+    unlock(&task->ptrace.lock);
+    return false;
+}
+
 static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     assert(task_is_leader(task));
     if ((options & WUNTRACED_ && notify_if_stopped(task, info_out)) ||
@@ -393,17 +437,8 @@ static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct 
         info_out->sig = SIGCHLD_;
         return true;
     }
-    lock(&task->ptrace.lock, 0);
-    if (task->ptrace.stopped && task->ptrace.signal) {
-        // I had this code here because it made something work, but it's now
-        // making GDB think we support events (we don't). I can't remember what
-        // it fixed but until then commenting it out for now.
-        info_out->child.status = /* task->ptrace.trap_event << 16 |*/ task->ptrace.signal << 8 | 0x7f;
-        task->ptrace.signal = 0;
-        unlock(&task->ptrace.lock);
+    if (notify_if_ptrace_stopped(task, info_out))
         return true;
-    }
-    unlock(&task->ptrace.lock);
     return false;
 }
 
@@ -418,11 +453,11 @@ int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage
     bool got_signal = false;
 
 retry:
-    if (idtype != P_PID_) {
-        // look for a zombie child
-        bool no_children = true;
-        struct task *parent;
-        list_for_each_entry(&current->group->threads, parent, group_links) {
+        if (idtype != P_PID_) {
+            // look for a zombie child
+            bool no_children = true;
+            struct task *parent;
+            list_for_each_entry(&current->group->threads, parent, group_links) {
             struct task *task;
             list_for_each_entry(&current->children, task, siblings) {
                 if (!task_is_leader(task))
@@ -434,6 +469,16 @@ retry:
                 if (reap_if_needed(task, info, rusage, options))
                     goto found_something;
             }
+            list_for_each_entry(&current->ptracees, task, ptrace_siblings) {
+                if (!task_is_leader(task))
+                    continue;
+                no_children = false;
+                info->child.pid = task->pid;
+                if (notify_if_ptrace_stopped(task, info)) {
+                    info->sig = SIGCHLD_;
+                    goto found_something;
+                }
+            }
         }
         err = _ECHILD;
         if (no_children)
@@ -442,10 +487,18 @@ retry:
         // check if this child is a zombie
         struct task *task = pid_get_task_zombie(id);
         err = _ECHILD;
-        if (task == NULL || task->parent == NULL || task->parent->group != current->group)
+        if (task == NULL)
             goto error;
         task = task->group->leader;
         info->child.pid = id;
+        bool is_child = task->parent != NULL && task->parent->group == current->group;
+        bool is_ptrace_child = task->ptrace.tracer != NULL && task->ptrace.tracer->group == current->group;
+        if (!is_child && !is_ptrace_child)
+            goto error;
+        if (is_ptrace_child && notify_if_ptrace_stopped(task, info)) {
+            info->sig = SIGCHLD_;
+            goto found_something;
+        }
         if (reap_if_needed(task, info, rusage, options))
             goto found_something;
     }

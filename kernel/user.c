@@ -120,3 +120,91 @@ int user_write_string(addr_t addr, const char *buf) {
     read_unlock(&current->mem->lock);
     return 0;
 }
+
+static struct iovec_ *user_read_iovecs(struct task *task, addr_t iov_addr, dword_t iov_count) {
+    if (iov_count == 0)
+        return NULL;
+    if (iov_count > IOV_MAX)
+        return ERR_PTR(_EINVAL);
+
+    size_t size = sizeof(struct iovec_) * iov_count;
+    struct iovec_ *iov = malloc(size);
+    if (iov == NULL)
+        return ERR_PTR(_ENOMEM);
+    if (user_read_task(task, iov_addr, iov, size)) {
+        free(iov);
+        return ERR_PTR(_EFAULT);
+    }
+    return iov;
+}
+
+dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
+                             addr_t remote_iov_addr, dword_t riovcnt, dword_t flags) {
+    if (flags != 0)
+        return _EINVAL;
+
+    struct task *task = pid_get_task(pid);
+    if (task == NULL)
+        return _ESRCH;
+    if (task != current && task->parent != current && current->parent != task)
+        return _EPERM;
+
+    struct iovec_ *local_iov = user_read_iovecs(current, local_iov_addr, liovcnt);
+    if (IS_ERR(local_iov))
+        return PTR_ERR(local_iov);
+    struct iovec_ *remote_iov = user_read_iovecs(current, remote_iov_addr, riovcnt);
+    if (IS_ERR(remote_iov)) {
+        free(local_iov);
+        return PTR_ERR(remote_iov);
+    }
+
+    dword_t local_index = 0, remote_index = 0;
+    size_t local_off = 0, remote_off = 0;
+    dword_t total = 0;
+
+    while (local_index < liovcnt && remote_index < riovcnt) {
+        while (local_index < liovcnt && local_iov[local_index].len == local_off) {
+            local_index++;
+            local_off = 0;
+        }
+        while (remote_index < riovcnt && remote_iov[remote_index].len == remote_off) {
+            remote_index++;
+            remote_off = 0;
+        }
+        if (local_index >= liovcnt || remote_index >= riovcnt)
+            break;
+
+        size_t local_left = local_iov[local_index].len - local_off;
+        size_t remote_left = remote_iov[remote_index].len - remote_off;
+        size_t chunk = local_left < remote_left ? local_left : remote_left;
+        if (chunk == 0)
+            break;
+
+        char buf[4096];
+        size_t done = 0;
+        while (done < chunk) {
+            size_t step = chunk - done;
+            if (step > sizeof(buf))
+                step = sizeof(buf);
+            if (user_read_task(task, remote_iov[remote_index].base + remote_off + done, buf, step)) {
+                free(local_iov);
+                free(remote_iov);
+                return total ? total : _EFAULT;
+            }
+            if (user_write(local_iov[local_index].base + local_off + done, buf, step)) {
+                free(local_iov);
+                free(remote_iov);
+                return total ? total : _EFAULT;
+            }
+            done += step;
+            total += step;
+        }
+
+        local_off += chunk;
+        remote_off += chunk;
+    }
+
+    free(local_iov);
+    free(remote_iov);
+    return total;
+}
