@@ -142,6 +142,7 @@
     self.navigationItem.title = self.rootName;
     self.nameField.enabled = !self.isDefaultRoot;
     self.nameField.clearButtonMode = self.isDefaultRoot ? UITextFieldViewModeNever : UITextFieldViewModeAlways;
+    self.nameField.accessibilityLabel = @"Filesystem Name";
     self.deleteLabel.enabled = !self.isDefaultRoot;
     self.deleteCell.selectionStyle = !self.isDefaultRoot ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
     [self.tableView reloadData];
