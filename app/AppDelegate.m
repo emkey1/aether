@@ -35,10 +35,13 @@
 #import "LinuxInterop.h"
 #endif
 
+@class ISHMetricKitSubscriber;
+
 @interface AppDelegate ()
 
 @property BOOL exiting;
 @property SCNetworkReachabilityRef reachability;
+@property (strong, nonatomic) ISHMetricKitSubscriber *metricKitSubscriber;
 
 @end
 
@@ -99,6 +102,235 @@ void ReportPanic(const char *message) {
 
 static intptr_t bootError;
 static NSString *const kSkipStartupMessage = @"Skip Startup Message";
+static NSString *const kMetricKitDiagnosticsDirectory = @"MetricKitDiagnostics";
+
+static id ObjCCallId(id target, SEL selector) {
+    if (target == nil || selector == NULL || ![target respondsToSelector:selector])
+        return nil;
+    id (*imp)(id, SEL) = (id (*)(id, SEL)) [target methodForSelector:selector];
+    return imp(target, selector);
+}
+
+static void ObjCCallVoidObject(id target, SEL selector, id object) {
+    if (target == nil || selector == NULL || ![target respondsToSelector:selector])
+        return;
+    void (*imp)(id, SEL, id) = (void (*)(id, SEL, id)) [target methodForSelector:selector];
+    imp(target, selector, object);
+}
+
+static NSString *MetricKitISO8601StringFromDate(NSDate *date) {
+    if (date == nil)
+        return nil;
+    static NSISO8601DateFormatter *formatter;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        formatter = [NSISO8601DateFormatter new];
+        formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+    });
+    return [formatter stringFromDate:date];
+}
+
+static NSString *MetricKitSafeDescription(id value) {
+    if (value == nil || value == [NSNull null])
+        return nil;
+    return [value description];
+}
+
+static NSURL *MetricKitDiagnosticsDirectoryURL(void) {
+    NSURL *baseURL = ContainerURL();
+    if (baseURL == nil) {
+        baseURL = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                      inDomains:NSUserDomainMask].firstObject;
+    }
+    if (baseURL == nil)
+        return nil;
+    return [baseURL URLByAppendingPathComponent:kMetricKitDiagnosticsDirectory isDirectory:YES];
+}
+
+static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
+    NSMutableDictionary *summary = [NSMutableDictionary dictionary];
+    summary[@"kind"] = kind;
+
+    NSString *applicationVersion = ObjCCallId(diagnostic, @selector(applicationVersion));
+    if (applicationVersion != nil)
+        summary[@"applicationVersion"] = applicationVersion;
+
+    id metadata = ObjCCallId(diagnostic, @selector(metaData));
+    NSString *buildVersion = ObjCCallId(metadata, @selector(applicationBuildVersion));
+    if (buildVersion != nil)
+        summary[@"applicationBuildVersion"] = buildVersion;
+    NSString *osVersion = ObjCCallId(metadata, @selector(osVersion));
+    if (osVersion != nil)
+        summary[@"osVersion"] = osVersion;
+    NSString *deviceType = ObjCCallId(metadata, @selector(deviceType));
+    if (deviceType != nil)
+        summary[@"deviceType"] = deviceType;
+    NSString *architecture = ObjCCallId(metadata, @selector(platformArchitecture));
+    if (architecture != nil)
+        summary[@"platformArchitecture"] = architecture;
+
+    if ([kind isEqualToString:@"crash"]) {
+        NSString *terminationReason = ObjCCallId(diagnostic, @selector(terminationReason));
+        if (terminationReason != nil)
+            summary[@"terminationReason"] = terminationReason;
+
+        NSNumber *exceptionType = ObjCCallId(diagnostic, @selector(exceptionType));
+        if (exceptionType != nil)
+            summary[@"exceptionType"] = exceptionType;
+
+        NSNumber *exceptionCode = ObjCCallId(diagnostic, @selector(exceptionCode));
+        if (exceptionCode != nil)
+            summary[@"exceptionCode"] = exceptionCode;
+
+        NSNumber *signal = ObjCCallId(diagnostic, @selector(signal));
+        if (signal != nil)
+            summary[@"signal"] = signal;
+
+        NSString *vmInfo = ObjCCallId(diagnostic, @selector(virtualMemoryRegionInfo));
+        if (vmInfo != nil)
+            summary[@"virtualMemoryRegionInfo"] = vmInfo;
+    } else if ([kind isEqualToString:@"hang"]) {
+        id hangDuration = ObjCCallId(diagnostic, @selector(hangDuration));
+        NSString *hangDurationDescription = MetricKitSafeDescription(hangDuration);
+        if (hangDurationDescription != nil)
+            summary[@"hangDuration"] = hangDurationDescription;
+    }
+
+    return summary;
+}
+
+@interface ISHMetricKitSubscriber : NSObject
+
+- (void)registerIfAvailable;
+- (void)unregisterIfNeeded;
+- (void)persistDiagnosticPayload:(id)payload index:(NSUInteger)index API_AVAILABLE(ios(14.0));
+
+@end
+
+@implementation ISHMetricKitSubscriber {
+    id _metricManager;
+}
+
+- (void)registerIfAvailable {
+    if (@available(iOS 14.0, *)) {
+        Class metricManagerClass = NSClassFromString(@"MXMetricManager");
+        if (metricManagerClass == Nil) {
+            NSLog(@"MetricKit unavailable: MXMetricManager class not found");
+            return;
+        }
+
+        _metricManager = ObjCCallId((id) metricManagerClass, @selector(sharedManager));
+        if (_metricManager == nil) {
+            NSLog(@"MetricKit unavailable: shared manager missing");
+            return;
+        }
+
+        ObjCCallVoidObject(_metricManager, @selector(addSubscriber:), self);
+        NSLog(@"MetricKit diagnostic subscriber registered");
+    }
+}
+
+- (void)unregisterIfNeeded {
+    if (@available(iOS 14.0, *)) {
+        if (_metricManager != nil)
+            ObjCCallVoidObject(_metricManager, @selector(removeSubscriber:), self);
+        _metricManager = nil;
+    }
+}
+
+- (void)didReceiveDiagnosticPayloads:(NSArray *)payloads {
+    if (@available(iOS 14.0, *)) {
+        NSLog(@"MetricKit delivered %lu diagnostic payload(s)", (unsigned long) payloads.count);
+        for (NSUInteger i = 0; i < payloads.count; i++) {
+            [self persistDiagnosticPayload:payloads[i] index:i];
+        }
+    }
+}
+
+- (void)persistDiagnosticPayload:(id)payload index:(NSUInteger)index API_AVAILABLE(ios(14.0)) {
+    NSArray *crashDiagnostics = ObjCCallId(payload, @selector(crashDiagnostics));
+    NSArray *hangDiagnostics = ObjCCallId(payload, @selector(hangDiagnostics));
+    NSDate *timeStampBegin = ObjCCallId(payload, @selector(timeStampBegin));
+    NSDate *timeStampEnd = ObjCCallId(payload, @selector(timeStampEnd));
+
+    NSMutableArray *summaries = [NSMutableArray array];
+    for (id crashDiagnostic in crashDiagnostics) {
+        NSDictionary *summary = MetricKitDiagnosticSummary(crashDiagnostic, @"crash");
+        [summaries addObject:summary];
+        NSLog(@"MetricKit crash diagnostic: %@", summary);
+    }
+    for (id hangDiagnostic in hangDiagnostics) {
+        NSDictionary *summary = MetricKitDiagnosticSummary(hangDiagnostic, @"hang");
+        [summaries addObject:summary];
+        NSLog(@"MetricKit hang diagnostic: %@", summary);
+    }
+
+    NSMutableDictionary *envelope = [NSMutableDictionary dictionary];
+    NSString *receivedAt = MetricKitISO8601StringFromDate([NSDate date]);
+    NSString *beginAt = MetricKitISO8601StringFromDate(timeStampBegin);
+    NSString *endAt = MetricKitISO8601StringFromDate(timeStampEnd);
+    if (receivedAt != nil)
+        envelope[@"receivedAt"] = receivedAt;
+    if (beginAt != nil)
+        envelope[@"timeStampBegin"] = beginAt;
+    if (endAt != nil)
+        envelope[@"timeStampEnd"] = endAt;
+    envelope[@"crashDiagnosticCount"] = @(crashDiagnostics.count);
+    envelope[@"hangDiagnosticCount"] = @(hangDiagnostics.count);
+    envelope[@"summaries"] = summaries;
+
+    id payloadDictionary = nil;
+    if ([payload respondsToSelector:@selector(dictionaryRepresentation)])
+        payloadDictionary = ObjCCallId(payload, @selector(dictionaryRepresentation));
+    if (payloadDictionary != nil)
+        envelope[@"payload"] = payloadDictionary;
+
+    NSURL *directoryURL = MetricKitDiagnosticsDirectoryURL();
+    if (directoryURL == nil) {
+        NSLog(@"MetricKit failed to resolve diagnostics directory");
+        return;
+    }
+
+    NSError *directoryError = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtURL:directoryURL
+                                withIntermediateDirectories:YES
+                                                 attributes:nil
+                                                      error:&directoryError]) {
+        NSLog(@"MetricKit failed to create diagnostics directory: %@", directoryError);
+        return;
+    }
+
+    NSString *beginString = MetricKitISO8601StringFromDate(timeStampBegin) ?: @"unknown";
+    NSString *safeBeginString = [[beginString stringByReplacingOccurrencesOfString:@":" withString:@"-"]
+                                 stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
+    NSString *filename = [NSString stringWithFormat:@"diagnostic-%@-%lu-%@.json",
+                          safeBeginString, (unsigned long) index, NSUUID.UUID.UUIDString];
+    NSURL *fileURL = [directoryURL URLByAppendingPathComponent:filename isDirectory:NO];
+
+    NSError *jsonError = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:envelope
+                                                       options:NSJSONWritingPrettyPrinted
+                                                         error:&jsonError];
+    if (jsonData == nil) {
+        NSData *rawPayloadData = ObjCCallId(payload, @selector(JSONRepresentation));
+        if (rawPayloadData != nil) {
+            jsonData = rawPayloadData;
+        } else {
+            NSLog(@"MetricKit failed to serialize diagnostic payload: %@", jsonError);
+            return;
+        }
+    }
+
+    NSError *writeError = nil;
+    if (![jsonData writeToURL:fileURL options:NSDataWritingAtomic error:&writeError]) {
+        NSLog(@"MetricKit failed to persist diagnostic payload to %@: %@", fileURL.path, writeError);
+        return;
+    }
+
+    NSLog(@"MetricKit wrote diagnostic payload to %@", fileURL.path);
+}
+
+@end
 
 static bool PushInitTaskAsCurrent(struct task **previousCurrent) {
     *previousCurrent = current;
@@ -520,6 +752,9 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     SCNetworkReachabilitySetCallback(self.reachability, NetworkReachabilityCallback, &context);
     SCNetworkReachabilityScheduleWithRunLoop(self.reachability, CFRunLoopGetMain(), kCFRunLoopCommonModes);
 
+    self.metricKitSubscriber = [ISHMetricKitSubscriber new];
+    [self.metricKitSubscriber registerIfAvailable];
+
     if (self.window != nil) {
         // For iOS <13, where the app delegate owns the window instead of the scene
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
@@ -548,6 +783,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 }
 
 - (void)dealloc {
+    [self.metricKitSubscriber unregisterIfNeeded];
     if (self.reachability != NULL) {
         SCNetworkReachabilityUnscheduleFromRunLoop(self.reachability, CFRunLoopGetMain(), kCFRunLoopCommonModes);
         CFRelease(self.reachability);

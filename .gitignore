@@ -19,11 +19,7 @@ fastlane/test_output
 e2e_out/
 root.tar.gz
 
-.tmp-root-alpine-fix/
-.tmp-root-devuan-edit/
-.tmp-root-inspect/
-.tmp-root-select-fastfix-v322/
-.tmp-root-select-fastfix/
+.tmp*
 com.apple.DeveloperTools/
 tests/host/
 
