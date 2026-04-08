@@ -42,6 +42,8 @@
 @property BOOL exiting;
 @property SCNetworkReachabilityRef reachability;
 @property (strong, nonatomic) ISHMetricKitSubscriber *metricKitSubscriber;
+@property BOOL dnsRefreshQueued;
+@property BOOL dnsRefreshRunning;
 
 @end
 
@@ -128,6 +130,10 @@ static NSString *MetricKitISO8601StringFromDate(NSDate *date) {
         formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
     });
     return [formatter stringFromDate:date];
+}
+
+static double MetricKitNowSeconds(void) {
+    return CFAbsoluteTimeGetCurrent();
 }
 
 static NSString *MetricKitSafeDescription(id value) {
@@ -464,7 +470,7 @@ static UIViewController *CreateRootSelectionViewController(void) {
 
     iosfs_init(); // let it mount any filesystems from user defaults
 
-    [self configureDns];
+    [self scheduleDnsRefresh:@"boot"];
     
     exit_hook = ios_handle_exit;
     die_handler = ios_handle_die;
@@ -604,10 +610,43 @@ void SyncHostname(void) {
 
 - (void)configureDns {
 #if !ISH_LINUX
-    struct __res_state res;
-    if (EXIT_SUCCESS != res_ninit(&res)) {
-        exit(2);
+    [self scheduleDnsRefresh:@"manual"];
+#endif
+}
+
+- (void)scheduleDnsRefresh:(NSString *)reason {
+#if !ISH_LINUX
+    @synchronized (self) {
+        if (self.dnsRefreshRunning) {
+            self.dnsRefreshQueued = YES;
+            NSLog(@"DNS refresh deferred while one is running (%@)", reason);
+            return;
+        }
+        self.dnsRefreshRunning = YES;
+        self.dnsRefreshQueued = NO;
     }
+
+    NSString *reasonCopy = [reason copy] ?: @"unknown";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        [self performDnsRefresh:reasonCopy];
+    });
+#endif
+}
+
+- (void)performDnsRefresh:(NSString *)reason {
+#if !ISH_LINUX
+    double refreshStart = MetricKitNowSeconds();
+    NSLog(@"DNS refresh begin (%@)", reason);
+
+    struct __res_state res;
+    double resolverInitStart = MetricKitNowSeconds();
+    if (EXIT_SUCCESS != res_ninit(&res)) {
+        NSLog(@"DNS refresh res_ninit failed after %.3fs (%@)", MetricKitNowSeconds() - resolverInitStart, reason);
+        [self finishDnsRefreshAndRescheduleIfNeeded:reason];
+        return;
+    }
+    NSLog(@"DNS refresh res_ninit completed in %.3fs (%@)", MetricKitNowSeconds() - resolverInitStart, reason);
+
     NSMutableString *resolvConf = [NSMutableString new];
     if (res.dnsrch[0] != NULL) {
         [resolvConf appendString:@"search"];
@@ -617,7 +656,10 @@ void SyncHostname(void) {
         [resolvConf appendString:@"\n"];
     }
     union res_sockaddr_union servers[NI_MAXSERV];
+    double getServersStart = MetricKitNowSeconds();
     int serversFound = res_getservers(&res, servers, NI_MAXSERV);
+    NSLog(@"DNS refresh res_getservers completed in %.3fs with %d server(s) (%@)",
+          MetricKitNowSeconds() - getServersStart, serversFound, reason);
     char address[NI_MAXHOST];
     for (int i = 0; i < serversFound; i ++) {
         union res_sockaddr_union s = servers[i];
@@ -632,6 +674,8 @@ void SyncHostname(void) {
     struct task *previousCurrent;
     if (!PushInitTaskAsCurrent(&previousCurrent)) {
         NSLog(@"failed to resolve init task while updating DNS");
+        res_nclose(&res);
+        [self finishDnsRefreshAndRescheduleIfNeeded:reason];
         return;
     }
 
@@ -650,6 +694,24 @@ void SyncHostname(void) {
         NSLog(@"failed to write /etc/resolv.conf: %d", PTR_ERR(fd));
     }
     PopCurrentTask(previousCurrent);
+    res_nclose(&res);
+    NSLog(@"DNS refresh finished in %.3fs (%@)", MetricKitNowSeconds() - refreshStart, reason);
+    [self finishDnsRefreshAndRescheduleIfNeeded:reason];
+#endif
+}
+
+- (void)finishDnsRefreshAndRescheduleIfNeeded:(NSString *)reason {
+#if !ISH_LINUX
+    BOOL shouldReschedule = NO;
+    @synchronized (self) {
+        shouldReschedule = self.dnsRefreshQueued;
+        self.dnsRefreshQueued = NO;
+        self.dnsRefreshRunning = NO;
+    }
+    if (shouldReschedule) {
+        NSString *nextReason = [NSString stringWithFormat:@"%@-coalesced", reason ?: @"dns"];
+        [self scheduleDnsRefresh:nextReason];
+    }
 #endif
 }
 
@@ -690,7 +752,7 @@ void SyncHostname(void) {
 
 void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReachabilityFlags flags, void *info) {
     AppDelegate *self = (__bridge AppDelegate *) info;
-    [self configureDns];
+    [self scheduleDnsRefresh:@"reachability"];
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
