@@ -12,6 +12,7 @@
 #include <sys/param.h> // for MIN and MAX
 #include "emu/cpuid.h"
 #include "kernel/init.h"
+#include "kernel/hostinfo.h"
 
 extern int console_major;
 extern int console_minor;
@@ -72,6 +73,10 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
 
     char edx_flags[148] = { 0 };
     parse_edx_flags(edx, edx_flags);
+    char *host_architecture = copyHostArchitecture();
+    char *host_machine_identifier = copyHostMachineIdentifier();
+    char *host_device_name = copyHostDeviceName();
+    char *host_core_topology = copyHostCoreTopology();
 
     int cpu_count = get_cpu_count(); // One entry per device processor
     int i;
@@ -96,6 +101,10 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "cpuid level     : %d\n",13);
         proc_printf(buf, "wp              : yes\n");
         proc_printf(buf, "flags           : %s\n", edx_flags); // Pulled from do_cpuid
+        proc_printf(buf, "host arch       : %s\n", host_architecture);
+        proc_printf(buf, "host machine    : %s\n", host_machine_identifier);
+        proc_printf(buf, "host device     : %s\n", host_device_name);
+        proc_printf(buf, "host cores      : %s\n", host_core_topology);
         proc_printf(buf, "bogomips        : 1066.00\n");
         proc_printf(buf, "clflush size    : %d\n", ebx);
         proc_printf(buf, "cache_alignment : %d\n",64);
@@ -103,6 +112,11 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "power management:\n");
         proc_printf(buf, "\n");
     }
+
+    free(host_architecture);
+    free(host_machine_identifier);
+    free(host_device_name);
+    free(host_core_topology);
 
     return 0;
 }

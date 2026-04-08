@@ -44,6 +44,7 @@
 @property (strong, nonatomic) ISHMetricKitSubscriber *metricKitSubscriber;
 @property BOOL dnsRefreshQueued;
 @property BOOL dnsRefreshRunning;
+@property BOOL waitingForInitialRootImport;
 
 @end
 
@@ -366,6 +367,11 @@ static UIViewController *CreateRootSelectionViewController(void) {
     UIViewController *rootsViewController = [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:rootsViewController];
     return navigationController;
+}
+
+static TerminalViewController *CreateTerminalViewController(void) {
+    UIViewController *viewController = [[UIStoryboard storyboardWithName:@"Terminal" bundle:nil] instantiateInitialViewController];
+    return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
 }
 
 + (intptr_t)ensureBooted {
@@ -827,6 +833,13 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
             return YES;
         }
         if (Roots.instance.needsInitialRootSelection) {
+            self.waitingForInitialRootImport = Roots.instance.initialBundledRootImportInProgress;
+            if (self.waitingForInitialRootImport) {
+                [Roots.instance observe:@[@"roots", @"initialBundledRootImportInProgress"]
+                                options:0 owner:self usingBlock:^(typeof(self) self) {
+                    [self continueAfterInitialRootImportIfNeeded];
+                }];
+            }
             self.window.rootViewController = CreateRootSelectionViewController();
             return YES;
         }
@@ -835,6 +848,26 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
         [vc startNewSession];
     }
     return YES;
+}
+
+- (void)continueAfterInitialRootImportIfNeeded {
+    if (!self.waitingForInitialRootImport)
+        return;
+    if (Roots.instance.initialBundledRootImportInProgress)
+        return;
+    if (Roots.instance.needsInitialRootSelection)
+        return;
+    if (self.window == nil)
+        return;
+
+    self.waitingForInitialRootImport = NO;
+    TerminalViewController *vc = CreateTerminalViewController();
+    if (vc == nil)
+        return;
+
+    self.window.rootViewController = vc;
+    currentTerminalViewController = vc;
+    [vc startNewSession];
 }
 
 - (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions API_AVAILABLE(ios(13.0)) {

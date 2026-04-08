@@ -27,7 +27,7 @@ bool (*set_user_default)(const char *name, char *buffer, size_t size);
 bool (*remove_user_default)(const char *name);
 char *(*get_documents_directory)(void);
 
-extern char* printHostInfo(void);
+#include "kernel/hostinfo.h"
 
 static int proc_ish_show_colors(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     proc_printf(buf,
@@ -311,7 +311,9 @@ static int proc_ish_show_uidevice(struct proc_entry *UNUSED(entry), struct proc_
 }
 
 static int proc_ish_show_host_info(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    proc_printf(buf, "%s", printHostInfo());
+    char *host_info = printHostInfo();
+    proc_printf(buf, "%s", host_info);
+    free(host_info);
     return 0;
 }
 

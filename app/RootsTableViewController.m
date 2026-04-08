@@ -31,6 +31,8 @@
 - (void)updateEmptyState {
     if (Roots.instance.roots.count != 0) {
         self.tableView.backgroundView = nil;
+        self.tableView.scrollEnabled = YES;
+        self.navigationItem.rightBarButtonItem.enabled = YES;
         return;
     }
 
@@ -39,23 +41,45 @@
     label.textAlignment = NSTextAlignmentCenter;
     label.textColor = UIColor.secondaryLabelColor;
     label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    label.text = @"No filesystems are available.\nTap Import to add a root filesystem.";
+    if (Roots.instance.initialBundledRootImportInProgress) {
+        label.text = @"Extracting the bundled filesystem.\nThis can take a moment on first launch.";
+    } else {
+        label.text = @"No filesystems are available.\nTap Import to add a root filesystem.";
+    }
     label.translatesAutoresizingMaskIntoConstraints = NO;
 
     UIView *container = [[UIView alloc] initWithFrame:self.tableView.bounds];
+    UIActivityIndicatorView *spinner = nil;
+    if (Roots.instance.initialBundledRootImportInProgress) {
+        if (@available(iOS 13, *)) {
+            spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        } else {
+            spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+        }
+        spinner.translatesAutoresizingMaskIntoConstraints = NO;
+        [spinner startAnimating];
+        [container addSubview:spinner];
+    }
     [container addSubview:label];
-    [NSLayoutConstraint activateConstraints:@[
-        [label.centerXAnchor constraintEqualToAnchor:container.centerXAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
-        [label.leadingAnchor constraintGreaterThanOrEqualToAnchor:container.leadingAnchor constant:24],
-        [label.trailingAnchor constraintLessThanOrEqualToAnchor:container.trailingAnchor constant:-24],
-    ]];
+
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray array];
+    if (spinner != nil) {
+        [constraints addObject:[spinner.centerXAnchor constraintEqualToAnchor:container.centerXAnchor]];
+        [constraints addObject:[spinner.bottomAnchor constraintEqualToAnchor:label.topAnchor constant:-16]];
+    }
+    [constraints addObject:[label.centerXAnchor constraintEqualToAnchor:container.centerXAnchor]];
+    [constraints addObject:[label.centerYAnchor constraintEqualToAnchor:container.centerYAnchor constant:spinner != nil ? 18 : 0]];
+    [constraints addObject:[label.leadingAnchor constraintGreaterThanOrEqualToAnchor:container.leadingAnchor constant:24]];
+    [constraints addObject:[label.trailingAnchor constraintLessThanOrEqualToAnchor:container.trailingAnchor constant:-24]];
+    [NSLayoutConstraint activateConstraints:constraints];
     self.tableView.backgroundView = container;
+    self.tableView.scrollEnabled = !Roots.instance.initialBundledRootImportInProgress;
+    self.navigationItem.rightBarButtonItem.enabled = !Roots.instance.initialBundledRootImportInProgress;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [Roots.instance observe:@[@"roots", @"defaultRoot"]
+    [Roots.instance observe:@[@"roots", @"defaultRoot", @"initialBundledRootImportInProgress"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
         [self updateEmptyState];
         [self.tableView reloadData];

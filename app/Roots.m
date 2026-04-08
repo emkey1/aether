@@ -97,6 +97,7 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 @property BOOL updatingDomains;
 @property BOOL domainsNeedUpdate;
 @property BOOL wantsVersionFile;
+@property BOOL initialBundledRootImportInProgress;
 @end
 
 @implementation Roots
@@ -117,15 +118,26 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
         }
         self.roots = roots;
         if (!self.roots.count) {
-            // Import the bundled default root on first launch.
-            NSError *error;
-            if ([self importRootFromArchive:[NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"]
-                                       name:@"default"
-                                      error:&error
-                           progressReporter:nil]) {
-                _wantsVersionFile = YES;
+            NSURL *archiveURL = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
+            if (archiveURL != nil) {
+                self.initialBundledRootImportInProgress = YES;
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                    NSError *error = nil;
+                    BOOL success = [self importRootFromArchive:archiveURL
+                                                          name:@"default"
+                                                         error:&error
+                                              progressReporter:nil];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.initialBundledRootImportInProgress = NO;
+                        if (success) {
+                            self.wantsVersionFile = YES;
+                        } else {
+                            NSLog(@"failed to import default root: %@", error);
+                        }
+                    });
+                });
             } else {
-                NSLog(@"failed to import default root: %@", error);
+                NSLog(@"bundled default root archive is missing");
             }
         }
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {

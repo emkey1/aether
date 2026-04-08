@@ -7,6 +7,8 @@
 
 #import "SceneDelegate.h"
 #import "AboutViewController.h"
+#import "AppDelegate.h"
+#import "NSObject+SaneKVO.h"
 #import "Roots.h"
 
 TerminalViewController *currentTerminalViewController = NULL;
@@ -14,6 +16,7 @@ TerminalViewController *currentTerminalViewController = NULL;
 @interface SceneDelegate ()
 
 @property NSString *terminalUUID;
+@property BOOL waitingForInitialRootImport;
 
 @end
 
@@ -42,6 +45,17 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     }
 }
 
+static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session) {
+    vc.sceneSession = session;
+    if (session.stateRestorationActivity == nil) {
+        [vc startNewSession];
+    } else {
+        delegate.terminalUUID = session.stateRestorationActivity.userInfo[TerminalUUID];
+        [vc reconnectSessionFromTerminalUUID:
+         [[NSUUID alloc] initWithUUIDString:delegate.terminalUUID]];
+    }
+}
+
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
@@ -56,20 +70,38 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     }
 
     if (Roots.instance.needsInitialRootSelection) {
+        self.waitingForInitialRootImport = Roots.instance.initialBundledRootImportInProgress;
+        if (self.waitingForInitialRootImport) {
+            [Roots.instance observe:@[@"roots", @"initialBundledRootImportInProgress"]
+                            options:0 owner:self usingBlock:^(typeof(self) self) {
+                [self continueAfterInitialRootImportForSession:session];
+            }];
+        }
         self.window.rootViewController = CreateRootSelectionViewController();
         [self.window makeKeyAndVisible];
         return;
     }
 
     TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
-    vc.sceneSession = session;
-    if (session.stateRestorationActivity == nil) {
-        [vc startNewSession];
-    } else {
-        self.terminalUUID = session.stateRestorationActivity.userInfo[TerminalUUID];
-        [vc reconnectSessionFromTerminalUUID:
-         [[NSUUID alloc] initWithUUIDString:self.terminalUUID]];
-    }
+    ConfigureTerminalViewController(self, vc, session);
+}
+
+- (void)continueAfterInitialRootImportForSession:(UISceneSession *)session {
+    if (!self.waitingForInitialRootImport)
+        return;
+    if (Roots.instance.initialBundledRootImportInProgress)
+        return;
+    if (Roots.instance.needsInitialRootSelection)
+        return;
+
+    self.waitingForInitialRootImport = NO;
+    TerminalViewController *vc = CreateTerminalViewController();
+    if (vc == nil)
+        return;
+
+    self.window.rootViewController = vc;
+    [self.window makeKeyAndVisible];
+    ConfigureTerminalViewController(self, vc, session);
 }
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {
