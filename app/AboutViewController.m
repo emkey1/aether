@@ -95,6 +95,7 @@
     self.upgradeApkCell.userInteractionEnabled = FsNeedsRepositoryUpdate();
     self.upgradeApkLabel.enabled = FsNeedsRepositoryUpdate();
     self.upgradeApkBadge.hidden = !FsNeedsRepositoryUpdate();
+    self.upgradeApkCell.accessibilityValue = FsNeedsRepositoryUpdate() ? @"Update available" : nil;
     [self.tableView reloadData];
 }
 
