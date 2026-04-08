@@ -105,7 +105,7 @@
         return NSFileProviderRootContainerItemIdentifier;
     }
     NSString *identifier = url.pathComponents[url.pathComponents.count - 2];
-    if (identifier.longLongValue == 0)
+    if (identifier.longLongValue == 0 && !ISHFileProviderIsVirtualIdentifier(identifier))
         return nil; // something must be screwed I guess
     NSLog(@"id for url %@ = %@", url, identifier);
     return identifier;

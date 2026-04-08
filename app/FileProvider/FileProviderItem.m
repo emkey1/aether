@@ -13,6 +13,47 @@
 #include "fs/fake-db.h"
 #include "kernel/errno.h"
 
+static NSString *const ISHFileProviderVirtualIdentifierPrefix = @"virt_";
+
+static NSString *ISHBase64URLEncode(NSData *data) {
+    NSString *encoded = [data base64EncodedStringWithOptions:0];
+    encoded = [encoded stringByReplacingOccurrencesOfString:@"+" withString:@"-"];
+    encoded = [encoded stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    return [encoded stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"="]];
+}
+
+static NSData *ISHBase64URLDecode(NSString *encoded) {
+    NSMutableString *base64 = [[encoded stringByReplacingOccurrencesOfString:@"-" withString:@"+"] mutableCopy];
+    [base64 replaceOccurrencesOfString:@"_" withString:@"/" options:0 range:NSMakeRange(0, base64.length)];
+    while ((base64.length % 4) != 0)
+        [base64 appendString:@"="];
+    return [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+}
+
+NSString *ISHFileProviderVirtualIdentifierForPath(NSString *path) {
+    NSData *data = [path dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil)
+        return nil;
+    return [ISHFileProviderVirtualIdentifierPrefix stringByAppendingString:ISHBase64URLEncode(data)];
+}
+
+BOOL ISHFileProviderIsVirtualIdentifier(NSString *identifier) {
+    return [identifier hasPrefix:ISHFileProviderVirtualIdentifierPrefix];
+}
+
+NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
+    if (!ISHFileProviderIsVirtualIdentifier(identifier))
+        return nil;
+    NSString *payload = [identifier substringFromIndex:ISHFileProviderVirtualIdentifierPrefix.length];
+    NSData *data = ISHBase64URLDecode(payload);
+    if (data == nil)
+        return nil;
+    NSString *path = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (path.length == 0)
+        return nil;
+    return path;
+}
+
 @interface FileProviderItem ()
 
 @property (readonly) NSFileProviderItemIdentifier identifier;
@@ -38,10 +79,22 @@
     return [self.identifier isEqualToString:NSFileProviderRootContainerItemIdentifier];
 }
 
+- (BOOL)isVirtualItem {
+    return ISHFileProviderIsVirtualIdentifier(self.identifier);
+}
+
+- (NSString *)virtualPath {
+    return ISHFileProviderPathForIdentifier(self.identifier);
+}
+
 - (int)openNewFDWithError:(NSError *__autoreleasing  _Nullable *)error {
     int fd = -1;
     if (self.isRoot) {
         fd = open(_mount->source, O_DIRECTORY | O_RDONLY);
+    } else if (self.isVirtualItem) {
+        NSString *path = self.virtualPath;
+        if (path != nil)
+            fd = openat(_mount->root_fd, fix_path(path.fileSystemRepresentation), O_RDONLY);
     } else {
         db_begin(&_mount->db);
         sqlite3_stmt *stmt = _mount->db.stmt.path_from_inode;
@@ -71,6 +124,8 @@
 }
 
 - (NSString *)path {
+    if (self.isVirtualItem)
+        return self.virtualPath;
     char path[PATH_MAX] = "";
     int err = fcntl(_fd, F_GETPATH, path);
     [self handleError:err inFunction:@"getpath"];
@@ -87,6 +142,14 @@
 
 - (struct ish_stat)ishStat {
     struct ish_stat stat = {};
+    if (self.isVirtualItem) {
+        struct stat real = self.realStat;
+        stat.mode = real.st_mode;
+        stat.uid = real.st_uid;
+        stat.gid = real.st_gid;
+        stat.rdev = real.st_rdev;
+        return stat;
+    }
     db_begin(&_mount->db);
     inode_t inode = _identifier.longLongValue;
     if ([_identifier isEqualToString:NSFileProviderRootContainerItemIdentifier])
@@ -115,6 +178,19 @@
     NSString *parentPath = self.path.stringByDeletingLastPathComponent;
     if ([parentPath isEqualToString:@"/"])
         return NSFileProviderRootContainerItemIdentifier;
+    if (self.isVirtualItem) {
+        db_begin(&_mount->db);
+        inode_t parentInode = path_get_inode(&_mount->db, parentPath.UTF8String);
+        db_commit(&_mount->db);
+        if (parentInode != 0) {
+            NSString *parent = [NSString stringWithFormat:@"%lu", (unsigned long) parentInode];
+            NSLog(@"parent of %@ is %@", self.path, parent);
+            return parent;
+        }
+        NSString *parent = ISHFileProviderVirtualIdentifierForPath(parentPath);
+        NSLog(@"parent of %@ is %@", self.path, parent);
+        return parent;
+    }
     db_begin(&_mount->db);
     inode_t parentInode = path_get_inode(&_mount->db, parentPath.UTF8String);
     db_commit(&_mount->db);
@@ -125,6 +201,14 @@
 }
 
 - (NSFileProviderItemCapabilities)capabilities {
+    if (self.isVirtualItem) {
+        mode_t mode = self.realStat.st_mode;
+        if (S_ISDIR(mode))
+            return NSFileProviderItemCapabilitiesAllowsContentEnumerating;
+        if (S_ISREG(mode))
+            return NSFileProviderItemCapabilitiesAllowsReading;
+        return 0;
+    }
     NSFileProviderItemCapabilities caps = NSFileProviderItemCapabilitiesAllowsDeleting | NSFileProviderItemCapabilitiesAllowsRenaming | NSFileProviderItemCapabilitiesAllowsReparenting;
     if (S_ISREG(self.ishStat.mode))
         caps |= NSFileProviderItemCapabilitiesAllowsReading | NSFileProviderItemCapabilitiesAllowsWriting;

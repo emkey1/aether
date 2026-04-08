@@ -10,6 +10,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+FOUNDATION_EXPORT NSString *ISHFileProviderVirtualIdentifierForPath(NSString *path);
+FOUNDATION_EXPORT BOOL ISHFileProviderIsVirtualIdentifier(NSString *identifier);
+FOUNDATION_EXPORT NSString * _Nullable ISHFileProviderPathForIdentifier(NSString *identifier);
+
 @interface FileProviderItem : NSObject <NSFileProviderItem>
 
 - (instancetype)initWithIdentifier:(NSFileProviderItemIdentifier)identifier mount:(struct fakefs_mount *)mount error:(NSError *_Nullable *)err;

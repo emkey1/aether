@@ -62,14 +62,15 @@
         if (strcmp(dirent->d_name, "..") == 0) {
             childIdent = _item.parentItemIdentifier;
         } else if (strcmp(dirent->d_name, ".") != 0) {
+            NSString *childPath = [path stringByAppendingPathComponent:[NSString stringWithUTF8String:dirent->d_name]];
             db_begin(&_item.mount->db);
-            inode_t inode = path_get_inode(&_item.mount->db, [path stringByAppendingFormat:@"/%@", [NSString stringWithUTF8String:dirent->d_name]].fileSystemRepresentation);
+            inode_t inode = path_get_inode(&_item.mount->db, childPath.fileSystemRepresentation);
             db_commit(&_item.mount->db);
             if (inode == 0) {
-                NSLog(@"could not find %s in database, assuming nonexistent", dirent->d_name);
-                continue;
+                childIdent = ISHFileProviderVirtualIdentifierForPath(childPath);
+            } else {
+                childIdent = [NSString stringWithFormat:@"%lu", (unsigned long) inode];
             }
-            childIdent = [NSString stringWithFormat:@"%lu", (unsigned long) inode];
         }
 
         NSLog(@"returning %s %@", dirent->d_name, childIdent);

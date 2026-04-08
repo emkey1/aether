@@ -5,6 +5,15 @@
 #include "fs/proc.h"
 #include "fs/path.h"
 
+static void proc_prepare_child_entry(struct proc_entry *parent, unsigned long index, struct proc_entry *child) {
+    if (child->meta->parent == NULL)
+        child->meta->parent = parent->meta;
+    else
+        assert(child->meta->parent == parent->meta);
+    if (child->meta->inode == 0)
+        child->meta->inode = (int) index + 1;
+}
+
 static int proc_lookup(const char *path, struct proc_entry *entry) {
     entry->meta = &proc_root;
     char component[MAX_NAME + 1];
@@ -19,14 +28,7 @@ static int proc_lookup(const char *path, struct proc_entry *entry) {
         struct proc_entry next_entry = {0};
         char entry_name[MAX_NAME];
         while (proc_dir_read(entry, &index, &next_entry)) {
-            // tack on some dynamically generated attributes
-            if (next_entry.meta->parent == NULL)
-                next_entry.meta->parent = entry->meta;
-            else
-                // this asserts that an entry has a unique parent
-                assert(next_entry.meta->parent == entry->meta);
-            if (next_entry.meta->inode == 0)
-                next_entry.meta->inode = (int)index + 1;
+            proc_prepare_child_entry(entry, index, &next_entry);
 
             proc_entry_getname(&next_entry, entry_name);
             if (strcmp(entry_name, component) == 0)
@@ -196,6 +198,7 @@ static int proc_readdir(struct fd *fd, struct dir_entry *entry) {
     bool any_left = proc_dir_read(&fd->proc.entry, &fd->offset, &proc_entry);
     if (!any_left)
         return 0;
+    proc_prepare_child_entry(&fd->proc.entry, fd->offset, &proc_entry);
     proc_entry_getname(&proc_entry, entry->name);
     entry->inode = proc_entry.meta->inode;
     proc_entry_cleanup(&proc_entry);
