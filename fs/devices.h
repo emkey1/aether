@@ -44,5 +44,7 @@
 #define DEV_CLIPBOARD_MINOR 0
 // /dev/gps
 #define DEV_LOCATION_MINOR 1
+// /dev/dsp
+#define DEV_DSP_MINOR 3
 
 #endif

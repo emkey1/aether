@@ -58,6 +58,8 @@ int main(int argc, char *const argv[]) {
         fprintf(stderr, "xX_main_Xx: %s\n", strerror(-err));
         return err;
     }
+    generic_mkdirat(AT_PWD, "/AOK", 0555);
+    do_mount(&aokfs, "tests/audio", "/AOK", "", MS_READONLY_);
     do_mount(&procfs, "proc", "/proc", "", 0);
     do_mount(&sysfs, "sysfs", "/sys", "", 0);
     do_mount(&devptsfs, "devpts", " ", "", 0);

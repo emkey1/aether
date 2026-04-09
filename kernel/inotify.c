@@ -398,10 +398,18 @@ static int inotify_poll(struct fd *fd) {
 }
 
 static int inotify_close(struct fd *fd) {
+    lock(&fd->lock, 0);
     struct inotify_state *state = inotify_state_get(fd);
+    if (state == NULL) {
+        unlock(&fd->lock);
+        return 0;
+    }
+    fd->data = NULL;
+
     lock(&inotify_instances_lock, 0);
-    list_remove(&state->all);
+    list_remove_safe(&state->all);
     unlock(&inotify_instances_lock);
+
     struct inotify_watch *watch, *watch_tmp;
     list_for_each_entry_safe(&state->watches, watch, watch_tmp, list) {
         list_remove(&watch->list);
@@ -415,7 +423,7 @@ static int inotify_close(struct fd *fd) {
         free(event);
     }
     free(state);
-    fd->data = NULL;
+    unlock(&fd->lock);
     return 0;
 }
 

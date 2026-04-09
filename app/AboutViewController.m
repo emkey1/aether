@@ -16,6 +16,8 @@
 #import "NSObject+SaneKVO.h"
 #import "UIViewController+Extras.h"
 
+NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunch";
+
 @interface DiagnosticsViewController : UIViewController
 @end
 
@@ -97,6 +99,13 @@
     [self refreshDiagnostics:nil];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
+        [NSUserDefaults.standardUserDefaults setBool:NO forKey:kPreferenceOpenDiagnosticsOnLaunchKey];
+    }
+}
+
 - (void)refreshDiagnostics:(id)sender {
     _textView.text = [ISHDiagnosticsStore diagnosticsReport];
     [_textView setContentOffset:CGPointZero animated:NO];
@@ -122,6 +131,9 @@
 @end
 
 @implementation AboutViewController
+{
+    BOOL _didPresentInitialDiagnostics;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -150,6 +162,14 @@
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self _updateUI];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (self.startInDiagnostics && !_didPresentInitialDiagnostics) {
+        _didPresentInitialDiagnostics = YES;
+        [self showDiagnostics:self.diagnosticsCell ?: self];
+    }
 }
 
 - (IBAction)dismiss:(id)sender {

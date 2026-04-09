@@ -570,6 +570,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (void)showMessage:(NSString *)message subtitle:(NSString *)subtitle {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.presentedViewController != nil)
+            return;
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:message message:subtitle preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"k"
                                                   style:UIAlertActionStyleDefault

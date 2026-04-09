@@ -9,6 +9,7 @@
 static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
     &realfs,
     &procfs,
+    &aokfs,
     &devptsfs,
     &tmpfs,
     &sysfs,

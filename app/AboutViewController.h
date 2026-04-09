@@ -9,10 +9,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+extern NSString *const kPreferenceOpenDiagnosticsOnLaunchKey;
+
 @interface AboutViewController : UITableViewController
 
 @property BOOL includeDebugPanel;
 @property BOOL recoveryMode;
+@property BOOL startInDiagnostics;
 
 @end
 

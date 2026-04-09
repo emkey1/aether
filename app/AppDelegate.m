@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ctype.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 #import <MetricKit/MetricKit.h>
@@ -19,6 +20,7 @@
 #import "Diagnostics.h"
 #import "iOSFS.h"
 #import "SceneDelegate.h"
+#import "AudioDevice.h"
 #import "PasteboardDevice.h"
 #import "LocationDevice.h"
 #import "NSObject+SaneKVO.h"
@@ -179,6 +181,67 @@ static NSString *DiagnosticsHostMachine(void) {
 
 static NSString *DiagnosticsByteCountString(long long bytes) {
     return [NSByteCountFormatter stringFromByteCount:bytes countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+static int EnsurePathRemoved(const char *path, const struct statbuf *stat) {
+    if (S_ISDIR(stat->mode))
+        return generic_rmdirat(AT_PWD, path);
+    return generic_unlinkat(AT_PWD, path);
+}
+
+static int EnsureCharacterDevice(const char *path, mode_t_ mode, dev_t_ device) {
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
+    if (err == _ENOENT)
+        return generic_mknodat(AT_PWD, path, mode, device);
+    if (err < 0)
+        return err;
+
+    mode_t_ permissions = mode & 07777;
+    bool wrongType = !S_ISCHR(stat.mode);
+    bool wrongDevice = stat.rdev != device;
+    if (wrongType || wrongDevice) {
+        err = EnsurePathRemoved(path, &stat);
+        if (err < 0)
+            return err;
+        return generic_mknodat(AT_PWD, path, mode, device);
+    }
+
+    if ((stat.mode & 07777) != permissions)
+        return generic_setattrat(AT_PWD, path, make_attr(mode, permissions), false);
+    return 0;
+}
+
+static int EnsureSymlink(const char *path, const char *target) {
+    char existing[MAX_PATH];
+    ssize_t len = generic_readlinkat(AT_PWD, path, existing, sizeof(existing) - 1);
+    if (len == _ENOENT)
+        return generic_symlinkat(target, AT_PWD, path);
+    if (len >= 0) {
+        existing[len] = '\0';
+        if (strcmp(existing, target) == 0)
+            return 0;
+        struct statbuf stat;
+        int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
+        if (err < 0)
+            return err;
+        err = EnsurePathRemoved(path, &stat);
+        if (err < 0)
+            return err;
+        return generic_symlinkat(target, AT_PWD, path);
+    }
+
+    if (len == _EINVAL) {
+        struct statbuf stat;
+        int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
+        if (err < 0)
+            return err;
+        err = EnsurePathRemoved(path, &stat);
+        if (err < 0)
+            return err;
+        return generic_symlinkat(target, AT_PWD, path);
+    }
+    return (int) len;
 }
 
 @implementation ISHDiagnosticsStore
@@ -685,26 +748,25 @@ static TerminalViewController *CreateTerminalViewController(void) {
 
     FsInitialize();
 
-    // create some device nodes
-    // this will do nothing if they already exist
-    generic_mknodat(AT_PWD, "/dev/tty1", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 1));
-    generic_mknodat(AT_PWD, "/dev/tty2", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 2));
-    generic_mknodat(AT_PWD, "/dev/tty3", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 3));
-    generic_mknodat(AT_PWD, "/dev/tty4", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 4));
-    generic_mknodat(AT_PWD, "/dev/tty5", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 5));
-    generic_mknodat(AT_PWD, "/dev/tty6", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 6));
-    generic_mknodat(AT_PWD, "/dev/tty7", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 7));
+    // Repair or recreate the core device nodes the app owns. This keeps older
+    // roots working when a device major/minor changes in a later app build.
+    EnsureCharacterDevice("/dev/tty1", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 1));
+    EnsureCharacterDevice("/dev/tty2", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 2));
+    EnsureCharacterDevice("/dev/tty3", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 3));
+    EnsureCharacterDevice("/dev/tty4", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 4));
+    EnsureCharacterDevice("/dev/tty5", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 5));
+    EnsureCharacterDevice("/dev/tty6", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 6));
+    EnsureCharacterDevice("/dev/tty7", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 7));
 
-    generic_mknodat(AT_PWD, "/dev/tty", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR));
-    //generic_mknodat(AT_PWD, "/dev/console", S_IFCHR|0222, dev_make(136, 0));
-    generic_mknodat(AT_PWD, "/dev/console", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR));
-    generic_mknodat(AT_PWD, "/dev/ptmx", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR));
+    EnsureCharacterDevice("/dev/tty", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR));
+    EnsureCharacterDevice("/dev/console", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR));
+    EnsureCharacterDevice("/dev/ptmx", S_IFCHR|0666, dev_make(TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR));
 
-    generic_mknodat(AT_PWD, "/dev/null", S_IFCHR|0777, dev_make(MEM_MAJOR, DEV_NULL_MINOR));
-    generic_mknodat(AT_PWD, "/dev/zero", S_IFCHR|0777, dev_make(MEM_MAJOR, DEV_ZERO_MINOR));
-    generic_mknodat(AT_PWD, "/dev/full", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_FULL_MINOR));
-    generic_mknodat(AT_PWD, "/dev/random", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_RANDOM_MINOR));
-    generic_mknodat(AT_PWD, "/dev/urandom", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
+    EnsureCharacterDevice("/dev/null", S_IFCHR|0777, dev_make(MEM_MAJOR, DEV_NULL_MINOR));
+    EnsureCharacterDevice("/dev/zero", S_IFCHR|0777, dev_make(MEM_MAJOR, DEV_ZERO_MINOR));
+    EnsureCharacterDevice("/dev/full", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_FULL_MINOR));
+    EnsureCharacterDevice("/dev/random", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_RANDOM_MINOR));
+    EnsureCharacterDevice("/dev/urandom", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
     
     generic_mkdirat(AT_PWD, "/dev/pts", 0755);
     
@@ -723,6 +785,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
     generic_mkdirat(AT_PWD, "/sys/class", 0755);
     generic_mkdirat(AT_PWD, "/sys/class/power_supply", 0755);
     generic_mkdirat(AT_PWD, "/sys/class/power_supply/BAT0", 0755);
+    generic_mkdirat(AT_PWD, "/AOK", 0555);
     generic_symlinkat("/proc/ish/BAT0_capacity", AT_PWD, "/sys/class/power_supply/BAT0/capacity");
     generic_symlinkat("/proc/ish/BAT0_status", AT_PWD, "/sys/class/power_supply/BAT0/status");
     
@@ -733,20 +796,26 @@ static TerminalViewController *CreateTerminalViewController(void) {
     if (err != 0) {
         return err;
     }
-    generic_mknodat(AT_PWD, "/dev/clipboard", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_CLIPBOARD_MINOR));
+    EnsureCharacterDevice("/dev/clipboard", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_CLIPBOARD_MINOR));
     
     err = dyn_dev_register(&location_dev, DEV_CHAR, DYN_DEV_MAJOR, DEV_LOCATION_MINOR);
     if (err != 0)
         return err;
-    generic_mknodat(AT_PWD, "/dev/location", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_LOCATION_MINOR));
+    EnsureCharacterDevice("/dev/location", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_LOCATION_MINOR));
+
+    err = dyn_dev_register((struct dev_ops *) &audio_dev, DEV_CHAR, DYN_DEV_MAJOR, DEV_DSP_MINOR);
+    if (err != 0)
+        return err;
+    EnsureCharacterDevice("/dev/dsp", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_DSP_MINOR));
     
     // Emulate a RTC, read time only
     err = dyn_dev_register(&rtc_dev, DEV_CHAR, DEV_RTC_MAJOR, DEV_RTC_MINOR);
     if (err != 0)
         return err;
-    generic_mknodat(AT_PWD, "/dev/rtc0", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR));
-    generic_symlinkat("/dev/rtc0", AT_PWD, "/dev/rtc");
+    EnsureCharacterDevice("/dev/rtc0", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR));
+    EnsureSymlink("/dev/rtc", "/dev/rtc0");
 
+    do_mount(&aokfs, NSBundle.mainBundle.resourcePath.UTF8String, "/AOK", "", MS_READONLY_);
     do_mount(&procfs, "proc", "/proc", "", 0);
     do_mount(&devptsfs, "devpts", "/dev/pts", "", 0);
 
@@ -1065,6 +1134,14 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     [self scheduleDnsRefresh:@"reachability"];
 }
 
+static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode, BOOL startInDiagnostics) {
+    UINavigationController *navigationController = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
+    AboutViewController *aboutViewController = (AboutViewController *) navigationController.topViewController;
+    aboutViewController.recoveryMode = recoveryMode;
+    aboutViewController.startInDiagnostics = startInDiagnostics;
+    return navigationController;
+}
+
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     [ISHDiagnosticsStore recordBreadcrumb:@"application.didFinishLaunching"
                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
@@ -1131,11 +1208,12 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 
     if (self.window != nil) {
         // For iOS <13, where the app delegate owns the window instead of the scene
+        if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
+            self.window.rootViewController = CreateAboutNavigationController(NO, YES);
+            return YES;
+        }
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
-            UINavigationController *vc = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
-            AboutViewController *avc = (AboutViewController *) vc.topViewController;
-            avc.recoveryMode = YES;
-            self.window.rootViewController = vc;
+            self.window.rootViewController = CreateAboutNavigationController(YES, NO);
             return YES;
         }
         if (Roots.instance.needsInitialRootSelection) {

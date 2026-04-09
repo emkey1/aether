@@ -34,6 +34,14 @@ static TerminalViewController *CreateTerminalViewController(void) {
     return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
 }
 
+static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode, BOOL startInDiagnostics) {
+    UINavigationController *navigationController = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
+    AboutViewController *aboutViewController = (AboutViewController *) navigationController.topViewController;
+    aboutViewController.recoveryMode = recoveryMode;
+    aboutViewController.startInDiagnostics = startInDiagnostics;
+    return navigationController;
+}
+
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) API_AVAILABLE(ios(13.0));
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     if (delegate.window == nil) {
@@ -66,11 +74,13 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                   details:@{@"session": session.persistentIdentifier ?: @"",
                                             @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
     EnsureSceneWindow(self, scene);
+    if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
+        self.window.rootViewController = CreateAboutNavigationController(NO, YES);
+        [self.window makeKeyAndVisible];
+        return;
+    }
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
-        UINavigationController *vc = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
-        AboutViewController *avc = (AboutViewController *) vc.topViewController;
-        avc.recoveryMode = YES;
-        self.window.rootViewController = vc;
+        self.window.rootViewController = CreateAboutNavigationController(YES, NO);
         [self.window makeKeyAndVisible];
         return;
     }
