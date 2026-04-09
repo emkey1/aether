@@ -1391,7 +1391,7 @@ static int netlink_append_inet_diag(struct fd *sock, const struct nlmsghdr_ *req
     else if (req->sdiag_protocol == IPPROTO_UDP)
         type = SOCK_DGRAM_;
     else
-        return netlink_append_error(sock, req_hdr->nlmsg_seq, req_hdr, -err_map(_EOPNOTSUPP));
+        return netlink_append_error(sock, req_hdr->nlmsg_seq, req_hdr, _EOPNOTSUPP);
 
     struct diag_socket_entry entries = {};
     int err = diag_collect_sockets(&entries, req->sdiag_family, type);
@@ -1489,23 +1489,23 @@ static int netlink_append_unix_diag(struct fd *sock, const struct nlmsghdr_ *req
 static int netlink_handle_diag_request(struct fd *sock, const struct nlmsghdr_ *hdr,
         const void *payload, size_t payload_len) {
     if (hdr->nlmsg_type != SOCK_DIAG_BY_FAMILY_)
-        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
 
     if (payload_len < 1)
-        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
 
     uint8_t family = *(const uint8_t *) payload;
     if (family == AF_INET_ || family == AF_INET6_) {
         if (payload_len < sizeof(struct inet_diag_req_v2_))
-            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
         return netlink_append_inet_diag(sock, hdr, payload);
     }
     if (family == AF_LOCAL_) {
         if (payload_len < sizeof(struct unix_diag_req_))
-            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EINVAL));
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
         return netlink_append_unix_diag(sock, hdr, payload);
     }
-    return netlink_append_error(sock, hdr->nlmsg_seq, hdr, -err_map(_EOPNOTSUPP));
+    return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
 }
 
 static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
@@ -1530,7 +1530,7 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
     while (offset + sizeof(struct nlmsghdr_) <= req_len) {
         struct nlmsghdr_ *hdr = (struct nlmsghdr_ *) (req + offset);
         if (hdr->nlmsg_len < sizeof(*hdr) || offset + hdr->nlmsg_len > req_len) {
-            err = netlink_append_error(sock, 0, hdr, -err_map(_EINVAL));
+            err = netlink_append_error(sock, 0, hdr, _EINVAL);
             break;
         }
         const void *payload = req + offset + NLMSG_HDRLEN;

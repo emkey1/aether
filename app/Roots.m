@@ -39,6 +39,7 @@ static NSString *const kBundledRootIdentifierKey = @"identifier";
 static NSString *const kBundledRootDisplayNameKey = @"displayName";
 static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
+static NSString *const kBundledRootInitialWindowKey = @"initialWindow";
 static NSString *const kRootsErrorDomain = @"iSH.Roots";
 
 NSNotificationName const RootsDidFinishInitialSelectionNotification = @"RootsDidFinishInitialSelectionNotification";
@@ -53,12 +54,14 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDisplayNameKey: @"Devuan5(Debian12)",
                 kBundledRootArchiveNameKey: @"root",
                 kBundledRootImportNameKey: @"Devuan5(Debian12)",
+                kBundledRootInitialWindowKey: @"terminal",
             },
             @{
                 kBundledRootIdentifierKey: @"alpine3233",
                 kBundledRootDisplayNameKey: @"Alpine3.23.3",
                 kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
                 kBundledRootImportNameKey: @"Alpine3.23.3",
+                kBundledRootInitialWindowKey: @"session-shell",
             },
         ];
     });

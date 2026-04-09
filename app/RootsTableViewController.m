@@ -12,6 +12,7 @@
 #import "UIApplication+OpenURL.h"
 #import "UIViewController+Extras.h"
 #import "NSObject+SaneKVO.h"
+#import "UserPreferences.h"
 
 @interface RootsTableViewController ()
 @end
@@ -77,6 +78,7 @@
     NSString *identifier = choice[@"identifier"];
     NSString *displayName = choice[@"displayName"];
     BOOL wasInitialSelection = Roots.instance.needsInitialRootSelection;
+    NSString *initialWindow = choice[@"initialWindow"];
 
     ProgressReportViewController *progressVC = [self.storyboard instantiateViewControllerWithIdentifier:@"progress"];
     progressVC.title = [NSString stringWithFormat:@"Importing %@", displayName];
@@ -91,6 +93,12 @@
                     if (error != nil)
                         [self presentError:error title:@"Import failed"];
                     return;
+                }
+                if (wasInitialSelection &&
+                    ([initialWindow isEqualToString:@"terminal"] ||
+                     [initialWindow isEqualToString:@"session-shell"])) {
+                    [NSUserDefaults.standardUserDefaults setObject:initialWindow
+                                                            forKey:kPreferenceInitialWindowKey];
                 }
                 [self finishInitialSelectionIfNeededFromEmptyState:wasInitialSelection];
             }];
