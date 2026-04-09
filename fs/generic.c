@@ -50,6 +50,20 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     fd = fd_retain(fd);
     unlock(&task->files->lock);
     unlock(&pids_lock);
+
+    if (fd->type == S_IFREG || fd->type == S_IFDIR) {
+        char reopened_path[MAX_PATH];
+        int err = generic_getpath(fd, reopened_path);
+        if (err >= 0) {
+            int reopen_flags = fd->flags & (O_RDWR_ | O_WRONLY_ | O_NONBLOCK_ | O_APPEND_ | O_DIRECTORY_);
+            struct fd *reopened = generic_open(reopened_path, reopen_flags, 0);
+            if (!IS_ERR(reopened)) {
+                fd_close(fd);
+                return reopened;
+            }
+        }
+    }
+
     return fd;
 }
 

@@ -41,22 +41,24 @@ static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
 static NSString *const kRootsErrorDomain = @"iSH.Roots";
 
+NSNotificationName const RootsDidFinishInitialSelectionNotification = @"RootsDidFinishInitialSelectionNotification";
+
 static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void) {
     static NSArray<NSDictionary<NSString *, NSString *> *> *choices;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         choices = @[
             @{
-                kBundledRootIdentifierKey: @"devuan-5",
-                kBundledRootDisplayNameKey: @"Devuan 5",
+                kBundledRootIdentifierKey: @"devuan12",
+                kBundledRootDisplayNameKey: @"Devuan5(Debian12)",
                 kBundledRootArchiveNameKey: @"root",
-                kBundledRootImportNameKey: @"Devuan 5",
+                kBundledRootImportNameKey: @"Devuan5(Debian12)",
             },
             @{
-                kBundledRootIdentifierKey: @"alpine-3.18",
-                kBundledRootDisplayNameKey: @"Old Distros",
-                kBundledRootArchiveNameKey: @"root",
-                kBundledRootImportNameKey: @"Old Distros",
+                kBundledRootIdentifierKey: @"alpine3233",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
+                kBundledRootImportNameKey: @"Alpine3.23.3",
             },
         ];
     });
@@ -259,32 +261,6 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
             }
         }
         self.roots = roots;
-        if (!self.roots.count) {
-            NSURL *archiveURL = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
-            if (archiveURL != nil) {
-                self.initialBundledRootImportInProgress = YES;
-                self.initialBundledRootImportError = nil;
-                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-                    NSError *error = nil;
-                    BOOL success = [self importRootFromArchive:archiveURL
-                                                          name:@"default"
-                                                         error:&error
-                                              progressReporter:nil];
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        self.initialBundledRootImportInProgress = NO;
-                        if (success) {
-                            self.initialBundledRootImportError = nil;
-                            self.wantsVersionFile = YES;
-                        } else {
-                            self.initialBundledRootImportError = error;
-                            NSLog(@"failed to import default root: %@", error);
-                        }
-                    });
-                });
-            } else {
-                NSLog(@"bundled default root archive is missing");
-            }
-        }
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {
             if (self.defaultRoot == nil && self.roots.count)
                 self.defaultRoot = self.roots[0];
@@ -387,8 +363,15 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
         return NO;
     }
 
+    NSString *baseName = selectedChoice[kBundledRootImportNameKey];
+    NSString *importName = baseName;
+    unsigned suffix = 2;
+    while ([self.roots containsObject:importName]) {
+        importName = [NSString stringWithFormat:@"%@ %u", baseName, suffix++];
+    }
+
     BOOL ok = [self importRootFromArchive:archive
-                                     name:selectedChoice[kBundledRootImportNameKey]
+                                     name:importName
                                     error:error
                          progressReporter:progress];
     if (ok)

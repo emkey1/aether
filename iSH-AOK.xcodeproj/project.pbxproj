@@ -1971,15 +1971,17 @@
 			files = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
 				"$(SRCROOT)/root.tar.gz",
 			);
 			name = "Download Root";
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
 				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/root.tar.gz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "rm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\ncp \"$SRCROOT/root.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "rm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\nrm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/alpine-minirootfs-3.23.3-x86.tar.gz\"\ncp \"$SRCROOT/root.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\ncp \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/alpine-minirootfs-3.23.3-x86.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2029,15 +2031,17 @@
 			files = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
 				"$(SRCROOT)/root.tar.gz",
 			);
 			name = "Download Root";
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
 				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/root.tar.gz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "rm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\ncp \"$SRCROOT/root.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\n";
+			shellScript = "rm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\nrm -f \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/alpine-minirootfs-3.23.3-x86.tar.gz\"\ncp \"$SRCROOT/root.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/root.tar.gz\"\ncp \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/alpine-minirootfs-3.23.3-x86.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {

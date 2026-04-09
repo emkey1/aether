@@ -119,16 +119,53 @@ static void maybe_restore_login_binary(void) {
 
     printk("INFO: restored /bin/login from /bin/login.original due to legacy AOK login marker\n");
 }
+
+static void maybe_normalize_unmanaged_apk_repositories(void) {
+    char repositories[4096];
+    ssize_t n = read_file("/etc/apk/repositories", repositories, sizeof(repositories) - 1);
+    if (n <= 0)
+        return;
+
+    repositories[n] = '\0';
+    NSString *existing = [[NSString alloc] initWithBytes:repositories length:n encoding:NSUTF8StringEncoding];
+    if (existing == nil)
+        existing = [[NSString alloc] initWithCString:repositories encoding:NSISOLatin1StringEncoding];
+    if (existing == nil)
+        return;
+
+    static NSString *const kAlpineHttpsPrefix = @"https://dl-cdn.alpinelinux.org/alpine/";
+    if ([existing rangeOfString:kAlpineHttpsPrefix].location == NSNotFound)
+        return;
+
+    NSString *updated = [existing stringByReplacingOccurrencesOfString:kAlpineHttpsPrefix
+                                                            withString:@"http://dl-cdn.alpinelinux.org/alpine/"];
+    if ([updated isEqualToString:existing])
+        return;
+
+    ssize_t wrote = write_file("/etc/apk/repositories",
+                               updated.UTF8String,
+                               [updated lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    if (wrote < 0) {
+        printk("WARNING: failed to normalize /etc/apk/repositories for unmanaged Alpine root: %zd\n", wrote);
+        return;
+    }
+
+    printk("INFO: normalized unmanaged Alpine repositories to HTTP for apk compatibility\n");
+}
 #else
 #define read_file linux_read_file
 #define write_file linux_write_file
 #define remove_directory linux_remove_directory
 static void maybe_restore_login_binary(void) {
 }
+static void maybe_normalize_unmanaged_apk_repositories(void) {
+}
 #endif
 
 void FsInitialize(void) {
     maybe_restore_login_binary();
+    fs_ish_version = 0;
+    fs_ish_apk_version = 0;
 
     // /ish/version is the last ish version that opened this root. Used to migrate the filesystem.
     char buf[1000];
@@ -157,6 +194,8 @@ void FsInitialize(void) {
             fs_ish_version = currentVersion.intValue;
             write_file("/ish/version", currentVersionFile.UTF8String, [currentVersionFile lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
         }
+    } else {
+        maybe_normalize_unmanaged_apk_repositories();
     }
 }
 

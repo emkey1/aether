@@ -45,6 +45,7 @@
 #define SOCK_DIAG_BY_FAMILY_ 20
 
 #define SIOCGIFNAME_ 0x8910
+#define SIOCGIFCONF_ 0x8912
 #define SIOCGIFFLAGS_ 0x8913
 #define SIOCGIFINDEX_ 0x8933
 
@@ -120,6 +121,23 @@ struct ifreq_ {
         int32_t ifindex;
         char pad[24];
     } ifr_ifru;
+};
+
+struct sockaddr_in_ {
+    uint16_t sin_family;
+    uint16_t sin_port;
+    uint32_t sin_addr;
+    uint8_t sin_zero[8];
+};
+
+struct guest_ifreq_addr_ {
+    char ifr_name[IFNAMSIZ_];
+    struct sockaddr_in_ guest_addr;
+};
+
+struct guest_ifconf_ {
+    int32_t guest_len;
+    addr_t guest_buf;
 };
 
 struct nlmsghdr_ {
@@ -714,6 +732,52 @@ static int sock_ifreq_flags_from_name(struct ifreq_ *ifreq) {
     }
     freeifaddrs(addrs);
     return err;
+}
+
+static int sock_ifconf(struct guest_ifconf_ *ifconf) {
+    if (ifconf->guest_len < 0)
+        return _EINVAL;
+
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+
+    size_t capacity = (size_t) ifconf->guest_len;
+    size_t used = 0;
+    size_t total = 0;
+    int err = 0;
+
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL || cursor->ifa_addr == NULL)
+            continue;
+        if (cursor->ifa_addr->sa_family != AF_INET)
+            continue;
+
+        struct guest_ifreq_addr_ entry = {};
+        strncpy(entry.ifr_name, cursor->ifa_name, sizeof(entry.ifr_name) - 1);
+        entry.guest_addr.sin_family = AF_INET_;
+        entry.guest_addr.sin_port = 0;
+        entry.guest_addr.sin_addr = ((const struct sockaddr_in *) cursor->ifa_addr)->sin_addr.s_addr;
+
+        total += sizeof(entry);
+        if (ifconf->guest_buf == 0 || used + sizeof(entry) > capacity)
+            continue;
+        if (user_write(ifconf->guest_buf + used, &entry, sizeof(entry))) {
+            err = _EFAULT;
+            break;
+        }
+        used += sizeof(entry);
+    }
+
+    freeifaddrs(addrs);
+    if (err < 0)
+        return err;
+
+    if ((size_t) ifconf->guest_len >= total)
+        ifconf->guest_len = (int32_t) total;
+    else
+        ifconf->guest_len = (int32_t) used;
+    return 0;
 }
 
 static bool guest_sockaddr_is_devlog(addr_t sockaddr_addr, uint_t sockaddr_len) {
@@ -3458,6 +3522,8 @@ static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
 static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
     if (cmd == SIOCGIFNAME_)
         return sock_ifreq_name_from_index(arg);
+    if (cmd == SIOCGIFCONF_)
+        return sock_ifconf(arg);
     if (cmd == SIOCGIFINDEX_)
         return sock_ifreq_index_from_name(arg);
     if (cmd == SIOCGIFFLAGS_)
@@ -3475,9 +3541,10 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
 static ssize_t sock_ioctl_size(int cmd) {
     switch (cmd) {
         case SIOCGIFNAME_:
+        case SIOCGIFCONF_:
         case SIOCGIFINDEX_:
         case SIOCGIFFLAGS_:
-            return sizeof(struct ifreq_);
+            return cmd == SIOCGIFCONF_ ? sizeof(struct guest_ifconf_) : sizeof(struct ifreq_);
         default:
             return realfs_ioctl_size(cmd);
     }

@@ -76,13 +76,13 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     }
 
     if (Roots.instance.needsInitialRootSelection) {
-        self.waitingForInitialRootImport = Roots.instance.initialBundledRootImportInProgress;
-        if (self.waitingForInitialRootImport) {
-            [Roots.instance observe:@[@"roots", @"initialBundledRootImportInProgress"]
-                            options:0 owner:self usingBlock:^(typeof(self) self) {
-                [self continueAfterInitialRootImportForSession:session];
-            }];
-        }
+        [NSNotificationCenter.defaultCenter removeObserver:self
+                                                      name:RootsDidFinishInitialSelectionNotification
+                                                    object:nil];
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(rootsDidFinishInitialSelection:)
+                                                   name:RootsDidFinishInitialSelectionNotification
+                                                 object:nil];
         self.window.rootViewController = CreateRootSelectionViewController();
         [self.window makeKeyAndVisible];
         return;
@@ -93,11 +93,9 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 }
 
 - (void)continueAfterInitialRootImportForSession:(UISceneSession *)session {
-    if (!self.waitingForInitialRootImport)
-        return;
-    if (Roots.instance.initialBundledRootImportInProgress)
-        return;
     if (Roots.instance.needsInitialRootSelection)
+        return;
+    if ([self.window.rootViewController isKindOfClass:TerminalViewController.class])
         return;
 
     self.waitingForInitialRootImport = NO;
@@ -108,6 +106,13 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
     ConfigureTerminalViewController(self, vc, session);
+}
+
+- (void)rootsDidFinishInitialSelection:(__unused NSNotification *)notification {
+    UISceneSession *session = self.window.windowScene.session;
+    if (session == nil)
+        return;
+    [self continueAfterInitialRootImportForSession:session];
 }
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {

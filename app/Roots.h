@@ -16,6 +16,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+FOUNDATION_EXPORT NSNotificationName const RootsDidFinishInitialSelectionNotification;
+
 @interface Roots : NSObject
 
 + (instancetype)instance;

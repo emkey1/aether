@@ -10,8 +10,6 @@ static void proc_prepare_child_entry(struct proc_entry *parent, unsigned long in
         child->meta->parent = parent->meta;
     else
         assert(child->meta->parent == parent->meta);
-    if (child->meta->inode == 0)
-        child->meta->inode = (int) index + 1;
 }
 
 static int proc_lookup(const char *path, struct proc_entry *entry) {
@@ -200,7 +198,7 @@ static int proc_readdir(struct fd *fd, struct dir_entry *entry) {
         return 0;
     proc_prepare_child_entry(&fd->proc.entry, fd->offset, &proc_entry);
     proc_entry_getname(&proc_entry, entry->name);
-    entry->inode = proc_entry.meta->inode;
+    entry->inode = proc_entry_inode(&proc_entry);
     proc_entry_cleanup(&proc_entry);
     return 1;
 }

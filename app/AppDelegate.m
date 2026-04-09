@@ -943,14 +943,40 @@ void SyncHostname(void) {
     NSLog(@"DNS refresh res_getservers completed in %.3fs with %d server(s) (%@)",
           MetricKitNowSeconds() - getServersStart, serversFound, reason);
     char address[NI_MAXHOST];
+    int usableServers = 0;
     for (int i = 0; i < serversFound; i ++) {
         union res_sockaddr_union s = servers[i];
-        if (s.sin.sin_len == 0)
+        sa_family_t family = s.sin.sin_family;
+        socklen_t sockaddrLen = s.sin.sin_len;
+        if (family == AF_INET_) {
+            if (sockaddrLen == 0)
+                sockaddrLen = sizeof(s.sin);
+        } else if (family == AF_INET6_) {
+            if (IN6_IS_ADDR_LINKLOCAL(&s.sin6.sin6_addr)) {
+                NSLog(@"DNS refresh skipping link-local IPv6 nameserver (%@)", reason);
+                continue;
+            }
+            if (sockaddrLen == 0)
+                sockaddrLen = sizeof(s.sin6);
+        } else {
             continue;
-        getnameinfo((struct sockaddr *) &s.sin, s.sin.sin_len,
-                    address, sizeof(address),
-                    NULL, 0, NI_NUMERICHOST);
+        }
+        int err = getnameinfo((struct sockaddr *) &s.sin, sockaddrLen,
+                              address, sizeof(address),
+                              NULL, 0, NI_NUMERICHOST);
+        if (err != 0) {
+            NSLog(@"DNS refresh getnameinfo failed for server %d: %s (%@)", i, gai_strerror(err), reason);
+            continue;
+        }
         [resolvConf appendFormat:@"nameserver %s\n", address];
+        usableServers++;
+    }
+
+    if (usableServers == 0) {
+        NSLog(@"DNS refresh found no usable nameservers, leaving existing /etc/resolv.conf in place (%@)", reason);
+        res_nclose(&res);
+        [self finishDnsRefreshAndRescheduleIfNeeded:reason];
+        return;
     }
 
     struct task *previousCurrent;
@@ -1113,13 +1139,13 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
             return YES;
         }
         if (Roots.instance.needsInitialRootSelection) {
-            self.waitingForInitialRootImport = Roots.instance.initialBundledRootImportInProgress;
-            if (self.waitingForInitialRootImport) {
-                [Roots.instance observe:@[@"roots", @"initialBundledRootImportInProgress"]
-                                options:0 owner:self usingBlock:^(typeof(self) self) {
-                    [self continueAfterInitialRootImportIfNeeded];
-                }];
-            }
+            [NSNotificationCenter.defaultCenter removeObserver:self
+                                                          name:RootsDidFinishInitialSelectionNotification
+                                                        object:nil];
+            [NSNotificationCenter.defaultCenter addObserver:self
+                                                   selector:@selector(rootsDidFinishInitialSelection:)
+                                                       name:RootsDidFinishInitialSelectionNotification
+                                                     object:nil];
             self.window.rootViewController = CreateRootSelectionViewController();
             return YES;
         }
@@ -1131,13 +1157,11 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 }
 
 - (void)continueAfterInitialRootImportIfNeeded {
-    if (!self.waitingForInitialRootImport)
-        return;
-    if (Roots.instance.initialBundledRootImportInProgress)
-        return;
     if (Roots.instance.needsInitialRootSelection)
         return;
     if (self.window == nil)
+        return;
+    if ([self.window.rootViewController isKindOfClass:TerminalViewController.class])
         return;
 
     self.waitingForInitialRootImport = NO;
@@ -1148,6 +1172,10 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
     self.window.rootViewController = vc;
     currentTerminalViewController = vc;
     [vc startNewSession];
+}
+
+- (void)rootsDidFinishInitialSelection:(__unused NSNotification *)notification {
+    [self continueAfterInitialRootImportIfNeeded];
 }
 
 - (void)application:(UIApplication *)application didDiscardSceneSessions:(NSSet<UISceneSession *> *)sceneSessions API_AVAILABLE(ios(13.0)) {
