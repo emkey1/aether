@@ -23,6 +23,7 @@ alpine-minirootfs-*.tar.gz
 .tmp*
 com.apple.DeveloperTools/
 tests/host/
+diagnostics*
 
 .claude/
 CLAUDE.md
