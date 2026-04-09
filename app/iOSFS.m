@@ -16,7 +16,7 @@
 #include "fs/path.h"
 #include "fs/real.h"
 
-extern inline void task_ref_cnt_mod(struct task *task, int value);
+extern void task_ref_cnt_mod(struct task *task, int value);
 
 const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFileCoordinatorWritingForMerging;
 

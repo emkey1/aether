@@ -2,6 +2,9 @@
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#if defined(__APPLE__)
+#include <net/if_dl.h>
+#endif
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <stdio.h>
@@ -14,6 +17,7 @@
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "fs/inode.h"
+#include "fs/net_route.h"
 #include "fs/path.h"
 #include "fs/poll.h"
 #include "fs/real.h"
@@ -40,26 +44,50 @@
 
 #define SOCK_DIAG_BY_FAMILY_ 20
 
+#define SIOCGIFNAME_ 0x8910
+#define SIOCGIFFLAGS_ 0x8913
+#define SIOCGIFINDEX_ 0x8933
+
+#define IFNAMSIZ_ 16
+
 #define RTM_NEWLINK_ 16
 #define RTM_GETLINK_ 18
 #define RTM_NEWADDR_ 20
 #define RTM_GETADDR_ 22
+#define RTM_NEWROUTE_ 24
+#define RTM_GETROUTE_ 26
 
 #define IFLA_ADDRESS_ 1
+#define IFLA_BROADCAST_ 2
 #define IFLA_IFNAME_ 3
 #define IFLA_MTU_ 4
+#define IFLA_TXQLEN_ 13
+#define IFLA_OPERSTATE_ 16
 
 #define IFA_ADDRESS_ 1
 #define IFA_LOCAL_ 2
 #define IFA_LABEL_ 3
 #define IFA_BROADCAST_ 4
 
+#define RTA_DST_ 1
+#define RTA_OIF_ 4
+#define RTA_GATEWAY_ 5
+#define RTA_PREFSRC_ 7
+
 #define RT_SCOPE_UNIVERSE_ 0
 #define RT_SCOPE_LINK_ 253
 #define RT_SCOPE_HOST_ 254
 
+#define RT_TABLE_MAIN_ 254
+#define RTPROT_KERNEL_ 2
+#define RTPROT_BOOT_ 3
+#define RTN_UNICAST_ 1
+
 #define ARPHRD_ETHER_ 1
 #define ARPHRD_LOOPBACK_ 772
+
+#define IF_OPER_UNKNOWN_ 0
+#define IF_OPER_UP_ 6
 
 #define IFF_UP_LINUX_ 0x1
 #define IFF_BROADCAST_LINUX_ 0x2
@@ -82,6 +110,16 @@ struct sockaddr_nl_ {
     uint16_t nl_pad;
     uint32_t nl_pid;
     uint32_t nl_groups;
+};
+
+struct ifreq_ {
+    char ifr_name[IFNAMSIZ_];
+    union {
+        struct sockaddr_ addr;
+        int16_t flags;
+        int32_t ifindex;
+        char pad[24];
+    } ifr_ifru;
 };
 
 struct nlmsghdr_ {
@@ -123,10 +161,23 @@ struct rtgenmsg_ {
     uint8_t rtgen_family;
 };
 
+struct rtmsg_ {
+    uint8_t rtm_family;
+    uint8_t rtm_dst_len;
+    uint8_t rtm_src_len;
+    uint8_t rtm_tos;
+    uint8_t rtm_table;
+    uint8_t rtm_protocol;
+    uint8_t rtm_scope;
+    uint8_t rtm_type;
+    uint32_t rtm_flags;
+};
+
 static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
         uint32_t seq, const void *payload, size_t payload_len);
 static int netlink_append_error(struct fd *sock, uint32_t seq,
         const struct nlmsghdr_ *req, int err_code);
+static int netlink_append_done(struct fd *sock, uint32_t seq);
 
 struct inet_diag_sockid_ {
     uint16_t idiag_sport;
@@ -193,6 +244,79 @@ static int netlink_append_attr_raw(char *buf, size_t cap, size_t *len_io, uint16
     return 0;
 }
 
+struct netlink_link_info {
+    uint32_t mtu;
+    uint32_t txqlen;
+    uint8_t operstate;
+    uint8_t address[16];
+    uint8_t broadcast[16];
+    size_t address_len;
+    size_t broadcast_len;
+};
+
+static void netlink_fill_link_info(const struct ifaddrs *addrs, const struct ifaddrs *cursor,
+        struct netlink_link_info *info) {
+    info->mtu = 1500;
+    info->txqlen = 1000;
+    info->operstate = (cursor->ifa_flags & IFF_RUNNING) ? IF_OPER_UP_ : IF_OPER_UNKNOWN_;
+    if (cursor->ifa_data != NULL) {
+        const struct if_data *stats = (const struct if_data *) cursor->ifa_data;
+        if (stats->ifi_mtu != 0)
+            info->mtu = (uint32_t) stats->ifi_mtu;
+    }
+#if defined(__APPLE__)
+    for (const struct ifaddrs *entry = addrs; entry != NULL; entry = entry->ifa_next) {
+        if (entry->ifa_name == NULL || entry->ifa_addr == NULL)
+            continue;
+        if (strcmp(entry->ifa_name, cursor->ifa_name) != 0)
+            continue;
+        if (entry->ifa_addr->sa_family != AF_LINK)
+            continue;
+        const struct sockaddr_dl *sdl = (const struct sockaddr_dl *) entry->ifa_addr;
+        if (sdl->sdl_alen == 0)
+            continue;
+        size_t addr_len = sdl->sdl_alen;
+        if (addr_len > sizeof(info->address))
+            addr_len = sizeof(info->address);
+        memcpy(info->address, LLADDR(sdl), addr_len);
+        info->address_len = addr_len;
+        if ((cursor->ifa_flags & IFF_BROADCAST) && addr_len == 6) {
+            memset(info->broadcast, 0xff, addr_len);
+            info->broadcast_len = addr_len;
+        }
+        break;
+    }
+#endif
+}
+
+static bool netlink_addr_is_link_local(const struct sockaddr *sa) {
+    if (sa == NULL)
+        return false;
+    if (sa->sa_family == AF_INET) {
+        const uint8_t *bytes = (const uint8_t *) &((const struct sockaddr_in *) sa)->sin_addr;
+        return bytes[0] == 169 && bytes[1] == 254;
+    }
+    if (sa->sa_family == AF_INET6) {
+        const uint8_t *bytes = (const uint8_t *) &((const struct sockaddr_in6 *) sa)->sin6_addr;
+        return bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80;
+    }
+    return false;
+}
+
+static uint8_t netlink_addr_scope(const struct ifaddrs *ifa) {
+    if (ifa->ifa_flags & IFF_LOOPBACK)
+        return RT_SCOPE_HOST_;
+    if (netlink_addr_is_link_local(ifa->ifa_addr))
+        return RT_SCOPE_LINK_;
+    return RT_SCOPE_UNIVERSE_;
+}
+
+static uint8_t netlink_route_request_family(const void *payload, size_t payload_len) {
+    if (payload == NULL || payload_len < sizeof(struct rtgenmsg_))
+        return 0;
+    return ((const struct rtgenmsg_ *) payload)->rtgen_family;
+}
+
 static uint32_t netlink_linux_if_flags(unsigned host_flags) {
     uint32_t linux_flags = 0;
     if (host_flags & IFF_UP)
@@ -252,7 +376,7 @@ static uint8_t netlink_prefixlen_from_sockaddr(const struct sockaddr *sa) {
 }
 
 static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *req_hdr,
-        const char *ifname, unsigned ifflags, uint32_t mtu) {
+        const char *ifname, unsigned ifflags, const struct netlink_link_info *info) {
     char payload[256] = {};
     size_t payload_len = sizeof(struct ifinfomsg_);
     struct ifinfomsg_ *msg = (struct ifinfomsg_ *) payload;
@@ -269,21 +393,45 @@ static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *re
     if (err < 0)
         return err;
     err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
-            IFLA_MTU_, &mtu, sizeof(mtu));
+            IFLA_MTU_, &info->mtu, sizeof(info->mtu));
+    if (err < 0)
+        return err;
+    if (info->address_len != 0) {
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFLA_ADDRESS_, info->address, info->address_len);
+        if (err < 0)
+            return err;
+    }
+    if (info->broadcast_len != 0) {
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                IFLA_BROADCAST_, info->broadcast, info->broadcast_len);
+        if (err < 0)
+            return err;
+    }
+    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            IFLA_TXQLEN_, &info->txqlen, sizeof(info->txqlen));
+    if (err < 0)
+        return err;
+    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            IFLA_OPERSTATE_, &info->operstate, sizeof(info->operstate));
     if (err < 0)
         return err;
     return netlink_append_nlmsg(sock, RTM_NEWLINK_, NLM_F_MULTI_,
             req_hdr->nlmsg_seq, payload, payload_len);
 }
 
-static int netlink_append_route_links(struct fd *sock, const struct nlmsghdr_ *req_hdr) {
+static int netlink_append_route_links(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const void *payload, size_t payload_len) {
     struct ifaddrs *addrs = NULL;
     if (getifaddrs(&addrs) != 0)
         return _EIO;
 
+    uint8_t family = netlink_route_request_family(payload, payload_len);
     int err = 0;
     for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
         if (cursor->ifa_name == NULL)
+            continue;
+        if (family != AF_UNSPEC && family != AF_PACKET_ && family != 0)
             continue;
         bool seen = false;
         for (const struct ifaddrs *prev = addrs; prev != cursor; prev = prev->ifa_next) {
@@ -294,19 +442,15 @@ static int netlink_append_route_links(struct fd *sock, const struct nlmsghdr_ *r
         }
         if (seen)
             continue;
-        uint32_t mtu = 1500;
-        if (cursor->ifa_data != NULL) {
-            const struct if_data *stats = (const struct if_data *) cursor->ifa_data;
-            if (stats->ifi_mtu != 0)
-                mtu = (uint32_t) stats->ifi_mtu;
-        }
-        err = netlink_append_route_link(sock, req_hdr, cursor->ifa_name, cursor->ifa_flags, mtu);
+        struct netlink_link_info info = {};
+        netlink_fill_link_info(addrs, cursor, &info);
+        err = netlink_append_route_link(sock, req_hdr, cursor->ifa_name, cursor->ifa_flags, &info);
         if (err < 0)
             break;
     }
     freeifaddrs(addrs);
     if (err >= 0)
-        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+        err = netlink_append_done(sock, req_hdr->nlmsg_seq);
     return err;
 }
 
@@ -318,7 +462,7 @@ static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *re
     msg->ifa_family = netlink_guest_family_from_host(ifa->ifa_addr->sa_family);
     msg->ifa_prefixlen = netlink_prefixlen_from_sockaddr(ifa->ifa_netmask);
     msg->ifa_flags = 0;
-    msg->ifa_scope = (ifa->ifa_flags & IFF_LOOPBACK) ? RT_SCOPE_HOST_ : RT_SCOPE_UNIVERSE_;
+    msg->ifa_scope = netlink_addr_scope(ifa);
     msg->ifa_index = if_nametoindex(ifa->ifa_name);
 
     if (ifa->ifa_addr->sa_family == AF_INET) {
@@ -366,16 +510,21 @@ static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *re
             req_hdr->nlmsg_seq, payload, payload_len);
 }
 
-static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *req_hdr) {
+static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const void *payload, size_t payload_len) {
     struct ifaddrs *addrs = NULL;
     if (getifaddrs(&addrs) != 0)
         return _EIO;
 
+    uint8_t family = netlink_route_request_family(payload, payload_len);
     int err = 0;
     for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
         if (cursor->ifa_name == NULL || cursor->ifa_addr == NULL)
             continue;
         if (cursor->ifa_addr->sa_family != AF_INET && cursor->ifa_addr->sa_family != AF_INET6)
+            continue;
+        if (family != AF_UNSPEC && family != 0 &&
+                netlink_guest_family_from_host(cursor->ifa_addr->sa_family) != family)
             continue;
         err = netlink_append_route_addr(sock, req_hdr, cursor);
         if (err < 0)
@@ -383,21 +532,87 @@ static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *r
     }
     freeifaddrs(addrs);
     if (err >= 0)
-        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+        err = netlink_append_done(sock, req_hdr->nlmsg_seq);
+    return err;
+}
+
+static int netlink_append_route_route(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const struct host_route_entry *route) {
+    char payload[256] = {};
+    size_t payload_len = sizeof(struct rtmsg_);
+    struct rtmsg_ *msg = (struct rtmsg_ *) payload;
+    msg->rtm_family = AF_INET_;
+    msg->rtm_dst_len = route->prefix_len;
+    msg->rtm_src_len = 0;
+    msg->rtm_tos = 0;
+    msg->rtm_table = RT_TABLE_MAIN_;
+    msg->rtm_protocol = route->protocol == HOST_ROUTE_PROTOCOL_BOOT ? RTPROT_BOOT_ : RTPROT_KERNEL_;
+    msg->rtm_scope = route->scope == HOST_ROUTE_SCOPE_HOST ? RT_SCOPE_HOST_ :
+        route->scope == HOST_ROUTE_SCOPE_LINK ? RT_SCOPE_LINK_ : RT_SCOPE_UNIVERSE_;
+    msg->rtm_type = RTN_UNICAST_;
+    msg->rtm_flags = 0;
+
+    int err = 0;
+    if (route->prefix_len != 0) {
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                RTA_DST_, &route->destination_be, sizeof(route->destination_be));
+        if (err < 0)
+            return err;
+    }
+    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            RTA_OIF_, &route->ifindex, sizeof(route->ifindex));
+    if (err < 0)
+        return err;
+    if (route->gateway_be != 0) {
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                RTA_GATEWAY_, &route->gateway_be, sizeof(route->gateway_be));
+        if (err < 0)
+            return err;
+    }
+    if (route->prefsrc_be != 0) {
+        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+                RTA_PREFSRC_, &route->prefsrc_be, sizeof(route->prefsrc_be));
+        if (err < 0)
+            return err;
+    }
+
+    return netlink_append_nlmsg(sock, RTM_NEWROUTE_, NLM_F_MULTI_,
+            req_hdr->nlmsg_seq, payload, payload_len);
+}
+
+static int netlink_append_route_routes(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const void *payload, size_t payload_len) {
+    uint8_t family = netlink_route_request_family(payload, payload_len);
+    if (family != AF_UNSPEC && family != 0 && family != AF_INET_)
+        return netlink_append_done(sock, req_hdr->nlmsg_seq);
+
+    struct host_route_table routes = {};
+    if (host_route_table_collect(&routes) != 0)
+        return _EIO;
+
+    int err = 0;
+    for (size_t i = 0; i < routes.count; i++) {
+        err = netlink_append_route_route(sock, req_hdr, &routes.entries[i]);
+        if (err < 0)
+            break;
+    }
+    host_route_table_free(&routes);
+    if (err >= 0)
+        err = netlink_append_done(sock, req_hdr->nlmsg_seq);
     return err;
 }
 
 static int netlink_handle_route_request(struct fd *sock, const struct nlmsghdr_ *hdr,
         const void *payload, size_t payload_len) {
-    (void) payload;
-    (void) payload_len;
     switch (hdr->nlmsg_type) {
         case RTM_GETLINK_:
-            return netlink_append_route_links(sock, hdr);
+            return netlink_append_route_links(sock, hdr, payload, payload_len);
         case RTM_GETADDR_:
-            return netlink_append_route_addrs(sock, hdr);
+            return netlink_append_route_addrs(sock, hdr, payload, payload_len);
+        case RTM_GETROUTE_:
+            return netlink_append_route_routes(sock, hdr, payload, payload_len);
         default:
-            return netlink_append_nlmsg(sock, NLMSG_DONE_, 0, hdr->nlmsg_seq, NULL, 0);
+            return netlink_append_done(sock, hdr->nlmsg_seq);
     }
 }
 
@@ -417,6 +632,7 @@ static lock_t peer_lock = LOCK_INITIALIZER;
 
 static void sock_init_emulation_defaults(struct fd *fd);
 static bool sockopt_is_linux_soft_unsupported(dword_t level, dword_t option);
+static ssize_t sock_ioctl_size(int cmd);
 
 static bool sock_trace_comm(const char *comm) {
     if (comm == NULL)
@@ -448,6 +664,56 @@ static bool sock_is_devlog_sink(const struct fd *sock) {
 static bool sock_is_initctl_sink(const struct fd *sock) {
     return sock != NULL && sock->socket.domain == AF_LOCAL_ &&
         sock->socket.unix_initctl_sink;
+}
+
+static int sock_ifreq_name_from_index(struct ifreq_ *ifreq) {
+    unsigned ifindex = (unsigned) ifreq->ifr_ifru.ifindex;
+    if (ifindex == 0)
+        return _ENODEV;
+    struct if_nameindex *list = if_nameindex();
+    if (list == NULL)
+        return _EIO;
+    int err = _ENODEV;
+    for (struct if_nameindex *entry = list; entry->if_index != 0 || entry->if_name != NULL; entry++) {
+        if (entry->if_index != ifindex || entry->if_name == NULL)
+            continue;
+        memset(ifreq->ifr_name, 0, sizeof(ifreq->ifr_name));
+        strncpy(ifreq->ifr_name, entry->if_name, sizeof(ifreq->ifr_name) - 1);
+        err = 0;
+        break;
+    }
+    if_freenameindex(list);
+    return err;
+}
+
+static int sock_ifreq_index_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    unsigned ifindex = if_nametoindex(ifreq->ifr_name);
+    if (ifindex == 0)
+        return _ENODEV;
+    ifreq->ifr_ifru.ifindex = (int32_t) ifindex;
+    return 0;
+}
+
+static int sock_ifreq_flags_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+    int err = _ENODEV;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        if (strncmp(cursor->ifa_name, ifreq->ifr_name, sizeof(ifreq->ifr_name)) != 0)
+            continue;
+        ifreq->ifr_ifru.flags = (int16_t) netlink_linux_if_flags(cursor->ifa_flags);
+        err = 0;
+        break;
+    }
+    freeifaddrs(addrs);
+    return err;
 }
 
 static bool guest_sockaddr_is_devlog(addr_t sockaddr_addr, uint_t sockaddr_len) {
@@ -908,6 +1174,11 @@ static int netlink_append_error(struct fd *sock, uint32_t seq,
     return netlink_append_nlmsg(sock, NLMSG_ERROR_, 0, seq, &err, sizeof(err));
 }
 
+static int netlink_append_done(struct fd *sock, uint32_t seq) {
+    int32_t status = 0;
+    return netlink_append_nlmsg(sock, NLMSG_DONE_, 0, seq, &status, sizeof(status));
+}
+
 static int diag_socket_push(struct diag_socket_entry *entries, struct fd *fd) {
     for (unsigned i = 0; i < entries->count; i++) {
         if (entries->fds[i] == fd)
@@ -1115,7 +1386,7 @@ static int netlink_append_inet_diag(struct fd *sock, const struct nlmsghdr_ *req
     }
 
     if (err >= 0)
-        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+        err = netlink_append_done(sock, req_hdr->nlmsg_seq);
     diag_socket_release(&entries);
     return err;
 }
@@ -1146,7 +1417,7 @@ static int netlink_append_unix_diag(struct fd *sock, const struct nlmsghdr_ *req
     }
 
     if (err >= 0)
-        err = netlink_append_nlmsg(sock, NLMSG_DONE_, 0, req_hdr->nlmsg_seq, NULL, 0);
+        err = netlink_append_done(sock, req_hdr->nlmsg_seq);
     diag_socket_release(&entries);
     return err;
 }
@@ -1174,14 +1445,17 @@ static int netlink_handle_diag_request(struct fd *sock, const struct nlmsghdr_ *
 }
 
 static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
+    int iovlen = msg->msg_iovlen;
+    if (iovlen < 0)
+        return _EINVAL;
     size_t req_len = 0;
-    for (size_t i = 0; i < msg->msg_iovlen; i++)
+    for (int i = 0; i < iovlen; i++)
         req_len += msg->msg_iov[i].iov_len;
     char *req = malloc(req_len);
     if (req == NULL)
         return _ENOMEM;
     size_t offset = 0;
-    for (size_t i = 0; i < msg->msg_iovlen; i++) {
+    for (int i = 0; i < iovlen; i++) {
         memcpy(req + offset, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
         offset += msg->msg_iov[i].iov_len;
     }
@@ -1209,17 +1483,24 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
     return err < 0 ? err : (int) req_len;
 }
 
-static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg) {
+static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_flags) {
+    size_t available = sock->socket.netlink_reply_len - sock->socket.netlink_reply_off;
+    bool peek = (fake_flags & MSG_PEEK_) != 0;
+    bool want_trunc_len = (fake_flags & MSG_TRUNC_) != 0;
     size_t capacity = diag_iov_capacity(msg->msg_iov, msg->msg_iovlen);
-    if (capacity == 0)
-        return 0;
     if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
         return _EAGAIN;
+    if (capacity == 0) {
+        if (want_trunc_len)
+            return (int) available;
+        return 0;
+    }
 
     size_t copied = 0;
-    while (sock->socket.netlink_reply_off + sizeof(struct nlmsghdr_) <= sock->socket.netlink_reply_len) {
+    size_t reply_off = sock->socket.netlink_reply_off;
+    while (reply_off + sizeof(struct nlmsghdr_) <= sock->socket.netlink_reply_len) {
         struct nlmsghdr_ *hdr = (struct nlmsghdr_ *)
-            (sock->socket.netlink_reply + sock->socket.netlink_reply_off);
+            (sock->socket.netlink_reply + reply_off);
         size_t msg_len = NLMSG_ALIGN(hdr->nlmsg_len);
         if (copied != 0 && copied + msg_len > capacity)
             break;
@@ -1228,11 +1509,11 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg) {
             msg_len = capacity;
         }
         int err = diag_copy_to_iov(msg->msg_iov, msg->msg_iovlen, copied,
-                sock->socket.netlink_reply + sock->socket.netlink_reply_off, msg_len);
+                sock->socket.netlink_reply + reply_off, msg_len);
         if (err < 0)
             return err;
         copied += msg_len;
-        sock->socket.netlink_reply_off += NLMSG_ALIGN(hdr->nlmsg_len);
+        reply_off += NLMSG_ALIGN(hdr->nlmsg_len);
         if (msg_len < NLMSG_ALIGN(hdr->nlmsg_len))
             break;
         if (copied == capacity)
@@ -1252,9 +1533,13 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg) {
             memcpy(msg->msg_name, &name, copy_len);
         msg->msg_namelen = sizeof(name);
     }
-    if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
+    if (!peek)
+        sock->socket.netlink_reply_off = reply_off;
+    if (!peek && sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
         netlink_reply_reset(sock);
-    return copied;
+    if ((msg->msg_flags & MSG_TRUNC) && want_trunc_len)
+        return (int) available;
+    return (int) copied;
 }
 
 static int netlink_sockaddr_write(addr_t sockaddr_addr, const void *sockaddr, uint_t *sockaddr_len) {
@@ -2074,7 +2359,7 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
             .msg_iov = &iov,
             .msg_iovlen = 1,
         };
-        ssize_t netlink_res = netlink_handle_recvmsg(sock, &msg);
+        ssize_t netlink_res = netlink_handle_recvmsg(sock, &msg, flags);
         if (netlink_res < 0) {
             free(buffer);
             return (int_t) netlink_res;
@@ -2231,6 +2516,34 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         sock->socket.unix_passcred = (*(dword_t *) value) != 0;
         return 0;
     }
+    if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0 && level == SOL_NETLINK_) {
+        if (option == NETLINK_ADD_MEMBERSHIP_ || option == NETLINK_DROP_MEMBERSHIP_) {
+            if (value_len < sizeof(dword_t))
+                return _EINVAL;
+            dword_t group = *(dword_t *) value;
+            if (group == 0 || group > 32)
+                return _EINVAL;
+            uint32_t bit = 1u << (group - 1);
+            if (option == NETLINK_ADD_MEMBERSHIP_)
+                sock->socket.netlink_groups |= bit;
+            else
+                sock->socket.netlink_groups &= ~bit;
+            return 0;
+        }
+        if (option == NETLINK_CAP_ACK_ || option == NETLINK_EXT_ACK_ || option == NETLINK_GET_STRICT_CHK_) {
+            if (value_len < sizeof(dword_t))
+                return _EINVAL;
+            bool enabled = (*(dword_t *) value) != 0;
+            if (option == NETLINK_CAP_ACK_)
+                sock->socket.netlink_cap_ack = enabled;
+            else if (option == NETLINK_EXT_ACK_)
+                sock->socket.netlink_ext_ack = enabled;
+            else
+                sock->socket.netlink_get_strict_chk = enabled;
+            return 0;
+        }
+        return _ENOPROTOOPT;
+    }
     if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
         if (level == SOL_SOCKET_ &&
                 (option == SO_RCVBUF_ || option == SO_SNDBUF_ ||
@@ -2367,6 +2680,25 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
             acceptconn = real_acceptconn != 0;
         }
         sockopt_store_value(value, user_value_len, &value_len, &acceptconn, sizeof(acceptconn));
+    } else if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0 && level == SOL_NETLINK_) {
+        if (option == NETLINK_CAP_ACK_ || option == NETLINK_EXT_ACK_ || option == NETLINK_GET_STRICT_CHK_) {
+            dword_t enabled =
+                option == NETLINK_CAP_ACK_ ? sock->socket.netlink_cap_ack :
+                option == NETLINK_EXT_ACK_ ? sock->socket.netlink_ext_ack :
+                sock->socket.netlink_get_strict_chk;
+            sockopt_store_value(value, user_value_len, &value_len, &enabled, sizeof(enabled));
+        } else if (option == NETLINK_LIST_MEMBERSHIPS_) {
+            dword_t memberships[32];
+            dword_t count = 0;
+            for (dword_t group = 1; group <= 32; group++) {
+                uint32_t bit = 1u << (group - 1);
+                if (sock->socket.netlink_groups & bit)
+                    memberships[count++] = group;
+            }
+            sockopt_store_value(value, user_value_len, &value_len, memberships, count * sizeof(dword_t));
+        } else {
+            return _ENOPROTOOPT;
+        }
     } else if (sockopt_is_linux_soft_unsupported(level, option)) {
         return _ENOPROTOOPT;
     } else if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
@@ -2812,7 +3144,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 
     if (sock->socket.domain == AF_NETLINK_) {
-        ssize_t res = netlink_handle_recvmsg(sock, &msg);
+        ssize_t res = netlink_handle_recvmsg(sock, &msg, flags);
         if (res >= 0) {
             size_t n = (size_t) res;
             for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
@@ -3124,6 +3456,12 @@ static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
 }
 
 static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
+    if (cmd == SIOCGIFNAME_)
+        return sock_ifreq_name_from_index(arg);
+    if (cmd == SIOCGIFINDEX_)
+        return sock_ifreq_index_from_name(arg);
+    if (cmd == SIOCGIFFLAGS_)
+        return sock_ifreq_flags_from_name(arg);
     if (fd->real_fd < 0) {
         if (cmd == FIONREAD_)
             *(dword_t *) arg = (dword_t) (fd->socket.netlink_reply_len - fd->socket.netlink_reply_off);
@@ -3132,6 +3470,17 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
         return 0;
     }
     return realfs_ioctl(fd, cmd, arg);
+}
+
+static ssize_t sock_ioctl_size(int cmd) {
+    switch (cmd) {
+        case SIOCGIFNAME_:
+        case SIOCGIFINDEX_:
+        case SIOCGIFFLAGS_:
+            return sizeof(struct ifreq_);
+        default:
+            return realfs_ioctl_size(cmd);
+    }
 }
 
 static int sock_getflags(struct fd *fd) {
@@ -3182,7 +3531,7 @@ const struct fd_ops socket_fdops = {
     .poll = sock_poll,
     .getflags = sock_getflags,
     .setflags = sock_setflags,
-    .ioctl_size = realfs_ioctl_size,
+    .ioctl_size = sock_ioctl_size,
     .ioctl = sock_ioctl,
 };
 
@@ -3218,53 +3567,6 @@ static struct socket_call {
     {(syscall_t) sys_recvmmsg, 5},
     {(syscall_t) sys_sendmmsg, 4},
 };
-
-static bool socketcall_trace_sshd_process(void) {
-    return strcmp(current->comm, "sshd") == 0;
-}
-
-static const char *socketcall_name(dword_t call_num) {
-    switch (call_num) {
-        case 1: return "socket";
-        case 2: return "bind";
-        case 3: return "connect";
-        case 4: return "listen";
-        case 5: return "accept";
-        case 6: return "getsockname";
-        case 7: return "getpeername";
-        case 8: return "socketpair";
-        case 9: return "send";
-        case 10: return "recv";
-        case 11: return "sendto";
-        case 12: return "recvfrom";
-        case 13: return "shutdown";
-        case 14: return "setsockopt";
-        case 15: return "getsockopt";
-        case 16: return "sendmsg";
-        case 17: return "recvmsg";
-        case 18: return "accept4";
-        case 19: return "recvmmsg";
-        case 20: return "sendmmsg";
-        default: return "unknown";
-    }
-}
-
-static bool socketcall_trace_interesting(dword_t call_num, int_t result) {
-    if (result < 0)
-        return true;
-    switch (call_num) {
-        case 1:
-        case 8:
-        case 14:
-        case 15:
-        case 16:
-        case 17:
-            return true;
-        default:
-            return false;
-    }
-}
-
 // #define SYS_SOCKET    1        /* sys_socket(2)        */
 // #define SYS_BIND    2        /* sys_bind(2)            */
 // #define SYS_CONNECT    3        /* sys_connect(2)        */

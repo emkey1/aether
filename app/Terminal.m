@@ -7,6 +7,7 @@
 
 #import "Terminal.h"
 #import "DelayedUITask.h"
+#import "Diagnostics.h"
 #import "UserPreferences.h"
 #include "LinuxInterop.h"
 #include "fs/dev.h"
@@ -105,6 +106,9 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     if (self.didReportLoadFailure)
         return;
     self.didReportLoadFailure = YES;
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.loadFailure"
+                                  details:@{@"terminalUUID": self.uuid.UUIDString ?: @"",
+                                            @"error": error.localizedDescription ?: @"unknown"}];
     NSLog(@"Terminal %@ failed to load: %@",
           self.uuid.UUIDString ?: @"(unknown)",
           error.localizedDescription ?: @"unknown error");
@@ -195,6 +199,8 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
     self.loaded = NO;
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.webContentProcessTerminated"
+                                  details:@{@"terminalUUID": self.uuid.UUIDString ?: @""}];
     NSError *error = [NSError errorWithDomain:WKErrorDomain
                                          code:WKErrorWebContentProcessTerminated
                                      userInfo:@{NSLocalizedDescriptionKey: @"terminal web content process terminated"}];

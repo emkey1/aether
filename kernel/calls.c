@@ -364,43 +364,6 @@ static bool syscall_is_logged_stub(syscall_t syscall) {
     return syscall == (syscall_t) syscall_stub;
 }
 
-static bool syscall_trace_sshd(const char *comm) {
-    if (comm == NULL)
-        return false;
-    return strcmp(comm, "sshd") == 0;
-}
-
-static bool syscall_trace_interesting(unsigned syscall_num, int result) {
-    if (result < 0)
-        return true;
-    switch (syscall_num) {
-        case 2:   // fork
-        case 11:  // execve
-        case 54:  // ioctl
-        case 57:  // setpgid
-        case 66:  // setsid
-        case 63:  // dup2
-        case 292: // dup3
-        case 114: // wait4
-        case 120: // clone
-        case 172: // prctl
-        case 190: // vfork
-        case 252: // exit_group
-        case 284: // waitid
-        case 295: // openat
-        case 310: // unshare
-        case 322: // timerfd_create
-        case 327: // signalfd4
-        case 328: // eventfd2
-        case 331: // pipe2
-        case 360: // socketpair
-        case 435: // clone3
-            return true;
-        default:
-            return false;
-    }
-}
-
 static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
     (void) cpu;
     (void) syscall_num;

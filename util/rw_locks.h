@@ -16,8 +16,8 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
-extern inline void modify_locks_held_count(struct task *task, int value);
-extern inline void task_ref_cnt_mod(struct task *task, int value);
+extern void modify_locks_held_count(struct task *task, int value);
+extern void task_ref_cnt_mod(struct task *task, int value);
 
 #define loop_lock_read(lock) loop_lock_generic(lock, 0)
 #define loop_lock_write(lock) loop_lock_generic(lock, 1)

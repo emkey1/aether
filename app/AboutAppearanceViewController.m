@@ -274,8 +274,11 @@ enum {
         [self.navigationController pushViewController:self.fontPicker animated:YES];
         return;
     }
-    
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     FontPickerViewController *fontPicker = [self.storyboard instantiateViewControllerWithIdentifier:@"FontPicker"];
+#pragma clang diagnostic pop
     [self.navigationController pushViewController:fontPicker animated:YES];
 }
 

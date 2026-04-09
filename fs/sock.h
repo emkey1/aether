@@ -82,10 +82,12 @@ struct scm {
 #define PF_LOCAL_ 1
 #define PF_INET_ 2
 #define PF_NETLINK_ 16
+#define PF_PACKET_ 17
 #define PF_INET6_ 10
 #define AF_LOCAL_ PF_LOCAL_
 #define AF_INET_ PF_INET_
 #define AF_NETLINK_ PF_NETLINK_
+#define AF_PACKET_ PF_PACKET_
 #define AF_INET6_ PF_INET6_
 static inline int sock_family_to_real(int fake) {
     switch (fake) {
@@ -180,10 +182,17 @@ static inline int sock_flags_from_real(int real) {
 }
 
 #define SOL_SOCKET_ 1
+#define SOL_NETLINK_ 270
 
 #define NETLINK_KOBJECT_UEVENT_ 15
 #define NETLINK_SOCK_DIAG_ 4
 #define NETLINK_ROUTE_ 0
+#define NETLINK_ADD_MEMBERSHIP_ 1
+#define NETLINK_DROP_MEMBERSHIP_ 2
+#define NETLINK_LIST_MEMBERSHIPS_ 9
+#define NETLINK_CAP_ACK_ 10
+#define NETLINK_EXT_ACK_ 11
+#define NETLINK_GET_STRICT_CHK_ 12
 
 #define SO_REUSEADDR_ 2
 #define SO_TYPE_ 3

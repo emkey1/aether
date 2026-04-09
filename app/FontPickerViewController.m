@@ -14,6 +14,8 @@
 
 @end
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 @implementation FontPickerViewController
 
 - (void)viewDidLoad {
@@ -56,3 +58,4 @@
 }
 
 @end
+#pragma clang diagnostic pop

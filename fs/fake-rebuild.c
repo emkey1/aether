@@ -61,8 +61,6 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
         int err = fstatat(root_fd, fix_path(path), &stat, 0);
         if (err < 0)
             continue;
-        ino_t real_inode = stat.st_ino;
-
         // restore hardlinks
         struct list *bucket = &hashtable[inode % HASH_SIZE];
         struct entry *entry;

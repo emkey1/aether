@@ -54,7 +54,7 @@ static bool file_exists(const char *path) {
 static int copy_file_mode(const char *src, const char *dst, mode_t_ mode) {
     struct fd *src_fd = generic_open(src, O_RDONLY_, 0);
     if (IS_ERR(src_fd))
-        return PTR_ERR(src_fd);
+        return (int) PTR_ERR(src_fd);
 
     struct fd *dst_fd = generic_open(dst, O_WRONLY_ | O_CREAT_ | O_TRUNC_, mode);
     if (IS_ERR(dst_fd)) {

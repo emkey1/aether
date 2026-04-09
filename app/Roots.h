@@ -25,6 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL wantsVersionFile;
 @property (readonly) BOOL needsInitialRootSelection;
 @property (readonly) BOOL initialBundledRootImportInProgress;
+@property (readonly, nullable) NSError *initialBundledRootImportError;
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)bundledRootChoices;
 - (NSURL *)rootUrl:(NSString *)name;
 - (BOOL)importRootFromArchive:(NSURL *)archive name:(NSString *)name error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;

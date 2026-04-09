@@ -9,15 +9,21 @@
 #import "AppDelegate.h"
 #import "CurrentRoot.h"
 #import "AppGroup.h"
+#import "Diagnostics.h"
 #import "UserPreferences.h"
 #import "iOSFS.h"
 #import "UIApplication+OpenURL.h"
 #import "NSObject+SaneKVO.h"
+#import "UIViewController+Extras.h"
+
+@interface DiagnosticsViewController : UIViewController
+@end
 
 @interface AboutViewController ()
 @property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *initialWindowCell;
+@property (weak, nonatomic) IBOutlet UITableViewCell *diagnosticsCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
@@ -38,6 +44,83 @@
 
 @end
 
+@implementation DiagnosticsViewController {
+    UITextView *_textView;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Diagnostics";
+    if (@available(iOS 13.0, *)) {
+        self.view.backgroundColor = UIColor.systemBackgroundColor;
+    } else {
+        self.view.backgroundColor = UIColor.whiteColor;
+    }
+
+    _textView = [[UITextView alloc] initWithFrame:self.view.bounds];
+    _textView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _textView.editable = NO;
+    _textView.alwaysBounceVertical = YES;
+    if (@available(iOS 13.0, *)) {
+        _textView.backgroundColor = UIColor.systemBackgroundColor;
+        _textView.textColor = UIColor.labelColor;
+        _textView.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    } else {
+        _textView.backgroundColor = UIColor.whiteColor;
+        _textView.textColor = UIColor.blackColor;
+        _textView.font = [UIFont fontWithName:@"Menlo-Regular" size:12] ?: [UIFont systemFontOfSize:12];
+    }
+    [self.view addSubview:_textView];
+
+    self.navigationItem.rightBarButtonItems = @[
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction
+                                                      target:self
+                                                      action:@selector(exportDiagnostics:)],
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
+                                                      target:self
+                                                      action:@selector(refreshDiagnostics:)],
+    ];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(refreshDiagnostics:)
+                                               name:ISHDiagnosticsStoreDidUpdateNotification
+                                             object:nil];
+    [self refreshDiagnostics:nil];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshDiagnostics:nil];
+}
+
+- (void)refreshDiagnostics:(id)sender {
+    _textView.text = [ISHDiagnosticsStore diagnosticsReport];
+    [_textView setContentOffset:CGPointZero animated:NO];
+}
+
+- (void)exportDiagnostics:(id)sender {
+    NSError *error = nil;
+    NSURL *bundleURL = [ISHDiagnosticsStore prepareExportBundle:&error];
+    if (bundleURL == nil) {
+        [self presentError:error title:@"Export failed"];
+        return;
+    }
+
+    UIActivityViewController *activityViewController =
+        [[UIActivityViewController alloc] initWithActivityItems:@[bundleURL] applicationActivities:nil];
+    UIPopoverPresentationController *popover = activityViewController.popoverPresentationController;
+    if (popover != nil) {
+        popover.barButtonItem = sender;
+    }
+    [self presentViewController:activityViewController animated:YES completion:nil];
+}
+
+@end
+
 @implementation AboutViewController
 
 - (void)viewDidLoad {
@@ -50,7 +133,6 @@
                                                                                   style:UIBarButtonItemStyleDone
                                                                                  target:self
                                                                                  action:@selector(exitRecovery:)];
-        self.navigationItem.leftBarButtonItem = nil;
     }
     _versionLabel.text = [NSString stringWithFormat:@"iSH-AOK %@ (Build %@)",
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
@@ -79,6 +161,11 @@
     exit(0);
 }
 
+- (void)showDiagnostics:(id)sender {
+    DiagnosticsViewController *viewController = [DiagnosticsViewController new];
+    [self.navigationController pushViewController:viewController animated:YES];
+}
+
 - (void)_updateUI:(NSNotification *)notification {
     [self _updateUI];
 }
@@ -103,6 +190,8 @@
     UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
     if (cell == self.sendFeedback) {
         [UIApplication openURL:@"mailto:ish_aok_emkey1@icloud.com?subject=Feedback%20for%20iSH"];
+    } else if (cell == self.diagnosticsCell) {
+        [self showDiagnostics:cell];
     } else if (cell == self.initialWindowCell) {
         [self _showInitialWindowPickerFromCell:cell];
     } else if (cell == self.openGithub) {

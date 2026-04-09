@@ -16,7 +16,7 @@
 
 #define LOCK_DEBUG 0
 
-extern inline void modify_locks_held_count(struct task *task, int value);
+extern void modify_locks_held_count(struct task *task, int value);
 
 
 // The following is in task.c
@@ -29,9 +29,20 @@ extern struct timespec lock_pause;
 extern lock_t atomic_l_lock; // Used to make all lock operations atomic, even read->write and right->read -mke
 
 #if LOCK_DEBUG
-#define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0, { .initialized = true }}
+#define LOCK_INITIALIZER { \
+    .m = PTHREAD_MUTEX_INITIALIZER, \
+    .cond = PTHREAD_COND_INITIALIZER, \
+    .pid = -1, \
+    .reference = { .lock = PTHREAD_MUTEX_INITIALIZER }, \
+    .debug = { .initialized = true }, \
+}
 #else
-#define LOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, 0}
+#define LOCK_INITIALIZER { \
+    .m = PTHREAD_MUTEX_INITIALIZER, \
+    .cond = PTHREAD_COND_INITIALIZER, \
+    .pid = -1, \
+    .reference = { .lock = PTHREAD_MUTEX_INITIALIZER }, \
+}
 #endif
 
 // conditions, implemented using pthread conditions but hacked so you can also
@@ -46,7 +57,10 @@ typedef struct {
     } reference;
 } cond_t;
 
-#define COND_INITIALIZER ((cond_t) {PTHREAD_COND_INITIALIZER})
+#define COND_INITIALIZER ((cond_t) { \
+    .cond = PTHREAD_COND_INITIALIZER, \
+    .reference = { .lock = PTHREAD_MUTEX_INITIALIZER }, \
+})
 
 // Must call before using the condition
 void cond_init(cond_t *cond);

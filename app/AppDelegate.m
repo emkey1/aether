@@ -9,11 +9,14 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ctype.h>
+#include <sys/utsname.h>
 #import <SystemConfiguration/SystemConfiguration.h>
+#import <MetricKit/MetricKit.h>
 #import "AboutViewController.h"
 #import "AppDelegate.h"
 #import "AppGroup.h"
 #import "CurrentRoot.h"
+#import "Diagnostics.h"
 #import "iOSFS.h"
 #import "SceneDelegate.h"
 #import "PasteboardDevice.h"
@@ -71,6 +74,8 @@ static void ios_handle_exit(struct task *task, int code) {
     pid_t pid = task->pid;
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        [ISHDiagnosticsStore recordBreadcrumb:@"process.exit"
+                                      details:@{@"pid": @(pid), @"code": @(code)}];
         [[NSNotificationCenter defaultCenter] postNotificationName:ProcessExitedNotification
                                                             object:nil
                                                           userInfo:@{@"pid": @(pid),
@@ -106,20 +111,9 @@ void ReportPanic(const char *message) {
 static intptr_t bootError;
 static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 static NSString *const kMetricKitDiagnosticsDirectory = @"MetricKitDiagnostics";
-
-static id ObjCCallId(id target, SEL selector) {
-    if (target == nil || selector == NULL || ![target respondsToSelector:selector])
-        return nil;
-    id (*imp)(id, SEL) = (id (*)(id, SEL)) [target methodForSelector:selector];
-    return imp(target, selector);
-}
-
-static void ObjCCallVoidObject(id target, SEL selector, id object) {
-    if (target == nil || selector == NULL || ![target respondsToSelector:selector])
-        return;
-    void (*imp)(id, SEL, id) = (void (*)(id, SEL, id)) [target methodForSelector:selector];
-    imp(target, selector, object);
-}
+NSString *const ISHDiagnosticsStoreDidUpdateNotification = @"ISHDiagnosticsStoreDidUpdateNotification";
+static NSString *const kDiagnosticsDirectory = @"Diagnostics";
+static NSString *const kDiagnosticsBreadcrumbsFile = @"breadcrumbs.json";
 
 static NSString *MetricKitISO8601StringFromDate(NSDate *date) {
     if (date == nil)
@@ -154,51 +148,338 @@ static NSURL *MetricKitDiagnosticsDirectoryURL(void) {
     return [baseURL URLByAppendingPathComponent:kMetricKitDiagnosticsDirectory isDirectory:YES];
 }
 
-static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
+static NSURL *DiagnosticsDirectoryURL(void) {
+    NSURL *baseURL = ContainerURL();
+    if (baseURL == nil) {
+        baseURL = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                      inDomains:NSUserDomainMask].firstObject;
+    }
+    if (baseURL == nil)
+        return nil;
+    return [baseURL URLByAppendingPathComponent:kDiagnosticsDirectory isDirectory:YES];
+}
+
+static NSURL *DiagnosticsBreadcrumbsURL(void) {
+    NSURL *directoryURL = DiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return nil;
+    return [directoryURL URLByAppendingPathComponent:kDiagnosticsBreadcrumbsFile isDirectory:NO];
+}
+
+static NSString *DiagnosticsISO8601StringFromDate(NSDate *date) {
+    return MetricKitISO8601StringFromDate(date);
+}
+
+static NSString *DiagnosticsHostMachine(void) {
+    struct utsname systemInfo;
+    if (uname(&systemInfo) != 0)
+        return nil;
+    return [NSString stringWithUTF8String:systemInfo.machine];
+}
+
+static NSString *DiagnosticsByteCountString(long long bytes) {
+    return [NSByteCountFormatter stringFromByteCount:bytes countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+@implementation ISHDiagnosticsStore
+
++ (dispatch_queue_t)queue {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("app.ish.iSH-AOK.Diagnostics", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
++ (void)recordBreadcrumb:(NSString *)event {
+    [self recordBreadcrumb:event details:nil];
+}
+
++ (void)recordBreadcrumb:(NSString *)event details:(NSDictionary<NSString *,id> *)details {
+    if (event.length == 0)
+        return;
+    dispatch_async(self.queue, ^{
+        NSURL *directoryURL = DiagnosticsDirectoryURL();
+        NSURL *breadcrumbsURL = DiagnosticsBreadcrumbsURL();
+        if (directoryURL == nil || breadcrumbsURL == nil)
+            return;
+        [NSFileManager.defaultManager createDirectoryAtURL:directoryURL
+                               withIntermediateDirectories:YES
+                                                attributes:nil
+                                                     error:nil];
+
+        NSData *existingData = [NSData dataWithContentsOfURL:breadcrumbsURL];
+        NSMutableArray<NSDictionary<NSString *, id> *> *breadcrumbs = [NSMutableArray array];
+        if (existingData.length > 0) {
+            id existingObject = [NSJSONSerialization JSONObjectWithData:existingData options:NSJSONReadingMutableContainers error:nil];
+            if ([existingObject isKindOfClass:[NSArray class]])
+                [breadcrumbs addObjectsFromArray:existingObject];
+        }
+
+        NSMutableDictionary<NSString *, id> *entry = [NSMutableDictionary dictionary];
+        entry[@"timestamp"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+        entry[@"event"] = event;
+        if (details.count != 0)
+            entry[@"details"] = details;
+        [breadcrumbs addObject:entry];
+
+        const NSUInteger maxBreadcrumbs = 200;
+        if (breadcrumbs.count > maxBreadcrumbs) {
+            NSRange overflow = NSMakeRange(0, breadcrumbs.count - maxBreadcrumbs);
+            [breadcrumbs removeObjectsInRange:overflow];
+        }
+
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:breadcrumbs options:NSJSONWritingPrettyPrinted error:nil];
+        if (jsonData != nil) {
+            [jsonData writeToURL:breadcrumbsURL options:NSDataWritingAtomic error:nil];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:ISHDiagnosticsStoreDidUpdateNotification object:nil];
+            });
+        }
+    });
+}
+
++ (NSArray<NSDictionary<NSString *,id> *> *)recentBreadcrumbsWithLimit:(NSUInteger)limit {
+    __block NSArray<NSDictionary<NSString *, id> *> *result = @[];
+    dispatch_sync(self.queue, ^{
+        NSData *data = [NSData dataWithContentsOfURL:DiagnosticsBreadcrumbsURL()];
+        if (data.length == 0)
+            return;
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![object isKindOfClass:[NSArray class]])
+            return;
+        NSArray<NSDictionary<NSString *, id> *> *entries = object;
+        if (limit == 0 || entries.count <= limit) {
+            result = [[entries reverseObjectEnumerator] allObjects];
+        } else {
+            NSRange range = NSMakeRange(entries.count - limit, limit);
+            result = [[[entries subarrayWithRange:range] reverseObjectEnumerator] allObjects];
+        }
+    });
+    return result;
+}
+
++ (NSArray<NSDictionary<NSString *,id> *> *)recentMetricKitPayloadsWithLimit:(NSUInteger)limit {
+    NSURL *directoryURL = MetricKitDiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return @[];
+
+    NSArray<NSURL *> *files = [NSFileManager.defaultManager contentsOfDirectoryAtURL:directoryURL
+                                                          includingPropertiesForKeys:@[NSURLContentModificationDateKey]
+                                                                             options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                               error:nil];
+    files = [files sortedArrayUsingComparator:^NSComparisonResult(NSURL *left, NSURL *right) {
+        NSDate *leftDate = nil;
+        NSDate *rightDate = nil;
+        [left getResourceValue:&leftDate forKey:NSURLContentModificationDateKey error:nil];
+        [right getResourceValue:&rightDate forKey:NSURLContentModificationDateKey error:nil];
+        return [rightDate compare:leftDate];
+    }];
+    if (limit != 0 && files.count > limit)
+        files = [files subarrayWithRange:NSMakeRange(0, limit)];
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *payloads = [NSMutableArray array];
+    for (NSURL *fileURL in files) {
+        NSData *data = [NSData dataWithContentsOfURL:fileURL];
+        if (data.length == 0)
+            continue;
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![object isKindOfClass:[NSDictionary class]])
+            continue;
+        NSMutableDictionary<NSString *, id> *entry = [object mutableCopy];
+        entry[@"filename"] = fileURL.lastPathComponent ?: @"";
+        [payloads addObject:entry];
+    }
+    return payloads;
+}
+
++ (NSDictionary<NSString *, id> *)currentSummaryDictionary {
+    NSMutableDictionary<NSString *, id> *summary = [NSMutableDictionary dictionary];
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary ?: @{};
+    summary[@"appVersion"] = info[@"CFBundleShortVersionString"] ?: @"";
+    summary[@"build"] = info[@"CFBundleVersion"] ?: @"";
+    summary[@"deviceName"] = UIDevice.currentDevice.name ?: @"";
+    summary[@"deviceModel"] = UIDevice.currentDevice.model ?: @"";
+    summary[@"hostMachine"] = DiagnosticsHostMachine() ?: @"";
+    summary[@"systemVersion"] = UIDevice.currentDevice.systemVersion ?: @"";
+    summary[@"defaultRoot"] = Roots.instance.defaultRoot ?: @"";
+    summary[@"rootCount"] = @(Roots.instance.roots.count);
+    summary[@"needsInitialRootSelection"] = @(Roots.instance.needsInitialRootSelection);
+    if (Roots.instance.initialBundledRootImportError != nil)
+        summary[@"initialRootImportError"] = Roots.instance.initialBundledRootImportError.localizedDescription ?: @"";
+
+    NSURL *containerURL = ContainerURL();
+    if (containerURL != nil) {
+        NSDictionary<NSFileAttributeKey, id> *attributes =
+            [NSFileManager.defaultManager attributesOfFileSystemForPath:containerURL.path error:nil];
+        NSNumber *freeBytes = attributes[NSFileSystemFreeSize];
+        if (freeBytes != nil) {
+            summary[@"freeBytes"] = freeBytes;
+            summary[@"freeSpace"] = DiagnosticsByteCountString(freeBytes.longLongValue);
+        }
+    }
+    return summary;
+}
+
++ (NSString *)diagnosticsReport {
+    NSMutableString *report = [NSMutableString string];
+    NSDictionary<NSString *, id> *summary = [self currentSummaryDictionary];
+    [report appendString:@"iSH-AOK Diagnostics\n\n"];
+    [report appendFormat:@"App: %@ (Build %@)\n", summary[@"appVersion"], summary[@"build"]];
+    [report appendFormat:@"Device: %@ / %@ / %@\n", summary[@"deviceName"], summary[@"deviceModel"], summary[@"hostMachine"]];
+    [report appendFormat:@"OS: iOS %@\n", summary[@"systemVersion"]];
+    [report appendFormat:@"Free Space: %@\n", summary[@"freeSpace"] ?: @"unknown"];
+    [report appendFormat:@"Default Root: %@\n", summary[@"defaultRoot"] ?: @"(none)"];
+    [report appendFormat:@"Roots: %@\n", summary[@"rootCount"]];
+    [report appendFormat:@"Needs Initial Root Selection: %@\n", [summary[@"needsInitialRootSelection"] boolValue] ? @"yes" : @"no"];
+    if (summary[@"initialRootImportError"] != nil)
+        [report appendFormat:@"Initial Root Import Error: %@\n", summary[@"initialRootImportError"]];
+
+    NSArray<NSDictionary<NSString *, id> *> *payloads = [self recentMetricKitPayloadsWithLimit:5];
+    [report appendString:@"\nRecent MetricKit Payloads\n"];
+    if (payloads.count == 0) {
+        [report appendString:@"  none\n"];
+    } else {
+        for (NSDictionary<NSString *, id> *payload in payloads) {
+            [report appendFormat:@"  %@\n", payload[@"filename"] ?: @"payload.json"];
+            if (payload[@"receivedAt"] != nil)
+                [report appendFormat:@"    received: %@\n", payload[@"receivedAt"]];
+            if (payload[@"timeStampBegin"] != nil || payload[@"timeStampEnd"] != nil) {
+                [report appendFormat:@"    window: %@ -> %@\n",
+                 payload[@"timeStampBegin"] ?: @"?",
+                 payload[@"timeStampEnd"] ?: @"?"];
+            }
+            NSArray *summaries = payload[@"summaries"];
+            for (NSDictionary<NSString *, id> *entry in summaries) {
+                [report appendFormat:@"    %@: ", entry[@"kind"] ?: @"diagnostic"];
+                NSMutableArray<NSString *> *parts = [NSMutableArray array];
+                if (entry[@"terminationReason"] != nil)
+                    [parts addObject:[NSString stringWithFormat:@"termination=%@", entry[@"terminationReason"]]];
+                if (entry[@"signal"] != nil)
+                    [parts addObject:[NSString stringWithFormat:@"signal=%@", entry[@"signal"]]];
+                if (entry[@"exceptionType"] != nil)
+                    [parts addObject:[NSString stringWithFormat:@"exceptionType=%@", entry[@"exceptionType"]]];
+                if (entry[@"hangDuration"] != nil)
+                    [parts addObject:[NSString stringWithFormat:@"hang=%@", entry[@"hangDuration"]]];
+                if (parts.count == 0)
+                    [parts addObject:@"no summary fields"];
+                [report appendFormat:@"%@\n", [parts componentsJoinedByString:@", "]];
+            }
+        }
+    }
+
+    NSArray<NSDictionary<NSString *, id> *> *breadcrumbs = [self recentBreadcrumbsWithLimit:50];
+    [report appendString:@"\nRecent Breadcrumbs\n"];
+    if (breadcrumbs.count == 0) {
+        [report appendString:@"  none\n"];
+    } else {
+        for (NSDictionary<NSString *, id> *entry in breadcrumbs) {
+            [report appendFormat:@"  %@  %@",
+             entry[@"timestamp"] ?: @"",
+             entry[@"event"] ?: @""];
+            NSDictionary *details = entry[@"details"];
+            if (details.count != 0)
+                [report appendFormat:@"  %@",
+                 [[details description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "]];
+            [report appendString:@"\n"];
+        }
+    }
+    return report;
+}
+
++ (NSURL *)prepareExportBundle:(NSError **)error {
+    NSURL *baseDirectory = [NSFileManager.defaultManager.temporaryDirectory
+                            URLByAppendingPathComponent:[NSString stringWithFormat:@"diagnostics-%@", NSUUID.UUID.UUIDString]
+                                            isDirectory:YES];
+    if (![NSFileManager.defaultManager createDirectoryAtURL:baseDirectory
+                                withIntermediateDirectories:YES
+                                                 attributes:nil
+                                                      error:error]) {
+        return nil;
+    }
+
+    NSURL *reportURL = [baseDirectory URLByAppendingPathComponent:@"diagnostics-report.txt"];
+    NSData *reportData = [[self diagnosticsReport] dataUsingEncoding:NSUTF8StringEncoding];
+    if (![reportData writeToURL:reportURL options:NSDataWritingAtomic error:error])
+        return nil;
+
+    NSURL *breadcrumbsURL = DiagnosticsBreadcrumbsURL();
+    if (breadcrumbsURL != nil && [NSFileManager.defaultManager fileExistsAtPath:breadcrumbsURL.path]) {
+        [NSFileManager.defaultManager copyItemAtURL:breadcrumbsURL
+                                              toURL:[baseDirectory URLByAppendingPathComponent:breadcrumbsURL.lastPathComponent]
+                                              error:nil];
+    }
+
+    NSURL *metricDirectoryURL = MetricKitDiagnosticsDirectoryURL();
+    NSArray<NSURL *> *metricFiles = [NSFileManager.defaultManager contentsOfDirectoryAtURL:metricDirectoryURL
+                                                                includingPropertiesForKeys:nil
+                                                                                   options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                                     error:nil];
+    if (metricFiles.count != 0) {
+        NSURL *exportMetricURL = [baseDirectory URLByAppendingPathComponent:kMetricKitDiagnosticsDirectory isDirectory:YES];
+        [NSFileManager.defaultManager createDirectoryAtURL:exportMetricURL
+                               withIntermediateDirectories:YES
+                                                attributes:nil
+                                                     error:nil];
+        for (NSURL *fileURL in metricFiles) {
+            [NSFileManager.defaultManager copyItemAtURL:fileURL
+                                                  toURL:[exportMetricURL URLByAppendingPathComponent:fileURL.lastPathComponent]
+                                                  error:nil];
+        }
+    }
+    return baseDirectory;
+}
+
+@end
+
+static NSDictionary *MetricKitDiagnosticSummary(MXDiagnostic *diagnostic, NSString *kind) API_AVAILABLE(ios(14.0));
+static NSDictionary *MetricKitDiagnosticSummary(MXDiagnostic *diagnostic, NSString *kind) {
     NSMutableDictionary *summary = [NSMutableDictionary dictionary];
     summary[@"kind"] = kind;
 
-    NSString *applicationVersion = ObjCCallId(diagnostic, @selector(applicationVersion));
+    NSString *applicationVersion = diagnostic.applicationVersion;
     if (applicationVersion != nil)
         summary[@"applicationVersion"] = applicationVersion;
 
-    id metadata = ObjCCallId(diagnostic, @selector(metaData));
-    NSString *buildVersion = ObjCCallId(metadata, @selector(applicationBuildVersion));
+    MXMetaData *metadata = diagnostic.metaData;
+    NSString *buildVersion = metadata.applicationBuildVersion;
     if (buildVersion != nil)
         summary[@"applicationBuildVersion"] = buildVersion;
-    NSString *osVersion = ObjCCallId(metadata, @selector(osVersion));
+    NSString *osVersion = metadata.osVersion;
     if (osVersion != nil)
         summary[@"osVersion"] = osVersion;
-    NSString *deviceType = ObjCCallId(metadata, @selector(deviceType));
+    NSString *deviceType = metadata.deviceType;
     if (deviceType != nil)
         summary[@"deviceType"] = deviceType;
-    NSString *architecture = ObjCCallId(metadata, @selector(platformArchitecture));
+    NSString *architecture = metadata.platformArchitecture;
     if (architecture != nil)
         summary[@"platformArchitecture"] = architecture;
 
     if ([kind isEqualToString:@"crash"]) {
-        NSString *terminationReason = ObjCCallId(diagnostic, @selector(terminationReason));
+        MXCrashDiagnostic *crashDiagnostic = (MXCrashDiagnostic *) diagnostic;
+        NSString *terminationReason = crashDiagnostic.terminationReason;
         if (terminationReason != nil)
             summary[@"terminationReason"] = terminationReason;
 
-        NSNumber *exceptionType = ObjCCallId(diagnostic, @selector(exceptionType));
+        NSNumber *exceptionType = crashDiagnostic.exceptionType;
         if (exceptionType != nil)
             summary[@"exceptionType"] = exceptionType;
 
-        NSNumber *exceptionCode = ObjCCallId(diagnostic, @selector(exceptionCode));
+        NSNumber *exceptionCode = crashDiagnostic.exceptionCode;
         if (exceptionCode != nil)
             summary[@"exceptionCode"] = exceptionCode;
 
-        NSNumber *signal = ObjCCallId(diagnostic, @selector(signal));
+        NSNumber *signal = crashDiagnostic.signal;
         if (signal != nil)
             summary[@"signal"] = signal;
 
-        NSString *vmInfo = ObjCCallId(diagnostic, @selector(virtualMemoryRegionInfo));
+        NSString *vmInfo = crashDiagnostic.virtualMemoryRegionInfo;
         if (vmInfo != nil)
             summary[@"virtualMemoryRegionInfo"] = vmInfo;
     } else if ([kind isEqualToString:@"hang"]) {
-        id hangDuration = ObjCCallId(diagnostic, @selector(hangDuration));
-        NSString *hangDurationDescription = MetricKitSafeDescription(hangDuration);
+        MXHangDiagnostic *hangDiagnostic = (MXHangDiagnostic *) diagnostic;
+        NSString *hangDurationDescription = MetricKitSafeDescription(hangDiagnostic.hangDuration);
         if (hangDurationDescription != nil)
             summary[@"hangDuration"] = hangDurationDescription;
     }
@@ -206,7 +487,7 @@ static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
     return summary;
 }
 
-@interface ISHMetricKitSubscriber : NSObject
+@interface ISHMetricKitSubscriber : NSObject <MXMetricManagerSubscriber>
 
 - (void)registerIfAvailable;
 - (void)unregisterIfNeeded;
@@ -220,19 +501,14 @@ static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
 
 - (void)registerIfAvailable {
     if (@available(iOS 14.0, *)) {
-        Class metricManagerClass = NSClassFromString(@"MXMetricManager");
-        if (metricManagerClass == Nil) {
-            NSLog(@"MetricKit unavailable: MXMetricManager class not found");
-            return;
-        }
-
-        _metricManager = ObjCCallId((id) metricManagerClass, @selector(sharedManager));
-        if (_metricManager == nil) {
+        MXMetricManager *metricManager = MXMetricManager.sharedManager;
+        if (metricManager == nil) {
             NSLog(@"MetricKit unavailable: shared manager missing");
             return;
         }
 
-        ObjCCallVoidObject(_metricManager, @selector(addSubscriber:), self);
+        _metricManager = metricManager;
+        [metricManager addSubscriber:self];
         NSLog(@"MetricKit diagnostic subscriber registered");
     }
 }
@@ -240,25 +516,27 @@ static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
 - (void)unregisterIfNeeded {
     if (@available(iOS 14.0, *)) {
         if (_metricManager != nil)
-            ObjCCallVoidObject(_metricManager, @selector(removeSubscriber:), self);
+            [(MXMetricManager *) _metricManager removeSubscriber:self];
         _metricManager = nil;
     }
 }
 
-- (void)didReceiveDiagnosticPayloads:(NSArray *)payloads {
+- (void)didReceiveDiagnosticPayloads:(NSArray<MXDiagnosticPayload *> *)payloads API_AVAILABLE(ios(14.0)) {
     if (@available(iOS 14.0, *)) {
         NSLog(@"MetricKit delivered %lu diagnostic payload(s)", (unsigned long) payloads.count);
+        [ISHDiagnosticsStore recordBreadcrumb:@"metrickit.payloads"
+                                      details:@{@"count": @(payloads.count)}];
         for (NSUInteger i = 0; i < payloads.count; i++) {
             [self persistDiagnosticPayload:payloads[i] index:i];
         }
     }
 }
 
-- (void)persistDiagnosticPayload:(id)payload index:(NSUInteger)index API_AVAILABLE(ios(14.0)) {
-    NSArray *crashDiagnostics = ObjCCallId(payload, @selector(crashDiagnostics));
-    NSArray *hangDiagnostics = ObjCCallId(payload, @selector(hangDiagnostics));
-    NSDate *timeStampBegin = ObjCCallId(payload, @selector(timeStampBegin));
-    NSDate *timeStampEnd = ObjCCallId(payload, @selector(timeStampEnd));
+- (void)persistDiagnosticPayload:(MXDiagnosticPayload *)payload index:(NSUInteger)index API_AVAILABLE(ios(14.0)) {
+    NSArray<MXCrashDiagnostic *> *crashDiagnostics = payload.crashDiagnostics ?: @[];
+    NSArray<MXHangDiagnostic *> *hangDiagnostics = payload.hangDiagnostics ?: @[];
+    NSDate *timeStampBegin = payload.timeStampBegin;
+    NSDate *timeStampEnd = payload.timeStampEnd;
 
     NSMutableArray *summaries = [NSMutableArray array];
     for (id crashDiagnostic in crashDiagnostics) {
@@ -286,9 +564,7 @@ static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
     envelope[@"hangDiagnosticCount"] = @(hangDiagnostics.count);
     envelope[@"summaries"] = summaries;
 
-    id payloadDictionary = nil;
-    if ([payload respondsToSelector:@selector(dictionaryRepresentation)])
-        payloadDictionary = ObjCCallId(payload, @selector(dictionaryRepresentation));
+    NSDictionary *payloadDictionary = payload.dictionaryRepresentation;
     if (payloadDictionary != nil)
         envelope[@"payload"] = payloadDictionary;
 
@@ -319,7 +595,7 @@ static NSDictionary *MetricKitDiagnosticSummary(id diagnostic, NSString *kind) {
                                                        options:NSJSONWritingPrettyPrinted
                                                          error:&jsonError];
     if (jsonData == nil) {
-        NSData *rawPayloadData = ObjCCallId(payload, @selector(JSONRepresentation));
+        NSData *rawPayloadData = payload.JSONRepresentation;
         if (rawPayloadData != nil) {
             jsonData = rawPayloadData;
         } else {
@@ -697,7 +973,7 @@ void SyncHostname(void) {
         fd->ops->write(fd, resolvConf.UTF8String, [resolvConf lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
         fd_close(fd);
     } else {
-        NSLog(@"failed to write /etc/resolv.conf: %d", PTR_ERR(fd));
+        NSLog(@"failed to write /etc/resolv.conf: %ld", (long) PTR_ERR(fd));
     }
     PopCurrentTask(previousCurrent);
     res_nclose(&res);
@@ -732,6 +1008,8 @@ void SyncHostname(void) {
 }
 
 - (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary<UIApplicationLaunchOptionsKey,id> *)launchOptions {
+    [ISHDiagnosticsStore recordBreadcrumb:@"application.willFinishLaunching"
+                                  details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     if ([defaults boolForKey:@"hail mary"]) {
         [defaults removeObjectForKey:kPreferenceBootCommandKey];
@@ -762,6 +1040,8 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    [ISHDiagnosticsStore recordBreadcrumb:@"application.didFinishLaunching"
+                                  details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     // get the network permissions popup to appear on chinese devices
     [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:@"http://captive.apple.com"]] resume];
 
@@ -892,8 +1172,14 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
+    [ISHDiagnosticsStore recordBreadcrumb:@"application.didEnterBackground"
+                                  details:@{@"exiting": @(self.exiting)}];
     if (self.exiting)
         exit(0);
+}
+
+- (void)applicationWillEnterForeground:(UIApplication *)application {
+    [ISHDiagnosticsStore recordBreadcrumb:@"application.willEnterForeground"];
 }
 
 @end

@@ -10,8 +10,6 @@
 extern struct tty_driver pty_master;
 extern struct tty_driver pty_slave;
 
-static bool tty_trace_ssh_current(void);
-
 struct tty_driver *tty_drivers[256] = {
     [TTY_CONSOLE_MAJOR] = NULL, // will be filled in by create_stdio
     [TTY_PSEUDO_MASTER_MAJOR] = &pty_master,
@@ -287,10 +285,6 @@ static bool tty_trace_comm(const char *comm) {
         strncmp(comm, "deboots", 7) == 0 ||
         strncmp(comm, "debootstrap", 11) == 0 ||
         strncmp(comm, "update-ca-certi", 15) == 0;
-}
-
-static bool tty_trace_ssh_current(void) {
-    return current != NULL && strcmp(current->comm, "sshd") == 0;
 }
 
 static bool tty_trace_signal_enabled(void) {
@@ -697,7 +691,6 @@ static ssize_t tty_ioctl_size(int cmd) {
 
 static int tiocsctty(struct tty *tty, int force) {
     int err = 0;
-    bool trace_ssh = tty_trace_ssh_current();
     unlock(&tty->lock); //aaaaaaaa
     // it's safe because literally nothing happens between that unlock and the last lock, and repulsive for the same reason
     // locking is ***hard**

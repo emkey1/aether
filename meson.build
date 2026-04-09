@@ -121,6 +121,7 @@ if get_option('kernel') == 'ish'
         'fs/dir.c',
         'fs/generic.c',
         'fs/path.c',
+        'fs/net_route.c',
         'fs/real.c',
         'fs/fake.c',
 

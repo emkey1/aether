@@ -5,10 +5,6 @@
 #include "kernel/task.h"
 #include "fs/tty.h"
 
-static bool session_trace_ssh(const char *comm) {
-    return comm != NULL && strcmp(comm, "sshd") == 0;
-}
-
 dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
     STRACE("setpgid(%d, %d)", id, pgid);
     int err;
@@ -103,8 +99,6 @@ void task_leave_session(struct task *task) {
 pid_t_ task_setsid(struct task *task) {
     complex_lockt(&pids_lock, 0);
     struct tgroup *group = task->group;
-    pid_t_ old_sid = group->sid;
-    pid_t_ old_pgid = group->pgid;
     pid_t_ new_sid = group->leader->pid;
     if (group->pgid == new_sid || group->sid == new_sid) {
         unlock(&pids_lock);

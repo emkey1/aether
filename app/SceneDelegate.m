@@ -8,6 +8,7 @@
 #import "SceneDelegate.h"
 #import "AboutViewController.h"
 #import "AppDelegate.h"
+#import "Diagnostics.h"
 #import "NSObject+SaneKVO.h"
 #import "Roots.h"
 
@@ -33,6 +34,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
     return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
 }
 
+static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) API_AVAILABLE(ios(13.0));
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     if (delegate.window == nil) {
         if (![scene isKindOfClass:UIWindowScene.class])
@@ -45,6 +47,7 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     }
 }
 
+static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session) API_AVAILABLE(ios(13.0));
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session) {
     vc.sceneSession = session;
     if (session.stateRestorationActivity == nil) {
@@ -59,6 +62,9 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
+    [ISHDiagnosticsStore recordBreadcrumb:@"scene.willConnect"
+                                  details:@{@"session": session.persistentIdentifier ?: @"",
+                                            @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
     EnsureSceneWindow(self, scene);
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
         UINavigationController *vc = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
@@ -117,6 +123,8 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
+    [ISHDiagnosticsStore recordBreadcrumb:@"scene.didBecomeActive"
+                                  details:@{@"session": scene.session.persistentIdentifier ?: @""}];
     UIViewController *rootViewController = self.window.rootViewController;
     if ([rootViewController isKindOfClass:TerminalViewController.class]) {
         currentTerminalViewController = (TerminalViewController *) rootViewController;
@@ -126,6 +134,8 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 }
 
 - (void)sceneWillResignActive:(UIScene *)scene {
+    [ISHDiagnosticsStore recordBreadcrumb:@"scene.willResignActive"
+                                  details:@{@"session": scene.session.persistentIdentifier ?: @""}];
     UIViewController *rootViewController = self.window.rootViewController;
     TerminalViewController *terminalViewController = [rootViewController isKindOfClass:TerminalViewController.class]
         ? (TerminalViewController *) rootViewController

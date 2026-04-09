@@ -6,9 +6,12 @@
 //
 
 #import <FileProvider/FileProvider.h>
+#import "Diagnostics.h"
 #import "Roots.h"
 #import "AppGroup.h"
 #import "NSObject+SaneKVO.h"
+#include <archive.h>
+#include <archive_entry.h>
 #include "tools/fakefs.h"
 #ifdef __APPLE__
 #include <errno.h>
@@ -36,6 +39,7 @@ static NSString *const kBundledRootIdentifierKey = @"identifier";
 static NSString *const kBundledRootDisplayNameKey = @"displayName";
 static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
+static NSString *const kRootsErrorDomain = @"iSH.Roots";
 
 static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void) {
     static NSArray<NSDictionary<NSString *, NSString *> *> *choices;
@@ -78,6 +82,143 @@ static BOOL RootURLLooksValid(NSURL *url) {
     return YES;
 }
 
+static NSString *FormatByteCount(long long value) {
+    return [NSByteCountFormatter stringFromByteCount:value countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+static NSError *RootsStorageError(NSString *description, NSString *recoverySuggestion) {
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:description
+                                                                       forKey:NSLocalizedDescriptionKey];
+    if (recoverySuggestion != nil)
+        userInfo[NSLocalizedRecoverySuggestionErrorKey] = recoverySuggestion;
+    return [NSError errorWithDomain:kRootsErrorDomain code:NSFileWriteOutOfSpaceError userInfo:userInfo];
+}
+
+static NSError *FakefsImportNSError(struct fakefsify_error fs_err) {
+    NSString *description = nil;
+    NSString *recoverySuggestion = nil;
+    NSString *domain = NSPOSIXErrorDomain;
+    if (fs_err.type == ERR_SQLITE)
+        domain = @"SQLite";
+
+    if (fs_err.type == ERR_POSIX && fs_err.code == ENOSPC) {
+        description = @"Not enough free space to extract the filesystem.";
+        recoverySuggestion = @"Free up storage space and try again.";
+    } else if (fs_err.type == ERR_ARCHIVE) {
+        description = @"The filesystem archive could not be read.";
+    } else if (fs_err.type == ERR_SQLITE) {
+        description = @"The filesystem metadata database could not be created.";
+    } else {
+        description = [NSString stringWithUTF8String:fs_err.message];
+    }
+
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithObject:description
+                                                                       forKey:NSLocalizedDescriptionKey];
+    if (recoverySuggestion != nil)
+        userInfo[NSLocalizedRecoverySuggestionErrorKey] = recoverySuggestion;
+    if (fs_err.message != NULL && fs_err.message[0] != '\0') {
+        userInfo[NSLocalizedFailureReasonErrorKey] = [NSString stringWithFormat:@"%s (line %d)",
+                                                      fs_err.message, fs_err.line];
+    }
+    return [NSError errorWithDomain:domain code:fs_err.code userInfo:userInfo];
+}
+
+static BOOL EstimateArchiveExtractionRequirement(NSURL *archiveURL, long long *requiredBytes, NSError **error) {
+    struct archive *archive = archive_read_new();
+    if (archive == NULL) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"libarchive"
+                                         code:ENOMEM
+                                     userInfo:@{NSLocalizedDescriptionKey: @"Could not allocate archive reader."}];
+        }
+        return NO;
+    }
+    archive_read_support_filter_gzip(archive);
+    archive_read_support_filter_bzip2(archive);
+    archive_read_support_format_tar(archive);
+    if (archive_read_open_filename(archive, archiveURL.fileSystemRepresentation, 65536) != ARCHIVE_OK) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"libarchive"
+                                         code:archive_errno(archive)
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                                                    @"The filesystem archive could not be read."}];
+        }
+        archive_read_free(archive);
+        return NO;
+    }
+
+    long long payloadBytes = 0;
+    long long entryCount = 0;
+    struct archive_entry *entry = NULL;
+    int err = ARCHIVE_OK;
+    while ((err = archive_read_next_header(archive, &entry)) == ARCHIVE_OK) {
+        entryCount++;
+        la_int64_t entrySize = archive_entry_size(entry);
+        if (entrySize > 0)
+            payloadBytes += entrySize;
+        archive_read_data_skip(archive);
+    }
+    if (err != ARCHIVE_EOF) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"libarchive"
+                                         code:archive_errno(archive)
+                                     userInfo:@{NSLocalizedDescriptionKey:
+                                                    @"The filesystem archive could not be read."}];
+        }
+        archive_read_free(archive);
+        return NO;
+    }
+    archive_read_free(archive);
+
+    long long metadataOverhead = MAX(entryCount * 2048LL, 8LL * 1024 * 1024);
+    long long safetyMargin = 64LL * 1024 * 1024;
+    *requiredBytes = payloadBytes + metadataOverhead + safetyMargin;
+    return YES;
+}
+
+static BOOL RootsCheckAvailableSpaceForArchive(NSURL *archiveURL, NSURL *destinationDirectory, NSError **error) {
+    long long requiredBytes = 0;
+    NSError *estimateError = nil;
+    if (!EstimateArchiveExtractionRequirement(archiveURL, &requiredBytes, &estimateError)) {
+        if (error != NULL)
+            *error = estimateError;
+        return NO;
+    }
+
+    NSNumber *availableBytes = nil;
+    NSError *resourceError = nil;
+    if (@available(iOS 11.0, *)) {
+        NSDictionary<NSURLResourceKey, id> *values = [destinationDirectory resourceValuesForKeys:@[
+            NSURLVolumeAvailableCapacityForImportantUsageKey,
+            NSURLVolumeAvailableCapacityKey,
+        ] error:&resourceError];
+        availableBytes = values[NSURLVolumeAvailableCapacityForImportantUsageKey];
+        if (availableBytes == nil)
+            availableBytes = values[NSURLVolumeAvailableCapacityKey];
+    }
+    if (availableBytes == nil) {
+        NSDictionary<NSFileAttributeKey, id> *attributes =
+            [NSFileManager.defaultManager attributesOfFileSystemForPath:destinationDirectory.path error:&resourceError];
+        availableBytes = attributes[NSFileSystemFreeSize];
+    }
+    if (availableBytes == nil) {
+        if (error != NULL)
+            *error = resourceError;
+        return NO;
+    }
+
+    if (availableBytes.longLongValue < requiredBytes) {
+        if (error != NULL) {
+            *error = RootsStorageError([NSString stringWithFormat:
+                                        @"Not enough free space to extract the filesystem. About %@ is needed, but only %@ is available.",
+                                        FormatByteCount(requiredBytes), FormatByteCount(availableBytes.longLongValue)],
+                                       @"Free up storage space and try again.");
+        }
+        return NO;
+    }
+    return YES;
+}
+
 static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 #ifdef __APPLE__
     static dispatch_once_t onceToken;
@@ -98,6 +239,7 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 @property BOOL domainsNeedUpdate;
 @property BOOL wantsVersionFile;
 @property BOOL initialBundledRootImportInProgress;
+@property (nullable) NSError *initialBundledRootImportError;
 @end
 
 @implementation Roots
@@ -121,6 +263,7 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
             NSURL *archiveURL = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
             if (archiveURL != nil) {
                 self.initialBundledRootImportInProgress = YES;
+                self.initialBundledRootImportError = nil;
                 dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
                     NSError *error = nil;
                     BOOL success = [self importRootFromArchive:archiveURL
@@ -130,8 +273,10 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         self.initialBundledRootImportInProgress = NO;
                         if (success) {
+                            self.initialBundledRootImportError = nil;
                             self.wantsVersionFile = YES;
                         } else {
+                            self.initialBundledRootImportError = error;
                             NSLog(@"failed to import default root: %@", error);
                         }
                     });
@@ -263,28 +408,45 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     NSAssert(![self.roots containsObject:name], @"root already exists: %@", name);
     struct fakefsify_error fs_err;
     NSURL *destination = [self rootUrl:name];
-    NSURL *tempDestination = [NSFileManager.defaultManager.temporaryDirectory
-                              URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
+    NSURL *temporaryDirectory = NSFileManager.defaultManager.temporaryDirectory;
+    NSURL *tempDestination = [temporaryDirectory URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
     if (tempDestination == nil)
         return NO;
+    NSError *spaceError = nil;
+    if (!RootsCheckAvailableSpaceForArchive(archive, temporaryDirectory, &spaceError)) {
+        if (error != NULL)
+            *error = spaceError;
+        [ISHDiagnosticsStore recordBreadcrumb:@"root.importPreflightFailed"
+                                      details:@{@"name": name ?: @"",
+                                                @"error": spaceError.localizedDescription ?: @"unknown"}];
+        return NO;
+    }
     if (!fakefs_import(archive.fileSystemRepresentation,
                        tempDestination.fileSystemRepresentation,
                        &fs_err, (struct progress) {(__bridge void *) progress, root_progress_callback})) {
-        NSString *domain = NSPOSIXErrorDomain;
-        if (fs_err.type == ERR_SQLITE)
-            domain = @"SQLite";
-        *error = [NSError errorWithDomain:domain
-                                     code:fs_err.code
-                                 userInfo:@{NSLocalizedDescriptionKey:
-                                                [NSString stringWithFormat:@"%s, line %d", fs_err.message, fs_err.line]}];
-        if (fs_err.type == ERR_CANCELLED)
-            *error = nil;
+        if (error != NULL) {
+            *error = FakefsImportNSError(fs_err);
+            if (fs_err.type == ERR_CANCELLED)
+                *error = nil;
+        }
+        if (fs_err.type != ERR_CANCELLED) {
+            NSError *reportedError = error != NULL ? *error : FakefsImportNSError(fs_err);
+            [ISHDiagnosticsStore recordBreadcrumb:@"root.importFailed"
+                                          details:@{@"name": name ?: @"",
+                                                    @"error": reportedError.localizedDescription ?: @"unknown"}];
+        }
         free(fs_err.message);
         [NSFileManager.defaultManager removeItemAtURL:tempDestination error:nil];
         return NO;
     }
-    if (![NSFileManager.defaultManager moveItemAtURL:tempDestination toURL:destination error:error])
+    if (![NSFileManager.defaultManager moveItemAtURL:tempDestination toURL:destination error:error]) {
+        NSError *reportedError = error != NULL ? *error : nil;
+        [ISHDiagnosticsStore recordBreadcrumb:@"root.importMoveFailed"
+                                      details:@{@"name": name ?: @"",
+                                                @"error": reportedError.localizedDescription ?: @"unknown"}];
+        [NSFileManager.defaultManager removeItemAtURL:tempDestination error:nil];
         return NO;
+    }
 
     void (^addRoot)(void) = ^{
         [[self mutableOrderedSetValueForKey:@"roots"] addObject:name];

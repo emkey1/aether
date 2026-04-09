@@ -84,6 +84,9 @@ struct fd {
             char *netlink_reply;
             size_t netlink_reply_len;
             size_t netlink_reply_off;
+            bool netlink_cap_ack;
+            bool netlink_ext_ack;
+            bool netlink_get_strict_chk;
         } socket;
 
         // See app/Pasteboard.m

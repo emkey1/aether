@@ -12,7 +12,7 @@
 #include "util/timer.h"
 #include "util/sync.h"
 
-extern inline void task_ref_cnt_mod(struct task *task, int value);
+extern void task_ref_cnt_mod(struct task *task, int value);
 
 // Define a structure for the pending deletion queue
 struct task_pending_deletion {
@@ -149,7 +149,7 @@ static inline void task_set_mm(struct task *task, struct mm *mm) {
 // Ends with an underscore because there's a mach function by the same name
 struct task *task_create_(struct task *parent);
 // Removes the process from the process table and frees it. Must be called with pids_lock.
-void task_destroy(struct task *task, int caller);
+void task_destroy(struct task *task, int UNUSED(caller));
 
 // misc
 void vfork_notify(struct task *task);
@@ -264,7 +264,7 @@ void cleanup_pending_deletions(void);
 
 
 //
-static inline unsigned task_ref_cnt_get(struct task *task, unsigned lock_if_zero) {
+static inline unsigned task_ref_cnt_get(struct task *task, unsigned UNUSED(lock_if_zero)) {
     unsigned tmp = 0;
     pthread_mutex_lock(&task->reference.lock); // This would make more
     tmp = task->reference.count;

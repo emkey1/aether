@@ -15,3 +15,6 @@ gcc -Wall -Wextra -O2 test_sockopt_state.c -o ./test_sockopt_state
 
 gcc -Wall -Wextra -O2 test_unix_peername.c -o ./test_unix_peername
 ./test_unix_peername
+
+gcc -Wall -Wextra -O2 test_netlink_route.c -o ./test_netlink_route
+./test_netlink_route

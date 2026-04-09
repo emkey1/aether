@@ -209,7 +209,7 @@ char *parse_if_flags(int flags) {
     };
 
     size_t len = 0;
-    for (int i = 0; i < sizeof(flag_str_map)/sizeof(flag_str_map[0]); ++i) {
+    for (size_t i = 0; i < sizeof(flag_str_map)/sizeof(flag_str_map[0]); ++i) {
         if (flags & flag_str_map[i].flag) {
             if (!first) {
                 build_string[len++] = ',';

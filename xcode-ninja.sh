@@ -1,9 +1,24 @@
 #!/bin/bash
 
-# Try to figure out the user's PATH to pick up their installed utilities.
-export PATH="$PATH:$(sudo -u "$USER" -i printenv PATH)"
-
 set -euo pipefail
+
+bootstrap_path() {
+    local extra
+    for extra in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin; do
+        case ":$PATH:" in
+            *":$extra:"*) ;;
+            *) PATH="$PATH:$extra" ;;
+        esac
+    done
+    export PATH
+}
+
+bootstrap_path
+
+if ! command -v ninja >/dev/null 2>&1; then
+    echo "ninja not found in PATH: $PATH" >&2
+    exit 1
+fi
 
 declare -a arch_list=()
 if [[ -n "${ARCHS:-}" ]]; then

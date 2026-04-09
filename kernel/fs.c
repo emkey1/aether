@@ -517,10 +517,11 @@ dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     size_t offset = 0;
     for (unsigned i = 0; i < iovec_count; i++) {
         size_t len = iovec[i].len;
-        if (offset >= res)
+        size_t total = (size_t) res;
+        if (offset >= total)
             break;
-        if (offset + len > res)
-            len = res - offset;
+        if (offset + len > total)
+            len = total - offset;
 
         STRACE(" {base=%#x, len=%u}", iovec[i].base, iovec[i].len);
 

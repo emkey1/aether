@@ -31,7 +31,7 @@ __thread wrlock_t *jit_crash_lock = NULL;
 // Releasing the jetsam_lock read lock prevents write-lock waiters
 // (cpu_run_to_interrupt doing jetsam cleanup) from blocking forever, which
 // would hang any guest program that spawns many OS threads (e.g. Go programs).
-__attribute__((noreturn))
+__attribute__((__noreturn__))
 void jit_crash_fn(void) {
     // If this thread holds atomic_l_lock (possible when the crash occurs inside
     // read_lock/read_unlock, in the narrow window where both that mutex and the

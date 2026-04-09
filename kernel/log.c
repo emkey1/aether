@@ -31,8 +31,6 @@ static lock_t log_lock = LOCK_INITIALIZER;
 #define SYSLOG_ACTION_SIZE_BUFFER_ 10
 
 static size_t syslog_read(addr_t buf_addr, size_t len, int flags) {
-    if (len < 0)
-        return _EINVAL;
     if (flags & FIFO_LAST) {
         if ((size_t) len > log_max_since_clear)
             len = log_max_since_clear;
@@ -216,7 +214,7 @@ static void default_die_handler(const char *msg) {
     printk("%s\n", msg);
 }
 void (*die_handler)(const char *msg) = default_die_handler;
-_Noreturn void die(const char *msg, ...);
+__attribute__((__noreturn__)) void die(const char *msg, ...);
 void die(const char *msg, ...) {
     va_list args;
     va_start(args, msg);

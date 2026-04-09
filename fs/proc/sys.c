@@ -28,10 +28,6 @@ static bool sys_show_dev(struct proc_entry *UNUSED(entry), unsigned long *UNUSED
     return 0;
 }
 
-static bool sys_show_fs(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
-    return 0;
-}
-
 static bool sys_show_fscache(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
 }
@@ -46,10 +42,6 @@ static bool sys_show_user(struct proc_entry *UNUSED(entry), unsigned long *UNUSE
 
 static bool sys_show_vm(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
-}
-
-static bool proc_empty_dir_readdir(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
-    return false;
 }
 
 static int proc_binfmt_misc_status_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {

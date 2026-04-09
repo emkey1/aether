@@ -8,6 +8,7 @@
 #include "kernel/task.h"
 #include "fs/proc.h"
 #include "fs/fd.h"
+#include "fs/net_route.h"
 #include "fs/sock.h"
 #include "platform/platform.h"
 
@@ -406,39 +407,23 @@ static int proc_show_unix(struct proc_entry *UNUSED(entry), struct proc_data *bu
 
 
 static int proc_show_route(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    
     proc_printf(buf, "Iface    Destination    Gateway     Flags    RefCnt    Use    Metric    Mask        MTU    Window    IRTT \n");
-    
-    struct ifaddrs *addrs;
-    bool success = (getifaddrs(&addrs) == 0);
-    if (success) {
-        const struct ifaddrs *cursor = addrs;
-        while (cursor != NULL) {
-            int anything_but_loopback = strcmp(cursor->ifa_name, "lo0");
-            if ((cursor->ifa_addr->sa_family == AF_LINK) && (anything_but_loopback)) {
-                const struct if_data *stats = (struct if_data *)cursor->ifa_data;
-                proc_printf(buf, "%-6.6s   %8.8d       %8.8x    %+4.4x     %1.1d         %3.3d    %8.8d  %8.8d    %1.1d   %1.1d         %1.1d\n",
-                            cursor->ifa_name,
-                            (unsigned long)0, // Destination
-                            (unsigned long)0, // Gateway IP
-                            cursor->ifa_flags,
-                            (unsigned long)0, //RefCnt
-                            (unsigned long)0, // Use
-                            (unsigned long)stats->ifi_metric,
-                            cursor->ifa_netmask,
-                            (unsigned long)stats->ifi_mtu,
-                            (unsigned long)0, // Window
-                            (unsigned long)0  // IRTT
-                            );
-            }
-            cursor = cursor->ifa_next;
+    struct host_route_table routes = {};
+    if (host_route_table_collect(&routes) == 0) {
+        for (size_t i = 0; i < routes.count; i++) {
+            const struct host_route_entry *route = &routes.entries[i];
+            proc_printf(buf, "%-6.6s  %08X  %08X  %04X  %d  %d  %d  %08X  %u  %d  %d\n",
+                    route->ifname,
+                    route->destination_be,
+                    route->gateway_be,
+                    route->proc_flags,
+                    0, 0, 0,
+                    route->mask_be,
+                    route->mtu,
+                    0, 0);
         }
-        freeifaddrs(addrs);
+        host_route_table_free(&routes);
     }
-    //proc_printf(buf, "eth0    00000000    0124A8C0    0003    0    0    202    00000000    0    0    0\n");
-    //proc_printf(buf, "wlan0    00000000    0101A8C0    0003    0    0    303    00000000    0    0    0\n");
-    //proc_printf(buf, "wlan0    0001A8C0    00000000    0001    0    0    303    00FFFFFF    0    0    0\n");
-    //proc_printf(buf, "eth0    0024A8C0    00000000    0001    0    0    202    00FFFFFF    0    0    0\n");
     return 0;
 }
 

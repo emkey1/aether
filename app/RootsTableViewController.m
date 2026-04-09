@@ -39,10 +39,17 @@
     UILabel *label = [[UILabel alloc] init];
     label.numberOfLines = 0;
     label.textAlignment = NSTextAlignmentCenter;
-    label.textColor = UIColor.secondaryLabelColor;
+    if (@available(iOS 13.0, *)) {
+        label.textColor = UIColor.secondaryLabelColor;
+    } else {
+        label.textColor = UIColor.grayColor;
+    }
     label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     if (Roots.instance.initialBundledRootImportInProgress) {
         label.text = @"Extracting the bundled filesystem.\nThis can take a moment on first launch.";
+    } else if (Roots.instance.initialBundledRootImportError != nil) {
+        label.text = [NSString stringWithFormat:@"%@\n\nTap Import to add a filesystem manually after freeing space.",
+                      Roots.instance.initialBundledRootImportError.localizedDescription];
     } else {
         label.text = @"No filesystems are available.\nTap Import to add a root filesystem.";
     }
@@ -79,7 +86,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [Roots.instance observe:@[@"roots", @"defaultRoot", @"initialBundledRootImportInProgress"]
+    [Roots.instance observe:@[@"roots", @"defaultRoot", @"initialBundledRootImportInProgress", @"initialBundledRootImportError"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
         [self updateEmptyState];
         [self.tableView reloadData];

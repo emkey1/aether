@@ -76,7 +76,7 @@ extern int log_override;
 #define FIXME(msg, ...) printk("FIXME " msg "\n", ##__VA_ARGS__)
 #define ERRNO_DIE(msg) { perror(msg); abort(); }
 extern void (*die_handler)(const char *msg);
-_Noreturn void die(const char *msg, ...);
+__attribute__((__noreturn__)) void die(const char *msg, ...);
 
 #define STRACE(msg, ...) TRACE_(strace, msg, ##__VA_ARGS__)
 // #define STRACE(fmt, ...) printk(fmt, ##__VA_ARGS__)

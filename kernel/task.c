@@ -226,7 +226,7 @@ bool should_wait(struct task *t) {
     return task_ref_cnt_get(t, 0) > 1 || locks_held_count(t) || !!(t->pending & ~t->blocked);
 }
 
-void task_destroy(struct task *task, int caller) {
+void task_destroy(struct task *task, int UNUSED(caller)) {
     task->exiting = true;
     
     //printk("TD(%s:%d): Called by %d\n", task->comm, task->pid, caller);
@@ -329,6 +329,7 @@ static void *task_thread(void *task) {
     
     task_run_current();
     die("task_thread returned"); // above function call should never return
+    return NULL;
 }
 
 static pthread_attr_t task_thread_attr;

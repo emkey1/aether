@@ -136,8 +136,9 @@ static int futex_wait_masked(addr_t uaddr, dword_t val, struct timespec *timeout
     else if (tmp != val)
         err = _EAGAIN;
     else {
-        struct futex_wait wait;
-        wait.cond = COND_INITIALIZER;
+        struct futex_wait wait = {
+            .cond = COND_INITIALIZER,
+        };
         wait.futex = futex;
         wait.thread = pthread_self();
         wait.bitset = bitset;
@@ -218,7 +219,7 @@ int futex_wake(addr_t uaddr, dword_t wake_max) {
     return futex_wakelike(FUTEX_WAKE_, uaddr, wake_max, 0, 0, ~0u);
 }
 
-static int futex_cmp_requeue(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t val3) {
+static int futex_cmp_requeue(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t UNUSED(val3)) {
     struct futex *futex1 = futex_get(uaddr1);
     struct futex *futex2 = futex_get_unlocked(uaddr2);
     int err = 0;
@@ -265,7 +266,7 @@ void set_thread_priority(pthread_t thread, int priority) {
     pthread_setschedparam(thread, policy, &param);
 }
 
-static int futex_cmp_requeue_pi(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t val3) {
+static int futex_cmp_requeue_pi(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t UNUSED(val3)) {
     struct futex *futex1 = futex_get(uaddr1);
     struct futex *futex2 = futex_get_unlocked(uaddr2);
     int err = 0;
@@ -295,7 +296,7 @@ static int futex_cmp_requeue_pi(addr_t uaddr1, dword_t val, addr_t uaddr2, dword
         }
 
         list_for_each_entry_safe(&futex1->queue, wait, tmp_wait, queue) {
-            if (requeued >= val2) {
+            if ((dword_t) requeued >= val2) {
                 break;
             }
 

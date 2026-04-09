@@ -17,8 +17,8 @@
 
 extern __thread struct task *current;
 
-extern inline void modify_locks_held_count(struct task *task, int value);
-extern inline void task_ref_cnt_mod(struct task *task, int value);
+extern void modify_locks_held_count(struct task *task, int value);
+extern void task_ref_cnt_mod(struct task *task, int value);
 
 typedef struct {
     pthread_mutex_t m;            // Mutex for the lock
@@ -105,7 +105,7 @@ static inline void mylock(lock_t *lock, int log_lock) {
 
 #define LOCK_TIMEOUT_SECONDS 5
 
-static inline int mylock_with_timeout(lock_t *lock, int log_lock) {
+static inline int mylock_with_timeout(lock_t *lock, int UNUSED(log_lock)) {
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += LOCK_TIMEOUT_SECONDS;

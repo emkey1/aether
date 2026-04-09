@@ -40,7 +40,6 @@ void wrlock_init(wrlock_t *lock) {
 }
 
 void _lock_destroy(wrlock_t *lock) {
-    int tmp = current->reference.count;
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) {
         printk("URGENT: lock_destroy(%x) on active lock. (PID: %d Process: %s Critical Region Count: %d)\n",&lock->l, current_pid(current), current_comm(current),task_ref_cnt_get(current, 0));
