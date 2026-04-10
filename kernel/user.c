@@ -4,13 +4,25 @@
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 
+static bool user_range_valid(struct task *task, addr_t addr, size_t count) {
+    if (!guest_abi_range_valid(task->abi, addr, count))
+        return false;
+    if (count == 0)
+        return true;
+    qword_t last = (qword_t) addr + count - 1;
+    return PAGE(last) < task->mem->page_limit;
+}
+
 static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
+    if (!user_range_valid(task, addr, count))
+        return 1;
     char *cbuf = (char *) buf;
     addr_t p = addr;
-    while (p < addr + count) {
-        addr_t chunk_end = (PAGE(p) + 1) << PAGE_BITS;
-        if (chunk_end > addr + count)
-            chunk_end = addr + count;
+    qword_t end = (qword_t) addr + count;
+    while ((qword_t) p < end) {
+        qword_t chunk_end = ((qword_t) PAGE(p) + 1) << PAGE_BITS;
+        if (chunk_end > end)
+            chunk_end = end;
   
         const char *ptr = mem_ptr(task->mem, p, MEM_READ);
         
@@ -18,18 +30,21 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
             return 1;
 	}
         memcpy(&cbuf[p - addr], ptr, chunk_end - p);
-        p = chunk_end;
+        p = (addr_t) chunk_end;
     }
     return 0;
 }
 
 static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count, bool ptrace) {
+    if (!user_range_valid(task, addr, count))
+        return 1;
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
-    while (p < addr + count) {
-        addr_t chunk_end = (PAGE(p) + 1) << PAGE_BITS;
-        if (chunk_end > addr + count)
-            chunk_end = addr + (addr_t)count;
+    qword_t end = (qword_t) addr + count;
+    while ((qword_t) p < end) {
+        qword_t chunk_end = ((qword_t) PAGE(p) + 1) << PAGE_BITS;
+        if (chunk_end > end)
+            chunk_end = end;
         char *ptr = mem_ptr(task->mem, p, ptrace ? MEM_WRITE_PTRACE : MEM_WRITE);
         if (ptr == NULL)
             return 1;
@@ -43,7 +58,7 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
         } else {
             memcpy(ptr, &cbuf[p - addr], chunk_end - p);
         } */
-        p = chunk_end;
+        p = (addr_t) chunk_end;
     }
     return 0;
 }
@@ -89,9 +104,15 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     if (addr == 0) {
         return 1;
     }
+    if (!guest_abi_addr_valid(current->abi, addr))
+        return 1;
     read_lock(&current->mem->lock);
     size_t i = 0;
     while (i < max) {
+        if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
+            read_unlock(&current->mem->lock);
+            return 1;
+        }
         if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
             read_unlock(&current->mem->lock);
             return 1;
@@ -108,9 +129,15 @@ int user_write_string(addr_t addr, const char *buf) {
     if (addr == 0) {
         return 1;
     }
+    if (!guest_abi_addr_valid(current->abi, addr))
+        return 1;
     read_lock(&current->mem->lock);
     size_t i = 0;
     do {
+        if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
+            read_unlock(&current->mem->lock);
+            return 1;
+        }
         if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]), false)) {
             read_unlock(&current->mem->lock);
             return 1;

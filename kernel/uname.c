@@ -1,6 +1,7 @@
 #include <sys/utsname.h>
 #include <string.h>
 #include "kernel/calls.h"
+#include "task.h"
 #include "platform/platform.h"
 
 #if __linux__
@@ -52,7 +53,10 @@ void do_uname(struct uname *uts) {
     const char *uname_version = "iSH-AOK"; // Version should be defined or externally managed
 
     // Fill the uname structure
-    strncpy(uts->arch, "i686", sizeof(uts->arch));
+    const char *machine = "i686";
+    if (current != NULL)
+        machine = task_abi_desc(current).uname_machine;
+    strncpy(uts->arch, machine, sizeof(uts->arch));
     strncpy(uts->domain, "(none)", sizeof(uts->domain));
     strncpy(uts->release, "4.20.69-ish_aok", sizeof(uts->release));
     strncpy(uts->system, "Linux", sizeof(uts->system));

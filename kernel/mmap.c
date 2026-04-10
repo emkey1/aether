@@ -10,13 +10,18 @@
 
 extern bool doEnableExtraLocking;
 
-struct mm *mm_new(void) {
+static void mm_apply_abi_layout(struct mm *mm, enum guest_abi abi) {
+    struct guest_vm_layout layout = guest_abi_vm_layout(abi);
+    mem_set_page_limit(&mm->mem, layout.page_limit);
+    mem_set_mmap_window(&mm->mem, layout.mmap_floor, layout.mmap_ceiling);
+}
+
+struct mm *mm_new(enum guest_abi abi) {
     struct mm *mm = malloc(sizeof(struct mm));
     if (mm == NULL)
         return NULL;
     mem_init(&mm->mem);
-    mem_set_page_limit(&mm->mem, MEM_DEFAULT_PAGE_LIMIT);
-    mem_set_mmap_window(&mm->mem, MEM_DEFAULT_MMAP_FLOOR, MEM_DEFAULT_MMAP_CEILING);
+    mm_apply_abi_layout(mm, abi);
     ipc_mm_init(mm);
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
     mm->exefile = NULL;
@@ -64,6 +69,8 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
     pages_t pages = PAGE_ROUND_UP(len);
     if (!pages) return _EINVAL;
     page_t page = 0;
+    if (addr != 0 && !guest_abi_range_valid(current->abi, addr, len))
+        return _ENOMEM;
     if (addr != 0) {
         if (PGOFFSET(addr) != 0)
             return _EINVAL;
@@ -77,6 +84,11 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         if (page == BAD_PAGE)
             return _ENOMEM;
     }
+    qword_t mapped_addr = (qword_t) page << PAGE_BITS;
+    if (!guest_abi_range_valid(current->abi, mapped_addr, len))
+        return _ENOMEM;
+    if (mapped_addr > (qword_t) ((addr_t) -1))
+        return _ENOMEM;
 
     if (flags & MMAP_SHARED)
         prot |= P_SHARED;
@@ -96,7 +108,7 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         mem_pt(current->mem, page)->data->fd = fd_retain(fd);
         mem_pt(current->mem, page)->data->file_offset = offset;
     }
-    return page << PAGE_BITS;
+    return (addr_t) mapped_addr;
 }
 
 static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {

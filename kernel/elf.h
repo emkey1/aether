@@ -12,6 +12,7 @@
 #define ELF_EXECUTABLE 2
 #define ELF_DYNAMIC 3
 #define ELF_X86 3
+#define ELF_X86_64 62
 
 struct elf_header {
     uint32_t magic;
@@ -57,6 +58,40 @@ struct prg_header {
     dword_t alignment; // must be power of 2
 };
 
+struct elf64_header {
+    uint32_t magic;
+    byte_t bitness;
+    byte_t endian;
+    byte_t elfversion1;
+    byte_t abi;
+    byte_t abi_version;
+    byte_t padding[7];
+    uint16_t type;
+    uint16_t machine;
+    uint32_t elfversion2;
+    qword_t entry_point;
+    qword_t prghead_off;
+    qword_t secthead_off;
+    uint32_t flags;
+    uint16_t header_size;
+    uint16_t phent_size;
+    uint16_t phent_count;
+    uint16_t shent_size;
+    uint16_t shent_count;
+    uint16_t sectname_index;
+};
+
+struct prg_header64 {
+    uint32_t type;
+    uint32_t flags;
+    qword_t offset;
+    qword_t vaddr;
+    qword_t paddr;
+    qword_t filesize;
+    qword_t memsize;
+    qword_t alignment;
+};
+
 #define PH_R (1 << 2)
 #define PH_W (1 << 1)
 #define PH_X (1 << 0)
@@ -64,6 +99,11 @@ struct prg_header {
 struct aux_ent {
     uint32_t type;
     uint32_t value;
+};
+
+struct aux64_ent {
+    qword_t type;
+    qword_t value;
 };
 
 #define AX_PHDR 3

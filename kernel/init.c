@@ -97,7 +97,7 @@ static struct task *construct_task(struct task *parent) {
     task->tgid = task->pid;
     task_setsid(task);
 
-    task_set_mm(task, mm_new());
+    task_set_mm(task, mm_new(task->abi));
     task->sighand = sighand_new();
     task->files = fdtable_new(3); // why is there a 3 here
 

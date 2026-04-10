@@ -1,6 +1,7 @@
 #ifndef KERNEL_MM_H
 #define KERNEL_MM_H
 
+#include "kernel/abi.h"
 #include "emu/memory.h"
 #include "misc.h"
 
@@ -26,7 +27,7 @@ struct mm {
 };
 
 // Create a new address space
-struct mm *mm_new(void);
+struct mm *mm_new(enum guest_abi abi);
 // Clone (COW) the address space
 struct mm *mm_copy(struct mm *mm);
 // Increment the refcount
