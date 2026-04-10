@@ -227,18 +227,23 @@ dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
     if (flags != 0)
         return _EINVAL;
 
-    struct task *task = pid_get_task(pid);
+    struct task *task = pid_get_task_ref(pid);
     if (task == NULL)
         return _ESRCH;
-    if (task != current && task->parent != current && current->parent != task)
+    if (task != current && task->parent != current && current->parent != task) {
+        task_ref_cnt_mod(task, -1);
         return _EPERM;
+    }
 
     struct iovec_ *local_iov = user_read_iovecs(current, local_iov_addr, liovcnt);
-    if (IS_ERR(local_iov))
+    if (IS_ERR(local_iov)) {
+        task_ref_cnt_mod(task, -1);
         return PTR_ERR(local_iov);
+    }
     struct iovec_ *remote_iov = user_read_iovecs(current, remote_iov_addr, riovcnt);
     if (IS_ERR(remote_iov)) {
         free(local_iov);
+        task_ref_cnt_mod(task, -1);
         return PTR_ERR(remote_iov);
     }
 
@@ -290,5 +295,6 @@ dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
 
     free(local_iov);
     free(remote_iov);
+    task_ref_cnt_mod(task, -1);
     return total;
 }

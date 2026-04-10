@@ -234,6 +234,7 @@ extern lock_t pids_lock;
 struct pid *pid_get(dword_t pid);
 struct pid *pid_get_last_allocated(void);
 struct task *pid_get_task(dword_t pid);
+struct task *pid_get_task_ref(dword_t pid);
 struct task *pid_get_task_zombie(dword_t id); // don't return null if the task exists as a zombie
 
 dword_t get_count_of_blocked_tasks(void);

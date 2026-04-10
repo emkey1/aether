@@ -72,6 +72,15 @@ struct task *pid_get_task(dword_t id) {
     return task;
 }
 
+struct task *pid_get_task_ref(dword_t id) {
+    complex_lockt(&pids_lock, 0);
+    struct task *task = pid_get_task(id);
+    if (task != NULL)
+        task_ref_cnt_mod(task, 1);
+    unlock(&pids_lock);
+    return task;
+}
+
 struct pid *pid_get_last_allocated(void) {
     if (!last_allocated_pid) {
         return NULL;
