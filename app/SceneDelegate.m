@@ -47,6 +47,24 @@ static NSUserActivity *SceneRequestedActivity(UISceneSession *session, UISceneCo
     return session.stateRestorationActivity;
 }
 
+static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, UISceneConnectionOptions *connectionOptions) API_AVAILABLE(ios(13.0));
+static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, UISceneConnectionOptions *connectionOptions) {
+    NSUserActivity *explicitActivity = connectionOptions.userActivities.anyObject;
+    if (explicitActivity != nil)
+        return explicitActivity;
+
+    NSUserActivity *restorationActivity = session.stateRestorationActivity;
+    NSString *restorationType = restorationActivity.activityType;
+    if (restorationType.length == 0)
+        return restorationActivity;
+
+    BOOL prefersWorkspace = ISHShouldLaunchWorkspaceAtStartup();
+    BOOL restoresWorkspace = [restorationType isEqualToString:ISHSceneActivityTypeWorkspace];
+    if (prefersWorkspace != restoresWorkspace)
+        return nil;
+    return restorationActivity;
+}
+
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) API_AVAILABLE(ios(13.0));
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     if (delegate.window == nil) {
@@ -80,7 +98,7 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                   details:@{@"session": session.persistentIdentifier ?: @"",
                                             @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
     EnsureSceneWindow(self, scene);
-    NSUserActivity *requestedActivity = SceneRequestedActivity(session, connectionOptions);
+    NSUserActivity *requestedActivity = SceneEffectiveRequestedActivity(session, connectionOptions);
 
     if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
         self.window.rootViewController = ISHCreateAboutNavigationController(NO, YES);
@@ -157,7 +175,7 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
-    ConfigureTerminalViewController(self, vc, session, SceneRequestedActivity(session, nil));
+    ConfigureTerminalViewController(self, vc, session, SceneEffectiveRequestedActivity(session, nil));
 }
 
 - (void)rootsDidFinishInitialSelection:(__unused NSNotification *)notification {

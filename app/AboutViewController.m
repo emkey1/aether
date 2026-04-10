@@ -235,6 +235,7 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
+    self.initialWindowCell.textLabel.text = @"Startup Mode";
     self.initialWindowCell.detailTextLabel.text = [self _initialWindowTitle];
     self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
     self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
@@ -286,7 +287,7 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
         return @"Workspace";
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
         return @"Session Shell (pts/0)";
-    return @"System Console (/dev/console)";
+    return @"Plain Terminal";
 }
 
 - (void)_setInitialWindowPreferenceValue:(NSString *)value {
@@ -296,8 +297,8 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 
 - (void)_showInitialWindowPickerFromCell:(UITableViewCell *)cell {
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Initial Window"
-                                            message:@"Choose which screen opens first for new app launches."
+        [UIAlertController alertControllerWithTitle:@"Startup Mode"
+                                            message:@"Choose whether new app launches open the Workspace or a terminal."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *currentValue = [self _initialWindowPreferenceValue];
@@ -305,8 +306,8 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
         ? @"Workspace  Current"
         : @"Workspace";
     NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
-        ? @"System Console (/dev/console)  Current"
-        : @"System Console (/dev/console)";
+        ? @"Plain Terminal  Current"
+        : @"Plain Terminal";
     NSString *sessionTitle = [currentValue isEqualToString:@"session-shell"]
         ? @"Session Shell (pts/0)  Current"
         : @"Session Shell (pts/0)";
