@@ -89,10 +89,6 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
             return;
         delegate.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *) scene];
     }
-    if (delegate.window.rootViewController == nil) {
-        delegate.window.rootViewController = CreateTerminalViewController();
-        [delegate.window makeKeyAndVisible];
-    }
 }
 
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) API_AVAILABLE(ios(13.0));

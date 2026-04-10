@@ -78,7 +78,7 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
         ptr = fd_telldir(fd);
         extern time_t boot_time;
         fd->stat.atime = (dword_t)boot_time;
-        struct dir_entry entry;
+        struct dir_entry entry = {.type = DT_UNKNOWN};
         err = fd->ops->readdir(fd, &entry);
         if (err < 0)
             goto out;
@@ -91,7 +91,7 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
         ino_t inode = entry.inode;
         off_t_ offset = fd_telldir(fd);
         const char *name = entry.name;
-        int type = 0;
+        int type = entry.type;
         size_t reclen = fill_dirent(dirent_data, inode, offset, name, type);
         if (printed < 20) {
             STRACE(" {inode=%d, offset=%d, name=%s, type=%d, reclen=%d}",
@@ -125,4 +125,3 @@ int_t sys_getdents(fd_t f, addr_t dirents, uint_t count) {
 int_t sys_getdents64(fd_t f, addr_t dirents, uint_t count) {
     return sys_getdents_common(f, dirents, count, fill_dirent_64);
 }
-

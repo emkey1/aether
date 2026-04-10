@@ -199,6 +199,7 @@ static int proc_readdir(struct fd *fd, struct dir_entry *entry) {
     proc_prepare_child_entry(&fd->proc.entry, fd->offset, &proc_entry);
     proc_entry_getname(&proc_entry, entry->name);
     entry->inode = proc_entry_inode(&proc_entry);
+    entry->type = dir_entry_type_for_mode(proc_entry_mode(&proc_entry));
     proc_entry_cleanup(&proc_entry);
     return 1;
 }

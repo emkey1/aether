@@ -683,6 +683,7 @@ static int tmpfs_readdir(struct fd *fd, struct dir_entry *entry) {
     tmpfs_fd_seekdir(fd, next_dirent);
 
     entry->inode = dirent->inode->stat.inode;
+    entry->type = dir_entry_type_for_mode(dirent->inode->stat.mode);
     strncpy(entry->name, dirent->name, sizeof(entry->name) - 1);
     entry->name[sizeof(entry->name) - 1] = '\0';
     res = 1;

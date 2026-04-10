@@ -37,12 +37,12 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
 }
 
 qword_t proc_entry_inode(struct proc_entry *entry) {
-    // Procfs entries need globally unique, stable-enough inode values so tools
-    // like du don't mistake unrelated proc directories for cycles.
-    uint64_t hash = 1469598103934665603ULL;
-#define FNV_MIX_BYTE(v) do { hash ^= (uint8_t) (v); hash *= 1099511628211ULL; } while (0)
+    // Keep procfs inode numbers unique enough to avoid bogus cycles, but also
+    // small enough to fit the legacy 32-bit stat ABI that userspace still hits.
+    uint32_t hash = 2166136261U;
+#define FNV_MIX_BYTE(v) do { hash ^= (uint8_t) (v); hash *= 16777619U; } while (0)
 #define FNV_MIX_VALUE(v) do { \
-    uint64_t value__ = (uint64_t) (uintptr_t) (v); \
+    uintptr_t value__ = (uintptr_t) (v); \
     for (size_t i__ = 0; i__ < sizeof(value__); i__++) \
         FNV_MIX_BYTE(value__ >> (i__ * 8)); \
 } while (0)

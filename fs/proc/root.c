@@ -906,6 +906,7 @@ static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
 
     sysfs_node_name(child, entry->name, sizeof(entry->name));
     entry->inode = sysfs_node_inode(child);
+    entry->type = dir_entry_type_for_mode(sysfs_node_mode(child));
     return 1;
 }
 

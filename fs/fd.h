@@ -1,6 +1,7 @@
 #ifndef FD_H
 #define FD_H
 #include <dirent.h>
+#include <sys/stat.h>
 #include "emu/memory.h"
 #include "util/list.h"
 #include "util/ro_locks.h"
@@ -148,8 +149,22 @@ int fd_setflags(struct fd *fd, int flags);
 #define NAME_MAX 255
 struct dir_entry {
     qword_t inode;
+    byte_t type;
     char name[NAME_MAX + 1];
 };
+
+static inline byte_t dir_entry_type_for_mode(mode_t_ mode) {
+    switch (mode & S_IFMT) {
+        case S_IFREG: return DT_REG;
+        case S_IFDIR: return DT_DIR;
+        case S_IFLNK: return DT_LNK;
+        case S_IFCHR: return DT_CHR;
+        case S_IFBLK: return DT_BLK;
+        case S_IFIFO: return DT_FIFO;
+        case S_IFSOCK: return DT_SOCK;
+        default: return DT_UNKNOWN;
+    }
+}
 
 #define LSEEK_SET 0
 #define LSEEK_CUR 1
