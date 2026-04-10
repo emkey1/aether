@@ -79,6 +79,11 @@ struct fdtable *fdtable_new(int size) {
     return fdt;
 }
 
+struct fdtable *fdtable_retain(struct fdtable *table) {
+    table->refcount++;
+    return table;
+}
+
 static int fdtable_close(struct fdtable *table, fd_t f);
 
 // FIXME this looks like it has the classic refcount UAF

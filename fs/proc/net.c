@@ -143,6 +143,15 @@ static int proc_net_socket_push(struct proc_net_socket_entry *entries, struct fd
     return 0;
 }
 
+static struct fdtable *proc_net_task_files_retain(struct task *task) {
+    struct fdtable *files = NULL;
+    lock(&task->general_lock, 0);
+    if (task->files != NULL)
+        files = fdtable_retain(task->files);
+    unlock(&task->general_lock);
+    return files;
+}
+
 static void proc_net_socket_release(struct proc_net_socket_entry *entries) {
     for (unsigned i = 0; i < entries->count; i++)
         fd_close(entries->fds[i]);
@@ -157,11 +166,14 @@ static int proc_net_collect_sockets(struct proc_net_socket_entry *entries, int d
 
     for (unsigned i = 0; i < snapshot.count; i++) {
         struct task *task = snapshot.tasks[i];
-        if (task == NULL || task->files == NULL)
+        if (task == NULL)
             continue;
-        lock(&task->files->lock, 0);
-        for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
-            struct fd *fd = fdtable_get(task->files, fd_no);
+        struct fdtable *files = proc_net_task_files_retain(task);
+        if (files == NULL)
+            continue;
+        lock(&files->lock, 0);
+        for (fd_t fd_no = 0; (unsigned) fd_no < files->size; fd_no++) {
+            struct fd *fd = fdtable_get(files, fd_no);
             if (fd == NULL || fd->ops != &socket_fdops)
                 continue;
             if (fd->socket.domain != domain || fd->socket.type != type)
@@ -172,7 +184,8 @@ static int proc_net_collect_sockets(struct proc_net_socket_entry *entries, int d
             if (err < 0)
                 break;
         }
-        unlock(&task->files->lock);
+        unlock(&files->lock);
+        fdtable_release(files);
         if (err < 0)
             break;
     }
@@ -188,11 +201,14 @@ static int proc_net_collect_sockets_any_type(struct proc_net_socket_entry *entri
 
     for (unsigned i = 0; i < snapshot.count; i++) {
         struct task *task = snapshot.tasks[i];
-        if (task == NULL || task->files == NULL)
+        if (task == NULL)
             continue;
-        lock(&task->files->lock, 0);
-        for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
-            struct fd *fd = fdtable_get(task->files, fd_no);
+        struct fdtable *files = proc_net_task_files_retain(task);
+        if (files == NULL)
+            continue;
+        lock(&files->lock, 0);
+        for (fd_t fd_no = 0; (unsigned) fd_no < files->size; fd_no++) {
+            struct fd *fd = fdtable_get(files, fd_no);
             if (fd == NULL || fd->ops != &socket_fdops)
                 continue;
             if (fd->socket.domain != domain)
@@ -201,7 +217,8 @@ static int proc_net_collect_sockets_any_type(struct proc_net_socket_entry *entri
             if (err < 0)
                 break;
         }
-        unlock(&task->files->lock);
+        unlock(&files->lock);
+        fdtable_release(files);
         if (err < 0)
             break;
     }

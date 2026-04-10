@@ -12,6 +12,11 @@ struct fs_info *fs_info_new() {
     return fs;
 }
 
+struct fs_info *fs_info_retain(struct fs_info *fs) {
+    fs->refcount++;
+    return fs;
+}
+
 struct fs_info *fs_info_copy(struct fs_info *fs) {
     struct fs_info *new_fs = fs_info_new();
     new_fs->umask = fs->umask;
