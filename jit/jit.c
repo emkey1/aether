@@ -142,7 +142,8 @@ void jit_invalidate_page(struct jit *jit, page_t page) {
 }
 
 void jit_invalidate_all(struct jit *jit) {
-    jit_invalidate_range(jit, 0, MEM_PAGES);
+    struct mem *mem = container_of(jit->mmu, struct mem, mmu);
+    jit_invalidate_range(jit, 0, mem->page_limit);
 }
 
 static void jit_resize_hash(struct jit *jit, size_t new_size) {

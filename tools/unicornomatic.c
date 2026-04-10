@@ -451,7 +451,7 @@ uc_engine *start_unicorn(struct cpu_state *cpu, struct mem *mem) {
     // copy memory
     // XXX unicorn has a ?bug? where setting up 334 mappings takes five
     // seconds on my raspi. it seems to be accidentally quadratic (dot tumblr dot com)
-    for (page_t page = 0; page < MEM_PAGES; page++) {
+    for (page_t page = 0; page < mem->page_limit; page++) {
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)
             continue;
@@ -511,4 +511,3 @@ void dump_memory(uc_engine *uc, const char *file, addr_t start, size_t size) {
     fwrite(buf, 1, sizeof(buf), f);
     fclose(f);
 }
-
