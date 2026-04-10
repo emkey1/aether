@@ -66,18 +66,16 @@ static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsi
 }
 
 // Count the number of mapped pages in a mem.
-// Intentionally lock-free: second-level pgdir tables are never freed until
-// mem_destroy (impossible while caller holds a task ref), so the worst case is
-// a slightly stale count, which is fine for monitoring via /proc.
+// Intentionally lock-free: the count is only used for /proc reporting, so a
+// slightly stale snapshot is acceptable.
 static size_t proc_mem_count_pages(struct mem *mem) {
     if (mem == NULL)
         return 0;
     size_t count = 0;
-    for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-        struct pt_entry *pgdir = mem->pgdir[i];
-        if (pgdir == NULL) continue;
-        for (int j = 0; j < MEM_PGDIR_SIZE; j++) {
-            if (pgdir[j].data != NULL)
+    for (size_t i = 0; i < mem->pgdir_count; i++) {
+        struct pt_entry *entries = mem->pgdirs[i].entries;
+        for (int j = 0; j < MEM_PTDIR_SIZE; j++) {
+            if (entries[j].data != NULL)
                 count++;
         }
     }
@@ -396,19 +394,19 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
 
     read_lock(&mem->lock);
     page_t page = 0;
-    while (page < MEM_PAGES) {
+    while (page < mem->page_limit) {
         // find a region
-        while (page < MEM_PAGES && mem_pt(mem, page) == NULL) {
+        while (page < mem->page_limit && mem_pt(mem, page) == NULL) {
             mem_next_page(mem, &page);
         }
-        if (page >= MEM_PAGES)
+        if (page >= mem->page_limit)
             break;
         page_t start = page;
         struct pt_entry *start_pt = mem_pt(mem, start);
         struct data *data = start_pt->data;
 
         // find the end of said region
-        while (page < MEM_PAGES) {
+        while (page < mem->page_limit) {
             struct pt_entry *pt = mem_pt(mem, page);
             if (pt == NULL)
                 break;
@@ -431,8 +429,8 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
         } else if (data->fd != NULL) {
             generic_getpath(start_pt->data->fd, path);
         }
-        proc_printf(buf, "%08x-%08x %c%c%c%c %08lx 00:00 %-10d %s\n",
-                start << PAGE_BITS, end << PAGE_BITS,
+        proc_printf(buf, "%08llx-%08llx %c%c%c%c %08lx 00:00 %-10d %s\n",
+                (unsigned long long) (start << PAGE_BITS), (unsigned long long) (end << PAGE_BITS),
                 start_pt->flags & P_READ ? 'r' : '-',
                 start_pt->flags & P_WRITE ? 'w' : '-',
                 start_pt->flags & P_EXEC ? 'x' : '-',

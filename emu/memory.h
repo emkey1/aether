@@ -12,9 +12,15 @@
 struct jit;
 #endif
 
+struct pt_directory;
+
 struct mem {
-    struct pt_entry **pgdir;
-    int pgdir_used;
+    struct pt_directory *pgdirs;
+    size_t pgdir_count;
+    size_t pgdir_capacity;
+    page_t page_limit;
+    page_t mmap_floor;
+    page_t mmap_ceiling;
 
 #if ENGINE_JIT
     struct jit *jit;
@@ -28,13 +34,18 @@ struct mem {
 
     wrlock_t lock;
 };
-#define MEM_PAGES (1 << 20) // at least on 32-bit
-#define MEM_PGDIR_SIZE (1 << 10)
+#define MEM_DEFAULT_PAGE_LIMIT ((page_t) 1 << 20)
+#define MEM_DEFAULT_MMAP_FLOOR ((page_t) 0x40000)
+#define MEM_DEFAULT_MMAP_CEILING ((page_t) 0xf7ffe)
+#define MEM_PTDIR_BITS 10
+#define MEM_PTDIR_SIZE (1 << MEM_PTDIR_BITS)
 
 // Initialize the address space
 void mem_init(struct mem *mem);
 // Uninitialize the address space
 void mem_destroy(struct mem *mem);
+void mem_set_page_limit(struct mem *mem, page_t limit);
+void mem_set_mmap_window(struct mem *mem, page_t floor, page_t ceiling);
 // Return the pagetable entry for the given page
 struct pt_entry *mem_pt(struct mem *mem, page_t page);
 // Increment *page, skipping over unallocated page directories. Intended to be
@@ -67,6 +78,10 @@ struct pt_entry {
 #if ENGINE_JIT
     struct list blocks[2];
 #endif
+};
+struct pt_directory {
+    page_t top;
+    struct pt_entry *entries;
 };
 // page flags
 // P_READ and P_EXEC are ignored for now

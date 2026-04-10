@@ -164,6 +164,7 @@ struct task *task_create_(struct task *parent) {
         // Treat init/root as starting with the full Linux capability set so
         // guest helpers such as setpriv can drop or reshuffle capabilities
         // without tripping over uninitialized state.
+        task->abi = GUEST_ABI_I386;
         task->cap_effective[0] = task->cap_effective[1] = UINT32_MAX;
         task->cap_permitted[0] = task->cap_permitted[1] = UINT32_MAX;
         task->cap_inheritable[0] = task->cap_inheritable[1] = UINT32_MAX;

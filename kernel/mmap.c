@@ -15,6 +15,8 @@ struct mm *mm_new(void) {
     if (mm == NULL)
         return NULL;
     mem_init(&mm->mem);
+    mem_set_page_limit(&mm->mem, MEM_DEFAULT_PAGE_LIMIT);
+    mem_set_mmap_window(&mm->mem, MEM_DEFAULT_MMAP_FLOOR, MEM_DEFAULT_MMAP_CEILING);
     ipc_mm_init(mm);
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
     mm->exefile = NULL;
@@ -31,10 +33,12 @@ struct mm *mm_copy(struct mm *mm) {
     memset(&new_mm->mem.lock, 0, sizeof(new_mm->mem.lock));
     new_mm->refcount = 1;
     mem_init(&new_mm->mem);
+    mem_set_page_limit(&new_mm->mem, mm->mem.page_limit);
+    mem_set_mmap_window(&new_mm->mem, mm->mem.mmap_floor, mm->mem.mmap_ceiling);
     ipc_mm_init(new_mm);
     fd_retain(new_mm->exefile);
     write_lock(&mm->mem.lock);
-    pt_copy_on_write(&mm->mem, &new_mm->mem, 0, MEM_PAGES);
+    pt_copy_on_write(&mm->mem, &new_mm->mem, 0, mm->mem.page_limit);
     ipc_mm_copy(new_mm, mm);
     write_unlock(&mm->mem.lock);
     return new_mm;

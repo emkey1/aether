@@ -364,6 +364,23 @@ static bool syscall_is_logged_stub(syscall_t syscall) {
     return syscall == (syscall_t) syscall_stub;
 }
 
+static inline dword_t i386_syscall_number(const struct cpu_state *cpu) {
+    return cpu->eax;
+}
+
+static inline void i386_syscall_args(const struct cpu_state *cpu, dword_t args[6]) {
+    args[0] = cpu->ebx;
+    args[1] = cpu->ecx;
+    args[2] = cpu->edx;
+    args[3] = cpu->esi;
+    args[4] = cpu->edi;
+    args[5] = cpu->ebp;
+}
+
+static inline void i386_syscall_result(struct cpu_state *cpu, int result) {
+    cpu->eax = result;
+}
+
 static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
     (void) cpu;
     (void) syscall_num;
@@ -371,7 +388,15 @@ static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const 
 }
 
 void handle_syscall_interrupt(struct cpu_state *cpu) {
-    unsigned syscall_num = cpu->eax;
+    if (current->abi != GUEST_ABI_I386) {
+        printk("ERROR: %d(%s) syscall dispatch for unsupported guest ABI %s\n",
+               current->pid, current->comm, guest_abi_name(current->abi));
+        deliver_signal(current, SIGSYS_, SIGINFO_NIL);
+        return;
+    }
+
+    dword_t args[6];
+    unsigned syscall_num = i386_syscall_number(cpu);
     if (syscall_num >= NUM_SYSCALLS) {
         printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
@@ -390,9 +415,10 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     if (syscall_is_logged_stub(syscall))
         log_stub_syscall(cpu, syscall_num, "stub");
 
+    i386_syscall_args(cpu, args);
     STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
-    int result = syscall(cpu->ebx, cpu->ecx, cpu->edx, cpu->esi, cpu->edi, cpu->ebp);
-    cpu->eax = result;
+    int result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
+    i386_syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
     STRACE(" = 0x%x\n", result);

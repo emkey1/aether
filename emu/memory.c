@@ -30,10 +30,129 @@ extern const char extra_lock_comm;
 // increment the change count
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
+#define PGDIR_TOP(page) ((page) >> MEM_PTDIR_BITS)
+#define PGDIR_BOTTOM(page) ((page) & (MEM_PTDIR_SIZE - 1))
+
+static size_t mem_pgdir_lower_bound(struct mem *mem, page_t top, bool *found) {
+    size_t lo = 0;
+    size_t hi = mem->pgdir_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (mem->pgdirs[mid].top < top)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    if (found != NULL)
+        *found = lo < mem->pgdir_count && mem->pgdirs[lo].top == top;
+    return lo;
+}
+
+static struct pt_directory *mem_pgdir_get(struct mem *mem, page_t top) {
+    bool found;
+    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
+    if (!found)
+        return NULL;
+    return &mem->pgdirs[slot];
+}
+
+static struct pt_directory *mem_pgdir_insert(struct mem *mem, page_t top) {
+    bool found;
+    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
+    if (found)
+        return &mem->pgdirs[slot];
+
+    if (mem->pgdir_count == mem->pgdir_capacity) {
+        size_t new_capacity = mem->pgdir_capacity == 0 ? 4 : mem->pgdir_capacity * 2;
+        struct pt_directory *new_pgdirs = realloc(mem->pgdirs, new_capacity * sizeof(*new_pgdirs));
+        if (new_pgdirs == NULL)
+            return NULL;
+        mem->pgdirs = new_pgdirs;
+        mem->pgdir_capacity = new_capacity;
+    }
+
+    if (slot < mem->pgdir_count) {
+        memmove(&mem->pgdirs[slot + 1], &mem->pgdirs[slot],
+                (mem->pgdir_count - slot) * sizeof(*mem->pgdirs));
+    }
+
+    struct pt_entry *entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
+    if (entries == NULL)
+        return NULL;
+
+    mem->pgdirs[slot] = (struct pt_directory) {
+        .top = top,
+        .entries = entries,
+    };
+    mem->pgdir_count++;
+    return &mem->pgdirs[slot];
+}
+
+static void mem_pgdir_remove_if_empty(struct mem *mem, page_t top) {
+    struct pt_directory *dir = mem_pgdir_get(mem, top);
+    if (dir == NULL)
+        return;
+    for (int i = 0; i < MEM_PTDIR_SIZE; i++) {
+        if (dir->entries[i].data != NULL)
+            return;
+    }
+
+    size_t slot = dir - mem->pgdirs;
+    free(dir->entries);
+    if (slot + 1 < mem->pgdir_count) {
+        memmove(&mem->pgdirs[slot], &mem->pgdirs[slot + 1],
+                (mem->pgdir_count - slot - 1) * sizeof(*mem->pgdirs));
+    }
+    mem->pgdir_count--;
+}
+
+static struct pt_entry *mem_pt_raw(struct mem *mem, page_t page) {
+    if (page >= mem->page_limit)
+        return NULL;
+    struct pt_directory *dir = mem_pgdir_get(mem, PGDIR_TOP(page));
+    if (dir == NULL)
+        return NULL;
+    return &dir->entries[PGDIR_BOTTOM(page)];
+}
+
+static bool mem_page_range_valid(struct mem *mem, page_t start, pages_t pages) {
+    if (pages == 0)
+        return true;
+    if (start >= mem->page_limit)
+        return false;
+    return pages <= mem->page_limit - start;
+}
+
+static page_t mem_next_mapped_page(struct mem *mem, page_t page) {
+    if (page >= mem->page_limit)
+        return BAD_PAGE;
+
+    page_t top = PGDIR_TOP(page);
+    bool found;
+    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
+    for (; slot < mem->pgdir_count; slot++) {
+        struct pt_directory *dir = &mem->pgdirs[slot];
+        page_t dir_start = dir->top << MEM_PTDIR_BITS;
+        int start_index = 0;
+        if (dir->top == top)
+            start_index = (int) PGDIR_BOTTOM(page);
+        for (int i = start_index; i < MEM_PTDIR_SIZE; i++) {
+            if (dir->entries[i].data == NULL)
+                continue;
+            page_t mapped = dir_start + (page_t) i;
+            return mapped < mem->page_limit ? mapped : BAD_PAGE;
+        }
+    }
+    return BAD_PAGE;
+}
 
 void mem_init(struct mem *mem) {
-    mem->pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry *));
-    mem->pgdir_used = 0;
+    mem->pgdirs = NULL;
+    mem->pgdir_count = 0;
+    mem->pgdir_capacity = 0;
+    mem->page_limit = MEM_DEFAULT_PAGE_LIMIT;
+    mem->mmap_floor = MEM_DEFAULT_MMAP_FLOOR;
+    mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
     mem->mmu.ops = &mem_mmu_ops;
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);
@@ -50,93 +169,109 @@ void mem_init(struct mem *mem) {
 
 void mem_destroy(struct mem *mem) {
     write_lock(&mem->lock);
-    pt_unmap_always(mem, 0, MEM_PAGES);
+    pt_unmap_always(mem, 0, mem->page_limit);
 
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
 #endif
-    for (int i = 0; i < MEM_PGDIR_SIZE; i++) {
-        if (mem->pgdir[i] != NULL)
-            free(mem->pgdir[i]);
+    for (size_t i = 0; i < mem->pgdir_count; i++) {
+        free(mem->pgdirs[i].entries);
     }
+    free(mem->pgdirs);
+    mem->pgdirs = NULL;
+    mem->pgdir_count = 0;
+    mem->pgdir_capacity = 0;
 
-    free(mem->pgdir);
-    
-    mem->pgdir = NULL; //mkemkemke Trying something here
-    
     write_unlock_and_destroy(&mem->lock);
-    
 }
 
-#define PGDIR_TOP(page) ((page) >> 10)
-#define PGDIR_BOTTOM(page) ((page) & (MEM_PGDIR_SIZE - 1))
+void mem_set_page_limit(struct mem *mem, page_t limit) {
+    mem->page_limit = limit;
+}
+
+void mem_set_mmap_window(struct mem *mem, page_t floor, page_t ceiling) {
+    mem->mmap_floor = floor;
+    mem->mmap_ceiling = ceiling;
+}
 
 static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
-    struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
-    if (pgdir == NULL) {
-        pgdir = calloc(MEM_PGDIR_SIZE, sizeof(struct pt_entry));
-        if (pgdir == NULL)
-            return NULL;
-        mem->pgdir[PGDIR_TOP(page)] = pgdir;
-        mem->pgdir_used++;
-    }
-    return &pgdir[PGDIR_BOTTOM(page)];
+    if (page >= mem->page_limit)
+        return NULL;
+    struct pt_directory *dir = mem_pgdir_insert(mem, PGDIR_TOP(page));
+    if (dir == NULL)
+        return NULL;
+    return &dir->entries[PGDIR_BOTTOM(page)];
 }
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
-
-    if (mem->pgdir[PGDIR_TOP(page)] != NULL) { // Check if defined.  Likely still leaves a potential race condition as no locking currently. -MKE FIXME
-        struct pt_entry *pgdir = mem->pgdir[PGDIR_TOP(page)];
-        if (pgdir == NULL) {
-            return NULL;
-        }
-        
-        struct pt_entry *entry = &pgdir[PGDIR_BOTTOM(page)];
-        if (entry->data == NULL) {
-            return NULL;
-        }
-        
-        return entry;
-    } else {
-        mem->pgdir[PGDIR_TOP(page)] = NULL;
+    struct pt_entry *entry = mem_pt_raw(mem, page);
+    if (entry == NULL || entry->data == NULL)
         return NULL;
-    }
-    
+    return entry;
 }
 
 static void mem_pt_del(struct mem *mem, page_t page) {
-    struct pt_entry *entry = mem_pt(mem, page);
-    if (entry != NULL) {
-        entry->data = NULL;
-    }
+    struct pt_entry *entry = mem_pt_raw(mem, page);
+    if (entry == NULL)
+        return;
+    entry->data = NULL;
+    mem_pgdir_remove_if_empty(mem, PGDIR_TOP(page));
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
     (*page)++;
-    if (*page >= MEM_PAGES)
+    if (*page >= mem->page_limit) {
+        *page = mem->page_limit;
         return;
-    while (*page < MEM_PAGES && mem->pgdir[PGDIR_TOP(*page)] == NULL)
-        *page = (*page - PGDIR_BOTTOM(*page)) + MEM_PGDIR_SIZE;
+    }
+    if (mem_pgdir_get(mem, PGDIR_TOP(*page)) != NULL)
+        return;
+    bool found;
+    size_t slot = mem_pgdir_lower_bound(mem, PGDIR_TOP(*page), &found);
+    if (slot >= mem->pgdir_count) {
+        *page = mem->page_limit;
+        return;
+    }
+    *page = mem->pgdirs[slot].top << MEM_PTDIR_BITS;
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
-    page_t hole_end = 0; // this can never be used before initializing but gcc doesn't realize
-    bool in_hole = false;
-    for (page_t page = 0xf7ffd; page > 0x40000; page--) {
-        // I don't know how this works but it does
-        if (!in_hole && mem_pt(mem, page) == NULL) {
-            in_hole = true;
-            hole_end = page + 1;
+    if (size == 0 || mem->mmap_ceiling <= mem->mmap_floor)
+        return BAD_PAGE;
+    if (size > mem->mmap_ceiling - mem->mmap_floor)
+        return BAD_PAGE;
+
+    page_t best = BAD_PAGE;
+    page_t prev_end = mem->mmap_floor;
+    page_t page = mem_next_mapped_page(mem, mem->mmap_floor);
+    while (page != BAD_PAGE && page < mem->mmap_ceiling) {
+        if (page > prev_end && page - prev_end >= size)
+            best = page - size;
+
+        page_t region_page = page;
+        struct pt_entry *start_pt = mem_pt(mem, region_page);
+        struct data *data = start_pt->data;
+        while (region_page < mem->mmap_ceiling) {
+            struct pt_entry *pt = mem_pt(mem, region_page);
+            if (pt == NULL)
+                break;
+            if ((pt->flags & P_RWX) != (start_pt->flags & P_RWX))
+                break;
+            if (!(pt->data == data || ((pt->flags & P_ANONYMOUS) && (start_pt->flags & P_ANONYMOUS))))
+                break;
+            mem_next_page(mem, &region_page);
         }
-        if (mem_pt(mem, page) != NULL)
-            in_hole = false;
-        else if (hole_end - page == size)
-            return page;
+        prev_end = region_page;
+        page = mem_next_mapped_page(mem, region_page);
     }
-    return BAD_PAGE;
+    if (mem->mmap_ceiling - prev_end >= size)
+        best = mem->mmap_ceiling - size;
+    return best;
 }
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return false;
     for (page_t page = start; page < start + pages; page++) {
         if (mem_pt(mem, page) != NULL)
             return false;
@@ -145,6 +280,8 @@ bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
 }
 
 int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t offset, unsigned flags) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return _ENOMEM;
     if (memory == MAP_FAILED)
         return errno_map();
 
@@ -183,6 +320,8 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
 }
 
 int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return -1;
     for (page_t page = start; page < start + pages; page++)
         if (mem_pt(mem, page) == NULL)
             return -1;
@@ -190,6 +329,8 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 }
 
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return -1;
     for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)
@@ -218,12 +359,16 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
 
 int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags) {
     if (pages == 0) return 0;
+    if (pages > SIZE_MAX / PAGE_SIZE)
+        return _ENOMEM;
     void *memory = mmap(NULL, pages * PAGE_SIZE,
             PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
 }
 
 int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return _ENOMEM;
     for (page_t page = start; page < start + pages; page++)
         if (mem_pt(mem, page) == NULL)
             return _ENOMEM;
@@ -247,6 +392,8 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 }
 
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
+    if (!mem_page_range_valid(src, start, pages) || !mem_page_range_valid(dst, start, pages))
+        return -1;
     mem_ref_cnt_mod(src, 1);
     mem_ref_cnt_mod(dst, 1);
     for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
@@ -300,9 +447,8 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         // page does not exist
         // look to see if the next VM region is willing to grow down
         page_t p = page + 1;
-        while (p < MEM_PAGES && mem_pt(mem, p) == NULL)
-            p++;
-        if (p >= MEM_PAGES)
+        p = mem_next_mapped_page(mem, p);
+        if (p == BAD_PAGE || p >= mem->page_limit)
             return NULL;
         if (!(mem_pt(mem, p)->flags & P_GROWSDOWN))
             return NULL;
@@ -397,7 +543,7 @@ void mem_coredump(struct mem *mem, const char *file) {
     }
 
     int pages = 0;
-    for (page_t page = 0; page < MEM_PAGES; page++) {
+    for (page_t page = 0; page < mem->page_limit; mem_next_page(mem, &page)) {
         struct pt_entry *entry = mem_pt(mem, page);
         if (entry == NULL)
             continue;

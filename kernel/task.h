@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include "emu/cpu.h"
+#include "kernel/abi.h"
 #include "kernel/mm.h"
 #include "kernel/fs.h"
 #include "kernel/signal.h"
@@ -26,6 +27,7 @@ extern struct list tasks_pending_deletion_queue;
 extern pthread_mutex_t tasks_pending_deletion_lock;
 
 struct task {
+    enum guest_abi abi;
     struct cpu_state cpu;
     struct mm *mm; // locked by general_lock
     struct mem *mem; // pointer to mm.mem, for convenience
@@ -142,6 +144,14 @@ static inline void task_set_mm(struct task *task, struct mm *mm) {
     task->mm = mm;
     task->mem = &task->mm->mem;
     task->cpu.mmu = &task->mem->mmu;
+}
+
+static inline struct guest_abi_desc task_abi_desc(const struct task *task) {
+    return guest_abi_desc(task->abi);
+}
+
+static inline bool task_is_64bit(const struct task *task) {
+    return guest_abi_is_64bit(task->abi);
 }
 
 // Creates a new process, initializes most fields from the parent. Specify

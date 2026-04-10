@@ -75,8 +75,8 @@ dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid);
 #define LOCK_NB_ 4
 #define LOCK_UN_ 8
 struct iovec_ {
-    addr_t base;
-    uint_t len;
+    i386_guest_addr_t base;
+    i386_guest_size_t len;
 };
 dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size);
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
@@ -295,6 +295,8 @@ addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg);
 int_t sys_shmdt(addr_t shmaddr);
 int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 
+// The active syscall table still uses the i386 register ABI. amd64 will grow a
+// separate dispatcher once the CPU state and syscall tables are split.
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
 
 #endif

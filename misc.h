@@ -109,6 +109,11 @@ typedef int32_t sdword_t;
 typedef uint16_t word_t;
 typedef uint8_t byte_t;
 
+typedef uintptr_t host_addr_t;
+typedef intptr_t host_long_t;
+
+// Legacy guest-width aliases for the existing i386 port. Keep these fixed at
+// 32-bit until per-ABI marshalling types replace direct use of these names.
 typedef dword_t addr_t;
 typedef dword_t uint_t;
 typedef sdword_t int_t;
