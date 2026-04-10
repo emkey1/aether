@@ -42,6 +42,32 @@ static void proc_put_task(struct task *task) {
         task_ref_cnt_mod(task, -1);
 }
 
+static struct mm *proc_task_mm_retain(struct task *task) {
+    struct mm *mm = NULL;
+    lock(&task->general_lock, 0);
+    if (task->mm != NULL) {
+        mm = task->mm;
+        mm_retain(mm);
+    }
+    unlock(&task->general_lock);
+    return mm;
+}
+
+static int proc_pid_copy_user_range(struct task *task, struct mem *mem, addr_t start,
+                                    size_t size, struct proc_data *buf) {
+    if (mem == NULL || size == 0)
+        return 0;
+
+    char *data = malloc(size);
+    if (data == NULL)
+        return _ENOMEM;
+
+    if (user_read_task_mem(task, mem, start, data, size) == 0)
+        proc_buf_append(buf, data, size);
+    free(data);
+    return 0;
+}
+
 // Get user and system CPU time for a task's thread, in jiffies (USER_HZ = 100).
 // Uses the Mach thread_info API so it works from any thread, not just the target.
 static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime) {
@@ -93,7 +119,10 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     unsigned long utime_jiffies, stime_jiffies;
     proc_task_cpu_time(task, &utime_jiffies, &stime_jiffies);
 
-    size_t page_count = proc_mem_count_pages(task->mem);
+    struct mm *mm = proc_task_mm_retain(task);
+    size_t page_count = proc_mem_count_pages(mm ? &mm->mem : NULL);
+    if (mm != NULL)
+        mm_release(mm);
 
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
@@ -196,7 +225,10 @@ static int proc_pid_statm_show(struct proc_entry *entry, struct proc_data *buf) 
         proc_put_task(task);
         return _ESRCH;
     }
-    size_t page_count = proc_mem_count_pages(task->mem);
+    struct mm *mm = proc_task_mm_retain(task);
+    size_t page_count = proc_mem_count_pages(mm ? &mm->mem : NULL);
+    if (mm != NULL)
+        mm_release(mm);
     proc_put_task(task);
     proc_printf(buf, "%lu ", (unsigned long)page_count); // size (total pages)
     proc_printf(buf, "%lu ", (unsigned long)page_count); // resident (same, no swap)
@@ -216,19 +248,24 @@ static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
     }
     // FIXME: Increment task->reference.count
     int err = 0;
+    struct mm *mm = NULL;
+    addr_t start = 0;
+    size_t size = 0;
     lock(&task->general_lock, 0);
     if (task->mm == NULL)
         goto out_free_task;
 
-    size_t size = task->mm->auxv_end - task->mm->auxv_start;
-    char *data = malloc(size);
-    if (data == NULL) {
-        err = _ENOMEM;
-        goto out_free_task;
-    }
-    if (user_read_task(task, task->mm->auxv_start, data, size) == 0)
-        proc_buf_append(buf, data, size);
-    free(data);
+    start = task->mm->auxv_start;
+    size = task->mm->auxv_end - start;
+    mm = task->mm;
+    mm_retain(mm);
+    unlock(&task->general_lock);
+
+    err = proc_pid_copy_user_range(task, &mm->mem, start, size, buf);
+    mm_release(mm);
+    proc_put_task(task);
+    // FIXME: Decrement task->reference.count
+    return err;
 
 out_free_task:
     unlock(&task->general_lock);
@@ -245,20 +282,24 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     }
     
     int err = 0;
+    struct mm *mm = NULL;
+    addr_t start = 0;
+    size_t size = 0;
     lock(&task->general_lock, 0);
     
     if (task->mm == NULL)
         goto out_free_task;
 
-    size_t size = task->mm->argv_end - task->mm->argv_start;
-    char *data = malloc(size);
-    if (data == NULL) {
-        err = _ENOMEM;
-        goto out_free_task;
-    }
-    if (user_read_task(task, task->mm->argv_start, data, size) == 0) // Crashed here on Saturday May 28th -mke
-        proc_buf_append(buf, data, size);  //mkemke crashed here Monday May 9th 2022 -mke
-    free(data);
+    start = task->mm->argv_start;
+    size = task->mm->argv_end - start;
+    mm = task->mm;
+    mm_retain(mm);
+    unlock(&task->general_lock);
+
+    err = proc_pid_copy_user_range(task, &mm->mem, start, size, buf);
+    mm_release(mm);
+    proc_put_task(task);
+    return err;
     
 out_free_task:
     unlock(&task->general_lock);
@@ -292,19 +333,23 @@ static int proc_pid_environ_show(struct proc_entry *entry, struct proc_data *buf
     }
 
     int err = 0;
+    struct mm *mm = NULL;
+    addr_t start = 0;
+    size_t size = 0;
     lock(&task->general_lock, 0);
     if (task->mm == NULL)
         goto out_free_task;
 
-    size_t size = task->mm->env_end - task->mm->env_start;
-    char *data = malloc(size);
-    if (data == NULL) {
-        err = _ENOMEM;
-        goto out_free_task;
-    }
-    if (user_read_task(task, task->mm->env_start, data, size) == 0)
-        proc_buf_append(buf, data, size);
-    free(data);
+    start = task->mm->env_start;
+    size = task->mm->env_end - start;
+    mm = task->mm;
+    mm_retain(mm);
+    unlock(&task->general_lock);
+
+    err = proc_pid_copy_user_range(task, &mm->mem, start, size, buf);
+    mm_release(mm);
+    proc_put_task(task);
+    return err;
 
 out_free_task:
     unlock(&task->general_lock);
@@ -325,7 +370,10 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
         ppid = task->parent->pid;
     unlock(&pids_lock);
 
-    size_t page_count = proc_mem_count_pages(task->mem);
+    struct mm *mm = proc_task_mm_retain(task);
+    size_t page_count = proc_mem_count_pages(mm ? &mm->mem : NULL);
+    if (mm != NULL)
+        mm_release(mm);
     unsigned long vm_kb = (unsigned long)(page_count * (PAGE_SIZE / 1024));
 
     lock(&task->general_lock, 0);
@@ -406,7 +454,8 @@ static int proc_pid_sched_show(struct proc_entry *entry, struct proc_data *buf) 
 }
 
 void proc_maps_dump(struct task *task, struct proc_data *buf) {
-    struct mem *mem = task->mem;
+    struct mm *mm = proc_task_mm_retain(task);
+    struct mem *mem = mm ? &mm->mem : NULL;
     if (mem == NULL)
         return;
 
@@ -458,6 +507,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
                 path);
     }
     read_unlock(&mem->lock);
+    mm_release(mm);
 }
 
 static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {
@@ -475,11 +525,13 @@ static ssize_t proc_pid_mem_pread(struct proc_entry *entry, struct proc_data *bu
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    if (task->mem == NULL) {
+    struct mm *mm = proc_task_mm_retain(task);
+    if (mm == NULL) {
         proc_put_task(task);
         return _ESRCH;
     }
-    int result = user_read_task(task, (addr_t)offset, buf->data, buf->size);
+    int result = user_read_task_mem(task, &mm->mem, (addr_t)offset, buf->data, buf->size);
+    mm_release(mm);
     proc_put_task(task);
     return result ? -1 : buf->size;
 }
@@ -488,11 +540,13 @@ static ssize_t proc_pid_mem_pwrite(struct proc_entry *entry, struct proc_data *b
     struct task *task = proc_get_task(entry);
     if (task == NULL)
         return _ESRCH;
-    if (task->mem == NULL) {
+    struct mm *mm = proc_task_mm_retain(task);
+    if (mm == NULL) {
         proc_put_task(task);
         return _ESRCH;
     }
-    int result = user_write_task_ptrace(task, (addr_t)offset, buf->data, buf->size);
+    int result = user_write_task_ptrace_mem(task, &mm->mem, (addr_t)offset, buf->data, buf->size);
+    mm_release(mm);
     proc_put_task(task);
     return result ? -1 : buf->size;
 }
@@ -576,15 +630,21 @@ static int proc_pid_fdinfo_show(struct proc_entry *entry, struct proc_data *buf)
 
 static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
-  //  task->mm->exefile->refcount++;  // Always note interest as soon as possible
-    if ((task == NULL) || task->exiting == true || task->mm == NULL || task->mm->exefile == NULL) {
+    if (task == NULL || task->exiting == true) {
         proc_put_task(task);
         return _ESRCH;
     }
     lock(&task->general_lock, 0);
-    int err = generic_getpath(task->mm->exefile, buf);
-   // task->mm->exefile->refcount--;
+    struct fd *fd = NULL;
+    if (task->mm != NULL && task->mm->exefile != NULL)
+        fd = fd_retain(task->mm->exefile);
     unlock(&task->general_lock);
+    if (fd == NULL) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    int err = generic_getpath(fd, buf);
+    fd_close(fd);
     proc_put_task(task);
     return err;
 }

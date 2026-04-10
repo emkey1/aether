@@ -4,17 +4,33 @@
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 
-static bool user_range_valid(struct task *task, addr_t addr, size_t count) {
+static struct mem *task_mem_read_lock(struct task *task) {
+    struct mem *mem;
+    if (task == current) {
+        mem = task->mem;
+        if (mem != NULL)
+            read_lock(&mem->lock);
+        return mem;
+    }
+    lock(&task->general_lock, 0);
+    mem = task->mem;
+    if (mem != NULL)
+        read_lock(&mem->lock);
+    unlock(&task->general_lock);
+    return mem;
+}
+
+static bool user_range_valid_mem(struct task *task, struct mem *mem, addr_t addr, size_t count) {
     if (!guest_abi_range_valid(task->abi, addr, count))
         return false;
     if (count == 0)
         return true;
     qword_t last = (qword_t) addr + count - 1;
-    return PAGE(last) < task->mem->page_limit;
+    return PAGE(last) < mem->page_limit;
 }
 
-static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
-    if (!user_range_valid(task, addr, count))
+static int __user_read_task_mem(struct task *task, struct mem *mem, addr_t addr, void *buf, size_t count) {
+    if (!user_range_valid_mem(task, mem, addr, count))
         return 1;
     char *cbuf = (char *) buf;
     addr_t p = addr;
@@ -24,7 +40,7 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
         if (chunk_end > end)
             chunk_end = end;
   
-        const char *ptr = mem_ptr(task->mem, p, MEM_READ);
+        const char *ptr = mem_ptr(mem, p, MEM_READ);
         
         if (ptr == NULL) {
             return 1;
@@ -35,8 +51,8 @@ static int __user_read_task(struct task *task, addr_t addr, void *buf, size_t co
     return 0;
 }
 
-static int __user_write_task(struct task *task, addr_t addr, const void *buf, size_t count, bool ptrace) {
-    if (!user_range_valid(task, addr, count))
+static int __user_write_task_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count, bool ptrace) {
+    if (!user_range_valid_mem(task, mem, addr, count))
         return 1;
     const char *cbuf = (const char *) buf;
     addr_t p = addr;
@@ -45,7 +61,7 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
         qword_t chunk_end = ((qword_t) PAGE(p) + 1) << PAGE_BITS;
         if (chunk_end > end)
             chunk_end = end;
-        char *ptr = mem_ptr(task->mem, p, ptrace ? MEM_WRITE_PTRACE : MEM_WRITE);
+        char *ptr = mem_ptr(mem, p, ptrace ? MEM_WRITE_PTRACE : MEM_WRITE);
         if (ptr == NULL)
             return 1;
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
@@ -64,9 +80,20 @@ static int __user_write_task(struct task *task, addr_t addr, const void *buf, si
 }
 
 int user_read_task(struct task *task, addr_t addr, void *buf, size_t count) {
-    read_lock(&task->mem->lock);
-    int res = __user_read_task(task, addr, buf, count);
-    read_unlock(&task->mem->lock);
+    struct mem *mem = task_mem_read_lock(task);
+    if (mem == NULL)
+        return 1;
+    int res = __user_read_task_mem(task, mem, addr, buf, count);
+    read_unlock(&mem->lock);
+    return res;
+}
+
+int user_read_task_mem(struct task *task, struct mem *mem, addr_t addr, void *buf, size_t count) {
+    if (mem == NULL)
+        return 1;
+    read_lock(&mem->lock);
+    int res = __user_read_task_mem(task, mem, addr, buf, count);
+    read_unlock(&mem->lock);
     return res;
 }
 
@@ -74,25 +101,51 @@ int user_read(addr_t addr, void *buf, size_t count) {
     return user_read_task(current, addr, buf, count);
 }
 
-int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
-    read_lock(&task->mem->lock);
+static int user_write_task_mem_internal(struct task *task, struct mem *mem, addr_t addr,
+                                        const void *buf, size_t count, bool ptrace) {
+    if (mem == NULL)
+        return 1;
+    read_lock(&mem->lock);
     task_ref_cnt_mod(task, 1);
-    mem_ref_cnt_mod(task->mem, 1);
-    int res = __user_write_task(task, addr, buf, count, false);
-    read_unlock(&task->mem->lock);
+    mem_ref_cnt_mod(mem, 1);
+    int res = __user_write_task_mem(task, mem, addr, buf, count, ptrace);
+    read_unlock(&mem->lock);
     task_ref_cnt_mod(task, -1);
-    mem_ref_cnt_mod(task->mem, -1);
+    mem_ref_cnt_mod(mem, -1);
+    return res;
+}
+
+int user_write_task_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count) {
+    return user_write_task_mem_internal(task, mem, addr, buf, count, false);
+}
+
+int user_write_task_ptrace_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count) {
+    return user_write_task_mem_internal(task, mem, addr, buf, count, true);
+}
+
+int user_write_task(struct task *task, addr_t addr, const void *buf, size_t count) {
+    struct mem *mem = task_mem_read_lock(task);
+    if (mem == NULL)
+        return 1;
+    task_ref_cnt_mod(task, 1);
+    mem_ref_cnt_mod(mem, 1);
+    int res = __user_write_task_mem(task, mem, addr, buf, count, false);
+    read_unlock(&mem->lock);
+    task_ref_cnt_mod(task, -1);
+    mem_ref_cnt_mod(mem, -1);
     return res;
 }
 
 int user_write_task_ptrace(struct task *task, addr_t addr, const void *buf, size_t count) {
-    read_lock(&task->mem->lock);
+    struct mem *mem = task_mem_read_lock(task);
+    if (mem == NULL)
+        return 1;
     task_ref_cnt_mod(task, 1);
-    mem_ref_cnt_mod(task->mem, 1);
-    int res = __user_write_task(task, addr, buf, count, true);
-    read_unlock(&task->mem->lock);
+    mem_ref_cnt_mod(mem, 1);
+    int res = __user_write_task_mem(task, mem, addr, buf, count, true);
+    read_unlock(&mem->lock);
     task_ref_cnt_mod(task, -1);
-    mem_ref_cnt_mod(task->mem, -1);
+    mem_ref_cnt_mod(mem, -1);
     return res;
 }
 
@@ -106,22 +159,24 @@ int user_read_string(addr_t addr, char *buf, size_t max) {
     }
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
-    read_lock(&current->mem->lock);
+    struct mem *mem = task_mem_read_lock(current);
+    if (mem == NULL)
+        return 1;
     size_t i = 0;
     while (i < max) {
         if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
-            read_unlock(&current->mem->lock);
+            read_unlock(&mem->lock);
             return 1;
         }
-        if (__user_read_task(current, addr + i, &buf[i], sizeof(buf[i]))) {
-            read_unlock(&current->mem->lock);
+        if (__user_read_task_mem(current, mem, addr + i, &buf[i], sizeof(buf[i]))) {
+            read_unlock(&mem->lock);
             return 1;
         }
         if (buf[i] == '\0')
             break;
         i++;
     }
-    read_unlock(&current->mem->lock);
+    read_unlock(&mem->lock);
     return 0;
 }
 
@@ -131,20 +186,22 @@ int user_write_string(addr_t addr, const char *buf) {
     }
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
-    read_lock(&current->mem->lock);
+    struct mem *mem = task_mem_read_lock(current);
+    if (mem == NULL)
+        return 1;
     size_t i = 0;
     do {
         if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
-            read_unlock(&current->mem->lock);
+            read_unlock(&mem->lock);
             return 1;
         }
-        if (__user_write_task(current, addr + i, &buf[i], sizeof(buf[i]), false)) {
-            read_unlock(&current->mem->lock);
+        if (__user_write_task_mem(current, mem, addr + i, &buf[i], sizeof(buf[i]), false)) {
+            read_unlock(&mem->lock);
             return 1;
         }
         i++;
     } while (buf[i - 1] != '\0');
-    read_unlock(&current->mem->lock);
+    read_unlock(&mem->lock);
     return 0;
 }
 

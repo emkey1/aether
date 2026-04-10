@@ -22,11 +22,17 @@ extern void jit_install_thread_exception_handler(void);
 // while the read lock is held).  Cleared before returning.  Accessed by
 // jit_crash_fn() which runs on the same thread after a Mach exception redirect.
 __thread wrlock_t *jit_crash_lock = NULL;
+__thread sigjmp_buf jit_crash_unwind_buf;
+__thread bool jit_crash_unwind_active = false;
+__thread struct jit_frame *jit_crash_frame = NULL;
+__thread struct cpu_state *jit_crash_cpu = NULL;
+__thread int jit_crash_interrupt = INT_GPF;
+__thread addr_t jit_crash_addr = 0;
 
-// Called by hook.c's Mach exception handler when a JIT thread faults at PC=0
-// (null gadget dispatch via `br x8` or `blr x8` with x8=0).  The handler
-// redirects the faulting thread's PC here, so this runs on the faulting thread
-// and can safely access thread-local state.
+// Called by hook.c's Mach exception handler when a JIT thread faults while
+// executing translated code. The handler redirects the faulting thread's PC
+// here, so this runs on the faulting thread and can safely access thread-local
+// state.
 //
 // Releasing the jetsam_lock read lock prevents write-lock waiters
 // (cpu_run_to_interrupt doing jetsam cleanup) from blocking forever, which
@@ -49,6 +55,8 @@ void jit_crash_fn(void) {
                current ? current->pid : -1);
         pthread_rwlock_unlock(&jit_crash_lock->l);
         jit_crash_lock = NULL;
+        if (jit_crash_unwind_active)
+            siglongjmp(jit_crash_unwind_buf, 1);
     } else {
         // EXC_BAD_ACCESS outside JIT execution context — real bug, let it crash.
         abort();
@@ -292,6 +300,22 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     frame->cpu = *cpu;
     assert(jit->mmu == cpu->mmu);
 
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.eip;
+    if (sigsetjmp(jit_crash_unwind_buf, 1) != 0) {
+        if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
+            *jit_crash_cpu = jit_crash_frame->cpu;
+        cpu->segfault_addr = jit_crash_addr;
+        cpu->segfault_was_write = false;
+        jit_crash_unwind_active = false;
+        jit_crash_frame = NULL;
+        jit_crash_cpu = NULL;
+        return jit_crash_interrupt;
+    }
+    jit_crash_unwind_active = true;
+
     // Use pthread directly (not read_lock) to block in the kernel rather than
     // spinning through atomic_l_lock — eliminates mutex saturation when many
     // goroutines wait for a jetsam write-lock to clear.
@@ -307,6 +331,12 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
+        // Another task thread can change this address space while we are still
+        // running translated blocks. Revalidate the software TLB at block
+        // boundaries so stale cached host pointers do not survive mmap/munmap/COW.
+        if (tlb->mem_changes != cpu->mmu->changes)
+            tlb_refresh(tlb, cpu->mmu);
+
         // Check write_wanted before any potentially slow operation (block lookup,
         // compilation). This ensures we release the read lock promptly even if we
         // haven't reached jit_enter yet — e.g. while waiting for jit->lock or
@@ -389,6 +419,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             // Still OOM even after full flush: kill this guest task
                             printk("JIT OOM at %#x pid %d: even after full flush, killing task\n",
                                    ip, current->pid);
+                            jit_crash_unwind_active = false;
+                            jit_crash_frame = NULL;
+                            jit_crash_cpu = NULL;
                             jit_crash_lock = NULL;
                             return INT_GPF;
                         }
@@ -514,6 +547,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                             // double-unlock if EXC_BAD_ACCESS fires during unlock)
     pthread_rwlock_unlock(&jit->jetsam_lock.l);
 done_unlocked:
+    jit_crash_unwind_active = false;
+    jit_crash_frame = NULL;
+    jit_crash_cpu = NULL;
     return interrupt;
 
 }

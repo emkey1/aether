@@ -309,12 +309,13 @@ static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd) {
         if (tail_size != 0) {
             // Unlock and lock the mem because the user functions must be
             // called without locking mem.
-            write_unlock(&current->mem->lock);
-            
-            mem_ref_cnt_mod(current->mem, 1);
+            struct mem *mem = current->mem;
+            write_unlock(&mem->lock);
+
+            mem_ref_cnt_mod(mem, 1);
             user_memset(file_end, 0, tail_size);
-            write_lock(&current->mem->lock);
-            mem_ref_cnt_mod(current->mem, -1);
+            write_lock(&mem->lock);
+            mem_ref_cnt_mod(mem, -1);
         }
         if (tail_size > bss_size)
             tail_size = bss_size;

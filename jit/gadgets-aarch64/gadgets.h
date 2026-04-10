@@ -50,8 +50,8 @@ _xaddr .req x3
     str w8, [_tlb, (-TLB_entries+TLB_dirty_page)]
     ubfx x9, _xaddr, 12, 10
     eor x9, x9, _xaddr, lsr 22
-    lsl x9, x9, 4
-    add x9, x9, _tlb
+    mov w10, TLB_ENTRY_SIZE
+    madd x9, x9, x10, _tlb
     .ifc \type,read
         ldr w10, [x9, TLB_ENTRY_page]
     .else

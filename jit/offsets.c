@@ -3,6 +3,8 @@
 #include "emu/cpu.h"
 #include "emu/tlb.h"
 
+#define TLB_ENTRY_SIZE sizeof(struct tlb_entry)
+
 void cpu() {
     OFFSET(CPU, cpu_state, eax);
     OFFSET(CPU, cpu_state, ebx);
@@ -64,4 +66,5 @@ void cpu() {
     OFFSET(TLB_ENTRY, tlb_entry, page);
     OFFSET(TLB_ENTRY, tlb_entry, page_if_writable);
     OFFSET(TLB_ENTRY, tlb_entry, data_minus_addr);
+    MACRO(TLB_ENTRY_SIZE);
 }

@@ -7,6 +7,8 @@
 
 #include "hook.h"
 #include "mach_excServer.h"
+#include "emu/interrupt.h"
+#include "misc.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
 #include <mach-o/dyld_images.h>
@@ -22,9 +24,11 @@
 // No Foundation.h
 extern void NSLog(CFStringRef, ...);
 
-// Defined in jit/jit.c.  Called on the faulting JIT thread after a PC=0
-// EXC_BAD_ACCESS crash (null gadget dispatch); releases jetsam_lock and exits.
+// Defined in jit/jit.c. Called on the faulting JIT thread after a redirected
+// Mach exception; releases jetsam_lock and unwinds back into JIT C code.
 extern void jit_crash_fn(void);
+extern __thread int jit_crash_interrupt;
+extern __thread addr_t jit_crash_addr;
 
 kern_return_t catch_mach_exception_raise(
     mach_port_t exception_port,
@@ -77,28 +81,19 @@ kern_return_t catch_mach_exception_raise_state(
     arm_thread_state64_t *old = (arm_thread_state64_t *)old_state;
     arm_thread_state64_t *new = (arm_thread_state64_t *)new_state;
 
-    // JIT crash recovery: any hardware exception on a JIT execution thread.
-    //
-    // EXC_BAD_ACCESS: null/bad gadget address (`br x8` with x8=0 or unmapped).
-    // EXC_BAD_INSTRUCTION: `br x8` dispatches into garbage that decodes as an
-    //   illegal/privileged instruction (udf, brk, svc from wrong EL, etc.).
-    // EXC_ARITHMETIC: divide-by-zero inside a gadget.
-    // EXC_BREAKPOINT: `br x8` dispatches to garbage containing a brk instruction.
-    //
+    // JIT crash recovery is only safe for the original null-gadget dispatch
+    // case, where translated code branches through a zero code pointer and
+    // faults at PC=0. Redirecting arbitrary bad accesses or illegal
+    // instructions back into jit_crash_fn causes infinite recovery loops and
+    // hides real JIT bugs in helper stubs.
     // This handler is registered per-thread only on threads that called
     // jit_install_thread_exception_handler(), so exception_port == jit_crash_port
     // only for known JIT execution threads.
-    //
-    // jit_crash_fn() checks jit_crash_lock (thread-local): if non-NULL the
-    // thread is inside cpu_step_to_interrupt holding jetsam_lock (read); it
-    // releases the lock and calls pthread_exit().  If NULL the crash occurred
-    // outside JIT execution and jit_crash_fn() calls abort() to preserve
-    // normal crash semantics.
     if (exception_port == jit_crash_port &&
-        (exception == EXC_BAD_ACCESS ||
-         exception == EXC_BAD_INSTRUCTION ||
-         exception == EXC_ARITHMETIC ||
-         exception == EXC_BREAKPOINT)) {
+        exception == EXC_BAD_ACCESS &&
+        arm_thread_state64_get_pc(*old) == 0) {
+        jit_crash_interrupt = INT_GPF;
+        jit_crash_addr = 0;
         *new = *old;
         *new_stateCnt = old_stateCnt;
         arm_thread_state64_set_pc_fptr(*new, (void *)jit_crash_fn);
@@ -199,14 +194,8 @@ void jit_install_thread_exception_handler(void) {
     if (jit_crash_port == MACH_PORT_NULL)
         return;
     mach_port_t thread = mach_thread_self();
-    // Catch bad-access (null/bad gadget address), bad-instruction (corrupt
-    // gadget decodes as udf/etc.), breakpoint (brk instruction in garbage
-    // bytes), and arithmetic (div-by-zero).  All redirect to jit_crash_fn.
     thread_set_exception_ports(thread,
-                               EXC_MASK_BAD_ACCESS |
-                               EXC_MASK_BAD_INSTRUCTION |
-                               EXC_MASK_ARITHMETIC |
-                               EXC_MASK_BREAKPOINT,
+                               EXC_MASK_BAD_ACCESS,
                                jit_crash_port,
                                EXCEPTION_STATE | MACH_EXCEPTION_CODES,
                                ARM_THREAD_STATE64);

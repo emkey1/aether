@@ -9,6 +9,7 @@
 #include "util/sync.h"
 
 extern bool doEnableExtraLocking;
+extern struct timespec lock_pause;
 
 static void mm_apply_abi_layout(struct mm *mm, enum guest_abi abi) {
     struct guest_vm_layout layout = guest_abi_vm_layout(abi);
@@ -55,6 +56,8 @@ void mm_retain(struct mm *mm) {
 
 void mm_release(struct mm *mm) {
     if (--mm->refcount == 0) {
+        while (mem_ref_cnt_get(&mm->mem) != 0)
+            nanosleep(&lock_pause, NULL);
         if (mm->exefile != NULL)
             fd_close(mm->exefile);
 

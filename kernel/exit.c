@@ -175,6 +175,8 @@ noreturn void do_exit(struct task *task, int status) {
     } while (exit_wait_needed(task)); // Wait for now, task is in one or more critical
     mm_release(task->mm);
     task->mm = NULL;
+    task->mem = NULL;
+    task->cpu.mmu = NULL;
     
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);

@@ -19,8 +19,11 @@ void handle_interrupt(int interrupt);
 int must_check user_read(addr_t addr, void *buf, size_t count);
 int must_check user_write(addr_t addr, const void *buf, size_t count);
 int must_check user_read_task(struct task *task, addr_t addr, void *buf, size_t count);
+int must_check user_read_task_mem(struct task *task, struct mem *mem, addr_t addr, void *buf, size_t count);
+int must_check user_write_task_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count);
 int must_check user_write_task(struct task *task, addr_t addr, const void *buf, size_t count);
 int must_check user_write_task_ptrace(struct task *task, addr_t addr, const void *buf, size_t count);
+int must_check user_write_task_ptrace_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count);
 int must_check user_read_string(addr_t addr, char *buf, size_t max);
 int must_check user_write_string(addr_t addr, const char *buf);
 #define user_get(addr, var) user_read(addr, &(var), sizeof(var))

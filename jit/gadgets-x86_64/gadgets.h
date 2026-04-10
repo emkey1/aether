@@ -35,7 +35,7 @@
     movl %_addr, %r15d
     shrl $22, %r15d
     xor %r15d, %r14d
-    shll $4, %r14d
+    imull $TLB_ENTRY_SIZE, %r14d, %r14d
     movl %_addr, %r15d
     andl $0xfff, %r15d
     cmpl $(0x1000-(\size/8)), %r15d

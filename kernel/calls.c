@@ -457,6 +457,16 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     deliver_signal(current, SIGILL_, info);
 }
 
+static void handle_arithmetic_interrupt(struct cpu_state *cpu) {
+    printk("ERROR: %d(%s) arithmetic fault at 0x%x\n", current->pid, current->comm, cpu->eip);
+    dump_stack(8);
+    struct siginfo_ info = {
+        .code = SI_KERNEL_,
+        .fault.addr = cpu->eip,
+    };
+    deliver_signal(current, SIGFPE_, info);
+}
+
 static void handle_privileged_instruction_interrupt(struct cpu_state *cpu) {
     printk("ERROR: %d(%s) privileged instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
     for (int i = 0; i < 8; i++) {
@@ -494,6 +504,9 @@ void handle_interrupt(int interrupt) {
             break;
         case INT_UNDEFINED:
             handle_illegal_instruction_interrupt(cpu);
+            break;
+        case INT_DIV:
+            handle_arithmetic_interrupt(cpu);
             break;
         case INT_PRIV:
             handle_privileged_instruction_interrupt(cpu);

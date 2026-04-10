@@ -30,6 +30,7 @@ extern const char extra_lock_comm;
 // increment the change count
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
+static _Atomic uint64_t next_mem_change_id = 1;
 #define PGDIR_TOP(page) ((page) >> MEM_PTDIR_BITS)
 #define PGDIR_BOTTOM(page) ((page) & (MEM_PTDIR_SIZE - 1))
 
@@ -62,11 +63,17 @@ static struct pt_directory *mem_pgdir_insert(struct mem *mem, page_t top) {
     if (found)
         return &mem->pgdirs[slot];
 
+    struct pt_entry *entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
+    if (entries == NULL)
+        return NULL;
+
     if (mem->pgdir_count == mem->pgdir_capacity) {
         size_t new_capacity = mem->pgdir_capacity == 0 ? 4 : mem->pgdir_capacity * 2;
         struct pt_directory *new_pgdirs = realloc(mem->pgdirs, new_capacity * sizeof(*new_pgdirs));
-        if (new_pgdirs == NULL)
+        if (new_pgdirs == NULL) {
+            free(entries);
             return NULL;
+        }
         mem->pgdirs = new_pgdirs;
         mem->pgdir_capacity = new_capacity;
     }
@@ -75,10 +82,6 @@ static struct pt_directory *mem_pgdir_insert(struct mem *mem, page_t top) {
         memmove(&mem->pgdirs[slot + 1], &mem->pgdirs[slot],
                 (mem->pgdir_count - slot) * sizeof(*mem->pgdirs));
     }
-
-    struct pt_entry *entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
-    if (entries == NULL)
-        return NULL;
 
     mem->pgdirs[slot] = (struct pt_directory) {
         .top = top,
@@ -157,7 +160,9 @@ void mem_init(struct mem *mem) {
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);
 #endif
-    mem->mmu.changes = 0;
+    // Seed each new address space with a unique change id so a per-thread TLB
+    // flushes even if malloc reuses the same mmu address after exec/exit.
+    mem->mmu.changes = atomic_fetch_add_explicit(&next_mem_change_id, 1, memory_order_relaxed);
     wrlock_init(&mem->lock);
     mem->reference.count = 0;
     mem->reference.ready_to_be_freed = false;
@@ -316,6 +321,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
         pt->offset = ((page - start) << PAGE_BITS) + offset;
         pt->flags = flags;
     }
+    mem_changed(mem);
     return 0;
 }
 
