@@ -14,12 +14,26 @@
 #import "iOSFS.h"
 #import "UIApplication+OpenURL.h"
 #import "NSObject+SaneKVO.h"
+#import "SceneDelegate.h"
 #import "UIViewController+Extras.h"
+#import "WorkspaceViewController.h"
 
 NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunch";
 
+UINavigationController *ISHCreateAboutNavigationController(BOOL recoveryMode, BOOL startInDiagnostics) {
+    UINavigationController *navigationController = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
+    AboutViewController *aboutViewController = (AboutViewController *) navigationController.topViewController;
+    aboutViewController.recoveryMode = recoveryMode;
+    aboutViewController.startInDiagnostics = startInDiagnostics;
+    return navigationController;
+}
+
 @interface DiagnosticsViewController : UIViewController
 @end
+
+UIViewController *ISHCreateDiagnosticsViewController(void) {
+    return [DiagnosticsViewController new];
+}
 
 @interface AboutViewController ()
 @property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
@@ -138,13 +152,20 @@ NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunc
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self _updateUI];
+    UIBarButtonItem *workspaceButton = [[UIBarButtonItem alloc] initWithTitle:@"Workspace"
+                                                                        style:UIBarButtonItemStylePlain
+                                                                       target:self
+                                                                       action:@selector(showWorkspace:)];
     if (self.recoveryMode) {
         self.includeDebugPanel = YES;
         self.navigationItem.title = @"Recovery Mode";
+        self.navigationItem.leftBarButtonItem = workspaceButton;
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Exit"
                                                                                   style:UIBarButtonItemStyleDone
                                                                                  target:self
                                                                                  action:@selector(exitRecovery:)];
+    } else {
+        self.navigationItem.rightBarButtonItem = workspaceButton;
     }
     _versionLabel.text = [NSString stringWithFormat:@"iSH-AOK %@ (Build %@)",
                           [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
@@ -182,8 +203,27 @@ NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunc
 }
 
 - (void)showDiagnostics:(id)sender {
-    DiagnosticsViewController *viewController = [DiagnosticsViewController new];
+    UIViewController *viewController = ISHCreateDiagnosticsViewController();
     [self.navigationController pushViewController:viewController animated:YES];
+}
+
+- (void)showWorkspace:(id)sender {
+    if (@available(iOS 13.0, *)) {
+        NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace];
+        [UIApplication.sharedApplication requestSceneSessionActivation:nil
+                                                         userActivity:activity
+                                                              options:nil
+                                                         errorHandler:^(__unused NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
+                [self presentViewController:navigationController animated:YES completion:nil];
+            });
+        }];
+        return;
+    }
+
+    UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
+    [self presentViewController:navigationController animated:YES completion:nil];
 }
 
 - (void)_updateUI:(NSNotification *)notification {
@@ -234,12 +274,16 @@ NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunc
 
 - (NSString *)_initialWindowPreferenceValue {
     NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
+    if ([value isEqualToString:ISHInitialWindowWorkspaceValue])
+        return value;
     if ([value isEqualToString:@"session-shell"])
         return value;
     return @"terminal";
 }
 
 - (NSString *)_initialWindowTitle {
+    if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowWorkspaceValue])
+        return @"Workspace";
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
         return @"Session Shell (pts/0)";
     return @"System Console (/dev/console)";
@@ -253,10 +297,13 @@ NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunc
 - (void)_showInitialWindowPickerFromCell:(UITableViewCell *)cell {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Initial Window"
-                                            message:@"Choose which terminal window opens first for new app launches."
+                                            message:@"Choose which screen opens first for new app launches."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *currentValue = [self _initialWindowPreferenceValue];
+    NSString *workspaceTitle = [currentValue isEqualToString:ISHInitialWindowWorkspaceValue]
+        ? @"Workspace  Current"
+        : @"Workspace";
     NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
         ? @"System Console (/dev/console)  Current"
         : @"System Console (/dev/console)";
@@ -264,6 +311,11 @@ NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunc
         ? @"Session Shell (pts/0)  Current"
         : @"Session Shell (pts/0)";
 
+    [alert addAction:[UIAlertAction actionWithTitle:workspaceTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self _setInitialWindowPreferenceValue:ISHInitialWindowWorkspaceValue];
+    }]];
     [alert addAction:[UIAlertAction actionWithTitle:terminalTitle
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {

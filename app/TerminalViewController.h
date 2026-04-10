@@ -13,9 +13,13 @@
 @property (nonatomic) Terminal *terminal;
 
 - (void)startNewSession;
+- (void)showSystemConsoleForCurrentSession;
+- (void)showSessionShellForCurrentSession;
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid;
 @property (readonly) NSUUID *sessionTerminalUUID; // 0 means invalid
 @property UISceneSession *sceneSession API_AVAILABLE(ios(13.0));
+@property (nonatomic) BOOL showsWorkspaceDashboardButton;
+@property (nonatomic) BOOL embeddedInWorkspaceWindow;
 
 @end
 

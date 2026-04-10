@@ -28,6 +28,7 @@
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
 #import "UIApplication+OpenURL.h"
+#import "WorkspaceViewController.h"
 #include "kernel/init.h"
 #include "kernel/calls.h"
 #include "fs/dyndev.h"
@@ -1227,6 +1228,10 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
             self.window.rootViewController = CreateRootSelectionViewController();
             return YES;
         }
+        if (ISHShouldLaunchWorkspaceAtStartup()) {
+            self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+            return YES;
+        }
         TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
         currentTerminalViewController = vc;
         [vc startNewSession];
@@ -1243,6 +1248,10 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
         return;
 
     self.waitingForInitialRootImport = NO;
+    if (ISHShouldLaunchWorkspaceAtStartup()) {
+        self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        return;
+    }
     TerminalViewController *vc = CreateTerminalViewController();
     if (vc == nil)
         return;

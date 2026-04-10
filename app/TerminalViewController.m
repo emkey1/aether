@@ -16,11 +16,31 @@
 #import "Roots.h"
 #import "NSObject+SaneKVO.h"
 #import "UIViewController+Extras.h"
+#import "WorkspaceViewController.h"
+#import "SceneDelegate.h"
 #import "LinuxInterop.h"
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
 #include "fs/devices.h"
+
+static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) API_AVAILABLE(ios(13.0));
+static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) {
+    UISceneSession *bestSession = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        UISceneSession *session = scene.session;
+        if (session == nil || session == excludedSession)
+            continue;
+        if (![session.stateRestorationActivity.activityType isEqualToString:ISHSceneActivityTypeWorkspace])
+            continue;
+        if (scene.activationState == UISceneActivationStateForegroundActive)
+            return session;
+        if (bestSession == nil || scene.activationState == UISceneActivationStateForegroundInactive) {
+            bestSession = session;
+        }
+    }
+    return bestSession;
+}
 
 @interface TerminalViewController () <UIGestureRecognizerDelegate>
 
@@ -45,9 +65,11 @@
 @property (weak, nonatomic) IBOutlet UIView *settingsBadge;
 
 @property (weak, nonatomic) IBOutlet UIButton *infoButton;
+@property (strong, nonatomic) UIButton *workspaceButton;
 @property (strong, nonatomic) UIButton *terminalSwitcherButton;
 @property (weak, nonatomic) IBOutlet UIButton *pasteButton;
 @property (weak, nonatomic) IBOutlet UIButton *hideKeyboardButton;
+@property (strong, nonatomic) UIButton *floatingWorkspaceButton;
 @property (strong, nonatomic) UIButton *floatingSettingsButton;
 @property (strong, nonatomic) UIButton *floatingTerminalSwitcherButton;
 @property (strong, nonatomic) UIView *floatingSettingsBadge;
@@ -110,6 +132,34 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     return console ?: self.sessionTerminal;
 }
 
+- (BOOL)_isTerminalInstalledElsewhere:(Terminal *)terminal {
+    if (terminal == nil)
+        return NO;
+    UIView *superview = terminal.webView.superview;
+    if (superview == nil)
+        return NO;
+    return self.termView.terminal != terminal;
+}
+
+- (void)_applyCurrentTerminalToViewIfPossible {
+    if (!self.isViewLoaded)
+        return;
+
+    if (_terminal == nil) {
+        self.termView.terminal = nil;
+        return;
+    }
+
+    if ([self _isTerminalInstalledElsewhere:_terminal]) {
+        self.termView.terminal = nil;
+        NSLog(@"Skipping terminal attach for %@ because it is already installed elsewhere", _terminal.uuid.UUIDString);
+        [self _showTerminalStartupFailureOverlayWithText:@"Terminal already open in another window."];
+        return;
+    }
+
+    self.termView.terminal = _terminal;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self _installTerminalStartupOverlay];
@@ -129,7 +179,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     }
 #endif
 
-    self.terminal = self.terminal;
+    [self _applyCurrentTerminalToViewIfPossible];
     [self.termView becomeFirstResponder];
 
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
@@ -156,8 +206,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 
     [self _updateStyleFromPreferences:NO];
+    [self _installFloatingWorkspaceButton];
     [self _installFloatingSettingsButton];
     [self _installFloatingTerminalSwitcherButton];
+    [self _installWorkspaceButton];
     [self _installTerminalSwitcherButton];
     
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
@@ -262,6 +314,39 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     ]];
 }
 
+- (void)_installFloatingWorkspaceButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.hidden = YES;
+    button.accessibilityLabel = @"Dashboard";
+    button.accessibilityHint = @"Opens the workspace dashboard.";
+    button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+    button.layer.cornerRadius = 22;
+    button.layer.masksToBounds = NO;
+    button.layer.shadowColor = UIColor.blackColor.CGColor;
+    button.layer.shadowOpacity = 0.2;
+    button.layer.shadowRadius = 8;
+    button.layer.shadowOffset = CGSizeMake(0, 2);
+    if (@available(iOS 13, *)) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:18 weight:UIImageSymbolWeightSemibold];
+        UIImage *image = [UIImage systemImageNamed:@"square.grid.2x2" withConfiguration:config];
+        [button setImage:image forState:UIControlStateNormal];
+    } else {
+        [button setTitle:@"WS" forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    }
+    [button addTarget:self action:@selector(showWorkspaceDashboard:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    [self.view addSubview:button];
+    self.floatingWorkspaceButton = button;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [button.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
+        [button.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-12],
+        [button.widthAnchor constraintEqualToConstant:44],
+        [button.heightAnchor constraintEqualToConstant:44],
+    ]];
+}
+
 - (void)_installFloatingTerminalSwitcherButton {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
@@ -294,6 +379,28 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         [button.widthAnchor constraintEqualToConstant:44],
         [button.heightAnchor constraintEqualToConstant:44],
     ]];
+}
+
+- (void)_installWorkspaceButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.accessibilityLabel = @"Dashboard";
+    button.accessibilityHint = @"Opens the workspace dashboard.";
+    if (@available(iOS 13, *)) {
+        [button setImage:[UIImage systemImageNamed:@"square.grid.2x2"] forState:UIControlStateNormal];
+    } else {
+        [button setTitle:@"WS" forState:UIControlStateNormal];
+    }
+    [button addTarget:self action:@selector(showWorkspaceDashboard:) forControlEvents:UIControlEventPrimaryActionTriggered];
+
+    UIView *infoContainer = self.infoButton.superview;
+    NSUInteger infoIndex = [self.bar.arrangedSubviews indexOfObject:infoContainer];
+    if (infoIndex == NSNotFound)
+        infoIndex = self.bar.arrangedSubviews.count;
+    [self.bar insertArrangedSubview:button atIndex:infoIndex];
+    [button.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
+
+    self.workspaceButton = button;
 }
 
 - (void)_installTerminalSwitcherButton {
@@ -406,12 +513,20 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (void)_updateFloatingSettingsButtonVisibility {
     BOOL visible = [self _shouldShowFloatingSettingsButton];
-    self.floatingSettingsButton.hidden = !visible;
-    self.floatingSettingsButton.userInteractionEnabled = visible;
+    BOOL showWorkspaceButtons = self.showsWorkspaceDashboardButton;
+    BOOL settingsEnabled = !self.embeddedInWorkspaceWindow;
+    self.floatingWorkspaceButton.hidden = !(visible && showWorkspaceButtons);
+    self.floatingWorkspaceButton.userInteractionEnabled = visible && showWorkspaceButtons;
+    self.floatingSettingsButton.hidden = !(visible && settingsEnabled);
+    self.floatingSettingsButton.userInteractionEnabled = visible && settingsEnabled;
     self.floatingTerminalSwitcherButton.hidden = !visible;
     self.floatingTerminalSwitcherButton.userInteractionEnabled = visible;
     self.terminalSwitcherButton.hidden = visible;
     self.terminalSwitcherButton.userInteractionEnabled = !visible;
+    self.workspaceButton.hidden = !showWorkspaceButtons || visible;
+    self.workspaceButton.userInteractionEnabled = showWorkspaceButtons && !visible;
+    self.infoButton.alpha = settingsEnabled ? 1 : 0;
+    self.infoButton.userInteractionEnabled = settingsEnabled;
     self.floatingSettingsBottomConstraint.constant = -12;
 }
 
@@ -455,15 +570,39 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.terminal = [self preferredTerminalForFreshSession];
 }
 
+- (void)showSystemConsoleForCurrentSession {
+    Terminal *console = [self currentConsoleTerminal];
+    if (console != nil) {
+        self.terminal = console;
+        return;
+    }
+    if (self.sessionTerminal != nil)
+        self.terminal = self.sessionTerminal;
+}
+
+- (void)showSessionShellForCurrentSession {
+    if (self.sessionTerminal != nil) {
+        self.terminal = self.sessionTerminal;
+        return;
+    }
+    Terminal *console = [self currentConsoleTerminal];
+    if (console != nil)
+        self.terminal = console;
+}
+
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid {
     Terminal *terminal = [Terminal terminalWithUUID:uuid];
-    if (terminal == nil || terminal.type != TTY_PSEUDO_SLAVE_MAJOR) {
-        self.sessionTerminal = nil;
+    if (terminal == nil) {
         [self startNewSession];
         return;
     }
-    self.sessionTerminal = terminal;
-    self.terminal = self.sessionTerminal;
+    if (terminal.type == TTY_PSEUDO_SLAVE_MAJOR) {
+        self.sessionTerminal = terminal;
+        self.terminal = self.sessionTerminal;
+        return;
+    }
+    self.sessionTerminal = nil;
+    self.terminal = terminal;
 }
 
 - (NSUUID *)sessionTerminalUUID {
@@ -622,6 +761,11 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         self.floatingTerminalSwitcherButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
             [UIColor colorWithWhite:1 alpha:0.78] :
             [UIColor colorWithWhite:0 alpha:0.45];
+        self.workspaceButton.tintColor = tintColor;
+        self.floatingWorkspaceButton.tintColor = tintColor;
+        self.floatingWorkspaceButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
+            [UIColor colorWithWhite:1 alpha:0.78] :
+            [UIColor colorWithWhite:0 alpha:0.45];
         self.floatingSettingsButton.tintColor = tintColor;
         self.floatingSettingsButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
             [UIColor colorWithWhite:1 alpha:0.78] :
@@ -664,6 +808,17 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)_updateSafeAreaCompensation {
+    if (self.embeddedInWorkspaceWindow) {
+        if (!UIEdgeInsetsEqualToEdgeInsets(self.additionalSafeAreaInsets, UIEdgeInsetsZero)) {
+            self.additionalSafeAreaInsets = UIEdgeInsetsZero;
+        }
+        if (self.hasExternalKeyboard) {
+            self.bottomConstraint.constant = 0;
+        }
+        [self _updateFloatingSettingsButtonVisibility];
+        return;
+    }
+
     CGFloat statusBarHeight = 0;
     if (@available(iOS 13.0, *)) {
         statusBarHeight = self.view.window.windowScene.statusBarManager.statusBarFrame.size.height;
@@ -781,6 +936,33 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     }
     [self presentViewController:navigationController animated:YES completion:nil];
     [self.termView resignFirstResponder];
+}
+
+- (IBAction)showWorkspaceDashboard:(id)sender {
+    [self.termView resignFirstResponder];
+    if (@available(iOS 13.0, *)) {
+        UISceneSession *workspaceSession = ISHFindExistingWorkspaceSceneSession(self.sceneSession);
+        NSUserActivity *activity = workspaceSession == nil
+            ? [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace]
+            : nil;
+        [UIApplication.sharedApplication requestSceneSessionActivation:workspaceSession
+                                                         userActivity:activity
+                                                              options:nil
+                                                         errorHandler:^(__unused NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
+                UIWindow *window = self.view.window;
+                window.rootViewController = navigationController;
+                [window makeKeyAndVisible];
+            });
+        }];
+        return;
+    }
+
+    UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
+    UIWindow *window = self.view.window;
+    window.rootViewController = navigationController;
+    [window makeKeyAndVisible];
 }
 
 - (NSString *)terminalDisplayName:(Terminal *)terminal {
@@ -982,8 +1164,11 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (void)setTerminal:(Terminal *)terminal {
     _terminal = terminal;
-    self.termView.terminal = self.terminal;
-    if (_terminal != nil && _terminal.loaded) {
+    [self _applyCurrentTerminalToViewIfPossible];
+    BOOL installedElsewhere = [self _isTerminalInstalledElsewhere:_terminal];
+    if (installedElsewhere) {
+        [self _showTerminalStartupFailureOverlayWithText:@"Terminal already open in another window."];
+    } else if (_terminal != nil && _terminal.loaded) {
         [self _hideTerminalStartupOverlay];
     } else if (_terminal != nil) {
         [self _showTerminalStartupOverlayWithText:@"Loading terminal UI..."];

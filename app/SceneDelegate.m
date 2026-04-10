@@ -11,6 +11,7 @@
 #import "Diagnostics.h"
 #import "NSObject+SaneKVO.h"
 #import "Roots.h"
+#import "WorkspaceViewController.h"
 
 TerminalViewController *currentTerminalViewController = NULL;
 
@@ -21,7 +22,11 @@ TerminalViewController *currentTerminalViewController = NULL;
 
 @end
 
-static NSString *const TerminalUUID = @"TerminalUUID";
+static NSString *const ISHSceneActivityTypeLegacy = @"app.ish.scene";
+NSString *const ISHSceneActivityTypeTerminal = @"app.ish.scene.terminal";
+NSString *const ISHSceneActivityTypeWorkspace = @"app.ish.scene.workspace";
+NSString *const ISHSceneTerminalUUIDUserInfoKey = @"TerminalUUID";
+NSString *const ISHSceneWorkspaceToolUserInfoKey = @"WorkspaceTool";
 
 static UIViewController *CreateRootSelectionViewController(void) {
     UIViewController *rootsViewController = [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
@@ -34,12 +39,12 @@ static TerminalViewController *CreateTerminalViewController(void) {
     return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
 }
 
-static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode, BOOL startInDiagnostics) {
-    UINavigationController *navigationController = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
-    AboutViewController *aboutViewController = (AboutViewController *) navigationController.topViewController;
-    aboutViewController.recoveryMode = recoveryMode;
-    aboutViewController.startInDiagnostics = startInDiagnostics;
-    return navigationController;
+static NSUserActivity *SceneRequestedActivity(UISceneSession *session, UISceneConnectionOptions *connectionOptions) API_AVAILABLE(ios(13.0));
+static NSUserActivity *SceneRequestedActivity(UISceneSession *session, UISceneConnectionOptions *connectionOptions) {
+    NSUserActivity *activity = connectionOptions.userActivities.anyObject;
+    if (activity != nil)
+        return activity;
+    return session.stateRestorationActivity;
 }
 
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) API_AVAILABLE(ios(13.0));
@@ -55,13 +60,14 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     }
 }
 
-static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session) API_AVAILABLE(ios(13.0));
-static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session) {
+static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) API_AVAILABLE(ios(13.0));
+static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) {
     vc.sceneSession = session;
-    if (session.stateRestorationActivity == nil) {
+    NSString *terminalUUID = activity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
+    if (terminalUUID.length == 0) {
         [vc startNewSession];
     } else {
-        delegate.terminalUUID = session.stateRestorationActivity.userInfo[TerminalUUID];
+        delegate.terminalUUID = terminalUUID;
         [vc reconnectSessionFromTerminalUUID:
          [[NSUUID alloc] initWithUUIDString:delegate.terminalUUID]];
     }
@@ -74,13 +80,15 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                   details:@{@"session": session.persistentIdentifier ?: @"",
                                             @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
     EnsureSceneWindow(self, scene);
+    NSUserActivity *requestedActivity = SceneRequestedActivity(session, connectionOptions);
+
     if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
-        self.window.rootViewController = CreateAboutNavigationController(NO, YES);
+        self.window.rootViewController = ISHCreateAboutNavigationController(NO, YES);
         [self.window makeKeyAndVisible];
         return;
     }
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
-        self.window.rootViewController = CreateAboutNavigationController(YES, NO);
+        self.window.rootViewController = ISHCreateAboutNavigationController(YES, NO);
         [self.window makeKeyAndVisible];
         return;
     }
@@ -98,8 +106,37 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         return;
     }
 
-    TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
-    ConfigureTerminalViewController(self, vc, session);
+    NSString *activityType = requestedActivity.activityType;
+    BOOL wantsWorkspace = [activityType isEqualToString:ISHSceneActivityTypeWorkspace];
+    BOOL wantsTerminal = activityType.length == 0
+        || [activityType isEqualToString:ISHSceneActivityTypeTerminal]
+        || [activityType isEqualToString:ISHSceneActivityTypeLegacy];
+    if (wantsWorkspace) {
+        NSString *toolIdentifier = requestedActivity.userInfo[ISHSceneWorkspaceToolUserInfoKey];
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(toolIdentifier);
+        [self.window makeKeyAndVisible];
+        return;
+    }
+    if (activityType.length == 0 && ISHShouldLaunchWorkspaceAtStartup()) {
+        self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        [self.window makeKeyAndVisible];
+        return;
+    }
+    if (!wantsTerminal) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"scene.unknownActivityType"
+                                      details:@{@"activityType": activityType ?: @""}];
+    }
+
+    TerminalViewController *vc = [self.window.rootViewController isKindOfClass:TerminalViewController.class]
+        ? (TerminalViewController *) self.window.rootViewController
+        : CreateTerminalViewController();
+    if (vc == nil)
+        return;
+    if (self.window.rootViewController != vc) {
+        self.window.rootViewController = vc;
+        [self.window makeKeyAndVisible];
+    }
+    ConfigureTerminalViewController(self, vc, session, requestedActivity);
 }
 
 - (void)continueAfterInitialRootImportForSession:(UISceneSession *)session {
@@ -109,13 +146,18 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         return;
 
     self.waitingForInitialRootImport = NO;
+    if (ISHShouldLaunchWorkspaceAtStartup()) {
+        self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        [self.window makeKeyAndVisible];
+        return;
+    }
     TerminalViewController *vc = CreateTerminalViewController();
     if (vc == nil)
         return;
 
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
-    ConfigureTerminalViewController(self, vc, session);
+    ConfigureTerminalViewController(self, vc, session, SceneRequestedActivity(session, nil));
 }
 
 - (void)rootsDidFinishInitialSelection:(__unused NSNotification *)notification {
@@ -126,12 +168,41 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 }
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {
-    NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:@"app.ish.scene"];
-    TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
+    UIViewController *rootViewController = self.window.rootViewController;
+    UIViewController *topViewController = [rootViewController isKindOfClass:UINavigationController.class]
+        ? ((UINavigationController *) rootViewController).topViewController
+        : rootViewController;
+    UIViewController *presentedViewController = topViewController.presentedViewController;
+    UIViewController *presentedTopViewController = [presentedViewController isKindOfClass:UINavigationController.class]
+        ? ((UINavigationController *) presentedViewController).topViewController
+        : presentedViewController;
+    NSString *presentedWorkspaceToolIdentifier = ISHWorkspaceToolIdentifierForViewController(presentedTopViewController);
+    if (presentedWorkspaceToolIdentifier.length > 0) {
+        NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace];
+        [activity addUserInfoEntriesFromDictionary:@{ISHSceneWorkspaceToolUserInfoKey: presentedWorkspaceToolIdentifier}];
+        return activity;
+    }
+    if ([topViewController isKindOfClass:WorkspaceViewController.class]) {
+        NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace];
+        NSString *toolIdentifier = ISHWorkspaceToolIdentifierForViewController(topViewController);
+        if (toolIdentifier.length > 0) {
+            [activity addUserInfoEntriesFromDictionary:@{ISHSceneWorkspaceToolUserInfoKey: toolIdentifier}];
+        }
+        return activity;
+    }
+    NSString *workspaceToolIdentifier = ISHWorkspaceToolIdentifierForViewController(topViewController);
+    if (workspaceToolIdentifier.length > 0) {
+        NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace];
+        [activity addUserInfoEntriesFromDictionary:@{ISHSceneWorkspaceToolUserInfoKey: workspaceToolIdentifier}];
+        return activity;
+    }
+
+    NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeTerminal];
+    TerminalViewController *vc = (TerminalViewController *) rootViewController;
     if ([vc isKindOfClass:TerminalViewController.class]) {
         self.terminalUUID = vc.sessionTerminalUUID.UUIDString;
         if (self.terminalUUID != nil) {
-            [activity addUserInfoEntriesFromDictionary:@{TerminalUUID: self.terminalUUID}];
+            [activity addUserInfoEntriesFromDictionary:@{ISHSceneTerminalUUIDUserInfoKey: self.terminalUUID}];
         }
     }
     return activity;

@@ -11,6 +11,10 @@
 NS_ASSUME_NONNULL_BEGIN
 
 extern TerminalViewController *currentTerminalViewController;
+extern NSString *const ISHSceneActivityTypeTerminal;
+extern NSString *const ISHSceneActivityTypeWorkspace;
+extern NSString *const ISHSceneTerminalUUIDUserInfoKey;
+extern NSString *const ISHSceneWorkspaceToolUserInfoKey;
 
 API_AVAILABLE(ios(13))
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>

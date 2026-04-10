@@ -2017,10 +2017,28 @@ int_t sys_connect(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len) {
                fd_getflags(sock), host_flags);
     }
 
+    int saved_host_flags = -1;
+    bool forced_nonblocking_connect = false;
+    if (!(fd_getflags(sock) & O_NONBLOCK_) &&
+            sock->socket.type == SOCK_STREAM_ &&
+            (sock->socket.domain == AF_INET_ || sock->socket.domain == AF_INET6_)) {
+        // Avoid wedging inside the host kernel on a blocking TCP connect().
+        // Start the connection in nonblocking mode, then restore the host fd
+        // flags immediately and finish the wait in userspace below.
+        saved_host_flags = fcntl(sock->real_fd, F_GETFL, 0);
+        if (saved_host_flags >= 0 && !(saved_host_flags & O_NONBLOCK) &&
+                fcntl(sock->real_fd, F_SETFL, saved_host_flags | O_NONBLOCK) == 0) {
+            forced_nonblocking_connect = true;
+        }
+    }
+
     err = connect(sock->real_fd, (void *) &sockaddr, sockaddr_len);
+    if (forced_nonblocking_connect)
+        (void) fcntl(sock->real_fd, F_SETFL, saved_host_flags);
     if (err < 0) {
         int mapped_err = errno_map();
-        if (mapped_err == _EINPROGRESS && !(fd_getflags(sock) & O_NONBLOCK_)) {
+        if ((mapped_err == _EINPROGRESS || mapped_err == _EALREADY) &&
+                !(fd_getflags(sock) & O_NONBLOCK_)) {
             if (sock_trace_enabled()) {
                 printk("INFO: net connect wait pid=%d comm=%s real=%d blocking=1\n",
                        current->pid, current->comm, sock->real_fd);

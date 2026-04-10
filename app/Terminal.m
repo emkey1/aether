@@ -26,6 +26,7 @@ typedef struct linux_tty *tty_t;
 
 NSNotificationName const TerminalLoadFailedNotification = @"TerminalLoadFailedNotification";
 NSNotificationName const TerminalDidLoadNotification = @"TerminalDidLoadNotification";
+NSNotificationName const TerminalRegistryDidChangeNotification = @"TerminalRegistryDidChangeNotification";
 
 @interface Terminal () <WKScriptMessageHandler, WKNavigationDelegate> {
 #if !ISH_LINUX
@@ -78,6 +79,12 @@ static const int BUF_SIZE = 1<<14;
 static NSMapTable<NSNumber *, Terminal *> *terminals;
 static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
+static void NotifyTerminalRegistryChanged(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:TerminalRegistryDidChangeNotification object:nil];
+    });
+}
+
 - (instancetype)initWithType:(int)type number:(int)num {
     @synchronized (Terminal.class) {
         self.terminalsKey = @(dev_make(type, num));
@@ -97,6 +104,7 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
             [terminals setObject:self forKey:self.terminalsKey];
             self.uuid = [NSUUID UUID];
             [terminalsByUUID setObject:self forKey:self.uuid];
+            NotifyTerminalRegistryChanged();
         }
         return self;
     }
@@ -386,6 +394,35 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     return [[Terminal alloc] initWithType:type number:number];
 }
 
++ (NSArray<Terminal *> *)activeTerminals {
+    @synchronized (Terminal.class) {
+        NSMutableArray<Terminal *> *active = [NSMutableArray array];
+        NSEnumerator<Terminal *> *enumerator = terminals.objectEnumerator;
+        for (Terminal *terminal in enumerator) {
+            if (terminal != nil)
+                [active addObject:terminal];
+        }
+        [active sortUsingComparator:^NSComparisonResult(Terminal *lhs, Terminal *rhs) {
+            NSInteger lhsRank = lhs.type == TTY_CONSOLE_MAJOR ? 0 : (lhs.type == TTY_PSEUDO_SLAVE_MAJOR ? 1 : 2);
+            NSInteger rhsRank = rhs.type == TTY_CONSOLE_MAJOR ? 0 : (rhs.type == TTY_PSEUDO_SLAVE_MAJOR ? 1 : 2);
+            if (lhsRank < rhsRank)
+                return NSOrderedAscending;
+            if (lhsRank > rhsRank)
+                return NSOrderedDescending;
+            if (lhs.type < rhs.type)
+                return NSOrderedAscending;
+            if (lhs.type > rhs.type)
+                return NSOrderedDescending;
+            if (lhs.number < rhs.number)
+                return NSOrderedAscending;
+            if (lhs.number > rhs.number)
+                return NSOrderedDescending;
+            return NSOrderedSame;
+        }];
+        return active;
+    }
+}
+
 + (Terminal *)terminalWithUUID:(NSUUID *)uuid {
     @synchronized (Terminal.class) {
         return [terminalsByUUID objectForKey:uuid];
@@ -415,7 +452,10 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
     }
     @synchronized (Terminal.class) {
         [terminals removeObjectForKey:self.terminalsKey];
+        if (self.uuid != nil)
+            [terminalsByUUID removeObjectForKey:self.uuid];
     }
+    NotifyTerminalRegistryChanged();
 }
 
 + (void)initialize {

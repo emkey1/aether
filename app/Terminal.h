@@ -13,6 +13,7 @@ struct tty;
 @interface Terminal : NSObject
 
 + (Terminal *)terminalWithType:(int)type number:(int)number;
++ (NSArray<Terminal *> *)activeTerminals;
 #if !ISH_LINUX
 // Returns a strong struct tty and a Terminal that has a weak reference to the same tty
 + (Terminal *)createPseudoTerminal:(struct tty **)tty;
@@ -42,5 +43,6 @@ struct tty;
 
 extern NSNotificationName const TerminalLoadFailedNotification;
 extern NSNotificationName const TerminalDidLoadNotification;
+extern NSNotificationName const TerminalRegistryDidChangeNotification;
 
 extern struct tty_driver ios_console_driver;
