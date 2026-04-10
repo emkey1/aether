@@ -312,24 +312,6 @@ out_free_task:
     return err;
 }
 
-static int proc_pid_comm_show(struct proc_entry *entry, struct proc_data *buf) {
-    struct task *task = proc_get_task(entry);
-    if ((task == NULL) || (task->exiting == true)) {
-        proc_put_task(task);
-        return _ESRCH;
-    }
-
-    char name[sizeof(task->comm) + 1];
-    lock(&task->general_lock, 0);
-    strncpy(name, task->comm, sizeof(task->comm));
-    name[sizeof(task->comm)] = '\0';
-    unlock(&task->general_lock);
-
-    proc_printf(buf, "%s\n", name);
-    proc_put_task(task);
-    return 0;
-}
-
 static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
