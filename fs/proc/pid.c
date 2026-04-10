@@ -266,6 +266,24 @@ out_free_task:
     return err;
 }
 
+static int proc_pid_comm_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+
+    char name[sizeof(task->comm) + 1];
+    lock(&task->general_lock, 0);
+    strncpy(name, task->comm, sizeof(task->comm));
+    name[sizeof(task->comm)] = '\0';
+    unlock(&task->general_lock);
+
+    proc_printf(buf, "%s\n", name);
+    proc_put_task(task);
+    return 0;
+}
+
 static int proc_pid_environ_show(struct proc_entry *entry, struct proc_data *buf) {
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
@@ -575,11 +593,6 @@ static void proc_pid_task_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
 }
 
-static int proc_pid_task_readlink(struct proc_entry *entry, char *buf) {
-    sprintf(buf, "/proc/%d", entry->pid);
-    return 0;
-}
-
 static struct proc_dir_entry proc_pid_task;
 
 static bool proc_pid_task_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
@@ -620,6 +633,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"auxv", .show = proc_pid_auxv_show},
     {"cgroup", .show = proc_pid_cgroup_show},
     {"cmdline", .show = proc_pid_cmdline_show},
+    {"comm", .show = proc_pid_comm_show},
     {"cwd", S_IFLNK, .readlink = proc_pid_cwd_readlink},
     {"environ", .show = proc_pid_environ_show},
     {"exe", S_IFLNK, .readlink = proc_pid_exe_readlink},
@@ -645,5 +659,5 @@ static struct proc_dir_entry proc_pid_fd = {NULL, S_IFLNK,
 static struct proc_dir_entry proc_pid_fdinfo_entry = {NULL, S_IFREG,
     .getname = proc_pid_fd_getname, .show = proc_pid_fdinfo_show};
 
-static struct proc_dir_entry proc_pid_task = {NULL, S_IFLNK,
-    .getname = proc_pid_task_getname, .readlink = proc_pid_task_readlink};
+static struct proc_dir_entry proc_pid_task = {NULL, S_IFDIR,
+    .children = &proc_pid_children, .getname = proc_pid_task_getname};
