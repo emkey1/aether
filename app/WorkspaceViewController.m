@@ -38,8 +38,7 @@
 @property (nonatomic, strong) UILabel *diagnosticsSummaryLabel;
 @property (nonatomic, strong) UIButton *dockDashboardButton;
 @property (nonatomic, strong) UIButton *dockUtilsButton;
-@property (nonatomic, strong) UIButton *dockConsoleButton;
-@property (nonatomic, strong) UIButton *dockShellButton;
+@property (nonatomic, strong) UIButton *dockTerminalButton;
 @property (nonatomic, strong) UIStackView *sceneWindowsStack;
 @property (nonatomic, strong) UIStackView *activeTerminalsStack;
 @property (nonatomic, strong) UILabel *breadcrumbsLabel;
@@ -64,6 +63,7 @@
 @end
 
 NSString *const ISHInitialWindowWorkspaceValue = @"workspace";
+NSString *const ISHInitialWindowChooseFilesystemValue = @"choose-filesystem";
 static NSString *const ISHWorkspaceToolClockIdentifier = @"clock";
 static NSString *const ISHWorkspaceToolInfoIdentifier = @"info";
 static NSString *const ISHWorkspaceToolMonitorIdentifier = @"monitor";
@@ -85,6 +85,12 @@ static const CGFloat ISHWorkspaceWindowTitleBarHeight = 24.0;
 static const CGFloat ISHWorkspaceWindowButtonSize = 18.0;
 static const CGFloat ISHWorkspaceWindowButtonInset = 8.0;
 static const CGFloat ISHWorkspaceWindowTitleSideInset = 34.0;
+
+static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
+    frame.origin.x = round(frame.origin.x);
+    frame.origin.y = round(frame.origin.y);
+    return frame;
+}
 
 @interface ISHWorkspaceContainedWindowView : UIView
 
@@ -341,7 +347,7 @@ static const CGFloat ISHWorkspaceWindowTitleSideInset = 34.0;
         maxY = minY;
     frame.origin.x = MIN(MAX(frame.origin.x, minX), maxX);
     frame.origin.y = MIN(MAX(frame.origin.y, minY), maxY);
-    self.frame = CGRectIntegral(frame);
+    self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
     [recognizer setTranslation:CGPointZero inView:self.superview];
 }
 
@@ -403,11 +409,11 @@ static UIViewController *ISHCreateRootsViewController(void) {
 
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
-        return CGSizeMake(256, 176);
+        return CGSizeMake(200, 140);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
         return CGSizeMake(340, 210);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
-        return CGSizeMake(460, 320);
+        return CGSizeMake(400, 240);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return CGSizeMake(420, 260);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
@@ -475,6 +481,8 @@ static NSString *ISHInitialWindowTitle(void) {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
     if ([initialWindow isEqualToString:ISHInitialWindowWorkspaceValue])
         return @"Workspace";
+    if ([initialWindow isEqualToString:ISHInitialWindowChooseFilesystemValue])
+        return @"Choose Filesystem";
     if ([initialWindow isEqualToString:@"session-shell"])
         return @"Session Shell (pts/0)";
     return @"Plain Terminal";
@@ -1066,7 +1074,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     frame.origin.x = MIN(MAX(frame.origin.x, minX), maxX);
     frame.origin.y = MIN(MAX(frame.origin.y, minY), maxY);
-    return CGRectIntegral(frame);
+    return ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
 }
 
 - (void)clampDesktopWindowToVisibleBounds:(ISHWorkspaceContainedWindowView *)windowView {
@@ -1083,7 +1091,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGRect frame = windowView.frame;
     frame.origin.x = CGRectGetMaxX(usableBounds) - CGRectGetWidth(frame);
     frame.origin.y = CGRectGetMaxY(usableBounds) - CGRectGetHeight(frame);
-    windowView.frame = CGRectIntegral(frame);
+    windowView.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
 }
 
 - (void)resizeDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView
@@ -1112,7 +1120,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (windowView.pinnedToLowerRight) {
         frame.origin.x = CGRectGetMaxX(usableBounds) - CGRectGetWidth(frame);
         frame.origin.y = CGRectGetMaxY(usableBounds) - CGRectGetHeight(frame);
-        frame = CGRectIntegral(frame);
+        frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
     }
     void (^changes)(void) = ^{
         windowView.frame = frame;
@@ -1444,7 +1452,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         windowView.minimumSize = CGSizeMake(260, 160);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(320, 220);
+        windowView.minimumSize = CGSizeMake(280, 144);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier]) {
         windowView.resizable = YES;
         windowView.minimumSize = CGSizeMake(320, 180);
@@ -1519,11 +1527,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     appsRow.spacing = 10;
     appsRow.distribution = UIStackViewDistributionFillEqually;
 
-    UIStackView *terminalsRow = [UIStackView new];
-    terminalsRow.axis = UILayoutConstraintAxisHorizontal;
-    terminalsRow.spacing = 10;
-    terminalsRow.distribution = UIStackViewDistributionFillEqually;
-
     self.dockDashboardButton = [self workspaceDockTileButtonWithTitle:@"Dashboard"
                                                              selector:@selector(openOrFocusDashboardFromDock:)
                                                            identifier:@"dashboard"];
@@ -1533,23 +1536,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UILongPressGestureRecognizer *utilsLongPressRecognizer =
         [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleUtilsDockLongPress:)];
     [self.dockUtilsButton addGestureRecognizer:utilsLongPressRecognizer];
-    self.dockConsoleButton = [self workspaceDockTileButtonWithTitle:@"Console"
-                                                           selector:@selector(openOrFocusTerminalFromDock:)
-                                                         identifier:ISHWorkspaceTerminalRoleSystemConsole];
-    self.dockShellButton = [self workspaceDockTileButtonWithTitle:@"Shell"
-                                                         selector:@selector(openOrFocusTerminalFromDock:)
-                                                       identifier:ISHWorkspaceTerminalRoleSessionShell];
-    UILongPressGestureRecognizer *shellLongPressRecognizer =
-        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleShellDockLongPress:)];
-    [self.dockShellButton addGestureRecognizer:shellLongPressRecognizer];
+    self.dockTerminalButton = [self workspaceDockTileButtonWithTitle:@"Terminal"
+                                                            selector:@selector(openOrFocusTerminalFromDock:)
+                                                          identifier:ISHWorkspaceTerminalRoleSessionShell];
+    UILongPressGestureRecognizer *terminalLongPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleTerminalDockLongPress:)];
+    [self.dockTerminalButton addGestureRecognizer:terminalLongPressRecognizer];
 
     [appsRow addArrangedSubview:self.dockDashboardButton];
     [appsRow addArrangedSubview:self.dockUtilsButton];
-    [terminalsRow addArrangedSubview:self.dockConsoleButton];
-    [terminalsRow addArrangedSubview:self.dockShellButton];
+    [appsRow addArrangedSubview:self.dockTerminalButton];
 
     [stack addArrangedSubview:appsRow];
-    [stack addArrangedSubview:terminalsRow];
 
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:windowView.contentContainerView.topAnchor constant:14],
@@ -1687,6 +1685,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         NSString *windowRole = [self persistentTerminalRoleForWindow:windowView];
         if ([windowRole isEqualToString:terminalRole])
             return windowView;
+    }
+    return nil;
+}
+
+- (ISHWorkspaceContainedWindowView *)frontmostDesktopTerminalWindow {
+    for (UIView *view in [self.desktopSurfaceView.subviews reverseObjectEnumerator]) {
+        if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+            continue;
+        ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
+        if (windowView.hidden || windowView.hostedTerminalViewController == nil)
+            continue;
+        return windowView;
     }
     return nil;
 }
@@ -2399,19 +2409,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                            active:clockWindow != nil
                         frontmost:frontmostWindow == clockWindow];
 
-    ISHWorkspaceContainedWindowView *consoleWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSystemConsole];
-    [self configureDockTileButton:self.dockConsoleButton
-                            title:@"Console"
-                            state:(consoleWindow != nil ? (frontmostWindow == consoleWindow ? @"Front" : @"Focus") : @"Open")
-                           active:consoleWindow != nil
-                        frontmost:frontmostWindow == consoleWindow];
-
     ISHWorkspaceContainedWindowView *shellWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSessionShell];
-    [self configureDockTileButton:self.dockShellButton
-                            title:@"Shell"
-                            state:(shellWindow != nil ? (frontmostWindow == shellWindow ? @"Front" : @"Focus") : @"Open")
-                           active:shellWindow != nil
-                        frontmost:frontmostWindow == shellWindow];
+    ISHWorkspaceContainedWindowView *frontmostTerminalWindow = [self frontmostDesktopTerminalWindow];
+    BOOL hasTerminalWindow = frontmostTerminalWindow != nil;
+    BOOL frontmostIsTerminal = frontmostTerminalWindow != nil && frontmostWindow == frontmostTerminalWindow;
+    NSString *terminalState = @"Open Shell";
+    if (shellWindow != nil) {
+        terminalState = frontmostWindow == shellWindow ? @"Front" : @"Focus Shell";
+    } else if (hasTerminalWindow) {
+        terminalState = frontmostIsTerminal ? @"Front" : @"Focus";
+    }
+    [self configureDockTileButton:self.dockTerminalButton
+                            title:@"Terminal"
+                            state:terminalState
+                           active:hasTerminalWindow
+                        frontmost:frontmostIsTerminal];
 }
 
 - (UIButton *)terminalActionButtonWithTitle:(NSString *)title
@@ -2479,14 +2491,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)openOrFocusTerminalFromDock:(UIButton *)sender {
-    NSString *terminalRole = sender.accessibilityIdentifier;
-    if ([terminalRole isEqualToString:ISHWorkspaceTerminalRoleSystemConsole]) {
-        [self openTerminalHerePreferringConsole:YES];
+    (void) sender;
+    ISHWorkspaceContainedWindowView *shellWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSessionShell];
+    if (shellWindow != nil) {
+        [self focusDesktopWindow:shellWindow];
         return;
     }
-    if ([terminalRole isEqualToString:ISHWorkspaceTerminalRoleSessionShell]) {
-        [self openTerminalHerePreferringConsole:NO];
+
+    ISHWorkspaceContainedWindowView *frontmostTerminalWindow = [self frontmostDesktopTerminalWindow];
+    if (frontmostTerminalWindow != nil) {
+        [self focusDesktopWindow:frontmostTerminalWindow];
+        return;
     }
+
+    [self openTerminalHerePreferringConsole:NO];
 }
 
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)dockUtilityToolDescriptors {
@@ -2545,16 +2563,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)handleShellDockLongPress:(UILongPressGestureRecognizer *)recognizer {
+- (void)handleTerminalDockLongPress:(UILongPressGestureRecognizer *)recognizer {
     if (recognizer.state != UIGestureRecognizerStateBegan)
         return;
-    [self presentShellDockActionsFromView:recognizer.view];
+    [self presentTerminalDockActionsFromView:recognizer.view];
 }
 
-- (void)presentShellDockActionsFromView:(UIView *)sourceView {
+- (void)presentTerminalDockActionsFromView:(UIView *)sourceView {
     UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"Shell"
-                                            message:@"Open another shell or jump directly to a terminal."
+        [UIAlertController alertControllerWithTitle:@"Terminal"
+                                            message:@"Open or focus shell, console, or another active terminal."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
     ISHWorkspaceContainedWindowView *primaryShellWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSessionShell];
@@ -2563,6 +2581,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         [self openTerminalHerePreferringConsole:NO];
+    }]];
+
+    ISHWorkspaceContainedWindowView *primaryConsoleWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSystemConsole];
+    NSString *consoleActionTitle = primaryConsoleWindow != nil ? @"Focus System Console" : @"Open System Console";
+    [sheet addAction:[UIAlertAction actionWithTitle:consoleActionTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self openTerminalHerePreferringConsole:YES];
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"Open Another Shell Window"
@@ -2591,8 +2617,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
     if (popoverPresentationController != nil) {
-        popoverPresentationController.sourceView = sourceView ?: self.dockShellButton;
-        popoverPresentationController.sourceRect = sourceView != nil ? sourceView.bounds : self.dockShellButton.bounds;
+        popoverPresentationController.sourceView = sourceView ?: self.dockTerminalButton;
+        popoverPresentationController.sourceRect = sourceView != nil ? sourceView.bounds : self.dockTerminalButton.bounds;
         popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
     }
     [self presentViewController:sheet animated:YES completion:nil];
@@ -3106,7 +3132,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @end
 
 @implementation WorkspaceMonitorToolViewController {
-    UITextView *_textView;
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UIProgressView *_cpuProgressView;
+    UILabel *_cpuTitleLabel;
+    UIProgressView *_memoryProgressView;
+    UILabel *_memoryTitleLabel;
+    UILabel *_uptimeValueLabel;
+    UILabel *_batteryValueLabel;
+    UILabel *_diskValueLabel;
+    UILabel *_rootValueLabel;
+    UILabel *_liveValueLabel;
+    UILabel *_networkValueLabel;
     NSTimer *_timer;
     natural_t _previousCPUTicks[CPU_STATE_MAX];
     BOOL _hasPreviousCPUSample;
@@ -3121,20 +3158,49 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         self.view.backgroundColor = UIColor.whiteColor;
     }
 
-    _textView = [[UITextView alloc] initWithFrame:self.view.bounds];
-    _textView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _textView.editable = NO;
-    _textView.alwaysBounceVertical = YES;
-    if (@available(iOS 13.0, *)) {
-        _textView.backgroundColor = UIColor.systemBackgroundColor;
-        _textView.textColor = UIColor.labelColor;
-        _textView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    } else {
-        _textView.backgroundColor = UIColor.whiteColor;
-        _textView.textColor = UIColor.blackColor;
-        _textView.font = [UIFont fontWithName:@"Menlo-Regular" size:13] ?: [UIFont systemFontOfSize:13];
-    }
-    [self.view addSubview:_textView];
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.view addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 8;
+    [_scrollView addSubview:_contentStack];
+
+    [_contentStack addArrangedSubview:[self monitorBarCardWithTitle:@"CPU"
+                                                         titleLabel:&_cpuTitleLabel
+                                                       progressView:&_cpuProgressView
+                                                        detailLabel:NULL]];
+    [_contentStack addArrangedSubview:[self monitorBarCardWithTitle:@"Memory"
+                                                         titleLabel:&_memoryTitleLabel
+                                                       progressView:&_memoryProgressView
+                                                        detailLabel:NULL]];
+
+    UIStackView *factsStack = [UIStackView new];
+    factsStack.axis = UILayoutConstraintAxisVertical;
+    factsStack.spacing = 6;
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Live" valueLabel:&_liveValueLabel]];
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Uptime" valueLabel:&_uptimeValueLabel]];
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Storage" valueLabel:&_diskValueLabel]];
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Root" valueLabel:&_rootValueLabel]];
+    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Network" valueLabel:&_networkValueLabel]];
+    [_contentStack addArrangedSubview:[self monitorCardWithContent:factsStack]];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+    ]];
 
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
@@ -3160,6 +3226,107 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [_timer invalidate];
     _timer = nil;
     UIDevice.currentDevice.batteryMonitoringEnabled = NO;
+}
+
+- (UILabel *)monitorValueLabelWithMonospaced:(BOOL)monospaced {
+    UILabel *label = [UILabel new];
+    label.numberOfLines = 1;
+    UIFont *font = nil;
+    if (monospaced) {
+        if (@available(iOS 13.0, *)) {
+            font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+        } else {
+            font = [UIFont fontWithName:@"Menlo-Regular" size:12] ?: [UIFont systemFontOfSize:12];
+        }
+    } else {
+        font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    }
+    label.font = font;
+    if (@available(iOS 13.0, *)) {
+        label.textColor = UIColor.labelColor;
+    } else {
+        label.textColor = UIColor.blackColor;
+    }
+    return label;
+}
+
+- (UIView *)monitorCardWithContent:(UIView *)contentView {
+    UIView *card = [UIView new];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        card.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    } else {
+        card.backgroundColor = [UIColor colorWithWhite:0.96 alpha:1.0];
+    }
+    card.layer.cornerRadius = 10;
+
+    contentView.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:contentView];
+    [NSLayoutConstraint activateConstraints:@[
+        [contentView.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
+        [contentView.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:8],
+        [contentView.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-8],
+        [contentView.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
+    ]];
+    return card;
+}
+
+- (UIView *)monitorBarCardWithTitle:(NSString *)title
+                         titleLabel:(UILabel * __strong *)titleLabel
+                       progressView:(UIProgressView * __strong *)progressView
+                        detailLabel:(UILabel * __strong *)detailLabel {
+    UIStackView *stack = [UIStackView new];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 5;
+
+    UILabel *headingLabel = [self monitorValueLabelWithMonospaced:NO];
+    headingLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    headingLabel.text = title;
+    [stack addArrangedSubview:headingLabel];
+
+    UIProgressView *bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    if (@available(iOS 13.0, *)) {
+        bar.trackTintColor = UIColor.tertiarySystemFillColor;
+        bar.progressTintColor = UIColor.systemGreenColor;
+    }
+    bar.transform = CGAffineTransformMakeScale(1.0, 1.35);
+    [stack addArrangedSubview:bar];
+
+    if (titleLabel != NULL)
+        *titleLabel = headingLabel;
+    if (progressView != NULL)
+        *progressView = bar;
+    if (detailLabel != NULL)
+        *detailLabel = nil;
+    return [self monitorCardWithContent:stack];
+}
+
+- (UIView *)monitorKeyValueRowWithTitle:(NSString *)title valueLabel:(UILabel * __strong *)valueLabel {
+    UIStackView *row = [UIStackView new];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 6;
+    row.alignment = UIStackViewAlignmentFirstBaseline;
+
+    UILabel *titleLabel = [self monitorValueLabelWithMonospaced:NO];
+    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    titleLabel.text = title;
+    if (@available(iOS 13.0, *)) {
+        titleLabel.textColor = UIColor.secondaryLabelColor;
+    } else {
+        titleLabel.textColor = UIColor.darkGrayColor;
+    }
+
+    UILabel *detail = [self monitorValueLabelWithMonospaced:YES];
+    detail.textAlignment = NSTextAlignmentRight;
+
+    [row addArrangedSubview:titleLabel];
+    [row addArrangedSubview:detail];
+    [titleLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [detail setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+
+    if (valueLabel != NULL)
+        *valueLabel = detail;
+    return row;
 }
 
 - (double)sampleSystemCPURatio {
@@ -3192,23 +3359,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     double cpuRatio = [self sampleSystemCPURatio];
 
     uint64_t footprint = 0;
-    uint64_t resident = 0;
     uint64_t physical = 0;
-    BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, &resident, &physical);
+    BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, &physical);
     double memoryRatio = (hasMemory && physical > 0) ? ((double) footprint / (double) physical) : 0.0;
 
-    NSString *footprintString = hasMemory
-        ? [NSByteCountFormatter stringFromByteCount:(long long) footprint
-                                          countStyle:NSByteCountFormatterCountStyleMemory]
-        : @"unavailable";
-    NSString *residentString = hasMemory
-        ? [NSByteCountFormatter stringFromByteCount:(long long) resident
-                                          countStyle:NSByteCountFormatterCountStyleMemory]
-        : @"unavailable";
-    NSString *physicalString = physical > 0
-        ? [NSByteCountFormatter stringFromByteCount:(long long) physical
-                                          countStyle:NSByteCountFormatterCountStyleMemory]
-        : @"unavailable";
     NSString *storageString = [ISHWorkspaceStorageSummaryText() stringByReplacingOccurrencesOfString:@"Free storage: "
                                                                                           withString:@""];
     NSString *defaultRoot = Roots.instance.defaultRoot;
@@ -3219,68 +3373,33 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         sceneCount = UIApplication.sharedApplication.connectedScenes.count;
     }
 
-    NSMutableArray<NSString *> *terminalNames = [NSMutableArray array];
-    for (Terminal *terminal in Terminal.activeTerminals) {
-        [terminalNames addObject:ISHWorkspaceTerminalDisplayName(terminal)];
-    }
-    [terminalNames sortUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
-
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    [lines addObject:[NSString stringWithFormat:@"Updated %@",
-                      [NSDateFormatter localizedStringFromDate:NSDate.date
-                                                     dateStyle:NSDateFormatterNoStyle
-                                                     timeStyle:NSDateFormatterMediumStyle]]];
-    [lines addObject:@""];
+    NSUInteger terminalCount = [Terminal activeTerminals].count;
 
     if (cpuRatio >= 0.0) {
-        [lines addObject:[NSString stringWithFormat:@"CPU  %@ %3ld%%   %ld cores",
-                          ISHWorkspaceUsageBarString(cpuRatio, 16),
-                          (long) llround(cpuRatio * 100.0),
-                          (long) NSProcessInfo.processInfo.activeProcessorCount]];
+        _cpuProgressView.progress = (float) cpuRatio;
+        _cpuTitleLabel.text = [NSString stringWithFormat:@"CPU  %ld%%", (long) llround(cpuRatio * 100.0)];
     } else {
-        [lines addObject:@"CPU  unavailable"];
+        _cpuProgressView.progress = 0.0f;
+        _cpuTitleLabel.text = @"CPU  unavailable";
     }
 
     if (hasMemory) {
-        [lines addObject:[NSString stringWithFormat:@"MEM  %@ %3ld%%   %@ footprint",
-                          ISHWorkspaceUsageBarString(memoryRatio, 16),
-                          (long) llround(memoryRatio * 100.0),
-                          footprintString]];
-        [lines addObject:[NSString stringWithFormat:@"RES  %@ resident   %@ physical",
-                          residentString,
-                          physicalString]];
+        _memoryProgressView.progress = (float) memoryRatio;
+        _memoryTitleLabel.text = [NSString stringWithFormat:@"Memory  %ld%%", (long) llround(memoryRatio * 100.0)];
     } else {
-        [lines addObject:@"MEM  unavailable"];
+        _memoryProgressView.progress = 0.0f;
+        _memoryTitleLabel.text = @"Memory  unavailable";
     }
 
-    [lines addObject:[NSString stringWithFormat:@"UP   %@", ISHWorkspaceDurationString(NSProcessInfo.processInfo.systemUptime)]];
-    [lines addObject:[NSString stringWithFormat:@"BAT  %@", ISHWorkspaceBatterySummaryText()]];
-    [lines addObject:[NSString stringWithFormat:@"DISK %@ free", storageString]];
-    [lines addObject:[NSString stringWithFormat:@"ROOT %@", defaultRoot.length > 0 ? defaultRoot : @"unavailable"]];
-    [lines addObject:[NSString stringWithFormat:@"LIVE %lu scenes   %lu roots   %lu terminals",
-                      (unsigned long) sceneCount,
-                      (unsigned long) Roots.instance.roots.count,
-                      (unsigned long) terminalNames.count]];
-    [lines addObject:[NSString stringWithFormat:@"NET  %@", networkLine]];
-    [lines addObject:@""];
-    [lines addObject:@"GUESTS"];
-
-    if (terminalNames.count == 0) {
-        [lines addObject:@"  No active terminals"];
-    } else {
-        NSUInteger limit = MIN((NSUInteger) 6, terminalNames.count);
-        for (NSUInteger index = 0; index < limit; index++) {
-            [lines addObject:[NSString stringWithFormat:@"  %lu. %@",
-                              (unsigned long) (index + 1),
-                              terminalNames[index]]];
-        }
-        if (terminalNames.count > limit) {
-            [lines addObject:[NSString stringWithFormat:@"  ... %lu more",
-                              (unsigned long) (terminalNames.count - limit)]];
-        }
-    }
-
-    _textView.text = [lines componentsJoinedByString:@"\n"];
+    _uptimeValueLabel.text = ISHWorkspaceDurationString(NSProcessInfo.processInfo.systemUptime);
+    _batteryValueLabel.text = ISHWorkspaceBatterySummaryText();
+    _diskValueLabel.text = storageString;
+    _rootValueLabel.text = defaultRoot.length > 0 ? defaultRoot : @"unavailable";
+    _liveValueLabel.text = [NSString stringWithFormat:@"%lu scenes   %lu roots   %lu terminals",
+                            (unsigned long) sceneCount,
+                            (unsigned long) Roots.instance.roots.count,
+                            (unsigned long) terminalCount];
+    _networkValueLabel.text = networkLine;
 }
 
 @end

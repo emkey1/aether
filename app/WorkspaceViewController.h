@@ -3,6 +3,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const ISHInitialWindowWorkspaceValue;
+extern NSString *const ISHInitialWindowChooseFilesystemValue;
 extern UINavigationController *ISHCreateWorkspaceNavigationController(void);
 extern UINavigationController *ISHCreateWorkspaceNavigationControllerForTool(NSString *_Nullable toolIdentifier);
 extern BOOL ISHShouldLaunchWorkspaceAtStartup(void);

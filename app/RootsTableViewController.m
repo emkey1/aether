@@ -30,6 +30,14 @@
 
 @implementation RootsTableViewController
 
+- (void)_completeRootSelectionWithName:(NSString *)rootName {
+    if (rootName.length == 0)
+        return;
+    Roots.instance.defaultRoot = rootName;
+    if (self.rootSelectionHandler != nil)
+        self.rootSelectionHandler(rootName);
+}
+
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)bundledChoices {
     return Roots.instance.bundledRootChoices;
 }
@@ -94,11 +102,16 @@
                         [self presentError:error title:@"Import failed"];
                     return;
                 }
-                if (wasInitialSelection &&
+                if (!self.choosesRootOnSelection &&
+                    wasInitialSelection &&
                     ([initialWindow isEqualToString:@"terminal"] ||
                      [initialWindow isEqualToString:@"session-shell"])) {
                     [NSUserDefaults.standardUserDefaults setObject:initialWindow
                                                             forKey:kPreferenceInitialWindowKey];
+                }
+                if (self.choosesRootOnSelection) {
+                    [self _completeRootSelectionWithName:Roots.instance.roots.lastObject];
+                    return;
                 }
                 [self finishInitialSelectionIfNeededFromEmptyState:wasInitialSelection];
             }];
@@ -240,7 +253,7 @@
     if ([self sectionShowsInstalledRoots:section]) {
         if (self.showsBundledChoicesSection)
             return @"Installed Filesystems";
-        return nil;
+        return self.choosesRootOnSelection ? @"Choose a Filesystem" : nil;
     }
     if ([self sectionShowsBundledChoices:section]) {
         if (self.showsInstalledRootsSection)
@@ -251,6 +264,9 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if ([self sectionShowsInstalledRoots:section] && self.choosesRootOnSelection) {
+        return @"Tap a filesystem to make it active and continue booting.";
+    }
     if ([self sectionShowsBundledChoices:section]) {
         if (!self.showsInstalledRootsSection)
             return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive.";
@@ -286,6 +302,11 @@
         [self startBundledImportChoice:self.bundledChoices[indexPath.row]];
         return;
     }
+    if (self.choosesRootOnSelection && [self sectionShowsInstalledRoots:indexPath.section]) {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        [self _completeRootSelectionWithName:Roots.instance.roots[indexPath.row]];
+        return;
+    }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
@@ -300,6 +321,8 @@
 - (BOOL)shouldPerformSegueWithIdentifier:(NSString *)identifier sender:(id)sender {
     NSIndexPath *indexPath = [self selectedIndexPathForSender:sender];
     if (indexPath != nil && [self sectionShowsBundledChoices:indexPath.section])
+        return NO;
+    if (self.choosesRootOnSelection && indexPath != nil && [self sectionShowsInstalledRoots:indexPath.section])
         return NO;
     return [super shouldPerformSegueWithIdentifier:identifier sender:sender];
 }
@@ -335,6 +358,10 @@
                 if (!success) {
                     if (error != nil)
                         [self presentError:error title:@"Import failed"];
+                    return;
+                }
+                if (self.choosesRootOnSelection) {
+                    [self _completeRootSelectionWithName:name];
                     return;
                 }
                 [self finishInitialSelectionIfNeededFromEmptyState:wasInitialSelection];

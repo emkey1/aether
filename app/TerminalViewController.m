@@ -437,6 +437,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)_installTerminalStartupOverlay {
     UIView *overlay = [[UIView alloc] init];
     overlay.translatesAutoresizingMaskIntoConstraints = NO;
+    overlay.userInteractionEnabled = NO;
     if (@available(iOS 13, *)) {
         overlay.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.96];
     } else {
@@ -488,11 +489,21 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     ]];
 }
 
+- (void)_bringTerminalRecoveryControlsToFront {
+    if (self.floatingWorkspaceButton.superview != nil)
+        [self.view bringSubviewToFront:self.floatingWorkspaceButton];
+    if (self.floatingSettingsButton.superview != nil)
+        [self.view bringSubviewToFront:self.floatingSettingsButton];
+    if (self.floatingTerminalSwitcherButton.superview != nil)
+        [self.view bringSubviewToFront:self.floatingTerminalSwitcherButton];
+}
+
 - (void)_showTerminalStartupOverlayWithText:(NSString *)text {
     self.terminalStartupLabel.text = text;
     self.terminalStartupOverlay.hidden = NO;
     [self.terminalStartupSpinner startAnimating];
     [self.view bringSubviewToFront:self.terminalStartupOverlay];
+    [self _bringTerminalRecoveryControlsToFront];
 }
 
 - (void)_showTerminalStartupFailureOverlayWithText:(NSString *)text {
@@ -500,6 +511,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.terminalStartupOverlay.hidden = NO;
     [self.terminalStartupSpinner stopAnimating];
     [self.view bringSubviewToFront:self.terminalStartupOverlay];
+    [self _bringTerminalRecoveryControlsToFront];
 }
 
 - (void)_hideTerminalStartupOverlay {

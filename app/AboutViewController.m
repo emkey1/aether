@@ -277,6 +277,8 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
     NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
     if ([value isEqualToString:ISHInitialWindowWorkspaceValue])
         return value;
+    if ([value isEqualToString:ISHInitialWindowChooseFilesystemValue])
+        return value;
     if ([value isEqualToString:@"session-shell"])
         return value;
     return @"terminal";
@@ -285,6 +287,8 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 - (NSString *)_initialWindowTitle {
     if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowWorkspaceValue])
         return @"Workspace";
+    if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowChooseFilesystemValue])
+        return @"Choose Filesystem";
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
         return @"Session Shell (pts/0)";
     return @"Plain Terminal";
@@ -298,13 +302,16 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 - (void)_showInitialWindowPickerFromCell:(UITableViewCell *)cell {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Startup Mode"
-                                            message:@"Choose whether new app launches open the Workspace or a terminal."
+                                            message:@"Choose whether new app launches open the Workspace, show a filesystem chooser, or open a terminal."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *currentValue = [self _initialWindowPreferenceValue];
     NSString *workspaceTitle = [currentValue isEqualToString:ISHInitialWindowWorkspaceValue]
         ? @"Workspace  Current"
         : @"Workspace";
+    NSString *chooseFilesystemTitle = [currentValue isEqualToString:ISHInitialWindowChooseFilesystemValue]
+        ? @"Choose Filesystem  Current"
+        : @"Choose Filesystem";
     NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
         ? @"Plain Terminal  Current"
         : @"Plain Terminal";
@@ -316,6 +323,11 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         [self _setInitialWindowPreferenceValue:ISHInitialWindowWorkspaceValue];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:chooseFilesystemTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self _setInitialWindowPreferenceValue:ISHInitialWindowChooseFilesystemValue];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:terminalTitle
                                               style:UIAlertActionStyleDefault

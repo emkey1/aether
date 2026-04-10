@@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface RootsTableViewController : UITableViewController <UIDocumentPickerDelegate>
 
+@property (nonatomic) BOOL choosesRootOnSelection;
+@property (nonatomic, copy, nullable) void (^rootSelectionHandler)(NSString *rootName);
+
 @end
 
 NS_ASSUME_NONNULL_END

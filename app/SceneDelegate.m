@@ -11,6 +11,8 @@
 #import "Diagnostics.h"
 #import "NSObject+SaneKVO.h"
 #import "Roots.h"
+#import "RootsTableViewController.h"
+#import "UserPreferences.h"
 #import "WorkspaceViewController.h"
 
 TerminalViewController *currentTerminalViewController = NULL;
@@ -28,9 +30,21 @@ NSString *const ISHSceneActivityTypeWorkspace = @"app.ish.scene.workspace";
 NSString *const ISHSceneTerminalUUIDUserInfoKey = @"TerminalUUID";
 NSString *const ISHSceneWorkspaceToolUserInfoKey = @"WorkspaceTool";
 
-static UIViewController *CreateRootSelectionViewController(void) {
+static BOOL ISHShouldChooseFilesystemAtStartup(void) {
+    NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
+    return [initialWindow isEqualToString:ISHInitialWindowChooseFilesystemValue];
+}
+
+static UIViewController *CreateRootSelectionViewController(BOOL choosesRootOnSelection, void (^ _Nullable rootSelectionHandler)(NSString *rootName)) {
     UIViewController *rootsViewController = [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:rootsViewController];
+    if ([rootsViewController isKindOfClass:RootsTableViewController.class]) {
+        RootsTableViewController *rootsTableViewController = (RootsTableViewController *) rootsViewController;
+        rootsTableViewController.choosesRootOnSelection = choosesRootOnSelection;
+        rootsTableViewController.rootSelectionHandler = rootSelectionHandler;
+        if (choosesRootOnSelection)
+            rootsTableViewController.title = @"Choose Filesystem";
+    }
     return navigationController;
 }
 
@@ -52,6 +66,9 @@ static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, 
     NSUserActivity *explicitActivity = connectionOptions.userActivities.anyObject;
     if (explicitActivity != nil)
         return explicitActivity;
+
+    if (ISHShouldChooseFilesystemAtStartup())
+        return nil;
 
     NSUserActivity *restorationActivity = session.stateRestorationActivity;
     NSString *restorationType = restorationActivity.activityType;
@@ -119,7 +136,18 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                                selector:@selector(rootsDidFinishInitialSelection:)
                                                    name:RootsDidFinishInitialSelectionNotification
                                                  object:nil];
-        self.window.rootViewController = CreateRootSelectionViewController();
+        self.window.rootViewController = CreateRootSelectionViewController(NO, nil);
+        [self.window makeKeyAndVisible];
+        return;
+    }
+
+    if (requestedActivity.activityType.length == 0 && ISHShouldChooseFilesystemAtStartup()) {
+        __weak typeof(self) weakSelf = self;
+        self.window.rootViewController = CreateRootSelectionViewController(YES, ^(__unused NSString *rootName) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            UISceneSession *activeSession = strongSelf.window.windowScene.session ?: session;
+            [strongSelf continueAfterInitialRootImportForSession:activeSession];
+        });
         [self.window makeKeyAndVisible];
         return;
     }
@@ -136,7 +164,7 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         return;
     }
     if (activityType.length == 0 && ISHShouldLaunchWorkspaceAtStartup()) {
-        self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
         return;
     }
@@ -165,7 +193,7 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 
     self.waitingForInitialRootImport = NO;
     if (ISHShouldLaunchWorkspaceAtStartup()) {
-        self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
         return;
     }

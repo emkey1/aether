@@ -41,11 +41,15 @@
 			<string>terminal</string>
 			<key>Titles</key>
 			<array>
+				<string>Workspace</string>
+				<string>Choose Filesystem</string>
 				<string>Terminal (tty1)</string>
 				<string>Session Shell (pts/0)</string>
 			</array>
 			<key>Values</key>
 			<array>
+				<string>workspace</string>
+				<string>choose-filesystem</string>
 				<string>terminal</string>
 				<string>session-shell</string>
 			</array>
