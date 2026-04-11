@@ -947,6 +947,30 @@ restart_prefix:
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
         }
         break;
+    case 0x3c: {
+        uint8_t imm8;
+        qword_t lhs = amd64_reg_get(cpu, amd64_rax, 8);
+        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        amd64_set_sub_flags(cpu, lhs, imm8, amd64_trunc(lhs - imm8, 8), 8);
+        break;
+    }
+    case 0x3d: {
+        uint32_t imm32;
+        qword_t lhs = amd64_reg_get(cpu, amd64_rax, op_size);
+        qword_t rhs;
+        if (!amd64_fetch_u32(cpu, tlb, &imm32)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        rhs = rex.w ? (qword_t) (sqword_t) (int32_t) imm32 : imm32;
+        amd64_set_sub_flags(cpu, lhs, rhs, amd64_trunc(lhs - rhs, op_size), op_size);
+        break;
+    }
     case 0xa9: {
         uint32_t imm32;
         qword_t lhs = amd64_reg_get(cpu, amd64_rax, op_size);
