@@ -138,7 +138,7 @@ static void output_line(const char *line) {
      c_time_string[tlen - 1] = '\0'; // Remove trailing newline
 
      char tmpbuff[512];
-     if (snprintf(tmpbuff, 512, "[   %s] %s", c_time_string, line) >= 512) { // Insufficient room, need to terminate at buffer size
+     if (snprintf(tmpbuff, 512, "[%s] %s", c_time_string, line) >= 512) { // Insufficient room, need to terminate at buffer size
          tmpbuff[511] = '\0';
      }
     // send it to stdout or wherever
