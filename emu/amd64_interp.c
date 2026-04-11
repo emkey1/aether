@@ -1059,6 +1059,51 @@ restart_prefix:
             collapse_flags(cpu);
             break;
         }
+        if (op2 == 0xba) {
+            struct amd64_modrm modrm;
+            qword_t lhs, result;
+            qword_t bit;
+            uint8_t imm8;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg < 4 || modrm.reg > 7)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            bit = imm8 & (op_size - 1);
+            cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
+            result = lhs;
+            switch (modrm.reg) {
+            case 4:
+                break;
+            case 5:
+                result = amd64_trunc(lhs | (1ull << bit), op_size);
+                break;
+            case 6:
+                result = amd64_trunc(lhs & ~(1ull << bit), op_size);
+                break;
+            case 7:
+                result = amd64_trunc(lhs ^ (1ull << bit), op_size);
+                break;
+            }
+            if (modrm.reg != 4) {
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                    goto amd64_gpf_restore;
+                if (!modrm.is_reg && op_size == 64)
+                    amd64_trace_qword_store(cpu, saved_rip, 0x0f,
+                            amd64_effective_addr(cpu, &modrm, fs_prefix), result);
+            }
+            collapse_flags(cpu);
+            break;
+        }
         if (op2 == 0xaf) {
             struct amd64_modrm modrm;
             qword_t rhs, lhs, result;
