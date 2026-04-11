@@ -671,6 +671,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 }
 
 static void dump_opcode_window(addr_t ip);
+static void dump_amd64_regs(const struct cpu_state *cpu);
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
@@ -680,6 +681,8 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
     if (ptr == NULL) {
         printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
         dump_opcode_window(cpu->eip);
+        if (current->abi == GUEST_ABI_AMD64)
+            dump_amd64_regs(cpu);
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
             .fault.addr = cpu->segfault_addr,
@@ -757,6 +760,29 @@ static void dump_opcode_window(addr_t ip) {
             printk(" ");
     }
     printk("\n");
+}
+
+static void dump_amd64_regs(const struct cpu_state *cpu) {
+    printk("amd64 regs: rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx\n",
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rbx],
+           (unsigned long long) cpu->amd64_regs[amd64_rcx],
+           (unsigned long long) cpu->amd64_regs[amd64_rdx],
+           (unsigned long long) cpu->amd64_regs[amd64_rsi],
+           (unsigned long long) cpu->amd64_regs[amd64_rdi]);
+    printk("amd64 regs: rbp=%#llx rsp=%#llx r8=%#llx r9=%#llx r10=%#llx r11=%#llx\n",
+           (unsigned long long) cpu->amd64_regs[amd64_rbp],
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_r8],
+           (unsigned long long) cpu->amd64_regs[amd64_r9],
+           (unsigned long long) cpu->amd64_regs[amd64_r10],
+           (unsigned long long) cpu->amd64_regs[amd64_r11]);
+    printk("amd64 regs: r12=%#llx r13=%#llx r14=%#llx r15=%#llx rip=%#llx\n",
+           (unsigned long long) cpu->amd64_regs[amd64_r12],
+           (unsigned long long) cpu->amd64_regs[amd64_r13],
+           (unsigned long long) cpu->amd64_regs[amd64_r14],
+           (unsigned long long) cpu->amd64_regs[amd64_r15],
+           (unsigned long long) cpu->amd64_rip);
 }
 
 struct amd64_trap_rex_prefix {
@@ -1112,6 +1138,8 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     }
     printk("\n");
     dump_opcode_window(cpu->eip);
+    if (current->abi == GUEST_ABI_AMD64)
+        dump_amd64_regs(cpu);
     dump_stack(8);
     struct siginfo_ info = {
         .code = SI_KERNEL_,
