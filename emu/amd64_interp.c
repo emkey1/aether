@@ -579,6 +579,7 @@ restart_prefix:
         return INT_UNDEFINED;
     }
     case 0x01:
+    case 0x03:
     case 0x29:
     case 0x31:
     case 0x33:
@@ -604,6 +605,14 @@ restart_prefix:
             result = amd64_trunc(lhs + rhs, op_size);
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
                 goto amd64_gpf_restore;
+            amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
+            break;
+        case 0x03:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs + rhs, op_size);
+            amd64_reg_set(cpu, modrm.reg, op_size, result);
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
             break;
         case 0x29:
