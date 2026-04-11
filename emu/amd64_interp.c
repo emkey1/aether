@@ -622,7 +622,9 @@ restart_prefix:
     case 0x39:
     case 0x3b:
     case 0x85:
+    case 0x88:
     case 0x89:
+    case 0x8a:
     case 0x8b:
     case 0x8d:
     case 0x63: {
@@ -714,10 +716,20 @@ restart_prefix:
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             amd64_set_logic_flags(cpu, lhs & rhs, op_size);
             break;
+        case 0x88:
+            rhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, rhs))
+                goto amd64_gpf_restore;
+            break;
         case 0x89:
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
                 goto amd64_gpf_restore;
+            break;
+        case 0x8a:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &rhs))
+                goto amd64_gpf_restore;
+            amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, rhs);
             break;
         case 0x8b:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
@@ -833,6 +845,7 @@ restart_prefix:
         break;
     }
     case 0x80:
+    case 0xc0:
     case 0x81:
     case 0x83:
     case 0xc1:
@@ -840,7 +853,7 @@ restart_prefix:
     case 0xc7: {
         struct amd64_modrm modrm;
         qword_t lhs, rhs, result;
-        unsigned rm_size = opcode == 0x80 ? 8 : op_size;
+        unsigned rm_size = (opcode == 0x80 || opcode == 0xc0) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
@@ -859,7 +872,7 @@ restart_prefix:
                 goto amd64_gpf_restore;
             break;
         }
-        if (opcode == 0xc1) {
+        if (opcode == 0xc0 || opcode == 0xc1) {
             uint8_t imm8;
             unsigned count;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
@@ -867,27 +880,27 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            count = imm8 & (op_size == 64 ? 0x3f : 0x1f);
+            count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
             if (count == 0)
                 break;
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
                 goto amd64_gpf_restore;
             switch (modrm.reg) {
             case 4:
-                result = amd64_trunc(lhs << count, op_size);
+                result = amd64_trunc(lhs << count, rm_size);
                 break;
             case 5:
-                result = amd64_trunc(amd64_trunc(lhs, op_size) >> count, op_size);
+                result = amd64_trunc(amd64_trunc(lhs, rm_size) >> count, rm_size);
                 break;
             case 7:
-                result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, op_size) >> count), op_size);
+                result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, rm_size) >> count), rm_size);
                 break;
             default:
                 return INT_UNDEFINED;
             }
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
                 goto amd64_gpf_restore;
-            amd64_set_shift_flags(cpu, lhs, result, op_size, count, modrm.reg);
+            amd64_set_shift_flags(cpu, lhs, result, rm_size, count, modrm.reg);
             break;
         }
         if (opcode == 0x80) {
