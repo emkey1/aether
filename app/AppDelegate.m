@@ -732,6 +732,11 @@ static TerminalViewController *CreateTerminalViewController(void) {
     NSString *defaultRoot = Roots.instance.defaultRoot;
     if (defaultRoot == nil)
         return _ENOENT;
+    NSString *guestABI = [Roots.instance guestABIForRootNamed:defaultRoot];
+    if ([guestABI isEqualToString:@"amd64"]) {
+        NSLog(@"Refusing to boot root %@ because amd64 guest boot is not enabled yet", defaultRoot);
+        return _ENOEXEC;
+    }
 
     NSURL *root = [Roots.instance rootUrl:defaultRoot];
 

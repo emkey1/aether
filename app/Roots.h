@@ -30,6 +30,7 @@ FOUNDATION_EXPORT NSNotificationName const RootsDidFinishInitialSelectionNotific
 @property (readonly, nullable) NSError *initialBundledRootImportError;
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)bundledRootChoices;
 - (NSURL *)rootUrl:(NSString *)name;
+- (nullable NSString *)guestABIForRootNamed:(NSString *)name;
 - (BOOL)importRootFromArchive:(NSURL *)archive name:(NSString *)name error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;
 - (BOOL)importBundledRootChoice:(NSString *)identifier error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;
 - (BOOL)exportRootNamed:(NSString *)name toArchive:(NSURL *)archive error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;

@@ -40,7 +40,10 @@ static NSString *const kBundledRootDisplayNameKey = @"displayName";
 static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
 static NSString *const kBundledRootInitialWindowKey = @"initialWindow";
+static NSString *const kBundledRootGuestABIKey = @"guestABI";
 static NSString *const kRootsErrorDomain = @"iSH.Roots";
+static NSString *const kRootMetadataFileName = @"ish-root.plist";
+static NSString *const kRootMetadataGuestABIKey = @"guestABI";
 
 NSNotificationName const RootsDidFinishInitialSelectionNotification = @"RootsDidFinishInitialSelectionNotification";
 
@@ -55,6 +58,7 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootArchiveNameKey: @"root",
                 kBundledRootImportNameKey: @"Devuan5(Debian12)",
                 kBundledRootInitialWindowKey: @"terminal",
+                kBundledRootGuestABIKey: @"i386",
             },
             @{
                 kBundledRootIdentifierKey: @"alpine3233",
@@ -62,6 +66,7 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
                 kBundledRootImportNameKey: @"Alpine3.23.3",
                 kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"i386",
             },
             @{
                 kBundledRootIdentifierKey: @"alpine3233x8664",
@@ -69,10 +74,32 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
                 kBundledRootImportNameKey: @"Alpine3.23.3(x86_64)",
                 kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"amd64",
             },
         ];
     });
     return choices;
+}
+
+static NSURL *RootMetadataURL(NSURL *rootURL) {
+    return [rootURL URLByAppendingPathComponent:kRootMetadataFileName];
+}
+
+static NSDictionary<NSString *, id> *ReadRootMetadata(NSURL *rootURL) {
+    NSDictionary<NSString *, id> *metadata =
+        [NSDictionary dictionaryWithContentsOfURL:RootMetadataURL(rootURL)];
+    if (![metadata isKindOfClass:NSDictionary.class])
+        return nil;
+    return metadata;
+}
+
+static void WriteRootMetadata(NSURL *rootURL, NSDictionary<NSString *, id> *metadata) {
+    if (metadata.count == 0)
+        return;
+    NSError *error = nil;
+    if (![metadata writeToURL:RootMetadataURL(rootURL) error:&error]) {
+        NSLog(@"could not write root metadata for %@: %@", rootURL.lastPathComponent, error);
+    }
 }
 
 static BOOL RootURLLooksValid(NSURL *url) {
@@ -303,6 +330,25 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
     return [RootsDir() URLByAppendingPathComponent:name];
 }
 
+- (nullable NSString *)guestABIForRootNamed:(NSString *)name {
+    NSDictionary<NSString *, id> *metadata = ReadRootMetadata([self rootUrl:name]);
+    NSString *guestABI = metadata[kRootMetadataGuestABIKey];
+    if ([guestABI isKindOfClass:NSString.class] && guestABI.length != 0)
+        return guestABI;
+
+    for (NSDictionary<NSString *, NSString *> *choice in BundledRootChoices()) {
+        NSString *baseName = choice[kBundledRootImportNameKey];
+        NSString *choiceGuestABI = choice[kBundledRootGuestABIKey];
+        if (baseName.length == 0 || choiceGuestABI.length == 0)
+            continue;
+        if ([name isEqualToString:baseName] ||
+                [name hasPrefix:[baseName stringByAppendingString:@" "]]) {
+            return choiceGuestABI;
+        }
+    }
+    return nil;
+}
+
 - (void)syncFileProviderDomains {
     if (self.updatingDomains) {
         self.domainsNeedUpdate = YES;
@@ -384,8 +430,15 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
                                      name:importName
                                     error:error
                          progressReporter:progress];
-    if (ok)
+    if (ok) {
+        NSString *guestABI = selectedChoice[kBundledRootGuestABIKey];
+        if (guestABI.length != 0) {
+            WriteRootMetadata([self rootUrl:importName], @{
+                kRootMetadataGuestABIKey: guestABI,
+            });
+        }
         _wantsVersionFile = YES;
+    }
     return ok;
 }
 

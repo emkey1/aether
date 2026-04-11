@@ -170,8 +170,14 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         if (bootError < 0) {
             NSString *message = [NSString stringWithFormat:@"could not boot"];
             NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
+            NSString *defaultRoot = Roots.instance.defaultRoot;
+            NSString *rootGuestABI = defaultRoot != nil ? [Roots.instance guestABIForRootNamed:defaultRoot] : nil;
             if (bootError == _EINVAL)
                 subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
+            if (bootError == _ENOEXEC && [rootGuestABI isEqualToString:@"amd64"]) {
+                subtitle = [subtitle stringByAppendingString:
+                            @"\n(this x86_64 rootfs cannot boot until amd64 exec/syscall bring-up is complete)"];
+            }
             [self _showTerminalStartupFailureOverlayWithText:@"Could not boot iSH-AOK."];
             [self showMessage:message subtitle:subtitle];
             NSLog(@"boot failed with code %ld", bootError);
