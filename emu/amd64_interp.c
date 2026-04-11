@@ -509,6 +509,23 @@ restart_prefix:
                 amd64_reg_set(cpu, modrm.reg, op_size, src);
             break;
         }
+        if (op2 == 0xb6 || op2 == 0xb7 || op2 == 0xbe || op2 == 0xbf) {
+            struct amd64_modrm modrm;
+            qword_t src;
+            unsigned src_size = (op2 == 0xb6 || op2 == 0xbe) ? 8 : 16;
+            unsigned dst_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, src_size, &src))
+                goto amd64_gpf_restore;
+            if (op2 == 0xbe || op2 == 0xbf)
+                src = (qword_t) amd64_sign_extend(src, src_size);
+            amd64_reg_set(cpu, modrm.reg, dst_size, src);
+            break;
+        }
         if (op2 == 0x28 || op2 == 0x29) {
             struct amd64_modrm modrm;
             union xmm_reg value;
