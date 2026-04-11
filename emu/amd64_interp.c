@@ -894,7 +894,7 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, dst_size, src);
             break;
         }
-        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e) {
+        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -924,6 +924,15 @@ restart_prefix:
                     value.qw[0] = src_scalar;
                 else
                     value.u32[0] = (uint32_t) src_scalar;
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xef) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.qw[0] ^= src_xmm.qw[0];
+                value.qw[1] ^= src_xmm.qw[1];
                 cpu->xmm[modrm.reg] = value;
             } else {
                 if (!operand_size_prefix)
