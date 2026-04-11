@@ -657,6 +657,19 @@ struct amd64_modrm {
     int32_t disp;
 };
 
+#define AMD64_BUSYBOX_INIT_SLOT 0x5661a6d8ull
+#define AMD64_BUSYBOX_INIT_SLOT_SIZE 8
+
+static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsigned size) {
+    if (size == 0)
+        return false;
+    qword_t start = guest_addr;
+    qword_t end = guest_addr + size;
+    qword_t slot_start = AMD64_BUSYBOX_INIT_SLOT;
+    qword_t slot_end = slot_start + AMD64_BUSYBOX_INIT_SLOT_SIZE;
+    return start < slot_end && end > slot_start;
+}
+
 static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
     addr_t addr = (addr_t) guest_addr;
     qword_t zero_extended = (qword_t) addr;
@@ -960,6 +973,15 @@ static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_
         cpu->segfault_addr = addr;
         return false;
     }
+    if (amd64_trace_intersects_busybox_slot(guest_addr, size)) {
+        qword_t observed = 0;
+        memcpy(&observed, out, size < sizeof(observed) ? size : sizeof(observed));
+        printk("amd64 slot read: rip=%#llx addr=%#llx size=%u value=%#llx\n",
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) guest_addr,
+               size,
+               (unsigned long long) observed);
+    }
     return true;
 }
 
@@ -972,6 +994,15 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
     if (!tlb_write(tlb, addr, value, size)) {
         cpu->segfault_addr = addr;
         return false;
+    }
+    if (amd64_trace_intersects_busybox_slot(guest_addr, size)) {
+        qword_t observed = 0;
+        memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
+        printk("amd64 slot write: rip=%#llx addr=%#llx size=%u value=%#llx\n",
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) guest_addr,
+               size,
+               (unsigned long long) observed);
     }
     return true;
 }
