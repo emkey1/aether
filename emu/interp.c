@@ -1683,6 +1683,27 @@ restart_prefix:
         amd64_set_logic_flags(cpu, lhs & rhs, 8);
         break;
     }
+    case 0x38:
+    case 0x3a: {
+        struct amd64_modrm modrm;
+        qword_t lhs, rhs;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        if (opcode == 0x38) {
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
+        } else {
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
+        }
+        amd64_set_sub_flags(cpu, lhs, rhs, amd64_trunc(lhs - rhs, 8), 8);
+        break;
+    }
     case 0xf6:
     case 0xf7: {
         struct amd64_modrm modrm;
