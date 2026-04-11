@@ -839,6 +839,26 @@ restart_prefix:
             collapse_flags(cpu);
             break;
         }
+        if (op2 == 0xaf) {
+            struct amd64_modrm modrm;
+            qword_t rhs, lhs, result;
+            sqword_t signed_result;
+            bool overflow;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            signed_result = amd64_sign_extend(lhs, op_size) * amd64_sign_extend(rhs, op_size);
+            result = amd64_trunc((qword_t) signed_result, op_size);
+            amd64_reg_set(cpu, modrm.reg, op_size, result);
+            overflow = signed_result != amd64_sign_extend(result, op_size);
+            amd64_set_mul_flags(cpu, overflow);
+            break;
+        }
         if (op2 == 0x1f) {
             struct amd64_modrm modrm;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
