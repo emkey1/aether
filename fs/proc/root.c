@@ -11,6 +11,7 @@
 #include "platform/platform.h"
 #include <sys/param.h> // for MIN and MAX
 #include "emu/cpuid.h"
+#include "kernel/abi.h"
 #include "kernel/init.h"
 #include "kernel/hostinfo.h"
 
@@ -26,7 +27,18 @@ static int proc_show_version(struct proc_entry *UNUSED(entry), struct proc_data 
     return 0;
 }
 
-void parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags into text */
+static size_t append_flag(char *buf, size_t size, size_t offset, const char *flag) {
+    size_t len = strlen(flag);
+    if (offset + len + 1 >= size)
+        return offset;
+    memcpy(buf + offset, flag, len);
+    offset += len;
+    buf[offset++] = ' ';
+    buf[offset] = '\0';
+    return offset;
+}
+
+void parse_edx_flags(dword_t edx, char *edx_flags, size_t edx_flags_size) { /* Translate edx bit flags into text */
     static const char *enumerated[] = {
         "fpu ", "vme ", "de ", "pse ", "tsc ", "msr ", "pae ", "mce ", "cx8 ", "apic ", "Reserved ",
         "sep ", "mtrr ", "pge ", "mca ", "cmov ", "", "pse-36 ", "psn ", "clfsh ", "Reserved ",
@@ -37,6 +49,8 @@ void parse_edx_flags(dword_t edx, char *edx_flags) { /* Translate edx bit flags 
     for (size_t i = 0; i < 32; i++) {
         if (edx & (1 << i)) {
             const size_t enum_len = strlen(enumerated[i]);
+            if (offset + enum_len + 1 >= edx_flags_size)
+                break;
             memcpy(edx_flags + offset, enumerated[i], enum_len);
             offset += enum_len;
         }
@@ -58,6 +72,8 @@ void translate_vendor_id(char *buf, dword_t *ebx, dword_t *ecx, dword_t *edx) {
 }
 
 static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    enum guest_abi abi = current != NULL ? current->abi : GUEST_ABI_I386;
+    struct guest_abi_desc abi_desc = guest_abi_desc(abi);
     dword_t eax = 0;
     dword_t ebx;
     dword_t ecx;
@@ -71,31 +87,37 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
     eax = 1;
     do_cpuid(&eax, &ebx, &ecx, &edx);
 
-    char edx_flags[148] = { 0 };
-    parse_edx_flags(edx, edx_flags);
+    char edx_flags[192] = { 0 };
+    parse_edx_flags(edx, edx_flags, sizeof(edx_flags));
+    if (guest_abi_is_64bit(abi))
+        append_flag(edx_flags, sizeof(edx_flags), strlen(edx_flags), "lm");
     char *host_architecture = copyHostArchitecture();
     char *host_machine_identifier = copyHostMachineIdentifier();
     char *host_device_name = copyHostDeviceName();
     char *host_core_topology = copyHostCoreTopology();
 
     int cpu_count = get_cpu_count(); // One entry per device processor
+    int clflush_size = ((ebx >> 8) & 0xff) * 8;
+    if (clflush_size == 0)
+        clflush_size = 64;
     int i;
 
     for( i=0; i<cpu_count ; i++ ) {
         proc_printf(buf, "processor       : %d\n",i);
         proc_printf(buf, "vendor_id       : %s\n", vendor_id);
-        proc_printf(buf, "cpu family      : %d\n",1);
-        proc_printf(buf, "model           : %d\n",1);
-        proc_printf(buf, "model name      : iSH Virtual i686-compatible CPU @ 1.066GHz\n");
+        proc_printf(buf, "cpu family      : %d\n", guest_abi_is_64bit(abi) ? 6 : 1);
+        proc_printf(buf, "model           : %d\n", guest_abi_is_64bit(abi) ? 85 : 1);
+        proc_printf(buf, "model name      : iSH Virtual %s-compatible CPU @ 1.066GHz\n",
+                    abi_desc.uname_machine);
         proc_printf(buf, "stepping        : %d\n",1);
         proc_printf(buf, "CPU MHz         : 1066.00\n");
         proc_printf(buf, "cache size      : %d kb\n",0);
-        proc_printf(buf, "pysical id      : %d\n",0);
-        proc_printf(buf, "siblings        : %d\n",0);
-        proc_printf(buf, "core id         : %d\n",0);
+        proc_printf(buf, "physical id     : %d\n",0);
+        proc_printf(buf, "siblings        : %d\n",cpu_count);
+        proc_printf(buf, "core id         : %d\n",i);
         proc_printf(buf, "cpu cores       : %d\n",cpu_count);
-        proc_printf(buf, "apicid          : %d\n",0);
-        proc_printf(buf, "initial apicid  : %d\n",0);
+        proc_printf(buf, "apicid          : %d\n",i);
+        proc_printf(buf, "initial apicid  : %d\n",i);
         proc_printf(buf, "fpu             : yes\n");
         proc_printf(buf, "fpu_exception   : yes\n");
         proc_printf(buf, "cpuid level     : %d\n",13);
@@ -106,9 +128,10 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "host device     : %s\n", host_device_name);
         proc_printf(buf, "host cores      : %s\n", host_core_topology);
         proc_printf(buf, "bogomips        : 1066.00\n");
-        proc_printf(buf, "clflush size    : %d\n", ebx);
+        proc_printf(buf, "clflush size    : %d\n", clflush_size);
         proc_printf(buf, "cache_alignment : %d\n",64);
-        proc_printf(buf, "address sizes   : 36 bits physical, 32 bits virtual\n");
+        proc_printf(buf, "address sizes   : 36 bits physical, %d bits virtual\n",
+                    guest_abi_is_64bit(abi) ? 48 : 32);
         proc_printf(buf, "power management:\n");
         proc_printf(buf, "\n");
     }
