@@ -299,7 +299,8 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     lock_init(&pids_lock, "pids");
     lock_init(&block_lock, "block");
     lock_init(&atomic_l_lock, "run_at_boot");
-    printk("iSH-AOK %s booted on %d emulated x86 CPU(s)\n", uts.release, ncpu);
+    printk("iSH-AOK %s built %s %s booted on %d emulated x86 CPU(s)\n",
+            uts.release, __DATE__, __TIME__, ncpu);
     // Get boot time
     extern time_t boot_time;
          
