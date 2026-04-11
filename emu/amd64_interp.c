@@ -14,6 +14,7 @@ struct amd64_rex_prefix {
 
 struct amd64_modrm {
     bool is_reg;
+    bool rex_present;
     uint8_t reg;
     uint8_t rm;
     bool has_base;
@@ -83,6 +84,23 @@ static inline qword_t amd64_reg_get(const struct cpu_state *cpu, unsigned reg, u
     case 64: return value;
     default: return value;
     }
+}
+
+static inline qword_t amd64_reg_get_encoded8(const struct cpu_state *cpu, unsigned reg, bool rex_present) {
+    reg &= 0xf;
+    if (!rex_present && reg >= 4 && reg < 8)
+        return (cpu->amd64_regs[reg - 4] >> 8) & 0xff;
+    return amd64_reg_get(cpu, reg, 8);
+}
+
+static inline void amd64_reg_set_encoded8(struct cpu_state *cpu, unsigned reg, bool rex_present, qword_t value) {
+    reg &= 0xf;
+    if (!rex_present && reg >= 4 && reg < 8) {
+        unsigned base = reg - 4;
+        cpu->amd64_regs[base] = (cpu->amd64_regs[base] & ~0xff00ull) | ((value & 0xff) << 8);
+        return;
+    }
+    cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
 }
 
 static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
@@ -255,6 +273,7 @@ static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
         return false;
 
     unsigned mod = MOD(modrm_byte);
+    modrm->rex_present = rex.present;
     modrm->reg = REG(modrm_byte) | (rex.r ? 8 : 0);
     modrm->rm = RM(modrm_byte) | (rex.b ? 8 : 0);
     modrm->is_reg = mod == 3;
@@ -322,7 +341,7 @@ static inline qword_t amd64_effective_addr(struct cpu_state *cpu, const struct a
 static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t *value) {
     if (modrm->is_reg) {
-        *value = amd64_reg_get(cpu, modrm->rm, size);
+        *value = size == 8 ? amd64_reg_get_encoded8(cpu, modrm->rm, modrm->rex_present) : amd64_reg_get(cpu, modrm->rm, size);
         return true;
     }
 
@@ -388,7 +407,10 @@ static inline bool amd64_write_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
 static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t value) {
     if (modrm->is_reg) {
-        amd64_reg_set(cpu, modrm->rm, size, value);
+        if (size == 8)
+            amd64_reg_set_encoded8(cpu, modrm->rm, modrm->rex_present, value);
+        else
+            amd64_reg_set(cpu, modrm->rm, size, value);
         return true;
     }
 
@@ -749,8 +771,42 @@ restart_prefix:
         }
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
             goto amd64_gpf_restore;
-        rhs = amd64_reg_get(cpu, modrm.reg, 8);
+        rhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
         amd64_set_logic_flags(cpu, lhs & rhs, 8);
+        break;
+    }
+    case 0xf6:
+    case 0xf7: {
+        struct amd64_modrm modrm;
+        qword_t lhs, rhs;
+        unsigned size = opcode == 0xf6 ? 8 : op_size;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        if (modrm.reg != 0)
+            return INT_UNDEFINED;
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &lhs))
+            goto amd64_gpf_restore;
+        if (opcode == 0xf6) {
+            uint8_t imm8;
+            if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            rhs = imm8;
+        } else {
+            int32_t imm32;
+            if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
+        }
+        amd64_set_logic_flags(cpu, lhs & rhs, size);
         break;
     }
     case 0x70 ... 0x7f: {
