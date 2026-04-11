@@ -361,6 +361,30 @@ static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
+static inline bool amd64_read_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, union xmm_reg *value) {
+    if (modrm->reg >= 8 || modrm->rm >= 8)
+        return false;
+    if (modrm->is_reg) {
+        *value = cpu->xmm[modrm->rm];
+        return true;
+    }
+    qword_t addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+    return amd64_mem_read(cpu, tlb, addr, value, sizeof(*value));
+}
+
+static inline bool amd64_write_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, const union xmm_reg *value) {
+    if (modrm->reg >= 8 || modrm->rm >= 8)
+        return false;
+    if (modrm->is_reg) {
+        cpu->xmm[modrm->rm] = *value;
+        return true;
+    }
+    qword_t addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+    return amd64_mem_write(cpu, tlb, addr, value, sizeof(*value));
+}
+
 static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t value) {
     if (modrm->is_reg) {
@@ -483,6 +507,43 @@ restart_prefix:
             }
             if (amd64_cond_eval(cpu, op2 & 0xf))
                 amd64_reg_set(cpu, modrm.reg, op_size, src);
+            break;
+        }
+        if (op2 == 0x28 || op2 == 0x29) {
+            struct amd64_modrm modrm;
+            union xmm_reg value;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= 8 || modrm.rm >= 8)
+                return INT_UNDEFINED;
+            if (op2 == 0x28) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_gpf_restore;
+                cpu->xmm[modrm.reg] = value;
+            } else {
+                value = cpu->xmm[modrm.reg];
+                if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_gpf_restore;
+            }
+            break;
+        }
+        if (op2 == 0xa3) {
+            struct amd64_modrm modrm;
+            qword_t lhs;
+            qword_t bit;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            bit = amd64_reg_get(cpu, modrm.reg, op_size) & (op_size - 1);
+            cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
+            collapse_flags(cpu);
             break;
         }
         if (op2 == 0x1f) {
@@ -633,6 +694,20 @@ restart_prefix:
             goto amd64_gpf_restore;
         break;
     }
+    case 0x84: {
+        struct amd64_modrm modrm;
+        qword_t lhs, rhs;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
+            goto amd64_gpf_restore;
+        rhs = amd64_reg_get(cpu, modrm.reg, 8);
+        amd64_set_logic_flags(cpu, lhs & rhs, 8);
+        break;
+    }
     case 0x70 ... 0x7f: {
         int8_t rel8;
         if (!amd64_fetch(cpu, tlb, &rel8, sizeof(rel8))) {
@@ -761,6 +836,15 @@ restart_prefix:
         break;
     }
     case 0x90:
+        break;
+    case 0x98:
+        if (rex.w) {
+            amd64_reg_set(cpu, amd64_rax, 64, (qword_t) (sqword_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32));
+        } else if (operand_size_prefix) {
+            amd64_reg_set(cpu, amd64_rax, 16, (word_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 8));
+        } else {
+            amd64_reg_set(cpu, amd64_rax, 32, (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
+        }
         break;
     case 0xa9: {
         uint32_t imm32;
