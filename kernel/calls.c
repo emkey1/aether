@@ -672,6 +672,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
 static void dump_opcode_window(addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
+static void dump_amd64_loader_state(const struct cpu_state *cpu);
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
@@ -681,8 +682,10 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
     if (ptr == NULL) {
         printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
         dump_opcode_window(cpu->eip);
-        if (current->abi == GUEST_ABI_AMD64)
+        if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
+            dump_amd64_loader_state(cpu);
+        }
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
             .fault.addr = cpu->segfault_addr,
@@ -783,6 +786,32 @@ static void dump_amd64_regs(const struct cpu_state *cpu) {
            (unsigned long long) cpu->amd64_regs[amd64_r14],
            (unsigned long long) cpu->amd64_regs[amd64_r15],
            (unsigned long long) cpu->amd64_rip);
+}
+
+static void dump_amd64_loader_state(const struct cpu_state *cpu) {
+    qword_t dso = cpu->amd64_regs[amd64_rax];
+    qword_t deps = 0, dep_count = 0, dep_index = 0;
+    if (dso == 0)
+        return;
+    if (user_get((addr_t) dso + 0xb0, deps) || user_get((addr_t) dso + 0xc0, dep_count) ||
+            user_get((addr_t) dso + 0xc8, dep_index)) {
+        printk("amd64 loader: dso=%#llx (failed to read b0/c0/c8)\n",
+               (unsigned long long) dso);
+        return;
+    }
+    printk("amd64 loader: dso=%#llx deps=%#llx count=%#llx index=%#llx\n",
+           (unsigned long long) dso,
+           (unsigned long long) deps,
+           (unsigned long long) dep_count,
+           (unsigned long long) dep_index);
+    if (deps != 0) {
+        for (int i = 0; i < 4; i++) {
+            qword_t slot = 0;
+            if (user_get((addr_t) deps + i * sizeof(slot), slot))
+                break;
+            printk("amd64 loader: deps[%d]=%#llx\n", i, (unsigned long long) slot);
+        }
+    }
 }
 
 struct amd64_trap_rex_prefix {
@@ -1138,8 +1167,10 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     }
     printk("\n");
     dump_opcode_window(cpu->eip);
-    if (current->abi == GUEST_ABI_AMD64)
+    if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
+        dump_amd64_loader_state(cpu);
+    }
     dump_stack(8);
     struct siginfo_ info = {
         .code = SI_KERNEL_,
