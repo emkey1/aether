@@ -989,7 +989,6 @@ void SyncHostname(void) {
     @synchronized (self) {
         if (self.dnsRefreshRunning) {
             self.dnsRefreshQueued = YES;
-            NSLog(@"DNS refresh deferred while one is running (%@)", reason);
             return;
         }
         self.dnsRefreshRunning = YES;
@@ -1005,17 +1004,11 @@ void SyncHostname(void) {
 
 - (void)performDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
-    double refreshStart = MetricKitNowSeconds();
-    NSLog(@"DNS refresh begin (%@)", reason);
-
     struct __res_state res;
-    double resolverInitStart = MetricKitNowSeconds();
     if (EXIT_SUCCESS != res_ninit(&res)) {
-        NSLog(@"DNS refresh res_ninit failed after %.3fs (%@)", MetricKitNowSeconds() - resolverInitStart, reason);
         [self finishDnsRefreshAndRescheduleIfNeeded:reason];
         return;
     }
-    NSLog(@"DNS refresh res_ninit completed in %.3fs (%@)", MetricKitNowSeconds() - resolverInitStart, reason);
 
     NSMutableString *resolvConf = [NSMutableString new];
     if (res.dnsrch[0] != NULL) {
@@ -1026,10 +1019,7 @@ void SyncHostname(void) {
         [resolvConf appendString:@"\n"];
     }
     union res_sockaddr_union servers[NI_MAXSERV];
-    double getServersStart = MetricKitNowSeconds();
     int serversFound = res_getservers(&res, servers, NI_MAXSERV);
-    NSLog(@"DNS refresh res_getservers completed in %.3fs with %d server(s) (%@)",
-          MetricKitNowSeconds() - getServersStart, serversFound, reason);
     char address[NI_MAXHOST];
     int usableServers = 0;
     for (int i = 0; i < serversFound; i ++) {
@@ -1041,7 +1031,6 @@ void SyncHostname(void) {
                 sockaddrLen = sizeof(s.sin);
         } else if (family == AF_INET6_) {
             if (IN6_IS_ADDR_LINKLOCAL(&s.sin6.sin6_addr)) {
-                NSLog(@"DNS refresh skipping link-local IPv6 nameserver (%@)", reason);
                 continue;
             }
             if (sockaddrLen == 0)
@@ -1053,7 +1042,6 @@ void SyncHostname(void) {
                               address, sizeof(address),
                               NULL, 0, NI_NUMERICHOST);
         if (err != 0) {
-            NSLog(@"DNS refresh getnameinfo failed for server %d: %s (%@)", i, gai_strerror(err), reason);
             continue;
         }
         [resolvConf appendFormat:@"nameserver %s\n", address];
@@ -1061,7 +1049,6 @@ void SyncHostname(void) {
     }
 
     if (usableServers == 0) {
-        NSLog(@"DNS refresh found no usable nameservers, leaving existing /etc/resolv.conf in place (%@)", reason);
         res_nclose(&res);
         [self finishDnsRefreshAndRescheduleIfNeeded:reason];
         return;
@@ -1069,7 +1056,6 @@ void SyncHostname(void) {
 
     struct task *previousCurrent;
     if (!PushInitTaskAsCurrent(&previousCurrent)) {
-        NSLog(@"failed to resolve init task while updating DNS");
         res_nclose(&res);
         [self finishDnsRefreshAndRescheduleIfNeeded:reason];
         return;
@@ -1086,12 +1072,9 @@ void SyncHostname(void) {
     if (!IS_ERR(fd)) {
         fd->ops->write(fd, resolvConf.UTF8String, [resolvConf lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
         fd_close(fd);
-    } else {
-        NSLog(@"failed to write /etc/resolv.conf: %ld", (long) PTR_ERR(fd));
     }
     PopCurrentTask(previousCurrent);
     res_nclose(&res);
-    NSLog(@"DNS refresh finished in %.3fs (%@)", MetricKitNowSeconds() - refreshStart, reason);
     [self finishDnsRefreshAndRescheduleIfNeeded:reason];
 #endif
 }
