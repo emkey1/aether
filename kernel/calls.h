@@ -77,10 +77,17 @@ dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid);
 #define LOCK_EX_ 2
 #define LOCK_NB_ 4
 #define LOCK_UN_ 8
+// Legacy 32-bit guest iovec layout still used by socket message marshalling.
+// sendmsg/recvmsg need their own ABI-aware conversion later.
 struct iovec_ {
-    i386_guest_addr_t base;
-    i386_guest_size_t len;
+    addr_t base;
+    uint_t len;
 };
+struct guest_iovec_ {
+    addr_t base;
+    size_t len;
+};
+struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, addr_t iov_addr, dword_t iov_count);
 dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size);
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
 dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size);

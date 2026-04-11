@@ -466,19 +466,7 @@ out:
 // that yet because it's more work and the efficiency gain from that is dwarfed
 // by the inefficiency of the emulator.
 
-static struct iovec_ *read_iovec(addr_t iovec_addr, unsigned iovec_count) {
-    dword_t iovec_size = sizeof(struct iovec_) * iovec_count;
-    struct iovec_ *iovec = malloc(iovec_size);
-    if (iovec == NULL)
-        return ERR_PTR(_ENOMEM);
-    if (user_read(iovec_addr, iovec, iovec_size)) {
-        free(iovec);
-        return ERR_PTR(_EFAULT);
-    }
-    return iovec;
-}
-
-static ssize_t iovec_size(struct iovec_ *iovec, unsigned iovec_count) {
+static ssize_t iovec_size(struct guest_iovec_ *iovec, unsigned iovec_count) {
     size_t size = 0;
     for (unsigned i = 0; i < iovec_count; i++)
         size += iovec[i].len;
@@ -487,11 +475,7 @@ static ssize_t iovec_size(struct iovec_ *iovec, unsigned iovec_count) {
 
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     STRACE("readv(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
-   // if(doEnableExtraLocking)
-    //    pthread_mutex_lock(&extra_lock);
-    struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
-    //if(doEnableExtraLocking)
-     //   pthread_mutex_unlock(&extra_lock);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
     
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
@@ -523,7 +507,7 @@ dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
         if (offset + len > total)
             len = total - offset;
 
-        STRACE(" {base=%#x, len=%u}", iovec[i].base, iovec[i].len);
+        STRACE(" {base=%#x, len=%zu}", iovec[i].base, iovec[i].len);
 
         if (user_write(iovec[i].base, buf + offset, len)) {
             res = _EFAULT;
@@ -540,7 +524,7 @@ error:
 
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
     STRACE("writev(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
-    struct iovec_ *iovec = read_iovec(iovec_addr, iovec_count);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
     size_t io_size = iovec_size(iovec, iovec_count);
@@ -570,7 +554,7 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
             goto error;
         }
 
-        STRACE(" {base=%#x, len=%u}", iovec[i].base, iovec[i].len);
+        STRACE(" {base=%#x, len=%zu}", iovec[i].base, iovec[i].len);
         offset += copy_len;
     }
     TASK_MAY_BLOCK {

@@ -205,20 +205,57 @@ int user_write_string(addr_t addr, const char *buf) {
     return 0;
 }
 
-static struct iovec_ *user_read_iovecs(struct task *task, addr_t iov_addr, dword_t iov_count) {
+struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, addr_t iov_addr, dword_t iov_count) {
     if (iov_count == 0)
         return NULL;
     if (iov_count > IOV_MAX)
         return ERR_PTR(_EINVAL);
 
-    size_t size = sizeof(struct iovec_) * iov_count;
-    struct iovec_ *iov = malloc(size);
-    if (iov == NULL)
+    size_t guest_size;
+    if (abi == GUEST_ABI_AMD64) {
+        guest_size = sizeof(struct amd64_iovec_);
+    } else {
+        guest_size = sizeof(struct i386_iovec_);
+    }
+
+    size_t raw_size = guest_size * iov_count;
+    void *raw_iov = malloc(raw_size);
+    if (raw_iov == NULL)
         return ERR_PTR(_ENOMEM);
-    if (user_read_task(task, iov_addr, iov, size)) {
-        free(iov);
+    if (user_read_task(task, iov_addr, raw_iov, raw_size)) {
+        free(raw_iov);
         return ERR_PTR(_EFAULT);
     }
+
+    struct guest_iovec_ *iov = malloc(sizeof(*iov) * iov_count);
+    if (iov == NULL) {
+        free(raw_iov);
+        return ERR_PTR(_ENOMEM);
+    }
+
+    for (dword_t i = 0; i < iov_count; i++) {
+        qword_t base;
+        qword_t len;
+        if (abi == GUEST_ABI_AMD64) {
+            struct amd64_iovec_ *amd64_iov = raw_iov;
+            base = amd64_iov[i].base;
+            len = amd64_iov[i].len;
+        } else {
+            struct i386_iovec_ *i386_iov = raw_iov;
+            base = i386_iov[i].base;
+            len = i386_iov[i].len;
+        }
+        if (!guest_abi_addr_valid(abi, base) || len > SIZE_MAX) {
+            free(raw_iov);
+            free(iov);
+            return ERR_PTR(_EINVAL);
+        }
+        iov[i] = (struct guest_iovec_) {
+            .base = (addr_t) base,
+            .len = (size_t) len,
+        };
+    }
+    free(raw_iov);
     return iov;
 }
 
@@ -235,12 +272,12 @@ dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
         return _EPERM;
     }
 
-    struct iovec_ *local_iov = user_read_iovecs(current, local_iov_addr, liovcnt);
+    struct guest_iovec_ *local_iov = user_read_iovecs_abi(current, current->abi, local_iov_addr, liovcnt);
     if (IS_ERR(local_iov)) {
         task_ref_cnt_mod(task, -1);
         return PTR_ERR(local_iov);
     }
-    struct iovec_ *remote_iov = user_read_iovecs(current, remote_iov_addr, riovcnt);
+    struct guest_iovec_ *remote_iov = user_read_iovecs_abi(current, current->abi, remote_iov_addr, riovcnt);
     if (IS_ERR(remote_iov)) {
         free(local_iov);
         task_ref_cnt_mod(task, -1);
