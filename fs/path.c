@@ -133,6 +133,8 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
     assert(at != NULL);
     if (strcmp(path, "") == 0)
         return _ENOENT;
+    if (current == NULL || current->fs == NULL)
+        return _ENOENT;
 
     // start with root or cwd, depending on whether it starts with a slash
     lock(&current->fs->lock, 0);

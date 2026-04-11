@@ -29,9 +29,23 @@ static bool UpgradePushInitTaskAsCurrent(struct task **previousCurrent) {
 
     complex_lockt(&pids_lock, 0);
     struct task *init = pid_get_task(1);
-    if (init != NULL)
+    if (init != NULL && !init->exiting)
         task_ref_cnt_mod(init, 1);
+    else
+        init = NULL;
     unlock(&pids_lock);
+
+    if (init != NULL) {
+        bool usable = false;
+        lock(&init->general_lock, 0);
+        usable = init->mm != NULL && init->mem != NULL &&
+                 init->files != NULL && init->fs != NULL;
+        unlock(&init->general_lock);
+        if (!usable) {
+            task_ref_cnt_mod(init, -1);
+            init = NULL;
+        }
+    }
 
     current = init;
     return init != NULL;
