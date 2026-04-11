@@ -1681,6 +1681,8 @@ restart_prefix:
     case 0x39:
     case 0x3b:
     case 0x85:
+    case 0x86:
+    case 0x87:
     case 0x88:
     case 0x89:
     case 0x8a:
@@ -1802,6 +1804,21 @@ restart_prefix:
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             amd64_set_logic_flags(cpu, lhs & rhs, op_size);
             break;
+        case 0x86:
+        case 0x87: {
+            unsigned xchg_size = opcode == 0x86 ? 8 : op_size;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = opcode == 0x86 ? amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present)
+                                 : amd64_reg_get(cpu, modrm.reg, xchg_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, rhs))
+                goto amd64_gpf_restore;
+            if (opcode == 0x86)
+                amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, lhs);
+            else
+                amd64_reg_set(cpu, modrm.reg, xchg_size, lhs);
+            break;
+        }
         case 0x88:
             rhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, rhs))
