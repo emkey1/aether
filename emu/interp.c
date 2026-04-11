@@ -1512,6 +1512,9 @@ restart_prefix:
     if (opcode == 0x2e || opcode == 0x3e) {
         goto restart_prefix;
     }
+    if (opcode == 0x67) {
+        goto restart_prefix;
+    }
     if (opcode == 0x64) {
         fs_prefix = true;
         goto restart_prefix;

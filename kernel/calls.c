@@ -1265,6 +1265,9 @@ static bool amd64_try_emulate_add(addr_t ip, struct cpu_state *cpu) {
         if (opcode == 0x2e || opcode == 0x3e) {
             continue;
         }
+        if (opcode == 0x67) {
+            continue;
+        }
         if (opcode == 0x64) {
             fs_prefix = true;
             continue;
