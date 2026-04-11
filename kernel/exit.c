@@ -334,9 +334,11 @@ static void halt_system(void) {
     // brutally murder everything
     // which will leave everything in an inconsistent state. I will solve this problem later.
     for (int i = 2; i < MAX_PID; i++) {
-        struct task *task = pid_get_task(i);
-        if (task != NULL)
+        struct task *task = pid_get_task_ref(i);
+        if (task != NULL) {
             pthread_kill(task->thread, SIGKILL);
+            task_ref_cnt_mod(task, -1);
+        }
     }
 
     // unmount all filesystems
