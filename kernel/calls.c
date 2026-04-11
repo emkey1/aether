@@ -662,6 +662,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE(" = 0x%x\n", result);
 }
 
+static void dump_opcode_window(addr_t ip);
+
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
     void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
@@ -669,6 +671,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
 
     if (ptr == NULL) {
         printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
+        dump_opcode_window(cpu->eip);
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
             .fault.addr = cpu->segfault_addr,
@@ -724,6 +727,28 @@ static int amd64_nop_instruction_len(addr_t ip) {
     if (i + disp_len > (int) sizeof(bytes))
         return 0;
     return i + disp_len;
+}
+
+static void dump_opcode_window(addr_t ip) {
+    const int before = 4;
+    const int after = 12;
+
+    printk("opcode window around 0x%x: ", ip);
+    for (int i = -before; i < after; i++) {
+        uint8_t b;
+        addr_t addr = ip + i;
+        if (i == 0)
+            printk("[");
+        if (user_get(addr, b))
+            printk("??");
+        else
+            printk("%02x", b);
+        if (i == 0)
+            printk("]");
+        else
+            printk(" ");
+    }
+    printk("\n");
 }
 
 struct amd64_trap_rex_prefix {
@@ -1070,8 +1095,6 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             return;
     }
 
-    const int before = 4;
-    const int after = 12;
     printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
@@ -1080,22 +1103,7 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
         printk("%02x ", b);
     }
     printk("\n");
-    printk("opcode window around 0x%x: ", cpu->eip);
-    for (int i = -before; i < after; i++) {
-        uint8_t b;
-        addr_t addr = cpu->eip + i;
-        if (i == 0)
-            printk("[");
-        if (user_get(addr, b))
-            printk("??");
-        else
-            printk("%02x", b);
-        if (i == 0)
-            printk("]");
-        else
-            printk(" ");
-    }
-    printk("\n");
+    dump_opcode_window(cpu->eip);
     dump_stack(8);
     struct siginfo_ info = {
         .code = SI_KERNEL_,
