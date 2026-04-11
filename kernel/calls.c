@@ -581,8 +581,133 @@ static bool syscall_arg_fits_legacy_dword(qword_t arg) {
 
 static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     switch (syscall_num) {
-    case 16: // ioctl
+    case 24:  // sched_yield
+    case 39:  // getpid
+    case 57:  // fork
+    case 58:  // vfork
+    case 102: // getuid
+    case 104: // getgid
+    case 107: // geteuid
+    case 108: // getegid
+    case 110: // getppid
+    case 111: // getpgrp
+    case 112: // setsid
+    case 186: // gettid
+        return 0;
+    case 3:   // close
+    case 12:  // brk
+    case 22:  // pipe
+    case 32:  // dup
+    case 60:  // exit
+    case 63:  // uname
+    case 74:  // fsync
+    case 80:  // chdir
+    case 81:  // fchdir
+    case 84:  // rmdir
+    case 87:  // unlink
+    case 95:  // umask
+    case 105: // setuid
+    case 106: // setgid
+    case 121: // getpgid
+    case 122: // setfsuid
+    case 123: // setfsgid
+    case 218: // set_tid_address
+    case 231: // exit_group
+    case 272: // unshare
+    case 284: // eventfd
+    case 291: // epoll_create
+    case 294: // inotify_init1
+        return 1;
+    case 4:   // stat
+    case 5:   // fstat
+    case 6:   // lstat
+    case 21:  // access
+    case 33:  // dup2
+    case 48:  // shutdown
+    case 50:  // listen
+    case 62:  // kill
+    case 73:  // flock
+    case 79:  // getcwd
+    case 82:  // rename
+    case 85:  // creat
+    case 86:  // link
+    case 88:  // symlink
+    case 90:  // chmod
+    case 109: // setpgid
+    case 113: // setreuid
+    case 114: // setregid
+    case 115: // getgroups
+    case 116: // setgroups
+    case 131: // sigaltstack
+    case 140: // getpriority
+    case 158: // arch_prctl
+    case 290: // eventfd2
+    case 293: // pipe2
+    case 319: // memfd_create
+        return 2;
+    case 0:   // read
+    case 1:   // write
+    case 2:   // open
+    case 8:   // lseek
+    case 10:  // mprotect
+    case 16:  // ioctl
+    case 19:  // readv
+    case 20:  // writev
+    case 41:  // socket
+    case 42:  // connect
+    case 43:  // accept
+    case 46:  // sendmsg
+    case 47:  // recvmsg
+    case 49:  // bind
+    case 51:  // getsockname
+    case 52:  // getpeername
+    case 72:  // fcntl
+    case 83:  // mkdir
+    case 89:  // readlink
+    case 91:  // fchmod
+    case 92:  // chown
+    case 93:  // fchown
+    case 94:  // lchown
+    case 117: // setresuid
+    case 118: // getresuid
+    case 119: // setresgid
+    case 120: // getresgid
+    case 133: // mknod
+    case 141: // setpriority
+    case 217: // getdents64
+    case 258: // mkdirat
+    case 263: // unlinkat
+    case 266: // symlinkat
+    case 268: // fchmodat
+    case 269: // faccessat
+    case 292: // dup3
+    case 318: // getrandom
+    case 325: // membarrier
         return 3;
+    case 13:  // rt_sigaction
+    case 14:  // rt_sigprocmask
+    case 53:  // socketpair
+    case 54:  // setsockopt
+    case 61:  // wait4
+    case 257: // openat
+    case 259: // mknodat
+    case 262: // newfstatat
+    case 264: // renameat
+    case 267: // readlinkat
+    case 288: // accept4
+    case 439: // faccessat2 wired to faccessat for now
+        return 4;
+    case 25:  // mremap
+    case 55:  // getsockopt
+    case 157: // prctl
+    case 260: // fchownat
+    case 265: // linkat
+    case 322: // execveat
+        return 5;
+    case 9:   // mmap
+    case 44:  // sendto
+    case 45:  // recvfrom
+        return 6;
     default:
         return 6;
     }
