@@ -165,6 +165,10 @@ dword_t sys_fstatat64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t fl
 dword_t sys_stat(addr_t path_addr, addr_t statbuf_addr);
 dword_t sys_lstat(addr_t path_addr, addr_t statbuf_addr);
 dword_t sys_fstat(fd_t fd_no, addr_t statbuf_addr);
+dword_t sys_stat_amd64(addr_t path_addr, addr_t statbuf_addr);
+dword_t sys_lstat_amd64(addr_t path_addr, addr_t statbuf_addr);
+dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr);
+dword_t sys_newfstatat_amd64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags);
 dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr);
 dword_t sys_fchmod(fd_t f, dword_t mode);
 dword_t sys_fchmodat(fd_t at_f, addr_t path_addr, dword_t mode);

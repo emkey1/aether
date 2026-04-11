@@ -78,6 +78,29 @@ struct newstat64 {
     qword_t ino;
 } __attribute__((packed));
 
+struct amd64_stat_ {
+    qword_t dev;
+    qword_t ino;
+    qword_t nlink;
+    dword_t mode;
+    dword_t uid;
+    dword_t gid;
+    dword_t __pad0;
+    qword_t rdev;
+    sqword_t size;
+    sqword_t blksize;
+    sqword_t blocks;
+    sqword_t atime;
+    sqword_t atime_nsec;
+    sqword_t mtime;
+    sqword_t mtime_nsec;
+    sqword_t ctime;
+    sqword_t ctime_nsec;
+    sqword_t __reserved[3];
+};
+
+static_assert(sizeof(struct amd64_stat_) == 144, "amd64_stat size");
+
 struct statx_timestamp_ {
     sqword_t tv_sec;
     dword_t tv_nsec;

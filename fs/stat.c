@@ -46,6 +46,27 @@ struct newstat64 stat_convert_newstat64(struct statbuf stat) {
     return newstat;
 }
 
+static struct amd64_stat_ stat_convert_amd64(struct statbuf stat) {
+    struct amd64_stat_ out = {};
+    out.dev = stat.dev;
+    out.ino = stat.inode;
+    out.nlink = stat.nlink;
+    out.mode = stat.mode;
+    out.uid = stat.uid;
+    out.gid = stat.gid;
+    out.rdev = stat.rdev;
+    out.size = stat.size;
+    out.blksize = stat.blksize;
+    out.blocks = stat.blocks;
+    out.atime = stat.atime;
+    out.atime_nsec = stat.atime_nsec;
+    out.mtime = stat.mtime;
+    out.mtime_nsec = stat.mtime_nsec;
+    out.ctime = stat.ctime;
+    out.ctime_nsec = stat.ctime_nsec;
+    return out;
+}
+
 static int stat_convert_newstat(struct statbuf stat, struct newstat *out) {
     if (stat.dev > UINT32_MAX ||
             stat.inode > UINT32_MAX ||
@@ -160,6 +181,36 @@ static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, i
     return 0;
 }
 
+static dword_t sys_stat_path_amd64(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, int flags) {
+    int err;
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    STRACE("stat64_amd64(at=%d, path=\"%s\", statbuf=0x%x, flags=0x%x)", at_f, path, statbuf_addr, flags);
+    struct fd *at = at_fd(at_f);
+    if (at == NULL)
+        return _EBADF;
+    struct statbuf stat = {};
+    if ((err = generic_statat(at, path, &stat, flags)) < 0)
+        return err;
+    struct amd64_stat_ guest_stat = stat_convert_amd64(stat);
+    if (user_put(statbuf_addr, guest_stat))
+        return _EFAULT;
+    return 0;
+}
+
+dword_t sys_stat_amd64(addr_t path_addr, addr_t statbuf_addr) {
+    return sys_stat_path_amd64(AT_FDCWD_, path_addr, statbuf_addr, 0);
+}
+
+dword_t sys_lstat_amd64(addr_t path_addr, addr_t statbuf_addr) {
+    return sys_stat_path_amd64(AT_FDCWD_, path_addr, statbuf_addr, AT_SYMLINK_NOFOLLOW_);
+}
+
+dword_t sys_newfstatat_amd64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags) {
+    return sys_stat_path_amd64(at, path_addr, statbuf_addr, flags);
+}
+
 dword_t sys_stat64(addr_t path_addr, addr_t statbuf_addr) {
     return sys_stat_path(AT_FDCWD_, path_addr, statbuf_addr, 0);
 }
@@ -183,6 +234,21 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
         return err;
     struct newstat64 newstat = stat_convert_newstat64(stat);
     if (user_put(statbuf_addr, newstat))
+        return _EFAULT;
+    return 0;
+}
+
+dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr) {
+    STRACE("fstat_amd64(%d, 0x%x)", fd_no, statbuf_addr);
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL)
+        return _EBADF;
+    struct statbuf stat = {};
+    int err = fd->mount->fs->fstat(fd, &stat);
+    if (err < 0)
+        return err;
+    struct amd64_stat_ guest_stat = stat_convert_amd64(stat);
+    if (user_put(statbuf_addr, guest_stat))
         return _EFAULT;
     return 0;
 }
