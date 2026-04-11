@@ -613,9 +613,11 @@ restart_prefix:
         return INT_UNDEFINED;
     }
     case 0x01:
+    case 0x21:
     case 0x09:
     case 0x0b:
     case 0x03:
+    case 0x23:
     case 0x29:
     case 0x31:
     case 0x33:
@@ -645,6 +647,15 @@ restart_prefix:
                 goto amd64_gpf_restore;
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
             break;
+        case 0x21:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs & rhs, op_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_logic_flags(cpu, result, op_size);
+            break;
         case 0x09:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
                 goto amd64_gpf_restore;
@@ -669,6 +680,14 @@ restart_prefix:
             result = amd64_trunc(lhs + rhs, op_size);
             amd64_reg_set(cpu, modrm.reg, op_size, result);
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
+            break;
+        case 0x23:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs & rhs, op_size);
+            amd64_reg_set(cpu, modrm.reg, op_size, result);
+            amd64_set_logic_flags(cpu, result, op_size);
             break;
         case 0x29:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
