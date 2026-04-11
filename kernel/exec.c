@@ -705,11 +705,15 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     }
 
     save->mm->stack_start = sp;
-    save->cpu.esp = sp;
-    save->cpu.eip = entry;
     save->cpu.amd64_syscall = (struct amd64_syscall_state) {};
     save->cpu.fcw = 0x37f;
 
+    memset(save->cpu.amd64_regs, 0, sizeof(save->cpu.amd64_regs));
+    save->cpu.amd64_rip = entry;
+    save->cpu.amd64_regs[amd64_rsp] = sp;
+
+    save->cpu.esp = sp;
+    save->cpu.eip = entry;
     save->cpu.eax = 0;
     save->cpu.ebx = 0;
     save->cpu.ecx = 0;

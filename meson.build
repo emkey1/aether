@@ -49,11 +49,11 @@ emu_src = [
     'emu/vec.c',
     'emu/mmx.c',
     'emu/float80.c',
-
 ]
 if get_option('engine') == 'jit'
     gadgets = 'jit/gadgets-' + host_machine.cpu_family()
     emu_src += [
+        'emu/amd64_interp.c',
         'jit/jit.c',
         'jit/gen.c',
         'jit/helpers.c',

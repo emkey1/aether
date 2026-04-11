@@ -14,7 +14,28 @@
 struct cpu_state;
 struct tlb;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
+int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
+
+enum amd64_reg {
+    amd64_rax = 0,
+    amd64_rcx = 1,
+    amd64_rdx = 2,
+    amd64_rbx = 3,
+    amd64_rsp = 4,
+    amd64_rbp = 5,
+    amd64_rsi = 6,
+    amd64_rdi = 7,
+    amd64_r8 = 8,
+    amd64_r9 = 9,
+    amd64_r10 = 10,
+    amd64_r11 = 11,
+    amd64_r12 = 12,
+    amd64_r13 = 13,
+    amd64_r14 = 14,
+    amd64_r15 = 15,
+    amd64_reg_count = 16,
+};
 
 // Full guest-visible amd64 register state is still a separate bring-up task.
 // Until then, keep syscall-entry registers in a shadow block so the kernel can
@@ -86,6 +107,9 @@ struct cpu_state {
 #undef REG
 
     dword_t eip;
+
+    qword_t amd64_regs[amd64_reg_count];
+    qword_t amd64_rip;
 
     struct amd64_syscall_state amd64_syscall;
 

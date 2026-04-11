@@ -573,6 +573,9 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 }
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    if (current != NULL && current->abi == GUEST_ABI_AMD64)
+        return cpu_run_to_interrupt_amd64(cpu, tlb);
+
     struct jit *jit = cpu->mmu->jit;
     // Keep normal signal/timer pokes per-CPU. The JIT checks write_wanted
     // separately as a jetsam hint; sharing the same flag lets an ordinary poke

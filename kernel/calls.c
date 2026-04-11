@@ -543,23 +543,23 @@ static inline void i386_syscall_result(struct cpu_state *cpu, int result) {
 }
 
 static inline qword_t amd64_syscall_number(const struct cpu_state *cpu) {
-    return cpu->amd64_syscall.rax;
+    return cpu->amd64_regs[amd64_rax];
 }
 
 static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]) {
-    args[0] = cpu->amd64_syscall.rdi;
-    args[1] = cpu->amd64_syscall.rsi;
-    args[2] = cpu->amd64_syscall.rdx;
-    args[3] = cpu->amd64_syscall.r10;
-    args[4] = cpu->amd64_syscall.r8;
-    args[5] = cpu->amd64_syscall.r9;
+    args[0] = cpu->amd64_regs[amd64_rdi];
+    args[1] = cpu->amd64_regs[amd64_rsi];
+    args[2] = cpu->amd64_regs[amd64_rdx];
+    args[3] = cpu->amd64_regs[amd64_r10];
+    args[4] = cpu->amd64_regs[amd64_r8];
+    args[5] = cpu->amd64_regs[amd64_r9];
 }
 
 static inline void amd64_syscall_result(struct cpu_state *cpu, int result) {
-    cpu->amd64_syscall.rax = (qword_t) (sqword_t) (sdword_t) result;
+    cpu->amd64_regs[amd64_rax] = (qword_t) (sqword_t) (sdword_t) result;
     cpu->eax = result;
-    cpu->amd64_syscall.rcx = 0;
-    cpu->amd64_syscall.r11 = 0;
+    cpu->amd64_regs[amd64_rcx] = cpu->amd64_rip;
+    cpu->amd64_regs[amd64_r11] = cpu->eflags;
 }
 
 static bool syscall_arg_fits_legacy_dword(qword_t arg) {
@@ -582,15 +582,14 @@ static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const 
 }
 
 static void amd64_syscall_seed_legacy_regs(struct cpu_state *cpu) {
-    // Transitional bridge while the CPU core is still fundamentally 32-bit.
-    // This lets amd64 SYSCALL reach the split dispatcher with the low register
-    // values that can already be represented today. Full-width r10/r8/r9 still
-    // need a later CPU-state bring-up.
-    cpu->amd64_syscall.rax = cpu->eax;
-    cpu->amd64_syscall.rdi = cpu->edi;
-    cpu->amd64_syscall.rsi = cpu->esi;
-    cpu->amd64_syscall.rdx = cpu->edx;
-    cpu->amd64_syscall.rcx = cpu->eip;
+    cpu->amd64_syscall.rax = cpu->amd64_regs[amd64_rax];
+    cpu->amd64_syscall.rdi = cpu->amd64_regs[amd64_rdi];
+    cpu->amd64_syscall.rsi = cpu->amd64_regs[amd64_rsi];
+    cpu->amd64_syscall.rdx = cpu->amd64_regs[amd64_rdx];
+    cpu->amd64_syscall.r10 = cpu->amd64_regs[amd64_r10];
+    cpu->amd64_syscall.r8 = cpu->amd64_regs[amd64_r8];
+    cpu->amd64_syscall.r9 = cpu->amd64_regs[amd64_r9];
+    cpu->amd64_syscall.rcx = cpu->amd64_rip;
     cpu->amd64_syscall.r11 = cpu->eflags;
 }
 
