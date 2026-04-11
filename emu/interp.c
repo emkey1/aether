@@ -1311,10 +1311,95 @@ static inline bool amd64_cond_eval(struct cpu_state *cpu, unsigned cc) {
     }
 }
 
+enum amd64_rep_mode {
+    AMD64_REP_NONE,
+    AMD64_REPZ,
+    AMD64_REPNZ,
+};
+
+static inline void amd64_bump_string_reg(struct cpu_state *cpu, unsigned reg, unsigned size) {
+    qword_t delta = size / 8;
+    if (!cpu->df)
+        cpu->amd64_regs[reg] += delta;
+    else
+        cpu->amd64_regs[reg] -= delta;
+}
+
+static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
+        byte_t opcode, unsigned size, enum amd64_rep_mode rep_mode) {
+    qword_t count = rep_mode == AMD64_REP_NONE ? 1 : amd64_reg_get(cpu, amd64_rcx, 64);
+
+    while (count != 0) {
+        qword_t value;
+        switch (opcode) {
+        case 0xa4:
+        case 0xa5:
+            if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &value, size / 8))
+                return INT_GPF;
+            if (!amd64_mem_write(cpu, tlb, cpu->amd64_regs[amd64_rdi], &value, size / 8))
+                return INT_GPF;
+            amd64_bump_string_reg(cpu, amd64_rsi, size);
+            amd64_bump_string_reg(cpu, amd64_rdi, size);
+            break;
+        case 0xaa:
+        case 0xab:
+            value = amd64_reg_get(cpu, amd64_rax, size);
+            if (!amd64_mem_write(cpu, tlb, cpu->amd64_regs[amd64_rdi], &value, size / 8))
+                return INT_GPF;
+            amd64_bump_string_reg(cpu, amd64_rdi, size);
+            break;
+        case 0xac:
+        case 0xad:
+            if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &value, size / 8))
+                return INT_GPF;
+            amd64_reg_set(cpu, amd64_rax, size, value);
+            amd64_bump_string_reg(cpu, amd64_rsi, size);
+            break;
+        case 0xae:
+        case 0xaf: {
+            qword_t lhs = amd64_reg_get(cpu, amd64_rax, size);
+            qword_t rhs;
+            if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rdi], &rhs, size / 8))
+                return INT_GPF;
+            amd64_set_sub_flags(cpu, lhs, rhs, lhs - rhs, size);
+            amd64_bump_string_reg(cpu, amd64_rdi, size);
+            break;
+        }
+        default: {
+            qword_t lhs;
+            qword_t rhs;
+            if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &lhs, size / 8))
+                return INT_GPF;
+            if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rdi], &rhs, size / 8))
+                return INT_GPF;
+            amd64_set_sub_flags(cpu, lhs, rhs, lhs - rhs, size);
+            amd64_bump_string_reg(cpu, amd64_rsi, size);
+            amd64_bump_string_reg(cpu, amd64_rdi, size);
+            break;
+        }
+        }
+
+        if (rep_mode != AMD64_REP_NONE) {
+            count--;
+            amd64_reg_set(cpu, amd64_rcx, 64, count);
+            if (opcode == 0xa6 || opcode == 0xa7 || opcode == 0xae || opcode == 0xaf) {
+                if (rep_mode == AMD64_REPZ && !cpu->zf)
+                    break;
+                if (rep_mode == AMD64_REPNZ && cpu->zf)
+                    break;
+            }
+        } else {
+            break;
+        }
+    }
+    return INT_NONE;
+}
+
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     qword_t saved_rip = cpu->amd64_rip;
     bool fs_prefix = false;
     bool operand_size_prefix = false;
+    enum amd64_rep_mode rep_mode = AMD64_REP_NONE;
     struct amd64_rex_prefix rex = {};
     byte_t opcode;
 
@@ -1336,6 +1421,14 @@ restart_prefix:
         fs_prefix = true;
         goto restart_prefix;
     }
+    if (opcode == 0xf3) {
+        rep_mode = AMD64_REPZ;
+        goto restart_prefix;
+    }
+    if (opcode == 0xf2) {
+        rep_mode = AMD64_REPNZ;
+        goto restart_prefix;
+    }
     if (opcode >= 0x40 && opcode <= 0x4f) {
         rex.present = true;
         rex.w = (opcode & 0x8) != 0;
@@ -1347,6 +1440,26 @@ restart_prefix:
 
     unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
     switch (opcode) {
+    case 0xa4:
+        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+    case 0xa5:
+        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+    case 0xa6:
+        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+    case 0xa7:
+        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+    case 0xaa:
+        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+    case 0xab:
+        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+    case 0xac:
+        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+    case 0xad:
+        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+    case 0xae:
+        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+    case 0xaf:
+        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
     case 0x0f: {
         byte_t op2;
         if (!amd64_fetch_u8(cpu, tlb, &op2)) {
