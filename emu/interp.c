@@ -657,11 +657,14 @@ struct amd64_modrm {
 };
 
 static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
-    if (guest_addr > UINT32_MAX)
+    addr_t addr = (addr_t) guest_addr;
+    qword_t zero_extended = (qword_t) addr;
+    qword_t sign_extended = (qword_t) (sqword_t) (int32_t) addr;
+    if (guest_addr != zero_extended && guest_addr != sign_extended)
         return false;
-    if (size != 0 && guest_addr + size - 1 > UINT32_MAX)
+    if (size != 0 && addr + size - 1 < addr)
         return false;
-    *addr_out = (addr_t) guest_addr;
+    *addr_out = addr;
     return true;
 }
 
