@@ -1,3 +1,5 @@
+#ifdef __linux__
+
 #include <sys/sysinfo.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -81,3 +83,5 @@ int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
     *cpus_usage = cpus_load_data;
     return 0;
 }
+
+#endif
