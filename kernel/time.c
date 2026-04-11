@@ -484,18 +484,23 @@ static void posix_timer_callback(struct posix_timer *timer) {
     struct task *thread = NULL;
     if (timer->thread_pid != 0) {
         thread = pid_get_task(timer->thread_pid);
+        if (thread != NULL)
+            task_ref_cnt_mod(thread, 1);
     } else if (timer->tgroup->leader != NULL) {
         // SIGEV_SIGNAL targets the process, so fall back to the thread-group leader.
         thread = timer->tgroup->leader;
+        task_ref_cnt_mod(thread, 1);
     }
     if (time_warning_trace_enabled())
         printk("WARNING: posix_timer_callback timer_id=%d signal=%d thread_pid=%d target_pid=%d found=%d\n",
                timer->timer_id, timer->signal, timer->thread_pid,
                thread != NULL ? thread->pid : 0, thread != NULL);
     // TODO: solve pid reuse. currently we have two ways of referring to a task: pid_t_ and struct task *. pids get reused. task struct pointers get freed on exit or reap. need a third option for cases like this, like a refcount layer.
-    if (thread != NULL)
-        send_signal(thread, timer->signal, info);
     unlock(&pids_lock);
+    if (thread != NULL) {
+        send_signal(thread, timer->signal, info);
+        task_ref_cnt_mod(thread, -1);
+    }
 }
 
 #define SIGEV_SIGNAL_ 0
