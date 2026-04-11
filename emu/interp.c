@@ -659,6 +659,10 @@ struct amd64_modrm {
 
 #define AMD64_BUSYBOX_INIT_SLOT 0x5661a6d8ull
 #define AMD64_BUSYBOX_INIT_SLOT_SIZE 8
+#define AMD64_BUSYBOX_INIT_LOAD_RIP 0x565e39fbull
+#define AMD64_BUSYBOX_INIT_TEST_RIP 0x565e3a02ull
+#define AMD64_BUSYBOX_INIT_JNE_RIP 0x565e3a05ull
+#define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
 
 static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsigned size) {
     if (size == 0)
@@ -2287,6 +2291,13 @@ restart_prefix:
             amd64_set_logic_flags(cpu, result, op_size);
             break;
         case 0x39:
+            if (saved_rip == AMD64_BUSYBOX_INIT_CMP_RIP && !modrm.is_reg) {
+                printk("amd64 init cmp: rip=%#llx rax=%#llx rbx=%#llx addr=%#llx\n",
+                       (unsigned long long) saved_rip,
+                       (unsigned long long) amd64_reg_get(cpu, amd64_rax, 64),
+                       (unsigned long long) amd64_reg_get(cpu, amd64_rbx, 64),
+                       (unsigned long long) amd64_effective_addr(cpu, &modrm, fs_prefix));
+            }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
                 goto amd64_gpf_restore;
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
@@ -2305,6 +2316,14 @@ restart_prefix:
                 goto amd64_gpf_restore;
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             amd64_set_logic_flags(cpu, lhs & rhs, op_size);
+            if (saved_rip == AMD64_BUSYBOX_INIT_TEST_RIP) {
+                printk("amd64 init test: rip=%#llx lhs=%#llx rhs=%#llx zf=%d rax=%#llx\n",
+                       (unsigned long long) saved_rip,
+                       (unsigned long long) lhs,
+                       (unsigned long long) rhs,
+                       cpu->zf,
+                       (unsigned long long) amd64_reg_get(cpu, amd64_rax, 64));
+            }
             break;
         case 0x86:
         case 0x87: {
@@ -2340,6 +2359,13 @@ restart_prefix:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
                 goto amd64_gpf_restore;
             amd64_reg_set(cpu, modrm.reg, op_size, rhs);
+            if (saved_rip == AMD64_BUSYBOX_INIT_LOAD_RIP) {
+                printk("amd64 init load: rip=%#llx dst=%u value=%#llx rax=%#llx\n",
+                       (unsigned long long) saved_rip,
+                       modrm.reg,
+                       (unsigned long long) rhs,
+                       (unsigned long long) amd64_reg_get(cpu, amd64_rax, 64));
+            }
             break;
         case 0x8d:
             if (modrm.is_reg)
@@ -2510,7 +2536,16 @@ restart_prefix:
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        if (amd64_cond_eval(cpu, opcode & 0xf))
+        bool taken = amd64_cond_eval(cpu, opcode & 0xf);
+        if (saved_rip == AMD64_BUSYBOX_INIT_JNE_RIP) {
+            printk("amd64 init jne: rip=%#llx zf=%d taken=%d rax=%#llx target=%#llx\n",
+                   (unsigned long long) saved_rip,
+                   cpu->zf,
+                   taken,
+                   (unsigned long long) amd64_reg_get(cpu, amd64_rax, 64),
+                   (unsigned long long) (cpu->amd64_rip + rel8));
+        }
+        if (taken)
             cpu->amd64_rip += rel8;
         break;
     }
