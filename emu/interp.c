@@ -1166,6 +1166,18 @@ restart_prefix:
                 amd64_reg_set(cpu, modrm.reg, op_size, src);
             break;
         }
+        if (op2 >= 0x90 && op2 <= 0x9f) {
+            struct amd64_modrm modrm;
+            qword_t value = amd64_cond_eval(cpu, op2 & 0xf) ? 1 : 0;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, value))
+                goto amd64_gpf_restore;
+            break;
+        }
         if (op2 == 0xb6 || op2 == 0xb7 || op2 == 0xbe || op2 == 0xbf) {
             struct amd64_modrm modrm;
             qword_t src;
