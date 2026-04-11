@@ -356,11 +356,136 @@ SYS_PROCESS_MADVISE              = 440
 SYS_EPOLL_PWAIT2                 = 441
  */
 
+static inline qword_t i386_syscall_number(const struct cpu_state *cpu);
+static inline void i386_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
+static inline void i386_syscall_result(struct cpu_state *cpu, int result);
+static inline qword_t amd64_syscall_number(const struct cpu_state *cpu);
+static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
+static inline void amd64_syscall_result(struct cpu_state *cpu, int result);
+
 struct syscall_abi_dispatch {
     enum guest_abi abi;
     const char *name;
     const syscall_t *table;
     size_t num_syscalls;
+    qword_t (*syscall_number)(const struct cpu_state *cpu);
+    void (*syscall_args)(const struct cpu_state *cpu, qword_t args[6]);
+    void (*syscall_result)(struct cpu_state *cpu, int result);
+};
+
+static syscall_t amd64_syscall_table[] = {
+    // Keep this table conservative until the remaining amd64 guest-visible
+    // structs and full-width pointer paths are in place.
+    [0] = (syscall_t) sys_read,
+    [1] = (syscall_t) sys_write,
+    [2] = (syscall_t) sys_open,
+    [3] = (syscall_t) sys_close,
+    [16] = (syscall_t) sys_ioctl,
+    [19] = (syscall_t) sys_readv,
+    [20] = (syscall_t) sys_writev,
+    [21] = (syscall_t) sys_access,
+    [22] = (syscall_t) sys_pipe,
+    [24] = (syscall_t) sys_sched_yield,
+    [32] = (syscall_t) sys_dup,
+    [33] = (syscall_t) sys_dup2,
+    [39] = (syscall_t) sys_getpid,
+    [41] = (syscall_t) sys_socket,
+    [42] = (syscall_t) sys_connect,
+    [43] = (syscall_t) sys_accept,
+    [44] = (syscall_t) sys_sendto,
+    [45] = (syscall_t) sys_recvfrom,
+    [46] = (syscall_t) sys_sendmsg,
+    [47] = (syscall_t) sys_recvmsg,
+    [48] = (syscall_t) sys_shutdown,
+    [49] = (syscall_t) sys_bind,
+    [50] = (syscall_t) sys_listen,
+    [51] = (syscall_t) sys_getsockname,
+    [52] = (syscall_t) sys_getpeername,
+    [53] = (syscall_t) sys_socketpair,
+    [54] = (syscall_t) sys_setsockopt,
+    [55] = (syscall_t) sys_getsockopt,
+    [57] = (syscall_t) sys_fork,
+    [58] = (syscall_t) sys_vfork,
+    [59] = (syscall_t) sys_execve,
+    [60] = (syscall_t) sys_exit,
+    [61] = (syscall_t) sys_wait4,
+    [62] = (syscall_t) sys_kill,
+    [63] = (syscall_t) sys_uname,
+    [72] = (syscall_t) sys_fcntl,
+    [73] = (syscall_t) sys_flock,
+    [74] = (syscall_t) sys_fsync,
+    [79] = (syscall_t) sys_getcwd,
+    [80] = (syscall_t) sys_chdir,
+    [81] = (syscall_t) sys_fchdir,
+    [82] = (syscall_t) sys_rename,
+    [83] = (syscall_t) sys_mkdir,
+    [84] = (syscall_t) sys_rmdir,
+    [85] = (syscall_t) sys_creat,
+    [86] = (syscall_t) sys_link,
+    [87] = (syscall_t) sys_unlink,
+    [88] = (syscall_t) sys_symlink,
+    [89] = (syscall_t) sys_readlink,
+    [90] = (syscall_t) sys_chmod,
+    [91] = (syscall_t) sys_fchmod,
+    [92] = (syscall_t) sys_chown32,
+    [93] = (syscall_t) sys_fchown32,
+    [94] = (syscall_t) sys_lchown,
+    [95] = (syscall_t) sys_umask,
+    [102] = (syscall_t) sys_getuid,
+    [104] = (syscall_t) sys_getgid,
+    [105] = (syscall_t) sys_setuid,
+    [106] = (syscall_t) sys_setgid,
+    [107] = (syscall_t) sys_geteuid,
+    [108] = (syscall_t) sys_getegid,
+    [109] = (syscall_t) sys_setpgid,
+    [110] = (syscall_t) sys_getppid,
+    [111] = (syscall_t) sys_getpgrp,
+    [112] = (syscall_t) sys_setsid,
+    [113] = (syscall_t) sys_setreuid,
+    [114] = (syscall_t) sys_setregid,
+    [115] = (syscall_t) sys_getgroups,
+    [116] = (syscall_t) sys_setgroups,
+    [117] = (syscall_t) sys_setresuid,
+    [118] = (syscall_t) sys_getresuid,
+    [119] = (syscall_t) sys_setresgid,
+    [120] = (syscall_t) sys_getresgid,
+    [121] = (syscall_t) sys_getpgid,
+    [122] = (syscall_t) sys_setfsuid,
+    [123] = (syscall_t) sys_setfsgid,
+    [133] = (syscall_t) sys_mknod,
+    [140] = (syscall_t) sys_getpriority,
+    [141] = (syscall_t) sys_setpriority,
+    [157] = (syscall_t) sys_prctl,
+    [158] = (syscall_t) sys_arch_prctl,
+    [186] = (syscall_t) sys_gettid,
+    [217] = (syscall_t) sys_getdents64,
+    [218] = (syscall_t) sys_set_tid_address,
+    [231] = (syscall_t) sys_exit_group,
+    [257] = (syscall_t) sys_openat,
+    [258] = (syscall_t) sys_mkdirat,
+    [259] = (syscall_t) sys_mknodat,
+    [260] = (syscall_t) sys_fchownat,
+    [263] = (syscall_t) sys_unlinkat,
+    [264] = (syscall_t) sys_renameat,
+    [265] = (syscall_t) sys_linkat,
+    [266] = (syscall_t) sys_symlinkat,
+    [267] = (syscall_t) sys_readlinkat,
+    [268] = (syscall_t) sys_fchmodat,
+    [269] = (syscall_t) sys_faccessat,
+    [272] = (syscall_t) sys_unshare,
+    [284] = (syscall_t) sys_eventfd,
+    [288] = (syscall_t) sys_accept4,
+    [290] = (syscall_t) sys_eventfd2,
+    [291] = (syscall_t) sys_epoll_create,
+    [292] = (syscall_t) sys_dup3,
+    [293] = (syscall_t) sys_pipe2,
+    [294] = (syscall_t) sys_inotify_init1,
+    [318] = (syscall_t) sys_getrandom,
+    [319] = (syscall_t) sys_memfd_create,
+    [322] = (syscall_t) sys_execveat,
+    [325] = (syscall_t) sys_membarrier,
+    [436] = (syscall_t) sys_close_range,
+    [439] = (syscall_t) sys_faccessat,
 };
 
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
@@ -368,13 +493,19 @@ static const struct syscall_abi_dispatch i386_syscall_dispatch = {
     .name = "i386",
     .table = i386_syscall_table,
     .num_syscalls = sizeof(i386_syscall_table) / sizeof(i386_syscall_table[0]),
+    .syscall_number = i386_syscall_number,
+    .syscall_args = i386_syscall_args,
+    .syscall_result = i386_syscall_result,
 };
 
 static const struct syscall_abi_dispatch amd64_syscall_dispatch = {
     .abi = GUEST_ABI_AMD64,
     .name = "amd64",
-    .table = NULL,
-    .num_syscalls = 0,
+    .table = amd64_syscall_table,
+    .num_syscalls = sizeof(amd64_syscall_table) / sizeof(amd64_syscall_table[0]),
+    .syscall_number = amd64_syscall_number,
+    .syscall_args = amd64_syscall_args,
+    .syscall_result = amd64_syscall_result,
 };
 
 static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_abi abi) {
@@ -393,11 +524,11 @@ static bool syscall_is_logged_stub(syscall_t syscall) {
     return syscall == (syscall_t) syscall_stub;
 }
 
-static inline dword_t i386_syscall_number(const struct cpu_state *cpu) {
+static inline qword_t i386_syscall_number(const struct cpu_state *cpu) {
     return cpu->eax;
 }
 
-static inline void i386_syscall_args(const struct cpu_state *cpu, dword_t args[6]) {
+static inline void i386_syscall_args(const struct cpu_state *cpu, qword_t args[6]) {
     args[0] = cpu->ebx;
     args[1] = cpu->ecx;
     args[2] = cpu->edx;
@@ -408,6 +539,39 @@ static inline void i386_syscall_args(const struct cpu_state *cpu, dword_t args[6
 
 static inline void i386_syscall_result(struct cpu_state *cpu, int result) {
     cpu->eax = result;
+}
+
+static inline qword_t amd64_syscall_number(const struct cpu_state *cpu) {
+    return cpu->amd64_syscall.rax;
+}
+
+static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]) {
+    args[0] = cpu->amd64_syscall.rdi;
+    args[1] = cpu->amd64_syscall.rsi;
+    args[2] = cpu->amd64_syscall.rdx;
+    args[3] = cpu->amd64_syscall.r10;
+    args[4] = cpu->amd64_syscall.r8;
+    args[5] = cpu->amd64_syscall.r9;
+}
+
+static inline void amd64_syscall_result(struct cpu_state *cpu, int result) {
+    cpu->amd64_syscall.rax = (qword_t) (sqword_t) (sdword_t) result;
+    cpu->eax = result;
+    cpu->amd64_syscall.rcx = 0;
+    cpu->amd64_syscall.r11 = 0;
+}
+
+static bool syscall_arg_fits_legacy_dword(qword_t arg) {
+    return arg <= UINT32_MAX || (arg >> 32) == UINT32_MAX;
+}
+
+static bool marshal_syscall_args_legacy(enum guest_abi abi, const qword_t raw_args[6], dword_t args[6]) {
+    for (int i = 0; i < 6; i++) {
+        if (abi == GUEST_ABI_AMD64 && !syscall_arg_fits_legacy_dword(raw_args[i]))
+            return false;
+        args[i] = (dword_t) raw_args[i];
+    }
+    return true;
 }
 
 static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
@@ -425,11 +589,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         return;
     }
 
+    qword_t raw_args[6];
     dword_t args[6];
-    unsigned syscall_num = i386_syscall_number(cpu);
+    qword_t syscall_num = dispatch->syscall_number(cpu);
     if (syscall_num >= dispatch->num_syscalls) {
         printk("ERROR: %d(%s) missing %s syscall %d\n",
-               current->pid, current->comm, dispatch->name, syscall_num);
+               current->pid, current->comm, dispatch->name, (int) syscall_num);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
@@ -439,17 +604,25 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     syscall_t syscall = dispatch->table[syscall_num];
     if (syscall == NULL) {
-        log_stub_syscall(cpu, syscall_num, "missing");
-        cpu->eax = syscall_stub();
+        log_stub_syscall(cpu, (unsigned) syscall_num, "missing");
+        dispatch->syscall_result(cpu, syscall_stub());
         return;
     }
     if (syscall_is_logged_stub(syscall))
-        log_stub_syscall(cpu, syscall_num, "stub");
+        log_stub_syscall(cpu, (unsigned) syscall_num, "stub");
 
-    i386_syscall_args(cpu, args);
-    STRACE("%d(%s) %d:%d call %-3d ", current->pid, current->comm, current->reference.count, current->locks_held.count, syscall_num);
+    dispatch->syscall_args(cpu, raw_args);
+    if (!marshal_syscall_args_legacy(dispatch->abi, raw_args, args)) {
+        printk("ERROR: %d(%s) %s syscall %llu needs full-width args before it can be emulated\n",
+               current->pid, current->comm, dispatch->name, syscall_num);
+        deliver_signal(current, SIGSYS_, SIGINFO_NIL);
+        return;
+    }
+
+    STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
+           current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     int result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
-    i386_syscall_result(cpu, result);
+    dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
     STRACE(" = 0x%x\n", result);

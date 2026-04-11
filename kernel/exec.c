@@ -698,6 +698,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     save->mm->stack_start = sp;
     save->cpu.esp = sp;
     save->cpu.eip = entry;
+    save->cpu.amd64_syscall = (struct amd64_syscall_state) {};
     save->cpu.fcw = 0x37f;
 
     save->cpu.eax = 0;

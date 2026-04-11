@@ -16,6 +16,22 @@ struct tlb;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
 
+// Full guest-visible amd64 register state is still a separate bring-up task.
+// Until then, keep syscall-entry registers in a shadow block so the kernel can
+// route amd64 syscalls without forcing the interpreter/JIT state layout over in
+// one step.
+struct amd64_syscall_state {
+    qword_t rax;
+    qword_t rdi;
+    qword_t rsi;
+    qword_t rdx;
+    qword_t r10;
+    qword_t r8;
+    qword_t r9;
+    qword_t rcx;
+    qword_t r11;
+};
+
 union mm_reg {
     qword_t qw;
     dword_t dw[2];
@@ -70,6 +86,8 @@ struct cpu_state {
 #undef REG
 
     dword_t eip;
+
+    struct amd64_syscall_state amd64_syscall;
 
     // flags
     union {
