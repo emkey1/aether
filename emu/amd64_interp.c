@@ -1682,7 +1682,7 @@ restart_prefix:
     case 0x35:
     case 0x3c:
     case 0x3d: {
-        unsigned size = (opcode & 0x8) == 0 ? 8 : op_size;
+        unsigned size = (opcode & 0x1) == 0 ? 8 : op_size;
         qword_t lhs = amd64_reg_get(cpu, amd64_rax, size);
         qword_t rhs;
         qword_t result;
