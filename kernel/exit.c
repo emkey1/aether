@@ -15,7 +15,7 @@ extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
 extern const char extra_lock_comm;
 
-static void halt_system(void);
+static void halt_system_locked(void);
 
 static bool trace_session_exit_task(struct task *task) {
     return strcmp(task->comm, "login") == 0 ||
@@ -246,7 +246,7 @@ noreturn void do_exit(struct task *task, int status) {
         struct task *parent = leader->parent;
         if (parent == NULL) {
             // init died
-            halt_system();
+            halt_system_locked();
         } else {
             task_ref_cnt_mod(parent, 1);
             signal_parent = parent;
@@ -330,15 +330,13 @@ noreturn void do_exit_group(int status) {
 }
 
 // always called from init process. Intended to be called when the init process exits.
-static void halt_system(void) {
+static void halt_system_locked(void) {
     // brutally murder everything
     // which will leave everything in an inconsistent state. I will solve this problem later.
     for (int i = 2; i < MAX_PID; i++) {
-        struct task *task = pid_get_task_ref(i);
-        if (task != NULL) {
+        struct task *task = pid_get_task(i);
+        if (task != NULL)
             pthread_kill(task->thread, SIGKILL);
-            task_ref_cnt_mod(task, -1);
-        }
     }
 
     // unmount all filesystems
