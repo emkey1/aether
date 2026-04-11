@@ -1455,6 +1455,7 @@ restart_prefix:
             cpu->amd64_rip += rel8;
         break;
     }
+    case 0x80:
     case 0x81:
     case 0x83:
     case 0xc1:
@@ -1462,6 +1463,7 @@ restart_prefix:
     case 0xc7: {
         struct amd64_modrm modrm;
         qword_t lhs, rhs, result;
+        unsigned rm_size = opcode == 0x80 ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
@@ -1511,7 +1513,15 @@ restart_prefix:
             amd64_set_shift_flags(cpu, lhs, result, op_size, count, modrm.reg);
             break;
         }
-        if (opcode == 0x83) {
+        if (opcode == 0x80) {
+            uint8_t imm8;
+            if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            rhs = imm8;
+        } else if (opcode == 0x83) {
             int8_t imm8;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
@@ -1528,7 +1538,7 @@ restart_prefix:
             }
             rhs = opcode == 0xc7 && !rex.w ? (uint32_t) imm32 : (qword_t) (sqword_t) imm32;
         }
-        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
             goto amd64_gpf_restore;
 
         if (opcode == 0xc7) {
@@ -1539,32 +1549,38 @@ restart_prefix:
 
         switch (modrm.reg) {
         case 0:
-            result = amd64_trunc(lhs + rhs, op_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            result = amd64_trunc(lhs + rhs, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
                 goto amd64_gpf_restore;
-            amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
+            amd64_set_add_flags(cpu, lhs, rhs, result, rm_size);
             break;
         case 1:
-            result = amd64_trunc(lhs | rhs, op_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            result = amd64_trunc(lhs | rhs, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
                 goto amd64_gpf_restore;
-            amd64_set_logic_flags(cpu, result, op_size);
+            amd64_set_logic_flags(cpu, result, rm_size);
             break;
         case 4:
-            result = amd64_trunc(lhs & rhs, op_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            result = amd64_trunc(lhs & rhs, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
                 goto amd64_gpf_restore;
-            amd64_set_logic_flags(cpu, result, op_size);
+            amd64_set_logic_flags(cpu, result, rm_size);
             break;
         case 5:
-            result = amd64_trunc(lhs - rhs, op_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            result = amd64_trunc(lhs - rhs, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
                 goto amd64_gpf_restore;
-            amd64_set_sub_flags(cpu, lhs, rhs, result, op_size);
+            amd64_set_sub_flags(cpu, lhs, rhs, result, rm_size);
+            break;
+        case 6:
+            result = amd64_trunc(lhs ^ rhs, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_logic_flags(cpu, result, rm_size);
             break;
         case 7:
-            result = amd64_trunc(lhs - rhs, op_size);
-            amd64_set_sub_flags(cpu, lhs, rhs, result, op_size);
+            result = amd64_trunc(lhs - rhs, rm_size);
+            amd64_set_sub_flags(cpu, lhs, rhs, result, rm_size);
             break;
         default:
             return INT_UNDEFINED;
