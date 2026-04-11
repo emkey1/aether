@@ -673,6 +673,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 static void dump_opcode_window(addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
+static void dump_amd64_store_trace(const struct cpu_state *cpu);
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
@@ -685,6 +686,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
             dump_amd64_loader_state(cpu);
+            dump_amd64_store_trace(cpu);
         }
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
@@ -811,6 +813,21 @@ static void dump_amd64_loader_state(const struct cpu_state *cpu) {
                 break;
             printk("amd64 loader: deps[%d]=%#llx\n", i, (unsigned long long) slot);
         }
+    }
+}
+
+static void dump_amd64_store_trace(const struct cpu_state *cpu) {
+    unsigned total = cpu->amd64_store_trace_next;
+    unsigned start = total > AMD64_STORE_TRACE_COUNT ? total - AMD64_STORE_TRACE_COUNT : 0;
+    for (unsigned i = start; i < total; i++) {
+        const struct amd64_store_trace *trace = &cpu->amd64_store_trace[i % AMD64_STORE_TRACE_COUNT];
+        if (trace->rip == 0)
+            continue;
+        printk("amd64 store: rip=%#llx opcode=%#x addr=%#llx value=%#llx\n",
+               (unsigned long long) trace->rip,
+               trace->opcode,
+               (unsigned long long) trace->addr,
+               (unsigned long long) trace->value);
     }
 }
 
@@ -1170,6 +1187,7 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
         dump_amd64_loader_state(cpu);
+        dump_amd64_store_trace(cpu);
     }
     dump_stack(8);
     struct siginfo_ info = {

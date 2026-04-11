@@ -53,6 +53,15 @@ struct amd64_syscall_state {
     qword_t r11;
 };
 
+#define AMD64_STORE_TRACE_COUNT 32
+
+struct amd64_store_trace {
+    qword_t rip;
+    qword_t addr;
+    qword_t value;
+    uint8_t opcode;
+};
+
 union mm_reg {
     qword_t qw;
     dword_t dw[2];
@@ -112,6 +121,8 @@ struct cpu_state {
     qword_t amd64_rip;
 
     struct amd64_syscall_state amd64_syscall;
+    struct amd64_store_trace amd64_store_trace[AMD64_STORE_TRACE_COUNT];
+    unsigned amd64_store_trace_next;
 
     // flags
     union {

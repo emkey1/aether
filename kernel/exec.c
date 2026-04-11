@@ -711,6 +711,8 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     memset(save->cpu.amd64_regs, 0, sizeof(save->cpu.amd64_regs));
     save->cpu.amd64_rip = entry;
     save->cpu.amd64_regs[amd64_rsp] = sp;
+    memset(save->cpu.amd64_store_trace, 0, sizeof(save->cpu.amd64_store_trace));
+    save->cpu.amd64_store_trace_next = 0;
 
     save->cpu.esp = sp;
     save->cpu.eip = entry;

@@ -662,6 +662,17 @@ static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
+static inline void amd64_trace_qword_store(struct cpu_state *cpu, qword_t rip,
+        byte_t opcode, qword_t addr, qword_t value) {
+    unsigned slot = cpu->amd64_store_trace_next++ % AMD64_STORE_TRACE_COUNT;
+    cpu->amd64_store_trace[slot] = (struct amd64_store_trace) {
+        .rip = rip,
+        .addr = addr,
+        .value = value,
+        .opcode = opcode,
+    };
+}
+
 static inline bool amd64_cond_eval(struct cpu_state *cpu, unsigned cc) {
     switch (cc & 0xf) {
     case 0x0: return cpu->of;
@@ -1143,6 +1154,9 @@ restart_prefix:
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
                 goto amd64_gpf_restore;
+            if (!modrm.is_reg && op_size == 64)
+                amd64_trace_qword_store(cpu, saved_rip, opcode,
+                        amd64_effective_addr(cpu, &modrm, fs_prefix), rhs);
             break;
         case 0x8a:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &rhs))
@@ -1417,6 +1431,9 @@ restart_prefix:
         if (opcode == 0xc7) {
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
                 goto amd64_gpf_restore;
+            if (!modrm.is_reg && op_size == 64)
+                amd64_trace_qword_store(cpu, saved_rip, opcode,
+                        amd64_effective_addr(cpu, &modrm, fs_prefix), rhs);
             break;
         }
 
