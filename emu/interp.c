@@ -2895,6 +2895,37 @@ restart_prefix:
         cpu->amd64_rip += rel8;
         break;
     }
+    case 0xfe: {
+        struct amd64_modrm modrm;
+        qword_t lhs, result;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        switch (modrm.reg) {
+        case 0:
+        case 1: {
+            bool is_inc = modrm.reg == 0;
+            bool saved_cf = cpu->cf;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
+                goto amd64_gpf_restore;
+            result = is_inc ? amd64_trunc(lhs + 1, 8) : amd64_trunc(lhs - 1, 8);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, result))
+                goto amd64_gpf_restore;
+            if (is_inc)
+                amd64_set_add_flags(cpu, lhs, 1, result, 8);
+            else
+                amd64_set_sub_flags(cpu, lhs, 1, result, 8);
+            cpu->cf = saved_cf;
+            collapse_flags(cpu);
+            break;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+        break;
+    }
     case 0xff: {
         struct amd64_modrm modrm;
         qword_t value, lhs, result;
