@@ -784,6 +784,7 @@ static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb
     qword_t saved_rip = cpu->amd64_rip;
     bool fs_prefix = false;
     bool operand_size_prefix = false;
+    bool lock_prefix = false;
     enum amd64_rep_mode rep_mode = AMD64_REP_NONE;
     struct amd64_rex_prefix rex = {};
     byte_t opcode;
@@ -806,6 +807,10 @@ restart_prefix:
         fs_prefix = true;
         goto restart_prefix;
     }
+    if (opcode == 0xf0) {
+        lock_prefix = true;
+        goto restart_prefix;
+    }
     if (opcode == 0xf3) {
         rep_mode = AMD64_REPZ;
         goto restart_prefix;
@@ -824,6 +829,7 @@ restart_prefix:
     }
 
     unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
+    (void) lock_prefix;
     switch (opcode) {
     case 0xa4:
         return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
@@ -995,6 +1001,34 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, op_size, result);
             overflow = signed_result != amd64_sign_extend(result, op_size);
             amd64_set_mul_flags(cpu, overflow);
+            break;
+        }
+        if (op2 == 0xb1) {
+            struct amd64_modrm modrm;
+            qword_t dst, src, acc, result;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &dst))
+                goto amd64_gpf_restore;
+            src = amd64_reg_get(cpu, modrm.reg, op_size);
+            acc = amd64_reg_get(cpu, amd64_rax, op_size);
+            result = amd64_trunc(acc - dst, op_size);
+            amd64_set_sub_flags(cpu, acc, dst, result, op_size);
+            if (acc == dst) {
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, src))
+                    goto amd64_gpf_restore;
+                if (!modrm.is_reg && op_size == 64)
+                    amd64_trace_qword_store(cpu, saved_rip, 0x0f, amd64_effective_addr(cpu, &modrm, fs_prefix), src);
+                cpu->zf = 1;
+                cpu->zf_res = 0;
+            } else {
+                amd64_reg_set(cpu, amd64_rax, op_size, dst);
+                cpu->zf = 0;
+                cpu->zf_res = 0;
+            }
             break;
         }
         if (op2 == 0x1f) {
