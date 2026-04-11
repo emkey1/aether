@@ -32,6 +32,7 @@ struct exec_args {
 };
 
 struct elf_info {
+    enum guest_abi abi;
     byte_t bitness;
     uint16_t type;
     uint16_t machine;
@@ -59,7 +60,7 @@ static inline addr_t args_copy(addr_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
 static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t *argc_out,
         char **argv_out, char **envp_out);
-static int read_header(struct fd *fd, enum guest_abi abi, struct elf_info *header);
+static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
 static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd);
 static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
@@ -126,21 +127,25 @@ static void trace_exec_tty(struct task *task, int *type_out, int *num_out) {
         *num_out = num;
 }
 
-static bool elf_abi_matches(enum guest_abi abi, byte_t bitness, uint16_t machine) {
-    switch (abi) {
-    case GUEST_ABI_AMD64:
-        return bitness == ELF_64BIT && machine == ELF_X86_64;
-    case GUEST_ABI_I386:
-    default:
-        return bitness == ELF_32BIT && machine == ELF_X86;
+static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi_out) {
+    enum guest_abi abi;
+    if (bitness == ELF_64BIT && machine == ELF_X86_64) {
+        abi = GUEST_ABI_AMD64;
+    } else if (bitness == ELF_32BIT && machine == ELF_X86) {
+        abi = GUEST_ABI_I386;
+    } else {
+        return false;
     }
+    if (abi_out != NULL)
+        *abi_out = abi;
+    return true;
 }
 
 static bool elf_value_fits_addr(qword_t value) {
     return value <= (qword_t) (addr_t) -1;
 }
 
-static int read_header(struct fd *fd, enum guest_abi abi, struct elf_info *header) {
+static int read_header(struct fd *fd, struct elf_info *header) {
     union {
         struct elf_header elf32;
         struct elf64_header elf64;
@@ -156,15 +161,17 @@ static int read_header(struct fd *fd, enum guest_abi abi, struct elf_info *heade
     }
 
     struct elf_header *ident = &raw.elf32;
+    enum guest_abi elf_abi;
     if (memcmp(&ident->magic, ELF_MAGIC, sizeof(ident->magic)) != 0
             || (ident->type != ELF_EXECUTABLE && ident->type != ELF_DYNAMIC)
             || ident->endian != ELF_LITTLEENDIAN
             || ident->elfversion1 != 1
-            || !elf_abi_matches(abi, ident->bitness, ident->machine))
+            || !elf_abi_detect(ident->bitness, ident->machine, &elf_abi))
         return _ENOEXEC;
 
     if (ident->bitness == ELF_32BIT) {
         *header = (struct elf_info) {
+            .abi = elf_abi,
             .bitness = ident->bitness,
             .type = raw.elf32.type,
             .machine = raw.elf32.machine,
@@ -177,6 +184,7 @@ static int read_header(struct fd *fd, enum guest_abi abi, struct elf_info *heade
         if (err < (ssize_t) sizeof(struct elf64_header))
             return _ENOEXEC;
         *header = (struct elf_info) {
+            .abi = elf_abi,
             .bitness = ident->bitness,
             .type = raw.elf64.type,
             .machine = raw.elf64.machine,
@@ -355,14 +363,19 @@ static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
     intptr_t err = 0;
     struct task *save = current;
-    size_t guest_word_size = task_abi_desc(save).pointer_size;
-    bool is_64bit = task_is_64bit(save);
     bool mem_locked = false;
 
     // read the headers
     struct elf_info header;
-    if ((err = read_header(fd, save->abi, &header)) < 0)
+    if ((err = read_header(fd, &header)) < 0)
         return err;
+    if (header.abi != save->abi) {
+        printk("INFO: exec ABI mismatch pid=%d comm=%s file=%s task_abi=%s elf_abi=%s\n",
+               save->pid, save->comm, file, guest_abi_name(save->abi), guest_abi_name(header.abi));
+        return _ENOEXEC;
+    }
+    size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
+    bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
     if ((err = read_prg_headers(fd, header, &ph)) < 0)
         return err;
@@ -397,9 +410,13 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             err = PTR_ERR(interp_fd);
             goto out_free_interp;
         }
-        if ((err = read_header(interp_fd, save->abi, &interp_header)) < 0) {
+        if ((err = read_header(interp_fd, &interp_header)) < 0) {
             if (err == _ENOEXEC)
                 err = _ELIBBAD;
+            goto out_free_interp;
+        }
+        if (interp_header.abi != header.abi) {
+            err = _ELIBBAD;
             goto out_free_interp;
         }
         if ((err = read_prg_headers(interp_fd, interp_header, &interp_ph)) < 0) {
