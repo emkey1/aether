@@ -12,6 +12,15 @@
 #include "kernel/task.h"
 #include "kernel/errno.h"
 
+static struct fdtable *procfd_task_files_retain(struct task *task) {
+    struct fdtable *files = NULL;
+    lock(&task->general_lock, 0);
+    if (!task->exiting && task->files != NULL)
+        files = fdtable_retain(task->files);
+    unlock(&task->general_lock);
+    return files;
+}
+
 static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
@@ -33,23 +42,28 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     }
     mount_release(mount);
 
-    complex_lockt(&pids_lock, 0);
-    struct task *task = pid_get_task(pid);
-    if (task == NULL || task->exiting) {
-        unlock(&pids_lock);
+    struct task *task = pid_get_task_ref(pid);
+    if (task == NULL)
+        return ERR_PTR(_ENOENT);
+
+    struct fdtable *files = procfd_task_files_retain(task);
+    if (files == NULL) {
+        task_ref_cnt_mod(task, -1);
         return ERR_PTR(_ENOENT);
     }
 
-    lock(&task->files->lock, 0);
-    struct fd *fd = fdtable_get(task->files, fd_no);
+    lock(&files->lock, 0);
+    struct fd *fd = fdtable_get(files, fd_no);
     if (fd == NULL) {
-        unlock(&task->files->lock);
-        unlock(&pids_lock);
+        unlock(&files->lock);
+        fdtable_release(files);
+        task_ref_cnt_mod(task, -1);
         return ERR_PTR(_ENOENT);
     }
     fd = fd_retain(fd);
-    unlock(&task->files->lock);
-    unlock(&pids_lock);
+    unlock(&files->lock);
+    fdtable_release(files);
+    task_ref_cnt_mod(task, -1);
 
     if (fd->type == S_IFREG || fd->type == S_IFDIR) {
         char reopened_path[MAX_PATH];
