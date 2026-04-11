@@ -24,6 +24,26 @@
 
 @end
 
+static bool UpgradePushInitTaskAsCurrent(struct task **previousCurrent) {
+    *previousCurrent = current;
+
+    complex_lockt(&pids_lock, 0);
+    struct task *init = pid_get_task(1);
+    if (init != NULL)
+        task_ref_cnt_mod(init, 1);
+    unlock(&pids_lock);
+
+    current = init;
+    return init != NULL;
+}
+
+static void UpgradePopCurrentTask(struct task *previousCurrent) {
+    struct task *borrowedCurrent = current;
+    current = previousCurrent;
+    if (borrowedCurrent != NULL)
+        task_ref_cnt_mod(borrowedCurrent, -1);
+}
+
 @implementation UpgradeRootViewController
 
 - (void)viewDidLoad {
@@ -33,11 +53,11 @@
         return;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(processExited:) name:ProcessExitedNotification object:nil];
 
-    complex_lockt(&pids_lock, 0);
-    current = pid_get_task(1); // pray
-    unlock(&pids_lock);
-    self.terminal = [Terminal createPseudoTerminal:&self->_tty];
-    current = NULL;
+    struct task *previousCurrent = NULL;
+    if (UpgradePushInitTaskAsCurrent(&previousCurrent)) {
+        self.terminal = [Terminal createPseudoTerminal:&self->_tty];
+        UpgradePopCurrentTask(previousCurrent);
+    }
     
     self.terminalView.terminal = self.terminal;
 #endif
@@ -77,11 +97,11 @@
     if (code != 0) {
         [self showAlertWithTitle:@"Upgrade failed" message:@"exit status %d", code];
     } else {
-        complex_lockt(&pids_lock, 0);
-        current = pid_get_task(1); // pray
-        unlock(&pids_lock);
-        FsUpdateRepositories();
-        current = NULL;
+        struct task *previousCurrent = NULL;
+        if (UpgradePushInitTaskAsCurrent(&previousCurrent)) {
+            FsUpdateRepositories();
+            UpgradePopCurrentTask(previousCurrent);
+        }
         [self showAlertWithTitle:@"Upgrade succeeded" message:@""];
     }
     [self.terminal destroy];
