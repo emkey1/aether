@@ -603,9 +603,11 @@ static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
 
 static inline bool amd64_read_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, union xmm_reg *value) {
-    if (modrm->reg >= 8 || modrm->rm >= 8)
+    if (modrm->reg >= 8)
         return false;
     if (modrm->is_reg) {
+        if (modrm->rm >= 8)
+            return false;
         *value = cpu->xmm[modrm->rm];
         return true;
     }
@@ -615,9 +617,11 @@ static inline bool amd64_read_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
 
 static inline bool amd64_write_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, const union xmm_reg *value) {
-    if (modrm->reg >= 8 || modrm->rm >= 8)
+    if (modrm->reg >= 8)
         return false;
     if (modrm->is_reg) {
+        if (modrm->rm >= 8)
+            return false;
         cpu->xmm[modrm->rm] = *value;
         return true;
     }
@@ -904,7 +908,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8 || modrm.rm >= 8)
+            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
                 return INT_UNDEFINED;
             if (op2 == 0x10 || op2 == 0x28) {
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
