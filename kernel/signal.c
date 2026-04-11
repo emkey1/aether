@@ -212,8 +212,21 @@ static void signalfd_info_from_siginfo(struct signalfd_siginfo_ *out, struct sig
     out->call_addr = info->sigsys.addr;
 }
 
+static struct fdtable *signalfd_task_files_retain(struct task *task) {
+    struct fdtable *files = NULL;
+    lock(&task->general_lock, 0);
+    if (!task->exiting && task->files != NULL)
+        files = fdtable_retain(task->files);
+    unlock(&task->general_lock);
+    return files;
+}
+
 static void signalfd_wakeup_task(struct task *task, int sig) {
-    if (task == NULL || task->files == NULL)
+    if (task == NULL)
+        return;
+
+    struct fdtable *files = signalfd_task_files_retain(task);
+    if (files == NULL)
         return;
 
     // Use trylock to avoid a deadlock: this function is called while
@@ -222,10 +235,12 @@ static void signalfd_wakeup_task(struct task *task, int sig) {
     // pids.  If the files table is currently locked, skip the wakeup — the
     // signal is already pending in task->pending, so the task will find it
     // when it next checks for signals.
-    if (trylock(&task->files->lock) != 0)
+    if (trylock(&files->lock) != 0) {
+        fdtable_release(files);
         return;
-    for (fd_t fd_no = 0; (unsigned) fd_no < task->files->size; fd_no++) {
-        struct fd *fd = fdtable_get(task->files, fd_no);
+    }
+    for (fd_t fd_no = 0; (unsigned) fd_no < files->size; fd_no++) {
+        struct fd *fd = fdtable_get(files, fd_no);
         if (fd == NULL || fd->ops != &signalfd_ops || fd->data == NULL)
             continue;
         struct signalfd_state *state = fd->data;
@@ -234,7 +249,8 @@ static void signalfd_wakeup_task(struct task *task, int sig) {
         notify(&fd->cond);
         poll_wakeup(fd, POLL_READ);
     }
-    unlock(&task->files->lock);
+    unlock(&files->lock);
+    fdtable_release(files);
 }
 
 static int signalfd_poll(struct fd *fd) {
