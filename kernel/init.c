@@ -131,12 +131,12 @@ intptr_t become_first_process(void) {
 }
 
 intptr_t become_new_init_child(void) {
-    // locking? who needs locking?!
-    struct task *init = pid_get_task(1);
+    struct task *init = pid_get_task_ref(1);
     if (init == NULL)
         return _ESRCH;
 
     struct task *task = construct_task(init);
+    task_ref_cnt_mod(init, -1);
     if (IS_ERR(task))
         return PTR_ERR(task);
 
