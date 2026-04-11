@@ -1065,12 +1065,30 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             return;
     }
 
+    const int before = 4;
+    const int after = 12;
     printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
         if (user_get(cpu->eip + i, b))
             break;
         printk("%02x ", b);
+    }
+    printk("\n");
+    printk("opcode window around 0x%x: ", cpu->eip);
+    for (int i = -before; i < after; i++) {
+        uint8_t b;
+        addr_t addr = cpu->eip + i;
+        if (i == 0)
+            printk("[");
+        if (user_get(addr, b))
+            printk("??");
+        else
+            printk("%02x", b);
+        if (i == 0)
+            printk("]");
+        else
+            printk(" ");
     }
     printk("\n");
     dump_stack(8);

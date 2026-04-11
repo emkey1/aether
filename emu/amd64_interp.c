@@ -781,9 +781,11 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, dst_size, src);
             break;
         }
-        if (op2 == 0x28 || op2 == 0x29) {
+        if (op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e) {
             struct amd64_modrm modrm;
             union xmm_reg value;
+            union xmm_reg src_xmm;
+            qword_t src_scalar;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
@@ -795,10 +797,29 @@ restart_prefix:
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
                     goto amd64_gpf_restore;
                 cpu->xmm[modrm.reg] = value;
-            } else {
+            } else if (op2 == 0x29) {
                 value = cpu->xmm[modrm.reg];
                 if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0x6e) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
+                    goto amd64_gpf_restore;
+                value.u128 = 0;
+                if (rex.w)
+                    value.qw[0] = src_scalar;
+                else
+                    value.u32[0] = (uint32_t) src_scalar;
+                cpu->xmm[modrm.reg] = value;
+            } else {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.qw[1] = src_xmm.qw[0];
+                cpu->xmm[modrm.reg] = value;
             }
             break;
         }
