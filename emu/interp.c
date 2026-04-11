@@ -780,6 +780,41 @@ static inline void amd64_set_sub_flags(struct cpu_state *cpu, qword_t lhs, qword
     collapse_flags(cpu);
 }
 
+static inline void amd64_set_shift_flags(struct cpu_state *cpu, qword_t lhs, qword_t result,
+        unsigned size, unsigned count, unsigned subop) {
+    qword_t lhs_masked = amd64_trunc(lhs, size);
+    qword_t res_masked = amd64_trunc(result, size);
+    qword_t sign = amd64_sign_bit(size);
+    cpu->cf = 0;
+    cpu->of = 0;
+    if (count != 0) {
+        switch (subop) {
+        case 4:
+            cpu->cf = (lhs_masked >> (size - count)) & 1;
+            if (count == 1)
+                cpu->of = ((res_masked & sign) != 0) ^ cpu->cf;
+            break;
+        case 5:
+            cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            if (count == 1)
+                cpu->of = (lhs_masked & sign) != 0;
+            break;
+        case 7:
+            cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            if (count == 1)
+                cpu->of = 0;
+            break;
+        }
+    }
+    cpu->af = 0;
+    cpu->af_ops = 0;
+    cpu->zf = res_masked == 0;
+    cpu->sf = (res_masked & sign) != 0;
+    cpu->pf = !__builtin_parity((unsigned) (res_masked & 0xff));
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
 static inline bool amd64_fetch(struct cpu_state *cpu, struct tlb *tlb, void *out, unsigned size) {
     addr_t addr;
     if (!amd64_guest_addr_ok(cpu->amd64_rip, size, &addr))
@@ -1246,6 +1281,7 @@ restart_prefix:
     }
     case 0x81:
     case 0x83:
+    case 0xc1:
     case 0xc6:
     case 0xc7: {
         struct amd64_modrm modrm;
@@ -1266,6 +1302,37 @@ restart_prefix:
             }
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, imm8))
                 goto amd64_gpf_restore;
+            break;
+        }
+        if (opcode == 0xc1) {
+            uint8_t imm8;
+            unsigned count;
+            if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            count = imm8 & (op_size == 64 ? 0x3f : 0x1f);
+            if (count == 0)
+                break;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            switch (modrm.reg) {
+            case 4:
+                result = amd64_trunc(lhs << count, op_size);
+                break;
+            case 5:
+                result = amd64_trunc(amd64_trunc(lhs, op_size) >> count, op_size);
+                break;
+            case 7:
+                result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, op_size) >> count), op_size);
+                break;
+            default:
+                return INT_UNDEFINED;
+            }
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_shift_flags(cpu, lhs, result, op_size, count, modrm.reg);
             break;
         }
         if (opcode == 0x83) {
@@ -1341,6 +1408,17 @@ restart_prefix:
         amd64_set_logic_flags(cpu, lhs & (rex.w ? (qword_t) (sqword_t) (int32_t) imm32 : imm32), op_size);
         break;
     }
+    case 0xa8: {
+        uint8_t imm8;
+        qword_t lhs = amd64_reg_get(cpu, amd64_rax, 8);
+        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        amd64_set_logic_flags(cpu, lhs & imm8, 8);
+        break;
+    }
     case 0xb8 ... 0xbf: {
         unsigned reg = (opcode - 0xb8) | (rex.b ? 8 : 0);
         if (rex.w) {
@@ -1367,6 +1445,34 @@ restart_prefix:
         if (!amd64_pop(cpu, tlb, &target))
             goto amd64_gpf_restore;
         cpu->amd64_rip = target;
+        break;
+    }
+    case 0xd1: {
+        struct amd64_modrm modrm;
+        qword_t lhs, result;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+            goto amd64_gpf_restore;
+        switch (modrm.reg) {
+        case 4:
+            result = amd64_trunc(lhs << 1, op_size);
+            break;
+        case 5:
+            result = amd64_trunc(amd64_trunc(lhs, op_size) >> 1, op_size);
+            break;
+        case 7:
+            result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, op_size) >> 1), op_size);
+            break;
+        default:
+            return INT_UNDEFINED;
+        }
+        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            goto amd64_gpf_restore;
+        amd64_set_shift_flags(cpu, lhs, result, op_size, 1, modrm.reg);
         break;
     }
     case 0xe8: {
@@ -1400,6 +1506,40 @@ restart_prefix:
             return INT_GPF;
         }
         cpu->amd64_rip += rel8;
+        break;
+    }
+    case 0xff: {
+        struct amd64_modrm modrm;
+        qword_t value;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        switch (modrm.reg) {
+        case 2: {
+            qword_t return_rip = cpu->amd64_rip;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
+                goto amd64_gpf_restore;
+            if (!amd64_push(cpu, tlb, return_rip))
+                goto amd64_gpf_restore;
+            cpu->amd64_rip = value;
+            break;
+        }
+        case 4:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
+                goto amd64_gpf_restore;
+            cpu->amd64_rip = value;
+            break;
+        case 6:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
+                goto amd64_gpf_restore;
+            if (!amd64_push(cpu, tlb, value))
+                goto amd64_gpf_restore;
+            break;
+        default:
+            return INT_UNDEFINED;
+        }
         break;
     }
     default:
