@@ -2972,25 +2972,179 @@ static void scm_free(struct scm *scm) {
     free(scm);
 }
 
-static size_t fake_cmsg_space(size_t data_len) {
-    return (sizeof(struct cmsghdr_) + data_len + sizeof(dword_t) - 1) &
-        ~(size_t) (sizeof(dword_t) - 1);
+struct guest_msghdr_marshaled {
+    addr_t msg_name;
+    uint_t msg_namelen;
+    addr_t msg_iov;
+    uint_t msg_iovlen;
+    addr_t msg_control;
+    uint_t msg_controllen;
+    int_t msg_flags;
+};
+
+struct guest_cmsghdr_marshaled {
+    size_t len;
+    int_t level;
+    int_t type;
+};
+
+static size_t guest_mmsghdr_size(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? sizeof(struct amd64_mmsghdr_) : sizeof(struct i386_mmsghdr_);
 }
 
-static bool fake_cmsg_append(uint8_t *buffer, size_t capacity, size_t *used,
+static size_t guest_mmsghdr_len_offset(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? offsetof(struct amd64_mmsghdr_, len) : offsetof(struct i386_mmsghdr_, len);
+}
+
+static bool guest_marshaled_addr_valid(enum guest_abi abi, qword_t addr) {
+    return guest_abi_addr_valid(abi, addr) && addr <= UINT32_MAX;
+}
+
+static int read_guest_msghdr(addr_t msghdr_addr, enum guest_abi abi, struct guest_msghdr_marshaled *msg) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_msghdr_ raw;
+        if (user_read(msghdr_addr, &raw, sizeof(raw)))
+            return _EFAULT;
+        if (!guest_marshaled_addr_valid(abi, raw.msg_name) ||
+                !guest_marshaled_addr_valid(abi, raw.msg_iov) ||
+                !guest_marshaled_addr_valid(abi, raw.msg_control) ||
+                raw.msg_namelen > UINT32_MAX ||
+                raw.msg_iovlen > UINT32_MAX ||
+                raw.msg_controllen > UINT32_MAX)
+            return _EINVAL;
+        *msg = (struct guest_msghdr_marshaled) {
+            .msg_name = (addr_t) raw.msg_name,
+            .msg_namelen = raw.msg_namelen,
+            .msg_iov = (addr_t) raw.msg_iov,
+            .msg_iovlen = (uint_t) raw.msg_iovlen,
+            .msg_control = (addr_t) raw.msg_control,
+            .msg_controllen = (uint_t) raw.msg_controllen,
+            .msg_flags = raw.msg_flags,
+        };
+        return 0;
+    }
+
+    struct i386_msghdr_ raw;
+    if (user_read(msghdr_addr, &raw, sizeof(raw)))
+        return _EFAULT;
+    *msg = (struct guest_msghdr_marshaled) {
+        .msg_name = raw.msg_name,
+        .msg_namelen = raw.msg_namelen,
+        .msg_iov = raw.msg_iov,
+        .msg_iovlen = raw.msg_iovlen,
+        .msg_control = raw.msg_control,
+        .msg_controllen = raw.msg_controllen,
+        .msg_flags = raw.msg_flags,
+    };
+    return 0;
+}
+
+static int write_guest_msghdr(addr_t msghdr_addr, enum guest_abi abi, const struct guest_msghdr_marshaled *msg) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_msghdr_ raw = {
+            .msg_name = msg->msg_name,
+            .msg_namelen = msg->msg_namelen,
+            .msg_iov = msg->msg_iov,
+            .msg_iovlen = msg->msg_iovlen,
+            .msg_control = msg->msg_control,
+            .msg_controllen = msg->msg_controllen,
+            .msg_flags = msg->msg_flags,
+        };
+        return user_write(msghdr_addr, &raw, sizeof(raw)) ? _EFAULT : 0;
+    }
+
+    struct i386_msghdr_ raw = {
+        .msg_name = msg->msg_name,
+        .msg_namelen = msg->msg_namelen,
+        .msg_iov = msg->msg_iov,
+        .msg_iovlen = msg->msg_iovlen,
+        .msg_control = msg->msg_control,
+        .msg_controllen = msg->msg_controllen,
+        .msg_flags = msg->msg_flags,
+    };
+    return user_write(msghdr_addr, &raw, sizeof(raw)) ? _EFAULT : 0;
+}
+
+static size_t guest_cmsg_hdr_size(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? sizeof(struct amd64_cmsghdr_) : sizeof(struct i386_cmsghdr_);
+}
+
+static size_t guest_cmsg_space(enum guest_abi abi, size_t data_len) {
+    size_t align = guest_abi_desc(abi).word_size;
+    size_t cmsg_len = guest_cmsg_hdr_size(abi) + data_len;
+    return (cmsg_len + align - 1) & ~(align - 1);
+}
+
+static bool guest_cmsg_parse(enum guest_abi abi, const uint8_t *buffer, size_t capacity,
+        size_t *offset, struct guest_cmsghdr_marshaled *cmsg, const uint8_t **data,
+        size_t *data_len) {
+    size_t hdr_size = guest_cmsg_hdr_size(abi);
+    if (*offset + hdr_size > capacity)
+        return false;
+
+    size_t len;
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_cmsghdr_ raw;
+        memcpy(&raw, buffer + *offset, sizeof(raw));
+        len = raw.len;
+        cmsg->level = raw.level;
+        cmsg->type = raw.type;
+    } else {
+        struct i386_cmsghdr_ raw;
+        memcpy(&raw, buffer + *offset, sizeof(raw));
+        len = raw.len;
+        cmsg->level = raw.level;
+        cmsg->type = raw.type;
+    }
+
+    if (len < hdr_size)
+        return false;
+    size_t cmsg_space = guest_cmsg_space(abi, len - hdr_size);
+    if (*offset + cmsg_space > capacity)
+        return false;
+
+    cmsg->len = len;
+    *data = buffer + *offset + hdr_size;
+    *data_len = len - hdr_size;
+    *offset += cmsg_space;
+    return true;
+}
+
+static bool guest_cmsg_append(enum guest_abi abi, uint8_t *buffer, size_t capacity, size_t *used,
         int_t level, int_t type, const void *data, size_t data_len) {
-    size_t cmsg_len = sizeof(struct cmsghdr_) + data_len;
-    size_t cmsg_space = fake_cmsg_space(data_len);
+    size_t hdr_size = guest_cmsg_hdr_size(abi);
+    size_t cmsg_len = hdr_size + data_len;
+    size_t cmsg_space = guest_cmsg_space(abi, data_len);
     if (*used + cmsg_space > capacity)
         return false;
-    struct cmsghdr_ *cmsg = (struct cmsghdr_ *) (buffer + *used);
-    cmsg->len = cmsg_len;
-    cmsg->level = level;
-    cmsg->type = type;
-    memcpy(cmsg->data, data, data_len);
-    memset(((uint8_t *) cmsg) + cmsg_len, 0, cmsg_space - cmsg_len);
+
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_cmsghdr_ raw = {
+            .len = cmsg_len,
+            .level = level,
+            .type = type,
+        };
+        memcpy(buffer + *used, &raw, sizeof(raw));
+    } else {
+        struct i386_cmsghdr_ raw = {
+            .len = cmsg_len,
+            .level = level,
+            .type = type,
+        };
+        memcpy(buffer + *used, &raw, sizeof(raw));
+    }
+    memcpy(buffer + *used + hdr_size, data, data_len);
+    memset(buffer + *used + cmsg_len, 0, cmsg_space - cmsg_len);
     *used += cmsg_space;
     return true;
+}
+
+static void free_msghdr_iov(struct iovec *iov, size_t iovlen) {
+    if (iov == NULL)
+        return;
+    for (size_t i = 0; i < iovlen; i++)
+        free(iov[i].iov_base);
+    free(iov);
 }
 
 static bool unix_socket_get_peer_cred(struct fd *sock, struct ucred_ *cred) {
@@ -3015,9 +3169,10 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         return _EBADF;
 
     struct msghdr msg = {};
-    struct msghdr_ msg_fake;
-    if (user_get(msghdr_addr, msg_fake))
-        return _EFAULT;
+    struct guest_msghdr_marshaled msg_fake;
+    err = read_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    if (err < 0)
+        return err;
 
     // msg_name
     struct sockaddr_max_ msg_name;
@@ -3032,13 +3187,19 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 
     // msg_iovec
-    struct iovec_ msg_iov_fake[msg_fake.msg_iovlen];
-    if (user_get(msg_fake.msg_iov, msg_iov_fake))
-        return _EFAULT;
-    struct iovec msg_iov[msg_fake.msg_iovlen];
-    memset(msg_iov, 0, sizeof(msg_iov));
+    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, current->abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
+    if (IS_ERR(msg_iov_fake))
+        return PTR_ERR(msg_iov_fake);
+    struct iovec *msg_iov = NULL;
+    if (msg_fake.msg_iovlen != 0) {
+        msg_iov = calloc(msg_fake.msg_iovlen, sizeof(*msg_iov));
+        if (msg_iov == NULL) {
+            free(msg_iov_fake);
+            return _ENOMEM;
+        }
+    }
     msg.msg_iov = msg_iov;
-    msg.msg_iovlen = sizeof(msg_iov) / sizeof(msg_iov[0]);
+    msg.msg_iovlen = msg_fake.msg_iovlen;
     for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
         msg_iov[i].iov_len = msg_iov_fake[i].len;
         msg_iov[i].iov_base = malloc(msg_iov_fake[i].len);
@@ -3087,40 +3248,44 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
 
     struct scm *scm = NULL;
     char real_msg_control[CMSG_SPACE(sizeof(int))]; // only used if actually sending an fd
-    if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL && msg_fake.msg_controllen >= sizeof(struct cmsghdr_)) {
+    if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL &&
+            msg_fake.msg_controllen >= guest_cmsg_hdr_size(current->abi)) {
         err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
         if (err < 0)
             goto out_free_iov;
         // figure out how many file descriptors we're sending
-        uint8_t *mhdr_end = msg_control + msg_fake.msg_controllen;
         unsigned num_fds = 0;
         struct ucred_ sender_cred = {};
         fill_cred(&sender_cred);
-        struct cmsghdr_ *cmsg;
-        for (cmsg = (void *) msg_control; cmsg != NULL; cmsg = CMSG_NXTHDR_(cmsg, mhdr_end)) {
-            if (cmsg->level != SOL_SOCKET_)
+        size_t cmsg_off = 0;
+        while (cmsg_off < msg_fake.msg_controllen) {
+            struct guest_cmsghdr_marshaled cmsg;
+            const uint8_t *cmsg_data;
+            size_t data_len;
+            if (!guest_cmsg_parse(current->abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
+                err = _EINVAL;
+                goto out_free_iov;
+            }
+            if (cmsg.level != SOL_SOCKET_)
                 continue;
-            if (cmsg->len < sizeof(struct cmsghdr_))
-                return _EINVAL;
-            size_t data_len = cmsg->len - sizeof(struct cmsghdr_);
-            if (cmsg->type == SCM_RIGHTS_) {
+            if (cmsg.type == SCM_RIGHTS_) {
                 if (data_len % sizeof(fd_t) != 0)
-                    return _EINVAL;
+                    goto out_inval;
                 num_fds += data_len / sizeof(fd_t);
-            } else if (cmsg->type == SCM_CREDENTIALS_) {
+            } else if (cmsg.type == SCM_CREDENTIALS_) {
                 if (data_len != sizeof(struct ucred_))
-                    return _EINVAL;
-                struct ucred_ *cred = (struct ucred_ *) cmsg->data;
+                    goto out_inval;
+                const struct ucred_ *cred = (const struct ucred_ *) cmsg_data;
                 if (cred->pid != sender_cred.pid ||
                         cred->uid != sender_cred.uid ||
                         cred->gid != sender_cred.gid)
-                    return _EPERM;
+                    goto out_perm;
             } else {
-                return _EINVAL;
+                goto out_inval;
             }
         }
         if (num_fds > 253) // *magic*
-            return _EINVAL;
+            goto out_inval;
 
         if (num_fds > 0) {
             // send one (1) real fd and put the rest in a struct scm
@@ -3142,11 +3307,19 @@ int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             list_init(&scm->queue);
             scm->num_fds = num_fds;
             unsigned fd_i = 0;
-            for (cmsg = (void *) msg_control; cmsg != NULL; cmsg = CMSG_NXTHDR_(cmsg, mhdr_end)) {
-                if (cmsg->level != SOL_SOCKET_ || cmsg->type != SCM_RIGHTS_)
+            cmsg_off = 0;
+            while (cmsg_off < msg_fake.msg_controllen) {
+                struct guest_cmsghdr_marshaled cmsg;
+                const uint8_t *cmsg_data;
+                size_t data_len;
+                if (!guest_cmsg_parse(current->abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
+                    err = _EINVAL;
+                    goto out_free_scm;
+                }
+                if (cmsg.level != SOL_SOCKET_ || cmsg.type != SCM_RIGHTS_)
                     continue;
-                fd_t *fds = (void *) cmsg->data;
-                for (unsigned i = 0; i < (cmsg->len - sizeof(struct cmsghdr_)) / sizeof(fd_t); i++) {
+                const fd_t *fds = (const fd_t *) cmsg_data;
+                for (unsigned i = 0; i < data_len / sizeof(fd_t); i++) {
                     STRACE(" sending fd %d", fds[i]);
                     scm->fds[fd_i++] = fd_retain(f_get(fds[i]));
                 }
@@ -3219,11 +3392,15 @@ out_free_scm:
         unlock(&peer_lock);
         scm_free(scm);
     }
+    goto out_free_iov;
+out_perm:
+    err = _EPERM;
+    goto out_free_iov;
+out_inval:
+    err = _EINVAL;
 out_free_iov:
-    for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
-        free(msg_iov[i].iov_base);
-  //  if(scm != NULL)
-  //      scm_free(scm);
+    free_msghdr_iov(msg_iov, msg.msg_iovlen);
+    free(msg_iov_fake);
     return err;
 }
 
@@ -3234,15 +3411,42 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         return _EBADF;
 
     struct msghdr msg = {};
-    struct msghdr_ msg_fake;
-    if (user_get(msghdr_addr, msg_fake))
-        return _EFAULT;
+    struct guest_msghdr_marshaled msg_fake;
+    int err = read_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    if (err < 0)
+        return err;
+
+    int real_flags = sock_flags_to_real(flags);
+    if (real_flags < 0)
+        return _EINVAL;
+
+    // msg_iovec (no initial content)
+    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, current->abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
+    if (IS_ERR(msg_iov_fake))
+        return PTR_ERR(msg_iov_fake);
+    struct iovec *msg_iov = NULL;
+    if (msg_fake.msg_iovlen != 0) {
+        msg_iov = calloc(msg_fake.msg_iovlen, sizeof(*msg_iov));
+        if (msg_iov == NULL) {
+            free(msg_iov_fake);
+            return _ENOMEM;
+        }
+    }
 
     // msg_name
-    char msg_name[msg_fake.msg_namelen];
+    char msg_name_stack[128];
+    char *msg_name = msg_name_stack;
+    if (msg_fake.msg_namelen > sizeof(msg_name_stack)) {
+        msg_name = malloc(msg_fake.msg_namelen);
+        if (msg_name == NULL) {
+            free(msg_iov_fake);
+            free(msg_iov);
+            return _ENOMEM;
+        }
+    }
     if (msg_fake.msg_name != 0) {
         msg.msg_name = msg_name;
-        msg.msg_namelen = sizeof(msg_name);
+        msg.msg_namelen = msg_fake.msg_namelen;
     } else {
         msg.msg_name = NULL;
         msg.msg_namelen = 0;
@@ -3257,18 +3461,8 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         msg.msg_control = NULL;
         msg.msg_controllen = 0;
     }
-
-    int real_flags = sock_flags_to_real(flags);
-    if (real_flags < 0)
-        return _EINVAL;
-
-    // msg_iovec (no initial content)
-    struct iovec_ msg_iov_fake[msg_fake.msg_iovlen];
-    if (user_get(msg_fake.msg_iov, msg_iov_fake))
-        return _EFAULT;
-    struct iovec msg_iov[msg_fake.msg_iovlen];
     msg.msg_iov = msg_iov;
-    msg.msg_iovlen = sizeof(msg_iov) / sizeof(msg_iov[0]);
+    msg.msg_iovlen = msg_fake.msg_iovlen;
     for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++) {
         msg_iov[i].iov_len = msg_iov_fake[i].len;
         msg_iov[i].iov_base = malloc(msg_iov_fake[i].len);
@@ -3278,10 +3472,13 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
         msg_fake.msg_namelen = 0;
         msg_fake.msg_controllen = 0;
         msg_fake.msg_flags = 0;
-        for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
-            free(msg_iov[i].iov_base);
-        if (user_put(msghdr_addr, msg_fake))
-            return _EFAULT;
+        free_msghdr_iov(msg_iov, msg.msg_iovlen);
+        free(msg_iov_fake);
+        if (msg_name != msg_name_stack)
+            free(msg_name);
+        err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+        if (err < 0)
+            return err;
         return 0;
     }
 
@@ -3295,34 +3492,50 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
                     chunk_size = n;
                 if (chunk_size != 0)
                     if (user_write(msg_iov_fake[i].base, msg_iov[i].iov_base, chunk_size)) {
-                        for (size_t j = 0; j < (size_t) msg.msg_iovlen; j++)
-                            free(msg_iov[j].iov_base);
+                        free_msghdr_iov(msg_iov, msg.msg_iovlen);
+                        free(msg_iov_fake);
+                        if (msg_name != msg_name_stack)
+                            free(msg_name);
                         return _EFAULT;
                     }
                 n -= chunk_size;
             }
         }
-        for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
-            free(msg_iov[i].iov_base);
-        if (res < 0)
+        free_msghdr_iov(msg_iov, msg.msg_iovlen);
+        free(msg_iov_fake);
+        if (res < 0) {
+            if (msg_name != msg_name_stack)
+                free(msg_name);
             return res;
+        }
         if (msg.msg_name != NULL) {
             int err = netlink_sockaddr_write(msg_fake.msg_name, msg.msg_name, &msg.msg_namelen);
-            if (err < 0)
+            if (err < 0) {
+                if (msg_name != msg_name_stack)
+                    free(msg_name);
                 return err;
+            }
         }
         msg_fake.msg_namelen = msg.msg_namelen;
         msg_fake.msg_controllen = 0;
         msg_fake.msg_flags = sock_flags_from_real(msg.msg_flags);
-        if (user_put(msghdr_addr, msg_fake))
-            return _EFAULT;
+        if (msg_name != msg_name_stack)
+            free(msg_name);
+        err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+        if (err < 0)
+            return err;
         return res;
     }
 
     if (sock->socket.domain == AF_LOCAL_) {
         int peer_err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
-        if (peer_err < 0)
+        if (peer_err < 0) {
+            free_msghdr_iov(msg_iov, msg.msg_iovlen);
+            free(msg_iov_fake);
+            if (msg_name != msg_name_stack)
+                free(msg_name);
             return peer_err;
+        }
     }
 
     ssize_t res = 0;
@@ -3332,7 +3545,7 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             res = recvmsg(sock->real_fd, &msg, real_flags);
         } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
     }
-    int err = 0;
+    err = 0;
     if (res < 0) {
         err = errno_map();
         sock_trace("recvmsg", sock, -1, err);
@@ -3358,10 +3571,11 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
             chunk_size = n;
         if (chunk_size > 0)
             if (user_write(msg_iov_fake[i].base, msg_iov[i].iov_base, chunk_size))
-                return _EFAULT;
+                goto out_recvmsg_fault;
         n -= chunk_size;
-        free(msg_iov[i].iov_base);
     }
+    free_msghdr_iov(msg_iov, msg.msg_iovlen);
+    free(msg_iov_fake);
 
     // msg_control (changed)
     uint_t guest_controllen_max = msg_fake.msg_controllen; // save before zeroing
@@ -3389,22 +3603,23 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
 
         if (res < 0) {
             scm_free(scm);
+            if (msg_name != msg_name_stack)
+                free(msg_name);
             return err;
         }
     }
 
     if (have_rights || want_passcred) {
-        uint8_t guest_msg_control[sizeof(struct cmsghdr_) + 253 * sizeof(fd_t) +
-                                  sizeof(struct cmsghdr_) + sizeof(struct ucred_)] = {};
+        uint8_t guest_msg_control[2048] = {};
         size_t guest_msg_control_len = 0;
         size_t required_msg_control = 0;
         struct ucred_ cred = {};
         bool have_passcred = want_passcred && unix_socket_get_peer_cred(sock, &cred);
 
         if (have_rights)
-            required_msg_control += fake_cmsg_space(sizeof(fd_t) * scm->num_fds);
+            required_msg_control += guest_cmsg_space(current->abi, sizeof(fd_t) * scm->num_fds);
         if (have_passcred)
-            required_msg_control += fake_cmsg_space(sizeof(cred));
+            required_msg_control += guest_cmsg_space(current->abi, sizeof(cred));
 
         if (msg_fake.msg_control == 0 || required_msg_control > guest_controllen_max) {
             msg_fake.msg_flags |= MSG_CTRUNC_;
@@ -3416,18 +3631,20 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
                     fds[i] = f_install(scm->fds[i], 0);
                     STRACE(" receiving fd %d", fds[i]);
                 }
-                bool appended = fake_cmsg_append(guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
+                bool appended = guest_cmsg_append(current->abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
                         SOL_SOCKET_, SCM_RIGHTS_, fds, sizeof(fd_t) * scm->num_fds);
                 assert(appended);
             }
             if (have_passcred) {
-                bool appended = fake_cmsg_append(guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
+                bool appended = guest_cmsg_append(current->abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
                         SOL_SOCKET_, SCM_CREDENTIALS_, &cred, sizeof(cred));
                 assert(appended);
             }
             if (user_write(msg_fake.msg_control, guest_msg_control, guest_msg_control_len)) {
                 if (scm != NULL)
                     scm_free(scm);
+                if (msg_name != msg_name_stack)
+                    free(msg_name);
                 return _EFAULT;
             }
             msg_fake.msg_controllen = guest_msg_control_len;
@@ -3437,35 +3654,48 @@ int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     }
 
     // by now the iovecs and scm have been freed so we can return
-    if (res < 0)
+    if (res < 0) {
+        if (msg_name != msg_name_stack)
+            free(msg_name);
         return err;
+    }
 
     // msg_name (changed)
     if (msg.msg_name != 0) {
-        int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, sizeof(msg_name), &msg.msg_namelen);
-        if (err < 0)
+        int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, msg_fake.msg_namelen, &msg.msg_namelen);
+        if (err < 0) {
+            if (msg_name != msg_name_stack)
+                free(msg_name);
             return err;
+        }
     }
     msg_fake.msg_namelen = msg.msg_namelen;
 
-    if (user_put(msghdr_addr, msg_fake))
-        return _EFAULT;
+    if (msg_name != msg_name_stack)
+        free(msg_name);
+    err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    if (err < 0)
+        return err;
     return res;
-}
 
-struct mmsghdr_ {
-    struct msghdr_ hdr;
-    uint_t len;
-};
+out_recvmsg_fault:
+    free_msghdr_iov(msg_iov, msg.msg_iovlen);
+    free(msg_iov_fake);
+    if (msg_name != msg_name_stack)
+        free(msg_name);
+    return _EFAULT;
+}
 
 int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t UNUSED(timeout_addr)) {
     int num_received = 0;
     int recv_flags = flags;
+    size_t msg_stride = guest_mmsghdr_size(current->abi);
+    size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
     for (unsigned i = 0; i < vec_len; i++) {
-        addr_t msghdr = msg_vec + i * sizeof(struct mmsghdr_);
+        addr_t msghdr = msg_vec + i * msg_stride;
         int_t res = sys_recvmsg(sock_fd, msghdr, recv_flags);
         if (res >= 0) {
-            addr_t msg_len_addr = msghdr + offsetof(struct mmsghdr_, len);
+            addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
                 res = _EFAULT;
         }
@@ -3486,11 +3716,13 @@ int_t sys_recvmmsg_time64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t fl
 
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
     int num_sent = 0;
+    size_t msg_stride = guest_mmsghdr_size(current->abi);
+    size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
     for (unsigned i = 0; i < vec_len; i++) {
-        addr_t msghdr = msg_vec + i * sizeof(struct mmsghdr_);
+        addr_t msghdr = msg_vec + i * msg_stride;
         int_t res = sys_sendmsg(sock_fd, msghdr, flags);
         if (res >= 0) {
-            addr_t msg_len_addr = msghdr + offsetof(struct mmsghdr_, len);
+            addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
                 res = _EFAULT;
         }

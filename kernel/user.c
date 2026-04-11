@@ -245,7 +245,7 @@ struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi,
             base = i386_iov[i].base;
             len = i386_iov[i].len;
         }
-        if (!guest_abi_addr_valid(abi, base) || len > SIZE_MAX) {
+        if (!guest_abi_addr_valid(abi, base) || base > UINT32_MAX || len > SIZE_MAX) {
             free(raw_iov);
             free(iov);
             return ERR_PTR(_EINVAL);

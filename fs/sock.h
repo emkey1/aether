@@ -48,6 +48,30 @@ size_t sockaddr_size(void *p);
 // result comes from malloc
 struct sockaddr *sockaddr_to_real(void *p);
 
+struct i386_msghdr_ {
+    addr_t msg_name;
+    uint_t msg_namelen;
+    addr_t msg_iov;
+    uint_t msg_iovlen;
+    addr_t msg_control;
+    uint_t msg_controllen;
+    int_t msg_flags;
+};
+static_assert(sizeof(struct i386_msghdr_) == 28, "i386_msghdr size");
+
+struct amd64_msghdr_ {
+    qword_t msg_name;
+    uint_t msg_namelen;
+    uint_t __pad0;
+    qword_t msg_iov;
+    qword_t msg_iovlen;
+    qword_t msg_control;
+    qword_t msg_controllen;
+    int_t msg_flags;
+    uint_t __pad1;
+};
+static_assert(sizeof(struct amd64_msghdr_) == 56, "amd64_msghdr size");
+
 struct msghdr_ {
     addr_t msg_name;
     uint_t msg_namelen;
@@ -58,12 +82,39 @@ struct msghdr_ {
     int_t msg_flags;
 };
 
+struct i386_cmsghdr_ {
+    dword_t len;
+    int_t level;
+    int_t type;
+};
+static_assert(sizeof(struct i386_cmsghdr_) == 12, "i386_cmsghdr size");
+
+struct amd64_cmsghdr_ {
+    qword_t len;
+    int_t level;
+    int_t type;
+};
+static_assert(sizeof(struct amd64_cmsghdr_) == 16, "amd64_cmsghdr size");
+
 struct cmsghdr_ {
     dword_t len;
     int_t level;
     int_t type;
     uint8_t data[];
 };
+
+struct i386_mmsghdr_ {
+    struct i386_msghdr_ hdr;
+    uint_t len;
+};
+static_assert(sizeof(struct i386_mmsghdr_) == 32, "i386_mmsghdr size");
+
+struct amd64_mmsghdr_ {
+    struct amd64_msghdr_ hdr;
+    uint_t len;
+    uint_t __pad0;
+};
+static_assert(sizeof(struct amd64_mmsghdr_) == 64, "amd64_mmsghdr size");
 #define SCM_RIGHTS_ 1
 #define SCM_CREDENTIALS_ 2
 // copied and ported from musl
