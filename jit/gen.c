@@ -155,6 +155,7 @@ typedef void (*gadget_t)(void);
 #define h_write(h, z) do { g_addr(); ggg(helper_write##z, state->orig_ip, h##z); } while (0)
 #define UNDEFINED do { gggg(interrupt, INT_UNDEFINED, state->orig_ip, state->orig_ip); return false; } while (0)
 #define SEGFAULT do { gggg(interrupt, INT_GPF, state->orig_ip, tlb->segfault_addr); return false; } while (0)
+#define SYSCALL_AMD64 do { gggg(interrupt, INT_AMD64_SYSCALL, state->ip, 0); return false; } while (0)
 
 static inline int sz(int size) {
     switch (size) {

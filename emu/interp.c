@@ -22,6 +22,7 @@
     return -1 // everything is ok.
 
 #define UNDEFINED { cpu->eip = saved_ip; return INT_UNDEFINED; }
+#define SYSCALL_AMD64 return INT_AMD64_SYSCALL
 
 static bool modrm_compute(struct cpu_state *cpu, struct tlb *tlb, addr_t *addr_out,
         struct modrm *modrm, struct regptr *modrm_regptr, struct regptr *modrm_base);

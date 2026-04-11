@@ -176,7 +176,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                 subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
             if (bootError == _ENOEXEC && [rootGuestABI isEqualToString:@"amd64"]) {
                 subtitle = [subtitle stringByAppendingString:
-                            @"\n(this x86_64 rootfs cannot boot until amd64 exec/syscall bring-up is complete)"];
+                            @"\n(this x86_64 rootfs is still in experimental amd64 bring-up and may fail during early exec or decode)"];
             }
             [self _showTerminalStartupFailureOverlayWithText:@"Could not boot iSH-AOK."];
             [self showMessage:message subtitle:subtitle];

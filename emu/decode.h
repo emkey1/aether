@@ -38,6 +38,14 @@ __no_instrument DECODER_RET glue(DECODER_NAME, OP_SIZE)(DECODER_ARGS) {
 restart:
    // TRACEIP(current);
     READINSN;
+    if (current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            insn >= 0x40 && insn <= 0x4f) {
+        // Minimal long-mode bring-up: consume REX prefixes so amd64 code does
+        // not immediately decode them as legacy inc/dec opcodes. The actual
+        // REX.W/R/X/B semantics still need a later CPU-state conversion pass.
+        TRACEI("rex prefix %#x (ignored)", insn);
+        goto restart;
+    }
     switch (insn) {
 #define MAKE_OP(x, OP, op) \
         case x+0x0: TRACEI(op " reg8, modrm8"); \
@@ -69,6 +77,8 @@ restart:
 
                 case 0x31: TRACEI("rdtsc");
                            RDTSC; break;
+                case 0x05: TRACEI("syscall");
+                           SYSCALL_AMD64; break;
 
                 case 0x40: TRACEI("cmovo modrm, reg");
                            READMODRM; CMOV(O, modrm_val, modrm_reg,oz); break;

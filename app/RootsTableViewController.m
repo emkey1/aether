@@ -36,7 +36,7 @@
 
 - (NSString *)_bundledChoiceSubtitle:(NSDictionary<NSString *, NSString *> *)choice {
     if ([self _bundledChoiceRequiresAMD64Bringup:choice]) {
-        return @"x86_64 guest rootfs. Importable for testing, but not bootable yet.";
+        return @"Experimental x86_64 guest rootfs for amd64 bring-up.";
     }
     return @"i386 guest rootfs.";
 }
@@ -53,7 +53,7 @@
 
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Import x86_64 Filesystem?"
-                                            message:@"This rootfs is useful for amd64 bring-up testing, but it cannot boot yet on the current branch."
+                                            message:@"This rootfs is for experimental amd64 bring-up. It may fail early or boot only partially."
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
                                               style:UIAlertActionStyleCancel
@@ -305,7 +305,7 @@
     }
     if ([self sectionShowsBundledChoices:section]) {
         if (!self.showsInstalledRootsSection)
-            return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive. x86_64 roots are for bring-up testing only right now.";
+            return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive. x86_64 roots are experimental amd64 bring-up targets right now.";
         return @"These bundled filesystems can be imported again at any time.";
     }
     return nil;

@@ -362,6 +362,7 @@ static inline void i386_syscall_result(struct cpu_state *cpu, int result);
 static inline qword_t amd64_syscall_number(const struct cpu_state *cpu);
 static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
 static inline void amd64_syscall_result(struct cpu_state *cpu, int result);
+void handle_syscall_interrupt(struct cpu_state *cpu);
 
 struct syscall_abi_dispatch {
     enum guest_abi abi;
@@ -580,6 +581,35 @@ static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const 
     (void) kind;
 }
 
+static void amd64_syscall_seed_legacy_regs(struct cpu_state *cpu) {
+    // Transitional bridge while the CPU core is still fundamentally 32-bit.
+    // This lets amd64 SYSCALL reach the split dispatcher with the low register
+    // values that can already be represented today. Full-width r10/r8/r9 still
+    // need a later CPU-state bring-up.
+    cpu->amd64_syscall.rax = cpu->eax;
+    cpu->amd64_syscall.rdi = cpu->edi;
+    cpu->amd64_syscall.rsi = cpu->esi;
+    cpu->amd64_syscall.rdx = cpu->edx;
+    cpu->amd64_syscall.rcx = cpu->eip;
+    cpu->amd64_syscall.r11 = cpu->eflags;
+}
+
+static void handle_amd64_syscall_interrupt(struct cpu_state *cpu) {
+    if (current->abi != GUEST_ABI_AMD64) {
+        printk("ERROR: %d(%s) amd64 syscall instruction in non-amd64 task at 0x%x\n",
+               current->pid, current->comm, cpu->eip);
+        struct siginfo_ info = {
+            .code = SI_KERNEL_,
+            .fault.addr = cpu->eip,
+        };
+        deliver_signal(current, SIGILL_, info);
+        return;
+    }
+
+    amd64_syscall_seed_legacy_regs(cpu);
+    handle_syscall_interrupt(cpu);
+}
+
 void handle_syscall_interrupt(struct cpu_state *cpu) {
     const struct syscall_abi_dispatch *dispatch = syscall_dispatch_for_abi(current->abi);
     if (dispatch->table == NULL) {
@@ -702,6 +732,9 @@ void handle_interrupt(int interrupt) {
     switch (interrupt) {
         case INT_SYSCALL:
             handle_syscall_interrupt(cpu);
+            break;
+        case INT_AMD64_SYSCALL:
+            handle_amd64_syscall_interrupt(cpu);
             break;
         case INT_GPF:
             handle_page_fault_interrupt(cpu);

@@ -16,3 +16,7 @@
 // Synthetic interrupt used for privileged instructions that should fault in
 // userspace as #GP but are not memory faults.
 #define INT_PRIV 0x100
+// Synthetic interrupt for amd64 SYSCALL entry. This is separate from int 0x80
+// so the kernel can select the amd64 syscall ABI and preserve rcx/r11 entry
+// semantics without disturbing the legacy i386 path.
+#define INT_AMD64_SYSCALL 0x101

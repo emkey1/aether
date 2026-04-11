@@ -364,16 +364,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     intptr_t err = 0;
     struct task *save = current;
     bool mem_locked = false;
+    struct mm *new_mm = NULL;
 
     // read the headers
     struct elf_info header;
     if ((err = read_header(fd, &header)) < 0)
         return err;
-    if (header.abi != save->abi) {
-        printk("INFO: exec ABI mismatch pid=%d comm=%s file=%s task_abi=%s elf_abi=%s\n",
-               save->pid, save->comm, file, guest_abi_name(save->abi), guest_abi_name(header.abi));
-        return _ENOEXEC;
-    }
     size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
     bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
@@ -426,6 +422,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         }
     }
 
+    new_mm = mm_new(header.abi);
+    if (new_mm == NULL) {
+        err = _ENOMEM;
+        goto out_free_interp;
+    }
+
     // free the process's memory.
     // from this point on, if any error occurs the process will have to be
     // killed before it even starts. please don't be too sad about it, it's
@@ -435,8 +437,14 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     // pointer before it's released and then try to lock it after it's
     // released.
     lock(&save->general_lock, 0);
+    if (save->abi != header.abi) {
+        printk("INFO: exec ABI switch pid=%d comm=%s file=%s task_abi=%s -> elf_abi=%s\n",
+               save->pid, save->comm, file, guest_abi_name(save->abi), guest_abi_name(header.abi));
+    }
     mm_release(save->mm);
-    task_set_mm(save, mm_new(save->abi));
+    save->abi = header.abi;
+    task_set_mm(save, new_mm);
+    new_mm = NULL;
     unlock(&save->general_lock);
     write_lock(&save->mem->lock);
     mem_locked = true;
@@ -713,6 +721,8 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
 
     err = 0;
 out_free_interp:
+    if (new_mm != NULL)
+        mm_release(new_mm);
     if (interp_name != NULL)
         free(interp_name);
     if (interp_fd != NULL && !IS_ERR(interp_fd))
