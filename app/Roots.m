@@ -63,6 +63,13 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootImportNameKey: @"Alpine3.23.3",
                 kBundledRootInitialWindowKey: @"session-shell",
             },
+            @{
+                kBundledRootIdentifierKey: @"alpine3233x8664",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3(x86_64)",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
+                kBundledRootImportNameKey: @"Alpine3.23.3(x86_64)",
+                kBundledRootInitialWindowKey: @"session-shell",
+            },
         ];
     });
     return choices;
