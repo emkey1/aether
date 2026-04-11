@@ -454,6 +454,8 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
+            if (modrm.reg != 0)
+                return INT_UNDEFINED;
             break;
         }
         if (op2 == 0x0b)

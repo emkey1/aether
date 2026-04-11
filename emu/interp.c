@@ -1009,6 +1009,7 @@ static inline bool amd64_cond_eval(struct cpu_state *cpu, unsigned cc) {
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     qword_t saved_rip = cpu->amd64_rip;
     bool fs_prefix = false;
+    bool operand_size_prefix = false;
     struct amd64_rex_prefix rex = {};
     byte_t opcode;
 
@@ -1019,6 +1020,13 @@ restart_prefix:
         return INT_GPF;
     }
 
+    if (opcode == 0x66) {
+        operand_size_prefix = true;
+        goto restart_prefix;
+    }
+    if (opcode == 0x2e || opcode == 0x3e) {
+        goto restart_prefix;
+    }
     if (opcode == 0x64) {
         fs_prefix = true;
         goto restart_prefix;
@@ -1032,7 +1040,7 @@ restart_prefix:
         goto restart_prefix;
     }
 
-    unsigned op_size = rex.w ? 64 : 32;
+    unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
     switch (opcode) {
     case 0x0f: {
         byte_t op2;
@@ -1081,6 +1089,8 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
+            if (modrm.reg != 0)
+                return INT_UNDEFINED;
             break;
         }
         if (op2 == 0x0b)

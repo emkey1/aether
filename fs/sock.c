@@ -1684,6 +1684,8 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
+    if (mount == NULL)
+        return _ENOENT;
     struct statbuf stat;
     err = mount->fs->stat(mount, path, &stat);
 

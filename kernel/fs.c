@@ -918,6 +918,8 @@ dword_t sys_statfs(addr_t path_addr, addr_t buf_addr) {
     if (err < 0)
         return err;
     struct mount *mount = mount_find(path);
+    if (mount == NULL)
+        return _ENOENT;
     err = statfs_mount(mount, buf_addr);
     mount_release(mount);
     return err;
@@ -935,6 +937,8 @@ dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr) {
     if (err < 0)
         return err;
     struct mount *mount = mount_find(path);
+    if (mount == NULL)
+        return _ENOENT;
     err = statfs64_mount(mount, buf_addr);
     mount_release(mount);
     return err;

@@ -67,12 +67,19 @@ struct mount *mount_find(char *path) {
     assert(path_is_normalized(path));
     lock(&mounts_lock, 0);
     struct mount *mount = NULL;
-    assert(!list_empty(&mounts)); // this would mean there's no root FS mounted
+    if (list_empty(&mounts)) {
+        unlock(&mounts_lock);
+        return NULL;
+    }
     list_for_each_entry(&mounts, mount, mounts) {
         // Optimization: Use cached point_len instead of strlen(mount->point)
         size_t n = mount->point_len;
         if (strncmp(path, mount->point, n) == 0 && (path[n] == '/' || path[n] == '\0'))
             break;
+    }
+    if (&mount->mounts == &mounts) {
+        unlock(&mounts_lock);
+        return NULL;
     }
     mount->refcount++;
     unlock(&mounts_lock);
