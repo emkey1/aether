@@ -41,6 +41,11 @@
 #define KEYCTL_SETPERM_ 5
 #define KEYCTL_SESSION_TO_PARENT_ 18
 
+#define ARCH_SET_GS_ 0x1001
+#define ARCH_SET_FS_ 0x1002
+#define ARCH_GET_FS_ 0x1003
+#define ARCH_GET_GS_ 0x1004
+
 static bool prctl_cap_valid(uint_t cap) {
     return cap <= PRCTL_CAP_LAST_CAP_;
 }
@@ -166,7 +171,27 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
 
 int_t sys_arch_prctl(int_t code, addr_t addr) {
     STRACE("arch_prctl(%#x, %#x)", code, addr);
-    return _EINVAL;
+    if (!task_is_64bit(current))
+        return _EINVAL;
+
+    switch (code) {
+        case ARCH_SET_FS_:
+            current->cpu.tls_ptr = addr;
+            return 0;
+        case ARCH_GET_FS_: {
+            qword_t fs_base = current->cpu.tls_ptr;
+            if (user_put(addr, fs_base))
+                return _EFAULT;
+            return 0;
+        }
+        case ARCH_SET_GS_:
+        case ARCH_GET_GS_:
+            // The current long-mode bring-up only has one TLS base, used for
+            // amd64 FS-relative accesses.
+            return _EINVAL;
+        default:
+            return _EINVAL;
+    }
 }
 
 int_t sys_rseq(addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig) {

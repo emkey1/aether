@@ -662,6 +662,14 @@ restart:
         MAKE_OP(0x38, CMP, "cmp");
 
         case 0x3e: TRACEI("segment ds (useless)"); goto restart;
+        case 0x64:
+                   if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+                       TRACE("segment fs\n");
+                       SEG_FS();
+                   } else {
+                       TRACEI("segment fs (ignoring)");
+                   }
+                   goto restart;
 
         case 0x40: TRACEI("inc oax"); INC(reg_a,oz); break;
         case 0x41: TRACEI("inc ocx"); INC(reg_c,oz); break;
@@ -1117,6 +1125,14 @@ restart:
             lockrestart:
             READINSN;
             switch (insn) {
+                case 0x64:
+                    if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+                        TRACE("segment fs\n");
+                        SEG_FS();
+                    } else {
+                        TRACEI("segment fs (ignoring)");
+                    }
+                    goto lockrestart;
                 case 0x65: TRACE("segment gs\n"); SEG_GS(); goto lockrestart;
 
                 case 0x66:

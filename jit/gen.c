@@ -90,7 +90,7 @@ void gen_exit(struct gen_state *state) {
 #define DECLARE_LOCALS \
     dword_t addr_offset = 0; \
     bool end_block = false; \
-    bool seg_gs = false
+    bool seg_tls = false
 
 #define FINISH \
     return !end_block
@@ -103,7 +103,8 @@ void gen_exit(struct gen_state *state) {
 
 #define READMODRM if (!modrm_decode32(&state->ip, tlb, &modrm)) SEGFAULT
 #define READADDR _READIMM(addr_offset, 32)
-#define SEG_GS() seg_gs = true
+#define SEG_GS() seg_tls = true
+#define SEG_FS() seg_tls = true
 
 // This should stay in sync with the definition of .gadget_array in gadgets.h
 enum arg {
@@ -166,23 +167,23 @@ static inline int sz(int size) {
     }
 }
 
-bool gen_addr(struct gen_state *state, struct modrm *modrm, bool seg_gs) {
+bool gen_addr(struct gen_state *state, struct modrm *modrm, bool seg_tls) {
     if (modrm->base == reg_none)
         gg(addr_none, modrm->offset);
     else
         gag(addr, modrm->base, modrm->offset);
     if (modrm->type == modrm_mem_si)
         ga(si, modrm->index * 4 + modrm->shift);
-    if (seg_gs)
+    if (seg_tls)
         g(seg_gs);
     return true;
 }
-#define g_addr() gen_addr(state, &modrm, seg_gs)
+#define g_addr() gen_addr(state, &modrm, seg_tls)
 
 // this really wants to use all the locals of the decoder, which we can do
 // really nicely in gcc using nested functions, but that won't work in clang,
 // so we explicitly pass 500 arguments. sorry for the mess
-static inline bool gen_op(struct gen_state *state, gadget_t *gadgets, enum arg arg, struct modrm *modrm, uint64_t *imm, int size, bool seg_gs, dword_t addr_offset) {
+static inline bool gen_op(struct gen_state *state, gadget_t *gadgets, enum arg arg, struct modrm *modrm, uint64_t *imm, int size, bool seg_tls, dword_t addr_offset) {
     size = sz(size);
     gadgets = gadgets + size * arg_count;
 
@@ -211,7 +212,7 @@ static inline bool gen_op(struct gen_state *state, gadget_t *gadgets, enum arg a
         UNDEFINED;
     }
     if (arg == arg_mem || arg == arg_addr) {
-        if (!gen_addr(state, modrm, seg_gs))
+        if (!gen_addr(state, modrm, seg_tls))
             return false;
     }
     GEN(gadgets[arg]);
@@ -223,7 +224,7 @@ static inline bool gen_op(struct gen_state *state, gadget_t *gadgets, enum arg a
 }
 #define op(type, thing, z) do { \
     extern gadget_t type##_gadgets[]; \
-    if (!gen_op(state, type##_gadgets, arg_##thing, &modrm, &imm, z, seg_gs, addr_offset)) return false; \
+    if (!gen_op(state, type##_gadgets, arg_##thing, &modrm, &imm, z, seg_tls, addr_offset)) return false; \
 } while (0)
 
 #define load(thing, z) op(load, thing, z)
@@ -471,7 +472,7 @@ static inline uint16_t cpu_reg_offset(enum arg arg, int index) {
     return 0;
 }
 
-static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_t read_mem_gadget, gadget_t write_mem_gadget, struct gen_state *state, struct modrm *modrm, uint8_t imm, bool seg_gs, bool has_imm) {
+static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_t read_mem_gadget, gadget_t write_mem_gadget, struct gen_state *state, struct modrm *modrm, uint8_t imm, bool seg_tls, bool has_imm) {
     bool rm_is_src = !could_be_memory(dst);
     enum arg rm = rm_is_src ? src : dst;
     enum arg reg = rm_is_src ? dst : src;
@@ -507,7 +508,7 @@ static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_
             break;
 
         case arg_mem:
-            gen_addr(state, modrm, seg_gs);
+            gen_addr(state, modrm, seg_tls);
             GEN(rm_is_src ? read_mem_gadget : write_mem_gadget);
             GEN(state->orig_ip);
             GEN(helper);
@@ -532,7 +533,7 @@ static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_
 #define _v(src, dst, helper, _imm, z) do { \
     extern void gadget_vec_helper_read##z##_imm(void); \
     extern void gadget_vec_helper_write##z##_imm(void); \
-    if (!gen_vec(src, dst, (void (*)()) helper, gadget_vec_helper_read##z##_imm, gadget_vec_helper_write##z##_imm, state, &modrm, imm, seg_gs, has_imm_##_imm)) return false; \
+    if (!gen_vec(src, dst, (void (*)()) helper, gadget_vec_helper_read##z##_imm, gadget_vec_helper_write##z##_imm, state, &modrm, imm, seg_tls, has_imm_##_imm)) return false; \
 } while (0)
 #define v_(op, src, dst, _imm,z) _v(arg_##src, arg_##dst, vec_##op##z, _imm,z)
 #define v(op, src, dst,z) v_(op, src, dst,,z)

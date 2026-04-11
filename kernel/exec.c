@@ -58,6 +58,7 @@ static inline int user_memset(addr_t start, byte_t val, dword_t len);
 static inline addr_t copy_string(addr_t sp, const char *string);
 static inline addr_t args_copy(addr_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
+static ssize_t user_read_exec_ptr(addr_t addr, qword_t *ptr_out);
 static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t *argc_out,
         char **argv_out, char **envp_out);
 static int read_header(struct fd *fd, struct elf_info *header);
@@ -1026,14 +1027,21 @@ int do_execve(const char *file, size_t argc, const char *argv_p, const char *env
 }
 
 static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
+    size_t guest_ptr_size = task_abi_desc(current).pointer_size;
     size_t i = 0;
     size_t p = 0;
     for (;;) {
-        addr_t str_addr;
-        if (user_get(addr + i * sizeof(addr_t), str_addr))
-            return _EFAULT;
-        if (str_addr == 0)
+        qword_t str_addr_q;
+        ssize_t err = user_read_exec_ptr(addr + i * guest_ptr_size, &str_addr_q);
+        if (err < 0)
+            return err;
+        if (str_addr_q == 0)
             break;
+        if (!guest_abi_addr_valid(current->abi, str_addr_q))
+            return _EFAULT;
+        if (str_addr_q > (qword_t) (addr_t) -1)
+            return _EFAULT;
+        addr_t str_addr = (addr_t) str_addr_q;
         size_t str_p = 0;
         for (;;) {
             if (p >= max)
@@ -1051,6 +1059,21 @@ static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
         return _E2BIG;
     buf[p] = '\0';
     return i;
+}
+
+static ssize_t user_read_exec_ptr(addr_t addr, qword_t *ptr_out) {
+    if (task_is_64bit(current)) {
+        qword_t ptr;
+        if (user_get(addr, ptr))
+            return _EFAULT;
+        *ptr_out = ptr;
+    } else {
+        dword_t ptr;
+        if (user_get(addr, ptr))
+            return _EFAULT;
+        *ptr_out = ptr;
+    }
+    return 0;
 }
 
 ssize_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {

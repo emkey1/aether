@@ -41,7 +41,9 @@ static bool modrm_compute(struct cpu_state *cpu, struct tlb *tlb, addr_t *addr_o
 
 #define TRACEIP() TRACE("%d %08x\t", current->pid, cpu->eip);
 
-#define SEG_GS() addr += cpu->tls_ptr
+#define SEG_TLS() addr += cpu->tls_ptr
+#define SEG_GS() SEG_TLS()
+#define SEG_FS() SEG_TLS()
 
 // this is a completely insane way to turn empty into OP_SIZE and any other size into itself
 #define sz(x) sz_##x
