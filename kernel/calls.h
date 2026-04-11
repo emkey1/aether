@@ -298,8 +298,9 @@ addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg);
 int_t sys_shmdt(addr_t shmaddr);
 int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 
-// The active syscall table still uses the i386 register ABI. amd64 will grow a
-// separate dispatcher once the CPU state and syscall tables are split.
+// Syscall dispatch is selected from current->abi. The i386 path is live today;
+// amd64 keeps a separate bring-up path because it needs different syscall
+// numbers and a different register ABI.
 typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
 
 #endif

@@ -29,7 +29,7 @@ dword_t syscall_eopnotsupp_stub(void) {
 #if is_gcc(8)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
-syscall_t syscall_table[] = {
+static syscall_t i386_syscall_table[] = {
     [1]   = (syscall_t) sys_exit,
     [2]   = (syscall_t) sys_fork,
     [3]   = (syscall_t) sys_read,
@@ -356,7 +356,36 @@ SYS_PROCESS_MADVISE              = 440
 SYS_EPOLL_PWAIT2                 = 441
  */
 
-#define NUM_SYSCALLS (sizeof(syscall_table) / sizeof(syscall_table[0]))
+struct syscall_abi_dispatch {
+    enum guest_abi abi;
+    const char *name;
+    const syscall_t *table;
+    size_t num_syscalls;
+};
+
+static const struct syscall_abi_dispatch i386_syscall_dispatch = {
+    .abi = GUEST_ABI_I386,
+    .name = "i386",
+    .table = i386_syscall_table,
+    .num_syscalls = sizeof(i386_syscall_table) / sizeof(i386_syscall_table[0]),
+};
+
+static const struct syscall_abi_dispatch amd64_syscall_dispatch = {
+    .abi = GUEST_ABI_AMD64,
+    .name = "amd64",
+    .table = NULL,
+    .num_syscalls = 0,
+};
+
+static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_abi abi) {
+    switch (abi) {
+    case GUEST_ABI_AMD64:
+        return &amd64_syscall_dispatch;
+    case GUEST_ABI_I386:
+    default:
+        return &i386_syscall_dispatch;
+    }
+}
 
 void dump_stack(int lines);
 
@@ -388,17 +417,19 @@ static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const 
 }
 
 void handle_syscall_interrupt(struct cpu_state *cpu) {
-    if (current->abi != GUEST_ABI_I386) {
-        printk("ERROR: %d(%s) syscall dispatch for unsupported guest ABI %s\n",
-               current->pid, current->comm, guest_abi_name(current->abi));
+    const struct syscall_abi_dispatch *dispatch = syscall_dispatch_for_abi(current->abi);
+    if (dispatch->table == NULL) {
+        printk("ERROR: %d(%s) syscall dispatch for guest ABI %s is not implemented yet\n",
+               current->pid, current->comm, dispatch->name);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
 
     dword_t args[6];
     unsigned syscall_num = i386_syscall_number(cpu);
-    if (syscall_num >= NUM_SYSCALLS) {
-        printk("ERROR: %d(%s) missing syscall %d\n", current->pid, current->comm, syscall_num);
+    if (syscall_num >= dispatch->num_syscalls) {
+        printk("ERROR: %d(%s) missing %s syscall %d\n",
+               current->pid, current->comm, dispatch->name, syscall_num);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
@@ -406,7 +437,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
 
-    syscall_t syscall = syscall_table[syscall_num];
+    syscall_t syscall = dispatch->table[syscall_num];
     if (syscall == NULL) {
         log_stub_syscall(cpu, syscall_num, "missing");
         cpu->eax = syscall_stub();
