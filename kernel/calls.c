@@ -673,7 +673,64 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
     }
 }
 
+static int amd64_nop_instruction_len(addr_t ip) {
+    byte_t bytes[16];
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        if (user_get(ip + i, bytes[i]))
+            return 0;
+    }
+
+    int i = 0;
+    while (i < (int) sizeof(bytes) && (bytes[i] == 0x66 || bytes[i] == 0x2e || bytes[i] == 0x3e))
+        i++;
+    if (i >= (int) sizeof(bytes))
+        return 0;
+
+    if (bytes[i] == 0x90)
+        return i + 1;
+
+    if (i + 2 >= (int) sizeof(bytes) || bytes[i] != 0x0f || bytes[i + 1] != 0x1f)
+        return 0;
+    i += 2;
+
+    byte_t modrm = bytes[i++];
+    if (((modrm >> 3) & 7) != 0)
+        return 0;
+
+    int mod = modrm >> 6;
+    int rm = modrm & 7;
+    bool has_sib = mod != 3 && rm == 4;
+    int disp_len = 0;
+
+    if (has_sib) {
+        byte_t sib = bytes[i++];
+        int base = sib & 7;
+        if (mod == 0 && base == 5)
+            disp_len = 4;
+    } else if (mod == 0 && rm == 5) {
+        disp_len = 4;
+    }
+
+    if (mod == 1)
+        disp_len = 1;
+    else if (mod == 2)
+        disp_len = 4;
+
+    if (i + disp_len > (int) sizeof(bytes))
+        return 0;
+    return i + disp_len;
+}
+
 void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
+    if (current->abi == GUEST_ABI_AMD64) {
+        int nop_len = amd64_nop_instruction_len(cpu->eip);
+        if (nop_len > 0) {
+            cpu->eip += nop_len;
+            cpu->amd64_rip = cpu->eip;
+            return;
+        }
+    }
+
     printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
