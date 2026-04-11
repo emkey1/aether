@@ -2236,6 +2236,22 @@ restart_prefix:
                 goto amd64_gpf_restore;
             amd64_set_logic_flags(cpu, result, rm_size);
             break;
+        case 2: {
+            unsigned carry_in = cpu->cf;
+            result = amd64_trunc(lhs + rhs + carry_in, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_adc_flags(cpu, lhs, rhs, carry_in, result, rm_size);
+            break;
+        }
+        case 3: {
+            unsigned carry_in = cpu->cf;
+            result = amd64_trunc(lhs - rhs - carry_in, rm_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_sbb_flags(cpu, lhs, rhs, carry_in, result, rm_size);
+            break;
+        }
         case 4:
             result = amd64_trunc(lhs & rhs, rm_size);
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
