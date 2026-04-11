@@ -164,6 +164,11 @@ addr_t sys_mmap(addr_t args_addr) {
     return mmap_common(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);
 }
 
+addr_t sys_mmap_amd64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+    STRACE("mmap(0x%x, 0x%x, 0x%x, 0x%x, %d, %d) [amd64]", addr, len, prot, flags, fd_no, offset);
+    return mmap_common(addr, len, prot, flags, fd_no, offset);
+}
+
 int_t sys_munmap(addr_t addr, uint_t len) {
     STRACE("munmap(0x%x, 0x%x)", addr, len);
     if (PGOFFSET(addr) != 0)
