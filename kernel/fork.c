@@ -210,6 +210,8 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
         return err;
     }
     task->cpu.eax = 0;
+    if (task->abi == GUEST_ABI_AMD64)
+        task->cpu.amd64_regs[amd64_rax] = 0;
 
     struct vfork_info vfork;
     if (flags & CLONE_VFORK_) {
