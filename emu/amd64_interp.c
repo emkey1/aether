@@ -515,7 +515,8 @@ static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned base_low = RM(sib);
         unsigned index_low = REG(sib);
         modrm->scale = MOD(sib);
-        if (index_low != 4) {
+        // In 64-bit mode, SIB index 100 means "no index" only when REX.X is clear.
+        if (index_low != 4 || rex.x) {
             modrm->has_index = true;
             modrm->index = index_low | (rex.x ? 8 : 0);
         }

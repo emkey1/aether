@@ -1049,7 +1049,8 @@ static bool amd64_trap_decode_modrm(addr_t *ip, struct amd64_trap_rex_prefix rex
         unsigned base_low = sib & 7;
         unsigned index_low = (sib >> 3) & 7;
         modrm->scale = sib >> 6;
-        if (index_low != 4) {
+        // In 64-bit mode, SIB index 100 means "no index" only when REX.X is clear.
+        if (index_low != 4 || rex.x) {
             modrm->has_index = true;
             modrm->index = index_low | (rex.x ? 8 : 0);
         }
