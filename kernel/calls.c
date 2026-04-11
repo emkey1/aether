@@ -680,6 +680,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 266: // symlinkat
     case 268: // fchmodat
     case 269: // faccessat
+    case 59:  // execve
     case 292: // dup3
     case 318: // getrandom
     case 325: // membarrier
