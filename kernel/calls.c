@@ -721,6 +721,338 @@ static int amd64_nop_instruction_len(addr_t ip) {
     return i + disp_len;
 }
 
+struct amd64_trap_rex_prefix {
+    bool present;
+    bool w;
+    bool r;
+    bool x;
+    bool b;
+};
+
+struct amd64_trap_modrm {
+    bool is_reg;
+    uint8_t reg;
+    uint8_t rm;
+    bool has_base;
+    uint8_t base;
+    bool has_index;
+    uint8_t index;
+    uint8_t scale;
+    bool rip_relative;
+    int32_t disp;
+};
+
+static inline void amd64_trap_sync_legacy_regs(struct cpu_state *cpu) {
+    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    cpu->ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+    cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+    cpu->ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+    cpu->esp = (dword_t) cpu->amd64_regs[amd64_rsp];
+    cpu->ebp = (dword_t) cpu->amd64_regs[amd64_rbp];
+    cpu->esi = (dword_t) cpu->amd64_regs[amd64_rsi];
+    cpu->edi = (dword_t) cpu->amd64_regs[amd64_rdi];
+    cpu->eip = (dword_t) cpu->amd64_rip;
+}
+
+static inline qword_t amd64_trap_mask(unsigned size) {
+    switch (size) {
+    case 8: return 0xff;
+    case 16: return 0xffff;
+    case 32: return 0xffffffffu;
+    case 64: return ~0ull;
+    default: return 0;
+    }
+}
+
+static inline qword_t amd64_trap_sign_bit(unsigned size) {
+    return 1ull << (size - 1);
+}
+
+static inline qword_t amd64_trap_trunc(qword_t value, unsigned size) {
+    return value & amd64_trap_mask(size);
+}
+
+static inline bool amd64_trap_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
+    addr_t addr = (addr_t) guest_addr;
+    qword_t zero_extended = (qword_t) addr;
+    qword_t sign_extended = (qword_t) (sqword_t) (int32_t) addr;
+    if (guest_addr != zero_extended && guest_addr != sign_extended)
+        return false;
+    if (size != 0 && addr + size - 1 < addr)
+        return false;
+    *addr_out = addr;
+    return true;
+}
+
+static inline qword_t amd64_trap_reg_get(const struct cpu_state *cpu, unsigned reg, unsigned size) {
+    qword_t value = cpu->amd64_regs[reg & 0xf];
+    switch (size) {
+    case 8: return value & 0xff;
+    case 16: return value & 0xffff;
+    case 32: return (uint32_t) value;
+    case 64: return value;
+    default: return value;
+    }
+}
+
+static inline void amd64_trap_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
+    reg &= 0xf;
+    switch (size) {
+    case 8:
+        cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
+        break;
+    case 16:
+        cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffffull) | (value & 0xffff);
+        break;
+    case 32:
+        cpu->amd64_regs[reg] = (uint32_t) value;
+        break;
+    case 64:
+        cpu->amd64_regs[reg] = value;
+        break;
+    default:
+        break;
+    }
+}
+
+static inline void amd64_trap_set_add_flags(struct cpu_state *cpu, qword_t lhs, qword_t rhs, qword_t result, unsigned size) {
+    qword_t mask = amd64_trap_mask(size);
+    qword_t lhs_masked = amd64_trap_trunc(lhs, size);
+    qword_t rhs_masked = amd64_trap_trunc(rhs, size);
+    qword_t res_masked = amd64_trap_trunc(result, size);
+    cpu->cf = size == 64 ? res_masked < lhs_masked : ((lhs_masked + rhs_masked) & ~mask) != 0;
+    cpu->of = ((~(lhs_masked ^ rhs_masked) & (lhs_masked ^ res_masked)) & amd64_trap_sign_bit(size)) != 0;
+    cpu->af = ((lhs_masked ^ rhs_masked ^ res_masked) >> 4) & 1;
+    cpu->af_ops = 0;
+    cpu->zf = res_masked == 0;
+    cpu->sf = (res_masked & amd64_trap_sign_bit(size)) != 0;
+    cpu->pf = !__builtin_parity((unsigned) (res_masked & 0xff));
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
+static bool amd64_trap_fetch_u8(addr_t *ip, byte_t *out) {
+    if (user_get(*ip, *out))
+        return false;
+    (*ip)++;
+    return true;
+}
+
+static bool amd64_trap_fetch_i8(addr_t *ip, int8_t *out) {
+    return amd64_trap_fetch_u8(ip, (byte_t *) out);
+}
+
+static bool amd64_trap_fetch_i32(addr_t *ip, int32_t *out) {
+    if (user_get(*ip, *out))
+        return false;
+    *ip += sizeof(*out);
+    return true;
+}
+
+static bool amd64_trap_mem_read(qword_t guest_addr, unsigned size, qword_t *value) {
+    addr_t addr;
+    if (!amd64_trap_guest_addr_ok(guest_addr, size, &addr))
+        return false;
+    switch (size) {
+    case 8: {
+        uint8_t tmp;
+        if (user_get(addr, tmp))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 16: {
+        uint16_t tmp;
+        if (user_get(addr, tmp))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 32: {
+        uint32_t tmp;
+        if (user_get(addr, tmp))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 64: {
+        uint64_t tmp;
+        if (user_get(addr, tmp))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+static bool amd64_trap_mem_write(qword_t guest_addr, unsigned size, qword_t value) {
+    addr_t addr;
+    if (!amd64_trap_guest_addr_ok(guest_addr, size, &addr))
+        return false;
+    switch (size) {
+    case 8: {
+        uint8_t tmp = value;
+        return user_put(addr, tmp) == 0;
+    }
+    case 16: {
+        uint16_t tmp = value;
+        return user_put(addr, tmp) == 0;
+    }
+    case 32: {
+        uint32_t tmp = value;
+        return user_put(addr, tmp) == 0;
+    }
+    case 64: {
+        uint64_t tmp = value;
+        return user_put(addr, tmp) == 0;
+    }
+    default:
+        return false;
+    }
+}
+
+static bool amd64_trap_decode_modrm(addr_t *ip, struct amd64_trap_rex_prefix rex, struct amd64_trap_modrm *modrm) {
+    byte_t modrm_byte;
+    if (!amd64_trap_fetch_u8(ip, &modrm_byte))
+        return false;
+
+    unsigned mod = modrm_byte >> 6;
+    modrm->reg = ((modrm_byte >> 3) & 7) | (rex.r ? 8 : 0);
+    modrm->rm = (modrm_byte & 7) | (rex.b ? 8 : 0);
+    modrm->is_reg = mod == 3;
+    modrm->has_base = false;
+    modrm->has_index = false;
+    modrm->rip_relative = false;
+    modrm->disp = 0;
+    modrm->scale = 0;
+
+    if (modrm->is_reg)
+        return true;
+
+    unsigned rm_low = modrm_byte & 7;
+    if (rm_low == 4) {
+        byte_t sib;
+        if (!amd64_trap_fetch_u8(ip, &sib))
+            return false;
+        unsigned base_low = sib & 7;
+        unsigned index_low = (sib >> 3) & 7;
+        modrm->scale = sib >> 6;
+        if (index_low != 4) {
+            modrm->has_index = true;
+            modrm->index = index_low | (rex.x ? 8 : 0);
+        }
+        if (mod == 0 && base_low == 5) {
+            modrm->has_base = false;
+        } else {
+            modrm->has_base = true;
+            modrm->base = base_low | (rex.b ? 8 : 0);
+        }
+    } else if (mod == 0 && rm_low == 5) {
+        modrm->rip_relative = true;
+    } else {
+        modrm->has_base = true;
+        modrm->base = modrm->rm;
+    }
+
+    if (mod == 1) {
+        int8_t disp8;
+        if (!amd64_trap_fetch_i8(ip, &disp8))
+            return false;
+        modrm->disp = disp8;
+    } else if (mod == 2 || (mod == 0 && (rm_low == 5 || (rm_low == 4 && !modrm->has_base)))) {
+        int32_t disp32;
+        if (!amd64_trap_fetch_i32(ip, &disp32))
+            return false;
+        modrm->disp = disp32;
+    }
+    return true;
+}
+
+static qword_t amd64_trap_effective_addr(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm) {
+    qword_t addr = (qword_t) (sqword_t) modrm->disp;
+    if (modrm->rip_relative)
+        addr += rip_after_modrm;
+    if (modrm->has_base)
+        addr += cpu->amd64_regs[modrm->base];
+    if (modrm->has_index)
+        addr += cpu->amd64_regs[modrm->index] << modrm->scale;
+    if (fs_prefix)
+        addr += cpu->tls_ptr;
+    return addr;
+}
+
+static bool amd64_trap_read_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm, unsigned size, qword_t *value) {
+    if (modrm->is_reg) {
+        *value = amd64_trap_reg_get(cpu, modrm->rm, size);
+        return true;
+    }
+    return amd64_trap_mem_read(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), size, value);
+}
+
+static bool amd64_trap_write_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm, unsigned size, qword_t value) {
+    if (modrm->is_reg) {
+        amd64_trap_reg_set(cpu, modrm->rm, size, value);
+        return true;
+    }
+    return amd64_trap_mem_write(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), size, value);
+}
+
+static bool amd64_try_emulate_add(addr_t ip, struct cpu_state *cpu) {
+    struct amd64_trap_rex_prefix rex = {};
+    bool operand_size_prefix = false;
+    bool fs_prefix = false;
+    byte_t opcode;
+    addr_t decode_ip = ip;
+
+    while (true) {
+        if (!amd64_trap_fetch_u8(&decode_ip, &opcode))
+            return false;
+        if (opcode == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (opcode == 0x2e || opcode == 0x3e) {
+            continue;
+        }
+        if (opcode == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (opcode >= 0x40 && opcode <= 0x4f) {
+            rex.present = true;
+            rex.w = (opcode & 0x8) != 0;
+            rex.r = (opcode & 0x4) != 0;
+            rex.x = (opcode & 0x2) != 0;
+            rex.b = (opcode & 0x1) != 0;
+            continue;
+        }
+        break;
+    }
+
+    if (opcode != 0x01)
+        return false;
+
+    unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
+    struct amd64_trap_modrm modrm;
+    if (!amd64_trap_decode_modrm(&decode_ip, rex, &modrm))
+        return false;
+
+    qword_t lhs, rhs, result;
+    if (!amd64_trap_read_rm(cpu, &modrm, fs_prefix, decode_ip, op_size, &lhs))
+        return false;
+    rhs = amd64_trap_reg_get(cpu, modrm.reg, op_size);
+    result = amd64_trap_trunc(lhs + rhs, op_size);
+    if (!amd64_trap_write_rm(cpu, &modrm, fs_prefix, decode_ip, op_size, result))
+        return false;
+
+    amd64_trap_set_add_flags(cpu, lhs, rhs, result, op_size);
+    cpu->amd64_rip = decode_ip;
+    amd64_trap_sync_legacy_regs(cpu);
+    return true;
+}
+
 void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     if (current->abi == GUEST_ABI_AMD64) {
         int nop_len = amd64_nop_instruction_len(cpu->eip);
@@ -729,6 +1061,8 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             cpu->amd64_rip = cpu->eip;
             return;
         }
+        if (amd64_try_emulate_add(cpu->eip, cpu))
+            return;
     }
 
     printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
