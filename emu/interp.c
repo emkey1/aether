@@ -1632,7 +1632,7 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, dst_size, src);
             break;
         }
-        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 || op2 == 0x28 || op2 == 0x29 || op2 == 0x62 || op2 == 0x6c || op2 == 0x6e || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
+        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 || op2 == 0x28 || op2 == 0x29 || op2 == 0x62 || op2 == 0x6c || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1952,10 +1952,12 @@ restart_prefix:
         return INT_UNDEFINED;
     }
     case 0x01:
+    case 0x08:
     case 0x11:
     case 0x19:
     case 0x21:
     case 0x09:
+    case 0x0a:
     case 0x0b:
     case 0x03:
     case 0x13:
@@ -1994,6 +1996,15 @@ restart_prefix:
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
                 goto amd64_gpf_restore;
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
+            break;
+        case 0x08:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
+            result = amd64_trunc(lhs | rhs, 8);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, result))
+                goto amd64_gpf_restore;
+            amd64_set_logic_flags(cpu, result, 8);
             break;
         case 0x11: {
             unsigned carry_in = cpu->cf;
@@ -2034,6 +2045,14 @@ restart_prefix:
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
                 goto amd64_gpf_restore;
             amd64_set_logic_flags(cpu, result, op_size);
+            break;
+        case 0x0a:
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present);
+            result = amd64_trunc(lhs | rhs, 8);
+            amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, result);
+            amd64_set_logic_flags(cpu, result, 8);
             break;
         case 0x0b:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
