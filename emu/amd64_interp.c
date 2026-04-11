@@ -1018,7 +1018,7 @@ restart_prefix:
             }
             if (operand_size_prefix) {
                 union xmm_reg value;
-                if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                if (modrm.reg >= 8)
                     return INT_UNDEFINED;
                 if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
                     goto amd64_gpf_restore;
