@@ -183,6 +183,35 @@ void rusage_add(struct rusage_ *dst, struct rusage_ *src) {
     timeval_add(&dst->stime, &src->stime);
 }
 
+int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_ *rusage) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_rusage_ guest = {
+            .utime = {.sec = rusage->utime.sec, .usec = rusage->utime.usec},
+            .stime = {.sec = rusage->stime.sec, .usec = rusage->stime.usec},
+            .maxrss = rusage->maxrss,
+            .ixrss = rusage->ixrss,
+            .idrss = rusage->idrss,
+            .isrss = rusage->isrss,
+            .minflt = rusage->minflt,
+            .majflt = rusage->majflt,
+            .nswap = rusage->nswap,
+            .inblock = rusage->inblock,
+            .oublock = rusage->oublock,
+            .msgsnd = rusage->msgsnd,
+            .msgrcv = rusage->msgrcv,
+            .nsignals = rusage->nsignals,
+            .nvcsw = rusage->nvcsw,
+            .nivcsw = rusage->nivcsw,
+        };
+        if (user_put(addr, guest))
+            return _EFAULT;
+    } else {
+        if (user_put(addr, *rusage))
+            return _EFAULT;
+    }
+    return 0;
+}
+
 dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
     struct rusage_ rusage;
     switch (who) {
@@ -197,7 +226,7 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
         default:
             return _EINVAL;
     }
-    if (user_put(rusage_addr, rusage))
+    if (write_guest_rusage_abi(current->abi, rusage_addr, &rusage))
         return _EFAULT;
     return 0;
 }

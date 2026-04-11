@@ -18,8 +18,8 @@
 int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
-static void altstack_to_user(struct task *task, struct stack_t_ *user_stack);
 static bool is_on_altstack(dword_t sp, struct task *task);
+static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
@@ -453,7 +453,7 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
     frame->info = *info;
     frame->uc.flags = 0;
     frame->uc.link = 0;
-    altstack_to_user(current, &frame->uc.stack);
+    altstack_to_i386_user(current, &frame->uc.stack);
     setup_sigcontext(&frame->uc.mcontext, &current->cpu);
     frame->uc.sigmask = current->blocked;
 
@@ -829,14 +829,69 @@ static bool is_on_altstack(dword_t sp, struct task *task) {
     return sp > task->altstack && sp <= task->altstack + task->altstack_size;
 }
 
-static void altstack_to_user(struct task *task, struct stack_t_ *user_stack) {
-    user_stack->stack = task->altstack;
-    user_stack->size = task->altstack_size;
-    user_stack->flags = 0;
+struct amd64_stack_t_marshaled {
+    qword_t stack;
+    dword_t flags;
+    dword_t pad;
+    qword_t size;
+};
+
+static dword_t current_altstack_flags(struct task *task) {
+    dword_t flags = 0;
     if (task->altstack == 0)
-        user_stack->flags |= SS_DISABLE_;
+        flags |= SS_DISABLE_;
     if (is_on_altstack(task->cpu.esp, task))
-        user_stack->flags |= SS_ONSTACK_;
+        flags |= SS_ONSTACK_;
+    return flags;
+}
+
+static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack) {
+    user_stack->stack = task->altstack;
+    user_stack->flags = current_altstack_flags(task);
+    user_stack->size = task->altstack_size;
+}
+
+static int altstack_to_user(struct task *task, addr_t user_addr) {
+    dword_t flags = current_altstack_flags(task);
+    if (task->abi == GUEST_ABI_AMD64) {
+        struct amd64_stack_t_marshaled user_stack = {
+            .stack = task->altstack,
+            .flags = flags,
+            .size = task->altstack_size,
+        };
+        if (user_put(user_addr, user_stack))
+            return _EFAULT;
+    } else {
+        struct stack_t_ user_stack = {
+            .stack = task->altstack,
+            .flags = flags,
+            .size = task->altstack_size,
+        };
+        if (user_put(user_addr, user_stack))
+            return _EFAULT;
+    }
+    return 0;
+}
+
+static int altstack_from_user(struct task *task, addr_t user_addr, addr_t *stack_out, dword_t *size_out, dword_t *flags_out) {
+    if (task->abi == GUEST_ABI_AMD64) {
+        struct amd64_stack_t_marshaled user_stack;
+        if (user_get(user_addr, user_stack))
+            return _EFAULT;
+        if (user_stack.stack > UINT32_MAX || user_stack.size > UINT32_MAX)
+            return _ENOMEM;
+        *stack_out = (addr_t) user_stack.stack;
+        *size_out = (dword_t) user_stack.size;
+        *flags_out = user_stack.flags;
+    } else {
+        struct stack_t_ user_stack;
+        if (user_get(user_addr, user_stack))
+            return _EFAULT;
+        *stack_out = user_stack.stack;
+        *size_out = user_stack.size;
+        *flags_out = user_stack.flags;
+    }
+    return 0;
 }
 
 dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
@@ -844,9 +899,7 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
     if (old_ss_addr != 0) {
-        struct stack_t_ old_ss;
-        altstack_to_user(current, &old_ss);
-        if (user_put(old_ss_addr, old_ss)) {
+        if (altstack_to_user(current, old_ss_addr)) {
             unlock(&sighand->lock);
             return _EFAULT;
         }
@@ -856,18 +909,23 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
             unlock(&sighand->lock);
             return _EPERM;
         }
-        struct stack_t_ ss;
-        if (user_get(ss_addr, ss)) {
+        addr_t stack;
+        dword_t size;
+        dword_t flags;
+        int err = altstack_from_user(current, ss_addr, &stack, &size, &flags);
+        if (err < 0) {
             unlock(&sighand->lock);
-            return _EFAULT;
+            return err;
         }
-        if (ss.flags & SS_DISABLE_) {
+        if (flags & SS_DISABLE_) {
             current->altstack = 0;
         } else {
-            if (ss.size < MINSIGSTKSZ_)
+            if (size < MINSIGSTKSZ_) {
+                unlock(&sighand->lock);
                 return _ENOMEM;
-            current->altstack = ss.stack;
-            current->altstack_size = ss.size;
+            }
+            current->altstack = stack;
+            current->altstack_size = size;
         }
     }
     unlock(&sighand->lock);

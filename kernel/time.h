@@ -3,6 +3,7 @@
 #include "misc.h"
 #include <sys/poll.h>
 #include "kernel/fs.h"
+#include "kernel/abi.h"
 
 struct timespec64 {
     int64_t tv_sec;  // seconds
@@ -34,6 +35,10 @@ struct timeval_ {
     dword_t sec;
     dword_t usec;
 };
+struct amd64_timeval_ {
+    int64_t sec;
+    int64_t usec;
+};
 struct timespec_ {
     dword_t sec;
     dword_t nsec;
@@ -50,6 +55,13 @@ struct timezone_ {
 static inline clock_t_ clock_from_timeval(struct timeval_ timeval) {
     return timeval.sec * 100 + timeval.usec / 10000;
 }
+
+size_t guest_timeval_size(enum guest_abi abi);
+size_t guest_timespec_size(enum guest_abi abi);
+int read_guest_timeval_abi(enum guest_abi abi, addr_t addr, struct timeval *out);
+int write_guest_timeval_abi(enum guest_abi abi, addr_t addr, const struct timeval *in);
+int read_guest_timespec_abi(enum guest_abi abi, addr_t addr, struct timespec *out);
+int write_guest_timespec_abi(enum guest_abi abi, addr_t addr, const struct timespec *in);
 
 #define ITIMER_REAL_ 0
 #define ITIMER_VIRTUAL_ 1

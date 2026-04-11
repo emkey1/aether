@@ -124,6 +124,78 @@ static struct timespec64_ timespec_to_guest64(struct timespec ts) {
     };
 }
 
+size_t guest_timeval_size(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? sizeof(struct amd64_timeval_) : sizeof(struct timeval_);
+}
+
+size_t guest_timespec_size(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? sizeof(struct timespec64_) : sizeof(struct timespec_);
+}
+
+int read_guest_timeval_abi(enum guest_abi abi, addr_t addr, struct timeval *out) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_timeval_ guest;
+        if (user_get(addr, guest))
+            return _EFAULT;
+        out->tv_sec = guest.sec;
+        out->tv_usec = guest.usec;
+    } else {
+        struct timeval_ guest;
+        if (user_get(addr, guest))
+            return _EFAULT;
+        out->tv_sec = guest.sec;
+        out->tv_usec = guest.usec;
+    }
+    return 0;
+}
+
+int write_guest_timeval_abi(enum guest_abi abi, addr_t addr, const struct timeval *in) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct amd64_timeval_ guest = {
+            .sec = in->tv_sec,
+            .usec = in->tv_usec,
+        };
+        if (user_put(addr, guest))
+            return _EFAULT;
+    } else {
+        struct timeval_ guest = {
+            .sec = (dword_t) in->tv_sec,
+            .usec = (dword_t) in->tv_usec,
+        };
+        if (user_put(addr, guest))
+            return _EFAULT;
+    }
+    return 0;
+}
+
+int read_guest_timespec_abi(enum guest_abi abi, addr_t addr, struct timespec *out) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct timespec64_ guest;
+        if (user_get(addr, guest))
+            return _EFAULT;
+        *out = timespec_from_guest64(guest);
+    } else {
+        struct timespec_ guest;
+        if (user_get(addr, guest))
+            return _EFAULT;
+        *out = timespec_from_guest(guest);
+    }
+    return 0;
+}
+
+int write_guest_timespec_abi(enum guest_abi abi, addr_t addr, const struct timespec *in) {
+    if (abi == GUEST_ABI_AMD64) {
+        struct timespec64_ guest = timespec_to_guest64(*in);
+        if (user_put(addr, guest))
+            return _EFAULT;
+    } else {
+        struct timespec_ guest = timespec_to_guest(*in);
+        if (user_put(addr, guest))
+            return _EFAULT;
+    }
+    return 0;
+}
+
 static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespec req,
         addr_t rem_addr, bool rem_time64) {
     clockid_t clock_id;
@@ -163,11 +235,12 @@ static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespe
 }
 
 dword_t sys_clock_nanosleep(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr) {
-    struct timespec_ req_ts;
-    if (user_get(req_addr, req_ts))
+    struct timespec req_ts;
+    if (read_guest_timespec_abi(current->abi, req_addr, &req_ts))
         return _EFAULT;
-    STRACE("clock_nanosleep(%d, %#x, {%u, %u}, %#x)", clock_id, flags, req_ts.sec, req_ts.nsec, rem_addr);
-    return clock_nanosleep_common(clock_id, flags, timespec_from_guest(req_ts), rem_addr, false);
+    STRACE("clock_nanosleep(%d, %#x, {%lld, %ld}, %#x)", clock_id, flags,
+            (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
+    return clock_nanosleep_common(clock_id, flags, req_ts, rem_addr, current->abi == GUEST_ABI_AMD64);
 }
 
 dword_t sys_clock_nanosleep_time64(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr) {
@@ -232,11 +305,8 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
         if (err < 0)
             return errno_map();
     }
-    struct timespec_ t = timespec_to_guest(ts);
-    
-    if (user_put(tp, t))
+    if (write_guest_timespec_abi(current->abi, tp, &ts))
         return _EFAULT;
-    STRACE(" {%lds %ldns}", t.sec, t.nsec);
     return 0;
 }
 
@@ -274,8 +344,7 @@ dword_t sys_clock_getres(dword_t clock, addr_t res_addr) {
     int err = clock_getres(clock_id, &res);
     if (err < 0)
         return errno_map();
-    struct timespec_ t = timespec_to_guest(res);
-    if (user_put(res_addr, t))
+    if (write_guest_timespec_abi(current->abi, res_addr, &res))
         return _EFAULT;
     return 0;
 }
@@ -407,29 +476,21 @@ long sys_alarm(uint_t seconds) {
 }
 
 dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
-    struct timespec_ req_ts;
-    if (user_get(req_addr, req_ts))
+    struct timespec req_ts;
+    if (read_guest_timespec_abi(current->abi, req_addr, &req_ts))
         return _EFAULT;
-    STRACE("nanosleep({%d, %d}, 0x%x", req_ts.sec, req_ts.nsec, rem_addr);
-    struct timespec req;
-    req.tv_sec = req_ts.sec;
-    req.tv_nsec = req_ts.nsec;
+    STRACE("nanosleep({%lld, %ld}, 0x%x", (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
     struct timespec rem;
    // rem.tv_sec = 0; // Be anal and set both to zero.  -mke
     //rem.tv_nsec = 0;
     int res = 0;
     TASK_MAY_BLOCK {
-        res = nanosleep(&req, &rem);
+        res = nanosleep(&req_ts, &rem);
     }
     if (res < 0)
         return errno_map();
-    if (rem_addr != 0) {
-        struct timespec_ rem_ts;
-        rem_ts.sec = (dword_t)rem.tv_sec;
-        rem_ts.nsec = (dword_t)rem.tv_nsec;
-        if (user_put(rem_addr, rem_ts))
-            return _EFAULT;
-    }
+    if (rem_addr != 0 && write_guest_timespec_abi(current->abi, rem_addr, &rem))
+        return _EFAULT;
     return 0;
 }
 
@@ -455,13 +516,10 @@ dword_t sys_gettimeofday(addr_t tv, addr_t tz) {
     if (gettimeofday(&timeval, &timezone) < 0) {
         return errno_map();
     }
-    struct timeval_ tv_;
     struct timezone_ tz_;
-    tv_.sec = (dword_t)timeval.tv_sec;
-    tv_.usec = (dword_t)timeval.tv_usec;
     tz_.minuteswest = timezone.tz_minuteswest;
     tz_.dsttime = timezone.tz_dsttime;
-    if ((tv && user_put(tv, tv_)) || (tz && user_put(tz, tz_))) {
+    if ((tv && write_guest_timeval_abi(current->abi, tv, &timeval)) || (tz && user_put(tz, tz_))) {
         return _EFAULT;
     }
     return 0;

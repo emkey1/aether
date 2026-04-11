@@ -580,7 +580,7 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
         return res;
     if (status_addr != 0 && user_put(status_addr, info.child.status))
         return _EFAULT;
-    if (rusage_addr != 0 && user_put(rusage_addr, rusage))
+    if (rusage_addr != 0 && write_guest_rusage_abi(current->abi, rusage_addr, &rusage))
         return _EFAULT;
     return info.child.pid;
 }

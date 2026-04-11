@@ -969,20 +969,6 @@ dword_t sys_flock(fd_t f, dword_t operation) {
     return fd->mount->fs->flock(fd, operation);
 }
 
-static struct timespec convert_timespec(struct timespec_ t) {
-    struct timespec ts;
-    ts.tv_sec = t.sec;
-    ts.tv_nsec = t.nsec;
-    return ts;
-}
-
-static struct timespec convert_timeval(struct timeval_ t) {
-    struct timespec ts;
-    ts.tv_sec = t.sec;
-    ts.tv_nsec = t.usec * 1000;
-    return ts;
-}
-
 static dword_t sys_utime_common(fd_t at_f, addr_t path_addr, struct timespec atime, struct timespec mtime, dword_t flags) {
     char path[MAX_PATH];
     if (path_addr != 0)
@@ -1004,11 +990,10 @@ dword_t sys_utimensat64(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t 
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        struct timespec_ times[2];
-        if (user_get(times_addr, times))
+        size_t stride = sizeof(struct timespec64_);
+        if (read_guest_timespec_abi(GUEST_ABI_AMD64, times_addr, &atime) ||
+                read_guest_timespec_abi(GUEST_ABI_AMD64, times_addr + stride, &mtime))
             return _EFAULT;
-        atime = convert_timespec(times[0]);
-        mtime = convert_timespec(times[1]);
     }
     return sys_utime_common(at_f, path_addr, atime, mtime, flags);
 }
@@ -1019,11 +1004,10 @@ dword_t sys_utimensat(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t fl
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        struct timespec_ times[2];
-        if (user_get(times_addr, times))
+        size_t stride = guest_timespec_size(current->abi);
+        if (read_guest_timespec_abi(current->abi, times_addr, &atime) ||
+                read_guest_timespec_abi(current->abi, times_addr + stride, &mtime))
             return _EFAULT;
-        atime = convert_timespec(times[0]);
-        mtime = convert_timespec(times[1]);
     }
     return sys_utime_common(at_f, path_addr, atime, mtime, flags);
 }
@@ -1034,11 +1018,16 @@ dword_t sys_utimes(addr_t path_addr, addr_t times_addr) {
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        struct timeval_ times[2];
-        if (user_get(times_addr, times))
+        size_t stride = guest_timeval_size(current->abi);
+        struct timeval time_a;
+        struct timeval time_m;
+        if (read_guest_timeval_abi(current->abi, times_addr, &time_a) ||
+                read_guest_timeval_abi(current->abi, times_addr + stride, &time_m))
             return _EFAULT;
-        atime = convert_timeval(times[0]);
-        mtime = convert_timeval(times[1]);
+        atime.tv_sec = time_a.tv_sec;
+        atime.tv_nsec = time_a.tv_usec * 1000;
+        mtime.tv_sec = time_m.tv_sec;
+        mtime.tv_nsec = time_m.tv_usec * 1000;
     }
     return sys_utime_common(AT_FDCWD_, path_addr, atime, mtime, 0);
 }

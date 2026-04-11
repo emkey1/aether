@@ -268,11 +268,11 @@ dword_t sys_select(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t 
     struct timespec timeout_ts = {};
     const struct timespec *timeout_ts_ptr = NULL;
     if (timeout_addr != 0) {
-        struct timeval_ timeout_timeval;
-        if (user_get(timeout_addr, timeout_timeval))
+        struct timeval timeout_timeval;
+        if (read_guest_timeval_abi(current->abi, timeout_addr, &timeout_timeval))
             return _EFAULT;
-        timeout_ts.tv_sec = timeout_timeval.sec;
-        timeout_ts.tv_nsec = timeout_timeval.usec * 1000;
+        timeout_ts.tv_sec = timeout_timeval.tv_sec;
+        timeout_ts.tv_nsec = timeout_timeval.tv_usec * 1000;
         // Keep historical select() behavior and normalize invalid timeval input.
         timeout_ts = timespec_normalize(timeout_ts);
         timeout_ts_ptr = &timeout_ts;
@@ -412,11 +412,8 @@ dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t
     const struct timespec *timeout_ts_ptr = NULL;
 
     if (timeout_addr != 0) {
-        struct timespec_ timeout_timespec;
-        if (user_get(timeout_addr, timeout_timespec))
+        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_ts))
             return _EFAULT;
-        timeout_ts.tv_sec = timeout_timespec.sec;
-        timeout_ts.tv_nsec = timeout_timespec.nsec;
         if (!select_timeout_valid(timeout_ts))
             return _EINVAL;
         timeout_ts_ptr = &timeout_ts;
@@ -477,10 +474,10 @@ dword_t sys_pselect_time64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr,
 dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
     int timeout = -1;
     if (timeout_addr != 0) {
-        struct timespec_ timeout_timespec;
-        if (user_get(timeout_addr, timeout_timespec))
+        struct timespec timeout_timespec;
+        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_timespec))
             return _EFAULT;
-        timeout = timeout_timespec.sec * 1000 + timeout_timespec.nsec / 1000000;
+        timeout = timeout_timespec.tv_sec * 1000 + timeout_timespec.tv_nsec / 1000000;
     }
 
     sigset_t_ mask;

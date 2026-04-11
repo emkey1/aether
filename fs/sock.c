@@ -2697,13 +2697,14 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
         }
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
-        if (value_len < sizeof(struct timeval_))
+        if (value_len < guest_timeval_size(current->abi))
             return _EINVAL;
-        struct timeval_ guest_timeout;
-        memcpy(&guest_timeout, value, sizeof(guest_timeout));
+        struct timeval guest_timeout;
+        if (read_guest_timeval_abi(current->abi, value_addr, &guest_timeout))
+            return _EFAULT;
         struct timeval host_timeout = {
-            .tv_sec = guest_timeout.sec,
-            .tv_usec = guest_timeout.usec,
+            .tv_sec = guest_timeout.tv_sec,
+            .tv_usec = guest_timeout.tv_usec,
         };
         int err = setsockopt(sock->real_fd, SOL_SOCKET,
                 option == SO_RCVTIMEO_OLD_ ? SO_RCVTIMEO : SO_SNDTIMEO,
@@ -2851,11 +2852,19 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
                 &host_timeout, &host_timeout_len);
         if (err < 0)
             return errno_map();
-        struct timeval_ guest_timeout = {
-            .sec = host_timeout.tv_sec,
-            .usec = host_timeout.tv_usec,
-        };
-        sockopt_store_value(value, user_value_len, &value_len, &guest_timeout, sizeof(guest_timeout));
+        if (current->abi == GUEST_ABI_AMD64) {
+            struct amd64_timeval_ guest_timeout = {
+                .sec = host_timeout.tv_sec,
+                .usec = host_timeout.tv_usec,
+            };
+            sockopt_store_value(value, user_value_len, &value_len, &guest_timeout, sizeof(guest_timeout));
+        } else {
+            struct timeval_ guest_timeout = {
+                .sec = host_timeout.tv_sec,
+                .usec = host_timeout.tv_usec,
+            };
+            sockopt_store_value(value, user_value_len, &value_len, &guest_timeout, sizeof(guest_timeout));
+        }
     } else if (level == IPPROTO_ICMPV6 && option == ICMP6_FILTER_) {
         if (sock->socket.type != SOCK_RAW_ || sock->socket.protocol != IPPROTO_ICMPV6)
             return _ENOPROTOOPT;

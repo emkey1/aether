@@ -60,8 +60,28 @@ struct rusage_ {
     dword_t nivcsw;
 };
 
+struct amd64_rusage_ {
+    struct amd64_timeval_ utime;
+    struct amd64_timeval_ stime;
+    int64_t maxrss;
+    int64_t ixrss;
+    int64_t idrss;
+    int64_t isrss;
+    int64_t minflt;
+    int64_t majflt;
+    int64_t nswap;
+    int64_t inblock;
+    int64_t oublock;
+    int64_t msgsnd;
+    int64_t msgrcv;
+    int64_t nsignals;
+    int64_t nvcsw;
+    int64_t nivcsw;
+};
+
 struct rusage_ rusage_get_current(void);
 void rusage_add(struct rusage_ *dst, struct rusage_ *src);
+int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_ *rusage);
 #define RUSAGE_SELF_ 0
 #define RUSAGE_CHILDREN_ -1
 dword_t sys_getrusage(dword_t who, addr_t rusage_addr);
