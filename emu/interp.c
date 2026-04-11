@@ -1600,7 +1600,7 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, dst_size, src);
             break;
         }
-        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xef) {
+        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1660,6 +1660,22 @@ restart_prefix:
                     goto amd64_gpf_restore;
                 for (int i = 0; i < 4; i++)
                     value.u32[i] = src_xmm.u32[(imm8 >> (i * 2)) & 3];
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xc6) {
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.u32[0] = cpu->xmm[modrm.reg].u32[(imm8 >> 0) & 3];
+                value.u32[1] = cpu->xmm[modrm.reg].u32[(imm8 >> 2) & 3];
+                value.u32[2] = src_xmm.u32[(imm8 >> 4) & 3];
+                value.u32[3] = src_xmm.u32[(imm8 >> 6) & 3];
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xef) {
                 if (!operand_size_prefix)
