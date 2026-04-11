@@ -579,12 +579,25 @@ static bool syscall_arg_fits_legacy_dword(qword_t arg) {
     return arg <= UINT32_MAX || (arg >> 32) == UINT32_MAX;
 }
 
-static bool marshal_syscall_args_legacy(enum guest_abi abi, const qword_t raw_args[6], dword_t args[6]) {
-    for (int i = 0; i < 6; i++) {
+static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
+    switch (syscall_num) {
+    case 16: // ioctl
+        return 3;
+    default:
+        return 6;
+    }
+}
+
+static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
+        const qword_t raw_args[6], dword_t args[6]) {
+    unsigned arg_count = abi == GUEST_ABI_AMD64 ? amd64_syscall_legacy_arg_count(syscall_num) : 6;
+    for (unsigned i = 0; i < arg_count; i++) {
         if (abi == GUEST_ABI_AMD64 && !syscall_arg_fits_legacy_dword(raw_args[i]))
             return false;
         args[i] = (dword_t) raw_args[i];
     }
+    for (unsigned i = arg_count; i < 6; i++)
+        args[i] = 0;
     return true;
 }
 
@@ -654,7 +667,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         log_stub_syscall(cpu, (unsigned) syscall_num, "stub");
 
     dispatch->syscall_args(cpu, raw_args);
-    if (!marshal_syscall_args_legacy(dispatch->abi, raw_args, args)) {
+    if (!marshal_syscall_args_legacy(dispatch->abi, syscall_num, raw_args, args)) {
         printk("ERROR: %d(%s) %s syscall %llu needs full-width args before it can be emulated\n",
                current->pid, current->comm, dispatch->name, syscall_num);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
