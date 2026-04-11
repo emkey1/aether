@@ -1533,8 +1533,16 @@ restart_prefix:
         }
         break;
     }
-    case 0x90:
+    case 0x90 ... 0x97: {
+        unsigned reg = (opcode - 0x90) | (rex.b ? 8 : 0);
+        if (reg != amd64_rax) {
+            qword_t lhs = amd64_reg_get(cpu, amd64_rax, op_size);
+            qword_t rhs = amd64_reg_get(cpu, reg, op_size);
+            amd64_reg_set(cpu, amd64_rax, op_size, rhs);
+            amd64_reg_set(cpu, reg, op_size, lhs);
+        }
         break;
+    }
     case 0x98:
         if (rex.w) {
             amd64_reg_set(cpu, amd64_rax, 64, (qword_t) (sqword_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32));
