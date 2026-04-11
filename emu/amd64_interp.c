@@ -167,6 +167,43 @@ static inline void amd64_set_sub_flags(struct cpu_state *cpu, qword_t lhs, qword
     collapse_flags(cpu);
 }
 
+static inline void amd64_set_adc_flags(struct cpu_state *cpu, qword_t lhs, qword_t rhs,
+        unsigned carry_in, qword_t result, unsigned size) {
+    qword_t mask = amd64_mask(size);
+    qword_t lhs_masked = amd64_trunc(lhs, size);
+    qword_t rhs_masked = amd64_trunc(rhs, size);
+    qword_t rhs_with_carry = amd64_trunc(rhs_masked + carry_in, size);
+    qword_t res_masked = amd64_trunc(result, size);
+    __uint128_t full = (__uint128_t) lhs_masked + rhs_masked + carry_in;
+    cpu->cf = size == 64 ? (full >> 64) != 0 : full > mask;
+    cpu->of = ((~(lhs_masked ^ rhs_with_carry) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
+    cpu->af = ((lhs_masked ^ rhs_with_carry ^ res_masked) >> 4) & 1;
+    cpu->af_ops = 0;
+    cpu->zf = res_masked == 0;
+    cpu->sf = (res_masked & amd64_sign_bit(size)) != 0;
+    cpu->pf = !__builtin_parity((unsigned) (res_masked & 0xff));
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
+static inline void amd64_set_sbb_flags(struct cpu_state *cpu, qword_t lhs, qword_t rhs,
+        unsigned carry_in, qword_t result, unsigned size) {
+    qword_t lhs_masked = amd64_trunc(lhs, size);
+    qword_t rhs_masked = amd64_trunc(rhs, size);
+    qword_t rhs_with_carry = amd64_trunc(rhs_masked + carry_in, size);
+    qword_t res_masked = amd64_trunc(result, size);
+    __uint128_t subtrahend = (__uint128_t) rhs_masked + carry_in;
+    cpu->cf = (__uint128_t) lhs_masked < subtrahend;
+    cpu->of = (((lhs_masked ^ rhs_with_carry) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
+    cpu->af = ((lhs_masked ^ rhs_with_carry ^ res_masked) >> 4) & 1;
+    cpu->af_ops = 0;
+    cpu->zf = res_masked == 0;
+    cpu->sf = (res_masked & amd64_sign_bit(size)) != 0;
+    cpu->pf = !__builtin_parity((unsigned) (res_masked & 0xff));
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
 static inline void amd64_set_mul_flags(struct cpu_state *cpu, bool overflow) {
     cpu->cf = overflow;
     cpu->of = overflow;
@@ -1051,10 +1088,14 @@ restart_prefix:
         return INT_UNDEFINED;
     }
     case 0x01:
+    case 0x11:
+    case 0x19:
     case 0x21:
     case 0x09:
     case 0x0b:
     case 0x03:
+    case 0x13:
+    case 0x1b:
     case 0x23:
     case 0x2b:
     case 0x29:
@@ -1090,6 +1131,28 @@ restart_prefix:
                 goto amd64_gpf_restore;
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
             break;
+        case 0x11: {
+            unsigned carry_in = cpu->cf;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs + rhs + carry_in, op_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_adc_flags(cpu, lhs, rhs, carry_in, result, op_size);
+            break;
+        }
+        case 0x19: {
+            unsigned carry_in = cpu->cf;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs - rhs - carry_in, op_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                goto amd64_gpf_restore;
+            amd64_set_sbb_flags(cpu, lhs, rhs, carry_in, result, op_size);
+            break;
+        }
         case 0x21:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
                 goto amd64_gpf_restore;
@@ -1124,6 +1187,26 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, op_size, result);
             amd64_set_add_flags(cpu, lhs, rhs, result, op_size);
             break;
+        case 0x13: {
+            unsigned carry_in = cpu->cf;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs + rhs + carry_in, op_size);
+            amd64_reg_set(cpu, modrm.reg, op_size, result);
+            amd64_set_adc_flags(cpu, lhs, rhs, carry_in, result, op_size);
+            break;
+        }
+        case 0x1b: {
+            unsigned carry_in = cpu->cf;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            lhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            result = amd64_trunc(lhs - rhs - carry_in, op_size);
+            amd64_reg_set(cpu, modrm.reg, op_size, result);
+            amd64_set_sbb_flags(cpu, lhs, rhs, carry_in, result, op_size);
+            break;
+        }
         case 0x23:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
                 goto amd64_gpf_restore;
