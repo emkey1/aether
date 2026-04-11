@@ -952,12 +952,12 @@ restart_prefix:
     }
     case 0xe8: {
         int32_t rel32;
-        qword_t return_rip = cpu->amd64_rip;
         if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
+        qword_t return_rip = cpu->amd64_rip;
         if (!amd64_push(cpu, tlb, return_rip))
             goto amd64_gpf_restore;
         cpu->amd64_rip += rel32;
