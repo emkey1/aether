@@ -1632,7 +1632,7 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, dst_size, src);
             break;
         }
-        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 || op2 == 0x28 || op2 == 0x29 || op2 == 0x6c || op2 == 0x6e || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xeb || op2 == 0xef) {
+        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 || op2 == 0x28 || op2 == 0x29 || op2 == 0x62 || op2 == 0x6c || op2 == 0x6e || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1674,6 +1674,17 @@ restart_prefix:
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[1]))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0x62) {
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value.u32[0] = dst.u32[0];
+                value.u32[1] = src_xmm.u32[0];
+                value.u32[2] = dst.u32[1];
+                value.u32[3] = src_xmm.u32[1];
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x6e) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
@@ -2490,6 +2501,18 @@ restart_prefix:
             amd64_reg_set(cpu, amd64_rax, 16, (word_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 8));
         } else {
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
+        }
+        break;
+    case 0x99:
+        if (rex.w) {
+            amd64_reg_set(cpu, amd64_rdx, 64,
+                    ((sqword_t) amd64_reg_get(cpu, amd64_rax, 64) < 0) ? ~0ull : 0);
+        } else if (operand_size_prefix) {
+            amd64_reg_set(cpu, amd64_rdx, 16,
+                    ((int16_t) amd64_reg_get(cpu, amd64_rax, 16) < 0) ? 0xffff : 0);
+        } else {
+            amd64_reg_set(cpu, amd64_rdx, 32,
+                    ((int32_t) amd64_reg_get(cpu, amd64_rax, 32) < 0) ? 0xffffffffu : 0);
         }
         break;
     case 0x04:
