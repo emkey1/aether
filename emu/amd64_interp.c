@@ -1005,7 +1005,9 @@ restart_prefix:
     case 0x8a:
     case 0x8b:
     case 0x8d:
-    case 0x63: {
+    case 0x63:
+    case 0x69:
+    case 0x6b: {
         struct amd64_modrm modrm;
         qword_t lhs, rhs, result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
@@ -1149,6 +1151,43 @@ restart_prefix:
                 goto amd64_gpf_restore;
             amd64_reg_set(cpu, modrm.reg, 64, (qword_t) amd64_sign_extend(rhs, 32));
             break;
+        case 0x69:
+        case 0x6b: {
+            sqword_t src_signed;
+            sqword_t imm_signed;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
+            if (opcode == 0x69) {
+                int32_t imm32;
+                if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                imm_signed = imm32;
+            } else {
+                int8_t imm8;
+                if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                imm_signed = imm8;
+            }
+            src_signed = amd64_sign_extend(rhs, op_size);
+            if (op_size == 64) {
+                __int128_t full = (__int128_t) src_signed * (__int128_t) imm_signed;
+                result = (qword_t) full;
+                amd64_reg_set(cpu, modrm.reg, op_size, result);
+                amd64_set_mul_flags(cpu, full != (__int128_t) (sqword_t) (uint64_t) result);
+            } else {
+                int64_t full = (int64_t) src_signed * (int64_t) imm_signed;
+                result = amd64_trunc((qword_t) full, op_size);
+                amd64_reg_set(cpu, modrm.reg, op_size, result);
+                amd64_set_mul_flags(cpu, full != (int64_t) amd64_sign_extend(result, op_size));
+            }
+            break;
+        }
         }
         break;
     }
