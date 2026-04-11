@@ -267,6 +267,29 @@ static inline bool amd64_fetch_u64(struct cpu_state *cpu, struct tlb *tlb, uint6
     return amd64_fetch(cpu, tlb, out, sizeof(*out));
 }
 
+static inline bool amd64_fetch_accum_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned size, bool sign_extend_imm32, qword_t *value) {
+    if (size == 8) {
+        uint8_t imm8;
+        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
+            return false;
+        *value = imm8;
+        return true;
+    }
+    if (size == 16) {
+        uint16_t imm16;
+        if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16)))
+            return false;
+        *value = imm16;
+        return true;
+    }
+    uint32_t imm32;
+    if (!amd64_fetch_u32(cpu, tlb, &imm32))
+        return false;
+    *value = size == 64 && sign_extend_imm32 ? (qword_t) (sqword_t) (int32_t) imm32 : imm32;
+    return true;
+}
+
 static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_t guest_addr, void *out, unsigned size) {
     addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
@@ -1643,39 +1666,96 @@ restart_prefix:
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
         }
         break;
-    case 0x3c: {
-        uint8_t imm8;
-        qword_t lhs = amd64_reg_get(cpu, amd64_rax, 8);
-        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
-            cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
-            return INT_GPF;
-        }
-        amd64_set_sub_flags(cpu, lhs, imm8, amd64_trunc(lhs - imm8, 8), 8);
-        break;
-    }
+    case 0x04:
+    case 0x05:
+    case 0x0c:
+    case 0x0d:
+    case 0x14:
+    case 0x15:
+    case 0x1c:
+    case 0x1d:
+    case 0x24:
+    case 0x25:
+    case 0x2c:
+    case 0x2d:
+    case 0x34:
+    case 0x35:
+    case 0x3c:
     case 0x3d: {
-        uint32_t imm32;
-        qword_t lhs = amd64_reg_get(cpu, amd64_rax, op_size);
+        unsigned size = (opcode & 0x8) == 0 ? 8 : op_size;
+        qword_t lhs = amd64_reg_get(cpu, amd64_rax, size);
         qword_t rhs;
-        if (!amd64_fetch_u32(cpu, tlb, &imm32)) {
+        qword_t result;
+        unsigned carry_in;
+        if (!amd64_fetch_accum_imm(cpu, tlb, size, true, &rhs)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        rhs = rex.w ? (qword_t) (sqword_t) (int32_t) imm32 : imm32;
-        amd64_set_sub_flags(cpu, lhs, rhs, amd64_trunc(lhs - rhs, op_size), op_size);
+        switch (opcode) {
+        case 0x04:
+        case 0x05:
+            result = amd64_trunc(lhs + rhs, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_add_flags(cpu, lhs, rhs, result, size);
+            break;
+        case 0x0c:
+        case 0x0d:
+            result = amd64_trunc(lhs | rhs, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_logic_flags(cpu, result, size);
+            break;
+        case 0x14:
+        case 0x15:
+            carry_in = cpu->cf;
+            result = amd64_trunc(lhs + rhs + carry_in, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_adc_flags(cpu, lhs, rhs, carry_in, result, size);
+            break;
+        case 0x1c:
+        case 0x1d:
+            carry_in = cpu->cf;
+            result = amd64_trunc(lhs - rhs - carry_in, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_sbb_flags(cpu, lhs, rhs, carry_in, result, size);
+            break;
+        case 0x24:
+        case 0x25:
+            result = amd64_trunc(lhs & rhs, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_logic_flags(cpu, result, size);
+            break;
+        case 0x2c:
+        case 0x2d:
+            result = amd64_trunc(lhs - rhs, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_sub_flags(cpu, lhs, rhs, result, size);
+            break;
+        case 0x34:
+        case 0x35:
+            result = amd64_trunc(lhs ^ rhs, size);
+            amd64_reg_set(cpu, amd64_rax, size, result);
+            amd64_set_logic_flags(cpu, result, size);
+            break;
+        case 0x3c:
+        case 0x3d:
+            result = amd64_trunc(lhs - rhs, size);
+            amd64_set_sub_flags(cpu, lhs, rhs, result, size);
+            break;
+        default:
+            return INT_UNDEFINED;
+        }
         break;
     }
     case 0xa9: {
-        uint32_t imm32;
         qword_t lhs = amd64_reg_get(cpu, amd64_rax, op_size);
-        if (!amd64_fetch_u32(cpu, tlb, &imm32)) {
+        qword_t rhs;
+        if (!amd64_fetch_accum_imm(cpu, tlb, op_size, true, &rhs)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        amd64_set_logic_flags(cpu, lhs & (rex.w ? (qword_t) (sqword_t) (int32_t) imm32 : imm32), op_size);
+        amd64_set_logic_flags(cpu, lhs & rhs, op_size);
         break;
     }
     case 0xa8: {
