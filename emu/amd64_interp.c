@@ -167,6 +167,12 @@ static inline void amd64_set_sub_flags(struct cpu_state *cpu, qword_t lhs, qword
     collapse_flags(cpu);
 }
 
+static inline void amd64_set_mul_flags(struct cpu_state *cpu, bool overflow) {
+    cpu->cf = overflow;
+    cpu->of = overflow;
+    collapse_flags(cpu);
+}
+
 static inline void amd64_set_shift_flags(struct cpu_state *cpu, qword_t lhs, qword_t result,
         unsigned size, unsigned count, unsigned subop) {
     qword_t lhs_masked = amd64_trunc(lhs, size);
@@ -256,6 +262,221 @@ static inline bool amd64_push(struct cpu_state *cpu, struct tlb *tlb, qword_t va
         return false;
     cpu->amd64_regs[amd64_rsp] = rsp;
     return true;
+}
+
+static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t *value);
+static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t value);
+
+static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned size) {
+    qword_t src;
+    if (!amd64_read_rm(cpu, tlb, modrm, fs_prefix, size, &src))
+        return INT_GPF;
+
+    switch (modrm->reg) {
+    case 2: {
+        qword_t result = amd64_trunc(~src, size);
+        if (!amd64_write_rm(cpu, tlb, modrm, fs_prefix, size, result))
+            return INT_GPF;
+        return INT_NONE;
+    }
+    case 3: {
+        qword_t result = amd64_trunc(0 - src, size);
+        if (!amd64_write_rm(cpu, tlb, modrm, fs_prefix, size, result))
+            return INT_GPF;
+        amd64_set_sub_flags(cpu, 0, src, result, size);
+        return INT_NONE;
+    }
+    case 4:
+        switch (size) {
+        case 8: {
+            uint16_t product = (uint8_t) amd64_reg_get(cpu, amd64_rax, 8) * (uint8_t) src;
+            amd64_reg_set(cpu, amd64_rax, 16, product);
+            amd64_set_mul_flags(cpu, (product >> 8) != 0);
+            return INT_NONE;
+        }
+        case 16: {
+            uint32_t product = (uint16_t) amd64_reg_get(cpu, amd64_rax, 16) * (uint16_t) src;
+            amd64_reg_set(cpu, amd64_rax, 16, product);
+            amd64_reg_set(cpu, amd64_rdx, 16, product >> 16);
+            amd64_set_mul_flags(cpu, (product >> 16) != 0);
+            return INT_NONE;
+        }
+        case 32: {
+            uint64_t product = (uint32_t) amd64_reg_get(cpu, amd64_rax, 32) * (uint32_t) src;
+            amd64_reg_set(cpu, amd64_rax, 32, product);
+            amd64_reg_set(cpu, amd64_rdx, 32, product >> 32);
+            amd64_set_mul_flags(cpu, (product >> 32) != 0);
+            return INT_NONE;
+        }
+        case 64: {
+            __uint128_t product = (__uint128_t) amd64_reg_get(cpu, amd64_rax, 64) * (__uint128_t) src;
+            amd64_reg_set(cpu, amd64_rax, 64, (uint64_t) product);
+            amd64_reg_set(cpu, amd64_rdx, 64, (uint64_t) (product >> 64));
+            amd64_set_mul_flags(cpu, (product >> 64) != 0);
+            return INT_NONE;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+    case 5:
+        switch (size) {
+        case 8: {
+            int16_t product = (int8_t) amd64_reg_get(cpu, amd64_rax, 8) * (int8_t) src;
+            amd64_reg_set(cpu, amd64_rax, 16, (uint16_t) product);
+            amd64_set_mul_flags(cpu, product != (int16_t) (int8_t) product);
+            return INT_NONE;
+        }
+        case 16: {
+            int32_t product = (int16_t) amd64_reg_get(cpu, amd64_rax, 16) * (int16_t) src;
+            amd64_reg_set(cpu, amd64_rax, 16, (uint16_t) product);
+            amd64_reg_set(cpu, amd64_rdx, 16, (uint16_t) ((uint32_t) product >> 16));
+            amd64_set_mul_flags(cpu, product != (int32_t) (int16_t) product);
+            return INT_NONE;
+        }
+        case 32: {
+            int64_t product = (int32_t) amd64_reg_get(cpu, amd64_rax, 32) * (int32_t) src;
+            amd64_reg_set(cpu, amd64_rax, 32, (uint32_t) product);
+            amd64_reg_set(cpu, amd64_rdx, 32, (uint32_t) ((uint64_t) product >> 32));
+            amd64_set_mul_flags(cpu, product != (int64_t) (int32_t) product);
+            return INT_NONE;
+        }
+        case 64: {
+            __int128_t product = (__int128_t) (sqword_t) amd64_reg_get(cpu, amd64_rax, 64) *
+                    (__int128_t) (sqword_t) src;
+            amd64_reg_set(cpu, amd64_rax, 64, (uint64_t) product);
+            amd64_reg_set(cpu, amd64_rdx, 64, (uint64_t) (((__uint128_t) product) >> 64));
+            amd64_set_mul_flags(cpu, product != (__int128_t) (sqword_t) (uint64_t) product);
+            return INT_NONE;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+    case 6:
+        switch (size) {
+        case 8: {
+            uint8_t divisor = (uint8_t) src;
+            uint16_t dividend = (uint16_t) amd64_reg_get(cpu, amd64_rax, 16);
+            if (divisor == 0)
+                return INT_DIV;
+            uint16_t quotient = dividend / divisor;
+            uint16_t remainder = dividend % divisor;
+            if (quotient > 0xff)
+                return INT_DIV;
+            amd64_reg_set_encoded8(cpu, 0, true, quotient);
+            amd64_reg_set_encoded8(cpu, 4, false, remainder);
+            return INT_NONE;
+        }
+        case 16: {
+            uint16_t divisor = (uint16_t) src;
+            uint32_t dividend = ((uint32_t) amd64_reg_get(cpu, amd64_rdx, 16) << 16) |
+                    (uint16_t) amd64_reg_get(cpu, amd64_rax, 16);
+            if (divisor == 0)
+                return INT_DIV;
+            uint32_t quotient = dividend / divisor;
+            uint32_t remainder = dividend % divisor;
+            if (quotient > 0xffff)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 16, quotient);
+            amd64_reg_set(cpu, amd64_rdx, 16, remainder);
+            return INT_NONE;
+        }
+        case 32: {
+            uint32_t divisor = (uint32_t) src;
+            uint64_t dividend = ((uint64_t) amd64_reg_get(cpu, amd64_rdx, 32) << 32) |
+                    (uint32_t) amd64_reg_get(cpu, amd64_rax, 32);
+            if (divisor == 0)
+                return INT_DIV;
+            uint64_t quotient = dividend / divisor;
+            uint64_t remainder = dividend % divisor;
+            if (quotient > 0xffffffffu)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 32, quotient);
+            amd64_reg_set(cpu, amd64_rdx, 32, remainder);
+            return INT_NONE;
+        }
+        case 64: {
+            uint64_t divisor = (uint64_t) src;
+            __uint128_t dividend = ((__uint128_t) amd64_reg_get(cpu, amd64_rdx, 64) << 64) |
+                    (__uint128_t) amd64_reg_get(cpu, amd64_rax, 64);
+            if (divisor == 0)
+                return INT_DIV;
+            __uint128_t quotient = dividend / divisor;
+            __uint128_t remainder = dividend % divisor;
+            if ((quotient >> 64) != 0)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 64, (uint64_t) quotient);
+            amd64_reg_set(cpu, amd64_rdx, 64, (uint64_t) remainder);
+            return INT_NONE;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+    case 7:
+        switch (size) {
+        case 8: {
+            int8_t divisor = (int8_t) src;
+            int16_t dividend = (int16_t) amd64_reg_get(cpu, amd64_rax, 16);
+            if (divisor == 0)
+                return INT_DIV;
+            int16_t quotient = dividend / divisor;
+            int16_t remainder = dividend % divisor;
+            if (quotient < INT8_MIN || quotient > INT8_MAX)
+                return INT_DIV;
+            amd64_reg_set_encoded8(cpu, 0, true, (uint8_t) quotient);
+            amd64_reg_set_encoded8(cpu, 4, false, (uint8_t) remainder);
+            return INT_NONE;
+        }
+        case 16: {
+            int16_t divisor = (int16_t) src;
+            int32_t dividend = ((int32_t) (int16_t) amd64_reg_get(cpu, amd64_rdx, 16) << 16) |
+                    (uint16_t) amd64_reg_get(cpu, amd64_rax, 16);
+            if (divisor == 0)
+                return INT_DIV;
+            int32_t quotient = dividend / divisor;
+            int32_t remainder = dividend % divisor;
+            if (quotient < INT16_MIN || quotient > INT16_MAX)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 16, (uint16_t) quotient);
+            amd64_reg_set(cpu, amd64_rdx, 16, (uint16_t) remainder);
+            return INT_NONE;
+        }
+        case 32: {
+            int32_t divisor = (int32_t) src;
+            int64_t dividend = ((int64_t) (int32_t) amd64_reg_get(cpu, amd64_rdx, 32) << 32) |
+                    (uint32_t) amd64_reg_get(cpu, amd64_rax, 32);
+            if (divisor == 0)
+                return INT_DIV;
+            int64_t quotient = dividend / divisor;
+            int64_t remainder = dividend % divisor;
+            if (quotient < INT32_MIN || quotient > INT32_MAX)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 32, (uint32_t) quotient);
+            amd64_reg_set(cpu, amd64_rdx, 32, (uint32_t) remainder);
+            return INT_NONE;
+        }
+        case 64: {
+            int64_t divisor = (int64_t) src;
+            __int128_t dividend = ((__int128_t) (int64_t) amd64_reg_get(cpu, amd64_rdx, 64) << 64) |
+                    (__uint128_t) amd64_reg_get(cpu, amd64_rax, 64);
+            if (divisor == 0)
+                return INT_DIV;
+            __int128_t quotient = dividend / divisor;
+            __int128_t remainder = dividend % divisor;
+            if (quotient < INT64_MIN || quotient > INT64_MAX)
+                return INT_DIV;
+            amd64_reg_set(cpu, amd64_rax, 64, (uint64_t) quotient);
+            amd64_reg_set(cpu, amd64_rdx, 64, (uint64_t) remainder);
+            return INT_NONE;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+    default:
+        return INT_UNDEFINED;
+    }
 }
 
 static inline bool amd64_pop(struct cpu_state *cpu, struct tlb *tlb, qword_t *value) {
@@ -821,35 +1042,42 @@ restart_prefix:
     case 0xf6:
     case 0xf7: {
         struct amd64_modrm modrm;
-        qword_t lhs, rhs;
         unsigned size = opcode == 0xf6 ? 8 : op_size;
+        int result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        if (modrm.reg != 0)
-            return INT_UNDEFINED;
-        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &lhs))
-            goto amd64_gpf_restore;
-        if (opcode == 0xf6) {
-            uint8_t imm8;
-            if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
-                cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
-                return INT_GPF;
+        if (modrm.reg == 0) {
+            qword_t lhs, rhs;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &lhs))
+                goto amd64_gpf_restore;
+            if (opcode == 0xf6) {
+                uint8_t imm8;
+                if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                rhs = imm8;
+            } else {
+                int32_t imm32;
+                if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
             }
-            rhs = imm8;
-        } else {
-            int32_t imm32;
-            if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
-                cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
-                return INT_GPF;
-            }
-            rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
+            amd64_set_logic_flags(cpu, lhs & rhs, size);
+            break;
         }
-        amd64_set_logic_flags(cpu, lhs & rhs, size);
+        result = amd64_grp3_muldiv(cpu, tlb, &modrm, fs_prefix, size);
+        if (result == INT_GPF)
+            goto amd64_gpf_restore;
+        if (result != INT_NONE)
+            return result;
         break;
     }
     case 0x70 ... 0x7f: {
