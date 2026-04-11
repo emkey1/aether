@@ -2660,6 +2660,17 @@ restart_prefix:
         amd64_set_logic_flags(cpu, lhs & imm8, 8);
         break;
     }
+    case 0xb0 ... 0xb7: {
+        unsigned reg = (opcode - 0xb0) | (rex.b ? 8 : 0);
+        uint8_t imm8;
+        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        amd64_reg_set_encoded8(cpu, reg, rex.present, imm8);
+        break;
+    }
     case 0xb8 ... 0xbf: {
         unsigned reg = (opcode - 0xb8) | (rex.b ? 8 : 0);
         if (rex.w) {
