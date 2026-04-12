@@ -148,6 +148,17 @@ static inline void amd64_sync_legacy_regs(struct cpu_state *cpu) {
     cpu->eip = (dword_t) cpu->amd64_rip;
 }
 
+static inline void amd64_trace_suspicious_rsp_write(struct cpu_state *cpu,
+        qword_t old_rsp, qword_t new_rsp, unsigned size) {
+    if (new_rsp >= 0x1000)
+        return;
+    printk("amd64 rsp write: rip=%#llx old=%#llx new=%#llx size=%u\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) old_rsp,
+           (unsigned long long) new_rsp,
+           size);
+}
+
 static inline qword_t amd64_reg_get(const struct cpu_state *cpu, unsigned reg, unsigned size) {
     qword_t value = cpu->amd64_regs[reg & 0xf];
     switch (size) {
@@ -178,6 +189,7 @@ static inline void amd64_reg_set_encoded8(struct cpu_state *cpu, unsigned reg, b
 
 static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
     reg &= 0xf;
+    qword_t old_value = cpu->amd64_regs[reg];
     switch (size) {
     case 8:
         cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
@@ -194,6 +206,8 @@ static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned s
     default:
         break;
     }
+    if (reg == amd64_rsp)
+        amd64_trace_suspicious_rsp_write(cpu, old_value, cpu->amd64_regs[reg], size);
 }
 
 static inline void amd64_set_logic_flags(struct cpu_state *cpu, qword_t result, unsigned size) {
@@ -516,10 +530,12 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
 }
 
 static inline bool amd64_push(struct cpu_state *cpu, struct tlb *tlb, qword_t value) {
-    qword_t rsp = cpu->amd64_regs[amd64_rsp] - sizeof(value);
+    qword_t old_rsp = cpu->amd64_regs[amd64_rsp];
+    qword_t rsp = old_rsp - sizeof(value);
     if (!amd64_mem_write(cpu, tlb, rsp, &value, sizeof(value)))
         return false;
     cpu->amd64_regs[amd64_rsp] = rsp;
+    amd64_trace_suspicious_rsp_write(cpu, old_rsp, rsp, 64);
     return true;
 }
 
@@ -747,6 +763,7 @@ static inline bool amd64_pop_size(struct cpu_state *cpu, struct tlb *tlb, unsign
             return false;
         *value = tmp;
         cpu->amd64_regs[amd64_rsp] = rsp + sizeof(tmp);
+        amd64_trace_suspicious_rsp_write(cpu, rsp, cpu->amd64_regs[amd64_rsp], size);
         return true;
     }
     case 64: {
@@ -755,6 +772,7 @@ static inline bool amd64_pop_size(struct cpu_state *cpu, struct tlb *tlb, unsign
             return false;
         *value = tmp;
         cpu->amd64_regs[amd64_rsp] = rsp + sizeof(tmp);
+        amd64_trace_suspicious_rsp_write(cpu, rsp, cpu->amd64_regs[amd64_rsp], size);
         return true;
     }
     default:
