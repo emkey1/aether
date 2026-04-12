@@ -300,8 +300,8 @@ static int poll_event_callback(void *context, int types, union poll_fd_info info
     }
     return res;
 }
-dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
-    STRACE("poll(0x%x, %d, %d)", fds, nfds, timeout);
+dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout_ts_ptr, int_t timeout_trace) {
+    STRACE("poll(0x%x, %d, %d)", fds, nfds, timeout_trace);
     struct pollfd_ polls[nfds];
     if (fds != 0 || nfds != 0)
         if (user_read(fds, polls, sizeof(struct pollfd_) * nfds))
@@ -352,11 +352,6 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
             polls[i].revents = POLL_NVAL;
     }
     struct poll_context context = {polls, files, nfds};
-    struct timespec timeout_ts;
-    if (timeout >= 0) {
-        timeout_ts.tv_sec = timeout / 1000;
-        timeout_ts.tv_nsec = (timeout % 1000) * 1000000;
-    }
     if (poll_trace_net_enabled()) {
         for (unsigned i = 0; i < nfds; i++) {
             if (files[i] == NULL)
@@ -367,7 +362,7 @@ dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
     }
     int res = 0;
     TASK_MAY_BLOCK {
-        res = poll_wait(poll, poll_event_callback, &context, timeout < 0 ? NULL : &timeout_ts);
+        res = poll_wait(poll, poll_event_callback, &context, timeout_ts_ptr);
     }
 out:
     poll_destroy(poll);
@@ -378,7 +373,7 @@ out:
     STRACE("%d end poll", current->pid);
     if (poll_trace_net_enabled()) {
         printk("INFO: net poll return pid=%d comm=%s res=%d timeout_ms=%d\n",
-               current->pid, current->comm, res, timeout);
+               current->pid, current->comm, res, timeout_trace);
         for (unsigned i = 0; i < nfds; i++) {
             if (files[i] == NULL)
                 continue;
@@ -395,6 +390,17 @@ out:
         if (user_write(fds, polls, sizeof(struct pollfd_) * nfds))
             return _EFAULT;
     return res;
+}
+
+dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
+    struct timespec timeout_ts;
+    const struct timespec *timeout_ts_ptr = NULL;
+    if (timeout >= 0) {
+        timeout_ts.tv_sec = timeout / 1000;
+        timeout_ts.tv_nsec = (timeout % 1000) * 1000000;
+        timeout_ts_ptr = &timeout_ts;
+    }
+    return sys_poll_common(fds, nfds, timeout_ts_ptr, timeout);
 }
 
 dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr) {
@@ -472,12 +478,17 @@ dword_t sys_pselect_time64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr,
 }
 
 dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
-    int timeout = -1;
+    struct timespec timeout_timespec = {};
+    const struct timespec *timeout_ptr = NULL;
+    int timeout_ms = -1;
     if (timeout_addr != 0) {
-        struct timespec timeout_timespec;
         if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_timespec))
             return _EFAULT;
-        timeout = timeout_timespec.tv_sec * 1000 + timeout_timespec.tv_nsec / 1000000;
+        if (!select_timeout_valid(timeout_timespec))
+            return _EINVAL;
+        timeout_ptr = &timeout_timespec;
+        int64_t timeout_ms64 = timeout_timespec.tv_sec * 1000 + timeout_timespec.tv_nsec / 1000000;
+        timeout_ms = timeout_ms64 > INT_MAX ? INT_MAX : (int) timeout_ms64;
     }
 
     sigset_t_ mask;
@@ -491,5 +502,5 @@ dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_
 
     // Leave restoration to receive_signals() so an interrupting signal is
     // observed against the temporary mask instead of the restored one.
-    return sys_poll(fds, nfds, timeout);
+    return sys_poll_common(fds, nfds, timeout_ptr, timeout_ms);
 }

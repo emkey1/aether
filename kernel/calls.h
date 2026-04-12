@@ -115,6 +115,7 @@ struct pollfd_ {
     word_t revents;
 };
 dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout);
+dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout_ts_ptr, int_t timeout_trace);
 dword_t sys_select(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr);
 dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr);
 dword_t sys_pselect_time64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr);

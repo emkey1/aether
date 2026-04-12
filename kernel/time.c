@@ -253,7 +253,9 @@ dword_t sys_clock_nanosleep_time64(dword_t clock_id, int_t flags, addr_t req_add
 }
 
 dword_t sys_ppoll_time64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
-    int timeout = -1;
+    struct timespec timeout_ts = {};
+    const struct timespec *timeout_ptr = NULL;
+    int timeout_ms = -1;
     if (timeout_addr != 0) {
         struct timespec64_ timeout_timespec;
         if (user_get(timeout_addr, timeout_timespec))
@@ -261,8 +263,11 @@ dword_t sys_ppoll_time64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t s
         if (timeout_timespec.sec < 0 || timeout_timespec.nsec < 0 || timeout_timespec.nsec >= 1000000000)
             return _EINVAL;
 
-        int64_t timeout_ms = timeout_timespec.sec * 1000 + timeout_timespec.nsec / 1000000;
-        timeout = timeout_ms > INT_MAX ? INT_MAX : (int) timeout_ms;
+        int64_t timeout_ms64 = timeout_timespec.sec * 1000 + timeout_timespec.nsec / 1000000;
+        timeout_ms = timeout_ms64 > INT_MAX ? INT_MAX : (int) timeout_ms64;
+        timeout_ts.tv_sec = timeout_timespec.sec;
+        timeout_ts.tv_nsec = timeout_timespec.nsec;
+        timeout_ptr = &timeout_ts;
     }
 
     sigset_t_ mask;
@@ -274,7 +279,7 @@ dword_t sys_ppoll_time64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t s
         sigmask_set_temp(mask);
     }
 
-    return sys_poll(fds, nfds, timeout);
+    return sys_poll_common(fds, nfds, timeout_ptr, timeout_ms);
 }
 
 dword_t sys_time(addr_t time_out) {
