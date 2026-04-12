@@ -316,6 +316,33 @@ static inline void amd64_set_shift_flags(struct cpu_state *cpu, qword_t lhs, qwo
     collapse_flags(cpu);
 }
 
+static inline void amd64_set_double_shift_flags(struct cpu_state *cpu, qword_t lhs, qword_t result,
+        unsigned size, unsigned count, bool left) {
+    qword_t lhs_masked = amd64_trunc(lhs, size);
+    qword_t res_masked = amd64_trunc(result, size);
+    qword_t sign = amd64_sign_bit(size);
+    cpu->cf = 0;
+    cpu->of = 0;
+    if (count != 0) {
+        if (left) {
+            cpu->cf = (lhs_masked >> (size - count)) & 1;
+            if (count == 1)
+                cpu->of = ((res_masked & sign) != 0) ^ cpu->cf;
+        } else {
+            cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            if (count == 1)
+                cpu->of = (lhs_masked & sign) != 0;
+        }
+    }
+    cpu->af = 0;
+    cpu->af_ops = 0;
+    cpu->zf = res_masked == 0;
+    cpu->sf = (res_masked & sign) != 0;
+    cpu->pf = !__builtin_parity((unsigned) (res_masked & 0xff));
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
 static inline qword_t amd64_rotate_value(qword_t value, unsigned size, unsigned count, unsigned subop) {
     qword_t masked = amd64_trunc(value, size);
     unsigned effective = count % size;
@@ -1131,6 +1158,46 @@ restart_prefix:
             }
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, value))
                 goto amd64_gpf_restore;
+            break;
+        }
+        if (op2 == 0xa4 || op2 == 0xa5 || op2 == 0xac || op2 == 0xad) {
+            struct amd64_modrm modrm;
+            qword_t lhs, rhs, result;
+            unsigned count;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (op2 == 0xa4 || op2 == 0xac) {
+                uint8_t imm8;
+                if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = (addr_t) saved_rip;
+                    return INT_GPF;
+                }
+                count = imm8 & (op_size == 64 ? 0x3f : 0x1f);
+            } else {
+                count = amd64_reg_get(cpu, amd64_rcx, 8) & (op_size == 64 ? 0x3f : 0x1f);
+            }
+            if (count == 0)
+                break;
+            if (count > op_size)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = amd64_reg_get(cpu, modrm.reg, op_size);
+            if (op2 == 0xa4 || op2 == 0xa5) {
+                result = amd64_trunc((lhs << count) | (rhs >> (op_size - count)), op_size);
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                    goto amd64_gpf_restore;
+                amd64_set_double_shift_flags(cpu, lhs, result, op_size, count, true);
+            } else {
+                result = amd64_trunc((amd64_trunc(lhs, op_size) >> count) | (rhs << (op_size - count)), op_size);
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                    goto amd64_gpf_restore;
+                amd64_set_double_shift_flags(cpu, lhs, result, op_size, count, false);
+            }
             break;
         }
         if (op2 == 0xb6 || op2 == 0xb7 || op2 == 0xbe || op2 == 0xbf) {
