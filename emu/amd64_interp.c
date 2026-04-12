@@ -1163,7 +1163,11 @@ restart_prefix:
             }
             break;
         }
-        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 || op2 == 0x28 || op2 == 0x29 || op2 == 0x62 || op2 == 0x6c || op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f || op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
+        if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
+                op2 == 0x28 || op2 == 0x29 || op2 == 0x54 || op2 == 0x55 ||
+                op2 == 0x56 || op2 == 0x57 || op2 == 0x62 || op2 == 0x6c ||
+                op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
+                op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1188,6 +1192,31 @@ restart_prefix:
                 value = cpu->xmm[modrm.reg];
                 if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
                     goto amd64_gpf_restore;
+            } else if (op2 >= 0x54 && op2 <= 0x57) {
+                if (rep_mode != AMD64_REP_NONE)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0x54:
+                    value.qw[0] &= src_xmm.qw[0];
+                    value.qw[1] &= src_xmm.qw[1];
+                    break;
+                case 0x55:
+                    value.qw[0] = ~value.qw[0] & src_xmm.qw[0];
+                    value.qw[1] = ~value.qw[1] & src_xmm.qw[1];
+                    break;
+                case 0x56:
+                    value.qw[0] |= src_xmm.qw[0];
+                    value.qw[1] |= src_xmm.qw[1];
+                    break;
+                case 0x57:
+                    value.qw[0] ^= src_xmm.qw[0];
+                    value.qw[1] ^= src_xmm.qw[1];
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x16) {
                 if (operand_size_prefix)
                     return INT_UNDEFINED;
