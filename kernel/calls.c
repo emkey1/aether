@@ -886,6 +886,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
 static void dump_opcode_window(addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
+static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
 static bool amd64_verbose_fault_trace_enabled(void);
@@ -913,6 +914,8 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
 }
 
 static void handle_general_protection_interrupt(struct cpu_state *cpu) {
+    uint8_t first_opcode = 0;
+    bool have_first_opcode = user_get(cpu->eip, first_opcode) == 0;
     printk("ERROR: %d(%s) general protection fault at 0x%x: ", current->pid, current->comm, cpu->eip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
@@ -924,6 +927,8 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
     dump_opcode_window(cpu->eip);
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
+        if (have_first_opcode && first_opcode == 0xf4)
+            dump_amd64_hlt_tls_state(cpu);
         if (amd64_verbose_fault_trace_enabled()) {
             dump_amd64_loader_state(cpu);
             dump_amd64_store_trace(cpu);
@@ -1035,6 +1040,29 @@ static void dump_amd64_regs(const struct cpu_state *cpu) {
            (unsigned long long) cpu->amd64_regs[amd64_r14],
            (unsigned long long) cpu->amd64_regs[amd64_r15],
            (unsigned long long) cpu->amd64_rip);
+}
+
+static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu) {
+    qword_t fs_base = cpu->tls_ptr;
+    qword_t fs_self = 0;
+    qword_t fs_dtv = 0;
+    int self_fault = fs_base == 0 ? 1 : user_get((addr_t) fs_base, fs_self);
+    int dtv_fault = fs_base == 0 ? 1 : user_get((addr_t) (fs_base + 8), fs_dtv);
+
+    printk("amd64 hlt tls: fsbase=%#llx rax=%#llx rbp=%#llx fs:[0]=",
+           (unsigned long long) fs_base,
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rbp]);
+    if (self_fault)
+        printk("??");
+    else
+        printk("%#llx", (unsigned long long) fs_self);
+    printk(" fs:[8]=");
+    if (dtv_fault)
+        printk("??");
+    else
+        printk("%#llx", (unsigned long long) fs_dtv);
+    printk("\n");
 }
 
 static void dump_amd64_loader_state(const struct cpu_state *cpu) {
