@@ -1402,7 +1402,8 @@ restart_prefix:
                 op2 == 0x5c || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x62 || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
-                op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
+                op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
+                op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1551,6 +1552,27 @@ restart_prefix:
                 case 0x57:
                     value.qw[0] ^= src_xmm.qw[0];
                     value.qw[1] ^= src_xmm.qw[1];
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 >= 0x74 && op2 <= 0x76) {
+                if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0x74:
+                    for (int i = 0; i < 16; i++)
+                        value.u8[i] = value.u8[i] == src_xmm.u8[i] ? 0xff : 0x00;
+                    break;
+                case 0x75:
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] = value.u16[i] == src_xmm.u16[i] ? 0xffff : 0x0000;
+                    break;
+                case 0x76:
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] = value.u32[i] == src_xmm.u32[i] ? 0xffffffffu : 0;
                     break;
                 }
                 cpu->xmm[modrm.reg] = value;
