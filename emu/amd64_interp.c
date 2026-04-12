@@ -1875,11 +1875,9 @@ restart_prefix:
             cpu->xmm[modrm.reg] = value;
             break;
         }
-        if ((op2 == 0x2e || op2 == 0x2f) && (rep_mode == AMD64_REP_NONE || rep_mode == AMD64_REPNZ)) {
+        if ((op2 == 0x2e || op2 == 0x2f) && rep_mode == AMD64_REP_NONE) {
             struct amd64_modrm modrm;
             qword_t src_scalar;
-            if (operand_size_prefix)
-                return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
@@ -1887,7 +1885,7 @@ restart_prefix:
             }
             if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
                 return INT_UNDEFINED;
-            if (rep_mode == AMD64_REPNZ) {
+            if (operand_size_prefix) {
                 double lhs, rhs;
                 lhs = cpu->xmm[modrm.reg].f64[0];
                 if (modrm.is_reg) {
