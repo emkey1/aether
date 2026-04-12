@@ -1415,7 +1415,9 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+            if (modrm.reg >= 8 ||
+                    (modrm.is_reg && modrm.rm >= 8 &&
+                     !(op2 == 0x7e && operand_size_prefix && rep_mode == AMD64_REP_NONE)))
                 return INT_UNDEFINED;
             if (op2 == 0x10 || op2 == 0x28 || op2 == 0x6f) {
                 if (op2 == 0x6f && !(operand_size_prefix || rep_mode == AMD64_REPZ))
