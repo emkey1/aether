@@ -49,28 +49,22 @@ emu_src = [
     'emu/vec.c',
     'emu/mmx.c',
     'emu/float80.c',
+    'emu/amd64_interp.c',
+    'jit/jit.c',
+    'jit/gen.c',
+    'jit/helpers.c',
 ]
-if get_option('engine') == 'jit'
-    gadgets = 'jit/gadgets-' + host_machine.cpu_family()
-    emu_src += [
-        'emu/amd64_interp.c',
-        'jit/jit.c',
-        'jit/gen.c',
-        'jit/helpers.c',
-        gadgets+'/entry.S',
-        gadgets+'/memory.S',
-        gadgets+'/control.S',
-        gadgets+'/math.S',
-        gadgets+'/bits.S',
-        gadgets+'/string.S',
-        gadgets+'/misc.S',
-        offsets,
-    ]
-else
-    emu_src += [
-        'emu/interp.c',
-    ]
-endif
+gadgets = 'jit/gadgets-' + host_machine.cpu_family()
+emu_src += [
+    gadgets+'/entry.S',
+    gadgets+'/memory.S',
+    gadgets+'/control.S',
+    gadgets+'/math.S',
+    gadgets+'/bits.S',
+    gadgets+'/string.S',
+    gadgets+'/misc.S',
+    offsets,
+]
 
 libish_emu = library('ish_emu', emu_src, include_directories: includes)
 

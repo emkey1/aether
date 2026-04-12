@@ -32,7 +32,7 @@
 		497F6CF5254E5EA500C82F46 /* float80-test.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C5A254E5C7E00C82F46 /* float80-test.c */; };
 		497F6CF6254E5EA500C82F46 /* float80.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C66254E5C7F00C82F46 /* float80.c */; };
 		497F6CF7254E5EA500C82F46 /* fpu.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C5D254E5C7E00C82F46 /* fpu.c */; };
-		497F6CF8254E5EA500C82F46 /* interp.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C67254E5C7F00C82F46 /* interp.c */; };
+		497F6CF8254E5EA500C82F46 /* amd64_interp.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C67254E5C7F00C82F46 /* amd64_interp.c */; };
 		497F6CF9254E5EA500C82F46 /* memory.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C60254E5C7F00C82F46 /* memory.c */; };
 		497F6CFA254E5EA500C82F46 /* tlb.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C59254E5C7E00C82F46 /* tlb.c */; };
 		497F6CFB254E5EA500C82F46 /* vec.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C64254E5C7F00C82F46 /* vec.c */; };
@@ -544,7 +544,7 @@
 		497F6C64254E5C7F00C82F46 /* vec.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = vec.c; sourceTree = "<group>"; };
 		497F6C65254E5C7F00C82F46 /* regid.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = regid.h; sourceTree = "<group>"; };
 		497F6C66254E5C7F00C82F46 /* float80.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = float80.c; sourceTree = "<group>"; };
-		497F6C67254E5C7F00C82F46 /* interp.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = interp.c; sourceTree = "<group>"; };
+		497F6C67254E5C7F00C82F46 /* amd64_interp.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = amd64_interp.c; sourceTree = "<group>"; };
 		497F6C69254E5C7F00C82F46 /* fpu.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = fpu.h; sourceTree = "<group>"; };
 		497F6C6A254E5C7F00C82F46 /* modrm.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = modrm.h; sourceTree = "<group>"; };
 		497F6C6B254E5C7F00C82F46 /* tlb.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = tlb.h; sourceTree = "<group>"; };
@@ -1304,7 +1304,7 @@
 				497F6C5D254E5C7E00C82F46 /* fpu.c */,
 				497F6C63254E5C7F00C82F46 /* fpu.h */,
 				497F6C68254E5C7F00C82F46 /* interp */,
-				497F6C67254E5C7F00C82F46 /* interp.c */,
+				497F6C67254E5C7F00C82F46 /* amd64_interp.c */,
 				497F6C5C254E5C7E00C82F46 /* interrupt.h */,
 				497F6C60254E5C7F00C82F46 /* memory.c */,
 				497F6C61254E5C7F00C82F46 /* memory.h */,
@@ -2110,7 +2110,7 @@
 				497F6CF5254E5EA500C82F46 /* float80-test.c in Sources */,
 				497F6CF6254E5EA500C82F46 /* float80.c in Sources */,
 				497F6CF7254E5EA500C82F46 /* fpu.c in Sources */,
-				497F6CF8254E5EA500C82F46 /* interp.c in Sources */,
+				497F6CF8254E5EA500C82F46 /* amd64_interp.c in Sources */,
 				497F6CF9254E5EA500C82F46 /* memory.c in Sources */,
 				497F6CFA254E5EA500C82F46 /* tlb.c in Sources */,
 				497F6CFB254E5EA500C82F46 /* vec.c in Sources */,

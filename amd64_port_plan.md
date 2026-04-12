@@ -141,7 +141,7 @@ Files:
 
 - `emu/decode.h`
 - `emu/modrm.h`
-- `emu/interp.c`
+- `emu/amd64_interp.c`
 
 Work:
 
@@ -162,7 +162,7 @@ Exit criteria:
 
 Files:
 
-- `emu/interp.c`
+- `emu/amd64_interp.c`
 - `emu/cpuid.h`
 
 Work:

@@ -213,7 +213,7 @@ If you are working on amd64 in this repo:
 The current amd64 work frequently touches:
 
 - instruction decode and execution in [emu/amd64_interp.c](emu/amd64_interp.c)
-- legacy interpreter compatibility in [emu/interp.c](emu/interp.c)
+- JIT handoff and dispatch in [jit/jit.c](jit/jit.c)
 - ELF64 and process startup in [kernel/exec.c](kernel/exec.c)
 - syscall dispatch and ABI handling in [kernel/calls.c](kernel/calls.c)
 
