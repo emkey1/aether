@@ -570,6 +570,17 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     } else {
         dword_t min = tty->termios.cc[VMIN_];
         dword_t time = tty->termios.cc[VTIME_];
+        if (tty_trace_top_poll_enabled()) {
+            printk("INFO: top tty_read enter pid=%d tty=%d:%d bufsize=%zu req=%zu min=%u time=%u flags=%#x\n",
+                   current->pid,
+                   tty->driver != NULL ? tty->driver->major : -1,
+                   tty->num,
+                   tty->bufsize,
+                   bufsize,
+                   min,
+                   time,
+                   fd->flags);
+        }
 
         struct timespec timeout;
         // time is in tenths of a second
@@ -588,6 +599,17 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
                 goto error;
             // there should be no timeout for the first character read
             err = wait_for(&tty->produced, &tty->lock, tty->bufsize == 0 ? NULL : timeout_ptr);
+            if (tty_trace_top_poll_enabled()) {
+                printk("INFO: top tty_read wait pid=%d tty=%d:%d bufsize=%zu min=%u time=%u err=%d first=%d\n",
+                       current->pid,
+                       tty->driver != NULL ? tty->driver->major : -1,
+                       tty->num,
+                       tty->bufsize,
+                       min,
+                       time,
+                       err,
+                       tty->bufsize == 0);
+            }
             if (err == _ETIMEDOUT)
                 break;
             if (err == _EINTR)

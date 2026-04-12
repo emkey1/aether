@@ -215,6 +215,28 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             select_trace_net_fd(files[i], requested, ready, "enter");
         }
     }
+    if (poll_trace_top_enabled()) {
+        printk("INFO: top select enter pid=%d nfds=%d timeout=%lds.%09ld\n",
+               current->pid, nfds,
+               timeout_ts_ptr != NULL ? timeout_ts.tv_sec : -1L,
+               timeout_ts_ptr != NULL ? timeout_ts.tv_nsec : -1L);
+        for (fd_t i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int requested = 0;
+            if (bit_test(i, readfds))
+                requested |= SELECT_READ;
+            if (bit_test(i, writefds))
+                requested |= SELECT_WRITE;
+            if (bit_test(i, exceptfds))
+                requested |= SELECT_EX;
+            if (requested == 0)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            printk("INFO: top select fd=%d requested=%#x ready=%#x file=%p\n",
+                   i, requested, ready, (void *) files[i]);
+        }
+    }
 
     memset(readfds, 0, fdset_size);
     memset(writefds, 0, fdset_size);
@@ -256,6 +278,23 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
                 continue;
             int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
             select_trace_net_fd(files[i], revents, ready, "exit");
+        }
+    }
+    if (poll_trace_top_enabled()) {
+        printk("INFO: top select exit pid=%d err=%d\n", current->pid, err);
+        for (fd_t i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            int revents = 0;
+            if (bit_test(i, readfds))
+                revents |= SELECT_READ;
+            if (bit_test(i, writefds))
+                revents |= SELECT_WRITE;
+            if (bit_test(i, exceptfds))
+                revents |= SELECT_EX;
+            printk("INFO: top select fd=%d ready_now=%#x revents=%#x file=%p\n",
+                   i, ready, revents, (void *) files[i]);
         }
     }
 
