@@ -2581,6 +2581,9 @@ restart_prefix:
         qword_t lhs, rhs, result;
         unsigned rm_size = (opcode == 0x80 || opcode == 0xc0) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            if (opcode == 0xc7)
+                printk("amd64 c7 decode fail: rip=%#llx\n",
+                       (unsigned long long) saved_rip);
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
@@ -2656,6 +2659,9 @@ restart_prefix:
         } else if (op_size == 16 && (opcode == 0x81 || opcode == 0xc7)) {
             uint16_t imm16;
             if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
+                if (opcode == 0xc7)
+                    printk("amd64 c7 imm16 fetch fail: rip=%#llx\n",
+                           (unsigned long long) saved_rip);
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
@@ -2664,6 +2670,9 @@ restart_prefix:
         } else {
             int32_t imm32;
             if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                if (opcode == 0xc7)
+                    printk("amd64 c7 imm32 fetch fail: rip=%#llx\n",
+                           (unsigned long long) saved_rip);
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
@@ -2671,8 +2680,16 @@ restart_prefix:
             rhs = opcode == 0xc7 && !rex.w ? (uint32_t) imm32 : (qword_t) (sqword_t) imm32;
         }
         if (opcode == 0xc6 || opcode == 0xc7) {
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs)) {
+                if (opcode == 0xc7)
+                    printk("amd64 c7 write fail: rip=%#llx addr=%#llx size=%u rhs=%#llx seg=%#x\n",
+                           (unsigned long long) saved_rip,
+                           (unsigned long long) amd64_effective_addr(cpu, &modrm, fs_prefix),
+                           op_size,
+                           (unsigned long long) rhs,
+                           cpu->segfault_addr);
                 goto amd64_gpf_restore;
+            }
             if (!modrm.is_reg && op_size == 64)
                 amd64_trace_qword_store(cpu, saved_rip, opcode,
                         amd64_effective_addr(cpu, &modrm, fs_prefix), rhs);
