@@ -40,6 +40,8 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
 #define AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP 0xfff929caull
 #define AMD64_HTOP_R13_CORRUPT_WRITE_RIP 0x5656375full
+#define AMD64_HTOP_TRACE_WINDOW_START 0x56563730ull
+#define AMD64_HTOP_TRACE_WINDOW_END 0x56563780ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
@@ -269,6 +271,77 @@ static inline void amd64_trace_htop_r13_source(struct cpu_state *cpu, qword_t ad
     }
 }
 
+static inline bool amd64_trace_in_htop_window(qword_t rip) {
+    return rip >= AMD64_HTOP_TRACE_WINDOW_START && rip < AMD64_HTOP_TRACE_WINDOW_END;
+}
+
+static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tlb) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (!amd64_trace_in_htop_window(cpu->amd64_current_insn_rip))
+        return;
+
+    uint8_t bytes[16] = {};
+    bool have_bytes = false;
+    addr_t insn_addr;
+    if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(bytes), &insn_addr) &&
+            tlb_read(tlb, insn_addr, bytes, sizeof(bytes))) {
+        have_bytes = true;
+    }
+
+    printk("amd64 htop win: rip=%#llx rsp=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx r12=%#llx r13=%#llx r15=%#llx\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rbx],
+           (unsigned long long) cpu->amd64_regs[amd64_rcx],
+           (unsigned long long) cpu->amd64_regs[amd64_rdx],
+           (unsigned long long) cpu->amd64_regs[amd64_r12],
+           (unsigned long long) cpu->amd64_regs[amd64_r13],
+           (unsigned long long) cpu->amd64_regs[amd64_r15]);
+    if (have_bytes) {
+        printk("amd64 htop win bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+               bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+    }
+}
+
+static inline void amd64_trace_htop_rbx_base(struct cpu_state *cpu, qword_t old_value,
+        qword_t new_value, unsigned size, qword_t raw_value) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (new_value != AMD64_HTOP_R13_CORRUPT_BLOCK_BASE)
+        return;
+
+    uint8_t bytes[16] = {};
+    bool have_bytes = false;
+    if (current->mem != NULL) {
+        void *ptr = mem_ptr(current->mem, (addr_t) cpu->amd64_current_insn_rip, MEM_READ);
+        if (ptr != NULL) {
+            memcpy(bytes, ptr, sizeof(bytes));
+            have_bytes = true;
+        }
+    }
+
+    printk("amd64 htop rbx base: rip=%#llx old=%#llx new=%#llx size=%u value=%#llx rsp=%#llx rax=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) old_value,
+           (unsigned long long) new_value,
+           size,
+           (unsigned long long) raw_value,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rcx],
+           (unsigned long long) cpu->amd64_regs[amd64_rdx],
+           (unsigned long long) cpu->amd64_regs[amd64_rsi],
+           (unsigned long long) cpu->amd64_regs[amd64_rdi]);
+    if (have_bytes) {
+        printk("amd64 htop rbx bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+               bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+    }
+}
+
 static inline bool amd64_trace_intersects_htop_r13_block(qword_t guest_addr, unsigned size) {
     qword_t start = guest_addr;
     qword_t end = guest_addr + size;
@@ -364,6 +437,8 @@ static inline void amd64_reg_set_encoded8(struct cpu_state *cpu, unsigned reg, b
     cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
     if (reg == amd64_r13)
         amd64_trace_htop_r13_write(cpu, old_value, cpu->amd64_regs[reg], 8, value & 0xff);
+    if (reg == amd64_rbx)
+        amd64_trace_htop_rbx_base(cpu, old_value, cpu->amd64_regs[reg], 8, value & 0xff);
 }
 
 static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
@@ -387,6 +462,8 @@ static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned s
     }
     if (reg == amd64_r13)
         amd64_trace_htop_r13_write(cpu, old_value, cpu->amd64_regs[reg], size, value);
+    if (reg == amd64_rbx)
+        amd64_trace_htop_rbx_base(cpu, old_value, cpu->amd64_regs[reg], size, value);
     if (reg == amd64_rsp)
         amd64_trace_suspicious_rsp_write(cpu, old_value, cpu->amd64_regs[reg], size);
 }
@@ -1268,6 +1345,7 @@ amd64_string_pf:
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     qword_t saved_rip = cpu->amd64_rip;
     cpu->amd64_current_insn_rip = saved_rip;
+    amd64_trace_htop_window(cpu, tlb);
     bool fs_prefix = false;
     bool operand_size_prefix = false;
     bool lock_prefix = false;
