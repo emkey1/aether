@@ -46,6 +46,7 @@ struct amd64_modrm {
 #define AMD64_HTOP_RBX_FIELD_OFFSET 0x170ull
 #define AMD64_HTOP_RBX_FIELD_SIZE 8
 #define AMD64_HTOP_RBX_FIELD_ABS_ADDR 0xf7f019e0ull
+#define AMD64_HTOP_FIELD_FILL_RIP 0x56569e88ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
@@ -354,9 +355,9 @@ static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t ba
     uint8_t bytes[64] = {};
     bool have_bytes = false;
     qword_t dump_addr = addr >= 0x10 ? addr - 0x10 : addr;
-    uint8_t pointee[64] = {};
+    uint8_t pointee[128] = {};
     bool have_pointee = false;
-    qword_t pointee_addr = value >= 0x20 ? value - 0x20 : value;
+    qword_t pointee_addr = value >= 0x50 ? value - 0x50 : value;
     if (current->mem != NULL) {
         void *ptr = mem_ptr(current->mem, (addr_t) dump_addr, MEM_READ);
         if (ptr != NULL) {
@@ -407,6 +408,18 @@ static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t ba
         printk("amd64 htop rbx mem3: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                pointee[48], pointee[49], pointee[50], pointee[51], pointee[52], pointee[53], pointee[54], pointee[55],
                pointee[56], pointee[57], pointee[58], pointee[59], pointee[60], pointee[61], pointee[62], pointee[63]);
+        printk("amd64 htop rbx mem4: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               pointee[64], pointee[65], pointee[66], pointee[67], pointee[68], pointee[69], pointee[70], pointee[71],
+               pointee[72], pointee[73], pointee[74], pointee[75], pointee[76], pointee[77], pointee[78], pointee[79]);
+        printk("amd64 htop rbx mem5: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               pointee[80], pointee[81], pointee[82], pointee[83], pointee[84], pointee[85], pointee[86], pointee[87],
+               pointee[88], pointee[89], pointee[90], pointee[91], pointee[92], pointee[93], pointee[94], pointee[95]);
+        printk("amd64 htop rbx mem6: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               pointee[96], pointee[97], pointee[98], pointee[99], pointee[100], pointee[101], pointee[102], pointee[103],
+               pointee[104], pointee[105], pointee[106], pointee[107], pointee[108], pointee[109], pointee[110], pointee[111]);
+        printk("amd64 htop rbx mem7: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               pointee[112], pointee[113], pointee[114], pointee[115], pointee[116], pointee[117], pointee[118], pointee[119],
+               pointee[120], pointee[121], pointee[122], pointee[123], pointee[124], pointee[125], pointee[126], pointee[127]);
     }
 }
 
@@ -471,6 +484,37 @@ static inline void amd64_trace_htop_field_write(struct cpu_state *cpu, struct tl
         if (ptr != NULL) {
             memcpy(field, ptr, sizeof(field));
             have_field = true;
+        }
+    }
+
+    if (cpu->amd64_current_insn_rip == AMD64_HTOP_FIELD_FILL_RIP) {
+        uint8_t insn[16] = {};
+        bool have_insn = false;
+        addr_t insn_addr;
+        if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn), &insn_addr) &&
+                tlb_read(tlb, insn_addr, insn, sizeof(insn))) {
+            have_insn = true;
+        }
+        printk("amd64 htop fill: rip=%#llx next=%#llx addr=%#llx size=%u rsp=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx r12=%#llx r13=%#llx r14=%#llx r15=%#llx\n",
+               (unsigned long long) cpu->amd64_current_insn_rip,
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) guest_addr,
+               size,
+               (unsigned long long) cpu->amd64_regs[amd64_rsp],
+               (unsigned long long) cpu->amd64_regs[amd64_rax],
+               (unsigned long long) cpu->amd64_regs[amd64_rbx],
+               (unsigned long long) cpu->amd64_regs[amd64_rcx],
+               (unsigned long long) cpu->amd64_regs[amd64_rdx],
+               (unsigned long long) cpu->amd64_regs[amd64_rsi],
+               (unsigned long long) cpu->amd64_regs[amd64_rdi],
+               (unsigned long long) cpu->amd64_regs[amd64_r12],
+               (unsigned long long) cpu->amd64_regs[amd64_r13],
+               (unsigned long long) cpu->amd64_regs[amd64_r14],
+               (unsigned long long) cpu->amd64_regs[amd64_r15]);
+        if (have_insn) {
+            printk("amd64 htop fill bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                   insn[0], insn[1], insn[2], insn[3], insn[4], insn[5], insn[6], insn[7],
+                   insn[8], insn[9], insn[10], insn[11], insn[12], insn[13], insn[14], insn[15]);
         }
     }
 
