@@ -56,6 +56,10 @@ static bool poll_trace_tty_wait_timeout(const struct timespec *timeout_ts_ptr, i
     return timeout_trace <= 2000;
 }
 
+static bool poll_trace_top_task_enabled(void) {
+    return current != NULL && strcmp(current->comm, "top") == 0;
+}
+
 static bool poll_trace_net_enabled(void) {
     if (current == NULL)
         return false;
@@ -428,12 +432,22 @@ dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout
             polls[i].revents = POLL_NVAL;
     }
     struct poll_context context = {polls, files, nfds};
+    bool trace_top_task = poll_trace_top_task_enabled();
     if (poll_trace_net_enabled()) {
         for (unsigned i = 0; i < nfds; i++) {
             if (files[i] == NULL)
                 continue;
             int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "enter");
+        }
+    }
+    if (trace_top_task) {
+        printk("INFO: top poll(any) enter pid=%d nfds=%u timeout_ms=%d\n",
+               current->pid, nfds, timeout_trace);
+        for (unsigned i = 0; i < nfds; i++) {
+            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            printk("INFO: top poll(any) fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
+                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
         }
     }
     bool trace_tty_poll = false;
@@ -475,6 +489,15 @@ out:
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "exit");
         }
     }
+    if (trace_top_task) {
+        printk("INFO: top poll(any) exit pid=%d res=%d timeout_ms=%d\n",
+               current->pid, res, timeout_trace);
+        for (unsigned i = 0; i < nfds; i++) {
+            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            printk("INFO: top poll(any) fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
+                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
+        }
+    }
     if (trace_tty_poll) {
         printk("INFO: top poll exit pid=%d res=%d timeout_ms=%d\n",
                current->pid, res, timeout_trace);
@@ -497,6 +520,7 @@ out:
 
 dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout) {
     struct timespec timeout_ts;
+
     const struct timespec *timeout_ts_ptr = NULL;
     if (timeout >= 0) {
         timeout_ts.tv_sec = timeout / 1000;
