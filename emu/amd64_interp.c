@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <math.h>
 
+#include "emu/cpuid.h"
 #include "emu/cpu.h"
 #include "emu/tlb.h"
 #include "emu/interrupt.h"
@@ -1141,6 +1142,22 @@ restart_prefix:
         }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
+        if (op2 == 0xa2) {
+            dword_t eax = (dword_t) cpu->amd64_regs[amd64_rax];
+            dword_t ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+            dword_t ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+            dword_t edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+            do_cpuid(&eax, &ebx, &ecx, &edx);
+            cpu->amd64_regs[amd64_rax] = eax;
+            cpu->amd64_regs[amd64_rbx] = ebx;
+            cpu->amd64_regs[amd64_rcx] = ecx;
+            cpu->amd64_regs[amd64_rdx] = edx;
+            cpu->eax = eax;
+            cpu->ebx = ebx;
+            cpu->ecx = ecx;
+            cpu->edx = edx;
+            break;
+        }
         if (op2 == 0x1e && rep_mode == AMD64_REPZ) {
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
