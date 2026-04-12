@@ -449,6 +449,7 @@ static syscall_t amd64_syscall_table[] = {
     [94] = (syscall_t) sys_lchown,
     [95] = (syscall_t) sys_umask,
     [96] = (syscall_t) sys_gettimeofday,
+    [97] = (syscall_t) sys_getrlimit64,
     [102] = (syscall_t) sys_getuid,
     [103] = (syscall_t) sys_syslog,
     [104] = (syscall_t) sys_getgid,
@@ -481,6 +482,7 @@ static syscall_t amd64_syscall_table[] = {
     [141] = (syscall_t) sys_setpriority,
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
+    [160] = (syscall_t) sys_setrlimit64,
     [169] = (syscall_t) sys_reboot,
     [186] = (syscall_t) sys_gettid,
     [217] = (syscall_t) sys_getdents64,
@@ -514,6 +516,7 @@ static syscall_t amd64_syscall_table[] = {
     [292] = (syscall_t) sys_dup3,
     [293] = (syscall_t) sys_pipe2,
     [294] = (syscall_t) sys_inotify_init1,
+    [302] = (syscall_t) sys_prlimit64,
     [318] = (syscall_t) sys_getrandom,
     [319] = (syscall_t) sys_memfd_create,
     [322] = (syscall_t) sys_execveat,
@@ -639,6 +642,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 84:  // rmdir
     case 87:  // unlink
     case 95:  // umask
+    case 97:  // getrlimit
     case 105: // setuid
     case 106: // setgid
     case 121: // getpgid
@@ -676,6 +680,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 96:  // gettimeofday
     case 131: // sigaltstack
     case 140: // getpriority
+    case 160: // setrlimit
     case 158: // arch_prctl
     case 228: // clock_gettime
     case 290: // eventfd2
@@ -743,6 +748,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 267: // readlinkat
     case 280: // utimensat
     case 288: // accept4
+    case 302: // prlimit64
     case 439: // faccessat2 wired to faccessat for now
         return 4;
     case 25:  // mremap

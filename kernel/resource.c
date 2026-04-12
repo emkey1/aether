@@ -68,6 +68,16 @@ dword_t sys_getrlimit32(dword_t resource, addr_t rlim_addr) {
     return 0;
 }
 
+dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
+    struct rlimit_ rlimit;
+    int err = rlimit_get(current, resource, &rlimit);
+    if (err < 0)
+        return err;
+    if (user_put(rlim_addr, rlimit))
+        return _EFAULT;
+    return 0;
+}
+
 dword_t sys_old_getrlimit32(dword_t resource, addr_t rlim_addr) {
     struct rlimit32_ rlimit;
     int err = do_getrlimit32(resource, &rlimit);
@@ -103,6 +113,16 @@ dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr) {
     if (user_get(rlim_addr, rlimit))
         return _EFAULT;
     STRACE("setrlimit(%d, {cur=%#x, max=%#x})", resource, rlimit.cur, rlimit.max);
+    int err = check_setrlimit(resource, rlimit);
+    if (err < 0)
+        return err;
+    return rlimit_set(current, resource, rlimit);
+}
+
+dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr) {
+    struct rlimit_ rlimit;
+    if (user_get(rlim_addr, rlimit))
+        return _EFAULT;
     int err = check_setrlimit(resource, rlimit);
     if (err < 0)
         return err;
