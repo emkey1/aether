@@ -1401,6 +1401,32 @@ restart_prefix:
             amd64_reg_set(cpu, modrm.reg, rex.w ? 64 : 32, result);
             break;
         }
+        if (op2 == 0x2a && (rep_mode == AMD64_REPZ || rep_mode == AMD64_REPNZ)) {
+            struct amd64_modrm modrm;
+            qword_t src_scalar;
+            union xmm_reg value;
+            if (operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= 8)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
+                goto amd64_gpf_restore;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ) {
+                value.f64[0] = rex.w ? (double) (sqword_t) src_scalar
+                                     : (double) (int32_t) src_scalar;
+            } else {
+                value.f32[0] = rex.w ? (float) (sqword_t) src_scalar
+                                     : (float) (int32_t) src_scalar;
+            }
+            cpu->xmm[modrm.reg] = value;
+            break;
+        }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
                 op2 == 0x28 || op2 == 0x29 || op2 == 0x58 || op2 == 0x59 ||
                 op2 == 0x5c || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
