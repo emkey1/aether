@@ -1,67 +1,245 @@
-# [iSH-AOK](https://github.com/emkey1/ish-AOK)
+# iSH-AOK
 
-[![Build Status](https://travis-ci.org/ish-app/ish.svg?branch=master)](https://travis-ci.org/ish-app/ish)
-[![goto counter](https://img.shields.io/github/search/ish-app/ish/goto.svg)](https://github.com/ish-app/ish/search?q=goto)
-[![fuck counter](https://img.shields.io/github/search/ish-app/ish/fuck.svg)](https://github.com/ish-app/ish/search?q=fuck)
+iSH-AOK is a fork of [ish-app/ish](https://github.com/ish-app/ish) with local product, tooling, and platform changes for day-to-day development on this tree.
 
-<p align="center">
-<a href="https://ish.app">
-<img src="https://ish.app/assets/github-readme.png">
-</a>
-</p>
+This fork is not just a rebrand. It carries fork-specific behavior, bundled roots, diagnostics work, File Provider integration, and an active experimental amd64/x86_64 guest bring-up. If you want upstream iSH, use `ish-app/ish`. If you are working in this repository, this README is the relevant one.
 
-A project to get a Linux shell running on iOS, using usermode x86 emulation and syscall translation.
+## What This Fork Adds
 
-For the current status of the project, check the issues tab, and the commit logs.
+- Fork-specific app identity:
+  - product name `iSH-AOK`
+  - bundle root `app.ish.iSH-AOK`
+- Bundled root filesystems in the app build:
+  - `root.tar.gz` as `Devuan5(Debian12)` for `i386`
+  - `alpine-minirootfs-3.23.3-x86.tar.gz` as `Alpine3.23.3`
+  - `alpine-minirootfs-3.23.3-x86_64.tar.gz` as `Alpine3.23.3(x86_64)`
+- File Provider support for exposing guest files through iOS.
+- Extra diagnostics and operational changes that are specific to this fork.
+- Ongoing amd64 interpreter, loader, and syscall work.
 
-- [TestFlight beta](https://testflight.apple.com/join/X1flyiqE)
-- [Discord server](https://discord.gg/RDEN5gJ4H6)
-- [Wiki with help and tutorials](https://github.com/ish-app/ish/wiki)
-- [README中文](https://github.com/ish-app/ish/blob/master/README_ZH.md) (如若未能保持最新，请提交PR以更新)
+## Current amd64 Status
 
-# Hacking
+The amd64 work in this repo is experimental.
 
-This project has a git submodule, make sure to clone with `--recurse-submodules` or run `git submodule update --init` after cloning.
+- The app can import and attempt to boot an `x86_64` guest root.
+- The interpreter, ELF64 loader, and amd64 syscall path are under active bring-up.
+- Expect early boot failures, decode gaps, and partial userland execution.
+- The current development branch for that work is typically `amd64`.
 
-You'll need these things to build the project:
+Relevant files:
 
- - Python 3
-   + Meson (`pip3 install meson`)
- - Ninja
- - Clang and LLD (on mac, `brew install llvm`, on linux, `sudo apt install clang lld` or `sudo pacman -S clang lld` or whatever)
- - sqlite3 (this is so common it may already be installed on linux and is definitely already installed on mac. if not, do something like `sudo apt install libsqlite3-dev`)
- - libarchive (`brew install libarchive`, `sudo port install libarchive`, `sudo apt install libarchive-dev`) TODO: bundle this dependency
+- [amd64_port_plan.md](amd64_port_plan.md)
+- [emu/amd64_interp.c](emu/amd64_interp.c)
+- [kernel/exec.c](kernel/exec.c)
+- [kernel/calls.c](kernel/calls.c)
 
-## Build for iOS
+## Repository Layout
 
-Open the project in Xcode, open iSH.xcconfig, and change `ROOT_BUNDLE_IDENTIFIER` to something unique. You'll also need to update the development team ID in the project (not target!) build settings. Then click Run. There are scripts that should do everything else automatically. If you run into any problems, open an issue and I'll try to help.
+- `app/`: iOS app, UI, root selection, diagnostics, File Provider integration.
+- `emu/`: guest CPU emulation, including amd64 interpreter work.
+- `kernel/`: syscall translation, process model, exec, signals, memory management.
+- `fs/`: filesystem layer and fakefs integration.
+- `jit/`: threaded-code JIT machinery inherited from iSH.
+- `tests/`: manual and automated test helpers.
+- `tools/`: developer tools and host-side helpers.
 
-## Build command line tool for testing
+## Clone
 
-To set up your environment, cd to the project and run `meson build` to create a build directory in `build`. Then cd to the build directory and run `ninja`.
+This repo uses submodules.
 
-To set up a self-contained Alpine linux filesystem, download the Alpine minirootfs tarball for i386 from the [Alpine website](https://alpinelinux.org/downloads/) and run `./tools/fakefsify`, with the minirootfs tarball as the first argument and the name of the output directory as the second argument. Then you can run things inside the Alpine filesystem with `./ish -f alpine /bin/login -f root`, assuming the output directory is called `alpine`. If `tools/fakefsify` doesn't exist for you in your build directory, that might be because it couldn't find libarchive on your system (see above for ways to install it.)
+```bash
+git clone --recurse-submodules git@github.com:emkey1/ish-AOK.git
+cd ish-AOK
+```
 
-You can replace `ish` with `tools/ptraceomatic` to run the program in a real process and single step and compare the registers at each step. I use it for debugging. Requires 64-bit Linux 4.11 or later.
+If you already cloned without submodules:
 
-## Logging
+```bash
+git submodule update --init --recursive
+```
 
-iSH has several logging channels which can be enabled at build time. By default, all of them are disabled. To enable them:
+## Build Requirements
 
-- In Xcode: Set the `ISH_LOG` setting in iSH.xcconfig to a space-separated list of log channels.
-- With Meson (command line tool for testing): Run `meson configure -Dlog="<space-separated list of log channels>"`.
+For local development you will typically want:
 
-Available channels:
+- Xcode
+- Python 3
+- Meson
+- Ninja
+- Clang/LLVM toolchain
+- sqlite3
+- libarchive
 
-- `strace`: The most useful channel, logs the parameters and return value of almost every system call.
-- `instr`: Logs every instruction executed by the emulator. This slows things down a lot.
-- `verbose`: Debug logs that don't fit into another category.
-- Grep for `DEFAULT_CHANNEL` to see if more log channels have been added since this list was updated.
+On macOS, common setup is:
 
-# A note on the JIT
+```bash
+brew install meson ninja llvm libarchive
+```
 
-Possibly the most interesting thing I wrote as part of iSH is the JIT. It's not actually a JIT since it doesn't target machine code. Instead it generates an array of pointers to functions called gadgets, and each gadget ends with a tailcall to the next function; like the threaded code technique used by some Forth interpreters. The result is a speedup of roughly 3-5x compared to pure emulation.
+`sqlite3` is usually already present.
 
-Unfortunately, I made the decision to write nearly all of the gadgets in assembly language. This was probably a good decision with regards to performance (though I'll never know for sure), but a horrible decision with regards to readability, maintainability, and my sanity. The amount of bullshit I've had to put up with from the compiler/assembler/linker is insane. It's like there's a demon in there that makes sure my code is sufficiently deformed, and if not, makes up stupid reasons why it shouldn't compile. In order to stay sane while writing this code, I've had to ignore best practices in code structure and naming. You'll find macros and variables with such descriptive names as `ss` and `s` and `a`. Assembler macros nested beyond belief. And to top it off, there are almost no comments.
+## Build the iOS App
 
-So a warning: Long-term exposure to this code may cause loss of sanity, nightmares about GAS macros and linker errors, or any number of other debilitating side effects. This code is known to the State of California to cause cancer, birth defects, and reproductive harm.
+Open [iSH-AOK.xcodeproj](iSH-AOK.xcodeproj) in Xcode and build the `iSH` scheme.
+
+Important fork-specific settings:
+
+- Bundle IDs are driven by [app/iSH.xcconfig](app/iSH.xcconfig).
+- `ROOT_BUNDLE_IDENTIFIER` defaults to `app.ish.iSH-AOK`.
+- The project already uses the fork-specific debug configuration `Debug-ApplePleaseFixFB19282108`.
+
+Command-line build:
+
+```bash
+xcodebuild \
+  -project iSH-AOK.xcodeproj \
+  -scheme iSH \
+  -sdk iphonesimulator \
+  -configuration Debug-ApplePleaseFixFB19282108 \
+  build CODE_SIGNING_ALLOWED=NO
+```
+
+The iOS build scripts copy these archives into the app bundle if they are present at repo root:
+
+- `root.tar.gz`
+- `alpine-minirootfs-3.23.3-x86.tar.gz`
+- `alpine-minirootfs-3.23.3-x86_64.tar.gz`
+
+If one of those files is missing, the corresponding bundled root will not work.
+
+## Build the Native CLI / Emulator
+
+For emulator-side work, the Meson build is usually faster than full Xcode runs.
+
+Initial setup:
+
+```bash
+meson setup build
+```
+
+Incremental build:
+
+```bash
+ninja -C build
+```
+
+Useful targets include:
+
+- `build/ish`
+- `build/libish.a`
+
+For many emulator changes, this is enough:
+
+```bash
+ninja -C build libish.a
+```
+
+## Working with Root Filesystems
+
+This fork currently exposes three bundled choices in the app:
+
+- `Devuan5(Debian12)` for `i386`
+- `Alpine3.23.3` for `i386`
+- `Alpine3.23.3(x86_64)` for `amd64`
+
+The root-selection UI and metadata handling live in:
+
+- [app/Roots.m](app/Roots.m)
+- [app/RootsTableViewController.m](app/RootsTableViewController.m)
+
+Notes:
+
+- `x86_64` roots are for bring-up, not for normal end-user use.
+- The app records guest ABI per imported root.
+- File Provider domains are synchronized for managed roots.
+
+## Logging and Diagnostics
+
+Logging is controlled by `ISH_LOG` in [app/iSH.xcconfig](app/iSH.xcconfig).
+
+Examples:
+
+```xcconfig
+ISH_LOG = verbose strace
+```
+
+Current logger defaults:
+
+- iPhone / simulator: `nslog`
+- macOS: `dprintf`
+
+Common useful channels:
+
+- `strace`
+- `verbose`
+- `instr`
+
+For emulator bring-up, the fastest loop is usually:
+
+1. Patch interpreter or kernel code.
+2. Run `ninja -C build libish.a`.
+3. Rebuild the iOS app.
+4. Launch in simulator.
+5. Inspect console logs for faulting RIP, opcode window, and register state.
+
+## File Provider
+
+This fork includes an iOS File Provider extension so guest files can be surfaced through the system file APIs.
+
+Relevant code:
+
+- [app/FileProvider/FileProviderExtension.m](app/FileProvider/FileProviderExtension.m)
+- [app/FileProvider/FileProviderEnumerator.m](app/FileProvider/FileProviderEnumerator.m)
+- [app/FileProvider/FileProviderItem.m](app/FileProvider/FileProviderItem.m)
+
+This is fork-specific functionality and should be treated as part of the maintained product surface here.
+
+## amd64 Development Workflow
+
+If you are working on amd64 in this repo:
+
+- Prefer the interpreter first; do not assume the JIT path is relevant yet.
+- Keep fixes small and reversible.
+- Validate with both:
+  - `ninja -C build libish.a`
+  - simulator `xcodebuild`
+- When a guest fails, capture:
+  - fault type
+  - guest RIP
+  - opcode window
+  - guest registers
+  - any added targeted trace output
+
+The current amd64 work frequently touches:
+
+- instruction decode and execution in [emu/amd64_interp.c](emu/amd64_interp.c)
+- legacy interpreter compatibility in [emu/interp.c](emu/interp.c)
+- ELF64 and process startup in [kernel/exec.c](kernel/exec.c)
+- syscall dispatch and ABI handling in [kernel/calls.c](kernel/calls.c)
+
+## Branches
+
+At the time of writing:
+
+- `main` is the general integration branch for the fork.
+- `amd64` is the active branch for x86_64 guest bring-up.
+
+If you update cross-cutting documentation, keep both branches in sync when the change applies to both.
+
+## Upstream Relationship
+
+iSH-AOK is based on upstream iSH, but it is intentionally diverged.
+
+That means:
+
+- upstream README instructions may be incomplete or wrong for this fork
+- branch names and build configurations may differ
+- bundled roots and operational behavior here are fork-specific
+- experimental amd64 support here should not be assumed to exist upstream
+
+## License
+
+See:
+
+- [LICENSE.md](LICENSE.md)
+- [LICENSE.IOS](LICENSE.IOS)
