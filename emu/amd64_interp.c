@@ -1141,6 +1141,17 @@ restart_prefix:
         }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
+        if (op2 == 0x1e && rep_mode == AMD64_REPZ) {
+            byte_t op3;
+            if (!amd64_fetch_u8(cpu, tlb, &op3)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (op3 == 0xfa || op3 == 0xfb)
+                break;
+            return INT_UNDEFINED;
+        }
         if (op2 >= 0x80 && op2 <= 0x8f) {
             int32_t rel32;
             if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
