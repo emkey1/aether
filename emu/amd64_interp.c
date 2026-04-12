@@ -3,6 +3,7 @@
 
 #include "emu/cpuid.h"
 #include "emu/cpu.h"
+#include "emu/fpu.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
 #include "emu/interrupt.h"
@@ -30,6 +31,21 @@ struct amd64_modrm {
     uint8_t scale;
     bool rip_relative;
     int32_t disp;
+};
+
+struct fpu_env32 {
+    uint32_t control;
+    uint32_t status;
+    uint32_t tag;
+    uint32_t ip;
+    uint32_t ip_selector;
+    uint32_t operand;
+    uint32_t operand_selector;
+};
+
+struct fpu_state32 {
+    struct fpu_env32 env;
+    uint8_t regs[8][10];
 };
 
 #define AMD64_BUSYBOX_INIT_SLOT 0x5661a6d8ull
@@ -1426,6 +1442,642 @@ static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
+static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
+        qword_t saved_rip, struct amd64_rex_prefix rex, bool fs_prefix, byte_t opcode) {
+    struct amd64_modrm modrm;
+    unsigned rm;
+    unsigned subop;
+    unsigned fullop;
+    qword_t addr = 0;
+
+    if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+        goto amd64_fpu_gpf_restore;
+
+    rm = modrm.rm & 7;
+    subop = ((unsigned) opcode << 4) | (modrm.reg & 7);
+    fullop = ((unsigned) opcode << 8) | ((modrm.reg & 7) << 4) | rm;
+    if (!modrm.is_reg)
+        addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+
+    if (!modrm.is_reg) {
+        switch (subop) {
+        case 0xd80: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_addm32(cpu, &value);
+            break;
+        }
+        case 0xd81: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_mulm32(cpu, &value);
+            break;
+        }
+        case 0xd82: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_comm32(cpu, &value);
+            break;
+        }
+        case 0xd83: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_comm32(cpu, &value);
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xd84: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_subm32(cpu, &value);
+            break;
+        }
+        case 0xd85: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_subrm32(cpu, &value);
+            break;
+        }
+        case 0xd86: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_divm32(cpu, &value);
+            break;
+        }
+        case 0xd87: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_divrm32(cpu, &value);
+            break;
+        }
+        case 0xd90: {
+            float value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ldm32(cpu, &value);
+            break;
+        }
+        case 0xd92: {
+            float value;
+            fpu_stm32(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xd93: {
+            float value;
+            fpu_stm32(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xd94: {
+            struct fpu_env32 env;
+            if (!amd64_mem_read(cpu, tlb, addr, &env, sizeof(env)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ldenv32(cpu, &env);
+            break;
+        }
+        case 0xd95: {
+            uint16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ldcw16(cpu, &value);
+            break;
+        }
+        case 0xd96: {
+            struct fpu_env32 env;
+            fpu_stenv32(cpu, &env);
+            if (!amd64_mem_write(cpu, tlb, addr, &env, sizeof(env)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xd97: {
+            uint16_t value;
+            fpu_stcw16(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xda0: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_iadd32(cpu, &value);
+            break;
+        }
+        case 0xda1: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_imul32(cpu, &value);
+            break;
+        }
+        case 0xda2: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_icom32(cpu, &value);
+            break;
+        }
+        case 0xda3: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_icom32(cpu, &value);
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xda4: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_isub32(cpu, &value);
+            break;
+        }
+        case 0xda5: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_isubr32(cpu, &value);
+            break;
+        }
+        case 0xda6: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_idiv32(cpu, &value);
+            break;
+        }
+        case 0xda7: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_idivr32(cpu, &value);
+            break;
+        }
+        case 0xdb0: {
+            int32_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ild32(cpu, &value);
+            break;
+        }
+        case 0xdb2: {
+            int32_t value;
+            fpu_ist32(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xdb3: {
+            int32_t value;
+            fpu_ist32(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xdb5: {
+            float80 value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ldm80(cpu, &value);
+            break;
+        }
+        case 0xdb7: {
+            float80 value;
+            fpu_stm80(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xdc0: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_addm64(cpu, &value);
+            break;
+        }
+        case 0xdc1: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_mulm64(cpu, &value);
+            break;
+        }
+        case 0xdc2: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_comm64(cpu, &value);
+            break;
+        }
+        case 0xdc3: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_comm64(cpu, &value);
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xdc4: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_subm64(cpu, &value);
+            break;
+        }
+        case 0xdc5: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_subrm64(cpu, &value);
+            break;
+        }
+        case 0xdc6: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_divm64(cpu, &value);
+            break;
+        }
+        case 0xdc7: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_divrm64(cpu, &value);
+            break;
+        }
+        case 0xdd0: {
+            double value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ldm64(cpu, &value);
+            break;
+        }
+        case 0xdd2: {
+            double value;
+            fpu_stm64(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xdd3: {
+            double value;
+            fpu_stm64(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xdd4: {
+            struct fpu_state32 state;
+            if (!amd64_mem_read(cpu, tlb, addr, &state, sizeof(state)))
+                goto amd64_fpu_gpf_restore;
+            fpu_restore32(cpu, &state);
+            break;
+        }
+        case 0xdd6: {
+            struct fpu_state32 state;
+            fpu_save32(cpu, &state);
+            if (!amd64_mem_write(cpu, tlb, addr, &state, sizeof(state)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xde0: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_iadd16(cpu, &value);
+            break;
+        }
+        case 0xde1: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_imul16(cpu, &value);
+            break;
+        }
+        case 0xde2: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_icom16(cpu, &value);
+            break;
+        }
+        case 0xde3: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_icom16(cpu, &value);
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xde4: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_isub16(cpu, &value);
+            break;
+        }
+        case 0xde5: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_isubr16(cpu, &value);
+            break;
+        }
+        case 0xde6: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_idiv16(cpu, &value);
+            break;
+        }
+        case 0xde7: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_idivr16(cpu, &value);
+            break;
+        }
+        case 0xdf0: {
+            int16_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ild16(cpu, &value);
+            break;
+        }
+        case 0xdf2: {
+            int16_t value;
+            fpu_ist16(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
+        case 0xdf3: {
+            int16_t value;
+            fpu_ist16(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        case 0xdf5: {
+            int64_t value;
+            if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_ild64(cpu, &value);
+            break;
+        }
+        case 0xdf7: {
+            int64_t value;
+            fpu_ist64(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
+        default:
+            return INT_UNDEFINED;
+        }
+        return INT_NONE;
+    }
+
+    switch (subop) {
+    case 0xd80:
+        fpu_add(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd81:
+        fpu_mul(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd82:
+        fpu_com(cpu, rm);
+        return INT_NONE;
+    case 0xd83:
+        fpu_com(cpu, rm);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xd84:
+        fpu_sub(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd85:
+        fpu_subr(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd86:
+        fpu_div(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd87:
+        fpu_divr(cpu, 0, rm);
+        return INT_NONE;
+    case 0xd90:
+        fpu_ld(cpu, rm);
+        return INT_NONE;
+    case 0xd91:
+        fpu_xch(cpu, rm);
+        return INT_NONE;
+    case 0xda0:
+        fpu_cmovb(cpu, rm);
+        return INT_NONE;
+    case 0xda1:
+        fpu_cmove(cpu, rm);
+        return INT_NONE;
+    case 0xda2:
+        fpu_cmovbe(cpu, rm);
+        return INT_NONE;
+    case 0xda3:
+        fpu_cmovu(cpu, rm);
+        return INT_NONE;
+    case 0xdb0:
+        fpu_cmovnb(cpu, rm);
+        return INT_NONE;
+    case 0xdb1:
+        fpu_cmovne(cpu, rm);
+        return INT_NONE;
+    case 0xdb2:
+        fpu_cmovnbe(cpu, rm);
+        return INT_NONE;
+    case 0xdb3:
+        fpu_cmovnu(cpu, rm);
+        return INT_NONE;
+    case 0xdb5:
+        fpu_ucomi(cpu, rm);
+        return INT_NONE;
+    case 0xdb6:
+        fpu_comi(cpu, rm);
+        return INT_NONE;
+    case 0xdc0:
+        fpu_add(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdc1:
+        fpu_mul(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdc4:
+        fpu_subr(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdc5:
+        fpu_sub(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdc6:
+        fpu_divr(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdc7:
+        fpu_div(cpu, rm, 0);
+        return INT_NONE;
+    case 0xdd0:
+        return INT_NONE;
+    case 0xdd2:
+        fpu_st(cpu, rm);
+        return INT_NONE;
+    case 0xdd3:
+        fpu_st(cpu, rm);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xdd4:
+        fpu_ucom(cpu, rm);
+        return INT_NONE;
+    case 0xdd5:
+        fpu_ucom(cpu, rm);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde0:
+        fpu_add(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde1:
+        fpu_mul(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde4:
+        fpu_subr(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde5:
+        fpu_sub(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde6:
+        fpu_divr(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xde7:
+        fpu_div(cpu, rm, 0);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xdf0:
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xdf5:
+        fpu_ucomi(cpu, rm);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xdf6:
+        fpu_comi(cpu, rm);
+        fpu_pop(cpu);
+        return INT_NONE;
+    default:
+        break;
+    }
+
+    switch (fullop) {
+    case 0xd940:
+        fpu_chs(cpu);
+        return INT_NONE;
+    case 0xd941:
+        fpu_abs(cpu);
+        return INT_NONE;
+    case 0xd944:
+        fpu_tst(cpu);
+        return INT_NONE;
+    case 0xd945:
+        fpu_xam(cpu);
+        return INT_NONE;
+    case 0xd950:
+        fpu_ldc(cpu, fconst_one);
+        return INT_NONE;
+    case 0xd951:
+        fpu_ldc(cpu, fconst_log2t);
+        return INT_NONE;
+    case 0xd952:
+        fpu_ldc(cpu, fconst_log2e);
+        return INT_NONE;
+    case 0xd953:
+        fpu_ldc(cpu, fconst_pi);
+        return INT_NONE;
+    case 0xd954:
+        fpu_ldc(cpu, fconst_log2);
+        return INT_NONE;
+    case 0xd955:
+        fpu_ldc(cpu, fconst_ln2);
+        return INT_NONE;
+    case 0xd956:
+        fpu_ldc(cpu, fconst_zero);
+        return INT_NONE;
+    case 0xd960:
+        fpu_2xm1(cpu);
+        return INT_NONE;
+    case 0xd961:
+        fpu_yl2x(cpu);
+        return INT_NONE;
+    case 0xd963:
+        fpu_patan(cpu);
+        return INT_NONE;
+    case 0xd964:
+        fpu_xtract(cpu);
+        return INT_NONE;
+    case 0xd967:
+        fpu_incstp(cpu);
+        return INT_NONE;
+    case 0xd970:
+        fpu_prem(cpu);
+        return INT_NONE;
+    case 0xd972:
+        fpu_sqrt(cpu);
+        return INT_NONE;
+    case 0xd974:
+        fpu_rndint(cpu);
+        return INT_NONE;
+    case 0xd975:
+        fpu_scale(cpu);
+        return INT_NONE;
+    case 0xd976:
+        fpu_sin(cpu);
+        return INT_NONE;
+    case 0xd977:
+        fpu_cos(cpu);
+        return INT_NONE;
+    case 0xdb42:
+        fpu_clex(cpu);
+        return INT_NONE;
+    case 0xde31:
+        fpu_com(cpu, 1);
+        fpu_pop(cpu);
+        fpu_pop(cpu);
+        return INT_NONE;
+    case 0xdf40:
+        amd64_reg_set(cpu, amd64_rax, 16, cpu->fsw);
+        return INT_NONE;
+    default:
+        return INT_UNDEFINED;
+    }
+
+amd64_fpu_gpf_restore:
+    cpu->amd64_rip = saved_rip;
+    cpu->segfault_addr = (addr_t) saved_rip;
+    return INT_GPF;
+}
+
 static inline void amd64_trace_qword_store(struct cpu_state *cpu, qword_t rip,
         byte_t opcode, qword_t addr, qword_t value) {
     unsigned slot = cpu->amd64_store_trace_next++ % AMD64_STORE_TRACE_COUNT;
@@ -2653,6 +3305,15 @@ restart_prefix:
             return INT_UNDEFINED;
         return INT_UNDEFINED;
     }
+    case 0xd8:
+    case 0xd9:
+    case 0xda:
+    case 0xdb:
+    case 0xdc:
+    case 0xdd:
+    case 0xde:
+    case 0xdf:
+        return amd64_handle_x87(cpu, tlb, saved_rip, rex, fs_prefix, opcode);
     case 0x00:
     case 0x01:
     case 0x02:
