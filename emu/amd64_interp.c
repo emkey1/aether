@@ -32,6 +32,11 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_TEST_RIP 0x565e3a02ull
 #define AMD64_BUSYBOX_INIT_JNE_RIP 0x565e3a05ull
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
+#define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
+#define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
+
+static qword_t amd64_busybox_init_watch[AMD64_BUSYBOX_INIT_WATCH_COUNT];
+static unsigned amd64_busybox_init_watch_next;
 
 static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsigned size) {
     if (size == 0)
@@ -41,6 +46,38 @@ static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsig
     qword_t slot_start = AMD64_BUSYBOX_INIT_SLOT;
     qword_t slot_end = slot_start + AMD64_BUSYBOX_INIT_SLOT_SIZE;
     return start < slot_end && end > slot_start;
+}
+
+static inline void amd64_busybox_watch_addr(qword_t guest_addr) {
+    if (guest_addr == 0)
+        return;
+    for (unsigned i = 0; i < AMD64_BUSYBOX_INIT_WATCH_COUNT; i++) {
+        if (amd64_busybox_init_watch[i] == guest_addr)
+            return;
+    }
+    amd64_busybox_init_watch[amd64_busybox_init_watch_next++ % AMD64_BUSYBOX_INIT_WATCH_COUNT] = guest_addr;
+}
+
+static inline bool amd64_trace_intersects_busybox_watch(qword_t guest_addr, unsigned size,
+        qword_t *base_out, qword_t *offset_out) {
+    if (size == 0)
+        return false;
+    qword_t start = guest_addr;
+    qword_t end = guest_addr + size;
+    for (unsigned i = 0; i < AMD64_BUSYBOX_INIT_WATCH_COUNT; i++) {
+        qword_t base = amd64_busybox_init_watch[i];
+        if (base == 0)
+            continue;
+        qword_t watch_end = base + AMD64_BUSYBOX_INIT_WATCH_SPAN;
+        if (start < watch_end && end > base) {
+            if (base_out != NULL)
+                *base_out = base;
+            if (offset_out != NULL)
+                *offset_out = start - base;
+            return true;
+        }
+    }
+    return false;
 }
 
 static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
@@ -374,6 +411,18 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         printk("amd64 slot write: rip=%#llx addr=%#llx size=%u value=%#llx\n",
                (unsigned long long) cpu->amd64_rip,
                (unsigned long long) guest_addr,
+               size,
+               (unsigned long long) observed);
+    }
+    qword_t watch_base = 0, watch_offset = 0;
+    if (amd64_trace_intersects_busybox_watch(guest_addr, size, &watch_base, &watch_offset)) {
+        qword_t observed = 0;
+        memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
+        printk("amd64 init write: rip=%#llx base=%#llx addr=%#llx off=%#llx size=%u value=%#llx\n",
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) watch_base,
+               (unsigned long long) guest_addr,
+               (unsigned long long) watch_offset,
                size,
                (unsigned long long) observed);
     }
@@ -1670,6 +1719,7 @@ restart_prefix:
             break;
         case 0x39:
             if (saved_rip == AMD64_BUSYBOX_INIT_CMP_RIP && !modrm.is_reg) {
+                amd64_busybox_watch_addr(amd64_reg_get(cpu, amd64_rax, 64));
                 printk("amd64 init cmp: rip=%#llx rax=%#llx rbx=%#llx addr=%#llx\n",
                        (unsigned long long) saved_rip,
                        (unsigned long long) amd64_reg_get(cpu, amd64_rax, 64),
@@ -1741,6 +1791,7 @@ restart_prefix:
                 goto amd64_gpf_restore;
             amd64_reg_set(cpu, modrm.reg, op_size, rhs);
             if (saved_rip == AMD64_BUSYBOX_INIT_LOAD_RIP) {
+                amd64_busybox_watch_addr(rhs);
                 printk("amd64 init load: rip=%#llx dst=%u value=%#llx rax=%#llx\n",
                        (unsigned long long) saved_rip,
                        modrm.reg,
