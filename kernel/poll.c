@@ -37,8 +37,23 @@ static bool poll_trace_comm(const char *comm) {
         strncmp(comm, "update-ca-certi", 15) == 0;
 }
 
-static bool poll_trace_top_enabled(void) {
-    return current != NULL && strcmp(current->comm, "top") == 0;
+static bool poll_trace_tty_wait_fd(struct fd *fd, int requested) {
+    if (current == NULL || fd == NULL)
+        return false;
+    if ((requested & (POLL_READ | POLL_PRI | POLL_HUP | POLL_ERR)) == 0)
+        return false;
+    return fd->ops == &tty_dev.fd;
+}
+
+static bool poll_trace_tty_wait_timeout(const struct timespec *timeout_ts_ptr, int timeout_trace) {
+    if (timeout_ts_ptr != NULL) {
+        if (timeout_ts_ptr->tv_sec < 0 || timeout_ts_ptr->tv_sec > 2)
+            return false;
+        return true;
+    }
+    if (timeout_trace < 0)
+        return false;
+    return timeout_trace <= 2000;
 }
 
 static bool poll_trace_net_enabled(void) {
@@ -215,7 +230,25 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             select_trace_net_fd(files[i], requested, ready, "enter");
         }
     }
-    if (poll_trace_top_enabled()) {
+    bool trace_tty_select = false;
+    if (poll_trace_tty_wait_timeout(timeout_ts_ptr, -1)) {
+        for (fd_t i = 0; i < nfds; i++) {
+            if (files[i] == NULL)
+                continue;
+            int requested = 0;
+            if (bit_test(i, readfds))
+                requested |= SELECT_READ;
+            if (bit_test(i, writefds))
+                requested |= SELECT_WRITE;
+            if (bit_test(i, exceptfds))
+                requested |= SELECT_EX;
+            if (poll_trace_tty_wait_fd(files[i], requested)) {
+                trace_tty_select = true;
+                break;
+            }
+        }
+    }
+    if (trace_tty_select) {
         printk("INFO: top select enter pid=%d nfds=%d timeout=%lds.%09ld\n",
                current->pid, nfds,
                timeout_ts_ptr != NULL ? timeout_ts.tv_sec : -1L,
@@ -280,7 +313,7 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             select_trace_net_fd(files[i], revents, ready, "exit");
         }
     }
-    if (poll_trace_top_enabled()) {
+    if (trace_tty_select) {
         printk("INFO: top select exit pid=%d err=%d\n", current->pid, err);
         for (fd_t i = 0; i < nfds; i++) {
             if (files[i] == NULL)
@@ -403,7 +436,16 @@ dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "enter");
         }
     }
-    if (poll_trace_top_enabled()) {
+    bool trace_tty_poll = false;
+    if (poll_trace_tty_wait_timeout(timeout_ts_ptr, timeout_trace)) {
+        for (unsigned i = 0; i < nfds; i++) {
+            if (poll_trace_tty_wait_fd(files[i], polls[i].events)) {
+                trace_tty_poll = true;
+                break;
+            }
+        }
+    }
+    if (trace_tty_poll) {
         printk("INFO: top poll enter pid=%d nfds=%u timeout_ms=%d\n",
                current->pid, nfds, timeout_trace);
         for (unsigned i = 0; i < nfds; i++) {
@@ -433,7 +475,7 @@ out:
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "exit");
         }
     }
-    if (poll_trace_top_enabled()) {
+    if (trace_tty_poll) {
         printk("INFO: top poll exit pid=%d res=%d timeout_ms=%d\n",
                current->pid, res, timeout_trace);
         for (unsigned i = 0; i < nfds; i++) {

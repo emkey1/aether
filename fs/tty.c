@@ -293,8 +293,10 @@ static bool tty_trace_signal_enabled(void) {
     return tty_trace_comm(current->comm);
 }
 
-static bool tty_trace_top_poll_enabled(void) {
-    return current != NULL && strcmp(current->comm, "top") == 0;
+static bool tty_trace_timed_raw_enabled(struct tty *tty) {
+    if (current == NULL || tty == NULL)
+        return false;
+    return !(tty->termios.lflags & ICANON_) && tty->termios.cc[VTIME_] > 0;
 }
 
 static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
@@ -570,7 +572,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
     } else {
         dword_t min = tty->termios.cc[VMIN_];
         dword_t time = tty->termios.cc[VTIME_];
-        if (tty_trace_top_poll_enabled()) {
+        if (tty_trace_timed_raw_enabled(tty)) {
             printk("INFO: top tty_read enter pid=%d tty=%d:%d bufsize=%zu req=%zu min=%u time=%u flags=%#x\n",
                    current->pid,
                    tty->driver != NULL ? tty->driver->major : -1,
@@ -599,7 +601,7 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
                 goto error;
             // there should be no timeout for the first character read
             err = wait_for(&tty->produced, &tty->lock, tty->bufsize == 0 ? NULL : timeout_ptr);
-            if (tty_trace_top_poll_enabled()) {
+            if (tty_trace_timed_raw_enabled(tty)) {
                 printk("INFO: top tty_read wait pid=%d tty=%d:%d bufsize=%zu min=%u time=%u err=%d first=%d\n",
                        current->pid,
                        tty->driver != NULL ? tty->driver->major : -1,
@@ -694,7 +696,7 @@ static int tty_poll(struct fd *fd) {
     }
     if (tty->driver == &pty_master && tty->packet_flags != 0)
         types |= POLL_PRI;
-    if (tty_trace_top_poll_enabled()) {
+    if (tty_trace_timed_raw_enabled(tty)) {
         printk("INFO: top tty_poll pid=%d tty=%d:%d lflags=%#x vmin=%u vtime=%u bufsize=%zu hung=%d types=%#x\n",
                current->pid,
                tty->driver != NULL ? tty->driver->major : -1,
