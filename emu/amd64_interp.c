@@ -417,15 +417,29 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
     qword_t watch_base = 0, watch_offset = 0;
     if (amd64_trace_intersects_busybox_watch(guest_addr, size, &watch_base, &watch_offset)) {
         qword_t observed = 0;
+        uint8_t insn_bytes[8] = {};
+        bool have_bytes = false;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
-        printk("amd64 init write: rip=%#llx next=%#llx base=%#llx addr=%#llx off=%#llx size=%u value=%#llx\n",
+        addr_t insn_addr;
+        if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn_bytes), &insn_addr) &&
+                tlb_read(tlb, insn_addr, insn_bytes, sizeof(insn_bytes))) {
+            have_bytes = true;
+        }
+        printk("amd64 init write: rip=%#llx next=%#llx base=%#llx addr=%#llx off=%#llx size=%u value=%#llx%s%s\n",
                (unsigned long long) cpu->amd64_current_insn_rip,
                (unsigned long long) cpu->amd64_rip,
                (unsigned long long) watch_base,
                (unsigned long long) guest_addr,
                (unsigned long long) watch_offset,
                size,
-               (unsigned long long) observed);
+               (unsigned long long) observed,
+               have_bytes ? " bytes=" : "",
+               have_bytes ? "" : "");
+        if (have_bytes) {
+            printk("amd64 init write bytes: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                   insn_bytes[0], insn_bytes[1], insn_bytes[2], insn_bytes[3],
+                   insn_bytes[4], insn_bytes[5], insn_bytes[6], insn_bytes[7]);
+        }
     }
     return true;
 }
