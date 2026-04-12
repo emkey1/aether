@@ -2670,10 +2670,7 @@ restart_prefix:
             }
             rhs = opcode == 0xc7 && !rex.w ? (uint32_t) imm32 : (qword_t) (sqword_t) imm32;
         }
-        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
-            goto amd64_gpf_restore;
-
-        if (opcode == 0xc7) {
+        if (opcode == 0xc6 || opcode == 0xc7) {
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
                 goto amd64_gpf_restore;
             if (!modrm.is_reg && op_size == 64)
@@ -2681,6 +2678,9 @@ restart_prefix:
                         amd64_effective_addr(cpu, &modrm, fs_prefix), rhs);
             break;
         }
+
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
+            goto amd64_gpf_restore;
 
         switch (modrm.reg) {
         case 0:
