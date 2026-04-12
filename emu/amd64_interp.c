@@ -1200,6 +1200,38 @@ restart_prefix:
             }
             break;
         }
+        if (op2 == 0xbc || op2 == 0xbd) {
+            struct amd64_modrm modrm;
+            qword_t src;
+            qword_t src_masked;
+            qword_t index;
+            if (rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &src))
+                goto amd64_gpf_restore;
+            src_masked = amd64_trunc(src, op_size);
+            collapse_flags(cpu);
+            cpu->zf = src_masked == 0;
+            cpu->zf_res = 0;
+            if (src_masked == 0)
+                break;
+            if (op2 == 0xbc) {
+                index = (op_size == 64)
+                        ? (qword_t) __builtin_ctzll(src_masked)
+                        : (qword_t) __builtin_ctz((uint32_t) src_masked);
+            } else {
+                index = (op_size == 64)
+                        ? (qword_t) (63 - __builtin_clzll(src_masked))
+                        : (qword_t) (31 - __builtin_clz((uint32_t) src_masked));
+            }
+            amd64_reg_set(cpu, modrm.reg, op_size, index);
+            break;
+        }
         if (op2 == 0xb6 || op2 == 0xb7 || op2 == 0xbe || op2 == 0xbf) {
             struct amd64_modrm modrm;
             qword_t src;
