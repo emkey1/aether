@@ -418,7 +418,8 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
     if (amd64_trace_intersects_busybox_watch(guest_addr, size, &watch_base, &watch_offset)) {
         qword_t observed = 0;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
-        printk("amd64 init write: rip=%#llx base=%#llx addr=%#llx off=%#llx size=%u value=%#llx\n",
+        printk("amd64 init write: rip=%#llx next=%#llx base=%#llx addr=%#llx off=%#llx size=%u value=%#llx\n",
+               (unsigned long long) cpu->amd64_current_insn_rip,
                (unsigned long long) cpu->amd64_rip,
                (unsigned long long) watch_base,
                (unsigned long long) guest_addr,
@@ -955,6 +956,7 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
 
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     qword_t saved_rip = cpu->amd64_rip;
+    cpu->amd64_current_insn_rip = saved_rip;
     bool fs_prefix = false;
     bool operand_size_prefix = false;
     bool lock_prefix = false;

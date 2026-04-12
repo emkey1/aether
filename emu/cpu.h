@@ -119,6 +119,7 @@ struct cpu_state {
 
     qword_t amd64_regs[amd64_reg_count];
     qword_t amd64_rip;
+    qword_t amd64_current_insn_rip;
 
     struct amd64_syscall_state amd64_syscall;
     struct amd64_store_trace amd64_store_trace[AMD64_STORE_TRACE_COUNT];
