@@ -1889,7 +1889,7 @@ restart_prefix:
             break;
         }
         if (op2 >= 0xc8 && op2 <= 0xcf) {
-            unsigned reg = op2 - 0xc8;
+            unsigned reg = (op2 - 0xc8) | (rex.b ? 8 : 0);
             if (rex.w) {
                 qword_t value = amd64_reg_get(cpu, reg, 64);
                 amd64_reg_set(cpu, reg, 64, __builtin_bswap64(value));
