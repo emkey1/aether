@@ -1760,6 +1760,30 @@ restart_prefix:
             amd64_set_mul_flags(cpu, overflow);
             break;
         }
+        if (op2 == 0xc0 || op2 == 0xc1) {
+            struct amd64_modrm modrm;
+            unsigned xadd_size = op2 == 0xc0 ? 8 : op_size;
+            qword_t lhs, rhs, result;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, &lhs))
+                goto amd64_gpf_restore;
+            rhs = op2 == 0xc0
+                    ? amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present)
+                    : amd64_reg_get(cpu, modrm.reg, xadd_size);
+            result = amd64_trunc(lhs + rhs, xadd_size);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, result))
+                goto amd64_gpf_restore;
+            if (op2 == 0xc0)
+                amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, lhs);
+            else
+                amd64_reg_set(cpu, modrm.reg, xadd_size, lhs);
+            amd64_set_add_flags(cpu, lhs, rhs, result, xadd_size);
+            break;
+        }
         if (op2 == 0xb1) {
             struct amd64_modrm modrm;
             qword_t dst, src, acc, result;
