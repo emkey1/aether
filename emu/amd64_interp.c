@@ -2753,6 +2753,8 @@ restart_prefix:
         cpu->amd64_rip = target;
         break;
     }
+    case 0xf4:
+        return INT_PRIV;
     case 0xd0:
     case 0xd1:
     case 0xd2:
