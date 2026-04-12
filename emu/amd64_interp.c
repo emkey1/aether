@@ -2410,13 +2410,23 @@ restart_prefix:
                 }
                 rhs = imm8;
             } else {
-                int32_t imm32;
-                if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
-                    cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
-                    return INT_GPF;
+                if (size == 16) {
+                    uint16_t imm16;
+                    if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
+                        cpu->amd64_rip = saved_rip;
+                        cpu->segfault_addr = (addr_t) saved_rip;
+                        return INT_GPF;
+                    }
+                    rhs = imm16;
+                } else {
+                    int32_t imm32;
+                    if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                        cpu->amd64_rip = saved_rip;
+                        cpu->segfault_addr = (addr_t) saved_rip;
+                        return INT_GPF;
+                    }
+                    rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
                 }
-                rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
             }
             amd64_set_logic_flags(cpu, lhs & rhs, size);
             break;
