@@ -179,4 +179,19 @@ struct statfs64_ {
     uint_t pad[4];
 } __attribute__((packed));
 
+struct amd64_statfs_ {
+    uint64_t type;
+    uint64_t bsize;
+    uint64_t blocks;
+    uint64_t bfree;
+    uint64_t bavail;
+    uint64_t files;
+    uint64_t ffree;
+    uint64_t fsid;
+    uint64_t namelen;
+    uint64_t frsize;
+    uint64_t flags;
+    uint64_t spare[4];
+} __attribute__((packed));
+
 #endif

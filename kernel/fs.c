@@ -903,6 +903,29 @@ static int_t statfs_mount(struct mount *mount, addr_t buf_addr) {
     return 0;
 }
 
+static int_t statfs_mount_amd64(struct mount *mount, addr_t buf_addr) {
+    struct statfsbuf buf = {};
+    int err = mount_statfs(mount, &buf);
+    if (err < 0)
+        return err;
+    struct amd64_statfs_ out_buf = {
+        .type = buf.type,
+        .bsize = buf.bsize,
+        .blocks = buf.blocks,
+        .bfree = buf.bfree,
+        .bavail = buf.bavail,
+        .files = buf.files,
+        .ffree = buf.ffree,
+        .fsid = buf.fsid,
+        .namelen = buf.namelen,
+        .frsize = buf.frsize,
+        .flags = buf.flags,
+    };
+    if (user_put(buf_addr, out_buf))
+        return _EFAULT;
+    return 0;
+}
+
 static int_t statfs64_mount(struct mount *mount, addr_t buf_addr) {
     struct statfsbuf buf = {};
     int err = mount_statfs(mount, &buf);
@@ -943,6 +966,23 @@ dword_t sys_statfs(addr_t path_addr, addr_t buf_addr) {
     return err;
 }
 
+dword_t sys_statfs_amd64(addr_t path_addr, addr_t buf_addr) {
+    char path_raw[MAX_PATH];
+    if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
+        return _EFAULT;
+    STRACE("statfs_amd64(\"%s\", %#x)", path_raw, buf_addr);
+    char path[MAX_PATH];
+    int err = path_normalize(AT_PWD, path_raw, path, N_SYMLINK_NOFOLLOW);
+    if (err < 0)
+        return err;
+    struct mount *mount = mount_find(path);
+    if (mount == NULL)
+        return _ENOENT;
+    err = statfs_mount_amd64(mount, buf_addr);
+    mount_release(mount);
+    return err;
+}
+
 dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr) {
     char path_raw[MAX_PATH];
     if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
@@ -967,6 +1007,13 @@ dword_t sys_fstatfs(fd_t f, addr_t buf_addr) {
     if (fd == NULL)
         return _EBADF;
     return statfs_mount(fd->mount, buf_addr);
+}
+
+dword_t sys_fstatfs_amd64(fd_t f, addr_t buf_addr) {
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    return statfs_mount_amd64(fd->mount, buf_addr);
 }
 
 dword_t sys_fstatfs64(fd_t f, dword_t buf_size, addr_t buf_addr) {

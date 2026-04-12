@@ -198,8 +198,10 @@ dword_t sys_splice(fd_t in_fd, addr_t in_off_addr, fd_t out_fd, addr_t out_off_a
 dword_t sys_copy_file_range(fd_t in_fd, addr_t in_off, fd_t out_fd, addr_t out_off, dword_t len, uint_t flags);
 
 dword_t sys_statfs(addr_t path_addr, addr_t buf_addr);
+dword_t sys_statfs_amd64(addr_t path_addr, addr_t buf_addr);
 dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr);
 dword_t sys_fstatfs(fd_t f, addr_t buf_addr);
+dword_t sys_fstatfs_amd64(fd_t f, addr_t buf_addr);
 dword_t sys_fstatfs64(fd_t f, dword_t buf_size, addr_t buf_addr);
 
 #define MS_READONLY_ (1 << 0)
