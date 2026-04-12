@@ -736,12 +736,32 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
-static inline bool amd64_pop(struct cpu_state *cpu, struct tlb *tlb, qword_t *value) {
+static inline bool amd64_pop_size(struct cpu_state *cpu, struct tlb *tlb, unsigned size, qword_t *value) {
     qword_t rsp = cpu->amd64_regs[amd64_rsp];
-    if (!amd64_mem_read(cpu, tlb, rsp, value, sizeof(*value)))
+    switch (size) {
+    case 16: {
+        uint16_t tmp;
+        if (!amd64_mem_read(cpu, tlb, rsp, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        cpu->amd64_regs[amd64_rsp] = rsp + sizeof(tmp);
+        return true;
+    }
+    case 64: {
+        uint64_t tmp;
+        if (!amd64_mem_read(cpu, tlb, rsp, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        cpu->amd64_regs[amd64_rsp] = rsp + sizeof(tmp);
+        return true;
+    }
+    default:
         return false;
-    cpu->amd64_regs[amd64_rsp] = rsp + sizeof(*value);
-    return true;
+    }
+}
+
+static inline bool amd64_pop(struct cpu_state *cpu, struct tlb *tlb, qword_t *value) {
+    return amd64_pop_size(cpu, tlb, 64, value);
 }
 
 static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
@@ -2192,6 +2212,23 @@ restart_prefix:
         if (!amd64_pop(cpu, tlb, &value))
             goto amd64_gpf_restore;
         amd64_reg_set(cpu, reg, 64, value);
+        break;
+    }
+    case 0x8f: {
+        struct amd64_modrm modrm;
+        qword_t value;
+        unsigned pop_size = operand_size_prefix ? 16 : 64;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = (addr_t) saved_rip;
+            return INT_GPF;
+        }
+        if (modrm.reg != 0)
+            return INT_UNDEFINED;
+        if (!amd64_pop_size(cpu, tlb, pop_size, &value))
+            goto amd64_gpf_restore;
+        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value))
+            goto amd64_gpf_restore;
         break;
     }
     case 0x68: {
