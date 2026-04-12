@@ -66,8 +66,10 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             .page_limit = (page_t) 1 << 35,
             // Until guest-visible pointers are widened, auto placement still
             // needs to stay within the current 32-bit syscall marshalling.
+            // Keep it well below the top-of-address-space grow-down stack so
+            // anonymous mmaps cannot occupy pages the stack will fault into.
             .mmap_floor = (page_t) 0x40000,
-            .mmap_ceiling = (page_t) 0xffffe,
+            .mmap_ceiling = (page_t) 0xf7ffe,
             .user_addr_max = (qword_t) 1 << 47,
             .stack_page = (page_t) 0xffffe,
             .stack_pointer = 0xfffff000u,

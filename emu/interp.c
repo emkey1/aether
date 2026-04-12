@@ -663,6 +663,7 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_TEST_RIP 0x565e3a02ull
 #define AMD64_BUSYBOX_INIT_JNE_RIP 0x565e3a05ull
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
+#define AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP 0xfff929caull
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
@@ -1070,6 +1071,16 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
             printk("amd64 init write bytes: %02x %02x %02x %02x %02x %02x %02x %02x\n",
                    insn_bytes[0], insn_bytes[1], insn_bytes[2], insn_bytes[3],
                    insn_bytes[4], insn_bytes[5], insn_bytes[6], insn_bytes[7]);
+        }
+        if (cpu->amd64_current_insn_rip == AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP) {
+            printk("amd64 init write regs: rax=%#llx rsp=%#llx rbp=%#llx r8=%#llx rcx=%#llx rdx=%#llx rsi=%#llx\n",
+                   (unsigned long long) cpu->amd64_regs[amd64_rax],
+                   (unsigned long long) cpu->amd64_regs[amd64_rsp],
+                   (unsigned long long) cpu->amd64_regs[amd64_rbp],
+                   (unsigned long long) cpu->amd64_regs[amd64_r8],
+                   (unsigned long long) cpu->amd64_regs[amd64_rcx],
+                   (unsigned long long) cpu->amd64_regs[amd64_rdx],
+                   (unsigned long long) cpu->amd64_regs[amd64_rsi]);
         }
     }
     return true;
