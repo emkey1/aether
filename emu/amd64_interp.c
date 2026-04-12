@@ -1606,17 +1606,12 @@ restart_prefix:
                 value.u32[3] = src_xmm.u32[1];
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x7e) {
-                if (rep_mode != AMD64_REPZ)
+                qword_t scalar = rex.w ? cpu->xmm[modrm.reg].qw[0]
+                                       : cpu->xmm[modrm.reg].u32[0];
+                if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
                     return INT_UNDEFINED;
-                value.u128 = 0;
-                if (modrm.is_reg) {
-                    value.qw[0] = cpu->xmm[modrm.rm].qw[0];
-                } else {
-                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
-                        goto amd64_gpf_restore;
-                    value.qw[0] = src_scalar;
-                }
-                cpu->xmm[modrm.reg] = value;
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, scalar))
+                    goto amd64_gpf_restore;
             } else if (op2 == 0x70) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
