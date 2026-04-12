@@ -400,5 +400,7 @@ Exit criteria:
 
 - The first implementation branch should cover patches 1 through 3 only.
 - The first release-quality amd64 milestone should be interpreter-only.
+- Restore a non-JIT interpreter build option after the amd64 JIT path is
+  complete and stable enough to stop owning the only amd64 execution mode.
 - If forced to choose between early JIT work and correct glibc plus TLS
   semantics, always choose the latter.

@@ -2091,7 +2091,7 @@ restart_prefix:
                 return INT_GPF;
             }
             rhs = (qword_t) amd64_sign_extend((uint8_t) imm8, 8);
-        } else if (opcode == 0xc7 && op_size == 16) {
+        } else if (op_size == 16 && (opcode == 0x81 || opcode == 0xc7)) {
             uint16_t imm16;
             if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
                 cpu->amd64_rip = saved_rip;
