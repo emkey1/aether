@@ -1158,6 +1158,17 @@ restart_prefix:
             cpu->edx = edx;
             break;
         }
+        if (op2 == 0x18) {
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg > 3)
+                return INT_UNDEFINED;
+            break;
+        }
         if (op2 == 0x1e && rep_mode == AMD64_REPZ) {
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
