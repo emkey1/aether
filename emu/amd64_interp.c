@@ -235,6 +235,38 @@ static inline void amd64_trace_htop_r13_write(struct cpu_state *cpu,
     }
 }
 
+static inline void amd64_trace_htop_r13_source(struct cpu_state *cpu, qword_t addr, qword_t value) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (cpu->amd64_current_insn_rip != AMD64_HTOP_R13_CORRUPT_WRITE_RIP)
+        return;
+
+    qword_t base = cpu->amd64_regs[amd64_rbx];
+    uint8_t bytes[32] = {};
+    bool have_bytes = false;
+    if (current->mem != NULL) {
+        void *ptr = mem_ptr(current->mem, (addr_t) base, MEM_READ);
+        if (ptr != NULL) {
+            memcpy(bytes, ptr, sizeof(bytes));
+            have_bytes = true;
+        }
+    }
+
+    printk("amd64 htop r13 src: rip=%#llx base=%#llx addr=%#llx value=%#llx\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) base,
+           (unsigned long long) addr,
+           (unsigned long long) value);
+    if (have_bytes) {
+        printk("amd64 htop r13 mem: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+               bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+        printk("amd64 htop r13 mem2: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23],
+               bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31]);
+    }
+}
+
 static inline qword_t amd64_reg_get(const struct cpu_state *cpu, unsigned reg, unsigned size) {
     qword_t value = cpu->amd64_regs[reg & 0xf];
     switch (size) {
@@ -976,6 +1008,8 @@ static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
         if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp)))
             return false;
         *value = tmp;
+        if (modrm->reg == amd64_r13)
+            amd64_trace_htop_r13_source(cpu, addr, tmp);
         return true;
     }
     default:
