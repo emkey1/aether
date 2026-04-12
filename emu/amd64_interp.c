@@ -1403,7 +1403,8 @@ restart_prefix:
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x62 || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
-                op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
+                op2 == 0xd6 || op2 == 0xdb || op2 == 0xdf ||
+                op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -1650,6 +1651,24 @@ restart_prefix:
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0xdb) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.qw[0] &= src_xmm.qw[0];
+                value.qw[1] &= src_xmm.qw[1];
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xdf) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.qw[0] = ~value.qw[0] & src_xmm.qw[0];
+                value.qw[1] = ~value.qw[1] & src_xmm.qw[1];
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xeb) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
