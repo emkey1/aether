@@ -1,3 +1,6 @@
+#include <limits.h>
+#include <math.h>
+
 #include "emu/cpu.h"
 #include "emu/tlb.h"
 #include "emu/interrupt.h"
@@ -38,6 +41,19 @@ struct amd64_modrm {
 
 static qword_t amd64_busybox_init_watch[AMD64_BUSYBOX_INIT_WATCH_COUNT];
 static unsigned amd64_busybox_init_watch_next;
+
+static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
+    if (isnan(value))
+        return wide ? (qword_t) INT64_MIN : (qword_t) (uint32_t) INT32_MIN;
+    if (wide) {
+        if (value < -9223372036854775808.0 || value >= 9223372036854775808.0)
+            return (qword_t) INT64_MIN;
+        return (qword_t) (sqword_t) value;
+    }
+    if (value < (double) INT32_MIN || value >= 2147483648.0)
+        return (qword_t) (uint32_t) INT32_MIN;
+    return (qword_t) (uint32_t) (int32_t) value;
+}
 
 static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsigned size) {
     if (size == 0)
@@ -1161,6 +1177,47 @@ restart_prefix:
                     goto amd64_gpf_restore;
                 cpu->mm[modrm.reg].qw = rex.w ? src_scalar : (uint32_t) src_scalar;
             }
+            break;
+        }
+        if (op2 == 0x2c && (rep_mode == AMD64_REPZ || rep_mode == AMD64_REPNZ)) {
+            struct amd64_modrm modrm;
+            qword_t src_scalar;
+            qword_t result;
+            if (operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (rep_mode == AMD64_REPZ) {
+                double src_double;
+                if (modrm.is_reg) {
+                    if (modrm.rm >= 8)
+                        return INT_UNDEFINED;
+                    src_double = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_gpf_restore;
+                    src_double = *(double *) &src_scalar;
+                }
+                result = amd64_cvtt_scalar_to_int(src_double, rex.w);
+            } else {
+                float src_float;
+                uint32_t src_word;
+                if (modrm.is_reg) {
+                    if (modrm.rm >= 8)
+                        return INT_UNDEFINED;
+                    src_float = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_gpf_restore;
+                    src_word = (uint32_t) src_scalar;
+                    src_float = *(float *) &src_word;
+                }
+                result = amd64_cvtt_scalar_to_int((double) src_float, rex.w);
+            }
+            amd64_reg_set(cpu, modrm.reg, rex.w ? 64 : 32, result);
             break;
         }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
