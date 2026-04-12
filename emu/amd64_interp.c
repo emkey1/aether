@@ -2935,7 +2935,7 @@ int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb) {
     int steps = 0;
     while (true) {
         int interrupt = amd64_step_to_interrupt(cpu, tlb);
-        if (interrupt == INT_UNDEFINED)
+        if (interrupt == INT_UNDEFINED || interrupt == INT_PRIV)
             cpu->amd64_rip = cpu->amd64_current_insn_rip;
         if (interrupt == INT_NONE && cpu->tf)
             interrupt = INT_DEBUG;
