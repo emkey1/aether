@@ -1837,6 +1837,17 @@ restart_prefix:
                 unlock(&atomic_l_lock);
             break;
         }
+        if (op2 >= 0xc8 && op2 <= 0xcf) {
+            unsigned reg = op2 - 0xc8;
+            if (rex.w) {
+                qword_t value = amd64_reg_get(cpu, reg, 64);
+                amd64_reg_set(cpu, reg, 64, __builtin_bswap64(value));
+            } else {
+                dword_t value = (dword_t) amd64_reg_get(cpu, reg, 32);
+                amd64_reg_set(cpu, reg, 32, __builtin_bswap32(value));
+            }
+            break;
+        }
         if (op2 == 0x1f) {
             struct amd64_modrm modrm;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
