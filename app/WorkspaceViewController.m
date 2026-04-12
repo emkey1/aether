@@ -523,6 +523,16 @@ static NSString *ISHWorkspaceTerminalRoleForTerminal(Terminal *terminal) {
     return ISHWorkspaceTerminalRoleGeneric;
 }
 
+static NSString *ISHWorkspaceDiagnosticsString(id value) {
+    if (value == nil || value == (id)kCFNull)
+        return nil;
+    if ([value isKindOfClass:NSString.class])
+        return (NSString *)value;
+    if ([value respondsToSelector:@selector(stringValue)])
+        return [value stringValue];
+    return [value description];
+}
+
 static NSString *ISHWorkspaceTitleForTerminalRole(NSString *terminalRole, Terminal *terminal) {
     if ([terminalRole isEqualToString:ISHWorkspaceTerminalRoleSystemConsole])
         return @"System Console";
@@ -2314,14 +2324,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     NSDictionary<NSString *, id> *latestPayload = payloads.firstObject;
-    NSString *filename = latestPayload[@"filename"] ?: @"payload.json";
-    NSString *receivedAt = latestPayload[@"receivedAt"] ?: @"recently";
+    NSString *filename = ISHWorkspaceDiagnosticsString(latestPayload[@"filename"]) ?: @"payload.json";
+    NSString *receivedAt = ISHWorkspaceDiagnosticsString(latestPayload[@"receivedAt"]) ?: @"recently";
     NSArray<NSDictionary<NSString *, id> *> *summaries = latestPayload[@"summaries"];
     NSString *topSummary = @"no summaries";
     if ([summaries isKindOfClass:NSArray.class] && summaries.count > 0) {
         NSDictionary<NSString *, id> *entry = summaries.firstObject;
-        NSString *kind = entry[@"kind"] ?: @"diagnostic";
-        NSString *signal = entry[@"signal"] ?: @"";
+        NSString *kind = ISHWorkspaceDiagnosticsString(entry[@"kind"]) ?: @"diagnostic";
+        NSString *signal = ISHWorkspaceDiagnosticsString(entry[@"signal"]) ?: @"";
         topSummary = signal.length > 0 ? [NSString stringWithFormat:@"%@ / signal %@", kind, signal] : kind;
     }
     self.diagnosticsSummaryLabel.text =
