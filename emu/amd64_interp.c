@@ -7,6 +7,7 @@
 #include "emu/interrupt.h"
 #include "emu/modrm.h"
 #include "kernel/task.h"
+#include "util/sync.h"
 
 struct amd64_rex_prefix {
     bool present;
@@ -1764,19 +1765,31 @@ restart_prefix:
             struct amd64_modrm modrm;
             unsigned xadd_size = op2 == 0xc0 ? 8 : op_size;
             qword_t lhs, rhs, result;
+            bool atomic_locked = false;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, &lhs))
+            atomic_locked = lock_prefix && !modrm.is_reg;
+            if (atomic_locked)
+                lock(&atomic_l_lock, 0);
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, &lhs)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
                 goto amd64_gpf_restore;
+            }
             rhs = op2 == 0xc0
                     ? amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present)
                     : amd64_reg_get(cpu, modrm.reg, xadd_size);
             result = amd64_trunc(lhs + rhs, xadd_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, result))
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xadd_size, result)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
                 goto amd64_gpf_restore;
+            }
+            if (atomic_locked)
+                unlock(&atomic_l_lock);
             if (op2 == 0xc0)
                 amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, lhs);
             else
@@ -1787,20 +1800,30 @@ restart_prefix:
         if (op2 == 0xb1) {
             struct amd64_modrm modrm;
             qword_t dst, src, acc, result;
+            bool atomic_locked = false;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &dst))
+            atomic_locked = lock_prefix && !modrm.is_reg;
+            if (atomic_locked)
+                lock(&atomic_l_lock, 0);
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &dst)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
                 goto amd64_gpf_restore;
+            }
             src = amd64_reg_get(cpu, modrm.reg, op_size);
             acc = amd64_reg_get(cpu, amd64_rax, op_size);
             result = amd64_trunc(acc - dst, op_size);
             amd64_set_sub_flags(cpu, acc, dst, result, op_size);
             if (acc == dst) {
-                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, src))
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, src)) {
+                    if (atomic_locked)
+                        unlock(&atomic_l_lock);
                     goto amd64_gpf_restore;
+                }
                 if (!modrm.is_reg && op_size == 64)
                     amd64_trace_qword_store(cpu, saved_rip, 0x0f, amd64_effective_addr(cpu, &modrm, fs_prefix), src);
                 cpu->zf = 1;
@@ -1810,6 +1833,8 @@ restart_prefix:
                 cpu->zf = 0;
                 cpu->zf_res = 0;
             }
+            if (atomic_locked)
+                unlock(&atomic_l_lock);
             break;
         }
         if (op2 == 0x1f) {
@@ -2170,12 +2195,23 @@ restart_prefix:
         case 0x86:
         case 0x87: {
             unsigned xchg_size = opcode == 0x86 ? 8 : op_size;
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, &lhs))
+            bool atomic_locked = !modrm.is_reg;
+            if (atomic_locked)
+                lock(&atomic_l_lock, 0);
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, &lhs)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
                 goto amd64_gpf_restore;
+            }
             rhs = opcode == 0x86 ? amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present)
                                  : amd64_reg_get(cpu, modrm.reg, xchg_size);
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, rhs))
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, xchg_size, rhs)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
                 goto amd64_gpf_restore;
+            }
+            if (atomic_locked)
+                unlock(&atomic_l_lock);
             if (opcode == 0x86)
                 amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, lhs);
             else
