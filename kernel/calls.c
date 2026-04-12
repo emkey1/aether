@@ -493,6 +493,7 @@ static syscall_t amd64_syscall_table[] = {
     [258] = (syscall_t) sys_mkdirat,
     [259] = (syscall_t) sys_mknodat,
     [260] = (syscall_t) sys_fchownat,
+    [261] = (syscall_t) sys_futimesat,
     [262] = (syscall_t) sys_newfstatat_amd64,
     [263] = (syscall_t) sys_unlinkat,
     [264] = (syscall_t) sys_renameat,
@@ -504,6 +505,7 @@ static syscall_t amd64_syscall_table[] = {
     [270] = (syscall_t) sys_pselect,
     [271] = (syscall_t) sys_ppoll,
     [272] = (syscall_t) sys_unshare,
+    [280] = (syscall_t) sys_utimensat,
     [281] = (syscall_t) sys_epoll_pwait,
     [284] = (syscall_t) sys_eventfd,
     [288] = (syscall_t) sys_accept4,
@@ -712,6 +714,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 141: // setpriority
     case 217: // getdents64
     case 258: // mkdirat
+    case 261: // futimesat
     case 263: // unlinkat
     case 266: // symlinkat
     case 268: // fchmodat
@@ -738,6 +741,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 262: // newfstatat
     case 264: // renameat
     case 267: // readlinkat
+    case 280: // utimensat
     case 288: // accept4
     case 439: // faccessat2 wired to faccessat for now
         return 4;

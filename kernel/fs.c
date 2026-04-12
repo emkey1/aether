@@ -1101,6 +1101,26 @@ dword_t sys_utimes(addr_t path_addr, addr_t times_addr) {
     return sys_utime_common(AT_FDCWD_, path_addr, atime, mtime, 0);
 }
 
+dword_t sys_futimesat(fd_t at_f, addr_t path_addr, addr_t times_addr) {
+    struct timespec atime;
+    struct timespec mtime;
+    if (times_addr == 0) {
+        atime = mtime = timespec_now(CLOCK_REALTIME);
+    } else {
+        size_t stride = guest_timeval_size(current->abi);
+        struct timeval time_a;
+        struct timeval time_m;
+        if (read_guest_timeval_abi(current->abi, times_addr, &time_a) ||
+                read_guest_timeval_abi(current->abi, times_addr + stride, &time_m))
+            return _EFAULT;
+        atime.tv_sec = time_a.tv_sec;
+        atime.tv_nsec = time_a.tv_usec * 1000;
+        mtime.tv_sec = time_m.tv_sec;
+        mtime.tv_nsec = time_m.tv_usec * 1000;
+    }
+    return sys_utime_common(at_f, path_addr, atime, mtime, 0);
+}
+
 dword_t sys_utime(addr_t path_addr, addr_t times_addr) {
     struct timespec atime;
     struct timespec mtime;
