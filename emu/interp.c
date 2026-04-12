@@ -3142,7 +3142,7 @@ int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb) {
     while (true) {
         int interrupt = amd64_step_to_interrupt(cpu, tlb);
         if (interrupt == INT_UNDEFINED)
-            cpu->amd64_rip = cpu->eip;
+            cpu->amd64_rip = cpu->amd64_current_insn_rip;
         if (interrupt == INT_NONE && cpu->tf)
             interrupt = INT_DEBUG;
         if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
