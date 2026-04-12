@@ -331,10 +331,16 @@ static inline void amd64_set_rotate_flags(struct cpu_state *cpu, qword_t result,
 
 static inline bool amd64_fetch(struct cpu_state *cpu, struct tlb *tlb, void *out, unsigned size) {
     addr_t addr;
-    if (!amd64_guest_addr_ok(cpu->amd64_rip, size, &addr))
+    if (!amd64_guest_addr_ok(cpu->amd64_rip, size, &addr)) {
+        cpu->segfault_addr = (addr_t) cpu->amd64_rip;
+        cpu->segfault_was_write = false;
         return false;
-    if (!tlb_read(tlb, addr, out, size))
+    }
+    if (!tlb_read(tlb, addr, out, size)) {
+        cpu->segfault_addr = addr;
+        cpu->segfault_was_write = false;
         return false;
+    }
     cpu->amd64_rip += size;
     return true;
 }
@@ -374,17 +380,23 @@ static inline bool amd64_fetch_accum_imm(struct cpu_state *cpu, struct tlb *tlb,
     return true;
 }
 
+static inline bool amd64_verbose_boot_trace_enabled(void) {
+    return false;
+}
+
 static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_t guest_addr, void *out, unsigned size) {
     addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
         cpu->segfault_addr = (addr_t) guest_addr;
+        cpu->segfault_was_write = false;
         return false;
     }
     if (!tlb_read(tlb, addr, out, size)) {
         cpu->segfault_addr = addr;
+        cpu->segfault_was_write = false;
         return false;
     }
-    if (amd64_trace_intersects_busybox_slot(guest_addr, size)) {
+    if (amd64_verbose_boot_trace_enabled() && amd64_trace_intersects_busybox_slot(guest_addr, size)) {
         qword_t observed = 0;
         memcpy(&observed, out, size < sizeof(observed) ? size : sizeof(observed));
         printk("amd64 slot read: rip=%#llx addr=%#llx size=%u value=%#llx\n",
@@ -400,13 +412,15 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
     addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
         cpu->segfault_addr = (addr_t) guest_addr;
+        cpu->segfault_was_write = true;
         return false;
     }
     if (!tlb_write(tlb, addr, value, size)) {
         cpu->segfault_addr = addr;
+        cpu->segfault_was_write = true;
         return false;
     }
-    if (amd64_trace_intersects_busybox_slot(guest_addr, size)) {
+    if (amd64_verbose_boot_trace_enabled() && amd64_trace_intersects_busybox_slot(guest_addr, size)) {
         qword_t observed = 0;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
         printk("amd64 slot write: rip=%#llx addr=%#llx size=%u value=%#llx\n",
@@ -416,7 +430,8 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
                (unsigned long long) observed);
     }
     qword_t watch_base = 0, watch_offset = 0;
-    if (amd64_trace_intersects_busybox_watch(guest_addr, size, &watch_base, &watch_offset)) {
+    if (amd64_verbose_boot_trace_enabled() &&
+            amd64_trace_intersects_busybox_watch(guest_addr, size, &watch_base, &watch_offset)) {
         qword_t observed = 0;
         uint8_t insn_bytes[8] = {};
         bool have_bytes = false;
@@ -472,19 +487,19 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, unsigned size) {
     qword_t src;
     if (!amd64_read_rm(cpu, tlb, modrm, fs_prefix, size, &src))
-        return INT_GPF;
+        return INT_PF;
 
     switch (modrm->reg) {
     case 2: {
         qword_t result = amd64_trunc(~src, size);
         if (!amd64_write_rm(cpu, tlb, modrm, fs_prefix, size, result))
-            return INT_GPF;
+            return INT_PF;
         return INT_NONE;
     }
     case 3: {
         qword_t result = amd64_trunc(0 - src, size);
         if (!amd64_write_rm(cpu, tlb, modrm, fs_prefix, size, result))
-            return INT_GPF;
+            return INT_PF;
         amd64_set_sub_flags(cpu, 0, src, result, size);
         return INT_NONE;
     }
@@ -1745,7 +1760,8 @@ restart_prefix:
             amd64_set_logic_flags(cpu, result, op_size);
             break;
         case 0x39:
-            if (saved_rip == AMD64_BUSYBOX_INIT_CMP_RIP && !modrm.is_reg) {
+            if (amd64_verbose_boot_trace_enabled() &&
+                    saved_rip == AMD64_BUSYBOX_INIT_CMP_RIP && !modrm.is_reg) {
                 amd64_busybox_watch_addr(amd64_reg_get(cpu, amd64_rax, 64));
                 printk("amd64 init cmp: rip=%#llx rax=%#llx rbx=%#llx addr=%#llx\n",
                        (unsigned long long) saved_rip,
@@ -1771,7 +1787,7 @@ restart_prefix:
                 goto amd64_gpf_restore;
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
             amd64_set_logic_flags(cpu, lhs & rhs, op_size);
-            if (saved_rip == AMD64_BUSYBOX_INIT_TEST_RIP) {
+            if (amd64_verbose_boot_trace_enabled() && saved_rip == AMD64_BUSYBOX_INIT_TEST_RIP) {
                 printk("amd64 init test: rip=%#llx lhs=%#llx rhs=%#llx zf=%d rax=%#llx\n",
                        (unsigned long long) saved_rip,
                        (unsigned long long) lhs,
@@ -1817,7 +1833,7 @@ restart_prefix:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
                 goto amd64_gpf_restore;
             amd64_reg_set(cpu, modrm.reg, op_size, rhs);
-            if (saved_rip == AMD64_BUSYBOX_INIT_LOAD_RIP) {
+            if (amd64_verbose_boot_trace_enabled() && saved_rip == AMD64_BUSYBOX_INIT_LOAD_RIP) {
                 amd64_busybox_watch_addr(rhs);
                 printk("amd64 init load: rip=%#llx dst=%u value=%#llx rax=%#llx\n",
                        (unsigned long long) saved_rip,
@@ -1982,7 +1998,7 @@ restart_prefix:
             break;
         }
         result = amd64_grp3_muldiv(cpu, tlb, &modrm, fs_prefix, size);
-        if (result == INT_GPF)
+        if (result == INT_PF)
             goto amd64_gpf_restore;
         if (result != INT_NONE)
             return result;
@@ -1996,7 +2012,7 @@ restart_prefix:
             return INT_GPF;
         }
         bool taken = amd64_cond_eval(cpu, opcode & 0xf);
-        if (saved_rip == AMD64_BUSYBOX_INIT_JNE_RIP) {
+        if (amd64_verbose_boot_trace_enabled() && saved_rip == AMD64_BUSYBOX_INIT_JNE_RIP) {
             printk("amd64 init jne: rip=%#llx zf=%d taken=%d rax=%#llx target=%#llx\n",
                    (unsigned long long) saved_rip,
                    cpu->zf,
@@ -2349,45 +2365,49 @@ restart_prefix:
         cpu->amd64_rip = target;
         break;
     }
+    case 0xd0:
     case 0xd1:
+    case 0xd2:
     case 0xd3: {
         struct amd64_modrm modrm;
         qword_t lhs, result;
         unsigned count, effective_count;
+        unsigned rm_size = (opcode == 0xd0 || opcode == 0xd2) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
             goto amd64_gpf_restore;
-        count = opcode == 0xd1 ? 1 : (amd64_reg_get(cpu, amd64_rcx, 8) & (op_size == 64 ? 0x3f : 0x1f));
-        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % op_size) : count;
+        count = (opcode == 0xd0 || opcode == 0xd1) ? 1 :
+            (amd64_reg_get(cpu, amd64_rcx, 8) & (rm_size == 64 ? 0x3f : 0x1f));
+        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) : count;
         if (effective_count == 0)
             break;
         switch (modrm.reg) {
         case 0:
         case 1:
-            result = amd64_rotate_value(lhs, op_size, count, modrm.reg);
+            result = amd64_rotate_value(lhs, rm_size, count, modrm.reg);
             break;
         case 4:
-            result = amd64_trunc(lhs << count, op_size);
+            result = amd64_trunc(lhs << count, rm_size);
             break;
         case 5:
-            result = amd64_trunc(amd64_trunc(lhs, op_size) >> count, op_size);
+            result = amd64_trunc(amd64_trunc(lhs, rm_size) >> count, rm_size);
             break;
         case 7:
-            result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, op_size) >> count), op_size);
+            result = amd64_trunc((qword_t) (amd64_sign_extend(lhs, rm_size) >> count), rm_size);
             break;
         default:
             return INT_UNDEFINED;
         }
-        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rm_size, result))
             goto amd64_gpf_restore;
         if (modrm.reg == 0 || modrm.reg == 1)
-            amd64_set_rotate_flags(cpu, result, op_size, count, modrm.reg);
+            amd64_set_rotate_flags(cpu, result, rm_size, count, modrm.reg);
         else
-            amd64_set_shift_flags(cpu, lhs, result, op_size, count, modrm.reg);
+            amd64_set_shift_flags(cpu, lhs, result, rm_size, count, modrm.reg);
         break;
     }
     case 0xe8: {
@@ -2515,7 +2535,7 @@ restart_prefix:
 amd64_gpf_restore:
     cpu->amd64_rip = saved_rip;
     amd64_sync_legacy_regs(cpu);
-    return INT_GPF;
+    return INT_PF;
 }
 
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb) {

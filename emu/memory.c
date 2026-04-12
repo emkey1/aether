@@ -496,6 +496,25 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
                 locked_general_lock = true;
             }
             read_to_write_lock(&mem->lock);
+            entry = mem_pt(mem, page);
+            if (entry == NULL) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_to_read_lock(&mem->lock);
+                return NULL;
+            }
+            if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE)) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_to_read_lock(&mem->lock);
+                return NULL;
+            }
+            if (!(entry->flags & P_COW)) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_to_read_lock(&mem->lock);
+                goto done_write_fault;
+            }
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
 
@@ -512,6 +531,7 @@ void *mem_ptr(struct mem *mem, addr_t addr, int type) {
         
     }
 
+done_write_fault:
     void *ptr = mem_ptr_nofault(mem, addr, type);
     assert(old_ptr == NULL || old_ptr == ptr || type == MEM_WRITE_PTRACE);
     return ptr;

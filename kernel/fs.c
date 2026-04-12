@@ -11,6 +11,7 @@
 #include "fs/inode.h"
 #include "fs/path.h"
 #include "fs/dev.h"
+#include "fs/tty.h"
 
 #define MAX_RW_COUNT (16 * 1024 * 1024)
 
@@ -145,18 +146,9 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     TASK_MAY_BLOCK {
         fd = generic_openat(at, path, flags, mode);
     }
-    if (IS_ERR(fd)) {
-        if (fs_trace_elogind()) {
-            printk("INFO: elogind openat pid=%d comm=%s at=%d path=%s flags=%#x mode=%#o result=%d\n",
-                   current->pid, current->comm, at_f, path, flags, mode, PTR_ERR(fd));
-        }
+    if (IS_ERR(fd))
         return PTR_ERR(fd);
-    }
     fd_t installed = f_install(fd, flags);
-    if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
-        printk("INFO: elogind openat-ok pid=%d comm=%s at=%d path=%s flags=%#x mode=%#o fd=%d\n",
-               current->pid, current->comm, at_f, path, flags, mode, installed);
-    }
     return installed;
 }
 
@@ -699,6 +691,34 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     return res;
 }
 
+static bool ioctl_user_arg_needs_read(dword_t cmd) {
+    switch (cmd) {
+        case TCGETS_:
+        case TIOCGPGRP_:
+        case TIOCGWINSZ_:
+        case TIOCGPTN_:
+        case TIOCGPKT_:
+        case FIONREAD_:
+            return false;
+        default:
+            return true;
+    }
+}
+
+static bool ioctl_user_arg_needs_write(dword_t cmd) {
+    switch (cmd) {
+        case TCSETS_:
+        case TCSETSF_:
+        case TCSETSW_:
+        case TIOCSPGRP_:
+        case TIOCSPTLCK_:
+        case TIOCPKT_:
+            return false;
+        default:
+            return true;
+    }
+}
+
 static int fd_ioctl(struct fd *fd, dword_t cmd, dword_t arg) {
     ssize_t size = -1;
     if (fd->ops->ioctl_size)
@@ -708,14 +728,19 @@ static int fd_ioctl(struct fd *fd, dword_t cmd, dword_t arg) {
     if (size == 0)
         return fd->ops->ioctl(fd, cmd, (void *) (long) arg);
 
-    // praying that this won't break
+    // Some ioctls are pure output and must not fault on unreadable scratch
+    // buffers. Others are pure input and do not need a copy-back.
     char buf[size];
-    if (user_read(arg, buf, size))
-        return _EFAULT;
+    if (ioctl_user_arg_needs_read(cmd)) {
+        if (user_read(arg, buf, size))
+            return _EFAULT;
+    } else {
+        memset(buf, 0, size);
+    }
     int res = fd->ops->ioctl(fd, cmd, buf);
     if (res < 0)
         return res;
-    if (user_write(arg, buf, size))
+    if (ioctl_user_arg_needs_write(cmd) && user_write(arg, buf, size))
         return _EFAULT;
     return res;
 }
@@ -752,13 +777,6 @@ dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
     dword_t res = 0;
     TASK_MAY_BLOCK {
         res = fd_ioctl(fd, cmd, arg);
-    }
-    if (fs_trace_elogind()) {
-        char path[MAX_PATH];
-        if (generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
-            printk("INFO: elogind ioctl pid=%d comm=%s fd=%d path=%s cmd=%#x arg=%#x result=%d\n",
-                   current->pid, current->comm, f, path, cmd, arg, res);
-        }
     }
     return res;
 }

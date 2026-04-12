@@ -358,10 +358,10 @@ SYS_EPOLL_PWAIT2                 = 441
 
 static inline qword_t i386_syscall_number(const struct cpu_state *cpu);
 static inline void i386_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
-static inline void i386_syscall_result(struct cpu_state *cpu, int result);
+static inline void i386_syscall_result(struct cpu_state *cpu, dword_t result);
 static inline qword_t amd64_syscall_number(const struct cpu_state *cpu);
 static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
-static inline void amd64_syscall_result(struct cpu_state *cpu, int result);
+static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result);
 void handle_syscall_interrupt(struct cpu_state *cpu);
 
 struct syscall_abi_dispatch {
@@ -371,7 +371,7 @@ struct syscall_abi_dispatch {
     size_t num_syscalls;
     qword_t (*syscall_number)(const struct cpu_state *cpu);
     void (*syscall_args)(const struct cpu_state *cpu, qword_t args[6]);
-    void (*syscall_result)(struct cpu_state *cpu, int result);
+    void (*syscall_result)(struct cpu_state *cpu, dword_t result);
 };
 
 static syscall_t amd64_syscall_table[] = {
@@ -384,6 +384,7 @@ static syscall_t amd64_syscall_table[] = {
     [4] = (syscall_t) sys_stat_amd64,
     [5] = (syscall_t) sys_fstat_amd64,
     [6] = (syscall_t) sys_lstat_amd64,
+    [7] = (syscall_t) sys_poll,
     [8] = (syscall_t) sys_lseek,
     [9] = (syscall_t) sys_mmap_amd64,
     [10] = (syscall_t) sys_mprotect,
@@ -396,11 +397,15 @@ static syscall_t amd64_syscall_table[] = {
     [20] = (syscall_t) sys_writev,
     [21] = (syscall_t) sys_access,
     [22] = (syscall_t) sys_pipe,
+    [23] = (syscall_t) sys_select,
     [25] = (syscall_t) sys_mremap,
     [24] = (syscall_t) sys_sched_yield,
     [32] = (syscall_t) sys_dup,
     [33] = (syscall_t) sys_dup2,
+    [35] = (syscall_t) sys_nanosleep,
+    [38] = (syscall_t) sys_setitimer,
     [39] = (syscall_t) sys_getpid,
+    [40] = (syscall_t) sys_sendfile,
     [41] = (syscall_t) sys_socket,
     [42] = (syscall_t) sys_connect,
     [43] = (syscall_t) sys_accept,
@@ -443,7 +448,9 @@ static syscall_t amd64_syscall_table[] = {
     [93] = (syscall_t) sys_fchown32,
     [94] = (syscall_t) sys_lchown,
     [95] = (syscall_t) sys_umask,
+    [96] = (syscall_t) sys_gettimeofday,
     [102] = (syscall_t) sys_getuid,
+    [103] = (syscall_t) sys_syslog,
     [104] = (syscall_t) sys_getgid,
     [105] = (syscall_t) sys_setuid,
     [106] = (syscall_t) sys_setgid,
@@ -464,16 +471,22 @@ static syscall_t amd64_syscall_table[] = {
     [121] = (syscall_t) sys_getpgid,
     [122] = (syscall_t) sys_setfsuid,
     [123] = (syscall_t) sys_setfsgid,
+    [124] = (syscall_t) sys_getsid,
+    [128] = (syscall_t) sys_rt_sigtimedwait,
     [131] = (syscall_t) sys_sigaltstack,
     [133] = (syscall_t) sys_mknod,
     [140] = (syscall_t) sys_getpriority,
     [141] = (syscall_t) sys_setpriority,
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
+    [169] = (syscall_t) sys_reboot,
     [186] = (syscall_t) sys_gettid,
     [217] = (syscall_t) sys_getdents64,
     [218] = (syscall_t) sys_set_tid_address,
+    [228] = (syscall_t) sys_clock_gettime,
     [231] = (syscall_t) sys_exit_group,
+    [232] = (syscall_t) sys_epoll_wait,
+    [233] = (syscall_t) sys_epoll_ctl,
     [257] = (syscall_t) sys_openat,
     [258] = (syscall_t) sys_mkdirat,
     [259] = (syscall_t) sys_mknodat,
@@ -486,7 +499,10 @@ static syscall_t amd64_syscall_table[] = {
     [267] = (syscall_t) sys_readlinkat,
     [268] = (syscall_t) sys_fchmodat,
     [269] = (syscall_t) sys_faccessat,
+    [270] = (syscall_t) sys_pselect,
+    [271] = (syscall_t) sys_ppoll,
     [272] = (syscall_t) sys_unshare,
+    [281] = (syscall_t) sys_epoll_pwait,
     [284] = (syscall_t) sys_eventfd,
     [288] = (syscall_t) sys_accept4,
     [290] = (syscall_t) sys_eventfd2,
@@ -535,7 +551,17 @@ static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_ab
 void dump_stack(int lines);
 
 static bool syscall_is_logged_stub(syscall_t syscall) {
-    return syscall == (syscall_t) syscall_stub;
+    return syscall == (syscall_t) syscall_stub ||
+        syscall == (syscall_t) syscall_stub_silent;
+}
+
+static bool syscall_result_is_errno(dword_t result) {
+    sdword_t signed_result = (sdword_t) result;
+    return signed_result < 0 && signed_result >= -4095;
+}
+
+static sdword_t syscall_result_errno(dword_t result) {
+    return (sdword_t) result;
 }
 
 static inline qword_t i386_syscall_number(const struct cpu_state *cpu) {
@@ -551,7 +577,7 @@ static inline void i386_syscall_args(const struct cpu_state *cpu, qword_t args[6
     args[5] = cpu->ebp;
 }
 
-static inline void i386_syscall_result(struct cpu_state *cpu, int result) {
+static inline void i386_syscall_result(struct cpu_state *cpu, dword_t result) {
     cpu->eax = result;
 }
 
@@ -568,8 +594,11 @@ static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[
     args[5] = cpu->amd64_regs[amd64_r9];
 }
 
-static inline void amd64_syscall_result(struct cpu_state *cpu, int result) {
-    cpu->amd64_regs[amd64_rax] = (qword_t) (sqword_t) (sdword_t) result;
+static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result) {
+    if (syscall_result_is_errno(result))
+        cpu->amd64_regs[amd64_rax] = (qword_t) (sqword_t) syscall_result_errno(result);
+    else
+        cpu->amd64_regs[amd64_rax] = (qword_t) result;
     cpu->eax = result;
     cpu->amd64_regs[amd64_rcx] = cpu->amd64_rip;
     cpu->amd64_regs[amd64_r11] = cpu->eflags;
@@ -609,6 +638,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 105: // setuid
     case 106: // setgid
     case 121: // getpgid
+    case 124: // getsid
     case 122: // setfsuid
     case 123: // setfsgid
     case 218: // set_tid_address
@@ -638,9 +668,12 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 114: // setregid
     case 115: // getgroups
     case 116: // setgroups
+    case 35:  // nanosleep
+    case 96:  // gettimeofday
     case 131: // sigaltstack
     case 140: // getpriority
     case 158: // arch_prctl
+    case 228: // clock_gettime
     case 290: // eventfd2
     case 293: // pipe2
     case 319: // memfd_create
@@ -648,6 +681,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 0:   // read
     case 1:   // write
     case 2:   // open
+    case 7:   // poll
     case 8:   // lseek
     case 10:  // mprotect
     case 16:  // ioctl
@@ -680,13 +714,20 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 266: // symlinkat
     case 268: // fchmodat
     case 269: // faccessat
+    case 103: // syslog
+    case 38:  // setitimer
     case 59:  // execve
+    case 169: // reboot
     case 292: // dup3
     case 318: // getrandom
     case 325: // membarrier
         return 3;
     case 13:  // rt_sigaction
     case 14:  // rt_sigprocmask
+    case 40:  // sendfile
+    case 128: // rt_sigtimedwait
+    case 232: // epoll_wait
+    case 233: // epoll_ctl
     case 53:  // socketpair
     case 54:  // setsockopt
     case 61:  // wait4
@@ -701,8 +742,10 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 25:  // mremap
     case 55:  // getsockopt
     case 157: // prctl
+    case 23:  // select
     case 260: // fchownat
     case 265: // linkat
+    case 271: // ppoll
     case 322: // execveat
         return 5;
     case 9:   // mmap
@@ -727,10 +770,40 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
     return true;
 }
 
-static void log_stub_syscall(struct cpu_state *cpu, unsigned syscall_num, const char *kind) {
-    (void) cpu;
-    (void) syscall_num;
-    (void) kind;
+static void log_stub_syscall(struct cpu_state *cpu, const struct syscall_abi_dispatch *dispatch,
+        unsigned syscall_num, const char *kind) {
+    enum { STUB_LOG_MAX = 512, STUB_LOG_BUDGET = 5 };
+    static unsigned short stub_log_count[2][STUB_LOG_MAX];
+
+    unsigned short *count = NULL;
+    if (dispatch->abi < 2 && syscall_num < STUB_LOG_MAX)
+        count = &stub_log_count[dispatch->abi][syscall_num];
+
+    if (count != NULL) {
+        if (*count >= STUB_LOG_BUDGET) {
+            if (*count == STUB_LOG_BUDGET) {
+                printk("INFO: suppressing further %s %s syscall logs for %u\n",
+                       dispatch->name, kind, syscall_num);
+                (*count)++;
+            }
+            return;
+        }
+        (*count)++;
+    }
+
+    if (dispatch->abi == GUEST_ABI_AMD64) {
+        printk("ERROR: %d(%s) %s %s syscall %u rip=0x%x rax=0x%llx rdi=0x%llx rsi=0x%llx rdx=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num, cpu->eip,
+               (unsigned long long) cpu->amd64_syscall.rax,
+               (unsigned long long) cpu->amd64_syscall.rdi,
+               (unsigned long long) cpu->amd64_syscall.rsi,
+               (unsigned long long) cpu->amd64_syscall.rdx);
+        return;
+    }
+
+    printk("ERROR: %d(%s) %s %s syscall %u eip=0x%x eax=0x%x ebx=0x%x ecx=0x%x edx=0x%x\n",
+           current->pid, current->comm, dispatch->name, kind, syscall_num, cpu->eip,
+           cpu->eax, cpu->ebx, cpu->ecx, cpu->edx);
 }
 
 static void amd64_syscall_seed_legacy_regs(struct cpu_state *cpu) {
@@ -785,12 +858,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     syscall_t syscall = dispatch->table[syscall_num];
     if (syscall == NULL) {
-        log_stub_syscall(cpu, (unsigned) syscall_num, "missing");
+        log_stub_syscall(cpu, dispatch, (unsigned) syscall_num, "missing");
         dispatch->syscall_result(cpu, syscall_stub());
         return;
     }
     if (syscall_is_logged_stub(syscall))
-        log_stub_syscall(cpu, (unsigned) syscall_num, "stub");
+        log_stub_syscall(cpu, dispatch, (unsigned) syscall_num, "stub");
 
     dispatch->syscall_args(cpu, raw_args);
     if (!marshal_syscall_args_legacy(dispatch->abi, syscall_num, raw_args, args)) {
@@ -802,7 +875,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
-    int result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
+    dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
@@ -813,6 +886,7 @@ static void dump_opcode_window(addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
+static bool amd64_verbose_fault_trace_enabled(void);
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
@@ -834,6 +908,34 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         dump_stack(8);
         deliver_signal(current, SIGSEGV_, info);
     }
+}
+
+static void handle_general_protection_interrupt(struct cpu_state *cpu) {
+    printk("ERROR: %d(%s) general protection fault at 0x%x: ", current->pid, current->comm, cpu->eip);
+    for (int i = 0; i < 8; i++) {
+        uint8_t b;
+        if (user_get(cpu->eip + i, b))
+            break;
+        printk("%02x ", b);
+    }
+    printk("\n");
+    dump_opcode_window(cpu->eip);
+    if (current->abi == GUEST_ABI_AMD64) {
+        dump_amd64_regs(cpu);
+        if (amd64_verbose_fault_trace_enabled()) {
+            dump_amd64_loader_state(cpu);
+            dump_amd64_store_trace(cpu);
+        }
+    }
+    dump_stack(8);
+    cpu->trapno = INT_GPF;
+    cpu->segfault_addr = 0;
+    cpu->segfault_was_write = false;
+    struct siginfo_ info = {
+        .code = SI_KERNEL_,
+        .fault.addr = cpu->eip,
+    };
+    deliver_signal(current, SIGSEGV_, info);
 }
 
 static int amd64_nop_instruction_len(addr_t ip) {
@@ -882,6 +984,10 @@ static int amd64_nop_instruction_len(addr_t ip) {
     if (i + disp_len > (int) sizeof(bytes))
         return 0;
     return i + disp_len;
+}
+
+static bool amd64_verbose_fault_trace_enabled(void) {
+    return false;
 }
 
 static void dump_opcode_window(addr_t ip) {
@@ -1329,8 +1435,10 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     dump_opcode_window(cpu->eip);
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
-        dump_amd64_loader_state(cpu);
-        dump_amd64_store_trace(cpu);
+        if (amd64_verbose_fault_trace_enabled()) {
+            dump_amd64_loader_state(cpu);
+            dump_amd64_store_trace(cpu);
+        }
     }
     dump_stack(8);
     struct siginfo_ info = {
@@ -1351,23 +1459,8 @@ static void handle_arithmetic_interrupt(struct cpu_state *cpu) {
 }
 
 static void handle_privileged_instruction_interrupt(struct cpu_state *cpu) {
-    printk("ERROR: %d(%s) privileged instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
-    for (int i = 0; i < 8; i++) {
-        uint8_t b;
-        if (user_get(cpu->eip + i, b))
-            break;
-        printk("%02x ", b);
-    }
-    printk("\n");
-    dump_stack(8);
     cpu->trapno = INT_GPF;
-    cpu->segfault_addr = 0;
-    cpu->segfault_was_write = false;
-    struct siginfo_ info = {
-        .code = SI_KERNEL_,
-        .fault.addr = cpu->eip,
-    };
-    deliver_signal(current, SIGSEGV_, info);
+    handle_general_protection_interrupt(cpu);
 }
 
 void handle_timer_interrupt(__attribute__((unused)) struct cpu_state *cpu) {
@@ -1385,8 +1478,11 @@ void handle_interrupt(int interrupt) {
         case INT_AMD64_SYSCALL:
             handle_amd64_syscall_interrupt(cpu);
             break;
-        case INT_GPF:
+        case INT_PF:
             handle_page_fault_interrupt(cpu);
+            break;
+        case INT_GPF:
+            handle_general_protection_interrupt(cpu);
             break;
         case INT_UNDEFINED:
             handle_illegal_instruction_interrupt(cpu);

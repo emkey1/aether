@@ -66,68 +66,6 @@ static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_pr
 static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd);
 static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
 
-static bool trace_session_exec_name(const char *name) {
-    return strcmp(name, "login") == 0 ||
-        strcmp(name, "sshd") == 0 ||
-        strcmp(name, "sh") == 0 ||
-        strcmp(name, "bash") == 0 ||
-        strcmp(name, "dash") == 0 ||
-        strcmp(name, "getty") == 0 ||
-        strcmp(name, "agetty") == 0;
-}
-
-static bool trace_session_exec_attempt(const char *current_name, const char *file) {
-    if (trace_session_exec_name(current_name))
-        return true;
-    const char *basename = strrchr(file, '/');
-    if (basename == NULL)
-        basename = file;
-    else
-        basename++;
-    return trace_session_exec_name(basename);
-}
-
-static void trace_exec_argv(const struct exec_args *argv, char *buf, size_t size) {
-    if (size == 0)
-        return;
-    buf[0] = '\0';
-    if (argv == NULL || argv->args == NULL || argv->count == 0)
-        return;
-
-    size_t used = 0;
-    const char *arg = argv->args;
-    size_t shown = 0;
-    for (size_t i = 0; i < argv->count && shown < 4 && *arg != '\0'; i++) {
-        const char *sep = shown == 0 ? "" : " ";
-        int wrote = snprintf(buf + used, size - used, "%s\"%.48s\"", sep, arg);
-        if (wrote < 0 || (size_t) wrote >= size - used) {
-            used = size - 1;
-            break;
-        }
-        used += wrote;
-        shown++;
-        arg += strlen(arg) + 1;
-    }
-    if (shown < argv->count && used + 4 < size)
-        strcpy(buf + used, " ...");
-}
-
-static void trace_exec_tty(struct task *task, int *type_out, int *num_out) {
-    int type = -1;
-    int num = -1;
-    lock(&task->group->lock, 0);
-    struct tty *tty = task->group->tty;
-    if (tty != NULL) {
-        type = tty->type;
-        num = tty->num;
-    }
-    unlock(&task->group->lock);
-    if (type_out != NULL)
-        *type_out = type;
-    if (num_out != NULL)
-        *num_out = num;
-}
-
 static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi_out) {
     enum guest_abi abi;
     if (bitness == ELF_64BIT && machine == ELF_X86_64) {
@@ -441,10 +379,6 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     // pointer before it's released and then try to lock it after it's
     // released.
     lock(&save->general_lock, 0);
-    if (save->abi != header.abi) {
-        printk("INFO: exec ABI switch pid=%d comm=%s file=%s task_abi=%s -> elf_abi=%s\n",
-               save->pid, save->comm, file, guest_abi_name(save->abi), guest_abi_name(header.abi));
-    }
     mm_release(save->mm);
     save->abi = header.abi;
     task_set_mm(save, new_mm);
@@ -619,7 +553,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             dword_t argv_word = (dword_t) argv_addr;
             if (user_put(p, argv_word))
                 goto beyond_hope;
-            argv_addr += user_strlen(argv_addr) + 1;
+            ssize_t arg_len = user_strlen(argv_addr);
+            if (arg_len < 0)
+                goto beyond_hope;
+            argv_addr += arg_len + 1;
             p += guest_word_size;
         }
         if (user_put(p, zero))
@@ -631,7 +568,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             dword_t envp_word = (dword_t) envp_addr;
             if (user_put(p, envp_word))
                 goto beyond_hope;
-            envp_addr += user_strlen(envp_addr) + 1;
+            ssize_t env_len = user_strlen(envp_addr);
+            if (env_len < 0)
+                goto beyond_hope;
+            envp_addr += env_len + 1;
             p += guest_word_size;
         }
         if (user_put(p, zero))
@@ -681,7 +621,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             qword_t argv_word = (qword_t) argv_addr;
             if (user_put(p, argv_word))
                 goto beyond_hope;
-            argv_addr += user_strlen(argv_addr) + 1;
+            ssize_t arg_len = user_strlen(argv_addr);
+            if (arg_len < 0)
+                goto beyond_hope;
+            argv_addr += arg_len + 1;
             p += guest_word_size;
         }
         if (user_put(p, zero))
@@ -693,7 +636,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             qword_t envp_word = (qword_t) envp_addr;
             if (user_put(p, envp_word))
                 goto beyond_hope;
-            envp_addr += user_strlen(envp_addr) + 1;
+            ssize_t env_len = user_strlen(envp_addr);
+            if (env_len < 0)
+                goto beyond_hope;
+            envp_addr += env_len + 1;
             p += guest_word_size;
         }
         if (user_put(p, zero))
@@ -898,51 +844,20 @@ static int shebang_exec(struct fd *fd, const char *file, struct exec_args argv, 
 }
 
 int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) {
-    char current_comm[sizeof(current->comm)];
-    lock(&current->general_lock, 0);
-    strncpy(current_comm, current->comm, sizeof(current_comm));
-    current_comm[sizeof(current_comm) - 1] = '\0';
-    unlock(&current->general_lock);
-
-    bool trace_attempt = trace_session_exec_attempt(current_comm, file);
-    char argv_trace[256];
-    int tty_type = -1;
-    int tty_num = -1;
-    if (trace_attempt) {
-        trace_exec_argv(&argv, argv_trace, sizeof(argv_trace));
-        trace_exec_tty(current, &tty_type, &tty_num);
-    }
-
     struct fd *fd = generic_open(file, O_RDONLY, 0);
-    if (IS_ERR(fd)) {
-        if (trace_attempt) {
-            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
-                   current->pid, current->tgid, current_comm, file, (int) PTR_ERR(fd),
-                   tty_type, tty_num, argv_trace);
-        }
+    if (IS_ERR(fd))
         return (int) PTR_ERR(fd);
-    }
 
     struct statbuf stat;
     int err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0) {
         fd_close(fd);
-        if (trace_attempt) {
-            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
-                   current->pid, current->tgid, current_comm, file, err,
-                   tty_type, tty_num, argv_trace);
-        }
         return err;
     }
 
     // if nobody has permission to execute, it should be safe to not execute
     if (!(stat.mode & 0111)) {
         fd_close(fd);
-        if (trace_attempt) {
-            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
-                   current->pid, current->tgid, current_comm, file, _EACCES,
-                   tty_type, tty_num, argv_trace);
-        }
         return _EACCES;
     }
 
@@ -950,14 +865,8 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     if (err == _ENOEXEC)
         err = shebang_exec(fd, file, argv, envp);
     fd_close(fd);
-    if (err < 0) {
-        if (trace_attempt) {
-            printk("INFO: exec fail pid=%d tgid=%d comm=%s file=%s err=%d tty=%d:%d argv=%s\n",
-                   current->pid, current->tgid, current_comm, file, err,
-                   tty_type, tty_num, argv_trace);
-        }
+    if (err < 0)
         return err;
-    }
 
     // setuid/setgid
     if (stat.mode & S_ISUID) {
@@ -971,12 +880,11 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         current->fsgid = current->egid;
     }
 
-    char old_comm[sizeof(current->comm)];
-    strncpy(old_comm, current_comm, sizeof(old_comm));
-    old_comm[sizeof(old_comm) - 1] = '\0';
-
     // save current->comm
+    char old_comm[sizeof(current->comm)];
     lock(&current->general_lock, 0);
+    strncpy(old_comm, current->comm, sizeof(old_comm));
+    old_comm[sizeof(old_comm) - 1] = '\0';
     const char *basename = strrchr(file, '/');
     if (basename == NULL)
         basename = file;
@@ -985,12 +893,6 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     strncpy(current->comm, basename, sizeof(current->comm));
     current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
-
-    if (trace_session_exec_name(old_comm) || trace_session_exec_name(basename)) {
-        printk("INFO: exec session pid=%d tgid=%d old=%s new=%s file=%s tty=%d:%d argv=%s\n",
-               current->pid, current->tgid, old_comm, basename, file,
-               tty_type, tty_num, argv_trace);
-    }
 
     update_thread_name();
 

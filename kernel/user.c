@@ -42,9 +42,8 @@ static int __user_read_task_mem(struct task *task, struct mem *mem, addr_t addr,
   
         const char *ptr = mem_ptr(mem, p, MEM_READ);
         
-        if (ptr == NULL) {
+        if (ptr == NULL)
             return 1;
-	}
         memcpy(&cbuf[p - addr], ptr, chunk_end - p);
         p = (addr_t) chunk_end;
     }
@@ -154,9 +153,8 @@ int user_write(addr_t addr, const void *buf, size_t count) {
 }
 
 int user_read_string(addr_t addr, char *buf, size_t max) {
-    if (addr == 0) {
+    if (addr == 0)
         return 1;
-    }
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
     struct mem *mem = task_mem_read_lock(current);

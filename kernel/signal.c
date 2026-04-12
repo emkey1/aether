@@ -423,7 +423,7 @@ static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
     collapse_flags(cpu);
     sc->flags = cpu->eflags;
     sc->trapno = cpu->trapno;
-    if (cpu->trapno == INT_GPF)
+    if (cpu->trapno == INT_PF)
         sc->cr2 = cpu->segfault_addr;
     // TODO more shit
     sc->oldmask = current->blocked & 0xffffffff;

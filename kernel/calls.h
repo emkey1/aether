@@ -313,6 +313,6 @@ int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 // Syscall dispatch is selected from current->abi. The i386 path is live today;
 // amd64 keeps a separate bring-up path because it needs different syscall
 // numbers and a different register ABI.
-typedef int (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
+typedef dword_t (*syscall_t)(dword_t, dword_t, dword_t, dword_t, dword_t, dword_t);
 
 #endif

@@ -79,6 +79,40 @@ static const int BUF_SIZE = 1<<14;
 static NSMapTable<NSNumber *, Terminal *> *terminals;
 static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
+static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
+    const unsigned char *bytes = data.bytes;
+    NSMutableString *literal = [[NSMutableString alloc] initWithCapacity:data.length * 4];
+    for (NSUInteger i = 0; i < data.length; i++) {
+        unsigned char byte = bytes[i];
+        switch (byte) {
+            case '\\':
+                [literal appendString:@"\\\\"];
+                break;
+            case '"':
+                [literal appendString:@"\\\""];
+                break;
+            case '\r':
+                [literal appendString:@"\\r"];
+                break;
+            case '\n':
+                [literal appendString:@"\\n"];
+                break;
+            case '\t':
+                [literal appendString:@"\\t"];
+                break;
+            default:
+                if (byte >= 0x20 && byte <= 0x7e) {
+                    [literal appendFormat:@"%c", byte];
+                } else {
+                    // Prompts and line editing emit raw escape/control bytes.
+                    [literal appendFormat:@"\\x%02x", byte];
+                }
+                break;
+        }
+    }
+    return literal;
+}
+
 static void NotifyTerminalRegistryChanged(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:TerminalRegistryDidChangeNotification object:nil];
@@ -250,10 +284,30 @@ static void NotifyTerminalRegistryChanged(void) {
 #if !ISH_LINUX
     lock(&_dataLock, 0);
     if (!NSThread.isMainThread) {
-        // The main thread is the only one that can unblock this, so sleeping here would be a deadlock.
-        // The only reason for this to be called on the main thread is if input is echoed.
-        while (_pendingData.length > BUF_SIZE)
-            wait_for_ignore_signals(&_dataConsumed, &_dataLock, NULL);
+        if (!self.loaded) {
+            // Hidden/background consoles (for example tty2-tty6 getty instances
+            // started by init) may never get a web view to drain them. Keep a
+            // bounded tail of recent output instead of blocking guest writers
+            // forever once the buffer fills.
+            if (len > BUF_SIZE) {
+                buf = (const char *) buf + (len - BUF_SIZE);
+                len = BUF_SIZE;
+                [_pendingData setLength:0];
+            } else {
+                NSUInteger needed = (NSUInteger) len;
+                NSUInteger available = _pendingData.length >= BUF_SIZE ? 0 : (NSUInteger) (BUF_SIZE - _pendingData.length);
+                if (needed > available) {
+                    NSUInteger discard = MIN(_pendingData.length, needed - available);
+                    [_pendingData replaceBytesInRange:NSMakeRange(0, discard) withBytes:NULL length:0];
+                }
+            }
+        } else {
+            // The main thread is the only one that can unblock this, so sleeping
+            // here would be a deadlock. The only reason for this to be called on
+            // the main thread is if input is echoed.
+            while (_pendingData.length > BUF_SIZE)
+                wait_for_ignore_signals(&_dataConsumed, &_dataLock, NULL);
+        }
     }
     [_pendingData appendData:[NSData dataWithBytes:buf length:len]];
     [self.refreshTask schedule];
@@ -342,12 +396,7 @@ static void NotifyTerminalRegistryChanged(void) {
     }
 #endif
 
-    NSString *dataString = [[NSString alloc] initWithBytes:data.bytes length:data.length encoding:NSISOLatin1StringEncoding];
-    // escape for javascript. only have to worry about the first 256 codepoints, because of the latin-1 encoding.
-    dataString = [dataString stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-    dataString = [dataString stringByReplacingOccurrencesOfString:@"\r" withString:@"\\r"];
-    dataString = [dataString stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
-    dataString = [dataString stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+    NSString *dataString = ISHJavaScriptLiteralForTerminalData(data);
     NSString *jsToEvaluate = [NSString stringWithFormat:@"exports.write(\"%@\")", dataString];
     [self.webView evaluateJavaScript:jsToEvaluate completionHandler:^(id result, NSError *error) {
 #if !ISH_LINUX
