@@ -2911,6 +2911,17 @@ restart_prefix:
         cpu->amd64_rip = target;
         break;
     }
+    case 0xc9: {
+        unsigned pop_size = operand_size_prefix ? 16 : 64;
+        qword_t value;
+        qword_t old_rsp = cpu->amd64_regs[amd64_rsp];
+        cpu->amd64_regs[amd64_rsp] = cpu->amd64_regs[amd64_rbp];
+        amd64_trace_suspicious_rsp_write(cpu, old_rsp, cpu->amd64_regs[amd64_rsp], 64);
+        if (!amd64_pop_size(cpu, tlb, pop_size, &value))
+            goto amd64_gpf_restore;
+        amd64_reg_set(cpu, amd64_rbp, pop_size, value);
+        break;
+    }
     case 0xf4:
         return INT_PRIV;
     case 0xd0:
