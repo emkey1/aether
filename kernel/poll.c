@@ -37,6 +37,10 @@ static bool poll_trace_comm(const char *comm) {
         strncmp(comm, "update-ca-certi", 15) == 0;
 }
 
+static bool poll_trace_top_enabled(void) {
+    return current != NULL && strcmp(current->comm, "top") == 0;
+}
+
 static bool poll_trace_net_enabled(void) {
     if (current == NULL)
         return false;
@@ -360,6 +364,15 @@ dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "enter");
         }
     }
+    if (poll_trace_top_enabled()) {
+        printk("INFO: top poll enter pid=%d nfds=%u timeout_ms=%d\n",
+               current->pid, nfds, timeout_trace);
+        for (unsigned i = 0; i < nfds; i++) {
+            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            printk("INFO: top poll fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
+                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
+        }
+    }
     int res = 0;
     TASK_MAY_BLOCK {
         res = poll_wait(poll, poll_event_callback, &context, timeout_ts_ptr);
@@ -379,6 +392,15 @@ out:
                 continue;
             int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "exit");
+        }
+    }
+    if (poll_trace_top_enabled()) {
+        printk("INFO: top poll exit pid=%d res=%d timeout_ms=%d\n",
+               current->pid, res, timeout_trace);
+        for (unsigned i = 0; i < nfds; i++) {
+            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
+            printk("INFO: top poll fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
+                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
         }
     }
 

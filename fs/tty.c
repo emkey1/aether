@@ -293,6 +293,10 @@ static bool tty_trace_signal_enabled(void) {
     return tty_trace_comm(current->comm);
 }
 
+static bool tty_trace_top_poll_enabled(void) {
+    return current != NULL && strcmp(current->comm, "top") == 0;
+}
+
 static bool tty_send_input_signal(struct tty *tty, char ch, sigset_t_ *queue) {
     if (!(tty->termios.lflags & ISIG_))
         return false;
@@ -668,6 +672,18 @@ static int tty_poll(struct fd *fd) {
     }
     if (tty->driver == &pty_master && tty->packet_flags != 0)
         types |= POLL_PRI;
+    if (tty_trace_top_poll_enabled()) {
+        printk("INFO: top tty_poll pid=%d tty=%d:%d lflags=%#x vmin=%u vtime=%u bufsize=%zu hung=%d types=%#x\n",
+               current->pid,
+               tty->driver != NULL ? tty->driver->major : -1,
+               tty->num,
+               tty->termios.lflags,
+               tty->termios.cc[VMIN_],
+               tty->termios.cc[VTIME_],
+               tty->bufsize,
+               tty->hung_up,
+               types);
+    }
     unlock(&tty->lock);
     return types;
 }
