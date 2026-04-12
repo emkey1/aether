@@ -49,12 +49,14 @@ struct amd64_modrm {
 #define AMD64_HTOP_FIELD_FILL_RIP 0x56569e88ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
+#define AMD64_HTOP_COMI_ILLEGAL_RIP 0x5657d52cull
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
 static qword_t amd64_busybox_init_watch[AMD64_BUSYBOX_INIT_WATCH_COUNT];
 static unsigned amd64_busybox_init_watch_next;
 static qword_t amd64_htop_watch_field_addr = AMD64_HTOP_RBX_FIELD_ABS_ADDR;
+static const bool amd64_htop_legacy_trace_enabled = false;
 
 static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     if (isnan(value))
@@ -199,6 +201,8 @@ static inline void amd64_trace_suspicious_rsp_write(struct cpu_state *cpu,
 
 static inline void amd64_trace_htop_r13_write(struct cpu_state *cpu,
         qword_t old_value, qword_t new_value, unsigned size, qword_t value) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (cpu->amd64_current_insn_rip != AMD64_HTOP_R13_CORRUPT_WRITE_RIP)
@@ -246,6 +250,8 @@ static inline void amd64_trace_htop_r13_write(struct cpu_state *cpu,
 }
 
 static inline void amd64_trace_htop_r13_source(struct cpu_state *cpu, qword_t addr, qword_t value) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (cpu->amd64_current_insn_rip != AMD64_HTOP_R13_CORRUPT_WRITE_RIP)
@@ -278,6 +284,8 @@ static inline void amd64_trace_htop_r13_source(struct cpu_state *cpu, qword_t ad
 }
 
 static inline bool amd64_trace_in_htop_window(qword_t rip) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return false;
     return rip >= AMD64_HTOP_TRACE_WINDOW_START && rip < AMD64_HTOP_TRACE_WINDOW_END;
 }
 
@@ -292,6 +300,8 @@ static inline bool amd64_trace_intersects_watch_addr(qword_t guest_addr, unsigne
 }
 
 static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tlb) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (!amd64_trace_in_htop_window(cpu->amd64_current_insn_rip))
@@ -325,6 +335,8 @@ static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tl
 }
 
 static inline void amd64_trace_htop_store_history(struct cpu_state *cpu, qword_t watch_addr) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     unsigned total = cpu->amd64_store_trace_next;
     if (total > AMD64_STORE_TRACE_COUNT)
         total = AMD64_STORE_TRACE_COUNT;
@@ -347,6 +359,8 @@ static inline void amd64_trace_htop_store_history(struct cpu_state *cpu, qword_t
 }
 
 static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t base, qword_t addr, qword_t value) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (cpu->amd64_current_insn_rip != AMD64_HTOP_RBX_LOAD_RIP)
@@ -425,6 +439,8 @@ static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t ba
 
 static inline void amd64_trace_htop_rbx_base(struct cpu_state *cpu, qword_t old_value,
         qword_t new_value, unsigned size, qword_t raw_value) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (new_value != AMD64_HTOP_R13_CORRUPT_BLOCK_BASE)
@@ -469,6 +485,8 @@ static inline bool amd64_trace_intersects_htop_r13_block(qword_t guest_addr, uns
 
 static inline void amd64_trace_htop_field_write(struct cpu_state *cpu, struct tlb *tlb,
         qword_t guest_addr, const void *value, unsigned size) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (!amd64_trace_intersects_watch_addr(guest_addr, size, amd64_htop_watch_field_addr, AMD64_HTOP_RBX_FIELD_SIZE))
@@ -535,6 +553,8 @@ static inline void amd64_trace_htop_field_write(struct cpu_state *cpu, struct tl
 
 static inline void amd64_trace_htop_r13_block_write(struct cpu_state *cpu, struct tlb *tlb,
         qword_t guest_addr, const void *value, unsigned size) {
+    if (!amd64_htop_legacy_trace_enabled)
+        return;
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
     if (!amd64_trace_intersects_htop_r13_block(guest_addr, size))
@@ -1611,6 +1631,13 @@ restart_prefix:
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
+        if (current != NULL && strcmp(current->comm, "htop") == 0 &&
+                cpu->amd64_current_insn_rip == AMD64_HTOP_COMI_ILLEGAL_RIP) {
+            printk("amd64 htop comi decode: rip=%#llx op2=%#x rep=%u opsz=%d rex=%d%d%d%d\n",
+                   (unsigned long long) cpu->amd64_current_insn_rip,
+                   op2, rep_mode, operand_size_prefix,
+                   rex.w, rex.r, rex.x, rex.b);
+        }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
         if (op2 == 0xa2) {
@@ -1885,6 +1912,13 @@ restart_prefix:
             }
             if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
                 return INT_UNDEFINED;
+            if (current != NULL && strcmp(current->comm, "htop") == 0 &&
+                    cpu->amd64_current_insn_rip == AMD64_HTOP_COMI_ILLEGAL_RIP) {
+                printk("amd64 htop comi match: rip=%#llx op2=%#x reg=%u rm=%u is_reg=%d rep=%u opsz=%d\n",
+                       (unsigned long long) cpu->amd64_current_insn_rip,
+                       op2, modrm.reg, modrm.rm, modrm.is_reg,
+                       rep_mode, operand_size_prefix);
+            }
             if (operand_size_prefix) {
                 double lhs, rhs;
                 lhs = cpu->xmm[modrm.reg].f64[0];
