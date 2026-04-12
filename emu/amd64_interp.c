@@ -1942,15 +1942,63 @@ restart_prefix:
             if (op2 == 0x10 || op2 == 0x28 || op2 == 0x6f) {
                 if (op2 == 0x6f && !(operand_size_prefix || rep_mode == AMD64_REPZ))
                     return INT_UNDEFINED;
-                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
-                    goto amd64_gpf_restore;
-                cpu->xmm[modrm.reg] = value;
+                if (op2 == 0x10 && rep_mode == AMD64_REPZ) {
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    value = cpu->xmm[modrm.reg];
+                    if (modrm.is_reg) {
+                        value.u32[0] = cpu->xmm[modrm.rm].u32[0];
+                    } else {
+                        value.u128 = 0;
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                            goto amd64_gpf_restore;
+                        value.u32[0] = (uint32_t) src_scalar;
+                    }
+                    cpu->xmm[modrm.reg] = value;
+                } else if (op2 == 0x10 && rep_mode == AMD64_REPNZ) {
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    value = cpu->xmm[modrm.reg];
+                    if (modrm.is_reg) {
+                        value.qw[0] = cpu->xmm[modrm.rm].qw[0];
+                    } else {
+                        value.u128 = 0;
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                        value.qw[0] = src_scalar;
+                    }
+                    cpu->xmm[modrm.reg] = value;
+                } else {
+                    if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                        goto amd64_gpf_restore;
+                    cpu->xmm[modrm.reg] = value;
+                }
             } else if (op2 == 0x11 || op2 == 0x29 || op2 == 0x7f) {
                 if (op2 == 0x7f && !(operand_size_prefix || rep_mode == AMD64_REPZ))
                     return INT_UNDEFINED;
-                value = cpu->xmm[modrm.reg];
-                if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
-                    goto amd64_gpf_restore;
+                if (op2 == 0x11 && rep_mode == AMD64_REPZ) {
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    if (modrm.is_reg) {
+                        cpu->xmm[modrm.rm].u32[0] = cpu->xmm[modrm.reg].u32[0];
+                    } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 32,
+                                   cpu->xmm[modrm.reg].u32[0])) {
+                        goto amd64_gpf_restore;
+                    }
+                } else if (op2 == 0x11 && rep_mode == AMD64_REPNZ) {
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    if (modrm.is_reg) {
+                        cpu->xmm[modrm.rm].qw[0] = cpu->xmm[modrm.reg].qw[0];
+                    } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64,
+                                   cpu->xmm[modrm.reg].qw[0])) {
+                        goto amd64_gpf_restore;
+                    }
+                } else {
+                    value = cpu->xmm[modrm.reg];
+                    if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                        goto amd64_gpf_restore;
+                }
             } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5e) {
                 value = cpu->xmm[modrm.reg];
                 if (rep_mode == AMD64_REPZ) {
