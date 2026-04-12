@@ -38,8 +38,10 @@ static inline dword_t cpuid_leaf80000001_ecx_features(void) {
 
 static inline dword_t cpuid_leaf80000001_edx_features(void) {
     dword_t features = 0;
-    if (cpuid_guest_supports_long_mode())
+    if (cpuid_guest_supports_long_mode()) {
+        features |= (1 << 11); // syscall/sysret
         features |= (1 << 29); // lm
+    }
     return features;
 }
 
