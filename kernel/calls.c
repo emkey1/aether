@@ -786,9 +786,10 @@ static void log_stub_syscall(struct cpu_state *cpu, const struct syscall_abi_dis
         unsigned syscall_num, const char *kind) {
     enum { STUB_LOG_MAX = 512, STUB_LOG_BUDGET = 5 };
     static unsigned short stub_log_count[2][STUB_LOG_MAX];
+    bool always_log = dispatch->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "bash") == 0;
 
     unsigned short *count = NULL;
-    if (dispatch->abi < 2 && syscall_num < STUB_LOG_MAX)
+    if (!always_log && dispatch->abi < 2 && syscall_num < STUB_LOG_MAX)
         count = &stub_log_count[dispatch->abi][syscall_num];
 
     if (count != NULL) {
