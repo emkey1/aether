@@ -49,7 +49,6 @@ struct amd64_modrm {
 #define AMD64_HTOP_FIELD_FILL_RIP 0x56569e88ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
-#define AMD64_HTOP_COMI_ILLEGAL_RIP 0x5657d52cull
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
@@ -1631,13 +1630,6 @@ restart_prefix:
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
         }
-        if (current != NULL && strcmp(current->comm, "htop") == 0 &&
-                cpu->amd64_current_insn_rip == AMD64_HTOP_COMI_ILLEGAL_RIP) {
-            printk("amd64 htop comi decode: rip=%#llx op2=%#x rep=%u opsz=%d rex=%d%d%d%d\n",
-                   (unsigned long long) cpu->amd64_current_insn_rip,
-                   op2, rep_mode, operand_size_prefix,
-                   rex.w, rex.r, rex.x, rex.b);
-        }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
         if (op2 == 0xa2) {
@@ -1846,7 +1838,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (rep_mode == AMD64_REPZ) {
+            if (rep_mode == AMD64_REPNZ) {
                 double src_double;
                 if (modrm.is_reg) {
                     if (modrm.rm >= 8)
@@ -1892,12 +1884,52 @@ restart_prefix:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
                 goto amd64_gpf_restore;
             value = cpu->xmm[modrm.reg];
-            if (rep_mode == AMD64_REPZ) {
+            if (rep_mode == AMD64_REPNZ) {
                 value.f64[0] = rex.w ? (double) (sqword_t) src_scalar
                                      : (double) (int32_t) src_scalar;
             } else {
                 value.f32[0] = rex.w ? (float) (sqword_t) src_scalar
                                      : (float) (int32_t) src_scalar;
+            }
+            cpu->xmm[modrm.reg] = value;
+            break;
+        }
+        if (op2 == 0x5a && (rep_mode == AMD64_REPZ || rep_mode == AMD64_REPNZ)) {
+            struct amd64_modrm modrm;
+            qword_t src_scalar;
+            union xmm_reg value;
+            if (operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                return INT_UNDEFINED;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPNZ) {
+                double src_double;
+                if (modrm.is_reg) {
+                    src_double = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_gpf_restore;
+                    src_double = *(double *) &src_scalar;
+                }
+                value.f32[0] = (float) src_double;
+            } else {
+                float src_float;
+                uint32_t src_word;
+                if (modrm.is_reg) {
+                    src_float = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_gpf_restore;
+                    src_word = (uint32_t) src_scalar;
+                    src_float = *(float *) &src_word;
+                }
+                value.f64[0] = (double) src_float;
             }
             cpu->xmm[modrm.reg] = value;
             break;
@@ -1912,13 +1944,6 @@ restart_prefix:
             }
             if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
                 return INT_UNDEFINED;
-            if (current != NULL && strcmp(current->comm, "htop") == 0 &&
-                    cpu->amd64_current_insn_rip == AMD64_HTOP_COMI_ILLEGAL_RIP) {
-                printk("amd64 htop comi match: rip=%#llx op2=%#x reg=%u rm=%u is_reg=%d rep=%u opsz=%d\n",
-                       (unsigned long long) cpu->amd64_current_insn_rip,
-                       op2, modrm.reg, modrm.rm, modrm.is_reg,
-                       rep_mode, operand_size_prefix);
-            }
             if (operand_size_prefix) {
                 double lhs, rhs;
                 lhs = cpu->xmm[modrm.reg].f64[0];
@@ -1950,7 +1975,7 @@ restart_prefix:
         }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
                 op2 == 0x28 || op2 == 0x29 || op2 == 0x58 || op2 == 0x59 ||
-                op2 == 0x5c || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
+                op2 == 0x5c || op2 == 0x5d || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x60 || op2 == 0x61 ||
                 op2 == 0x62 || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
@@ -2031,55 +2056,71 @@ restart_prefix:
                     if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
                         goto amd64_gpf_restore;
                 }
-            } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5e) {
+            } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d || op2 == 0x5e) {
                 value = cpu->xmm[modrm.reg];
                 if (rep_mode == AMD64_REPZ) {
                     if (operand_size_prefix)
                         return INT_UNDEFINED;
-                    if (modrm.is_reg) {
-                        src_scalar = cpu->xmm[modrm.rm].qw[0];
-                    } else {
-                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
-                            goto amd64_gpf_restore;
-                    }
-                    switch (op2) {
-                    case 0x58:
-                        value.f64[0] += *(double *) &src_scalar;
-                        break;
-                    case 0x59:
-                        value.f64[0] *= *(double *) &src_scalar;
-                        break;
-                    case 0x5c:
-                        value.f64[0] -= *(double *) &src_scalar;
-                        break;
-                    case 0x5e:
-                        value.f64[0] /= *(double *) &src_scalar;
-                        break;
+                    {
+                        float lhs, rhs;
+                        uint32_t src_word;
+                        lhs = value.f32[0];
+                        if (modrm.is_reg) {
+                            rhs = cpu->xmm[modrm.rm].f32[0];
+                        } else {
+                            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                                goto amd64_gpf_restore;
+                            src_word = (uint32_t) src_scalar;
+                            rhs = *(float *) &src_word;
+                        }
+                        switch (op2) {
+                        case 0x58:
+                            value.f32[0] = lhs + rhs;
+                            break;
+                        case 0x59:
+                            value.f32[0] = lhs * rhs;
+                            break;
+                        case 0x5c:
+                            value.f32[0] = lhs - rhs;
+                            break;
+                        case 0x5d:
+                            value.f32[0] = lhs < rhs ? lhs : rhs;
+                            break;
+                        case 0x5e:
+                            value.f32[0] = lhs / rhs;
+                            break;
+                        }
                     }
                 } else if (rep_mode == AMD64_REPNZ) {
-                    uint32_t src_word;
                     if (operand_size_prefix)
                         return INT_UNDEFINED;
-                    if (modrm.is_reg) {
-                        src_word = cpu->xmm[modrm.rm].u32[0];
-                    } else {
-                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
-                            goto amd64_gpf_restore;
-                        src_word = (uint32_t) src_scalar;
-                    }
-                    switch (op2) {
-                    case 0x58:
-                        value.f32[0] += *(float *) &src_word;
-                        break;
-                    case 0x59:
-                        value.f32[0] *= *(float *) &src_word;
-                        break;
-                    case 0x5c:
-                        value.f32[0] -= *(float *) &src_word;
-                        break;
-                    case 0x5e:
-                        value.f32[0] /= *(float *) &src_word;
-                        break;
+                    {
+                        double lhs, rhs;
+                        lhs = value.f64[0];
+                        if (modrm.is_reg) {
+                            rhs = cpu->xmm[modrm.rm].f64[0];
+                        } else {
+                            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                                goto amd64_gpf_restore;
+                            rhs = *(double *) &src_scalar;
+                        }
+                        switch (op2) {
+                        case 0x58:
+                            value.f64[0] = lhs + rhs;
+                            break;
+                        case 0x59:
+                            value.f64[0] = lhs * rhs;
+                            break;
+                        case 0x5c:
+                            value.f64[0] = lhs - rhs;
+                            break;
+                        case 0x5d:
+                            value.f64[0] = lhs < rhs ? lhs : rhs;
+                            break;
+                        case 0x5e:
+                            value.f64[0] = lhs / rhs;
+                            break;
+                        }
                     }
                 } else {
                     if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
@@ -2097,6 +2138,10 @@ restart_prefix:
                         case 0x5c:
                             value.f64[0] -= src_xmm.f64[0];
                             value.f64[1] -= src_xmm.f64[1];
+                            break;
+                        case 0x5d:
+                            value.f64[0] = value.f64[0] < src_xmm.f64[0] ? value.f64[0] : src_xmm.f64[0];
+                            value.f64[1] = value.f64[1] < src_xmm.f64[1] ? value.f64[1] : src_xmm.f64[1];
                             break;
                         case 0x5e:
                             value.f64[0] /= src_xmm.f64[0];
@@ -2122,6 +2167,12 @@ restart_prefix:
                             value.f32[1] -= src_xmm.f32[1];
                             value.f32[2] -= src_xmm.f32[2];
                             value.f32[3] -= src_xmm.f32[3];
+                            break;
+                        case 0x5d:
+                            value.f32[0] = value.f32[0] < src_xmm.f32[0] ? value.f32[0] : src_xmm.f32[0];
+                            value.f32[1] = value.f32[1] < src_xmm.f32[1] ? value.f32[1] : src_xmm.f32[1];
+                            value.f32[2] = value.f32[2] < src_xmm.f32[2] ? value.f32[2] : src_xmm.f32[2];
+                            value.f32[3] = value.f32[3] < src_xmm.f32[3] ? value.f32[3] : src_xmm.f32[3];
                             break;
                         case 0x5e:
                             value.f32[0] /= src_xmm.f32[0];
