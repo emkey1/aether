@@ -6,10 +6,8 @@
 #include "fs/path.h"
 
 static void proc_prepare_child_entry(struct proc_entry *parent, unsigned long index, struct proc_entry *child) {
-    if (child->meta->parent == NULL)
-        child->meta->parent = parent->meta;
-    else
-        assert(child->meta->parent == parent->meta);
+    child->index = index;
+    child->parent = parent->meta;
 }
 
 static int proc_lookup(const char *path, struct proc_entry *entry) {
@@ -70,7 +68,8 @@ static int proc_getpath(struct fd *fd, char *buf) {
         n += component_len;
         *p = '/';
         memcpy(p + 1, component, component_len - 1);
-        entry.meta = entry.meta->parent;
+        entry.meta = entry.parent;
+        entry.parent = entry.meta != NULL ? entry.meta->parent : NULL;
     }
     memmove(buf, p, n + 1); // plus one for the null
     return 0;

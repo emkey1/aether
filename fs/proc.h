@@ -4,6 +4,8 @@
 #include "fs/stat.h"
 #include "misc.h"
 
+struct proc_dir_entry;
+
 struct proc_entry {
     struct proc_dir_entry *meta;
     unsigned long index;
@@ -11,6 +13,7 @@ struct proc_entry {
     char *name;
     pid_t_ pid;
     sdword_t fd; // typedef might not have been read yet
+    struct proc_dir_entry *parent;
 };
 
 struct proc_data {

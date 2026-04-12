@@ -47,7 +47,7 @@ qword_t proc_entry_inode(struct proc_entry *entry) {
         FNV_MIX_BYTE(value__ >> (i__ * 8)); \
 } while (0)
 
-    FNV_MIX_VALUE(entry->meta->parent);
+    FNV_MIX_VALUE(entry->parent);
     FNV_MIX_VALUE(entry->meta);
     if (entry->meta->getname || entry->meta->name != NULL) {
         char name[MAX_NAME + 1];
