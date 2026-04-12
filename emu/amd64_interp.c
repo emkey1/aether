@@ -1008,7 +1008,7 @@ static inline void amd64_bump_string_reg(struct cpu_state *cpu, unsigned reg, un
 }
 
 static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
-        byte_t opcode, unsigned size, enum amd64_rep_mode rep_mode) {
+        qword_t saved_rip, byte_t opcode, unsigned size, enum amd64_rep_mode rep_mode) {
     qword_t count = rep_mode == AMD64_REP_NONE ? 1 : amd64_reg_get(cpu, amd64_rcx, 64);
 
     while (count != 0) {
@@ -1017,9 +1017,9 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
         case 0xa4:
         case 0xa5:
             if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &value, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             if (!amd64_mem_write(cpu, tlb, cpu->amd64_regs[amd64_rdi], &value, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             amd64_bump_string_reg(cpu, amd64_rsi, size);
             amd64_bump_string_reg(cpu, amd64_rdi, size);
             break;
@@ -1027,13 +1027,13 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
         case 0xab:
             value = amd64_reg_get(cpu, amd64_rax, size);
             if (!amd64_mem_write(cpu, tlb, cpu->amd64_regs[amd64_rdi], &value, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             amd64_bump_string_reg(cpu, amd64_rdi, size);
             break;
         case 0xac:
         case 0xad:
             if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &value, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             amd64_reg_set(cpu, amd64_rax, size, value);
             amd64_bump_string_reg(cpu, amd64_rsi, size);
             break;
@@ -1042,7 +1042,7 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
             qword_t lhs = amd64_reg_get(cpu, amd64_rax, size);
             qword_t rhs;
             if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rdi], &rhs, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             amd64_set_sub_flags(cpu, lhs, rhs, lhs - rhs, size);
             amd64_bump_string_reg(cpu, amd64_rdi, size);
             break;
@@ -1051,9 +1051,9 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
             qword_t lhs;
             qword_t rhs;
             if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rsi], &lhs, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             if (!amd64_mem_read(cpu, tlb, cpu->amd64_regs[amd64_rdi], &rhs, size / 8))
-                return INT_GPF;
+                goto amd64_string_pf;
             amd64_set_sub_flags(cpu, lhs, rhs, lhs - rhs, size);
             amd64_bump_string_reg(cpu, amd64_rsi, size);
             amd64_bump_string_reg(cpu, amd64_rdi, size);
@@ -1075,6 +1075,10 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
         }
     }
     return INT_NONE;
+
+amd64_string_pf:
+    cpu->amd64_rip = saved_rip;
+    return INT_PF;
 }
 
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
@@ -1133,25 +1137,25 @@ restart_prefix:
     (void) lock_prefix;
     switch (opcode) {
     case 0xa4:
-        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xa5:
-        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, op_size, rep_mode);
     case 0xa6:
-        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xa7:
-        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, op_size, rep_mode);
     case 0xaa:
-        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xab:
-        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, op_size, rep_mode);
     case 0xac:
-        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xad:
-        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, op_size, rep_mode);
     case 0xae:
-        return amd64_string_op(cpu, tlb, opcode, 8, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xaf:
-        return amd64_string_op(cpu, tlb, opcode, op_size, rep_mode);
+        return amd64_string_op(cpu, tlb, saved_rip, opcode, op_size, rep_mode);
     case 0x0f: {
         byte_t op2;
         if (!amd64_fetch_u8(cpu, tlb, &op2)) {
@@ -2581,9 +2585,6 @@ restart_prefix:
         qword_t lhs, rhs, result;
         unsigned rm_size = (opcode == 0x80 || opcode == 0xc0) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
-            if (opcode == 0xc7)
-                printk("amd64 c7 decode fail: rip=%#llx\n",
-                       (unsigned long long) saved_rip);
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = (addr_t) saved_rip;
             return INT_GPF;
@@ -2659,9 +2660,6 @@ restart_prefix:
         } else if (op_size == 16 && (opcode == 0x81 || opcode == 0xc7)) {
             uint16_t imm16;
             if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
-                if (opcode == 0xc7)
-                    printk("amd64 c7 imm16 fetch fail: rip=%#llx\n",
-                           (unsigned long long) saved_rip);
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
@@ -2670,9 +2668,6 @@ restart_prefix:
         } else {
             int32_t imm32;
             if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
-                if (opcode == 0xc7)
-                    printk("amd64 c7 imm32 fetch fail: rip=%#llx\n",
-                           (unsigned long long) saved_rip);
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
@@ -2680,16 +2675,8 @@ restart_prefix:
             rhs = opcode == 0xc7 && !rex.w ? (uint32_t) imm32 : (qword_t) (sqword_t) imm32;
         }
         if (opcode == 0xc6 || opcode == 0xc7) {
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs)) {
-                if (opcode == 0xc7)
-                    printk("amd64 c7 write fail: rip=%#llx addr=%#llx size=%u rhs=%#llx seg=%#x\n",
-                           (unsigned long long) saved_rip,
-                           (unsigned long long) amd64_effective_addr(cpu, &modrm, fs_prefix),
-                           op_size,
-                           (unsigned long long) rhs,
-                           cpu->segfault_addr);
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, rhs))
                 goto amd64_gpf_restore;
-            }
             if (!modrm.is_reg && op_size == 64)
                 amd64_trace_qword_store(cpu, saved_rip, opcode,
                         amd64_effective_addr(cpu, &modrm, fs_prefix), rhs);
