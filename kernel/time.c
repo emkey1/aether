@@ -213,19 +213,23 @@ static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespe
             return 0;
     }
 
-    bool trace_top = current != NULL && strcmp(current->comm, "top") == 0;
-    if (trace_top) {
-        printk("INFO: top clock_nanosleep enter pid=%d clock=%u flags=%#x req=%llds.%09ld rem=%#x\n",
-               current->pid, clock, flags, (long long) req.tv_sec, req.tv_nsec, rem_addr);
+    bool trace_short_sleep = req.tv_sec >= 0 && req.tv_sec <= 2;
+    if (trace_short_sleep) {
+        printk("INFO: wait clock_nanosleep enter pid=%d comm=%s clock=%u flags=%#x req=%llds.%09ld rem=%#x\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               clock, flags, (long long) req.tv_sec, req.tv_nsec, rem_addr);
     }
 
     int res;
     TASK_MAY_BLOCK {
         res = nanosleep(&req, &rem);
     }
-    if (trace_top) {
-        printk("INFO: top clock_nanosleep exit pid=%d res=%d rem=%llds.%09ld\n",
-               current->pid, res, (long long) rem.tv_sec, rem.tv_nsec);
+    if (trace_short_sleep) {
+        printk("INFO: wait clock_nanosleep exit pid=%d comm=%s res=%d rem=%llds.%09ld\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               res, (long long) rem.tv_sec, rem.tv_nsec);
     }
     if (res < 0)
         return errno_map();
@@ -495,10 +499,12 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     if (read_guest_timespec_abi(current->abi, req_addr, &req_ts))
         return _EFAULT;
     STRACE("nanosleep({%lld, %ld}, 0x%x", (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
-    bool trace_top = current != NULL && strcmp(current->comm, "top") == 0;
-    if (trace_top) {
-        printk("INFO: top nanosleep enter pid=%d req=%llds.%09ld rem=%#x\n",
-               current->pid, (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
+    bool trace_short_sleep = req_ts.tv_sec >= 0 && req_ts.tv_sec <= 2;
+    if (trace_short_sleep) {
+        printk("INFO: wait nanosleep enter pid=%d comm=%s req=%llds.%09ld rem=%#x\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
     }
     struct timespec rem;
    // rem.tv_sec = 0; // Be anal and set both to zero.  -mke
@@ -507,9 +513,11 @@ dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
     TASK_MAY_BLOCK {
         res = nanosleep(&req_ts, &rem);
     }
-    if (trace_top) {
-        printk("INFO: top nanosleep exit pid=%d res=%d rem=%llds.%09ld\n",
-               current->pid, res, (long long) rem.tv_sec, rem.tv_nsec);
+    if (trace_short_sleep) {
+        printk("INFO: wait nanosleep exit pid=%d comm=%s res=%d rem=%llds.%09ld\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               res, (long long) rem.tv_sec, rem.tv_nsec);
     }
     if (res < 0)
         return errno_map();

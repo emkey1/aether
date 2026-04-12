@@ -37,15 +37,7 @@ static bool poll_trace_comm(const char *comm) {
         strncmp(comm, "update-ca-certi", 15) == 0;
 }
 
-static bool poll_trace_tty_wait_fd(struct fd *fd, int requested) {
-    if (current == NULL || fd == NULL)
-        return false;
-    if ((requested & (POLL_READ | POLL_PRI | POLL_HUP | POLL_ERR)) == 0)
-        return false;
-    return fd->ops == &tty_dev.fd;
-}
-
-static bool poll_trace_tty_wait_timeout(const struct timespec *timeout_ts_ptr, int timeout_trace) {
+static bool poll_trace_short_timeout(const struct timespec *timeout_ts_ptr, int timeout_trace) {
     if (timeout_ts_ptr != NULL) {
         if (timeout_ts_ptr->tv_sec < 0 || timeout_ts_ptr->tv_sec > 2)
             return false;
@@ -56,8 +48,24 @@ static bool poll_trace_tty_wait_timeout(const struct timespec *timeout_ts_ptr, i
     return timeout_trace <= 2000;
 }
 
-static bool poll_trace_top_task_enabled(void) {
-    return current != NULL && strcmp(current->comm, "top") == 0;
+static void poll_trace_short_wait_fd(struct fd *fd, int requested, int ready, int revents, const char *phase) {
+    if (current == NULL || fd == NULL)
+        return;
+    if ((requested & (POLL_READ | POLL_PRI | POLL_HUP | POLL_ERR | POLL_WRITE)) == 0)
+        return;
+    if (fd->ops == &tty_dev.fd) {
+        struct tty *tty = fd->tty;
+        printk("INFO: wait %s pid=%d comm=%s tty=%d:%d requested=%#x ready=%#x revents=%#x\n",
+               phase, current->pid, current->comm,
+               tty != NULL && tty->driver != NULL ? tty->driver->major : -1,
+               tty != NULL ? tty->num : -1,
+               requested, ready, revents);
+        return;
+    }
+
+    printk("INFO: wait %s pid=%d comm=%s real=%d requested=%#x ready=%#x revents=%#x file=%p\n",
+           phase, current->pid, current->comm, fd->real_fd,
+           requested, ready, revents, (void *) fd);
 }
 
 static bool poll_trace_net_enabled(void) {
@@ -234,27 +242,12 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             select_trace_net_fd(files[i], requested, ready, "enter");
         }
     }
-    bool trace_tty_select = false;
-    if (poll_trace_tty_wait_timeout(timeout_ts_ptr, -1)) {
-        for (fd_t i = 0; i < nfds; i++) {
-            if (files[i] == NULL)
-                continue;
-            int requested = 0;
-            if (bit_test(i, readfds))
-                requested |= SELECT_READ;
-            if (bit_test(i, writefds))
-                requested |= SELECT_WRITE;
-            if (bit_test(i, exceptfds))
-                requested |= SELECT_EX;
-            if (poll_trace_tty_wait_fd(files[i], requested)) {
-                trace_tty_select = true;
-                break;
-            }
-        }
-    }
-    if (trace_tty_select) {
-        printk("INFO: top select enter pid=%d nfds=%d timeout=%lds.%09ld\n",
-               current->pid, nfds,
+    bool trace_short_select = poll_trace_short_timeout(timeout_ts_ptr, -1);
+    if (trace_short_select) {
+        printk("INFO: wait select enter pid=%d comm=%s nfds=%d timeout=%lds.%09ld\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               nfds,
                timeout_ts_ptr != NULL ? timeout_ts.tv_sec : -1L,
                timeout_ts_ptr != NULL ? timeout_ts.tv_nsec : -1L);
         for (fd_t i = 0; i < nfds; i++) {
@@ -270,8 +263,7 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             if (requested == 0)
                 continue;
             int ready = files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
-            printk("INFO: top select fd=%d requested=%#x ready=%#x file=%p\n",
-                   i, requested, ready, (void *) files[i]);
+            poll_trace_short_wait_fd(files[i], requested, ready, 0, "select-enter");
         }
     }
 
@@ -317,8 +309,11 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
             select_trace_net_fd(files[i], revents, ready, "exit");
         }
     }
-    if (trace_tty_select) {
-        printk("INFO: top select exit pid=%d err=%d\n", current->pid, err);
+    if (trace_short_select) {
+        printk("INFO: wait select exit pid=%d comm=%s err=%d\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               err);
         for (fd_t i = 0; i < nfds; i++) {
             if (files[i] == NULL)
                 continue;
@@ -330,8 +325,7 @@ static dword_t sys_select_common(fd_t nfds, addr_t readfds_addr, addr_t writefds
                 revents |= SELECT_WRITE;
             if (bit_test(i, exceptfds))
                 revents |= SELECT_EX;
-            printk("INFO: top select fd=%d ready_now=%#x revents=%#x file=%p\n",
-                   i, ready, revents, (void *) files[i]);
+            poll_trace_short_wait_fd(files[i], revents, ready, revents, "select-exit");
         }
     }
 
@@ -432,7 +426,6 @@ dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout
             polls[i].revents = POLL_NVAL;
     }
     struct poll_context context = {polls, files, nfds};
-    bool trace_top_task = poll_trace_top_task_enabled();
     if (poll_trace_net_enabled()) {
         for (unsigned i = 0; i < nfds; i++) {
             if (files[i] == NULL)
@@ -441,31 +434,17 @@ dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "enter");
         }
     }
-    if (trace_top_task) {
-        printk("INFO: top poll(any) enter pid=%d nfds=%u timeout_ms=%d\n",
-               current->pid, nfds, timeout_trace);
+    bool trace_short_poll = poll_trace_short_timeout(timeout_ts_ptr, timeout_trace);
+    if (trace_short_poll) {
+        printk("INFO: wait poll enter pid=%d comm=%s nfds=%u timeout_ms=%d\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               nfds, timeout_trace);
         for (unsigned i = 0; i < nfds; i++) {
             int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
-            printk("INFO: top poll(any) fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
-                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
-        }
-    }
-    bool trace_tty_poll = false;
-    if (poll_trace_tty_wait_timeout(timeout_ts_ptr, timeout_trace)) {
-        for (unsigned i = 0; i < nfds; i++) {
-            if (poll_trace_tty_wait_fd(files[i], polls[i].events)) {
-                trace_tty_poll = true;
-                break;
-            }
-        }
-    }
-    if (trace_tty_poll) {
-        printk("INFO: top poll enter pid=%d nfds=%u timeout_ms=%d\n",
-               current->pid, nfds, timeout_trace);
-        for (unsigned i = 0; i < nfds; i++) {
-            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
-            printk("INFO: top poll fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
-                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
+            if (files[i] == NULL)
+                continue;
+            poll_trace_short_wait_fd(files[i], polls[i].events, ready, polls[i].revents, "poll-enter");
         }
     }
     int res = 0;
@@ -489,22 +468,16 @@ out:
             poll_trace_net_fd(files[i], polls[i].events | POLL_ALWAYS_LISTENING, ready, polls[i].revents, "exit");
         }
     }
-    if (trace_top_task) {
-        printk("INFO: top poll(any) exit pid=%d res=%d timeout_ms=%d\n",
-               current->pid, res, timeout_trace);
+    if (trace_short_poll) {
+        printk("INFO: wait poll exit pid=%d comm=%s res=%d timeout_ms=%d\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->comm : "?",
+               res, timeout_trace);
         for (unsigned i = 0; i < nfds; i++) {
             int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
-            printk("INFO: top poll(any) fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
-                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
-        }
-    }
-    if (trace_tty_poll) {
-        printk("INFO: top poll exit pid=%d res=%d timeout_ms=%d\n",
-               current->pid, res, timeout_trace);
-        for (unsigned i = 0; i < nfds; i++) {
-            int ready = files[i] != NULL && files[i]->ops->poll ? files[i]->ops->poll(files[i]) : 0;
-            printk("INFO: top poll fd[%u]=%d events=%#x ready=%#x revents=%#x file=%p\n",
-                   i, polls[i].fd, polls[i].events, ready, polls[i].revents, (void *) files[i]);
+            if (files[i] == NULL)
+                continue;
+            poll_trace_short_wait_fd(files[i], polls[i].events, ready, polls[i].revents, "poll-exit");
         }
     }
 
