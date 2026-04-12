@@ -57,6 +57,32 @@ static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     return (qword_t) (uint32_t) (int32_t) value;
 }
 
+static inline void amd64_set_fp_compare_flags(struct cpu_state *cpu, int cmp_result, bool unordered) {
+    cpu->of = 0;
+    cpu->sf = 0;
+    cpu->af = 0;
+    cpu->af_ops = 0;
+    if (unordered) {
+        cpu->zf = 1;
+        cpu->pf = 1;
+        cpu->cf = 1;
+    } else if (cmp_result < 0) {
+        cpu->zf = 0;
+        cpu->pf = 0;
+        cpu->cf = 1;
+    } else if (cmp_result == 0) {
+        cpu->zf = 1;
+        cpu->pf = 0;
+        cpu->cf = 0;
+    } else {
+        cpu->zf = 0;
+        cpu->pf = 0;
+        cpu->cf = 0;
+    }
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    collapse_flags(cpu);
+}
+
 static inline bool amd64_trace_intersects_busybox_slot(qword_t guest_addr, unsigned size) {
     if (size == 0)
         return false;
@@ -1425,6 +1451,47 @@ restart_prefix:
                                      : (float) (int32_t) src_scalar;
             }
             cpu->xmm[modrm.reg] = value;
+            break;
+        }
+        if ((op2 == 0x2e || op2 == 0x2f) && (rep_mode == AMD64_REP_NONE || rep_mode == AMD64_REPNZ)) {
+            struct amd64_modrm modrm;
+            qword_t src_scalar;
+            if (operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = (addr_t) saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                return INT_UNDEFINED;
+            if (rep_mode == AMD64_REPNZ) {
+                double lhs, rhs;
+                lhs = cpu->xmm[modrm.reg].f64[0];
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_gpf_restore;
+                    rhs = *(double *) &src_scalar;
+                }
+                amd64_set_fp_compare_flags(cpu, lhs < rhs ? -1 : (lhs > rhs ? 1 : 0),
+                        isnan(lhs) || isnan(rhs));
+            } else {
+                float lhs, rhs;
+                uint32_t src_word;
+                lhs = cpu->xmm[modrm.reg].f32[0];
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_gpf_restore;
+                    src_word = (uint32_t) src_scalar;
+                    rhs = *(float *) &src_word;
+                }
+                amd64_set_fp_compare_flags(cpu, lhs < rhs ? -1 : (lhs > rhs ? 1 : 0),
+                        isnan(lhs) || isnan(rhs));
+            }
             break;
         }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
