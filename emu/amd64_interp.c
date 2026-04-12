@@ -322,6 +322,28 @@ static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tl
     }
 }
 
+static inline void amd64_trace_htop_store_history(struct cpu_state *cpu, qword_t watch_addr) {
+    unsigned total = cpu->amd64_store_trace_next;
+    if (total > AMD64_STORE_TRACE_COUNT)
+        total = AMD64_STORE_TRACE_COUNT;
+
+    unsigned reported = 0;
+    for (unsigned i = 0; i < total && reported < 6; i++) {
+        unsigned seq = cpu->amd64_store_trace_next - 1 - i;
+        struct amd64_store_trace entry =
+                cpu->amd64_store_trace[seq % AMD64_STORE_TRACE_COUNT];
+        if (entry.addr != watch_addr)
+            continue;
+        printk("amd64 htop rbx store%u: rip=%#llx opcode=%#x addr=%#llx value=%#llx\n",
+               reported,
+               (unsigned long long) entry.rip,
+               entry.opcode,
+               (unsigned long long) entry.addr,
+               (unsigned long long) entry.value);
+        reported++;
+    }
+}
+
 static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t base, qword_t addr, qword_t value) {
     if (current == NULL || strcmp(current->comm, "htop") != 0)
         return;
@@ -356,6 +378,7 @@ static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t ba
            (unsigned long long) value,
            (unsigned long long) cpu->amd64_regs[amd64_rsp],
            (unsigned long long) cpu->amd64_regs[amd64_r12]);
+    amd64_trace_htop_store_history(cpu, addr);
     if (have_bytes) {
         printk("amd64 htop rbx obj0: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
