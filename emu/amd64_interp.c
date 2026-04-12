@@ -39,8 +39,9 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_JNE_RIP 0x565e3a05ull
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
 #define AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP 0xfff929caull
+#define AMD64_HTOP_RBX_LOAD_RIP 0x5656370eull
 #define AMD64_HTOP_R13_CORRUPT_WRITE_RIP 0x5656375full
-#define AMD64_HTOP_TRACE_WINDOW_START 0x56563730ull
+#define AMD64_HTOP_TRACE_WINDOW_START 0x56563700ull
 #define AMD64_HTOP_TRACE_WINDOW_END 0x56563780ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
@@ -303,6 +304,46 @@ static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tl
         printk("amd64 htop win bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+    }
+}
+
+static inline void amd64_trace_htop_rbx_source(struct cpu_state *cpu, qword_t base, qword_t addr, qword_t value) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (cpu->amd64_current_insn_rip != AMD64_HTOP_RBX_LOAD_RIP)
+        return;
+
+    uint8_t bytes[64] = {};
+    bool have_bytes = false;
+    qword_t dump_addr = addr >= 0x10 ? addr - 0x10 : addr;
+    if (current->mem != NULL) {
+        void *ptr = mem_ptr(current->mem, (addr_t) dump_addr, MEM_READ);
+        if (ptr != NULL) {
+            memcpy(bytes, ptr, sizeof(bytes));
+            have_bytes = true;
+        }
+    }
+
+    printk("amd64 htop rbx src: rip=%#llx base=%#llx addr=%#llx value=%#llx rsp=%#llx r12=%#llx\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) base,
+           (unsigned long long) addr,
+           (unsigned long long) value,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_r12]);
+    if (have_bytes) {
+        printk("amd64 htop rbx obj0: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+               bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+        printk("amd64 htop rbx obj1: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23],
+               bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31]);
+        printk("amd64 htop rbx obj2: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[32], bytes[33], bytes[34], bytes[35], bytes[36], bytes[37], bytes[38], bytes[39],
+               bytes[40], bytes[41], bytes[42], bytes[43], bytes[44], bytes[45], bytes[46], bytes[47]);
+        printk("amd64 htop rbx obj3: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[48], bytes[49], bytes[50], bytes[51], bytes[52], bytes[53], bytes[54], bytes[55],
+               bytes[56], bytes[57], bytes[58], bytes[59], bytes[60], bytes[61], bytes[62], bytes[63]);
     }
 }
 
@@ -1151,6 +1192,8 @@ static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
         if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp)))
             return false;
         *value = tmp;
+        if (modrm->reg == amd64_rbx && modrm->has_base)
+            amd64_trace_htop_rbx_source(cpu, cpu->amd64_regs[modrm->base], addr, tmp);
         if (modrm->reg == amd64_r13)
             amd64_trace_htop_r13_source(cpu, addr, tmp);
         return true;
