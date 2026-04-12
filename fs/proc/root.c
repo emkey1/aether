@@ -38,24 +38,63 @@ static size_t append_flag(char *buf, size_t size, size_t offset, const char *fla
     return offset;
 }
 
-void parse_edx_flags(dword_t edx, char *edx_flags, size_t edx_flags_size) { /* Translate edx bit flags into text */
-    static const char *enumerated[] = {
-        "fpu ", "vme ", "de ", "pse ", "tsc ", "msr ", "pae ", "mce ", "cx8 ", "apic ", "Reserved ",
-        "sep ", "mtrr ", "pge ", "mca ", "cmov ", "", "pse-36 ", "psn ", "clfsh ", "Reserved ",
-        "ds ", "acpi ", "mmx ", "fxsr ", "sse ", "sse2 ", "ss ", "htt ", "tm ", "Reserved ", "pbe "
-    };
-
-    size_t offset = 0;
+static void append_cpuid_leaf_flags(char *buf, size_t size, dword_t bits,
+                                    const char *const names[32]) {
+    size_t offset = strlen(buf);
     for (size_t i = 0; i < 32; i++) {
-        if (edx & (1 << i)) {
-            const size_t enum_len = strlen(enumerated[i]);
-            if (offset + enum_len + 1 >= edx_flags_size)
-                break;
-            memcpy(edx_flags + offset, enumerated[i], enum_len);
-            offset += enum_len;
-        }
+        if (!(bits & (1u << i)) || names[i] == NULL || names[i][0] == '\0')
+            continue;
+        offset = append_flag(buf, size, offset, names[i]);
     }
-    edx_flags[offset] = '\0';
+}
+
+static void append_cpuid_flags(char *buf, size_t size, dword_t ecx, dword_t edx,
+                               const char *const ecx_names[32],
+                               const char *const edx_names[32]) {
+    append_cpuid_leaf_flags(buf, size, edx, edx_names);
+    append_cpuid_leaf_flags(buf, size, ecx, ecx_names);
+}
+
+static void format_cpuid_flags(char *buf, size_t size) {
+    static const char *const leaf1_edx_names[32] = {
+        "fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce",
+        "cx8", "apic", NULL, "sep", "mtrr", "pge", "mca", "cmov",
+        NULL, "pse36", "pn", "clflush", NULL, "dts", "acpi", "mmx",
+        "fxsr", "sse", "sse2", "ss", "ht", "tm", NULL, "pbe",
+    };
+    static const char *const leaf1_ecx_names[32] = {
+        "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx",
+        "est", "tm2", "ssse3", "cid", "sdbg", "fma", "cx16", "xtpr",
+        "pdcm", NULL, "pcid", "dca", "sse4_1", "sse4_2", "x2apic",
+        "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "osxsave",
+        "avx", "f16c", "rdrand", "hypervisor",
+    };
+    static const char *const ext_edx_names[32] = {
+        "fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce",
+        "cx8", "apic", NULL, "syscall", "mtrr", "pge", "mca", "cmov",
+        "pat", "pse36", NULL, NULL, "nx", NULL, "mmxext", "mmx",
+        "fxsr", "fxsr_opt", "pdpe1gb", "rdtscp", NULL, "lm", "3dnowext", "3dnow",
+    };
+    static const char *const ext_ecx_names[32] = {
+        "lahf_lm", "cmp_legacy", "svm", "extapic", "cr8_legacy", "abm",
+        "sse4a", "misalignsse", "3dnowprefetch", "osvw", "ibs", "xop",
+        "skinit", "wdt", NULL, "lwp", "fma4", "tce", NULL, "nodeid_msr",
+        NULL, "tbm", "topoext", "perfctr_core", "perfctr_nb", NULL,
+        "bpext", "ptsc", "perfctr_llc", "mwaitx", NULL, NULL,
+    };
+    dword_t eax = 1, ebx = 0, ecx = 0, edx = 0;
+
+    buf[0] = '\0';
+    do_cpuid(&eax, &ebx, &ecx, &edx);
+    append_cpuid_flags(buf, size, ecx, edx, leaf1_ecx_names, leaf1_edx_names);
+
+    eax = 0x80000000u;
+    do_cpuid(&eax, &ebx, &ecx, &edx);
+    if (eax >= 0x80000001u) {
+        eax = 0x80000001u;
+        do_cpuid(&eax, &ebx, &ecx, &edx);
+        append_cpuid_flags(buf, size, ecx, edx, ext_ecx_names, ext_edx_names);
+    }
 }
 
 static void unpack32(dword_t src, void *dst) {
@@ -83,14 +122,13 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
 
     char vendor_id[13] = { 0 };
     translate_vendor_id(vendor_id, &ebx, &ecx, &edx);
+    dword_t cpuid_level = eax;
 
     eax = 1;
     do_cpuid(&eax, &ebx, &ecx, &edx);
 
-    char edx_flags[192] = { 0 };
-    parse_edx_flags(edx, edx_flags, sizeof(edx_flags));
-    if (guest_abi_is_64bit(abi))
-        append_flag(edx_flags, sizeof(edx_flags), strlen(edx_flags), "lm");
+    char cpu_flags[512] = { 0 };
+    format_cpuid_flags(cpu_flags, sizeof(cpu_flags));
     char *host_architecture = copyHostArchitecture();
     char *host_machine_identifier = copyHostMachineIdentifier();
     char *host_device_name = copyHostDeviceName();
@@ -120,9 +158,9 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         proc_printf(buf, "initial apicid  : %d\n",i);
         proc_printf(buf, "fpu             : yes\n");
         proc_printf(buf, "fpu_exception   : yes\n");
-        proc_printf(buf, "cpuid level     : %d\n",13);
+        proc_printf(buf, "cpuid level     : %u\n", cpuid_level);
         proc_printf(buf, "wp              : yes\n");
-        proc_printf(buf, "flags           : %s\n", edx_flags); // Pulled from do_cpuid
+        proc_printf(buf, "flags           : %s\n", cpu_flags);
         proc_printf(buf, "host arch       : %s\n", host_architecture);
         proc_printf(buf, "host machine    : %s\n", host_machine_identifier);
         proc_printf(buf, "host device     : %s\n", host_device_name);
