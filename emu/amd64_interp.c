@@ -40,6 +40,8 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
 #define AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP 0xfff929caull
 #define AMD64_HTOP_R13_CORRUPT_WRITE_RIP 0x5656375full
+#define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
+#define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
@@ -264,6 +266,69 @@ static inline void amd64_trace_htop_r13_source(struct cpu_state *cpu, qword_t ad
         printk("amd64 htop r13 mem2: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                bytes[16], bytes[17], bytes[18], bytes[19], bytes[20], bytes[21], bytes[22], bytes[23],
                bytes[24], bytes[25], bytes[26], bytes[27], bytes[28], bytes[29], bytes[30], bytes[31]);
+    }
+}
+
+static inline bool amd64_trace_intersects_htop_r13_block(qword_t guest_addr, unsigned size) {
+    qword_t start = guest_addr;
+    qword_t end = guest_addr + size;
+    qword_t watch_start = AMD64_HTOP_R13_CORRUPT_BLOCK_BASE;
+    qword_t watch_end = watch_start + AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE;
+    return start < watch_end && end > watch_start;
+}
+
+static inline void amd64_trace_htop_r13_block_write(struct cpu_state *cpu, struct tlb *tlb,
+        qword_t guest_addr, const void *value, unsigned size) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (!amd64_trace_intersects_htop_r13_block(guest_addr, size))
+        return;
+
+    qword_t observed = 0;
+    uint8_t insn_bytes[8] = {};
+    bool have_insn = false;
+    uint8_t block[AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE] = {};
+    bool have_block = false;
+    memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
+
+    addr_t insn_addr;
+    if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn_bytes), &insn_addr) &&
+            tlb_read(tlb, insn_addr, insn_bytes, sizeof(insn_bytes))) {
+        have_insn = true;
+    }
+    if (current->mem != NULL) {
+        void *ptr = mem_ptr(current->mem, (addr_t) AMD64_HTOP_R13_CORRUPT_BLOCK_BASE, MEM_READ);
+        if (ptr != NULL) {
+            memcpy(block, ptr, sizeof(block));
+            have_block = true;
+        }
+    }
+
+    printk("amd64 htop block write: rip=%#llx next=%#llx addr=%#llx size=%u value=%#llx rsp=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx%s%s\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) cpu->amd64_rip,
+           (unsigned long long) guest_addr,
+           size,
+           (unsigned long long) observed,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rbx],
+           (unsigned long long) cpu->amd64_regs[amd64_rcx],
+           (unsigned long long) cpu->amd64_regs[amd64_rdx],
+           have_insn ? " bytes=" : "",
+           have_insn ? "" : "");
+    if (have_insn) {
+        printk("amd64 htop block bytes: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               insn_bytes[0], insn_bytes[1], insn_bytes[2], insn_bytes[3],
+               insn_bytes[4], insn_bytes[5], insn_bytes[6], insn_bytes[7]);
+    }
+    if (have_block) {
+        printk("amd64 htop block mem: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7],
+               block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15]);
+        printk("amd64 htop block mem2: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23],
+               block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31]);
     }
 }
 
@@ -595,6 +660,7 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         cpu->segfault_was_write = true;
         return false;
     }
+    amd64_trace_htop_r13_block_write(cpu, tlb, guest_addr, value, size);
     if (amd64_verbose_boot_trace_enabled() && amd64_trace_intersects_busybox_slot(guest_addr, size)) {
         qword_t observed = 0;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
