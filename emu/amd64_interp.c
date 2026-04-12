@@ -45,6 +45,7 @@ struct amd64_modrm {
 #define AMD64_HTOP_TRACE_WINDOW_END 0x56563780ull
 #define AMD64_HTOP_RBX_FIELD_OFFSET 0x170ull
 #define AMD64_HTOP_RBX_FIELD_SIZE 8
+#define AMD64_HTOP_RBX_FIELD_ABS_ADDR 0xf7f019e0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
@@ -52,7 +53,7 @@ struct amd64_modrm {
 
 static qword_t amd64_busybox_init_watch[AMD64_BUSYBOX_INIT_WATCH_COUNT];
 static unsigned amd64_busybox_init_watch_next;
-static qword_t amd64_htop_watch_field_addr;
+static qword_t amd64_htop_watch_field_addr = AMD64_HTOP_RBX_FIELD_ABS_ADDR;
 
 static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     if (isnan(value))

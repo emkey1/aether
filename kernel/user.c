@@ -4,6 +4,48 @@
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 
+#define HTOP_RBX_FIELD_ABS_ADDR ((addr_t) 0xf7f019e0u)
+#define HTOP_RBX_FIELD_SIZE 8
+
+static inline bool htop_watch_intersects(addr_t addr, size_t count) {
+    if (count == 0)
+        return false;
+    qword_t start = addr;
+    qword_t end = start + count;
+    qword_t watch_start = HTOP_RBX_FIELD_ABS_ADDR;
+    qword_t watch_end = watch_start + HTOP_RBX_FIELD_SIZE;
+    return start < watch_end && end > watch_start;
+}
+
+static inline void trace_htop_user_write(struct task *task, struct mem *mem,
+        addr_t addr, const void *buf, size_t count, bool ptrace) {
+    if (task == NULL || strcmp(task->comm, "htop") != 0)
+        return;
+    if (!htop_watch_intersects(addr, count))
+        return;
+
+    uint8_t field[HTOP_RBX_FIELD_SIZE] = {};
+    bool have_field = false;
+    void *field_ptr = mem_ptr(mem, HTOP_RBX_FIELD_ABS_ADDR,
+                              ptrace ? MEM_READ : MEM_READ);
+    if (field_ptr != NULL) {
+        memcpy(field, field_ptr, sizeof(field));
+        have_field = true;
+    }
+
+    uint64_t observed = 0;
+    size_t observed_size = count < sizeof(observed) ? count : sizeof(observed);
+    memcpy(&observed, buf, observed_size);
+
+    printk("htop user_write: addr=%#x count=%zu ptrace=%d value=%#llx\n",
+           addr, count, ptrace, (unsigned long long) observed);
+    if (have_field) {
+        printk("htop user_write field: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               field[0], field[1], field[2], field[3],
+               field[4], field[5], field[6], field[7]);
+    }
+}
+
 static struct mem *task_mem_read_lock(struct task *task) {
     struct mem *mem;
     if (task == current) {
@@ -63,6 +105,7 @@ static int __user_write_task_mem(struct task *task, struct mem *mem, addr_t addr
         char *ptr = mem_ptr(mem, p, ptrace ? MEM_WRITE_PTRACE : MEM_WRITE);
         if (ptr == NULL)
             return 1;
+        trace_htop_user_write(task, mem, p, &cbuf[p - addr], chunk_end - p, ptrace);
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
      /*   if(!strcmp(task->comm, "ls")) {  // Turns out this code mostly deals with linked libraries, at least in the case of ls.  -mke
             char foo[500] = {};
