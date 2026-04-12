@@ -1164,7 +1164,8 @@ restart_prefix:
             break;
         }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x16 || op2 == 0x17 ||
-                op2 == 0x28 || op2 == 0x29 || op2 == 0x54 || op2 == 0x55 ||
+                op2 == 0x28 || op2 == 0x29 || op2 == 0x58 || op2 == 0x59 ||
+                op2 == 0x5c || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x62 || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0xc6 || op2 == 0xd6 || op2 == 0xeb || op2 == 0xef) {
@@ -1192,6 +1193,108 @@ restart_prefix:
                 value = cpu->xmm[modrm.reg];
                 if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5e) {
+                value = cpu->xmm[modrm.reg];
+                if (rep_mode == AMD64_REPZ) {
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    if (modrm.is_reg) {
+                        src_scalar = cpu->xmm[modrm.rm].qw[0];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                    }
+                    switch (op2) {
+                    case 0x58:
+                        value.f64[0] += *(double *) &src_scalar;
+                        break;
+                    case 0x59:
+                        value.f64[0] *= *(double *) &src_scalar;
+                        break;
+                    case 0x5c:
+                        value.f64[0] -= *(double *) &src_scalar;
+                        break;
+                    case 0x5e:
+                        value.f64[0] /= *(double *) &src_scalar;
+                        break;
+                    }
+                } else if (rep_mode == AMD64_REPNZ) {
+                    uint32_t src_word;
+                    if (operand_size_prefix)
+                        return INT_UNDEFINED;
+                    if (modrm.is_reg) {
+                        src_word = cpu->xmm[modrm.rm].u32[0];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                            goto amd64_gpf_restore;
+                        src_word = (uint32_t) src_scalar;
+                    }
+                    switch (op2) {
+                    case 0x58:
+                        value.f32[0] += *(float *) &src_word;
+                        break;
+                    case 0x59:
+                        value.f32[0] *= *(float *) &src_word;
+                        break;
+                    case 0x5c:
+                        value.f32[0] -= *(float *) &src_word;
+                        break;
+                    case 0x5e:
+                        value.f32[0] /= *(float *) &src_word;
+                        break;
+                    }
+                } else {
+                    if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                        goto amd64_gpf_restore;
+                    if (operand_size_prefix) {
+                        switch (op2) {
+                        case 0x58:
+                            value.f64[0] += src_xmm.f64[0];
+                            value.f64[1] += src_xmm.f64[1];
+                            break;
+                        case 0x59:
+                            value.f64[0] *= src_xmm.f64[0];
+                            value.f64[1] *= src_xmm.f64[1];
+                            break;
+                        case 0x5c:
+                            value.f64[0] -= src_xmm.f64[0];
+                            value.f64[1] -= src_xmm.f64[1];
+                            break;
+                        case 0x5e:
+                            value.f64[0] /= src_xmm.f64[0];
+                            value.f64[1] /= src_xmm.f64[1];
+                            break;
+                        }
+                    } else {
+                        switch (op2) {
+                        case 0x58:
+                            value.f32[0] += src_xmm.f32[0];
+                            value.f32[1] += src_xmm.f32[1];
+                            value.f32[2] += src_xmm.f32[2];
+                            value.f32[3] += src_xmm.f32[3];
+                            break;
+                        case 0x59:
+                            value.f32[0] *= src_xmm.f32[0];
+                            value.f32[1] *= src_xmm.f32[1];
+                            value.f32[2] *= src_xmm.f32[2];
+                            value.f32[3] *= src_xmm.f32[3];
+                            break;
+                        case 0x5c:
+                            value.f32[0] -= src_xmm.f32[0];
+                            value.f32[1] -= src_xmm.f32[1];
+                            value.f32[2] -= src_xmm.f32[2];
+                            value.f32[3] -= src_xmm.f32[3];
+                            break;
+                        case 0x5e:
+                            value.f32[0] /= src_xmm.f32[0];
+                            value.f32[1] /= src_xmm.f32[1];
+                            value.f32[2] /= src_xmm.f32[2];
+                            value.f32[3] /= src_xmm.f32[3];
+                            break;
+                        }
+                    }
+                }
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 >= 0x54 && op2 <= 0x57) {
                 if (rep_mode != AMD64_REP_NONE)
                     return INT_UNDEFINED;
