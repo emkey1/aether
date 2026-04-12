@@ -3,6 +3,7 @@
 
 #include "emu/cpuid.h"
 #include "emu/cpu.h"
+#include "emu/memory.h"
 #include "emu/tlb.h"
 #include "emu/interrupt.h"
 #include "emu/modrm.h"
@@ -38,6 +39,7 @@ struct amd64_modrm {
 #define AMD64_BUSYBOX_INIT_JNE_RIP 0x565e3a05ull
 #define AMD64_BUSYBOX_INIT_CMP_RIP 0x565e3a0bull
 #define AMD64_BUSYBOX_INIT_CORRUPT_WRITE_RIP 0xfff929caull
+#define AMD64_HTOP_R13_CORRUPT_WRITE_RIP 0x5656375full
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
@@ -185,6 +187,54 @@ static inline void amd64_trace_suspicious_rsp_write(struct cpu_state *cpu,
            size);
 }
 
+static inline void amd64_trace_htop_r13_write(struct cpu_state *cpu,
+        qword_t old_value, qword_t new_value, unsigned size, qword_t value) {
+    if (current == NULL || strcmp(current->comm, "htop") != 0)
+        return;
+    if (cpu->amd64_current_insn_rip != AMD64_HTOP_R13_CORRUPT_WRITE_RIP)
+        return;
+
+    uint8_t insn_bytes[8] = {};
+    bool have_bytes = false;
+    if (current->mem != NULL) {
+        void *ptr = mem_ptr(current->mem, (addr_t) cpu->amd64_current_insn_rip, MEM_READ);
+        if (ptr != NULL) {
+            memcpy(insn_bytes, ptr, sizeof(insn_bytes));
+            have_bytes = true;
+        }
+    }
+
+    printk("amd64 htop r13 write: rip=%#llx old=%#llx new=%#llx size=%u value=%#llx rsp=%#llx rbp=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx\n",
+           (unsigned long long) cpu->amd64_current_insn_rip,
+           (unsigned long long) old_value,
+           (unsigned long long) new_value,
+           size,
+           (unsigned long long) value,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_rbp],
+           (unsigned long long) cpu->amd64_regs[amd64_rax],
+           (unsigned long long) cpu->amd64_regs[amd64_rbx],
+           (unsigned long long) cpu->amd64_regs[amd64_rcx],
+           (unsigned long long) cpu->amd64_regs[amd64_rdx]);
+    printk("amd64 htop r13 regs: rsi=%#llx rdi=%#llx r8=%#llx r9=%#llx r10=%#llx r11=%#llx r12=%#llx r14=%#llx r15=%#llx%s%s\n",
+           (unsigned long long) cpu->amd64_regs[amd64_rsi],
+           (unsigned long long) cpu->amd64_regs[amd64_rdi],
+           (unsigned long long) cpu->amd64_regs[amd64_r8],
+           (unsigned long long) cpu->amd64_regs[amd64_r9],
+           (unsigned long long) cpu->amd64_regs[amd64_r10],
+           (unsigned long long) cpu->amd64_regs[amd64_r11],
+           (unsigned long long) cpu->amd64_regs[amd64_r12],
+           (unsigned long long) cpu->amd64_regs[amd64_r14],
+           (unsigned long long) cpu->amd64_regs[amd64_r15],
+           have_bytes ? " bytes=" : "",
+           have_bytes ? "" : "");
+    if (have_bytes) {
+        printk("amd64 htop r13 bytes: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               insn_bytes[0], insn_bytes[1], insn_bytes[2], insn_bytes[3],
+               insn_bytes[4], insn_bytes[5], insn_bytes[6], insn_bytes[7]);
+    }
+}
+
 static inline qword_t amd64_reg_get(const struct cpu_state *cpu, unsigned reg, unsigned size) {
     qword_t value = cpu->amd64_regs[reg & 0xf];
     switch (size) {
@@ -209,22 +259,14 @@ static inline void amd64_reg_set_encoded8(struct cpu_state *cpu, unsigned reg, b
         unsigned base = reg - 4;
         qword_t old_value = cpu->amd64_regs[base];
         cpu->amd64_regs[base] = (cpu->amd64_regs[base] & ~0xff00ull) | ((value & 0xff) << 8);
-        if (base == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
-            printk("amd64 r13h write: rip=%#llx old=%#llx new=%#llx size=8h value=%#llx\n",
-                   (unsigned long long) cpu->amd64_current_insn_rip,
-                   (unsigned long long) old_value,
-                   (unsigned long long) cpu->amd64_regs[base],
-                   (unsigned long long) (value & 0xff));
+        if (base == amd64_r13)
+            amd64_trace_htop_r13_write(cpu, old_value, cpu->amd64_regs[base], 8, value & 0xff);
         return;
     }
     qword_t old_value = cpu->amd64_regs[reg];
     cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
-    if (reg == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
-        printk("amd64 r13 write: rip=%#llx old=%#llx new=%#llx size=8 value=%#llx\n",
-               (unsigned long long) cpu->amd64_current_insn_rip,
-               (unsigned long long) old_value,
-               (unsigned long long) cpu->amd64_regs[reg],
-               (unsigned long long) (value & 0xff));
+    if (reg == amd64_r13)
+        amd64_trace_htop_r13_write(cpu, old_value, cpu->amd64_regs[reg], 8, value & 0xff);
 }
 
 static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
@@ -246,13 +288,8 @@ static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned s
     default:
         break;
     }
-    if (reg == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
-        printk("amd64 r13 write: rip=%#llx old=%#llx new=%#llx size=%u value=%#llx\n",
-               (unsigned long long) cpu->amd64_current_insn_rip,
-               (unsigned long long) old_value,
-               (unsigned long long) cpu->amd64_regs[reg],
-               size,
-               (unsigned long long) value);
+    if (reg == amd64_r13)
+        amd64_trace_htop_r13_write(cpu, old_value, cpu->amd64_regs[reg], size, value);
     if (reg == amd64_rsp)
         amd64_trace_suspicious_rsp_write(cpu, old_value, cpu->amd64_regs[reg], size);
 }
