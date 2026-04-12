@@ -207,10 +207,24 @@ static inline void amd64_reg_set_encoded8(struct cpu_state *cpu, unsigned reg, b
     reg &= 0xf;
     if (!rex_present && reg >= 4 && reg < 8) {
         unsigned base = reg - 4;
+        qword_t old_value = cpu->amd64_regs[base];
         cpu->amd64_regs[base] = (cpu->amd64_regs[base] & ~0xff00ull) | ((value & 0xff) << 8);
+        if (base == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
+            printk("amd64 r13h write: rip=%#llx old=%#llx new=%#llx size=8h value=%#llx\n",
+                   (unsigned long long) cpu->amd64_current_insn_rip,
+                   (unsigned long long) old_value,
+                   (unsigned long long) cpu->amd64_regs[base],
+                   (unsigned long long) (value & 0xff));
         return;
     }
+    qword_t old_value = cpu->amd64_regs[reg];
     cpu->amd64_regs[reg] = (cpu->amd64_regs[reg] & ~0xffull) | (value & 0xff);
+    if (reg == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
+        printk("amd64 r13 write: rip=%#llx old=%#llx new=%#llx size=8 value=%#llx\n",
+               (unsigned long long) cpu->amd64_current_insn_rip,
+               (unsigned long long) old_value,
+               (unsigned long long) cpu->amd64_regs[reg],
+               (unsigned long long) (value & 0xff));
 }
 
 static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned size, qword_t value) {
@@ -232,6 +246,13 @@ static inline void amd64_reg_set(struct cpu_state *cpu, unsigned reg, unsigned s
     default:
         break;
     }
+    if (reg == amd64_r13 && current != NULL && strcmp(current->comm, "htop") == 0)
+        printk("amd64 r13 write: rip=%#llx old=%#llx new=%#llx size=%u value=%#llx\n",
+               (unsigned long long) cpu->amd64_current_insn_rip,
+               (unsigned long long) old_value,
+               (unsigned long long) cpu->amd64_regs[reg],
+               size,
+               (unsigned long long) value);
     if (reg == amd64_rsp)
         amd64_trace_suspicious_rsp_write(cpu, old_value, cpu->amd64_regs[reg], size);
 }
