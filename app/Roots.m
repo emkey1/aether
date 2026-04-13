@@ -53,14 +53,6 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
     dispatch_once(&onceToken, ^{
         choices = @[
             @{
-                kBundledRootIdentifierKey: @"devuan12",
-                kBundledRootDisplayNameKey: @"Devuan5(Debian12)",
-                kBundledRootArchiveNameKey: @"root",
-                kBundledRootImportNameKey: @"Devuan5(Debian12)",
-                kBundledRootInitialWindowKey: @"terminal",
-                kBundledRootGuestABIKey: @"i386",
-            },
-            @{
                 kBundledRootIdentifierKey: @"alpine3233",
                 kBundledRootDisplayNameKey: @"Alpine3.23.3",
                 kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",

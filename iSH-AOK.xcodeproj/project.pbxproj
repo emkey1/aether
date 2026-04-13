@@ -2009,17 +2009,15 @@
 			inputPaths = (
 				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
 				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
-				"$(SRCROOT)/root.tar.gz",
 			);
 			name = "Download Root";
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/root.tar.gz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/root.tar.gz\" \"$RESOURCES_DIR/root.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2071,17 +2069,15 @@
 			inputPaths = (
 				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
 				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
-				"$(SRCROOT)/root.tar.gz",
 			);
 			name = "Download Root";
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/root.tar.gz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/root.tar.gz\" \"$RESOURCES_DIR/root.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
