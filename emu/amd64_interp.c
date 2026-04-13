@@ -2634,7 +2634,7 @@ restart_prefix:
                 op2 == 0x62 || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
-                op2 == 0xd6 || op2 == 0xdb || op2 == 0xdf ||
+                op2 == 0xd4 || op2 == 0xd6 || op2 == 0xdb || op2 == 0xdf ||
                 op2 == 0xeb || op2 == 0xef) {
             struct amd64_modrm modrm;
             union xmm_reg value;
