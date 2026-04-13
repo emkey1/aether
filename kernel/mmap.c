@@ -261,6 +261,21 @@ int_t sys_mprotect_guest(guest_addr_t addr, uint_t len, int_t prot) {
             printk("amd64 mprotect: addr=%#llx len=%#x prot=%#x pages=%#llx\n",
                    (unsigned long long) addr, len, prot,
                    (unsigned long long) pages);
+            read_lock(&current->mem->lock);
+            for (pages_t i = 0; i < pages; i++) {
+                page_t page = PAGE(addr) + i;
+                struct pt_entry *pt = mem_pt(current->mem, page);
+                if (pt == NULL) {
+                    printk("amd64 mprotect pt: %#llx unmapped\n",
+                           (unsigned long long) ((guest_addr_t) page << PAGE_BITS));
+                    continue;
+                }
+                printk("amd64 mprotect pt: %#llx flags=%#x anon=%d off=%#zx name=%s\n",
+                       (unsigned long long) ((guest_addr_t) page << PAGE_BITS),
+                       pt->flags, !!(pt->flags & P_ANONYMOUS), pt->offset,
+                       pt->data != NULL && pt->data->name != NULL ? pt->data->name : "-");
+            }
+            read_unlock(&current->mem->lock);
         }
     }
     write_lock(&current->mem->lock);
