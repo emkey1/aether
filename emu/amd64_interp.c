@@ -3003,6 +3003,15 @@ restart_prefix:
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0xd4) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                value.qw[0] += src_xmm.qw[0];
+                value.qw[1] += src_xmm.qw[1];
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xdb) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
@@ -3050,7 +3059,7 @@ restart_prefix:
             }
             break;
         }
-        if (op2 == 0x72) {
+        if (op2 == 0x72 || op2 == 0x73) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             uint8_t imm8;
@@ -3069,24 +3078,52 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            count = imm8 > 31 ? 31 : imm8;
             value = cpu->xmm[modrm.rm];
-            switch (modrm.reg) {
-            case 2:
-                for (int i = 0; i < 4; i++)
-                    value.u32[i] = imm8 > 31 ? 0 : (value.u32[i] >> count);
-                break;
-            case 4:
-                for (int i = 0; i < 4; i++)
-                    value.u32[i] = imm8 > 31 ? ((int32_t) value.u32[i] < 0 ? UINT32_MAX : 0)
-                                             : (uint32_t) (((int32_t) value.u32[i]) >> count);
-                break;
-            case 6:
-                for (int i = 0; i < 4; i++)
-                    value.u32[i] = imm8 > 31 ? 0 : (value.u32[i] << count);
-                break;
-            default:
-                return INT_UNDEFINED;
+            if (op2 == 0x72) {
+                count = imm8 > 31 ? 31 : imm8;
+                switch (modrm.reg) {
+                case 2:
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] = imm8 > 31 ? 0 : (value.u32[i] >> count);
+                    break;
+                case 4:
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] = imm8 > 31 ? ((int32_t) value.u32[i] < 0 ? UINT32_MAX : 0)
+                                                 : (uint32_t) (((int32_t) value.u32[i]) >> count);
+                    break;
+                case 6:
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] = imm8 > 31 ? 0 : (value.u32[i] << count);
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
+            } else {
+                count = imm8 > 63 ? 63 : imm8;
+                switch (modrm.reg) {
+                case 2:
+                    for (int i = 0; i < 2; i++)
+                        value.qw[i] = imm8 > 63 ? 0 : (value.qw[i] >> count);
+                    break;
+                case 3:
+                    if (imm8 >= 16)
+                        value.u128 = 0;
+                    else
+                        value.u128 >>= imm8 * 8;
+                    break;
+                case 6:
+                    for (int i = 0; i < 2; i++)
+                        value.qw[i] = imm8 > 63 ? 0 : (value.qw[i] << count);
+                    break;
+                case 7:
+                    if (imm8 >= 16)
+                        value.u128 = 0;
+                    else
+                        value.u128 <<= imm8 * 8;
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
             }
             cpu->xmm[modrm.rm] = value;
             break;
