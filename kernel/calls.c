@@ -912,8 +912,10 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         dump_opcode_window(cpu->eip);
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
-            dump_amd64_loader_state(cpu);
-            dump_amd64_store_trace(cpu);
+            if (amd64_verbose_fault_trace_enabled()) {
+                dump_amd64_loader_state(cpu);
+                dump_amd64_store_trace(cpu);
+            }
         }
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
