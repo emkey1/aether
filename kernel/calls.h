@@ -268,6 +268,7 @@ int_t sys_personality(dword_t pers);
 int task_set_thread_area(struct task *task, addr_t u_info);
 int sys_set_thread_area(addr_t u_info);
 int sys_set_tid_address(addr_t blahblahblah);
+int sys_set_tid_address_guest(guest_addr_t tid);
 dword_t sys_setsid(void);
 dword_t sys_getsid(pid_t_ pid);
 

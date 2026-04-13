@@ -37,6 +37,10 @@ int sys_set_thread_area(addr_t u_info) {
 }
 
 int sys_set_tid_address(addr_t tid) {
+    return sys_set_tid_address_guest(tid);
+}
+
+int sys_set_tid_address_guest(guest_addr_t tid) {
     current->clear_tid = tid;
     return sys_getpid();
 }
