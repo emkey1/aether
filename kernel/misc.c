@@ -169,8 +169,8 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
     }
 }
 
-int_t sys_arch_prctl(int_t code, addr_t addr) {
-    STRACE("arch_prctl(%#x, %#x)", code, addr);
+int_t sys_arch_prctl_guest(int_t code, guest_addr_t addr) {
+    STRACE("arch_prctl(%#x, %#llx)", code, (unsigned long long) addr);
     if (!task_is_64bit(current))
         return _EINVAL;
 
@@ -192,6 +192,10 @@ int_t sys_arch_prctl(int_t code, addr_t addr) {
         default:
             return _EINVAL;
     }
+}
+
+int_t sys_arch_prctl(int_t code, addr_t addr) {
+    return sys_arch_prctl_guest(code, addr);
 }
 
 int_t sys_rseq(addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig) {
