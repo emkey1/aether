@@ -252,6 +252,17 @@ int_t sys_mprotect_guest(guest_addr_t addr, uint_t len, int_t prot) {
     if (prot & ~P_RWX)
         return _EINVAL;
     pages_t pages = PAGE_ROUND_UP(len);
+    if (current->abi == GUEST_ABI_AMD64) {
+        enum { AMD64_MPROTECT_LOG_BUDGET = 16 };
+        static unsigned amd64_mprotect_log_count;
+        if (amd64_mprotect_log_count < AMD64_MPROTECT_LOG_BUDGET &&
+                addr >= 0x7ffffd000000ULL) {
+            amd64_mprotect_log_count++;
+            printk("amd64 mprotect: addr=%#llx len=%#x prot=%#x pages=%#llx\n",
+                   (unsigned long long) addr, len, prot,
+                   (unsigned long long) pages);
+        }
+    }
     write_lock(&current->mem->lock);
     int err = pt_set_flags(current->mem, PAGE(addr), pages, prot);
     write_unlock(&current->mem->lock);
