@@ -73,6 +73,8 @@ static unsigned amd64_busybox_init_watch_next;
 static qword_t amd64_htop_watch_field_addr = AMD64_HTOP_RBX_FIELD_ABS_ADDR;
 static const bool amd64_htop_legacy_trace_enabled = false;
 
+#define AMD64_XMM_COUNT ((unsigned) (sizeof(((struct cpu_state *) 0)->xmm) / sizeof(((struct cpu_state *) 0)->xmm[0])))
+
 static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     if (isnan(value))
         return wide ? (qword_t) INT64_MIN : (qword_t) (uint32_t) INT32_MIN;
@@ -1383,10 +1385,10 @@ static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
 
 static inline bool amd64_read_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, union xmm_reg *value) {
-    if (modrm->reg >= 8)
+    if (modrm->reg >= AMD64_XMM_COUNT)
         return false;
     if (modrm->is_reg) {
-        if (modrm->rm >= 8)
+        if (modrm->rm >= AMD64_XMM_COUNT)
             return false;
         *value = cpu->xmm[modrm->rm];
         return true;
@@ -1397,10 +1399,10 @@ static inline bool amd64_read_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
 
 static inline bool amd64_write_xmm_rm(struct cpu_state *cpu, struct tlb *tlb,
         const struct amd64_modrm *modrm, bool fs_prefix, const union xmm_reg *value) {
-    if (modrm->reg >= 8)
+    if (modrm->reg >= AMD64_XMM_COUNT)
         return false;
     if (modrm->is_reg) {
-        if (modrm->rm >= 8)
+        if (modrm->rm >= AMD64_XMM_COUNT)
             return false;
         cpu->xmm[modrm->rm] = *value;
         return true;
@@ -2460,7 +2462,7 @@ restart_prefix:
             }
             if (operand_size_prefix) {
                 union xmm_reg value;
-                if (modrm.reg >= 8)
+                if (modrm.reg >= AMD64_XMM_COUNT)
                     return INT_UNDEFINED;
                 if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
                     goto amd64_gpf_restore;
@@ -2493,7 +2495,7 @@ restart_prefix:
             if (rep_mode == AMD64_REPNZ) {
                 double src_double;
                 if (modrm.is_reg) {
-                    if (modrm.rm >= 8)
+                    if (modrm.rm >= AMD64_XMM_COUNT)
                         return INT_UNDEFINED;
                     src_double = cpu->xmm[modrm.rm].f64[0];
                 } else {
@@ -2506,7 +2508,7 @@ restart_prefix:
                 float src_float;
                 uint32_t src_word;
                 if (modrm.is_reg) {
-                    if (modrm.rm >= 8)
+                    if (modrm.rm >= AMD64_XMM_COUNT)
                         return INT_UNDEFINED;
                     src_float = cpu->xmm[modrm.rm].f32[0];
                 } else {
@@ -2531,7 +2533,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8)
+            if (modrm.reg >= AMD64_XMM_COUNT)
                 return INT_UNDEFINED;
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
                 goto amd64_gpf_restore;
@@ -2557,7 +2559,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+            if (modrm.reg >= AMD64_XMM_COUNT || (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
                 return INT_UNDEFINED;
             value = cpu->xmm[modrm.reg];
             if (rep_mode == AMD64_REPNZ) {
@@ -2594,7 +2596,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+            if (modrm.reg >= AMD64_XMM_COUNT || (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
                 return INT_UNDEFINED;
             if (operand_size_prefix) {
                 double lhs, rhs;
@@ -2644,8 +2646,8 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (modrm.reg >= 8 ||
-                    (modrm.is_reg && modrm.rm >= 8 &&
+            if (modrm.reg >= AMD64_XMM_COUNT ||
+                    (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT &&
                      !(op2 == 0x7e && operand_size_prefix && rep_mode == AMD64_REP_NONE)))
                 return INT_UNDEFINED;
             if (op2 == 0x10 || op2 == 0x28 || op2 == 0x6f) {
@@ -3060,7 +3062,7 @@ restart_prefix:
                 cpu->segfault_addr = (addr_t) saved_rip;
                 return INT_GPF;
             }
-            if (!modrm.is_reg || modrm.rm >= 8)
+            if (!modrm.is_reg || modrm.rm >= AMD64_XMM_COUNT)
                 return INT_UNDEFINED;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;

@@ -174,7 +174,7 @@ struct cpu_state {
     };
 
     union mm_reg mm[8];
-    union xmm_reg xmm[8];
+    union xmm_reg xmm[16];
 
     // fpu
     float80 fp[8];
