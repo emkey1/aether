@@ -3015,6 +3015,7 @@ restart_prefix:
                 op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
                 op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 || op2 == 0xda || op2 == 0xdb || op2 == 0xdf ||
                 op2 == 0xeb || op2 == 0xef ||
+                op2 == 0xf6 ||
                 op2 == 0xf8 || op2 == 0xf9 || op2 == 0xfa || op2 == 0xfb ||
                 op2 == 0xfc || op2 == 0xfd || op2 == 0xfe) {
             struct amd64_modrm modrm;
@@ -3449,6 +3450,23 @@ restart_prefix:
                 } else {
                     for (int i = 0; i < 4; i++)
                         value.u32[i] += src_xmm.u32[i];
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xf6) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value.u128 = 0;
+                for (int lane = 0; lane < 2; lane++) {
+                    uint16_t sum = 0;
+                    for (int i = 0; i < 8; i++) {
+                        unsigned idx = lane * 8 + i;
+                        uint8_t lhs = cpu->xmm[modrm.reg].u8[idx];
+                        uint8_t rhs = src_xmm.u8[idx];
+                        sum += lhs > rhs ? (uint16_t) (lhs - rhs) : (uint16_t) (rhs - lhs);
+                    }
+                    value.u16[lane * 4] = sum;
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xf8 || op2 == 0xf9 || op2 == 0xfa || op2 == 0xfb) {
