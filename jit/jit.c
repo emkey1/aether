@@ -9,9 +9,20 @@
 #include "kernel/task.h"
 #include "util/list.h"
 #include "util/sync.h"
+#include <stdatomic.h>
 #include <pthread.h>
 
 extern int current_pid(struct task *task);
+
+static atomic_bool amd64_jit_enabled = false;
+
+bool amd64_jit_is_enabled(void) {
+    return atomic_load_explicit(&amd64_jit_enabled, memory_order_relaxed);
+}
+
+void amd64_jit_set_enabled(bool enabled) {
+    atomic_store_explicit(&amd64_jit_enabled, enabled, memory_order_relaxed);
+}
 
 // Defined in app/hook.c; installs EXC_BAD_ACCESS handler on the calling thread.
 // No-op on non-arm64.  Forward-declared here to avoid a circular header dep.
@@ -28,6 +39,11 @@ __thread struct jit_frame *jit_crash_frame = NULL;
 __thread struct cpu_state *jit_crash_cpu = NULL;
 __thread int jit_crash_interrupt = INT_GPF;
 __thread addr_t jit_crash_addr = 0;
+
+static void jit_block_disconnect(struct jit *jit, struct jit_block *block);
+static void jit_block_free(struct jit *jit, struct jit_block *block);
+static void jit_free_jetsam(struct jit *jit);
+static void jit_resize_hash(struct jit *jit, size_t new_size);
 
 // Called by hook.c's Mach exception handler when a JIT thread faults while
 // executing translated code. The handler redirects the faulting thread's PC
@@ -63,11 +79,6 @@ void jit_crash_fn(void) {
     }
     pthread_exit(NULL);
 }
-
-static void jit_block_disconnect(struct jit *jit, struct jit_block *block);
-static void jit_block_free(struct jit *jit, struct jit_block *block);
-static void jit_free_jetsam(struct jit *jit);
-static void jit_resize_hash(struct jit *jit, size_t new_size);
 
 // Acquire jetsam write lock with a short timeout. Uses non-blocking
 // pthread_rwlock_trywrlock in a retry loop so that a permanently stuck
@@ -196,11 +207,15 @@ static struct jit_block *jit_lookup(struct jit *jit, addr_t addr) {
     return NULL;
 }
 
-static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
+static struct jit_block *jit_block_compile_common(addr_t ip, struct tlb *tlb,
+        bool amd64, bool *fallback_to_interp) {
     struct gen_state state;
     TRACE("%d %08x --- compiling:\n", current_pid(current), ip);
 
-    if (!gen_start(ip, &state))
+    if (fallback_to_interp != NULL)
+        *fallback_to_interp = false;
+
+    if (!(amd64 ? gen_start_amd64(ip, &state) : gen_start(ip, &state)))
         return NULL;
     state.oom_active = true;
     if (setjmp(state.oom_recovery) != 0) {
@@ -221,10 +236,27 @@ static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
             break;
         }
     }
+
+    if (amd64 && state.amd64_fallback_to_interp && state.size == 0) {
+        free(state.block);
+        if (fallback_to_interp != NULL)
+            *fallback_to_interp = true;
+        return NULL;
+    }
+
     gen_end(&state);
     assert(state.ip - ip <= PAGE_SIZE);
     state.block->used = state.capacity;
     return state.block;
+}
+
+static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
+    return jit_block_compile_common(ip, tlb, false, NULL);
+}
+
+static struct jit_block *jit_block_compile_amd64(addr_t ip, struct tlb *tlb,
+        bool *fallback_to_interp) {
+    return jit_block_compile_common(ip, tlb, true, fallback_to_interp);
 }
 
 // Remove all pointers to the block. It can't be freed yet because another
@@ -266,6 +298,56 @@ int jit_enter(struct jit_block *block, struct jit_frame *frame, struct tlb *tlb)
 
 static inline size_t jit_cache_hash(addr_t ip) {
     return (ip ^ (ip >> 12)) % JIT_CACHE_SIZE;
+}
+
+static void amd64_seed_legacy_exec_state(struct cpu_state *cpu) {
+    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    cpu->ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+    cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+    cpu->ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+    cpu->esp = (dword_t) cpu->amd64_regs[amd64_rsp];
+    cpu->ebp = (dword_t) cpu->amd64_regs[amd64_rbp];
+    cpu->esi = (dword_t) cpu->amd64_regs[amd64_rsi];
+    cpu->edi = (dword_t) cpu->amd64_regs[amd64_rdi];
+    cpu->eip = (dword_t) cpu->amd64_rip;
+}
+
+static void amd64_commit_legacy_exec_state(struct cpu_state *cpu, uint16_t reg_write_mask) {
+    if (reg_write_mask & (1u << amd64_rax))
+        cpu->amd64_regs[amd64_rax] = cpu->eax;
+    if (reg_write_mask & (1u << amd64_rcx))
+        cpu->amd64_regs[amd64_rcx] = cpu->ecx;
+    if (reg_write_mask & (1u << amd64_rdx))
+        cpu->amd64_regs[amd64_rdx] = cpu->edx;
+    if (reg_write_mask & (1u << amd64_rbx))
+        cpu->amd64_regs[amd64_rbx] = cpu->ebx;
+    if (reg_write_mask & (1u << amd64_rsp))
+        cpu->amd64_regs[amd64_rsp] = cpu->esp;
+    if (reg_write_mask & (1u << amd64_rbp))
+        cpu->amd64_regs[amd64_rbp] = cpu->ebp;
+    if (reg_write_mask & (1u << amd64_rsi))
+        cpu->amd64_regs[amd64_rsi] = cpu->esi;
+    if (reg_write_mask & (1u << amd64_rdi))
+        cpu->amd64_regs[amd64_rdi] = cpu->edi;
+    cpu->amd64_rip = cpu->eip;
+}
+
+static void amd64_merge_legacy_exec_result(struct cpu_state *dst, const struct cpu_state *src) {
+    dst->cycle = src->cycle;
+    dst->segfault_addr = src->segfault_addr;
+    dst->segfault_was_write = src->segfault_was_write;
+    dst->trapno = src->trapno;
+    dst->_poked = src->_poked;
+
+    dst->eax = src->eax;
+    dst->ecx = src->ecx;
+    dst->edx = src->edx;
+    dst->ebx = src->ebx;
+    dst->esp = src->esp;
+    dst->ebp = src->ebp;
+    dst->esi = src->esi;
+    dst->edi = src->edi;
+    dst->eip = src->eip;
 }
 
 static inline bool cpu_take_poke(struct cpu_state *cpu) {
@@ -572,9 +654,69 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
     return interrupt;
 }
 
-int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
-    if (current != NULL && current->abi == GUEST_ABI_AMD64)
+static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
+    struct jit_frame frame_storage = {};
+    struct jit_frame *frame = &frame_storage;
+    struct cpu_state merged_cpu;
+    int interrupt;
+    bool fallback_to_interp = false;
+    addr_t ip;
+    struct jit_block *block;
+
+    cpu->poked_ptr = &cpu->_poked;
+    tlb_refresh(tlb, cpu->mmu);
+    frame->cpu = *cpu;
+
+    if (cpu_take_poke(cpu))
+        return INT_TIMER;
+
+    ip = (addr_t) frame->cpu.amd64_rip;
+    block = jit_block_compile_amd64(ip, tlb, &fallback_to_interp);
+    if (block == NULL) {
+        *cpu = frame->cpu;
+        if (fallback_to_interp)
+            return cpu_run_to_interrupt_amd64(cpu, tlb);
+        return INT_GPF;
+    }
+    if (!block->amd64_compat_legacy_exec) {
+        jit_block_free(NULL, block);
+        *cpu = frame->cpu;
         return cpu_run_to_interrupt_amd64(cpu, tlb);
+    }
+
+    frame->last_block = block;
+    amd64_seed_legacy_exec_state(&frame->cpu);
+    interrupt = jit_enter(block, frame, tlb);
+    merged_cpu = *cpu;
+    amd64_merge_legacy_exec_result(&merged_cpu, &frame->cpu);
+    amd64_commit_legacy_exec_state(&merged_cpu, block->amd64_low_reg_write_mask);
+    if (interrupt == INT_NONE) {
+        merged_cpu.amd64_rip = block->end_addr + 1;
+        merged_cpu.eip = (dword_t) merged_cpu.amd64_rip;
+    }
+    *cpu = merged_cpu;
+    jit_block_free(NULL, block);
+
+    if (interrupt != INT_NONE)
+        return interrupt;
+    if (cpu_take_poke(cpu))
+        return INT_TIMER;
+    return cpu_run_to_interrupt_amd64(cpu, tlb);
+}
+
+static int cpu_single_step_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
+    // Keep trap-flag semantics on the interpreter until amd64 JIT single-step
+    // has an exact one-instruction translation path.
+    return cpu_run_to_interrupt_amd64(cpu, tlb);
+}
+
+int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+        if (!amd64_jit_is_enabled())
+            return cpu_run_to_interrupt_amd64(cpu, tlb);
+        return cpu->tf ? cpu_single_step_amd64_frontend(cpu, tlb)
+                       : cpu_step_to_interrupt_amd64_frontend(cpu, tlb);
+    }
 
     struct jit *jit = cpu->mmu->jit;
     // Keep normal signal/timer pokes per-CPU. The JIT checks write_wanted

@@ -13,3 +13,6 @@ extern bool (*get_user_default)(const char *name, char **buffer, size_t *size);
 extern bool (*set_user_default)(const char *name, char *buffer, size_t size);
 extern bool (*remove_user_default)(const char *name);
 extern char *(*get_documents_directory)(void);
+
+bool amd64_jit_preference_get(void);
+void amd64_jit_preference_set(bool enabled);

@@ -7,6 +7,7 @@
 
 #import "UserPreferences.h"
 #import "fs/proc/ish.h"
+#include "jit/jit.h"
 #include "task.h"
 
 // Stuff to allow for cleaning up when doEnableExtraLocking is disabled.  -mke
@@ -28,6 +29,7 @@ static NSString *const kPreferenceThemeKey = @"ModernTheme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
+static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -130,6 +132,15 @@ bool remove_user_default_impl(const char *name) {
     return true;
 }
 
+bool amd64_jit_preference_get(void) {
+    return [NSUserDefaults.standardUserDefaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey];
+}
+
+void amd64_jit_preference_set(bool enabled) {
+    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:kPreferenceEnableExperimentalAmd64JitKey];
+    amd64_jit_set_enabled(enabled);
+}
+
 // TODO: Move these to Linux
 #if ISH_LINUX
 char **(*get_all_defaults_keys)(void);
@@ -160,6 +171,7 @@ bool (*remove_user_default)(const char *name);
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
 	    kPreferenceEnableExtraLockingKey: @(YES),
+            kPreferenceEnableExperimentalAmd64JitKey: @(NO),
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -190,6 +202,7 @@ bool (*remove_user_default)(const char *name);
         get_user_default = get_user_default_impl;
         set_user_default = set_user_default_impl;
         remove_user_default = remove_user_default_impl;
+        amd64_jit_set_enabled([_defaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey]);
         friendlyPreferenceMapping = @{
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,

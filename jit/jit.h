@@ -57,6 +57,8 @@ struct jit_block {
     addr_t addr;
     addr_t end_addr;
     size_t used;
+    bool amd64_compat_legacy_exec;
+    uint16_t amd64_low_reg_write_mask;
 
     // pointers to the ip values in the last gadget
     unsigned long *jump_ip[2];
@@ -88,6 +90,9 @@ void jit_free(struct jit *jit);
 void jit_invalidate_range(struct jit *jit, page_t start, page_t end);
 void jit_invalidate_page(struct jit *jit, page_t page);
 void jit_invalidate_all(struct jit *jit);
+
+bool amd64_jit_is_enabled(void);
+void amd64_jit_set_enabled(bool enabled);
 
 #endif
 

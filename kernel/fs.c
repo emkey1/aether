@@ -409,6 +409,8 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
         return _EBADF;
     }
     if (res > 0) {
+        if (fd->mount != NULL && fd->mount->fs == &procfs)
+            return res;
         char path[MAX_PATH];
         if (generic_getpath(fd, path) == 0) {
             inotify_notify_modify(path);

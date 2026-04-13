@@ -9,10 +9,59 @@
 
 static int gen_step32(struct gen_state *state, struct tlb *tlb);
 static int gen_step16(struct gen_state *state, struct tlb *tlb);
+static int gen_step64(struct gen_state *state, struct tlb *tlb);
+
+enum amd64_jit_rep_mode {
+    amd64_jit_rep_none,
+    amd64_jit_repz,
+    amd64_jit_repnz,
+};
+
+struct amd64_jit_rex_prefix {
+    bool present;
+    bool w;
+    bool r;
+    bool x;
+    bool b;
+};
+
+struct amd64_jit_insn {
+    addr_t start_ip;
+    addr_t end_ip;
+    byte_t opcode;
+    byte_t op2;
+    bool two_byte_opcode;
+    bool operand_size_prefix;
+    bool address_size_prefix;
+    bool fs_prefix;
+    enum amd64_jit_rep_mode rep_mode;
+    struct amd64_jit_rex_prefix rex;
+};
+
+static bool gen_amd64_can_lower_to_legacy(const struct amd64_jit_insn *insn) {
+    if (insn->rex.present || insn->address_size_prefix || insn->fs_prefix)
+        return false;
+
+    switch (insn->opcode) {
+    case 0x90:          // nop / xchg eax,eax
+    case 0xb8 ... 0xbf: // mov r32, imm32
+        return true;
+    default:
+        return false;
+    }
+}
+
+static uint16_t gen_amd64_legacy_write_mask(const struct amd64_jit_insn *insn) {
+    if (!insn->two_byte_opcode && insn->opcode >= 0xb8 && insn->opcode <= 0xbf)
+        return (uint16_t) (1u << (insn->opcode - 0xb8));
+    return 0;
+}
 
 int gen_step(struct gen_state *state, struct tlb *tlb) {
     state->orig_ip = state->ip;
     state->orig_ip_extra = 0;
+    if (state->amd64)
+        return gen_step64(state, tlb);
     return gen_step32(state, tlb);
 }
 
@@ -34,6 +83,11 @@ static void gen(struct gen_state *state, unsigned long thing) {
 }
 
 bool gen_start(addr_t addr, struct gen_state *state) {
+    state->amd64 = false;
+    state->amd64_fallback_to_interp = false;
+    state->amd64_fallback_ip = addr;
+    state->amd64_compat_legacy_exec = false;
+    state->amd64_low_reg_write_mask = 0;
     state->capacity = JIT_BLOCK_INITIAL_CAPACITY;
     state->size = 0;
     state->ip = addr;
@@ -53,8 +107,117 @@ bool gen_start(addr_t addr, struct gen_state *state) {
     return true;
 }
 
+bool gen_start_amd64(addr_t addr, struct gen_state *state) {
+    if (!gen_start(addr, state))
+        return false;
+    state->amd64 = true;
+    return true;
+}
+
+static bool gen_fetch_amd64(struct gen_state *state, struct tlb *tlb, void *out, size_t size) {
+    if (!tlb_read(tlb, state->ip, out, size))
+        return false;
+    state->ip += size;
+    return true;
+}
+
+static bool gen_decode_amd64(struct gen_state *state, struct tlb *tlb,
+        struct amd64_jit_insn *insn) {
+    byte_t byte;
+
+    insn->start_ip = state->orig_ip;
+    insn->end_ip = state->orig_ip;
+    insn->opcode = 0;
+    insn->op2 = 0;
+    insn->two_byte_opcode = false;
+    insn->operand_size_prefix = false;
+    insn->address_size_prefix = false;
+    insn->fs_prefix = false;
+    insn->rep_mode = amd64_jit_rep_none;
+    insn->rex = (struct amd64_jit_rex_prefix) {0};
+
+    for (;;) {
+        if (!gen_fetch_amd64(state, tlb, &byte, sizeof(byte)))
+            return false;
+        if (byte == 0x66) {
+            insn->operand_size_prefix = true;
+            continue;
+        }
+        if (byte == 0x67) {
+            insn->address_size_prefix = true;
+            continue;
+        }
+        if (byte == 0x64) {
+            insn->fs_prefix = true;
+            continue;
+        }
+        if (byte == 0xf2) {
+            insn->rep_mode = amd64_jit_repnz;
+            continue;
+        }
+        if (byte == 0xf3) {
+            insn->rep_mode = amd64_jit_repz;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            insn->rex.present = true;
+            insn->rex.w = (byte & 8) != 0;
+            insn->rex.r = (byte & 4) != 0;
+            insn->rex.x = (byte & 2) != 0;
+            insn->rex.b = (byte & 1) != 0;
+            continue;
+        }
+        insn->opcode = byte;
+        break;
+    }
+
+    if (insn->opcode == 0x0f) {
+        if (!gen_fetch_amd64(state, tlb, &insn->op2, sizeof(insn->op2)))
+            return false;
+        insn->two_byte_opcode = true;
+    }
+    insn->end_ip = state->ip;
+    return true;
+}
+
+int gen_step_amd64(struct gen_state *state, struct tlb *tlb) {
+    return gen_step64(state, tlb);
+}
+
+static int gen_step64(struct gen_state *state, struct tlb *tlb) {
+    struct amd64_jit_insn insn;
+
+    state->orig_ip = state->ip;
+    state->orig_ip_extra = 0;
+    state->amd64_fallback_to_interp = false;
+    state->amd64_fallback_ip = state->orig_ip;
+
+    if (!gen_decode_amd64(state, tlb, &insn)) {
+        state->ip = state->orig_ip;
+        state->amd64_fallback_to_interp = true;
+        return false;
+    }
+
+    if (gen_amd64_can_lower_to_legacy(&insn)) {
+        state->amd64_compat_legacy_exec = true;
+        state->amd64_low_reg_write_mask |= gen_amd64_legacy_write_mask(&insn);
+        state->ip = state->orig_ip;
+        return gen_step32(state, tlb);
+    }
+
+    // The amd64 JIT frontend starts with instruction decode and block-shape
+    // discovery. Code generation still falls back to the interpreter until
+    // individual opcode families are wired into gadgets.
+    state->ip = state->orig_ip;
+    state->amd64_fallback_to_interp = true;
+    state->amd64_fallback_ip = insn.start_ip;
+    return false;
+}
+
 void gen_end(struct gen_state *state) {
     struct jit_block *block = state->block;
+    block->amd64_compat_legacy_exec = state->amd64 && state->amd64_compat_legacy_exec;
+    block->amd64_low_reg_write_mask = state->amd64_low_reg_write_mask;
     for (int i = 0; i <= 1; i++) {
         if (state->jump_ip[i] != 0) {
             block->jump_ip[i] = &block->code[state->jump_ip[i]];
