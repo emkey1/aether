@@ -116,9 +116,14 @@ static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid
     unlock(&pids_lock);
 
     if (flags & CLONE_SETTLS_) {
-        err = task_set_thread_area(task, tls_addr);
-        if (err < 0)
-            goto fail_free_sighand;
+        if (task->abi == GUEST_ABI_AMD64) {
+            // On amd64, CLONE_SETTLS passes the new thread's FS base directly.
+            task->cpu.tls_ptr = tls_addr;
+        } else {
+            err = task_set_thread_area(task, tls_addr);
+            if (err < 0)
+                goto fail_free_sighand;
+        }
     }
 
     err = _EFAULT;
