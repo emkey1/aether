@@ -87,7 +87,7 @@ static int __user_read_task_mem(struct task *task, struct mem *mem, guest_addr_t
         if (ptr == NULL)
             return 1;
         memcpy(&cbuf[p - addr], ptr, chunk_end - p);
-        p = (addr_t) chunk_end;
+        p = (guest_addr_t) chunk_end;
     }
     return 0;
 }
@@ -116,7 +116,7 @@ static int __user_write_task_mem(struct task *task, struct mem *mem, guest_addr_
         } else {
             memcpy(ptr, &cbuf[p - addr], chunk_end - p);
         } */
-        p = (addr_t) chunk_end;
+        p = (guest_addr_t) chunk_end;
     }
     return 0;
 }
