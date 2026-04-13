@@ -22,7 +22,7 @@ struct tlb {
     struct tlb_entry entries[TLB_SIZE];
 };
 
-#define TLB_INDEX(addr) (((addr >> PAGE_BITS) & (TLB_SIZE - 1)) ^ (addr >> (PAGE_BITS + TLB_BITS)))
+#define TLB_INDEX(addr) ((((addr >> PAGE_BITS) ^ (addr >> (PAGE_BITS + TLB_BITS)))) & (TLB_SIZE - 1))
 #define TLB_PAGE(addr) ((page_t) PAGE(addr) << PAGE_BITS)
 #define TLB_PAGE_EMPTY 1
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu);
