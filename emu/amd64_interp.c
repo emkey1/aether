@@ -65,8 +65,6 @@ struct fpu_state32 {
 #define AMD64_HTOP_FIELD_FILL_RIP 0x56569e88ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_BASE 0x56587de0ull
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
-#define AMD64_HTOP_BAD_RBX_WINDOW_START 0xf7f77640ull
-#define AMD64_HTOP_BAD_RBX_WINDOW_END 0xf7f77670ull
 #define AMD64_BUSYBOX_INIT_WATCH_COUNT 32
 #define AMD64_BUSYBOX_INIT_WATCH_SPAN 16
 
@@ -214,39 +212,6 @@ static inline void amd64_trace_suspicious_rsp_write(struct cpu_state *cpu,
            (unsigned long long) old_rsp,
            (unsigned long long) new_rsp,
            size);
-}
-
-static inline bool amd64_trace_in_htop_bad_rbx_window(qword_t rip) {
-    return rip >= AMD64_HTOP_BAD_RBX_WINDOW_START && rip < AMD64_HTOP_BAD_RBX_WINDOW_END;
-}
-
-static inline void amd64_trace_htop_bad_rbx_window(struct cpu_state *cpu, struct tlb *tlb) {
-    if (current == NULL || strcmp(current->comm, "htop") != 0)
-        return;
-    if (!amd64_trace_in_htop_bad_rbx_window(cpu->amd64_current_insn_rip))
-        return;
-
-    uint8_t bytes[16] = {};
-    bool have_bytes = false;
-    addr_t insn_addr;
-    if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(bytes), &insn_addr) &&
-            tlb_read(tlb, insn_addr, bytes, sizeof(bytes)))
-        have_bytes = true;
-
-    printk("amd64 htop pfwin: rip=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx rsp=%#llx\n",
-           (unsigned long long) cpu->amd64_current_insn_rip,
-           (unsigned long long) cpu->amd64_regs[amd64_rax],
-           (unsigned long long) cpu->amd64_regs[amd64_rbx],
-           (unsigned long long) cpu->amd64_regs[amd64_rcx],
-           (unsigned long long) cpu->amd64_regs[amd64_rdx],
-           (unsigned long long) cpu->amd64_regs[amd64_rsi],
-           (unsigned long long) cpu->amd64_regs[amd64_rdi],
-           (unsigned long long) cpu->amd64_regs[amd64_rsp]);
-    if (have_bytes) {
-        printk("amd64 htop pfwin bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-               bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-               bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
-    }
 }
 
 static inline void amd64_trace_htop_r13_write(struct cpu_state *cpu,
@@ -1892,10 +1857,10 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
 
     switch (subop) {
     case 0xd80:
-        fpu_add(cpu, 0, rm);
+        fpu_add(cpu, rm, 0);
         return INT_NONE;
     case 0xd81:
-        fpu_mul(cpu, 0, rm);
+        fpu_mul(cpu, rm, 0);
         return INT_NONE;
     case 0xd82:
         fpu_com(cpu, rm);
@@ -1905,16 +1870,16 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
         fpu_pop(cpu);
         return INT_NONE;
     case 0xd84:
-        fpu_sub(cpu, 0, rm);
+        fpu_sub(cpu, rm, 0);
         return INT_NONE;
     case 0xd85:
-        fpu_subr(cpu, 0, rm);
+        fpu_subr(cpu, rm, 0);
         return INT_NONE;
     case 0xd86:
-        fpu_div(cpu, 0, rm);
+        fpu_div(cpu, rm, 0);
         return INT_NONE;
     case 0xd87:
-        fpu_divr(cpu, 0, rm);
+        fpu_divr(cpu, rm, 0);
         return INT_NONE;
     case 0xd90:
         fpu_ld(cpu, rm);
@@ -1953,22 +1918,22 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
         fpu_comi(cpu, rm);
         return INT_NONE;
     case 0xdc0:
-        fpu_add(cpu, rm, 0);
+        fpu_add(cpu, 0, rm);
         return INT_NONE;
     case 0xdc1:
-        fpu_mul(cpu, rm, 0);
+        fpu_mul(cpu, 0, rm);
         return INT_NONE;
     case 0xdc4:
-        fpu_subr(cpu, rm, 0);
+        fpu_subr(cpu, 0, rm);
         return INT_NONE;
     case 0xdc5:
-        fpu_sub(cpu, rm, 0);
+        fpu_sub(cpu, 0, rm);
         return INT_NONE;
     case 0xdc6:
-        fpu_divr(cpu, rm, 0);
+        fpu_divr(cpu, 0, rm);
         return INT_NONE;
     case 0xdc7:
-        fpu_div(cpu, rm, 0);
+        fpu_div(cpu, 0, rm);
         return INT_NONE;
     case 0xdd0:
         return INT_NONE;
@@ -1987,27 +1952,27 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde0:
-        fpu_add(cpu, rm, 0);
+        fpu_add(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde1:
-        fpu_mul(cpu, rm, 0);
+        fpu_mul(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde4:
-        fpu_subr(cpu, rm, 0);
+        fpu_subr(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde5:
-        fpu_sub(cpu, rm, 0);
+        fpu_sub(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde6:
-        fpu_divr(cpu, rm, 0);
+        fpu_divr(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xde7:
-        fpu_div(cpu, rm, 0);
+        fpu_div(cpu, 0, rm);
         fpu_pop(cpu);
         return INT_NONE;
     case 0xdf0:
@@ -2238,7 +2203,6 @@ static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb
     qword_t saved_rip = cpu->amd64_rip;
     cpu->amd64_current_insn_rip = saved_rip;
     amd64_trace_htop_window(cpu, tlb);
-    amd64_trace_htop_bad_rbx_window(cpu, tlb);
     bool fs_prefix = false;
     bool operand_size_prefix = false;
     bool lock_prefix = false;

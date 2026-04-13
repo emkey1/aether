@@ -513,7 +513,7 @@ bool f80_eq(float80 a, float80 b) {
     if (f80_uncomparable(a, b))
         return false;
     if (f80_iszero(a)) a.sign = 0;
-    if (f80_iszero(a)) b.sign = 0;
+    if (f80_iszero(b)) b.sign = 0;
     return a.sign == b.sign && a.exp == b.exp && a.signif == b.signif;
 }
 
