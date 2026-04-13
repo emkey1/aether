@@ -52,19 +52,19 @@ struct elf_prg_info {
     qword_t alignment;
 };
 
-static inline addr_t align_stack(addr_t sp);
-static inline ssize_t user_strlen(size_t p);
-static inline int user_memset(addr_t start, byte_t val, dword_t len);
-static inline addr_t copy_string(addr_t sp, const char *string);
-static inline addr_t args_copy(addr_t sp, struct exec_args args);
+static inline guest_addr_t align_stack(guest_addr_t sp);
+static inline ssize_t user_strlen(guest_addr_t p);
+static inline int user_memset(guest_addr_t start, byte_t val, dword_t len);
+static inline guest_addr_t copy_string(guest_addr_t sp, const char *string);
+static inline guest_addr_t args_copy(guest_addr_t sp, struct exec_args args);
 static size_t args_size(struct exec_args args);
-static ssize_t user_read_exec_ptr(addr_t addr, qword_t *ptr_out);
-static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t *argc_out,
+static ssize_t user_read_exec_ptr(guest_addr_t addr, qword_t *ptr_out);
+static ssize_t read_execve_user_args(guest_addr_t argv_addr, guest_addr_t envp_addr, ssize_t *argc_out,
         char **argv_out, char **envp_out);
 static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
-static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd);
-static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
+static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
 
 static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi_out) {
     enum guest_abi abi;
@@ -80,8 +80,8 @@ static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi
     return true;
 }
 
-static bool elf_value_fits_addr(qword_t value) {
-    return value <= (qword_t) (addr_t) -1;
+static bool elf_value_fits_addr(enum guest_abi abi, qword_t value) {
+    return guest_abi_addr_valid(abi, value);
 }
 
 static int read_header(struct fd *fd, struct elf_info *header) {
@@ -215,19 +215,19 @@ static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_pr
     return 0;
 }
 
-static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd) {
+static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd) {
     int err;
 
-    if (!elf_value_fits_addr(ph.vaddr) || !elf_value_fits_addr(ph.offset) ||
-            !elf_value_fits_addr(ph.memsize) || !elf_value_fits_addr(ph.filesize))
+    if (!elf_value_fits_addr(abi, ph.vaddr) || !elf_value_fits_addr(abi, ph.offset) ||
+            !elf_value_fits_addr(abi, ph.memsize) || !elf_value_fits_addr(abi, ph.filesize))
         return _EOVERFLOW;
-    if (ph.vaddr > (qword_t) ((addr_t) -1) - bias)
+    if (ph.vaddr > guest_abi_vm_layout(abi).user_addr_max - bias)
         return _EOVERFLOW;
 
-    addr_t addr = (addr_t) ph.vaddr + bias;
-    addr_t offset = (addr_t) ph.offset;
-    addr_t memsize = (addr_t) ph.memsize;
-    addr_t filesize = (addr_t) ph.filesize;
+    guest_addr_t addr = (guest_addr_t) ph.vaddr + bias;
+    guest_addr_t offset = (guest_addr_t) ph.offset;
+    guest_addr_t memsize = (guest_addr_t) ph.memsize;
+    guest_addr_t filesize = (guest_addr_t) ph.filesize;
 
     int flags = P_READ;
     if (ph.flags & PH_W) flags |= P_WRITE;
@@ -246,7 +246,7 @@ static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd) {
 
         // first zero the tail from the end of the file mapping to the end
         // of the load entry or the end of the page, whichever comes first
-        addr_t file_end = addr + filesize;
+        guest_addr_t file_end = addr + filesize;
         dword_t tail_size = PAGE_SIZE - PGOFFSET(file_end);
 
         if (tail_size == PAGE_SIZE)
@@ -282,7 +282,7 @@ static int load_entry(struct elf_prg_info ph, addr_t bias, struct fd *fd) {
     return 0;
 }
 
-static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
     struct elf_prg_info *first = NULL, *last = NULL;
     for (int i = 0; i < header->phent_count; i++) {
         if (ph[i].type == PT_LOAD) {
@@ -293,13 +293,19 @@ static addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph
     }
     pages_t size = 0;
     if (first != NULL) {
-        if (!elf_value_fits_addr(last->vaddr + last->memsize) || !elf_value_fits_addr(first->vaddr))
+        qword_t end_vaddr = last->vaddr + last->memsize;
+        if (end_vaddr < last->vaddr)
             return 0;
-        pages_t a = PAGE_ROUND_UP((addr_t) (last->vaddr + last->memsize));
-        pages_t b = PAGE((addr_t) first->vaddr);
+        if (!elf_value_fits_addr(header->abi, end_vaddr) || !elf_value_fits_addr(header->abi, first->vaddr))
+            return 0;
+        pages_t a = PAGE_ROUND_UP(end_vaddr);
+        pages_t b = PAGE(first->vaddr);
         size = a - b;
     }
-    return pt_find_hole(current->mem, size) << PAGE_BITS;
+    page_t hole = pt_find_hole(current->mem, size);
+    if (hole == BAD_PAGE)
+        return 0;
+    return (guest_addr_t) hole << PAGE_BITS;
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
@@ -389,22 +395,22 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
 
     save->mm->exefile = fd_retain(fd);
 
-    addr_t load_addr = 0;
+    guest_addr_t load_addr = 0;
     bool load_addr_set = false;
-    addr_t bias = 0;
+    guest_addr_t bias = 0;
 
     for (unsigned i = 0; i < header.phent_count; i++) {
         if (ph[i].type != PT_LOAD)
             continue;
 
         if (!load_addr_set && header.type == ELF_DYNAMIC) {
-            if (interp_name)
+            if (interp_name && header.abi == GUEST_ABI_I386)
                 bias = 0x56555000;
             else
                 bias = find_hole_for_elf(&header, ph);
         }
 
-        if ((err = load_entry(ph[i], bias, fd)) < 0)
+        if ((err = load_entry(header.abi, ph[i], bias, fd)) < 0)
             goto beyond_hope;
 
         if (!load_addr_set) {
@@ -414,49 +420,49 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                 goto beyond_hope;
             }
             mapped_load_addr -= ph[i].offset;
-            if (!elf_value_fits_addr(mapped_load_addr)) {
+            if (!elf_value_fits_addr(header.abi, mapped_load_addr)) {
                 err = _EOVERFLOW;
                 goto beyond_hope;
             }
-            load_addr = (addr_t) mapped_load_addr;
+            load_addr = (guest_addr_t) mapped_load_addr;
             load_addr_set = true;
         }
 
         qword_t brk_q = (qword_t) bias + ph[i].vaddr + ph[i].memsize;
-        if (!elf_value_fits_addr(brk_q)) {
+        if (!elf_value_fits_addr(header.abi, brk_q)) {
             err = _EOVERFLOW;
             goto beyond_hope;
         }
-        addr_t brk = (addr_t) brk_q;
+        guest_addr_t brk = (guest_addr_t) brk_q;
         if (brk > save->mm->start_brk)
             save->mm->start_brk = save->mm->brk = BYTES_ROUND_UP(brk);
     }
 
     qword_t entry_q = (qword_t) bias + header.entry_point;
-    if (!elf_value_fits_addr(entry_q)) {
+    if (!elf_value_fits_addr(header.abi, entry_q)) {
         err = _EOVERFLOW;
         goto beyond_hope;
     }
-    addr_t entry = (addr_t) entry_q;
-    addr_t interp_base = 0;
+    guest_addr_t entry = (guest_addr_t) entry_q;
+    guest_addr_t interp_base = 0;
 
     if (interp_name) {
         interp_base = find_hole_for_elf(&interp_header, interp_ph);
         for (int i = interp_header.phent_count - 1; i >= 0; i--) {
             if (interp_ph[i].type != PT_LOAD)
                 continue;
-            if ((err = load_entry(interp_ph[i], interp_base, interp_fd)) < 0)
+            if ((err = load_entry(interp_header.abi, interp_ph[i], interp_base, interp_fd)) < 0)
                 goto beyond_hope;
         }
         entry_q = (qword_t) interp_base + interp_header.entry_point;
-        if (!elf_value_fits_addr(entry_q)) {
+        if (!elf_value_fits_addr(interp_header.abi, entry_q)) {
             err = _EOVERFLOW;
             goto beyond_hope;
         }
-        entry = (addr_t) entry_q;
+        entry = (guest_addr_t) entry_q;
     }
 
-    addr_t vdso_entry = 0;
+    guest_addr_t vdso_entry = 0;
     if (!is_64bit) {
         err = _ENOMEM;
         pages_t vdso_pages = sizeof(vdso_data) >> PAGE_BITS;
@@ -484,31 +490,31 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     write_unlock(&save->mem->lock);
     mem_locked = false;
 
-    addr_t sp = vm_layout.stack_pointer;
+    guest_addr_t sp = vm_layout.stack_pointer;
     sp -= guest_word_size;
 
     err = _EFAULT;
-    addr_t file_addr = sp = copy_string(sp, file);
+    guest_addr_t file_addr = sp = copy_string(sp, file);
     if (sp == 0)
         goto beyond_hope;
-    addr_t envp_addr = sp = args_copy(sp, envp);
+    guest_addr_t envp_addr = sp = args_copy(sp, envp);
     if (sp == 0)
         goto beyond_hope;
     save->mm->env_start = sp;
     save->mm->env_end = sp + args_size(envp);
-    addr_t argv_addr = sp = args_copy(sp, argv);
+    guest_addr_t argv_addr = sp = args_copy(sp, argv);
     if (sp == 0)
         goto beyond_hope;
     save->mm->argv_start = sp;
     save->mm->argv_end = sp + args_size(argv);
     sp = align_stack(sp);
 
-    addr_t platform_addr = sp = copy_string(sp, task_abi_desc(save).elf_platform);
+    guest_addr_t platform_addr = sp = copy_string(sp, task_abi_desc(save).elf_platform);
     if (sp == 0)
         goto beyond_hope;
     char random[16] = {};
     get_random(random, sizeof(random));
-    addr_t random_addr = sp -= sizeof(random);
+    guest_addr_t random_addr = sp -= sizeof(random);
     if (user_put(sp, random))
         goto beyond_hope;
 
@@ -541,7 +547,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         sp -= sizeof(aux);
         sp = align_stack(sp);
 
-        addr_t p = sp;
+        guest_addr_t p = sp;
         dword_t argc_word = (dword_t) argv.count;
         dword_t zero = 0;
         if (user_put(p, argc_word))
@@ -609,7 +615,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         sp -= sizeof(aux);
         sp = align_stack(sp);
 
-        addr_t p = sp;
+        guest_addr_t p = sp;
         qword_t argc_word = (qword_t) argv.count;
         qword_t zero = 0;
         if (user_put(p, argc_word))
@@ -663,8 +669,8 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     memset(save->cpu.amd64_store_trace, 0, sizeof(save->cpu.amd64_store_trace));
     save->cpu.amd64_store_trace_next = 0;
 
-    save->cpu.esp = sp;
-    save->cpu.eip = entry;
+    save->cpu.esp = (addr_t) sp;
+    save->cpu.eip = (addr_t) entry;
     save->cpu.eax = 0;
     save->cpu.ebx = 0;
     save->cpu.ecx = 0;
@@ -706,18 +712,18 @@ static size_t args_size(struct exec_args args) {
     return args_end - args.args;
 }
 
-static inline addr_t align_stack(addr_t sp) {
+static inline guest_addr_t align_stack(guest_addr_t sp) {
     return sp &~ 0xf;
 }
 
-static inline addr_t copy_string(addr_t sp, const char *string) {
+static inline guest_addr_t copy_string(guest_addr_t sp, const char *string) {
     sp -= strlen(string) + 1;
     if (user_write_string(sp, string))
         return 0;
     return sp;
 }
 
-static inline addr_t args_copy(addr_t sp, struct exec_args args) {
+static inline guest_addr_t args_copy(guest_addr_t sp, struct exec_args args) {
     size_t size = args_size(args);
     sp -= size;
     if (user_write(sp, args.args, size))
@@ -725,7 +731,7 @@ static inline addr_t args_copy(addr_t sp, struct exec_args args) {
     return sp;
 }
 
-static inline ssize_t user_strlen(size_t p) {
+static inline ssize_t user_strlen(guest_addr_t p) {
     size_t i = 0;
     char c;
     do {
@@ -736,7 +742,7 @@ static inline ssize_t user_strlen(size_t p) {
     return i - 1;
 }
 
-static inline int user_memset(addr_t start, byte_t val, dword_t len) {
+static inline int user_memset(guest_addr_t start, byte_t val, dword_t len) {
     while (len--)
         if (user_put(start++, val))
             return 1;
@@ -937,7 +943,7 @@ int do_execve(const char *file, size_t argc, const char *argv_p, const char *env
     return __do_execve(file, argv, envp);
 }
 
-static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
+static ssize_t user_read_string_array(guest_addr_t addr, char *buf, size_t max) {
     size_t guest_ptr_size = task_abi_desc(current).pointer_size;
     size_t i = 0;
     size_t p = 0;
@@ -950,9 +956,7 @@ static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
             break;
         if (!guest_abi_addr_valid(current->abi, str_addr_q))
             return _EFAULT;
-        if (str_addr_q > (qword_t) (addr_t) -1)
-            return _EFAULT;
-        addr_t str_addr = (addr_t) str_addr_q;
+        guest_addr_t str_addr = str_addr_q;
         size_t str_p = 0;
         for (;;) {
             if (p >= max)
@@ -972,7 +976,7 @@ static ssize_t user_read_string_array(addr_t addr, char *buf, size_t max) {
     return i;
 }
 
-static ssize_t user_read_exec_ptr(addr_t addr, qword_t *ptr_out) {
+static ssize_t user_read_exec_ptr(guest_addr_t addr, qword_t *ptr_out) {
     if (task_is_64bit(current)) {
         qword_t ptr;
         if (user_get(addr, ptr))
@@ -1072,7 +1076,7 @@ out_free_args:
     return err;
 }
 
-static ssize_t read_execve_user_args(addr_t argv_addr, addr_t envp_addr, ssize_t *argc_out,
+static ssize_t read_execve_user_args(guest_addr_t argv_addr, guest_addr_t envp_addr, ssize_t *argc_out,
         char **argv_out, char **envp_out) {
     char *argv = malloc(ARGV_MAX);
     if (argv == NULL)

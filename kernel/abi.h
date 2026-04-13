@@ -54,7 +54,7 @@ struct guest_vm_layout {
     page_t mmap_ceiling;
     qword_t user_addr_max;
     page_t stack_page;
-    addr_t stack_pointer;
+    guest_addr_t stack_pointer;
 };
 
 static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
@@ -64,13 +64,11 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             .abi = abi,
             // 128 TiB canonical user range for 4 KiB guest pages.
             .page_limit = (page_t) 1 << 35,
-            // Until guest-visible pointers are widened, auto placement still
-            // needs to stay within the current 32-bit syscall marshalling.
-            // Give amd64 toolchains substantially more room inside that
-            // 32-bit window than the legacy i386 layout. Keep a modest low
-            // guard area and reserve 32 MiB beneath the grow-down stack.
+            // Let amd64 mappings use the full internal 47-bit guest window.
+            // Keep the initial exec stack low for now because most syscall
+            // pointer marshalling is still 32-bit.
             .mmap_floor = (page_t) 0x1000,
-            .mmap_ceiling = (page_t) 0xfdffe,
+            .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
             .user_addr_max = (qword_t) 1 << 47,
             .stack_page = (page_t) 0xffffe,
             .stack_pointer = 0xfffff000u,
