@@ -431,6 +431,7 @@ static syscall_t amd64_syscall_table[] = {
     [72] = (syscall_t) sys_fcntl,
     [73] = (syscall_t) sys_flock,
     [74] = (syscall_t) sys_fsync,
+    [77] = (syscall_t) sys_ftruncate,
     [79] = (syscall_t) sys_getcwd,
     [80] = (syscall_t) sys_chdir,
     [81] = (syscall_t) sys_fchdir,
@@ -665,6 +666,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 50:  // listen
     case 62:  // kill
     case 73:  // flock
+    case 77:  // ftruncate
     case 79:  // getcwd
     case 82:  // rename
     case 85:  // creat
