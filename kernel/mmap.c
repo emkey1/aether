@@ -67,7 +67,7 @@ void mm_release(struct mm *mm) {
     }
 }
 
-static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+static guest_addr_t do_mmap(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     int err;
     pages_t pages = PAGE_ROUND_UP(len);
     if (!pages) return _EINVAL;
@@ -90,9 +90,6 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
     qword_t mapped_addr = (qword_t) page << PAGE_BITS;
     if (!guest_abi_range_valid(current->abi, mapped_addr, len))
         return _ENOMEM;
-    if (mapped_addr > (qword_t) ((addr_t) -1))
-        return _ENOMEM;
-
     if (flags & MMAP_SHARED)
         prot |= P_SHARED;
 
@@ -111,11 +108,12 @@ static addr_t do_mmap(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
         mem_pt(current->mem, page)->data->fd = fd_retain(fd);
         mem_pt(current->mem, page)->data->file_offset = offset;
     }
-    return (addr_t) mapped_addr;
+    return mapped_addr;
 }
 
-static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
-    STRACE("mmap(0x%x, 0x%x, 0x%x, 0x%x, %d, %d)", addr, len, prot, flags, fd_no, offset);
+static guest_addr_t mmap_common_guest(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+    STRACE("mmap(%#llx, 0x%x, 0x%x, 0x%x, %d, %d)",
+           (unsigned long long) addr, len, prot, flags, fd_no, offset);
     if (len == 0)
         return _EINVAL;
     if (prot & ~P_RWX)
@@ -124,13 +122,17 @@ static addr_t mmap_common(addr_t addr, dword_t len, dword_t prot, dword_t flags,
         return _EINVAL;
 
     write_lock(&current->mem->lock);
-    addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
+    guest_addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
     write_unlock(&current->mem->lock);
     return res;
 }
 
+guest_addr_t sys_mmap_guest(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+    return mmap_common_guest(addr, len, prot, flags, fd_no, offset);
+}
+
 addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
-    return mmap_common(addr, len, prot, flags, fd_no, offset << PAGE_BITS);
+    return (addr_t) mmap_common_guest(addr, len, prot, flags, fd_no, offset << PAGE_BITS);
 }
 
 enum membarrier_cmd {
@@ -161,16 +163,16 @@ addr_t sys_mmap(addr_t args_addr) {
     STRACE("sys_mmap(0x%x)", args_addr);
     if (user_get(args_addr, args))
         return _EFAULT;
-    return mmap_common(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);
+    return (addr_t) mmap_common_guest(args.addr, args.len, args.prot, args.flags, args.fd, args.offset);
 }
 
 addr_t sys_mmap_amd64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
     STRACE("mmap(0x%x, 0x%x, 0x%x, 0x%x, %d, %d) [amd64]", addr, len, prot, flags, fd_no, offset);
-    return mmap_common(addr, len, prot, flags, fd_no, offset);
+    return (addr_t) mmap_common_guest(addr, len, prot, flags, fd_no, offset);
 }
 
-int_t sys_munmap(addr_t addr, uint_t len) {
-    STRACE("munmap(0x%x, 0x%x)", addr, len);
+int_t sys_munmap_guest(guest_addr_t addr, uint_t len) {
+    STRACE("munmap(%#llx, 0x%x)", (unsigned long long) addr, len);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (len == 0)
@@ -185,11 +187,15 @@ int_t sys_munmap(addr_t addr, uint_t len) {
     return 0;
 }
 
+int_t sys_munmap(addr_t addr, uint_t len) {
+    return sys_munmap_guest(addr, len);
+}
+
 #define MREMAP_MAYMOVE_ 1
 #define MREMAP_FIXED_ 2
 
-int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
-    STRACE("mremap(%#x, %#x, %#x, %d)", addr, old_len, new_len, flags);
+guest_addr_t sys_mremap_guest(guest_addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
+    STRACE("mremap(%#llx, %#x, %#x, %d)", (unsigned long long) addr, old_len, new_len, flags);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (flags & ~(MREMAP_MAYMOVE_ | MREMAP_FIXED_))
@@ -235,8 +241,12 @@ int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
     return addr;
 }
 
-int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
-    STRACE("mprotect(0x%x, 0x%x, 0x%x)", addr, len, prot);
+int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
+    return (int_t) sys_mremap_guest(addr, old_len, new_len, flags);
+}
+
+int_t sys_mprotect_guest(guest_addr_t addr, uint_t len, int_t prot) {
+    STRACE("mprotect(%#llx, 0x%x, 0x%x)", (unsigned long long) addr, len, prot);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (prot & ~P_RWX)
@@ -248,9 +258,17 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     return err;
 }
 
-dword_t sys_madvise(addr_t UNUSED(addr), dword_t UNUSED(len), dword_t UNUSED(advice)) {
+int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
+    return sys_mprotect_guest(addr, len, prot);
+}
+
+dword_t sys_madvise_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len), dword_t UNUSED(advice)) {
     // portable applications should not rely on linux's destructive semantics for MADV_DONTNEED.
     return 0;
+}
+
+dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
+    return sys_madvise_guest(addr, len, advice);
 }
 
 dword_t sys_mbind(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(mode),
@@ -266,26 +284,38 @@ long sys_set_mempolicy(int UNUSED(mode), const unsigned long *UNUSED(nodemask), 
     return 0;
 }
 
-int_t sys_mlock(addr_t UNUSED(addr), dword_t UNUSED(len)) {
+int_t sys_mlock_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len)) {
     return 0;
 }
 
-int_t sys_munlock(addr_t UNUSED(addr), dword_t UNUSED(len)) {
+int_t sys_mlock(addr_t addr, dword_t len) {
+    return sys_mlock_guest(addr, len);
+}
+
+int_t sys_munlock_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len)) {
     return 0;
 }
 
-int_t sys_msync(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(flags)) {
+int_t sys_munlock(addr_t addr, dword_t len) {
+    return sys_munlock_guest(addr, len);
+}
+
+int_t sys_msync_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(flags)) {
     return 0;
 }
 
-addr_t sys_brk(addr_t new_brk) {
-    STRACE("brk(0x%x)", new_brk);
+int_t sys_msync(addr_t addr, dword_t len, int_t flags) {
+    return sys_msync_guest(addr, len, flags);
+}
+
+guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
+    STRACE("brk(%#llx)", (unsigned long long) new_brk);
     struct mm *mm = current->mm;
 
     write_lock(&mm->mem.lock);
     if (new_brk < mm->start_brk)
         goto out;
-    addr_t old_brk = mm->brk;
+    guest_addr_t old_brk = mm->brk;
 
     if (new_brk > old_brk) {
         // expand heap: map region from old_brk to new_brk
@@ -307,7 +337,11 @@ addr_t sys_brk(addr_t new_brk) {
 
     mm->brk = new_brk;
 out:;
-    addr_t brk = mm->brk;
+    guest_addr_t brk = mm->brk;
     write_unlock(&mm->mem.lock);
     return brk;
+}
+
+addr_t sys_brk(addr_t new_brk) {
+    return (addr_t) sys_brk_guest(new_brk);
 }

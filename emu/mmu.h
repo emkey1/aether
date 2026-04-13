@@ -31,10 +31,10 @@ struct mmu {
 
 struct mmu_ops {
     // type is MEM_READ or MEM_WRITE
-    void *(*translate)(struct mmu *mmu, addr_t addr, int type);
+    void *(*translate)(struct mmu *mmu, guest_addr_t addr, int type);
 };
 
-static inline void *mmu_translate(struct mmu *mmu, addr_t addr, int type) {
+static inline void *mmu_translate(struct mmu *mmu, guest_addr_t addr, int type) {
     return mmu->ops->translate(mmu, addr, type);
 }
 

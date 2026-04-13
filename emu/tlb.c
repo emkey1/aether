@@ -23,7 +23,7 @@ void tlb_free(struct tlb *tlb) {
     free(tlb);
 }
 
-bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned size) {
+bool __tlb_read_cross_page(struct tlb *tlb, guest_addr_t addr, char *value, unsigned size) {
     char *ptr1 = __tlb_read_ptr(tlb, addr);
     if (ptr1 == NULL) {
         return false;
@@ -39,7 +39,7 @@ bool __tlb_read_cross_page(struct tlb *tlb, addr_t addr, char *value, unsigned s
     return true;
 }
 
-bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, unsigned size) {
+bool __tlb_write_cross_page(struct tlb *tlb, guest_addr_t addr, const char *value, unsigned size) {
     char *ptr1 = __tlb_write_ptr(tlb, addr);
     if (ptr1 == NULL) {
         return false;
@@ -55,7 +55,7 @@ bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, uns
     return true;
 }
 
-__no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
+__no_instrument void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type) {
     char *ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
     if (tlb->mmu->changes != tlb->mem_changes)
         tlb_flush(tlb);

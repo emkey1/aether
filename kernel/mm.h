@@ -11,18 +11,18 @@ struct mm {
     struct mem mem;
     struct list shm_regions;
 
-    addr_t vdso; // immutable
-    addr_t start_brk; // immutable
-    addr_t brk;
+    guest_addr_t vdso; // immutable
+    guest_addr_t start_brk; // immutable
+    guest_addr_t brk;
 
     // crap for procfs
-    addr_t argv_start;
-    addr_t argv_end;
-    addr_t env_start;
-    addr_t env_end;
-    addr_t auxv_start;
-    addr_t auxv_end;
-    addr_t stack_start;
+    guest_addr_t argv_start;
+    guest_addr_t argv_end;
+    guest_addr_t env_start;
+    guest_addr_t env_end;
+    guest_addr_t auxv_start;
+    guest_addr_t auxv_end;
+    guest_addr_t stack_start;
     struct fd *exefile;
 };
 

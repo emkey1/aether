@@ -169,15 +169,10 @@ static inline bool amd64_trace_intersects_busybox_watch(qword_t guest_addr, unsi
     return false;
 }
 
-static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
-    addr_t addr = (addr_t) guest_addr;
-    qword_t zero_extended = (qword_t) addr;
-    qword_t sign_extended = (qword_t) (sqword_t) (int32_t) addr;
-    if (guest_addr != zero_extended && guest_addr != sign_extended)
+static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, guest_addr_t *addr_out) {
+    if (!guest_abi_range_valid(GUEST_ABI_AMD64, guest_addr, size))
         return false;
-    if (size != 0 && addr + size - 1 < addr)
-        return false;
-    *addr_out = addr;
+    *addr_out = guest_addr;
     return true;
 }
 
@@ -1231,9 +1226,9 @@ static inline void amd64_set_rotate_flags(struct cpu_state *cpu, qword_t result,
 }
 
 static inline bool amd64_fetch(struct cpu_state *cpu, struct tlb *tlb, void *out, unsigned size) {
-    addr_t addr;
+    guest_addr_t addr;
     if (!amd64_guest_addr_ok(cpu->amd64_rip, size, &addr)) {
-        cpu->segfault_addr = (addr_t) cpu->amd64_rip;
+        cpu->segfault_addr = cpu->amd64_rip;
         cpu->segfault_was_write = false;
         return false;
     }
@@ -1286,9 +1281,9 @@ static inline bool amd64_verbose_boot_trace_enabled(void) {
 }
 
 static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_t guest_addr, void *out, unsigned size) {
-    addr_t addr;
+    guest_addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
-        cpu->segfault_addr = (addr_t) guest_addr;
+        cpu->segfault_addr = guest_addr;
         cpu->segfault_was_write = false;
         return false;
     }
@@ -1310,9 +1305,9 @@ static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_
 }
 
 static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword_t guest_addr, const void *value, unsigned size) {
-    addr_t addr;
+    guest_addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
-        cpu->segfault_addr = (addr_t) guest_addr;
+        cpu->segfault_addr = guest_addr;
         cpu->segfault_was_write = true;
         return false;
     }

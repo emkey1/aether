@@ -112,6 +112,10 @@ typedef uint8_t byte_t;
 typedef uintptr_t host_addr_t;
 typedef intptr_t host_long_t;
 
+// Internal guest addresses are kept wide enough for amd64 even while the
+// legacy i386 syscall ABI still uses 32-bit addr_t in many places.
+typedef qword_t guest_addr_t;
+
 // Legacy guest-width aliases for the existing i386 port. Keep these fixed at
 // 32-bit until per-ABI marshalling types replace direct use of these names.
 typedef dword_t addr_t;

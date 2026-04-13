@@ -215,10 +215,10 @@ struct cpu_state {
 
     // TLS bullshit
     word_t gs;
-    addr_t tls_ptr;
+    guest_addr_t tls_ptr;
 
     // for the page fault handler
-    addr_t segfault_addr;
+    guest_addr_t segfault_addr;
     bool segfault_was_write;
 
     dword_t trapno;

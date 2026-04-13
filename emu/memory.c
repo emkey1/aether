@@ -434,7 +434,7 @@ static void mem_changed(struct mem *mem) {
 
 // This version will return NULL instead of making necessary pagetable changes.
 // Used by the emulator to avoid deadlocks.
-static void *mem_ptr_nofault(struct mem *mem, addr_t addr, int type) {
+static void *mem_ptr_nofault(struct mem *mem, guest_addr_t addr, int type) {
     struct pt_entry *entry = mem_pt(mem, PAGE(addr));
     if (entry == NULL)
         return NULL;
@@ -443,7 +443,7 @@ static void *mem_ptr_nofault(struct mem *mem, addr_t addr, int type) {
     return entry->data->data + entry->offset + PGOFFSET(addr);
 }
 
-void *mem_ptr(struct mem *mem, addr_t addr, int type) {
+void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
     void *old_ptr = mem_ptr_nofault(mem, addr, type); // just for an assert
 
     page_t page = PAGE(addr);
@@ -537,7 +537,7 @@ done_write_fault:
     return ptr;
 }
 
-static void *mem_mmu_translate(struct mmu *mmu, addr_t addr, int type) {
+static void *mem_mmu_translate(struct mmu *mmu, guest_addr_t addr, int type) {
     return mem_ptr_nofault(container_of(mmu, struct mem, mmu), addr, type);
 }
 
@@ -545,7 +545,7 @@ static struct mmu_ops mem_mmu_ops = {
     .translate = mem_mmu_translate,
 };
 
-int mem_segv_reason(struct mem *mem, addr_t addr) {
+int mem_segv_reason(struct mem *mem, guest_addr_t addr) {
     struct pt_entry *pt = mem_pt(mem, PAGE(addr));
     if (pt == NULL)
         return SEGV_MAPERR_;

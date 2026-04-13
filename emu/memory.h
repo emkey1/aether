@@ -68,7 +68,7 @@ struct data {
     const char *name;
 #if LEAK_DEBUG
     int pid;
-    addr_t dest;
+    guest_addr_t dest;
 #endif
 };
 struct pt_entry {
@@ -118,8 +118,8 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags);
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages);
 
 // Must call with mem read-locked.
-void *mem_ptr(struct mem *mem, addr_t addr, int type);
-int mem_segv_reason(struct mem *mem, addr_t addr);
+void *mem_ptr(struct mem *mem, guest_addr_t addr, int type);
+int mem_segv_reason(struct mem *mem, guest_addr_t addr);
 
 // Reference counting is important
 void mem_ref_cnt_mod(struct mem *mem, int value);

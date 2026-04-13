@@ -74,7 +74,7 @@ struct task {
     struct list queue;
     cond_t pause; // please don't signal this
     // per-thread alternate signal stack (not shared with CLONE_SIGHAND threads)
-    addr_t altstack;
+    guest_addr_t altstack;
     dword_t altstack_size;
     // private
     sigset_t_ saved_mask;
@@ -106,8 +106,8 @@ struct task {
     struct list ptracees;
     struct list ptrace_siblings;
 
-    addr_t clear_tid;
-    addr_t robust_list;
+    guest_addr_t clear_tid;
+    guest_addr_t robust_list;
     dword_t pdeath_signal;
 
     // locked by pids_lock

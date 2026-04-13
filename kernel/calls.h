@@ -16,16 +16,16 @@
 
 void handle_interrupt(int interrupt);
 
-int must_check user_read(addr_t addr, void *buf, size_t count);
-int must_check user_write(addr_t addr, const void *buf, size_t count);
-int must_check user_read_task(struct task *task, addr_t addr, void *buf, size_t count);
-int must_check user_read_task_mem(struct task *task, struct mem *mem, addr_t addr, void *buf, size_t count);
-int must_check user_write_task_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count);
-int must_check user_write_task(struct task *task, addr_t addr, const void *buf, size_t count);
-int must_check user_write_task_ptrace(struct task *task, addr_t addr, const void *buf, size_t count);
-int must_check user_write_task_ptrace_mem(struct task *task, struct mem *mem, addr_t addr, const void *buf, size_t count);
-int must_check user_read_string(addr_t addr, char *buf, size_t max);
-int must_check user_write_string(addr_t addr, const char *buf);
+int must_check user_read(guest_addr_t addr, void *buf, size_t count);
+int must_check user_write(guest_addr_t addr, const void *buf, size_t count);
+int must_check user_read_task(struct task *task, guest_addr_t addr, void *buf, size_t count);
+int must_check user_read_task_mem(struct task *task, struct mem *mem, guest_addr_t addr, void *buf, size_t count);
+int must_check user_write_task_mem(struct task *task, struct mem *mem, guest_addr_t addr, const void *buf, size_t count);
+int must_check user_write_task(struct task *task, guest_addr_t addr, const void *buf, size_t count);
+int must_check user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count);
+int must_check user_write_task_ptrace_mem(struct task *task, struct mem *mem, guest_addr_t addr, const void *buf, size_t count);
+int must_check user_read_string(guest_addr_t addr, char *buf, size_t max);
+int must_check user_write_string(guest_addr_t addr, const char *buf);
 #define user_get(addr, var) user_read(addr, &(var), sizeof(var))
 #define user_put(addr, var) user_write(addr, &(var), sizeof(var))
 #define user_get_task(task, addr, var) user_read_task(task, addr, &(var), sizeof(var))
@@ -52,6 +52,7 @@ dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
 
 // memory management
 addr_t sys_brk(addr_t new_brk);
+guest_addr_t sys_brk_guest(guest_addr_t new_brk);
 
 #define MMAP_SHARED 0x1
 #define MMAP_PRIVATE 0x2
@@ -59,18 +60,26 @@ addr_t sys_brk(addr_t new_brk);
 #define MMAP_ANONYMOUS 0x20
 addr_t sys_mmap(addr_t args_addr);
 addr_t sys_mmap_amd64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset);
+guest_addr_t sys_mmap_guest(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset);
 addr_t sys_mmap2(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset);
 int_t sys_munmap(addr_t addr, uint_t len);
+int_t sys_munmap_guest(guest_addr_t addr, uint_t len);
 int_t sys_mprotect(addr_t addr, uint_t len, int_t prot);
+int_t sys_mprotect_guest(guest_addr_t addr, uint_t len, int_t prot);
 int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
+guest_addr_t sys_mremap_guest(guest_addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
+dword_t sys_madvise_guest(guest_addr_t addr, dword_t len, dword_t advice);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
 long sys_get_mempolicy(int *mode, unsigned long *nodemask, unsigned long maxnode, void *addr, unsigned long flags);
 long sys_set_mempolicy(int mode, const unsigned long *nodemask, unsigned long maxnode);
 
 int_t sys_mlock(addr_t addr, dword_t len);
+int_t sys_mlock_guest(guest_addr_t addr, dword_t len);
 int_t sys_munlock(addr_t addr, dword_t len);
+int_t sys_munlock_guest(guest_addr_t addr, dword_t len);
 int_t sys_msync(addr_t addr, dword_t len, int_t flags);
+int_t sys_msync_guest(guest_addr_t addr, dword_t len, int_t flags);
 dword_t sys_membarrier(dword_t cmd, dword_t flags, dword_t cpuid);
 
 // file descriptor things

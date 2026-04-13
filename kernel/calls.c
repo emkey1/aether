@@ -741,8 +741,63 @@ static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result) {
     cpu->amd64_regs[amd64_r11] = cpu->eflags;
 }
 
+static inline void amd64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
+    sqword_t signed_result = (sqword_t) result;
+    if (signed_result < 0 && signed_result >= -4095)
+        cpu->amd64_regs[amd64_rax] = (qword_t) signed_result;
+    else
+        cpu->amd64_regs[amd64_rax] = result;
+    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    cpu->amd64_regs[amd64_rcx] = cpu->amd64_rip;
+    cpu->amd64_regs[amd64_r11] = cpu->eflags;
+}
+
 static bool syscall_arg_fits_legacy_dword(qword_t arg) {
     return arg <= UINT32_MAX || (arg >> 32) == UINT32_MAX;
+}
+
+static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t syscall_num,
+        const qword_t raw_args[6]) {
+    switch (syscall_num) {
+    case 9:
+        amd64_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], (dword_t) raw_args[1],
+                (dword_t) raw_args[2], (dword_t) raw_args[3], (fd_t) raw_args[4],
+                (dword_t) raw_args[5]));
+        return true;
+    case 10:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mprotect_guest(raw_args[0],
+                (uint_t) raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 11:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_munmap_guest(raw_args[0],
+                (uint_t) raw_args[1]));
+        return true;
+    case 12:
+        amd64_syscall_result_qword(cpu, sys_brk_guest(raw_args[0]));
+        return true;
+    case 25:
+        amd64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], (dword_t) raw_args[1],
+                (dword_t) raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 26:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msync_guest(raw_args[0],
+                (dword_t) raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 28:
+        amd64_syscall_result_qword(cpu, sys_madvise_guest(raw_args[0], (dword_t) raw_args[1],
+                (dword_t) raw_args[2]));
+        return true;
+    case 149:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mlock_guest(raw_args[0],
+                (dword_t) raw_args[1]));
+        return true;
+    case 150:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_munlock_guest(raw_args[0],
+                (dword_t) raw_args[1]));
+        return true;
+    default:
+        return false;
+    }
 }
 
 static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
@@ -1190,6 +1245,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         log_stub_syscall(cpu, dispatch, (unsigned) syscall_num, "stub");
 
     dispatch->syscall_args(cpu, raw_args);
+    if (dispatch->abi == GUEST_ABI_AMD64 &&
+            handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+            ptrace_syscall_stop(cpu);
+        return;
+    }
     if (!marshal_syscall_args_legacy(dispatch->abi, syscall_num, raw_args, args)) {
         printk("ERROR: %d(%s) %s syscall %llu needs full-width args before it can be emulated\n",
                current->pid, current->comm, dispatch->name, syscall_num);
@@ -1481,15 +1542,10 @@ static inline qword_t amd64_trap_trunc(qword_t value, unsigned size) {
     return value & amd64_trap_mask(size);
 }
 
-static inline bool amd64_trap_guest_addr_ok(qword_t guest_addr, unsigned size, addr_t *addr_out) {
-    addr_t addr = (addr_t) guest_addr;
-    qword_t zero_extended = (qword_t) addr;
-    qword_t sign_extended = (qword_t) (sqword_t) (int32_t) addr;
-    if (guest_addr != zero_extended && guest_addr != sign_extended)
+static inline bool amd64_trap_guest_addr_ok(qword_t guest_addr, unsigned size, guest_addr_t *addr_out) {
+    if (!guest_abi_range_valid(GUEST_ABI_AMD64, guest_addr, size))
         return false;
-    if (size != 0 && addr + size - 1 < addr)
-        return false;
-    *addr_out = addr;
+    *addr_out = guest_addr;
     return true;
 }
 
@@ -1540,18 +1596,18 @@ static inline void amd64_trap_set_add_flags(struct cpu_state *cpu, qword_t lhs, 
     collapse_flags(cpu);
 }
 
-static bool amd64_trap_fetch_u8(addr_t *ip, byte_t *out) {
+static bool amd64_trap_fetch_u8(guest_addr_t *ip, byte_t *out) {
     if (user_get(*ip, *out))
         return false;
     (*ip)++;
     return true;
 }
 
-static bool amd64_trap_fetch_i8(addr_t *ip, int8_t *out) {
+static bool amd64_trap_fetch_i8(guest_addr_t *ip, int8_t *out) {
     return amd64_trap_fetch_u8(ip, (byte_t *) out);
 }
 
-static bool amd64_trap_fetch_i32(addr_t *ip, int32_t *out) {
+static bool amd64_trap_fetch_i32(guest_addr_t *ip, int32_t *out) {
     if (user_get(*ip, *out))
         return false;
     *ip += sizeof(*out);
@@ -1559,7 +1615,7 @@ static bool amd64_trap_fetch_i32(addr_t *ip, int32_t *out) {
 }
 
 static bool amd64_trap_mem_read(qword_t guest_addr, unsigned size, qword_t *value) {
-    addr_t addr;
+    guest_addr_t addr;
     if (!amd64_trap_guest_addr_ok(guest_addr, size, &addr))
         return false;
     switch (size) {
@@ -1597,7 +1653,7 @@ static bool amd64_trap_mem_read(qword_t guest_addr, unsigned size, qword_t *valu
 }
 
 static bool amd64_trap_mem_write(qword_t guest_addr, unsigned size, qword_t value) {
-    addr_t addr;
+    guest_addr_t addr;
     if (!amd64_trap_guest_addr_ok(guest_addr, size, &addr))
         return false;
     switch (size) {
@@ -1680,7 +1736,7 @@ static bool amd64_trap_decode_modrm(addr_t *ip, struct amd64_trap_rex_prefix rex
     return true;
 }
 
-static qword_t amd64_trap_effective_addr(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm) {
+static qword_t amd64_trap_effective_addr(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, guest_addr_t rip_after_modrm) {
     qword_t addr = (qword_t) (sqword_t) modrm->disp;
     if (modrm->rip_relative)
         addr += rip_after_modrm;
@@ -1693,7 +1749,7 @@ static qword_t amd64_trap_effective_addr(struct cpu_state *cpu, const struct amd
     return addr;
 }
 
-static bool amd64_trap_read_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm, unsigned size, qword_t *value) {
+static bool amd64_trap_read_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, guest_addr_t rip_after_modrm, unsigned size, qword_t *value) {
     if (modrm->is_reg) {
         *value = amd64_trap_reg_get(cpu, modrm->rm, size);
         return true;
@@ -1701,7 +1757,7 @@ static bool amd64_trap_read_rm(struct cpu_state *cpu, const struct amd64_trap_mo
     return amd64_trap_mem_read(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), size, value);
 }
 
-static bool amd64_trap_write_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, addr_t rip_after_modrm, unsigned size, qword_t value) {
+static bool amd64_trap_write_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix, guest_addr_t rip_after_modrm, unsigned size, qword_t value) {
     if (modrm->is_reg) {
         amd64_trap_reg_set(cpu, modrm->rm, size, value);
         return true;
@@ -1709,12 +1765,12 @@ static bool amd64_trap_write_rm(struct cpu_state *cpu, const struct amd64_trap_m
     return amd64_trap_mem_write(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), size, value);
 }
 
-static bool amd64_try_emulate_add(addr_t ip, struct cpu_state *cpu) {
+static bool amd64_try_emulate_add(guest_addr_t ip, struct cpu_state *cpu) {
     struct amd64_trap_rex_prefix rex = {};
     bool operand_size_prefix = false;
     bool fs_prefix = false;
     byte_t opcode;
-    addr_t decode_ip = ip;
+    guest_addr_t decode_ip = ip;
 
     while (true) {
         if (!amd64_trap_fetch_u8(&decode_ip, &opcode))
