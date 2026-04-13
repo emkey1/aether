@@ -3010,7 +3010,7 @@ restart_prefix:
                 op2 == 0x28 || op2 == 0x29 || op2 == 0x58 || op2 == 0x59 ||
                 op2 == 0x5c || op2 == 0x5d || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x60 || op2 == 0x61 ||
-                op2 == 0x62 || op2 == 0x68 || op2 == 0x69 || op2 == 0x6a || op2 == 0x6c ||
+                op2 == 0x62 || op2 == 0x63 || op2 == 0x67 || op2 == 0x68 || op2 == 0x69 || op2 == 0x6a || op2 == 0x6b || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
                 op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 || op2 == 0xda || op2 == 0xdb || op2 == 0xdf ||
@@ -3381,6 +3381,41 @@ restart_prefix:
                     value.u32[1] = src_xmm.u32[2];
                     value.u32[2] = dst.u32[3];
                     value.u32[3] = src_xmm.u32[3];
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0x63 || op2 == 0x67 || op2 == 0x6b) {
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                if (op2 == 0x63) {
+                    for (int i = 0; i < 8; i++) {
+                        int16_t word = (int16_t) dst.u16[i];
+                        value.u8[i] = word > INT8_MAX ? INT8_MAX : word < INT8_MIN ? INT8_MIN : (int8_t) word;
+                    }
+                    for (int i = 0; i < 8; i++) {
+                        int16_t word = (int16_t) src_xmm.u16[i];
+                        value.u8[8 + i] = word > INT8_MAX ? INT8_MAX : word < INT8_MIN ? INT8_MIN : (int8_t) word;
+                    }
+                } else if (op2 == 0x67) {
+                    for (int i = 0; i < 8; i++) {
+                        int16_t word = (int16_t) dst.u16[i];
+                        value.u8[i] = word > UINT8_MAX ? UINT8_MAX : word < 0 ? 0 : (uint8_t) word;
+                    }
+                    for (int i = 0; i < 8; i++) {
+                        int16_t word = (int16_t) src_xmm.u16[i];
+                        value.u8[8 + i] = word > UINT8_MAX ? UINT8_MAX : word < 0 ? 0 : (uint8_t) word;
+                    }
+                } else {
+                    for (int i = 0; i < 4; i++) {
+                        int32_t dword = (int32_t) dst.u32[i];
+                        value.u16[i] = dword > INT16_MAX ? INT16_MAX : dword < INT16_MIN ? INT16_MIN : (int16_t) dword;
+                    }
+                    for (int i = 0; i < 4; i++) {
+                        int32_t dword = (int32_t) src_xmm.u32[i];
+                        value.u16[4 + i] = dword > INT16_MAX ? INT16_MAX : dword < INT16_MIN ? INT16_MIN : (int16_t) dword;
+                    }
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x7e) {
