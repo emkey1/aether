@@ -1070,6 +1070,15 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
             args[4] = (dword_t) raw_args[3];
             args[5] = 0;
             return true;
+        case 202: // futex
+        case 422: // futex_time64
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) raw_args[2];
+            args[3] = (dword_t) raw_args[3];
+            args[4] = (dword_t) raw_args[4];
+            args[5] = (dword_t) raw_args[5];
+            return true;
         }
     }
 
