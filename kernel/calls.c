@@ -26,6 +26,33 @@ dword_t syscall_eopnotsupp_stub(void) {
     return _EOPNOTSUPP;
 }
 
+static dword_t sys_pread_amd64(fd_t f, addr_t buf_addr, dword_t size,
+        dword_t off_low, dword_t off_high, dword_t UNUSED(unused)) {
+    off_t_ off = ((off_t_) off_high << 32) | off_low;
+    return sys_pread(f, buf_addr, size, off);
+}
+
+static dword_t sys_pwrite_amd64(fd_t f, addr_t buf_addr, dword_t size,
+        dword_t off_low, dword_t off_high, dword_t UNUSED(unused)) {
+    off_t_ off = ((off_t_) off_high << 32) | off_low;
+    return sys_pwrite(f, buf_addr, size, off);
+}
+
+static dword_t sys_truncate_amd64(addr_t path_addr, dword_t size_low, dword_t size_high,
+        dword_t UNUSED(unused3), dword_t UNUSED(unused4), dword_t UNUSED(unused5)) {
+    return sys_truncate64(path_addr, size_low, size_high);
+}
+
+static dword_t sys_ftruncate_amd64(fd_t f, dword_t size_low, dword_t size_high,
+        dword_t UNUSED(unused3), dword_t UNUSED(unused4), dword_t UNUSED(unused5)) {
+    return sys_ftruncate64(f, size_low, size_high);
+}
+
+static dword_t sys_fallocate_amd64(fd_t f, dword_t mode, dword_t offset_low, dword_t offset_high,
+        dword_t len_low, dword_t len_high) {
+    return sys_fallocate(f, mode, offset_low, offset_high, len_low, len_high);
+}
+
 #if is_gcc(8)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
@@ -374,9 +401,9 @@ struct syscall_abi_dispatch {
     void (*syscall_result)(struct cpu_state *cpu, dword_t result);
 };
 
-static syscall_t amd64_syscall_table[] = {
-    // Keep this table conservative until the remaining amd64 guest-visible
-    // structs and full-width pointer paths are in place.
+static syscall_t amd64_syscall_table[453] = {
+    // This table covers amd64 syscalls that either reuse an existing i386
+    // implementation safely or have a small amd64 shim for 64-bit arg packing.
     [0] = (syscall_t) sys_read,
     [1] = (syscall_t) sys_write,
     [2] = (syscall_t) sys_open,
@@ -392,17 +419,27 @@ static syscall_t amd64_syscall_table[] = {
     [12] = (syscall_t) sys_brk,
     [13] = (syscall_t) sys_rt_sigaction,
     [14] = (syscall_t) sys_rt_sigprocmask,
+    [15] = (syscall_t) sys_rt_sigreturn,
+    [17] = (syscall_t) sys_pread_amd64,
+    [18] = (syscall_t) sys_pwrite_amd64,
     [16] = (syscall_t) sys_ioctl,
     [19] = (syscall_t) sys_readv,
     [20] = (syscall_t) sys_writev,
     [21] = (syscall_t) sys_access,
     [22] = (syscall_t) sys_pipe,
     [23] = (syscall_t) sys_select,
-    [25] = (syscall_t) sys_mremap,
     [24] = (syscall_t) sys_sched_yield,
+    [25] = (syscall_t) sys_mremap,
+    [26] = (syscall_t) sys_msync,
+    [28] = (syscall_t) sys_madvise,
+    [29] = (syscall_t) sys_shmget,
+    [30] = (syscall_t) sys_shmat,
+    [31] = (syscall_t) sys_shmctl,
     [32] = (syscall_t) sys_dup,
     [33] = (syscall_t) sys_dup2,
+    [34] = (syscall_t) sys_pause,
     [35] = (syscall_t) sys_nanosleep,
+    [37] = (syscall_t) sys_alarm,
     [38] = (syscall_t) sys_setitimer,
     [39] = (syscall_t) sys_getpid,
     [40] = (syscall_t) sys_sendfile,
@@ -421,6 +458,7 @@ static syscall_t amd64_syscall_table[] = {
     [53] = (syscall_t) sys_socketpair,
     [54] = (syscall_t) sys_setsockopt,
     [55] = (syscall_t) sys_getsockopt,
+    [56] = (syscall_t) sys_clone,
     [57] = (syscall_t) sys_fork,
     [58] = (syscall_t) sys_vfork,
     [59] = (syscall_t) sys_execve,
@@ -428,10 +466,14 @@ static syscall_t amd64_syscall_table[] = {
     [61] = (syscall_t) sys_wait4,
     [62] = (syscall_t) sys_kill,
     [63] = (syscall_t) sys_uname,
+    [67] = (syscall_t) sys_shmdt,
     [72] = (syscall_t) sys_fcntl,
     [73] = (syscall_t) sys_flock,
     [74] = (syscall_t) sys_fsync,
-    [77] = (syscall_t) sys_ftruncate,
+    [75] = (syscall_t) sys_fsync, // fdatasync
+    [76] = (syscall_t) sys_truncate_amd64,
+    [77] = (syscall_t) sys_ftruncate_amd64,
+    [78] = (syscall_t) sys_getdents,
     [79] = (syscall_t) sys_getcwd,
     [80] = (syscall_t) sys_chdir,
     [81] = (syscall_t) sys_fchdir,
@@ -451,6 +493,10 @@ static syscall_t amd64_syscall_table[] = {
     [95] = (syscall_t) sys_umask,
     [96] = (syscall_t) sys_gettimeofday,
     [97] = (syscall_t) sys_getrlimit64,
+    [98] = (syscall_t) sys_getrusage,
+    [99] = (syscall_t) sys_sysinfo,
+    [100] = (syscall_t) sys_times,
+    [101] = (syscall_t) sys_ptrace,
     [102] = (syscall_t) sys_getuid,
     [103] = (syscall_t) sys_syslog,
     [104] = (syscall_t) sys_getgid,
@@ -474,24 +520,71 @@ static syscall_t amd64_syscall_table[] = {
     [122] = (syscall_t) sys_setfsuid,
     [123] = (syscall_t) sys_setfsgid,
     [124] = (syscall_t) sys_getsid,
+    [125] = (syscall_t) sys_capget,
+    [126] = (syscall_t) sys_capset,
+    [127] = (syscall_t) sys_rt_sigpending,
     [128] = (syscall_t) sys_rt_sigtimedwait,
+    [130] = (syscall_t) sys_rt_sigsuspend,
     [131] = (syscall_t) sys_sigaltstack,
+    [132] = (syscall_t) sys_utime,
     [133] = (syscall_t) sys_mknod,
+    [135] = (syscall_t) sys_personality,
     [137] = (syscall_t) sys_statfs_amd64,
     [138] = (syscall_t) sys_fstatfs_amd64,
     [140] = (syscall_t) sys_getpriority,
     [141] = (syscall_t) sys_setpriority,
+    [143] = (syscall_t) sys_sched_getparam,
+    [144] = (syscall_t) sys_sched_setscheduler,
+    [145] = (syscall_t) sys_sched_getscheduler,
+    [146] = (syscall_t) sys_sched_get_priority_max,
+    [147] = (syscall_t) sys_sched_get_priority_min,
+    [149] = (syscall_t) sys_mlock,
+    [150] = (syscall_t) sys_munlock,
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
     [160] = (syscall_t) sys_setrlimit64,
+    [161] = (syscall_t) sys_chroot,
+    [162] = (syscall_t) syscall_success_stub, // sync
+    [164] = (syscall_t) sys_settimeofday,
+    [165] = (syscall_t) sys_mount,
+    [166] = (syscall_t) sys_umount2,
     [169] = (syscall_t) sys_reboot,
+    [170] = (syscall_t) sys_sethostname,
     [186] = (syscall_t) sys_gettid,
+    [187] = (syscall_t) syscall_success_stub, // readahead
+    [188 ... 199] = (syscall_t) sys_xattr_stub,
+    [200] = (syscall_t) sys_tkill,
+    [201] = (syscall_t) sys_time,
+    [202] = (syscall_t) sys_futex,
+    [203] = (syscall_t) sys_sched_setaffinity,
+    [204] = (syscall_t) sys_sched_getaffinity,
+    [213] = (syscall_t) sys_epoll_create0,
     [217] = (syscall_t) sys_getdents64,
     [218] = (syscall_t) sys_set_tid_address,
+    [222] = (syscall_t) sys_timer_create,
+    [223] = (syscall_t) sys_timer_settime,
+    [224] = (syscall_t) sys_timer_gettime,
+    [225] = (syscall_t) sys_timer_getoverrun,
+    [226] = (syscall_t) sys_timer_delete,
+    [227] = (syscall_t) sys_clock_settime,
     [228] = (syscall_t) sys_clock_gettime,
+    [229] = (syscall_t) sys_clock_getres,
+    [230] = (syscall_t) sys_clock_nanosleep,
     [231] = (syscall_t) sys_exit_group,
     [232] = (syscall_t) sys_epoll_wait,
     [233] = (syscall_t) sys_epoll_ctl,
+    [234] = (syscall_t) sys_tgkill,
+    [235] = (syscall_t) sys_utimes,
+    [237] = (syscall_t) sys_mbind,
+    [238] = (syscall_t) sys_set_mempolicy,
+    [239] = (syscall_t) sys_get_mempolicy,
+    [247] = (syscall_t) sys_waitid,
+    [250] = (syscall_t) sys_keyctl,
+    [251] = (syscall_t) sys_ioprio_set,
+    [252] = (syscall_t) sys_ioprio_get,
+    [253] = (syscall_t) sys_inotify_init,
+    [254] = (syscall_t) sys_inotify_add_watch,
+    [255] = (syscall_t) sys_inotify_rm_watch,
     [257] = (syscall_t) sys_openat,
     [258] = (syscall_t) sys_mkdirat,
     [259] = (syscall_t) sys_mknodat,
@@ -508,22 +601,58 @@ static syscall_t amd64_syscall_table[] = {
     [270] = (syscall_t) sys_pselect,
     [271] = (syscall_t) sys_ppoll,
     [272] = (syscall_t) sys_unshare,
+    [273] = (syscall_t) sys_set_robust_list,
+    [274] = (syscall_t) sys_get_robust_list,
+    [275] = (syscall_t) sys_splice,
+    [277] = (syscall_t) syscall_stub_silent, // sync_file_range
     [280] = (syscall_t) sys_utimensat,
     [281] = (syscall_t) sys_epoll_pwait,
+    [282] = (syscall_t) sys_signalfd,
+    [283] = (syscall_t) sys_timerfd_create,
     [284] = (syscall_t) sys_eventfd,
+    [285] = (syscall_t) sys_fallocate_amd64,
+    [286] = (syscall_t) sys_timerfd_settime,
+    [287] = (syscall_t) sys_timerfd_gettime,
     [288] = (syscall_t) sys_accept4,
+    [289] = (syscall_t) sys_signalfd4,
     [290] = (syscall_t) sys_eventfd2,
     [291] = (syscall_t) sys_epoll_create,
     [292] = (syscall_t) sys_dup3,
     [293] = (syscall_t) sys_pipe2,
     [294] = (syscall_t) sys_inotify_init1,
+    [299] = (syscall_t) sys_recvmmsg,
     [302] = (syscall_t) sys_prlimit64,
+    [307] = (syscall_t) sys_sendmmsg,
+    [309] = (syscall_t) syscall_success_stub, // getcpu
+    [310] = (syscall_t) sys_process_vm_readv,
+    [316] = (syscall_t) sys_renameat2,
     [318] = (syscall_t) sys_getrandom,
     [319] = (syscall_t) sys_memfd_create,
     [322] = (syscall_t) sys_execveat,
-    [325] = (syscall_t) sys_membarrier,
+    [324] = (syscall_t) sys_membarrier,
+    [326] = (syscall_t) sys_copy_file_range,
+    [332] = (syscall_t) sys_statx,
+    [334] = (syscall_t) sys_rseq,
+    [403] = (syscall_t) sys_clock_gettime64,
+    [404] = (syscall_t) sys_clock_settime64,
+    [406] = (syscall_t) sys_clock_getres_time64,
+    [407] = (syscall_t) sys_clock_nanosleep_time64,
+    [408] = (syscall_t) sys_timer_gettime64,
+    [409] = (syscall_t) sys_timer_settime64,
+    [410] = (syscall_t) sys_timerfd_gettime64,
+    [411] = (syscall_t) sys_timerfd_settime64,
+    [412] = (syscall_t) sys_utimensat64,
+    [413] = (syscall_t) sys_pselect_time64,
+    [414] = (syscall_t) sys_ppoll_time64,
+    [417] = (syscall_t) sys_recvmmsg_time64,
+    [421] = (syscall_t) sys_rt_sigtimedwait_time64,
+    [422] = (syscall_t) sys_futex_time64,
+    [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
+    [437] = (syscall_t) sys_openat2,
     [439] = (syscall_t) sys_faccessat,
+    [441] = (syscall_t) sys_epoll_pwait2,
+    [452] = (syscall_t) sys_fchmodat2,
 };
 
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
@@ -618,7 +747,9 @@ static bool syscall_arg_fits_legacy_dword(qword_t arg) {
 
 static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     switch (syscall_num) {
+    case 15:  // rt_sigreturn
     case 24:  // sched_yield
+    case 34:  // pause
     case 39:  // getpid
     case 57:  // fork
     case 58:  // vfork
@@ -629,44 +760,71 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 110: // getppid
     case 111: // getpgrp
     case 112: // setsid
+    case 162: // sync
     case 186: // gettid
+    case 187: // readahead stubbed
+    case 253: // inotify_init
+    case 309: // getcpu stubbed
         return 0;
     case 3:   // close
     case 12:  // brk
     case 22:  // pipe
     case 32:  // dup
+    case 37:  // alarm
     case 60:  // exit
     case 63:  // uname
     case 74:  // fsync
+    case 75:  // fdatasync
     case 80:  // chdir
     case 81:  // fchdir
     case 84:  // rmdir
     case 87:  // unlink
     case 95:  // umask
     case 97:  // getrlimit
+    case 98:  // getrusage
+    case 99:  // sysinfo
+    case 100: // times
     case 105: // setuid
     case 106: // setgid
     case 121: // getpgid
     case 124: // getsid
     case 122: // setfsuid
     case 123: // setfsgid
+    case 125: // capget
+    case 126: // capset
+    case 127: // rt_sigpending
+    case 130: // rt_sigsuspend
+    case 135: // personality
+    case 149: // mlock
+    case 150: // munlock
+    case 161: // chroot
+    case 164: // settimeofday
+    case 166: // umount2
+    case 170: // sethostname
+    case 200: // tkill
+    case 201: // time
     case 218: // set_tid_address
     case 231: // exit_group
     case 272: // unshare
+    case 273: // set_robust_list
+    case 277: // sync_file_range stubbed
     case 284: // eventfd
     case 291: // epoll_create
     case 294: // inotify_init1
+    case 67:  // shmdt
+    case 225: // timer_getoverrun
+    case 226: // timer_delete
         return 1;
     case 4:   // stat
     case 5:   // fstat
     case 6:   // lstat
+    case 132: // utime
     case 21:  // access
     case 33:  // dup2
     case 48:  // shutdown
     case 50:  // listen
     case 62:  // kill
     case 73:  // flock
-    case 77:  // ftruncate
     case 79:  // getcwd
     case 82:  // rename
     case 85:  // creat
@@ -682,11 +840,28 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 96:  // gettimeofday
     case 131: // sigaltstack
     case 140: // getpriority
+    case 143: // sched_getparam
+    case 144: // sched_setscheduler
+    case 145: // sched_getscheduler
+    case 146: // sched_get_priority_max
+    case 147: // sched_get_priority_min
     case 160: // setrlimit
     case 158: // arch_prctl
+    case 229: // clock_getres
+    case 235: // utimes
+    case 252: // ioprio_get
+    case 255: // inotify_rm_watch
+    case 283: // timerfd_create
+    case 287: // timerfd_gettime
     case 228: // clock_gettime
     case 290: // eventfd2
     case 293: // pipe2
+    case 403: // clock_gettime64
+    case 404: // clock_settime64
+    case 406: // clock_getres_time64
+    case 408: // timer_gettime64
+    case 410: // timerfd_gettime64
+    case 435: // clone3
     case 319: // memfd_create
         return 2;
     case 0:   // read
@@ -698,6 +873,11 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 16:  // ioctl
     case 19:  // readv
     case 20:  // writev
+    case 26:  // msync
+    case 28:  // madvise
+    case 29:  // shmget
+    case 30:  // shmat
+    case 31:  // shmctl
     case 41:  // socket
     case 42:  // connect
     case 43:  // accept
@@ -713,13 +893,23 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 92:  // chown
     case 93:  // fchown
     case 94:  // lchown
+    case 101: // ptrace
     case 117: // setresuid
     case 118: // getresuid
     case 119: // setresgid
     case 120: // getresgid
     case 133: // mknod
     case 141: // setpriority
+    case 165: // mount
+    case 203: // sched_setaffinity
+    case 204: // sched_getaffinity
+    case 213: // epoll_create
     case 217: // getdents64
+    case 227: // clock_settime
+    case 230: // clock_nanosleep
+    case 234: // tgkill
+    case 251: // ioprio_set
+    case 254: // inotify_add_watch
     case 258: // mkdirat
     case 261: // futimesat
     case 263: // unlinkat
@@ -732,17 +922,26 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 169: // reboot
     case 292: // dup3
     case 318: // getrandom
-    case 325: // membarrier
+    case 324: // membarrier
+    case 274: // get_robust_list
+    case 282: // signalfd
+    case 334: // rseq
+    case 222: // timer_create
+    case 238: // set_mempolicy
         return 3;
     case 13:  // rt_sigaction
     case 14:  // rt_sigprocmask
     case 40:  // sendfile
+    case 78:  // getdents
     case 128: // rt_sigtimedwait
     case 232: // epoll_wait
     case 233: // epoll_ctl
     case 53:  // socketpair
     case 54:  // setsockopt
     case 61:  // wait4
+    case 188: // setxattr
+    case 189: // lsetxattr
+    case 190: // fsetxattr
     case 257: // openat
     case 259: // mknodat
     case 262: // newfstatat
@@ -750,21 +949,59 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 267: // readlinkat
     case 280: // utimensat
     case 288: // accept4
+    case 289: // signalfd4
     case 302: // prlimit64
+    case 307: // sendmmsg
+    case 223: // timer_settime
+    case 407: // clock_nanosleep_time64
+    case 409: // timer_settime64
+    case 411: // timerfd_settime64
+    case 412: // utimensat64
+    case 421: // rt_sigtimedwait_time64
+    case 437: // openat2
     case 439: // faccessat2 wired to faccessat for now
+    case 452: // fchmodat2
         return 4;
+    case 56:  // clone
     case 25:  // mremap
     case 55:  // getsockopt
     case 157: // prctl
     case 23:  // select
+    case 191: // getxattr
+    case 192: // lgetxattr
+    case 193: // fgetxattr
+    case 194: // listxattr
+    case 195: // llistxattr
+    case 196: // flistxattr
+    case 250: // keyctl
     case 260: // fchownat
     case 265: // linkat
     case 271: // ppoll
+    case 286: // timerfd_settime
+    case 299: // recvmmsg
+    case 316: // renameat2
+    case 332: // statx
     case 322: // execveat
+    case 239: // get_mempolicy
+    case 247: // waitid
+    case 414: // ppoll_time64
+    case 417: // recvmmsg_time64
         return 5;
+    case 197: // removexattr
+    case 198: // lremovexattr
+    case 199: // fremovexattr
+        return 2;
     case 9:   // mmap
     case 44:  // sendto
     case 45:  // recvfrom
+    case 202: // futex
+    case 237: // mbind
+    case 275: // splice
+    case 310: // process_vm_readv
+    case 326: // copy_file_range
+    case 413: // pselect_time64
+    case 422: // futex_time64
+    case 441: // epoll_pwait2
         return 6;
     default:
         return 6;
@@ -773,6 +1010,55 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
 
 static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
         const qword_t raw_args[6], dword_t args[6]) {
+    if (abi == GUEST_ABI_AMD64) {
+        switch (syscall_num) {
+        case 17: // pread64
+        case 18: // pwrite64
+            if (!syscall_arg_fits_legacy_dword(raw_args[0]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[1]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[2]))
+                return false;
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) raw_args[2];
+            args[3] = (dword_t) raw_args[3];
+            args[4] = (dword_t) (raw_args[3] >> 32);
+            args[5] = 0;
+            return true;
+        case 76: // truncate
+            if (!syscall_arg_fits_legacy_dword(raw_args[0]))
+                return false;
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) (raw_args[1] >> 32);
+            args[3] = 0;
+            args[4] = 0;
+            args[5] = 0;
+            return true;
+        case 77: // ftruncate
+            if (!syscall_arg_fits_legacy_dword(raw_args[0]))
+                return false;
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) (raw_args[1] >> 32);
+            args[3] = 0;
+            args[4] = 0;
+            args[5] = 0;
+            return true;
+        case 285: // fallocate
+            if (!syscall_arg_fits_legacy_dword(raw_args[0]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[1]))
+                return false;
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) raw_args[2];
+            args[3] = (dword_t) (raw_args[2] >> 32);
+            args[4] = (dword_t) raw_args[3];
+            args[5] = (dword_t) (raw_args[3] >> 32);
+            return true;
+        }
+    }
+
     unsigned arg_count = abi == GUEST_ABI_AMD64 ? amd64_syscall_legacy_arg_count(syscall_num) : 6;
     for (unsigned i = 0; i < arg_count; i++) {
         if (abi == GUEST_ABI_AMD64 && !syscall_arg_fits_legacy_dword(raw_args[i]))
