@@ -284,10 +284,13 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
 
 static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
     struct elf_prg_info *first = NULL, *last = NULL;
+    page_t first_page = 0;
     for (int i = 0; i < header->phent_count; i++) {
         if (ph[i].type == PT_LOAD) {
-            if (first == NULL)
+            if (first == NULL) {
                 first = &ph[i];
+                first_page = PAGE(ph[i].vaddr);
+            }
             last = &ph[i];
         }
     }
@@ -299,13 +302,13 @@ static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_in
         if (!elf_value_fits_addr(header->abi, end_vaddr) || !elf_value_fits_addr(header->abi, first->vaddr))
             return 0;
         pages_t a = PAGE_ROUND_UP(end_vaddr);
-        pages_t b = PAGE(first->vaddr);
+        pages_t b = first_page;
         size = a - b;
     }
     page_t hole = pt_find_hole(current->mem, size);
     if (hole == BAD_PAGE)
         return 0;
-    return (guest_addr_t) hole << PAGE_BITS;
+    return ((guest_addr_t) hole - first_page) << PAGE_BITS;
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
