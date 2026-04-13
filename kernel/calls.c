@@ -1056,6 +1056,20 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
             args[4] = (dword_t) raw_args[3];
             args[5] = (dword_t) (raw_args[3] >> 32);
             return true;
+        case 56: // clone
+            if (!syscall_arg_fits_legacy_dword(raw_args[0]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[1]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[2]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[3]) ||
+                    !syscall_arg_fits_legacy_dword(raw_args[4]))
+                return false;
+            args[0] = (dword_t) raw_args[0];
+            args[1] = (dword_t) raw_args[1];
+            args[2] = (dword_t) raw_args[2];
+            args[3] = (dword_t) raw_args[4];
+            args[4] = (dword_t) raw_args[3];
+            args[5] = 0;
+            return true;
         }
     }
 
