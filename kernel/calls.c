@@ -1275,7 +1275,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE(" = 0x%x\n", result);
 }
 
-static void dump_opcode_window(addr_t ip);
+static void dump_opcode_window(guest_addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
@@ -1288,8 +1288,12 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_unlock(&current->mem->lock);
 
     if (ptr == NULL) {
-        printk("ERROR: %d(%s) page fault on 0x%x at 0x%x\n", current->pid, current->comm, cpu->segfault_addr, cpu->eip);
-        dump_opcode_window(cpu->eip);
+        printk("ERROR: %d(%s) page fault on %#llx at %#llx%s\n",
+               current->pid, current->comm,
+               (unsigned long long) cpu->segfault_addr,
+               (unsigned long long) (current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip),
+               cpu->segfault_was_write ? " (write)" : " (read)");
+        dump_opcode_window(current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip);
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
             if (amd64_verbose_fault_trace_enabled()) {
@@ -1390,14 +1394,14 @@ static bool amd64_verbose_fault_trace_enabled(void) {
     return false;
 }
 
-static void dump_opcode_window(addr_t ip) {
+static void dump_opcode_window(guest_addr_t ip) {
     const int before = 4;
     const int after = 12;
 
-    printk("opcode window around 0x%x: ", ip);
+    printk("opcode window around %#llx: ", (unsigned long long) ip);
     for (int i = -before; i < after; i++) {
         uint8_t b;
-        addr_t addr = ip + i;
+        guest_addr_t addr = ip + i;
         if (i == 0)
             printk("[");
         if (user_get(addr, b))

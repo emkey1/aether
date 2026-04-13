@@ -2435,7 +2435,7 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
 
 amd64_fpu_gpf_restore:
     cpu->amd64_rip = saved_rip;
-    cpu->segfault_addr = (addr_t) saved_rip;
+    cpu->segfault_addr = saved_rip;
     return INT_GPF;
 }
 
@@ -2576,7 +2576,7 @@ static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb
 restart_prefix:
     if (!amd64_fetch_u8(cpu, tlb, &opcode)) {
         cpu->amd64_rip = saved_rip;
-        cpu->segfault_addr = (addr_t) saved_rip;
+        cpu->segfault_addr = saved_rip;
         return INT_GPF;
     }
 
@@ -2642,7 +2642,7 @@ restart_prefix:
         byte_t op2;
         if (!amd64_fetch_u8(cpu, tlb, &op2)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (op2 == 0x05)
@@ -2667,7 +2667,7 @@ restart_prefix:
             struct amd64_modrm modrm;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg > 3)
@@ -2678,7 +2678,7 @@ restart_prefix:
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (op3 == 0xfa || op3 == 0xfb)
@@ -2689,7 +2689,7 @@ restart_prefix:
             int32_t rel32;
             if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (amd64_cond_eval(cpu, op2 & 0xf))
@@ -2701,7 +2701,7 @@ restart_prefix:
             qword_t src;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &src)) {
@@ -2717,7 +2717,7 @@ restart_prefix:
             qword_t value = amd64_cond_eval(cpu, op2 & 0xf) ? 1 : 0;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, value))
@@ -2730,14 +2730,14 @@ restart_prefix:
             unsigned count;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (op2 == 0xa4 || op2 == 0xac) {
                 uint8_t imm8;
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 count = imm8 & (op_size == 64 ? 0x3f : 0x1f);
@@ -2774,7 +2774,7 @@ restart_prefix:
                 return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &src))
@@ -2815,7 +2815,7 @@ restart_prefix:
             unsigned dst_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, src_size, &src))
@@ -2830,7 +2830,7 @@ restart_prefix:
             qword_t src_scalar;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (operand_size_prefix) {
@@ -2862,7 +2862,7 @@ restart_prefix:
                 return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (rep_mode == AMD64_REPNZ) {
@@ -2903,7 +2903,7 @@ restart_prefix:
                 return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg >= AMD64_XMM_COUNT)
@@ -2929,7 +2929,7 @@ restart_prefix:
                 return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg >= AMD64_XMM_COUNT || (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
@@ -2966,7 +2966,7 @@ restart_prefix:
             qword_t src_scalar;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg >= AMD64_XMM_COUNT || (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
@@ -3022,7 +3022,7 @@ restart_prefix:
             uint8_t imm8;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if ((op2 != 0xc5 && modrm.reg >= AMD64_XMM_COUNT) ||
@@ -3451,7 +3451,7 @@ restart_prefix:
             } else if (op2 == 0x70) {
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
@@ -3476,7 +3476,7 @@ restart_prefix:
                     return INT_UNDEFINED;
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 16, &src_scalar))
@@ -3489,7 +3489,7 @@ restart_prefix:
                     return INT_UNDEFINED;
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
@@ -3498,7 +3498,7 @@ restart_prefix:
             } else if (op2 == 0xc6) {
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
@@ -3683,14 +3683,14 @@ restart_prefix:
                 return INT_UNDEFINED;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!modrm.is_reg || modrm.rm >= AMD64_XMM_COUNT)
                 return INT_UNDEFINED;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             value = cpu->xmm[modrm.rm];
@@ -3768,7 +3768,7 @@ restart_prefix:
             qword_t bit;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
@@ -3784,7 +3784,7 @@ restart_prefix:
             qword_t bit;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
@@ -3818,12 +3818,12 @@ restart_prefix:
             uint8_t imm8;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg < 4 || modrm.reg > 7)
@@ -3863,7 +3863,7 @@ restart_prefix:
             bool overflow;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
@@ -3883,7 +3883,7 @@ restart_prefix:
             bool atomic_locked = false;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             atomic_locked = lock_prefix && !modrm.is_reg;
@@ -3919,7 +3919,7 @@ restart_prefix:
             bool atomic_locked = false;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             atomic_locked = lock_prefix && !modrm.is_reg;
@@ -3970,7 +3970,7 @@ restart_prefix:
             struct amd64_modrm modrm;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (modrm.reg != 0)
@@ -4035,7 +4035,7 @@ restart_prefix:
         qword_t lhs, rhs, result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         switch (opcode) {
@@ -4407,7 +4407,7 @@ restart_prefix:
                 int32_t imm32;
                 if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 imm_signed = imm32;
@@ -4415,7 +4415,7 @@ restart_prefix:
                 int8_t imm8;
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 imm_signed = imm8;
@@ -4457,7 +4457,7 @@ restart_prefix:
         unsigned pop_size = operand_size_prefix ? 16 : 64;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (modrm.reg != 0)
@@ -4472,7 +4472,7 @@ restart_prefix:
         int32_t imm32;
         if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (!amd64_push(cpu, tlb, (qword_t) (sqword_t) imm32))
@@ -4483,7 +4483,7 @@ restart_prefix:
         int8_t imm8;
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (!amd64_push(cpu, tlb, (qword_t) (sqword_t) imm8))
@@ -4495,7 +4495,7 @@ restart_prefix:
         qword_t lhs, rhs;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 8, &lhs))
@@ -4510,7 +4510,7 @@ restart_prefix:
         qword_t lhs, rhs;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (opcode == 0x38) {
@@ -4532,7 +4532,7 @@ restart_prefix:
         int result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (modrm.reg == 0) {
@@ -4543,7 +4543,7 @@ restart_prefix:
                 uint8_t imm8;
                 if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                     cpu->amd64_rip = saved_rip;
-                    cpu->segfault_addr = (addr_t) saved_rip;
+                    cpu->segfault_addr = saved_rip;
                     return INT_GPF;
                 }
                 rhs = imm8;
@@ -4552,7 +4552,7 @@ restart_prefix:
                     uint16_t imm16;
                     if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
                         cpu->amd64_rip = saved_rip;
-                        cpu->segfault_addr = (addr_t) saved_rip;
+                        cpu->segfault_addr = saved_rip;
                         return INT_GPF;
                     }
                     rhs = imm16;
@@ -4560,7 +4560,7 @@ restart_prefix:
                     int32_t imm32;
                     if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
                         cpu->amd64_rip = saved_rip;
-                        cpu->segfault_addr = (addr_t) saved_rip;
+                        cpu->segfault_addr = saved_rip;
                         return INT_GPF;
                     }
                     rhs = rex.w ? (qword_t) (sqword_t) imm32 : (uint32_t) imm32;
@@ -4580,7 +4580,7 @@ restart_prefix:
         int8_t rel8;
         if (!amd64_fetch(cpu, tlb, &rel8, sizeof(rel8))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         bool taken = amd64_cond_eval(cpu, opcode & 0xf);
@@ -4610,7 +4610,7 @@ restart_prefix:
         unsigned rm_size = (opcode == 0x80 || opcode == 0xc0) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if ((opcode == 0xc6 || opcode == 0xc7) && modrm.reg != 0)
@@ -4619,7 +4619,7 @@ restart_prefix:
             uint8_t imm8;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 8, imm8))
@@ -4631,7 +4631,7 @@ restart_prefix:
             unsigned count, effective_count;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
@@ -4669,7 +4669,7 @@ restart_prefix:
             uint8_t imm8;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             rhs = imm8;
@@ -4677,7 +4677,7 @@ restart_prefix:
             int8_t imm8;
             if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             rhs = (qword_t) amd64_sign_extend((uint8_t) imm8, 8);
@@ -4685,7 +4685,7 @@ restart_prefix:
             uint16_t imm16;
             if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             rhs = imm16;
@@ -4693,7 +4693,7 @@ restart_prefix:
             int32_t imm32;
             if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             rhs = opcode == 0xc7 && !rex.w ? (uint32_t) imm32 : (qword_t) (sqword_t) imm32;
@@ -4820,7 +4820,7 @@ restart_prefix:
         unsigned carry_in;
         if (!amd64_fetch_accum_imm(cpu, tlb, size, true, &rhs)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         switch (opcode) {
@@ -4883,7 +4883,7 @@ restart_prefix:
         qword_t rhs;
         if (!amd64_fetch_accum_imm(cpu, tlb, op_size, true, &rhs)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         amd64_set_logic_flags(cpu, lhs & rhs, op_size);
@@ -4894,7 +4894,7 @@ restart_prefix:
         qword_t lhs = amd64_reg_get(cpu, amd64_rax, 8);
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         amd64_set_logic_flags(cpu, lhs & imm8, 8);
@@ -4905,7 +4905,7 @@ restart_prefix:
         uint8_t imm8;
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         amd64_reg_set_encoded8(cpu, reg, rex.present, imm8);
@@ -4917,7 +4917,7 @@ restart_prefix:
             uint64_t imm64;
             if (!amd64_fetch_u64(cpu, tlb, &imm64)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             amd64_reg_set(cpu, reg, 64, imm64);
@@ -4925,7 +4925,7 @@ restart_prefix:
             uint32_t imm32;
             if (!amd64_fetch_u32(cpu, tlb, &imm32)) {
                 cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = (addr_t) saved_rip;
+                cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
             amd64_reg_set(cpu, reg, 32, imm32);
@@ -4963,7 +4963,7 @@ restart_prefix:
         unsigned rm_size = (opcode == 0xd0 || opcode == 0xd2) ? 8 : op_size;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
@@ -5002,7 +5002,7 @@ restart_prefix:
         int32_t rel32;
         if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         qword_t return_rip = cpu->amd64_rip;
@@ -5016,7 +5016,7 @@ restart_prefix:
         int32_t rel32;
         if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel32, "jmp-rel32");
@@ -5027,7 +5027,7 @@ restart_prefix:
         int8_t rel8;
         if (!amd64_fetch(cpu, tlb, &rel8, sizeof(rel8))) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel8, "jmp-rel8");
@@ -5039,7 +5039,7 @@ restart_prefix:
         qword_t lhs, result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         switch (modrm.reg) {
@@ -5070,7 +5070,7 @@ restart_prefix:
         qword_t value, lhs, result;
         if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
             cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = (addr_t) saved_rip;
+            cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
         switch (modrm.reg) {
