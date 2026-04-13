@@ -67,6 +67,7 @@ struct fpu_state32 {
 #define AMD64_HTOP_R13_CORRUPT_BLOCK_SIZE 32
 #define AMD64_CARGO_R12_FAULT_RIP 0xf7f92174ull
 #define AMD64_CARGO_ENTRY_RIP 0xf7f920d0ull
+#define AMD64_CARGO_START_CALL_RIP 0xf7fbfd85ull
 #define AMD64_CARGO_PFWIN_WINDOW_START 0xf7f920e0ull
 #define AMD64_CARGO_PFWIN_WINDOW_END 0xf7f92190ull
 #define AMD64_CARGO_R12_TRACE_WINDOW_START 0xf7f92000ull
@@ -83,7 +84,7 @@ static unsigned amd64_cargo_r12_trace_count;
 static unsigned amd64_cargo_rdx_trace_count;
 static unsigned amd64_cargo_rdi_trace_count;
 static unsigned amd64_cargo_xfer_trace_count;
-static unsigned amd64_cargo_caller_trace_count;
+static unsigned amd64_cargo_start_call_trace_count;
 
 #define AMD64_XMM_COUNT ((unsigned) (sizeof(((struct cpu_state *) 0)->xmm) / sizeof(((struct cpu_state *) 0)->xmm[0])))
 
@@ -641,55 +642,70 @@ static inline void amd64_trace_cargo_predecessor(struct cpu_state *cpu, struct t
     }
 }
 
-static inline void amd64_trace_cargo_entry_caller(struct cpu_state *cpu) {
+static inline void amd64_trace_cargo_start_call(struct cpu_state *cpu) {
     addr_t stack_addr;
-    addr_t caller_addr;
-    uint8_t caller_bytes[16] = {};
-    bool have_caller_bytes = false;
-    qword_t return_addr = 0;
+    addr_t bytes_addr;
+    uint8_t bytes[16] = {};
+    bool have_bytes = false;
+    qword_t popped = 0;
+    qword_t next0 = 0;
+    qword_t next1 = 0;
 
-    if (amd64_cargo_caller_trace_count >= 1)
+    if (amd64_cargo_start_call_trace_count >= 1)
+        return;
+    if (!amd64_cargo_trace_enabled)
         return;
     if (current == NULL)
         return;
     if (strcmp(current->comm, "cargo") != 0 && strcmp(current->comm, "gcc") != 0)
         return;
-    if (cpu->amd64_current_insn_rip != AMD64_CARGO_ENTRY_RIP)
-        return;
-    if (!amd64_guest_addr_ok(cpu->amd64_regs[amd64_rsp], sizeof(return_addr), &stack_addr))
+    if (cpu->amd64_current_insn_rip != AMD64_CARGO_START_CALL_RIP)
         return;
     if (current->mem == NULL)
         return;
 
-    void *ptr = mem_ptr(current->mem, stack_addr, MEM_READ);
-    if (ptr == NULL)
-        return;
-    memcpy(&return_addr, ptr, sizeof(return_addr));
-
-    if (return_addr >= 8 &&
-            amd64_guest_addr_ok(return_addr - 8, sizeof(caller_bytes), &caller_addr)) {
-        ptr = mem_ptr(current->mem, caller_addr, MEM_READ);
+    if (cpu->amd64_current_insn_rip >= 5 &&
+            amd64_guest_addr_ok(cpu->amd64_current_insn_rip - 5, sizeof(bytes), &bytes_addr)) {
+        void *ptr = mem_ptr(current->mem, bytes_addr, MEM_READ);
         if (ptr != NULL) {
-            memcpy(caller_bytes, ptr, sizeof(caller_bytes));
-            have_caller_bytes = true;
+            memcpy(bytes, ptr, sizeof(bytes));
+            have_bytes = true;
         }
     }
 
-    amd64_cargo_caller_trace_count++;
-    printk("amd64 cargo caller: entry=%#llx ret=%#llx rsp=%#llx rdi=%#llx rsi=%#llx rdx=%#llx r15=%#llx\n",
+    if (amd64_guest_addr_ok(cpu->amd64_regs[amd64_rsp] - 8, sizeof(popped), &stack_addr)) {
+        void *ptr = mem_ptr(current->mem, stack_addr, MEM_READ);
+        if (ptr != NULL)
+            memcpy(&popped, ptr, sizeof(popped));
+    }
+    if (amd64_guest_addr_ok(cpu->amd64_regs[amd64_rsp], sizeof(next0), &stack_addr)) {
+        void *ptr = mem_ptr(current->mem, stack_addr, MEM_READ);
+        if (ptr != NULL)
+            memcpy(&next0, ptr, sizeof(next0));
+    }
+    if (amd64_guest_addr_ok(cpu->amd64_regs[amd64_rsp] + 8, sizeof(next1), &stack_addr)) {
+        void *ptr = mem_ptr(current->mem, stack_addr, MEM_READ);
+        if (ptr != NULL)
+            memcpy(&next1, ptr, sizeof(next1));
+    }
+
+    amd64_cargo_start_call_trace_count++;
+    printk("amd64 cargo startcall: rip=%#llx r9=%#llx rdi=%#llx rsp=%#llx popped=%#llx next0=%#llx next1=%#llx rsi=%#llx rdx=%#llx\n",
            (unsigned long long) cpu->amd64_current_insn_rip,
-           (unsigned long long) return_addr,
-           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) cpu->amd64_regs[amd64_r9],
            (unsigned long long) cpu->amd64_regs[amd64_rdi],
+           (unsigned long long) cpu->amd64_regs[amd64_rsp],
+           (unsigned long long) popped,
+           (unsigned long long) next0,
+           (unsigned long long) next1,
            (unsigned long long) cpu->amd64_regs[amd64_rsi],
-           (unsigned long long) cpu->amd64_regs[amd64_rdx],
-           (unsigned long long) cpu->amd64_regs[amd64_r15]);
-    if (have_caller_bytes) {
-        printk("amd64 cargo caller bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-               caller_bytes[0], caller_bytes[1], caller_bytes[2], caller_bytes[3],
-               caller_bytes[4], caller_bytes[5], caller_bytes[6], caller_bytes[7],
-               caller_bytes[8], caller_bytes[9], caller_bytes[10], caller_bytes[11],
-               caller_bytes[12], caller_bytes[13], caller_bytes[14], caller_bytes[15]);
+           (unsigned long long) cpu->amd64_regs[amd64_rdx]);
+    if (have_bytes) {
+        printk("amd64 cargo startcall bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+               bytes[0], bytes[1], bytes[2], bytes[3],
+               bytes[4], bytes[5], bytes[6], bytes[7],
+               bytes[8], bytes[9], bytes[10], bytes[11],
+               bytes[12], bytes[13], bytes[14], bytes[15]);
     }
 }
 
@@ -2552,7 +2568,7 @@ amd64_string_pf:
 static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     qword_t saved_rip = cpu->amd64_rip;
     cpu->amd64_current_insn_rip = saved_rip;
-    amd64_trace_cargo_entry_caller(cpu);
+    amd64_trace_cargo_start_call(cpu);
     amd64_trace_htop_window(cpu, tlb);
     amd64_trace_cargo_pf_window(cpu, tlb);
     bool fs_prefix = false;
@@ -2998,7 +3014,9 @@ restart_prefix:
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc6 ||
                 op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 || op2 == 0xda || op2 == 0xdb || op2 == 0xdf ||
-                op2 == 0xeb || op2 == 0xef || op2 == 0xfb || op2 == 0xfc) {
+                op2 == 0xeb || op2 == 0xef ||
+                op2 == 0xf8 || op2 == 0xf9 || op2 == 0xfa || op2 == 0xfb ||
+                op2 == 0xfc || op2 == 0xfd || op2 == 0xfe) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             union xmm_reg src_xmm;
@@ -3416,23 +3434,42 @@ restart_prefix:
                 value.qw[0] += src_xmm.qw[0];
                 value.qw[1] += src_xmm.qw[1];
                 cpu->xmm[modrm.reg] = value;
-            } else if (op2 == 0xfc) {
+            } else if (op2 == 0xfc || op2 == 0xfd || op2 == 0xfe) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                     goto amd64_gpf_restore;
                 value = cpu->xmm[modrm.reg];
-                for (int i = 0; i < 16; i++)
-                    value.u8[i] += src_xmm.u8[i];
+                if (op2 == 0xfc) {
+                    for (int i = 0; i < 16; i++)
+                        value.u8[i] += src_xmm.u8[i];
+                } else if (op2 == 0xfd) {
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] += src_xmm.u16[i];
+                } else {
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] += src_xmm.u32[i];
+                }
                 cpu->xmm[modrm.reg] = value;
-            } else if (op2 == 0xfb) {
+            } else if (op2 == 0xf8 || op2 == 0xf9 || op2 == 0xfa || op2 == 0xfb) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                     goto amd64_gpf_restore;
                 value = cpu->xmm[modrm.reg];
-                value.qw[0] -= src_xmm.qw[0];
-                value.qw[1] -= src_xmm.qw[1];
+                if (op2 == 0xf8) {
+                    for (int i = 0; i < 16; i++)
+                        value.u8[i] -= src_xmm.u8[i];
+                } else if (op2 == 0xf9) {
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] -= src_xmm.u16[i];
+                } else if (op2 == 0xfa) {
+                    for (int i = 0; i < 4; i++)
+                        value.u32[i] -= src_xmm.u32[i];
+                } else {
+                    value.qw[0] -= src_xmm.qw[0];
+                    value.qw[1] -= src_xmm.qw[1];
+                }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xda) {
                 if (!operand_size_prefix)
@@ -3490,7 +3527,7 @@ restart_prefix:
             }
             break;
         }
-        if (op2 == 0x72 || op2 == 0x73) {
+        if (op2 == 0x71 || op2 == 0x72 || op2 == 0x73) {
             struct amd64_modrm modrm;
             union xmm_reg value;
             uint8_t imm8;
@@ -3510,7 +3547,26 @@ restart_prefix:
                 return INT_GPF;
             }
             value = cpu->xmm[modrm.rm];
-            if (op2 == 0x72) {
+            if (op2 == 0x71) {
+                count = imm8 > 15 ? 15 : imm8;
+                switch (modrm.reg) {
+                case 2:
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] = imm8 > 15 ? 0 : (value.u16[i] >> count);
+                    break;
+                case 4:
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] = imm8 > 15 ? ((int16_t) value.u16[i] < 0 ? UINT16_MAX : 0)
+                                                 : (uint16_t) (((int16_t) value.u16[i]) >> count);
+                    break;
+                case 6:
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] = imm8 > 15 ? 0 : (uint16_t) (value.u16[i] << count);
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
+            } else if (op2 == 0x72) {
                 count = imm8 > 31 ? 31 : imm8;
                 switch (modrm.reg) {
                 case 2:

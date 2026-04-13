@@ -58,8 +58,11 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
 
 static int copy_task(struct task *task, dword_t flags, addr_t stack, addr_t ptid_addr, addr_t tls_addr, addr_t ctid_addr) {
     task->vfork = NULL;
-    if (stack != 0)
+    if (stack != 0) {
         task->cpu.esp = stack;
+        if (task->abi == GUEST_ABI_AMD64)
+            task->cpu.amd64_regs[amd64_rsp] = stack;
+    }
 
     int err;
     struct mm *mm = task->mm;
