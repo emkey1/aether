@@ -3556,6 +3556,33 @@ restart_prefix:
                     value.qw[1] -= src_xmm.qw[1];
                 }
                 cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xd8 || op2 == 0xd9 || op2 == 0xdc || op2 == 0xdd || op2 == 0xde) {
+                if (!operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                if (op2 == 0xd8) {
+                    for (int i = 0; i < 16; i++)
+                        value.u8[i] = value.u8[i] > src_xmm.u8[i] ? (uint8_t) (value.u8[i] - src_xmm.u8[i]) : 0;
+                } else if (op2 == 0xd9) {
+                    for (int i = 0; i < 8; i++)
+                        value.u16[i] = value.u16[i] > src_xmm.u16[i] ? (uint16_t) (value.u16[i] - src_xmm.u16[i]) : 0;
+                } else if (op2 == 0xdc) {
+                    for (int i = 0; i < 16; i++) {
+                        uint16_t sum = (uint16_t) value.u8[i] + (uint16_t) src_xmm.u8[i];
+                        value.u8[i] = sum > 0xff ? 0xff : (uint8_t) sum;
+                    }
+                } else if (op2 == 0xdd) {
+                    for (int i = 0; i < 8; i++) {
+                        uint32_t sum = (uint32_t) value.u16[i] + (uint32_t) src_xmm.u16[i];
+                        value.u16[i] = sum > 0xffff ? 0xffff : (uint16_t) sum;
+                    }
+                } else {
+                    for (int i = 0; i < 16; i++)
+                        value.u8[i] = value.u8[i] > src_xmm.u8[i] ? value.u8[i] : src_xmm.u8[i];
+                }
+                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xda) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
