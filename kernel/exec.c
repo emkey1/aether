@@ -465,6 +465,23 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         entry = (guest_addr_t) entry_q;
     }
 
+    if (header.abi == GUEST_ABI_AMD64) {
+        enum { AMD64_EXEC_LOG_BUDGET = 8 };
+        static unsigned amd64_exec_log_count;
+        if (amd64_exec_log_count < AMD64_EXEC_LOG_BUDGET) {
+            amd64_exec_log_count++;
+            printk("amd64 exec: file=%s type=%u load=%#llx bias=%#llx entry=%#llx phoff=%#llx phnum=%u phent=%u interp=%#llx interp_entry=%#llx\n",
+                   file, header.type,
+                   (unsigned long long) load_addr,
+                   (unsigned long long) bias,
+                   (unsigned long long) ((qword_t) bias + header.entry_point),
+                   (unsigned long long) header.prghead_off,
+                   header.phent_count, header.phent_size,
+                   (unsigned long long) interp_base,
+                   (unsigned long long) entry);
+        }
+    }
+
     guest_addr_t vdso_entry = 0;
     if (!is_64bit) {
         err = _ENOMEM;

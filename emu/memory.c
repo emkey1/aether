@@ -381,14 +381,16 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     for (page_t page = start; page < start + pages; page++) {
         struct pt_entry *entry = mem_pt(mem, page);
         int old_flags = entry->flags;
-        entry->flags = flags;
-        // check if protection is increasing
-        if ((flags & ~old_flags) & (P_READ|P_WRITE)) {
+        int keep_flags = old_flags & ~(P_READ | P_WRITE | P_EXEC);
+        int new_flags = keep_flags | flags;
+        entry->flags = new_flags;
+        // Keep the host-side protection in sync for both increases and decreases.
+        if ((new_flags ^ old_flags) & (P_READ | P_WRITE)) {
             void *data = (char *) entry->data->data + entry->offset;
             // force to be page aligned
             data = (void *) ((uintptr_t) data & ~(real_page_size - 1));
             int prot = PROT_READ;
-            if (flags & P_WRITE) prot |= PROT_WRITE;
+            if (new_flags & P_WRITE) prot |= PROT_WRITE;
             if (mprotect(data, real_page_size, prot) < 0)
                 return errno_map();
         }
