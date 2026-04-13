@@ -1280,6 +1280,7 @@ static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
+static void dump_fault_pt_state(guest_addr_t addr);
 static bool amd64_verbose_fault_trace_enabled(void);
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
@@ -1296,6 +1297,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         dump_opcode_window(current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip);
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
+            dump_fault_pt_state(cpu->segfault_addr);
             if (amd64_verbose_fault_trace_enabled()) {
                 dump_amd64_loader_state(cpu);
                 dump_amd64_store_trace(cpu);
@@ -1308,6 +1310,43 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         dump_stack(8);
         deliver_signal(current, SIGSEGV_, info);
     }
+}
+
+static void dump_fault_pt_state(guest_addr_t addr) {
+    enum { PT_FAULT_LOG_BUDGET = 8 };
+    static unsigned fault_pt_log_count;
+    if (fault_pt_log_count >= PT_FAULT_LOG_BUDGET)
+        return;
+    fault_pt_log_count++;
+
+    read_lock(&current->mem->lock);
+    page_t center = PAGE(addr);
+    page_t start = center > 1 ? center - 1 : center;
+    page_t end = center + 1;
+    printk("amd64 fault pt: floor=%#llx ceiling=%#llx page=%#llx\n",
+           (unsigned long long) ((guest_addr_t) current->mem->mmap_floor << PAGE_BITS),
+           (unsigned long long) ((guest_addr_t) current->mem->mmap_ceiling << PAGE_BITS),
+           (unsigned long long) center);
+    for (page_t page = start; page <= end; page++) {
+        struct pt_entry *pt = mem_pt(current->mem, page);
+        if (pt == NULL) {
+            printk("amd64 fault pt: %#llx unmapped\n",
+                   (unsigned long long) ((guest_addr_t) page << PAGE_BITS));
+            continue;
+        }
+        const char *name = NULL;
+        if (pt->data != NULL)
+            name = pt->data->name;
+        printk("amd64 fault pt: %#llx flags=%#x anon=%d cow=%d shared=%d off=%#zx name=%s\n",
+               (unsigned long long) ((guest_addr_t) page << PAGE_BITS),
+               pt->flags,
+               !!(pt->flags & P_ANONYMOUS),
+               !!(pt->flags & P_COW),
+               !!(pt->flags & P_SHARED),
+               pt->offset,
+               name != NULL ? name : "-");
+    }
+    read_unlock(&current->mem->lock);
 }
 
 static void handle_general_protection_interrupt(struct cpu_state *cpu) {
