@@ -172,8 +172,8 @@ addr_t sys_mmap_amd64(addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_
     return (addr_t) mmap_common_guest(addr, len, prot, flags, fd_no, offset);
 }
 
-int_t sys_munmap_guest(guest_addr_t addr, uint_t len) {
-    STRACE("munmap(%#llx, 0x%x)", (unsigned long long) addr, len);
+int_t sys_munmap_guest(guest_addr_t addr, qword_t len) {
+    STRACE("munmap(%#llx, %#llx)", (unsigned long long) addr, (unsigned long long) len);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (len == 0)
@@ -195,8 +195,9 @@ int_t sys_munmap(addr_t addr, uint_t len) {
 #define MREMAP_MAYMOVE_ 1
 #define MREMAP_FIXED_ 2
 
-guest_addr_t sys_mremap_guest(guest_addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
-    STRACE("mremap(%#llx, %#x, %#x, %d)", (unsigned long long) addr, old_len, new_len, flags);
+guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags) {
+    STRACE("mremap(%#llx, %#llx, %#llx, %d)", (unsigned long long) addr,
+           (unsigned long long) old_len, (unsigned long long) new_len, flags);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (flags & ~(MREMAP_MAYMOVE_ | MREMAP_FIXED_))
@@ -246,8 +247,9 @@ int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
     return (int_t) sys_mremap_guest(addr, old_len, new_len, flags);
 }
 
-int_t sys_mprotect_guest(guest_addr_t addr, uint_t len, int_t prot) {
-    STRACE("mprotect(%#llx, 0x%x, 0x%x)", (unsigned long long) addr, len, prot);
+int_t sys_mprotect_guest(guest_addr_t addr, qword_t len, int_t prot) {
+    STRACE("mprotect(%#llx, %#llx, 0x%x)", (unsigned long long) addr,
+           (unsigned long long) len, prot);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (prot & ~P_RWX)
@@ -263,7 +265,7 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     return sys_mprotect_guest(addr, len, prot);
 }
 
-dword_t sys_madvise_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len), dword_t UNUSED(advice)) {
+dword_t sys_madvise_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), dword_t UNUSED(advice)) {
     // portable applications should not rely on linux's destructive semantics for MADV_DONTNEED.
     return 0;
 }
@@ -285,7 +287,7 @@ long sys_set_mempolicy(int UNUSED(mode), const unsigned long *UNUSED(nodemask), 
     return 0;
 }
 
-int_t sys_mlock_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len)) {
+int_t sys_mlock_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len)) {
     return 0;
 }
 
@@ -293,7 +295,7 @@ int_t sys_mlock(addr_t addr, dword_t len) {
     return sys_mlock_guest(addr, len);
 }
 
-int_t sys_munlock_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len)) {
+int_t sys_munlock_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len)) {
     return 0;
 }
 
@@ -301,7 +303,7 @@ int_t sys_munlock(addr_t addr, dword_t len) {
     return sys_munlock_guest(addr, len);
 }
 
-int_t sys_msync_guest(guest_addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(flags)) {
+int_t sys_msync_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), int_t UNUSED(flags)) {
     return 0;
 }
 
