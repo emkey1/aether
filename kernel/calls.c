@@ -1028,6 +1028,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getdents64_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
         return true;
+    case 318:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getrandom_guest(
+                raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2]));
+        return true;
     case 232:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_epoll_wait_guest(
                 (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2], (int_t) raw_args[3]));
@@ -1326,7 +1330,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 59:  // execve
     case 169: // reboot
     case 292: // dup3
-    case 318: // getrandom
     case 324: // membarrier
     case 274: // get_robust_list
     case 282: // signalfd

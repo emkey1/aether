@@ -381,6 +381,7 @@ int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr);
 
 // misc
 dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);
+dword_t sys_getrandom_guest(guest_addr_t buf_addr, dword_t len, dword_t flags);
 size_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
 int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg);

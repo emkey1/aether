@@ -18,7 +18,7 @@ int get_random(char *buf, size_t len) {
 #endif
 }
 
-dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t UNUSED(flags)) {
+static dword_t sys_getrandom_common(guest_addr_t buf_addr, dword_t len, dword_t UNUSED(flags)) {
     if (len > 1 << 20)
         return _EIO;
     char *buf = malloc(len);
@@ -32,4 +32,12 @@ dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t UNUSED(flags)) {
     }
     free(buf);
     return len;
+}
+
+dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags) {
+    return sys_getrandom_common(buf_addr, len, flags);
+}
+
+dword_t sys_getrandom_guest(guest_addr_t buf_addr, dword_t len, dword_t flags) {
+    return sys_getrandom_common(buf_addr, len, flags);
 }
