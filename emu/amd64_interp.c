@@ -1304,26 +1304,6 @@ static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_
     return true;
 }
 
-static inline bool amd64_tlb_write_slow(struct tlb *tlb, guest_addr_t addr, const void *value, unsigned size) {
-    if (PGOFFSET(addr) > PAGE_SIZE - size) {
-        size_t part1 = PAGE_SIZE - PGOFFSET(addr);
-        char *ptr1 = tlb_handle_miss(tlb, addr, MEM_WRITE);
-        if (ptr1 == NULL)
-            return false;
-        char *ptr2 = tlb_handle_miss(tlb, ((guest_addr_t) PAGE(addr) + 1) << PAGE_BITS, MEM_WRITE);
-        if (ptr2 == NULL)
-            return false;
-        memcpy(ptr1, value, part1);
-        memcpy(ptr2, (const char *) value + part1, size - part1);
-        return true;
-    }
-    char *ptr = tlb_handle_miss(tlb, addr, MEM_WRITE);
-    if (ptr == NULL)
-        return false;
-    memcpy(ptr, value, size);
-    return true;
-}
-
 static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword_t guest_addr, const void *value, unsigned size) {
     guest_addr_t addr;
     if (!amd64_guest_addr_ok(guest_addr, size, &addr)) {
@@ -1331,7 +1311,7 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         cpu->segfault_was_write = true;
         return false;
     }
-    if (!amd64_tlb_write_slow(tlb, addr, value, size)) {
+    if (!tlb_write(tlb, addr, value, size)) {
         cpu->segfault_addr = addr;
         cpu->segfault_was_write = true;
         return false;
