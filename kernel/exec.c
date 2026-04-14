@@ -66,6 +66,7 @@ static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
 static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
 static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
+static void amd64_trace_exec_attempt(const char *file, const char *argv);
 
 static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi_out) {
     enum guest_abi abi;
@@ -311,6 +312,27 @@ static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_in
         return 0;
     guest_addr_t base = ((guest_addr_t) hole - first_page) << PAGE_BITS;
     return base;
+}
+
+static void amd64_trace_exec_attempt(const char *file, const char *argv) {
+    enum { AMD64_EXEC_ATTEMPT_TRACE_BUDGET = 64 };
+    static unsigned amd64_exec_attempt_trace_count;
+
+    if (current == NULL || current->abi != GUEST_ABI_AMD64 || file == NULL)
+        return;
+
+    bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
+    bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
+    if (!tracked_exec && !tracked_lineage)
+        return;
+    if (amd64_exec_attempt_trace_count < AMD64_EXEC_ATTEMPT_TRACE_BUDGET) {
+        amd64_exec_attempt_trace_count++;
+        struct tty *tty = current->group != NULL ? current->group->tty : NULL;
+        const char *argv0 = argv != NULL && argv[0] != '\0' ? argv : "";
+        printk("amd64 execve attempt: tty=%d pid=%d tgid=%d file=%s comm=%s argv0=%s\n",
+               tty != NULL ? tty->num : -1, current->pid, current->tgid, file, current->comm, argv0);
+    }
+    amd64_trace_track_exec(current->pid, current->tgid, file);
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
@@ -1039,6 +1061,7 @@ ssize_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
     }
     STRACE("})");
 
+    amd64_trace_exec_attempt(filename, argv);
     err = do_execve(filename, argc, argv, envp);
 
     free(envp);
@@ -1072,6 +1095,7 @@ ssize_t sys_execve_guest(guest_addr_t filename_addr, guest_addr_t argv_addr, gue
     }
     STRACE("})");
 
+    amd64_trace_exec_attempt(filename, argv);
     err = do_execve(filename, argc, argv, envp);
 
     free(envp);
@@ -1123,6 +1147,7 @@ ssize_t sys_execveat(fd_t dirfd, addr_t filename_addr, addr_t argv_addr, addr_t 
     }
 
     STRACE("execveat(%d, \"%s\", ..., %#x)", dirfd, filename, flags);
+    amd64_trace_exec_attempt(resolved, argv);
     err = do_execve(resolved, argc, argv, envp);
 
 out_free_args:
@@ -1188,6 +1213,7 @@ ssize_t sys_execveat_guest(fd_t dirfd, guest_addr_t filename_addr, guest_addr_t 
     }
     STRACE("}, %d)", flags);
 
+    amd64_trace_exec_attempt(resolved, argv);
     err = do_execve(resolved, argc, argv, envp);
 
 out_free_args:
