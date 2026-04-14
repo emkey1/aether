@@ -404,8 +404,12 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
         int keep_flags = old_flags & ~(P_READ | P_WRITE | P_EXEC);
         int new_flags = keep_flags | flags;
         entry->flags = new_flags;
-        // Keep the host-side protection in sync for both increases and decreases.
-        if ((new_flags ^ old_flags) & (P_READ | P_WRITE)) {
+        // Host page protections are only a faithful mirror of guest page
+        // protections when the host and guest page sizes match. On Darwin/iOS
+        // the host page size is often 16K while the guest ABI still uses 4K
+        // pages, so mprotecting the host mapping can incorrectly change
+        // adjacent guest pages and turn a guest fault into a host crash.
+        if (real_page_size == PAGE_SIZE && ((new_flags ^ old_flags) & (P_READ | P_WRITE))) {
             void *data = (char *) entry->data->data + entry->offset;
             // force to be page aligned
             data = (void *) ((uintptr_t) data & ~(real_page_size - 1));

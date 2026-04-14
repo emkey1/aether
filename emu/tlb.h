@@ -55,10 +55,19 @@ forceinline __no_instrument bool tlb_read(struct tlb *tlb, guest_addr_t addr, vo
 forceinline __no_instrument void *__tlb_write_ptr(struct tlb *tlb, guest_addr_t addr) {
     if (unlikely(tlb->mem_changes != tlb->mmu->changes))
         tlb_flush(tlb);
-    struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
-    if (entry.page_if_writable == TLB_PAGE(addr)) {
+    struct tlb_entry *entry = &tlb->entries[TLB_INDEX(addr)];
+    if (entry->page_if_writable == TLB_PAGE(addr)) {
+        // Revalidate cached writable hits against the authoritative MMU view.
+        // Host page protections are process-global, so a stale positive write
+        // hit is unsafe even if the guest would have taken a fault.
+        void *page_ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), MEM_WRITE);
+        if (page_ptr == NULL) {
+            entry->page_if_writable = TLB_PAGE_EMPTY;
+            return NULL;
+        }
+        entry->data_minus_addr = (uintptr_t) page_ptr - TLB_PAGE(addr);
         tlb->dirty_page = TLB_PAGE(addr);
-        void *address = (void *) (entry.data_minus_addr + addr);
+        void *address = (void *) (entry->data_minus_addr + addr);
         posit(address != NULL);
         return address;
     }
