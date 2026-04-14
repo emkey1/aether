@@ -57,9 +57,9 @@ size_t fill_dirent_64(void *dirent_data, ino_t inode, off_t_ offset, const char 
     return dirent->reclen;
 }
 
-int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
+int_t sys_getdents_common(fd_t f, guest_addr_t dirents, dword_t count,
         size_t (*fill_dirent)(void *, ino_t, off_t_, const char *, int)) {
-    STRACE("getdents(%d, %#x, %#x)", f, dirents, count);
+    STRACE("getdents(%d, %#llx, %#x)", f, (unsigned long long) dirents, count);
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
