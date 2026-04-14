@@ -298,7 +298,7 @@ static void amd64_trace_escape_text(const char *src, size_t src_len, char *dst, 
 }
 
 static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
-    enum { AMD64_WRITE_TRACE_BUDGET = 32, AMD64_WRITE_COPY_MAX = 192, AMD64_WRITE_ESCAPED_MAX = 512 };
+    enum { AMD64_WRITE_TRACE_BUDGET = 64, AMD64_WRITE_COPY_MAX = 192, AMD64_WRITE_ESCAPED_MAX = 512 };
     static unsigned amd64_write_trace_count;
     char raw[AMD64_WRITE_COPY_MAX];
     char escaped[AMD64_WRITE_ESCAPED_MAX];
@@ -322,21 +322,28 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
         return;
     }
 
-    if (fd != 1 && fd != 2)
-        return;
-
     to_copy = (size_t) result;
     if (to_copy > (size_t) size)
         to_copy = (size_t) size;
     if (to_copy > AMD64_WRITE_COPY_MAX - 1)
         to_copy = AMD64_WRITE_COPY_MAX - 1;
+    amd64_write_trace_count++;
+    printk("amd64 tracked write meta: pid=%d tgid=%d fd=%llu size=%llu result=%llu buf=%#llx\n",
+           current->pid, current->tgid, (unsigned long long) fd,
+           (unsigned long long) size, (unsigned long long) result,
+           (unsigned long long) buf_addr);
+    if (fd != 1 && fd != 2)
+        return;
     if (to_copy == 0)
         return;
-    if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0)
+    if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0) {
+        printk("amd64 tracked write unreadable: pid=%d tgid=%d fd=%llu buf=%#llx count=%zu\n",
+               current->pid, current->tgid, (unsigned long long) fd,
+               (unsigned long long) buf_addr, to_copy);
         return;
+    }
     raw[to_copy] = '\0';
     amd64_trace_escape_text(raw, to_copy, escaped, sizeof(escaped));
-    amd64_write_trace_count++;
     printk("amd64 tracked write: pid=%d tgid=%d fd=%llu count=%llu text=\"%s\"\n",
            current->pid, current->tgid, (unsigned long long) fd,
            (unsigned long long) result, escaped);
