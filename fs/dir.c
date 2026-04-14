@@ -99,8 +99,12 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
             printed++;
         }
 
-        if (reclen > count)
+        if (reclen > count) {
+            // Leave the directory position at the start of the entry that did
+            // not fit so the next call can return it.
+            fd_seekdir(fd, ptr);
             break;
+        }
         if (user_write(dirents, dirent_data, reclen)) {
             err = _EFAULT;
             goto out;
@@ -109,7 +113,6 @@ int_t sys_getdents_common(fd_t f, addr_t dirents, dword_t count,
         count -= reclen;
     }
 
-    fd_seekdir(fd, ptr);
     err = orig_count - count;
 
 out:
