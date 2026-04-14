@@ -37,6 +37,26 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
 }
 
+static struct tty *amd64_console_tty(void) {
+    if (current == NULL || current->abi != GUEST_ABI_AMD64 || current->group == NULL)
+        return NULL;
+    struct tty *tty = current->group->tty;
+    if (tty == NULL || tty->type != TTY_CONSOLE_MAJOR)
+        return NULL;
+    return tty;
+}
+
+static void amd64_trace_copy_user_path(qword_t guest_path, char *buf, size_t size) {
+    if (size == 0)
+        return;
+    buf[0] = '\0';
+    if (guest_path == 0)
+        return;
+    if (user_read_string((guest_addr_t) guest_path, buf, size) != 0)
+        strncpy(buf, "<unreadable>", size);
+    buf[size - 1] = '\0';
+}
+
 enum { AMD64_TRACE_LINEAGE_MAX = 32 };
 static pid_t_ amd64_traced_exec_pid;
 static pid_t_ amd64_traced_exec_tgid;
@@ -157,6 +177,88 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     default:
         break;
     }
+}
+
+static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { AMD64_TTY_PROC_TRACE_BUDGET = 128 };
+    static unsigned amd64_tty_proc_trace_count;
+    struct tty *tty = amd64_console_tty();
+    if (tty == NULL)
+        return;
+    if (amd64_tty_proc_trace_count >= AMD64_TTY_PROC_TRACE_BUDGET)
+        return;
+
+    switch (syscall_num) {
+    case 56: // clone
+    case 57: // fork
+    case 58: // vfork
+    case 435: // clone3
+        amd64_tty_proc_trace_count++;
+        printk("amd64 tty proc: tty=%d pid=%d tgid=%d nr=%llu result=%#llx\n",
+               tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
+               (unsigned long long) result);
+        break;
+    case 61: // wait4
+    case 247: // waitid
+        amd64_tty_proc_trace_count++;
+        printk("amd64 tty wait: tty=%d pid=%d tgid=%d nr=%llu a0=%#llx result=%#llx\n",
+               tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
+               (unsigned long long) raw_args[0], (unsigned long long) result);
+        break;
+    case 59: // execve
+    case 322: { // execveat
+        char path[128];
+        qword_t path_arg = syscall_num == 322 ? raw_args[1] : raw_args[0];
+        amd64_trace_copy_user_path(path_arg, path, sizeof(path));
+        amd64_tty_proc_trace_count++;
+        printk("amd64 tty exec syscall: tty=%d pid=%d tgid=%d nr=%llu file=%s result=%#llx\n",
+               tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
+               path, (unsigned long long) result);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void amd64_tracked_enoent_path_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { AMD64_ENOENT_PATH_TRACE_BUDGET = 64 };
+    static unsigned amd64_enoent_path_trace_count;
+    char path[128];
+    qword_t path_arg = 0;
+
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if ((sqword_t) result != _ENOENT)
+        return;
+    if (amd64_enoent_path_trace_count >= AMD64_ENOENT_PATH_TRACE_BUDGET)
+        return;
+
+    switch (syscall_num) {
+    case 2:   // open
+    case 4:   // stat
+    case 6:   // lstat
+    case 21:  // access
+    case 59:  // execve
+        path_arg = raw_args[0];
+        break;
+    case 257: // openat
+    case 262: // newfstatat
+    case 269: // faccessat
+    case 322: // execveat
+    case 437: // openat2
+    case 439: // faccessat2
+        path_arg = raw_args[1];
+        break;
+    default:
+        return;
+    }
+
+    amd64_trace_copy_user_path(path_arg, path, sizeof(path));
+    amd64_enoent_path_trace_count++;
+    printk("amd64 enoent path: pid=%d tgid=%d nr=%llu path=%s a0=%#llx result=%#llx\n",
+           current->pid, current->tgid, (unsigned long long) syscall_num, path,
+           (unsigned long long) raw_args[0], (unsigned long long) result);
 }
 
 static void amd64_enomem_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
@@ -1719,14 +1821,13 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
-        amd64_trace_track_child(syscall_num,
-                dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax);
-        amd64_enomem_syscall_trace(syscall_num, raw_args,
-                dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax);
-        amd64_rustc_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
-                cpu->amd64_regs[amd64_rax] : cpu->eax);
-        amd64_tty2_shell_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
-                cpu->amd64_regs[amd64_rax] : cpu->eax);
+        qword_t result = dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax;
+        amd64_trace_track_child(syscall_num, result);
+        amd64_tty_process_trace(syscall_num, raw_args, result);
+        amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
+        amd64_enomem_syscall_trace(syscall_num, raw_args, result);
+        amd64_rustc_syscall_trace_exit(syscall_num, result);
+        amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
             ptrace_syscall_stop(cpu);
         return;
@@ -1742,6 +1843,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
     amd64_trace_track_child(syscall_num, result);
+    amd64_tty_process_trace(syscall_num, raw_args, result);
+    amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
     amd64_enomem_syscall_trace(syscall_num, raw_args, result);
     amd64_rustc_syscall_trace_exit(syscall_num, result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
