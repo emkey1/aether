@@ -194,6 +194,10 @@ dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t c
 
     // task might be destroyed by the time we finish, so save the pid
     pid_t pid = task->pid;
+    if (current->abi == GUEST_ABI_AMD64 && amd64_trace_is_lineage_tgid(current->tgid)) {
+        printk("amd64 kernel child: parent=%d tgid=%d child=%d child_tgid=%d flags=%#x\n",
+               current->pid, current->tgid, pid, task->tgid, flags);
+    }
     bool trace_child = false;
     if (current->ptrace.traced && !(flags & CLONE_UNTRACED_)) {
         dword_t trace_option = 0;
