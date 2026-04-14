@@ -768,6 +768,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mprotect_guest(raw_args[0],
                 (uint_t) raw_args[1], (int_t) raw_args[2]));
         return true;
+    case 14:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_sigprocmask_guest(
+                (dword_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
     case 11:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_munmap_guest(raw_args[0],
                 (uint_t) raw_args[1]));

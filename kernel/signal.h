@@ -158,6 +158,7 @@ dword_t sys_sigreturn(void);
 #define SIG_SETMASK_ 2
 typedef uint64_t sigset_t_;
 dword_t sys_rt_sigprocmask(dword_t how, addr_t set, addr_t oldset, dword_t size);
+dword_t sys_rt_sigprocmask_guest(dword_t how, guest_addr_t set, guest_addr_t oldset, dword_t size);
 int_t sys_rt_sigpending(addr_t set_addr);
 
 static inline sigset_t_ sig_mask(int sig) {

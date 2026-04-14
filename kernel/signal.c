@@ -788,7 +788,7 @@ static int do_sigprocmask(dword_t how, sigset_t_ set) {
     return 0;
 }
 
-dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dword_t size) {
+dword_t sys_rt_sigprocmask_guest(dword_t how, guest_addr_t set_addr, guest_addr_t oldset_addr, dword_t size) {
     if (size != sizeof(sigset_t_))
         return _EINVAL;
 
@@ -814,6 +814,10 @@ dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dwo
             return err;
     }
     return 0;
+}
+
+dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dword_t size) {
+    return sys_rt_sigprocmask_guest(how, set_addr, oldset_addr, size);
 }
 
 int_t sys_rt_sigpending(addr_t set_addr) {
