@@ -5,6 +5,8 @@
 #include "emu/memory.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+#include "fs/devices.h"
+#include "fs/tty.h"
 #include "util/sync.h"
 
 extern bool isGlibC;
@@ -24,6 +26,29 @@ dword_t syscall_success_stub(void) {
 dword_t syscall_eopnotsupp_stub(void) {
     STRACE("syscall_stub_eopnotsupp()");
     return _EOPNOTSUPP;
+}
+
+static bool amd64_tty2_shell_syscall_trace_enabled(void) {
+    if (current == NULL || current->abi != GUEST_ABI_AMD64)
+        return false;
+    if (strcmp(current->comm, "login") != 0 && strcmp(current->comm, "sh") != 0)
+        return false;
+    struct tty *tty = current->group != NULL ? current->group->tty : NULL;
+    return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
+}
+
+static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
+    enum { AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET = 128 };
+    static unsigned amd64_tty2_shell_syscall_trace_count;
+    if (!amd64_tty2_shell_syscall_trace_enabled())
+        return;
+    if (amd64_tty2_shell_syscall_trace_count >= AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET)
+        return;
+    amd64_tty2_shell_syscall_trace_count++;
+    printk("amd64 tty2 syscall: pid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+           current->pid, current->comm, (unsigned long long) syscall_num,
+           (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+           (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
 }
 
 static dword_t sys_pread_amd64(fd_t f, addr_t buf_addr, dword_t size,
@@ -1562,6 +1587,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         log_stub_syscall(cpu, dispatch, (unsigned) syscall_num, "stub");
 
     dispatch->syscall_args(cpu, raw_args);
+    amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
