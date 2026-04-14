@@ -541,6 +541,10 @@ dword_t sys_times(addr_t tbuf) {
     return 0;
 }
 
+dword_t sys_times_guest(guest_addr_t tbuf) {
+    return sys_times(tbuf);
+}
+
 dword_t sys_gettimeofday(addr_t tv, addr_t tz) {
     STRACE("gettimeofday(0x%x, 0x%x)", tv, tz);
     struct timeval timeval;
@@ -555,6 +559,10 @@ dword_t sys_gettimeofday(addr_t tv, addr_t tz) {
         return _EFAULT;
     }
     return 0;
+}
+
+dword_t sys_gettimeofday_guest(guest_addr_t tv, guest_addr_t tz) {
+    return sys_gettimeofday(tv, tz);
 }
 
 dword_t sys_settimeofday(addr_t UNUSED(tv), addr_t UNUSED(tz)) {

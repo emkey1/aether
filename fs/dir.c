@@ -125,3 +125,11 @@ int_t sys_getdents(fd_t f, addr_t dirents, uint_t count) {
 int_t sys_getdents64(fd_t f, addr_t dirents, uint_t count) {
     return sys_getdents_common(f, dirents, count, fill_dirent_64);
 }
+
+int_t sys_getdents_guest(fd_t f, guest_addr_t dirents, dword_t count) {
+    return sys_getdents_common(f, dirents, count, fill_dirent_32);
+}
+
+int_t sys_getdents64_guest(fd_t f, guest_addr_t dirents, dword_t count) {
+    return sys_getdents_common(f, dirents, count, fill_dirent_64);
+}

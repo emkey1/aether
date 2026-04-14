@@ -185,6 +185,7 @@ struct stack_t_ {
 #define SS_DISABLE_ 2
 #define MINSIGSTKSZ_ 2048
 dword_t sys_sigaltstack(addr_t ss, addr_t old_ss);
+dword_t sys_sigaltstack_guest(guest_addr_t ss, guest_addr_t old_ss);
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size);
 int_t sys_pause(void);

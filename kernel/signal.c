@@ -877,14 +877,12 @@ static int altstack_to_user(struct task *task, addr_t user_addr) {
     return 0;
 }
 
-static int altstack_from_user(struct task *task, addr_t user_addr, addr_t *stack_out, dword_t *size_out, dword_t *flags_out) {
+static int altstack_from_user(struct task *task, guest_addr_t user_addr, guest_addr_t *stack_out, dword_t *size_out, dword_t *flags_out) {
     if (task->abi == GUEST_ABI_AMD64) {
         struct amd64_stack_t_marshaled user_stack;
         if (user_get(user_addr, user_stack))
             return _EFAULT;
-        if (user_stack.stack > UINT32_MAX || user_stack.size > UINT32_MAX)
-            return _ENOMEM;
-        *stack_out = (addr_t) user_stack.stack;
+        *stack_out = user_stack.stack;
         *size_out = (dword_t) user_stack.size;
         *flags_out = user_stack.flags;
     } else {
@@ -913,7 +911,7 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
             unlock(&sighand->lock);
             return _EPERM;
         }
-        addr_t stack;
+        guest_addr_t stack;
         dword_t size;
         dword_t flags;
         int err = altstack_from_user(current, ss_addr, &stack, &size, &flags);
@@ -934,6 +932,10 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
     }
     unlock(&sighand->lock);
     return 0;
+}
+
+dword_t sys_sigaltstack_guest(guest_addr_t ss_addr, guest_addr_t old_ss_addr) {
+    return sys_sigaltstack(ss_addr, old_ss_addr);
 }
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {

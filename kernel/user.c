@@ -246,7 +246,7 @@ int user_write_string(guest_addr_t addr, const char *buf) {
     return 0;
 }
 
-struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, addr_t iov_addr, dword_t iov_count) {
+struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, guest_addr_t iov_addr, dword_t iov_count) {
     if (iov_count == 0)
         return NULL;
     if (iov_count > IOV_MAX)
@@ -286,13 +286,13 @@ struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi,
             base = i386_iov[i].base;
             len = i386_iov[i].len;
         }
-        if (!guest_abi_addr_valid(abi, base) || base > UINT32_MAX || len > SIZE_MAX) {
+        if (!guest_abi_addr_valid(abi, base) || len > SIZE_MAX) {
             free(raw_iov);
             free(iov);
             return ERR_PTR(_EINVAL);
         }
         iov[i] = (struct guest_iovec_) {
-            .base = (addr_t) base,
+            .base = base,
             .len = (size_t) len,
         };
     }

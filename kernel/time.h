@@ -103,8 +103,10 @@ int_t sys_timerfd_gettime64(fd_t f, addr_t curr_value_addr);
 int_t sys_timerfd_settime64(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr);
 
 dword_t sys_times(addr_t tbuf);
+dword_t sys_times_guest(guest_addr_t tbuf);
 dword_t sys_nanosleep(addr_t req, addr_t rem);
 dword_t sys_gettimeofday(addr_t tv, addr_t tz);
+dword_t sys_gettimeofday_guest(guest_addr_t tv, guest_addr_t tz);
 dword_t sys_settimeofday(addr_t tv, addr_t tz);
 
 

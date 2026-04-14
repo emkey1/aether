@@ -78,6 +78,10 @@ dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
     return 0;
 }
 
+dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr) {
+    return sys_getrlimit64(resource, rlim_addr);
+}
+
 dword_t sys_old_getrlimit32(dword_t resource, addr_t rlim_addr) {
     struct rlimit32_ rlimit;
     int err = do_getrlimit32(resource, &rlimit);
@@ -249,6 +253,10 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
     if (write_guest_rusage_abi(current->abi, rusage_addr, &rusage))
         return _EFAULT;
     return 0;
+}
+
+dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
+    return sys_getrusage(who, rusage_addr);
 }
 
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {

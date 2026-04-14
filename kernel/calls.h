@@ -94,19 +94,24 @@ struct iovec_ {
     uint_t len;
 };
 struct guest_iovec_ {
-    addr_t base;
+    guest_addr_t base;
     size_t len;
 };
-struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, addr_t iov_addr, dword_t iov_count);
+struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi, guest_addr_t iov_addr, dword_t iov_count);
 dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size);
+dword_t sys_read_guest(fd_t fd_no, guest_addr_t buf_addr, dword_t size);
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
+dword_t sys_readv_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count);
 dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size);
+dword_t sys_write_guest(fd_t fd_no, guest_addr_t buf_addr, dword_t size);
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
+dword_t sys_writev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count);
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence);
 dword_t sys_lseek(fd_t f, dword_t off, dword_t whence);
 dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off);
 dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg);
+dword_t sys_ioctl_guest(fd_t f, dword_t cmd, guest_addr_t arg);
 dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg);
 dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg);
 dword_t sys_dup(fd_t fd);
@@ -124,17 +129,25 @@ struct pollfd_ {
     word_t revents;
 };
 dword_t sys_poll(addr_t fds, dword_t nfds, int_t timeout);
-dword_t sys_poll_common(addr_t fds, dword_t nfds, const struct timespec *timeout_ts_ptr, int_t timeout_trace);
+dword_t sys_poll_guest(guest_addr_t fds, dword_t nfds, int_t timeout);
+dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *timeout_ts_ptr, int_t timeout_trace);
 dword_t sys_select(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr);
+dword_t sys_select_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writefds_addr, guest_addr_t exceptfds_addr, guest_addr_t timeout_addr);
 dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr);
+dword_t sys_pselect_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writefds_addr, guest_addr_t exceptfds_addr, guest_addr_t timeout_addr, guest_addr_t sigmask_addr);
 dword_t sys_pselect_time64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr);
 dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize);
+dword_t sys_ppoll_guest(guest_addr_t fds, dword_t nfds, guest_addr_t timeout_addr, guest_addr_t sigmask_addr, dword_t sigsetsize);
 fd_t sys_epoll_create(int_t flags);
 fd_t sys_epoll_create0(void);
 int_t sys_epoll_ctl(fd_t epoll, int_t op, fd_t fd, addr_t event_addr);
+int_t sys_epoll_ctl_guest(fd_t epoll, int_t op, fd_t fd, guest_addr_t event_addr);
 int_t sys_epoll_wait(fd_t epoll, addr_t events_addr, int_t max_events, int_t timeout);
+int_t sys_epoll_wait_guest(fd_t epoll, guest_addr_t events_addr, int_t max_events, int_t timeout);
 int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout, addr_t sigmask_addr, dword_t sigsetsize);
+int_t sys_epoll_pwait_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, int_t timeout, guest_addr_t sigmask_addr, dword_t sigsetsize);
 int_t sys_epoll_pwait2(fd_t epoll_f, addr_t events_addr, int_t max_events, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize);
+int_t sys_epoll_pwait2_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, guest_addr_t timeout_addr, guest_addr_t sigmask_addr, dword_t sigsetsize);
 
 int_t sys_eventfd2(uint_t initval, int_t flags);
 int_t sys_eventfd(uint_t initval);
@@ -187,7 +200,9 @@ dword_t sys_readlink_guest(guest_addr_t path, guest_addr_t buf, dword_t bufsize)
 dword_t sys_readlinkat(fd_t at_f, addr_t path, addr_t buf, dword_t bufsize);
 dword_t sys_readlinkat_guest(fd_t at_f, guest_addr_t path, guest_addr_t buf, dword_t bufsize);
 int_t sys_getdents(fd_t f, addr_t dirents, dword_t count);
+int_t sys_getdents_guest(fd_t f, guest_addr_t dirents, dword_t count);
 int_t sys_getdents64(fd_t f, addr_t dirents, dword_t count);
+int_t sys_getdents64_guest(fd_t f, guest_addr_t dirents, dword_t count);
 dword_t sys_stat64(addr_t path_addr, addr_t statbuf_addr);
 dword_t sys_lstat64(addr_t path_addr, addr_t statbuf_addr);
 dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr);
@@ -238,6 +253,7 @@ dword_t sys_utimes_guest(guest_addr_t path_addr, guest_addr_t times_addr);
 dword_t sys_utime(addr_t path_addr, addr_t times_addr);
 dword_t sys_utime_guest(guest_addr_t path_addr, guest_addr_t times_addr);
 dword_t sys_times( addr_t tbuf);
+dword_t sys_times_guest(guest_addr_t tbuf);
 dword_t sys_umask(dword_t mask);
 
 dword_t sys_sendfile(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t count);
@@ -353,6 +369,7 @@ struct sys_info {
     char pad;
 };
 dword_t sys_sysinfo(addr_t info_addr);
+dword_t sys_sysinfo_guest(guest_addr_t info_addr);
 
 // futexes
 dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2, addr_t uaddr2, dword_t val3);

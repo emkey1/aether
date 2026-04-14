@@ -36,6 +36,7 @@ struct rlimit32_ {
 
 dword_t sys_getrlimit32(dword_t resource, addr_t rlim_addr);
 dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr);
+dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr);
 dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr);
 dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr);
 dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_t old_limit_addr);
@@ -87,6 +88,7 @@ int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_
 #define RUSAGE_SELF_ 0
 #define RUSAGE_CHILDREN_ -1
 dword_t sys_getrusage(dword_t who, addr_t rusage_addr);
+dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr);
 
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr);
 int_t sys_sched_setaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr);

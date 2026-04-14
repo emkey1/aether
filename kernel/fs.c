@@ -448,8 +448,8 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
     return res;
 }
 
-dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
-    STRACE("read(%d, 0x%x, %d)", fd_no, buf_addr, size);
+static dword_t sys_read_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size) {
+    STRACE("read(%d, %#llx, %d)", fd_no, (unsigned long long) buf_addr, size);
     if (size > MAX_RW_COUNT)
         size = MAX_RW_COUNT;
 
@@ -473,6 +473,14 @@ dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
     if (buf != stack_buf) free(buf);
     
     return res;
+}
+
+dword_t sys_read(fd_t fd_no, addr_t buf_addr, dword_t size) {
+    return sys_read_common(fd_no, buf_addr, size);
+}
+
+dword_t sys_read_guest(fd_t fd_no, guest_addr_t buf_addr, dword_t size) {
+    return sys_read_common(fd_no, buf_addr, size);
 }
 
 static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
@@ -509,7 +517,7 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     return res;
 }
 
-dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
+static dword_t sys_write_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size) {
     // FIXME this is a DOS vector, should ideally use vectorized I/O
     if (size > MAX_RW_COUNT)
         size = MAX_RW_COUNT;
@@ -526,7 +534,7 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
     if (user_read(buf_addr, buf, size))
         goto out;
 
-    STRACE("write(%d, %#x, %d)", fd_no, buf_addr, size);
+    STRACE("write(%d, %#llx, %d)", fd_no, (unsigned long long) buf_addr, size);
 
     TASK_MAY_BLOCK {
         res = sys_write_buf(fd_no, buf, size);
@@ -534,6 +542,14 @@ dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
 out:
     if (buf != stack_buf) free(buf);
     return res;
+}
+
+dword_t sys_write(fd_t fd_no, addr_t buf_addr, dword_t size) {
+    return sys_write_common(fd_no, buf_addr, size);
+}
+
+dword_t sys_write_guest(fd_t fd_no, guest_addr_t buf_addr, dword_t size) {
+    return sys_write_common(fd_no, buf_addr, size);
 }
 
 // The vector operations work by flattening the vector into a malloc buffer.
@@ -550,8 +566,8 @@ static ssize_t iovec_size(struct guest_iovec_ *iovec, unsigned iovec_count) {
     return size;
 }
 
-dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
-    STRACE("readv(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
+static dword_t sys_readv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    STRACE("readv(%d, %#llx, %d)", fd_no, (unsigned long long) iovec_addr, iovec_count);
     struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
     
     if (IS_ERR(iovec))
@@ -584,7 +600,7 @@ dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
         if (offset + len > total)
             len = total - offset;
 
-        STRACE(" {base=%#x, len=%zu}", iovec[i].base, iovec[i].len);
+        STRACE(" {base=%#llx, len=%zu}", (unsigned long long) iovec[i].base, iovec[i].len);
 
         if (user_write(iovec[i].base, buf + offset, len)) {
             res = _EFAULT;
@@ -599,8 +615,16 @@ error:
     return res;
 }
 
-dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
-    STRACE("writev(%d, %#x, %d)", fd_no, iovec_addr, iovec_count);
+dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
+    return sys_readv_common(fd_no, iovec_addr, iovec_count);
+}
+
+dword_t sys_readv_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    return sys_readv_common(fd_no, iovec_addr, iovec_count);
+}
+
+static dword_t sys_writev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    STRACE("writev(%d, %#llx, %d)", fd_no, (unsigned long long) iovec_addr, iovec_count);
     struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
@@ -631,7 +655,7 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
             goto error;
         }
 
-        STRACE(" {base=%#x, len=%zu}", iovec[i].base, iovec[i].len);
+        STRACE(" {base=%#llx, len=%zu}", (unsigned long long) iovec[i].base, iovec[i].len);
         offset += copy_len;
     }
     TASK_MAY_BLOCK {
@@ -641,6 +665,14 @@ error:
     if (buf != stack_buf) free(buf);
     free(iovec);
     return res;
+}
+
+dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
+    return sys_writev_common(fd_no, iovec_addr, iovec_count);
+}
+
+dword_t sys_writev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    return sys_writev_common(fd_no, iovec_addr, iovec_count);
 }
 
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence) {
@@ -804,14 +836,14 @@ static bool ioctl_user_arg_needs_write(dword_t cmd) {
     }
 }
 
-static int fd_ioctl(struct fd *fd, dword_t cmd, dword_t arg) {
+static int fd_ioctl(struct fd *fd, dword_t cmd, guest_addr_t arg) {
     ssize_t size = -1;
     if (fd->ops->ioctl_size)
         size = fd->ops->ioctl_size(cmd);
     if (size < 0)
         return _ENOTTY;
     if (size == 0)
-        return fd->ops->ioctl(fd, cmd, (void *) (long) arg);
+        return fd->ops->ioctl(fd, cmd, (void *) (unsigned long) arg);
 
     // Some ioctls are pure output and must not fault on unreadable scratch
     // buffers. Others are pure input and do not need a copy-back.
@@ -830,7 +862,7 @@ static int fd_ioctl(struct fd *fd, dword_t cmd, dword_t arg) {
     return res;
 }
 
-static int set_nonblock(struct fd *fd, addr_t nb_addr) {
+static int set_nonblock(struct fd *fd, guest_addr_t nb_addr) {
     dword_t nonblock;
     if (user_get(nb_addr, nonblock))
         return _EFAULT;
@@ -842,8 +874,8 @@ static int set_nonblock(struct fd *fd, addr_t nb_addr) {
     return fd_setflags(fd, flags);
 }
 
-dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
-    STRACE("ioctl(%d, 0x%x, 0x%x)", f, cmd, arg);
+static dword_t sys_ioctl_common(fd_t f, dword_t cmd, guest_addr_t arg) {
+    STRACE("ioctl(%d, 0x%x, %#llx)", f, cmd, (unsigned long long) arg);
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
@@ -864,6 +896,14 @@ dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
         res = fd_ioctl(fd, cmd, arg);
     }
     return res;
+}
+
+dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg) {
+    return sys_ioctl_common(f, cmd, arg);
+}
+
+dword_t sys_ioctl_guest(fd_t f, dword_t cmd, guest_addr_t arg) {
+    return sys_ioctl_common(f, cmd, arg);
 }
 
 static dword_t sys_getcwd_common(guest_addr_t buf_addr, dword_t size) {

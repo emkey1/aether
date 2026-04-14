@@ -159,3 +159,7 @@ dword_t sys_sysinfo(addr_t info_addr) {
         return _EFAULT;
     return 0;
 }
+
+dword_t sys_sysinfo_guest(guest_addr_t info_addr) {
+    return sys_sysinfo(info_addr);
+}
