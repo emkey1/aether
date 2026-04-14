@@ -363,8 +363,15 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     if (pages == 0) return 0;
     if (pages > SIZE_MAX / PAGE_SIZE)
         return _ENOMEM;
+    int mmap_flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#ifdef MAP_NORESERVE
+    // Guest anonymous mappings are often just virtual reservations
+    // (for example PROT_NONE arenas). Do not force the host to reserve
+    // backing store up front for the entire range.
+    mmap_flags |= MAP_NORESERVE;
+#endif
     void *memory = mmap(NULL, pages * PAGE_SIZE,
-            PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            PROT_READ | PROT_WRITE, mmap_flags, 0, 0);
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
 }
 
