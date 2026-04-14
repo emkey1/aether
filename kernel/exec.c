@@ -15,6 +15,7 @@
 #include "kernel/random.h"
 #include "kernel/errno.h"
 #include "fs/fd.h"
+#include "fs/devices.h"
 #include "fs/tty.h"
 #include "fs/path.h"
 #include "kernel/elf.h"
@@ -905,13 +906,15 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     unlock(&current->general_lock);
 
     if (current->abi == GUEST_ABI_AMD64) {
-        enum { AMD64_EXEC_TRACE_BUDGET = 24 };
+        enum { AMD64_EXEC_TRACE_BUDGET = 64 };
         static unsigned amd64_exec_trace_count;
-        if (amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
+        struct tty *tty = current->group->tty;
+        if (tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2 &&
+                amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
             amd64_exec_trace_count++;
             const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
-            printk("amd64 execve: pid=%d file=%s comm=%s argv0=%s\n",
-                   current->pid, file, current->comm, argv0);
+            printk("amd64 execve: tty=%d pid=%d file=%s comm=%s argv0=%s\n",
+                   tty->num, current->pid, file, current->comm, argv0);
         }
     }
 

@@ -11,6 +11,7 @@
 #include "fs/inode.h"
 #include "fs/path.h"
 #include "fs/dev.h"
+#include "fs/devices.h"
 #include "fs/tty.h"
 
 #define MAX_RW_COUNT (16 * 1024 * 1024)
@@ -47,18 +48,23 @@ static bool fs_trace_interesting_path(const char *path) {
     return false;
 }
 
-static bool amd64_tty_stdio_trace_enabled(fd_t fd_no) {
+static struct tty *amd64_tty_stdio_trace_tty(fd_t fd_no) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || fd_no > 2)
-        return false;
+        return NULL;
     struct fd *fd = f_get(fd_no);
-    return fd != NULL && fd->tty != NULL;
+    if (fd == NULL || fd->tty == NULL)
+        return NULL;
+    if (fd->tty->type != TTY_CONSOLE_MAJOR || fd->tty->num != 2)
+        return NULL;
+    return fd->tty;
 }
 
 static void amd64_tty_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
         dword_t size, ssize_t res, const void *buf, size_t buf_len) {
-    enum { AMD64_TTY_STDIO_LOG_BUDGET = 48, AMD64_TTY_STDIO_PREVIEW = 48 };
+    enum { AMD64_TTY_STDIO_LOG_BUDGET = 128, AMD64_TTY_STDIO_PREVIEW = 48 };
     static unsigned amd64_tty_stdio_log_count;
-    if (!amd64_tty_stdio_trace_enabled(fd_no))
+    struct tty *tty = amd64_tty_stdio_trace_tty(fd_no);
+    if (tty == NULL)
         return;
     if (amd64_tty_stdio_log_count >= AMD64_TTY_STDIO_LOG_BUDGET)
         return;
@@ -72,8 +78,8 @@ static void amd64_tty_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
     }
     preview[preview_len] = '\0';
 
-    printk("amd64 tty io: pid=%d comm=%s %s fd=%d addr=%#llx size=%u res=%zd data=\"%s\"\n",
-           current->pid, current->comm, op, fd_no,
+    printk("amd64 tty io: tty=%d pid=%d comm=%s %s fd=%d addr=%#llx size=%u res=%zd data=\"%s\"\n",
+           tty->num, current->pid, current->comm, op, fd_no,
            (unsigned long long) addr, size, res, preview);
 }
 
