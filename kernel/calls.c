@@ -51,6 +51,14 @@ static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qwor
            (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
 }
 
+static void amd64_tty2_shell_syscall_trace_exit(qword_t syscall_num, qword_t result) {
+    if (!amd64_tty2_shell_syscall_trace_enabled())
+        return;
+    printk("amd64 tty2 syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
+           current->pid, current->comm, (unsigned long long) syscall_num,
+           (unsigned long long) result);
+}
+
 static dword_t sys_pread_amd64(fd_t f, addr_t buf_addr, dword_t size,
         dword_t off_low, dword_t off_high, dword_t UNUSED(unused)) {
     off_t_ off = ((off_t_) off_high << 32) | off_low;
@@ -1590,6 +1598,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
+        amd64_tty2_shell_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
+                cpu->amd64_regs[amd64_rax] : cpu->eax);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
             ptrace_syscall_stop(cpu);
         return;
@@ -1604,6 +1614,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
+    amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
