@@ -67,7 +67,7 @@ void mm_release(struct mm *mm) {
     }
 }
 
-static guest_addr_t do_mmap(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+static guest_addr_t do_mmap(guest_addr_t addr, qword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset) {
     int err;
     pages_t pages = PAGE_ROUND_UP(len);
     if (!pages) return _EINVAL;
@@ -111,9 +111,10 @@ static guest_addr_t do_mmap(guest_addr_t addr, dword_t len, dword_t prot, dword_
     return mapped_addr;
 }
 
-static guest_addr_t mmap_common_guest(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
-    STRACE("mmap(%#llx, 0x%x, 0x%x, 0x%x, %d, %d)",
-           (unsigned long long) addr, len, prot, flags, fd_no, offset);
+static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset) {
+    STRACE("mmap(%#llx, %#llx, 0x%x, 0x%x, %d, %#llx)",
+           (unsigned long long) addr, (unsigned long long) len, prot, flags, fd_no,
+           (unsigned long long) offset);
     if (len == 0)
         return _EINVAL;
     if (prot & ~P_RWX)
@@ -127,7 +128,7 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, dword_t len, dword_t pr
     return res;
 }
 
-guest_addr_t sys_mmap_guest(guest_addr_t addr, dword_t len, dword_t prot, dword_t flags, fd_t fd_no, dword_t offset) {
+guest_addr_t sys_mmap_guest(guest_addr_t addr, qword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset) {
     return mmap_common_guest(addr, len, prot, flags, fd_no, offset);
 }
 
