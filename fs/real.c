@@ -258,6 +258,8 @@ int realfs_poll(struct fd *fd) {
 }
 
 int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags) {
+    enum { AMD64_REALFS_MMAP_TRACE_BUDGET = 32 };
+    static unsigned amd64_realfs_mmap_trace_count;
     int mmap_flags = 0;
     if (flags & MMAP_PRIVATE) mmap_flags |= MAP_PRIVATE;
     if (flags & MMAP_SHARED) mmap_flags |= MAP_SHARED;
@@ -268,7 +270,36 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     off_t correction = offset - real_offset;
     char *memory = mmap(NULL, (pages * PAGE_SIZE) + correction,
             mmap_prot, mmap_flags, fd->real_fd, real_offset);
-    return pt_map(mem, start, pages, memory, correction, prot);
+    if (memory == MAP_FAILED && current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            amd64_realfs_mmap_trace_count < AMD64_REALFS_MMAP_TRACE_BUDGET) {
+        amd64_realfs_mmap_trace_count++;
+        char path[MAX_PATH];
+        int path_err = generic_getpath(fd, path);
+        printk("amd64 realfs mmap fail: pid=%d comm=%s real_fd=%d path=%s pages=%#x guest_off=%#llx real_off=%#llx corr=%#llx prot=%#x flags=%#x errno=%d\n",
+               current->pid, current->comm, fd->real_fd,
+               path_err == 0 ? path : "<path err>",
+               (unsigned) pages,
+               (unsigned long long) offset,
+               (unsigned long long) real_offset,
+               (unsigned long long) correction,
+               prot, flags, errno);
+    }
+    int err = pt_map(mem, start, pages, memory, correction, prot);
+    if (err < 0 && current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            amd64_realfs_mmap_trace_count < AMD64_REALFS_MMAP_TRACE_BUDGET) {
+        amd64_realfs_mmap_trace_count++;
+        char path[MAX_PATH];
+        int path_err = generic_getpath(fd, path);
+        printk("amd64 realfs mmap maperr: pid=%d comm=%s real_fd=%d path=%s pages=%#x guest_off=%#llx real_off=%#llx corr=%#llx prot=%#x flags=%#x err=%d\n",
+               current->pid, current->comm, fd->real_fd,
+               path_err == 0 ? path : "<path err>",
+               (unsigned) pages,
+               (unsigned long long) offset,
+               (unsigned long long) real_offset,
+               (unsigned long long) correction,
+               prot, flags, err);
+    }
+    return err;
 }
 
 ssize_t realfs_readlink(struct mount *mount, const char *path, char *buf, size_t bufsize) {
