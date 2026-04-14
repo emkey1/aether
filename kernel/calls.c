@@ -153,6 +153,104 @@ static void amd64_rustc_syscall_trace_exit(qword_t syscall_num, qword_t result) 
            (unsigned long long) result);
 }
 
+static void amd64_decode_wait_status(int status, char *buf, size_t size) {
+    if (size == 0)
+        return;
+    if ((status & 0xff) == 0x7f) {
+        snprintf(buf, size, "stopped sig=%d status=%#x", (status >> 8) & 0xff, status);
+        return;
+    }
+    if ((status & 0x7f) == 0) {
+        snprintf(buf, size, "exited code=%d status=%#x", (status >> 8) & 0xff, status);
+        return;
+    }
+    snprintf(buf, size, "signaled sig=%d core=%d status=%#x",
+             status & 0x7f, (status & 0x80) != 0, status);
+}
+
+static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
+    enum { AMD64_TRACKED_PROC_TRACE_BUDGET = 128 };
+    static unsigned amd64_tracked_proc_trace_count;
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if (amd64_tracked_proc_trace_count >= AMD64_TRACKED_PROC_TRACE_BUDGET)
+        return;
+    switch (syscall_num) {
+    case 56: // clone
+    case 57: // fork
+    case 58: // vfork
+    case 435: // clone3
+        amd64_tracked_proc_trace_count++;
+        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+               (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+               (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+               (unsigned long long) raw_args[4]);
+        break;
+    case 59: // execve
+    case 322: { // execveat
+        char path[128];
+        qword_t path_arg = syscall_num == 322 ? raw_args[1] : raw_args[0];
+        amd64_trace_copy_user_path(path_arg, path, sizeof(path));
+        amd64_tracked_proc_trace_count++;
+        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu file=%s\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num, path);
+        break;
+    }
+    case 61: // wait4
+    case 247: // waitid
+        amd64_tracked_proc_trace_count++;
+        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+               (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+               (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
+        break;
+    default:
+        break;
+    }
+}
+
+static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    switch (syscall_num) {
+    case 56: // clone
+    case 57: // fork
+    case 58: // vfork
+    case 435: // clone3
+    case 59: // execve
+    case 322: // execveat
+        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+               (unsigned long long) result);
+        break;
+    case 61: { // wait4
+        if ((sqword_t) result > 0 && raw_args[1] != 0) {
+            int status;
+            if (!user_get((addr_t) raw_args[1], status)) {
+                char decoded[64];
+                amd64_decode_wait_status(status, decoded, sizeof(decoded));
+                printk("amd64 tracked wait4: pid=%d tgid=%d comm=%s child=%#llx %s\n",
+                       current->pid, current->tgid, current->comm,
+                       (unsigned long long) result, decoded);
+                return;
+            }
+        }
+        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+               (unsigned long long) result);
+        break;
+    }
+    case 247: // waitid
+        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+               (unsigned long long) result);
+        break;
+    default:
+        break;
+    }
+}
+
 static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     enum { AMD64_TRACE_CHILD_BUDGET = 64 };
     static unsigned amd64_trace_child_count;
@@ -1907,6 +2005,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     dispatch->syscall_args(cpu, raw_args);
     amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
     amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
+    amd64_tracked_proc_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
         qword_t result = dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax;
@@ -1915,6 +2014,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
         amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
+        amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
         amd64_rustc_syscall_trace_exit(syscall_num, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
@@ -1938,6 +2038,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_tracked_enoent_path_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_write_trace(syscall_num, raw_args, trace_result);
     amd64_enomem_syscall_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_proc_trace_exit(syscall_num, raw_args, trace_result);
     amd64_rustc_syscall_trace_exit(syscall_num, trace_result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, trace_result);
     dispatch->syscall_result(cpu, result);
