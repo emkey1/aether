@@ -287,7 +287,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
         return errno_map();
 
     // If this fails, the munmap in pt_unmap would probably fail.
-    assert((uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
+    assert(memory == NULL || (uintptr_t) memory % real_page_size == 0 || memory == vdso_data);
 
     struct data *data = malloc(sizeof(struct data));
     if (data == NULL)
@@ -344,7 +344,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
         mem_pt_del(mem, page);
         if (--data->refcount == 0) {
             // vdso wasn't allocated with mmap, it's just in our data segment
-            if (data->data != vdso_data) {
+            if (data->data != NULL && data->data != vdso_data) {
                 int err = munmap(data->data, data->size);
                 if (err != 0)
                     die("munmap(%p, %lu) failed: %s", data->data, data->size, strerror(errno));
@@ -363,6 +363,8 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     if (pages == 0) return 0;
     if (pages > SIZE_MAX / PAGE_SIZE)
         return _ENOMEM;
+    if ((flags & P_RWX) == 0)
+        return pt_map(mem, start, pages, NULL, 0, flags | P_ANONYMOUS);
     int mmap_flags = MAP_PRIVATE | MAP_ANONYMOUS;
 #ifdef MAP_NORESERVE
     // Guest anonymous mappings are often just virtual reservations
@@ -386,6 +388,18 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
         int old_flags = entry->flags;
         int keep_flags = old_flags & ~(P_READ | P_WRITE | P_EXEC);
         int new_flags = keep_flags | flags;
+
+        // Reserve guest PROT_NONE anonymous mappings without host backing.
+        // If they later become accessible, allocate a real host page here.
+        if (entry->data->data == NULL && (new_flags & P_RWX) != 0) {
+            void *memory = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+            int err = pt_map(mem, page, 1, memory, 0, new_flags);
+            if (err < 0)
+                return err;
+            continue;
+        }
+
         entry->flags = new_flags;
         // Host page protections are only a faithful mirror of guest page
         // protections when the host and guest page sizes match. On Darwin/iOS
@@ -448,6 +462,8 @@ static void *mem_ptr_nofault(struct mem *mem, guest_addr_t addr, int type) {
     if (entry == NULL)
         return NULL;
     if (type == MEM_WRITE && !P_WRITABLE(entry->flags))
+        return NULL;
+    if (entry->data->data == NULL)
         return NULL;
     return entry->data->data + entry->offset + PGOFFSET(addr);
 }
@@ -583,6 +599,8 @@ void mem_coredump(struct mem *mem, const char *file) {
         if (entry == NULL)
             continue;
         pages++;
+        if (entry->data->data == NULL)
+            continue;
         if (lseek(fd, page << PAGE_BITS, SEEK_SET) < 0) {
             perror("lseek");
             return;
