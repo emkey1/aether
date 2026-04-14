@@ -298,7 +298,7 @@ static void amd64_trace_escape_text(const char *src, size_t src_len, char *dst, 
 }
 
 static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
-    enum { AMD64_WRITE_TRACE_BUDGET = 64, AMD64_WRITE_COPY_MAX = 192, AMD64_WRITE_ESCAPED_MAX = 512 };
+    enum { AMD64_WRITE_TRACE_BUDGET = 64, AMD64_WRITE_COPY_MAX = 1024, AMD64_WRITE_ESCAPED_MAX = 3072 };
     static unsigned amd64_write_trace_count;
     char raw[AMD64_WRITE_COPY_MAX];
     char escaped[AMD64_WRITE_ESCAPED_MAX];
