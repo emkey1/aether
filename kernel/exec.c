@@ -911,15 +911,15 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         struct tty *tty = current->group->tty;
         bool trace_exec = tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
         bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
-        bool tracked_lineage = amd64_trace_is_lineage_pid(current->pid);
+        bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
         if ((trace_exec || tracked_exec || tracked_lineage) &&
                 amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
             amd64_exec_trace_count++;
             const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
-            printk("amd64 execve: tty=%d pid=%d file=%s comm=%s argv0=%s\n",
-                   tty != NULL ? tty->num : -1, current->pid, file, current->comm, argv0);
+            printk("amd64 execve: tty=%d pid=%d tgid=%d file=%s comm=%s argv0=%s\n",
+                   tty != NULL ? tty->num : -1, current->pid, current->tgid, file, current->comm, argv0);
         }
-        amd64_trace_track_exec(current->pid, file);
+        amd64_trace_track_exec(current->pid, current->tgid, file);
     }
 
     update_thread_name();

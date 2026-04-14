@@ -39,35 +39,36 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
 
 enum { AMD64_TRACE_LINEAGE_MAX = 32 };
 static pid_t_ amd64_traced_exec_pid;
+static pid_t_ amd64_traced_exec_tgid;
 static unsigned amd64_traced_exec_trace_count;
-static pid_t_ amd64_traced_lineage[AMD64_TRACE_LINEAGE_MAX];
+static pid_t_ amd64_traced_tgid_lineage[AMD64_TRACE_LINEAGE_MAX];
 
 static void amd64_trace_clear_lineage(void) {
-    memset(amd64_traced_lineage, 0, sizeof(amd64_traced_lineage));
+    memset(amd64_traced_tgid_lineage, 0, sizeof(amd64_traced_tgid_lineage));
 }
 
-bool amd64_trace_is_lineage_pid(pid_t_ pid) {
-    if (pid == 0)
+bool amd64_trace_is_lineage_tgid(pid_t_ tgid) {
+    if (tgid == 0)
         return false;
     for (unsigned i = 0; i < AMD64_TRACE_LINEAGE_MAX; i++) {
-        if (amd64_traced_lineage[i] == pid)
+        if (amd64_traced_tgid_lineage[i] == tgid)
             return true;
     }
     return false;
 }
 
-static void amd64_trace_add_lineage_pid(pid_t_ pid) {
-    if (pid == 0 || amd64_trace_is_lineage_pid(pid))
+static void amd64_trace_add_lineage_tgid(pid_t_ tgid) {
+    if (tgid == 0 || amd64_trace_is_lineage_tgid(tgid))
         return;
     for (unsigned i = 0; i < AMD64_TRACE_LINEAGE_MAX; i++) {
-        if (amd64_traced_lineage[i] == 0) {
-            amd64_traced_lineage[i] = pid;
+        if (amd64_traced_tgid_lineage[i] == 0) {
+            amd64_traced_tgid_lineage[i] = tgid;
             return;
         }
     }
 }
 
-void amd64_trace_track_exec(pid_t_ pid, const char *file) {
+void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
     if (file == NULL)
         return;
     bool is_cargo = strstr(file, "cargo") != NULL;
@@ -76,15 +77,16 @@ void amd64_trace_track_exec(pid_t_ pid, const char *file) {
         return;
     if (is_cargo)
         amd64_trace_clear_lineage();
-    amd64_trace_add_lineage_pid(pid);
+    amd64_trace_add_lineage_tgid(tgid);
     amd64_traced_exec_pid = pid;
+    amd64_traced_exec_tgid = tgid;
     amd64_traced_exec_trace_count = 0;
-    printk("amd64 tracked exec: pid=%d file=%s\n", pid, file);
+    printk("amd64 tracked exec: pid=%d tgid=%d file=%s\n", pid, tgid, file);
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64 &&
-            amd64_traced_exec_pid != 0 && current->pid == amd64_traced_exec_pid;
+            amd64_traced_exec_tgid != 0 && current->tgid == amd64_traced_exec_tgid;
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
@@ -136,7 +138,7 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     static unsigned amd64_trace_child_count;
     if (current == NULL || current->abi != GUEST_ABI_AMD64)
         return;
-    if (!amd64_trace_is_lineage_pid(current->pid))
+    if (!amd64_trace_is_lineage_tgid(current->tgid))
         return;
     if (result == 0 || (sqword_t) result < 0)
         return;
@@ -145,11 +147,11 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     case 57: // fork
     case 58: // vfork
     case 435: // clone3
-        amd64_trace_add_lineage_pid((pid_t_) result);
+        amd64_trace_add_lineage_tgid((pid_t_) result);
         if (amd64_trace_child_count < AMD64_TRACE_CHILD_BUDGET) {
             amd64_trace_child_count++;
-            printk("amd64 tracked child: parent=%d child=%d nr=%llu\n",
-                   current->pid, (pid_t_) result, (unsigned long long) syscall_num);
+            printk("amd64 tracked child: parent=%d tgid=%d child=%d nr=%llu\n",
+                   current->pid, current->tgid, (pid_t_) result, (unsigned long long) syscall_num);
         }
         break;
     default:
