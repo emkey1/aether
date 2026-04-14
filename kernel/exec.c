@@ -904,6 +904,17 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
 
+    if (current->abi == GUEST_ABI_AMD64) {
+        enum { AMD64_EXEC_TRACE_BUDGET = 24 };
+        static unsigned amd64_exec_trace_count;
+        if (amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
+            amd64_exec_trace_count++;
+            const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
+            printk("amd64 execve: pid=%d file=%s comm=%s argv0=%s\n",
+                   current->pid, file, current->comm, argv0);
+        }
+    }
+
     update_thread_name();
 
     // cloexec

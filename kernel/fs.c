@@ -47,34 +47,32 @@ static bool fs_trace_interesting_path(const char *path) {
     return false;
 }
 
-static bool amd64_shell_stdio_trace_enabled(void) {
-    if (current == NULL || current->abi != GUEST_ABI_AMD64)
+static bool amd64_tty_stdio_trace_enabled(fd_t fd_no) {
+    if (current == NULL || current->abi != GUEST_ABI_AMD64 || fd_no > 2)
         return false;
-    return strcmp(current->comm, "login") == 0 ||
-           strcmp(current->comm, "sh") == 0 ||
-           strcmp(current->comm, "ash") == 0 ||
-           strcmp(current->comm, "busybox") == 0;
+    struct fd *fd = f_get(fd_no);
+    return fd != NULL && fd->tty != NULL;
 }
 
-static void amd64_shell_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
+static void amd64_tty_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
         dword_t size, ssize_t res, const void *buf, size_t buf_len) {
-    enum { AMD64_SHELL_STDIO_LOG_BUDGET = 16, AMD64_SHELL_STDIO_PREVIEW = 48 };
-    static unsigned amd64_shell_stdio_log_count;
-    if (!amd64_shell_stdio_trace_enabled() || fd_no > 2)
+    enum { AMD64_TTY_STDIO_LOG_BUDGET = 48, AMD64_TTY_STDIO_PREVIEW = 48 };
+    static unsigned amd64_tty_stdio_log_count;
+    if (!amd64_tty_stdio_trace_enabled(fd_no))
         return;
-    if (amd64_shell_stdio_log_count >= AMD64_SHELL_STDIO_LOG_BUDGET)
+    if (amd64_tty_stdio_log_count >= AMD64_TTY_STDIO_LOG_BUDGET)
         return;
-    amd64_shell_stdio_log_count++;
+    amd64_tty_stdio_log_count++;
 
-    char preview[AMD64_SHELL_STDIO_PREVIEW + 1];
-    size_t preview_len = buf_len > AMD64_SHELL_STDIO_PREVIEW ? AMD64_SHELL_STDIO_PREVIEW : buf_len;
+    char preview[AMD64_TTY_STDIO_PREVIEW + 1];
+    size_t preview_len = buf_len > AMD64_TTY_STDIO_PREVIEW ? AMD64_TTY_STDIO_PREVIEW : buf_len;
     for (size_t i = 0; i < preview_len; i++) {
         unsigned char ch = ((const unsigned char *) buf)[i];
         preview[i] = (ch >= 0x20 && ch <= 0x7e) ? (char) ch : '.';
     }
     preview[preview_len] = '\0';
 
-    printk("amd64 shell io: pid=%d comm=%s %s fd=%d addr=%#llx size=%u res=%zd data=\"%s\"\n",
+    printk("amd64 tty io: pid=%d comm=%s %s fd=%d addr=%#llx size=%u res=%zd data=\"%s\"\n",
            current->pid, current->comm, op, fd_no,
            (unsigned long long) addr, size, res, preview);
 }
@@ -498,7 +496,7 @@ static dword_t sys_read_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size) 
     TASK_MAY_BLOCK {
         res = (int_t)sys_read_buf(fd_no, buf, size);
     }
-    amd64_shell_stdio_trace("read", fd_no, buf_addr, size, res, buf, res > 0 ? (size_t) res : 0);
+    amd64_tty_stdio_trace("read", fd_no, buf_addr, size, res, buf, res > 0 ? (size_t) res : 0);
     if (res >= 0) {
         if (user_write(buf_addr, buf, res))
             res = _EFAULT;
@@ -572,7 +570,7 @@ static dword_t sys_write_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size)
     TASK_MAY_BLOCK {
         res = sys_write_buf(fd_no, buf, size);
     }
-    amd64_shell_stdio_trace("write", fd_no, buf_addr, size, res, buf, res > 0 ? (size_t) res : size);
+    amd64_tty_stdio_trace("write", fd_no, buf_addr, size, res, buf, res > 0 ? (size_t) res : size);
 out:
     if (buf != stack_buf) free(buf);
     return res;
@@ -695,7 +693,7 @@ static dword_t sys_writev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t io
     TASK_MAY_BLOCK {
         res = sys_write_buf(fd_no, buf, offset);
     }
-    amd64_shell_stdio_trace("writev", fd_no, iovec_addr, (dword_t) offset, res, buf,
+    amd64_tty_stdio_trace("writev", fd_no, iovec_addr, (dword_t) offset, res, buf,
             res > 0 ? (size_t) res : offset);
 error:
     if (buf != stack_buf) free(buf);
