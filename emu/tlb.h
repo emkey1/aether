@@ -31,6 +31,8 @@ void tlb_flush(struct tlb *tlb);
 void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type);
 
 forceinline __no_instrument void *__tlb_read_ptr(struct tlb *tlb, guest_addr_t addr) {
+    if (unlikely(tlb->mem_changes != tlb->mmu->changes))
+        tlb_flush(tlb);
     struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
     if (entry.page == TLB_PAGE(addr)) {
         void *address = (void *) (entry.data_minus_addr + addr);
@@ -51,6 +53,8 @@ forceinline __no_instrument bool tlb_read(struct tlb *tlb, guest_addr_t addr, vo
 }
 
 forceinline __no_instrument void *__tlb_write_ptr(struct tlb *tlb, guest_addr_t addr) {
+    if (unlikely(tlb->mem_changes != tlb->mmu->changes))
+        tlb_flush(tlb);
     struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
     if (entry.page_if_writable == TLB_PAGE(addr)) {
         tlb->dirty_page = TLB_PAGE(addr);
