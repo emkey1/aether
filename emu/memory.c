@@ -249,6 +249,19 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
     page_t best = BAD_PAGE;
     page_t prev_end = mem->mmap_floor;
     page_t page = mem_next_mapped_page(mem, mem->mmap_floor);
+    if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+        enum { AMD64_PT_HOLE_LOG_BUDGET = 12 };
+        static unsigned amd64_pt_hole_log_count;
+        if (amd64_pt_hole_log_count < AMD64_PT_HOLE_LOG_BUDGET) {
+            amd64_pt_hole_log_count++;
+            printk("amd64 pt_find_hole: size=%#llx floor=%#llx ceiling=%#llx pgdirs=%zu first=%#llx\n",
+                   (unsigned long long) ((guest_addr_t) size << PAGE_BITS),
+                   (unsigned long long) ((guest_addr_t) mem->mmap_floor << PAGE_BITS),
+                   (unsigned long long) ((guest_addr_t) mem->mmap_ceiling << PAGE_BITS),
+                   mem->pgdir_count,
+                   page == BAD_PAGE ? ~0ULL : (unsigned long long) ((guest_addr_t) page << PAGE_BITS));
+        }
+    }
     while (page != BAD_PAGE && page < mem->mmap_ceiling) {
         if (page > prev_end && page - prev_end >= size)
             best = page - size;
