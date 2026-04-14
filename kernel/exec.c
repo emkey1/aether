@@ -484,6 +484,15 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         static unsigned amd64_exec_log_count;
         if (amd64_exec_log_count < AMD64_EXEC_LOG_BUDGET) {
             amd64_exec_log_count++;
+            guest_addr_t first_gap = 0;
+            page_t image_start = PAGE(load_addr);
+            page_t image_end = PAGE(save->mm->start_brk);
+            for (page_t page = image_start; page < image_end; page++) {
+                if (mem_pt(save->mem, page) == NULL) {
+                    first_gap = (guest_addr_t) page << PAGE_BITS;
+                    break;
+                }
+            }
             printk("amd64 exec: file=%s type=%u load=%#llx bias=%#llx entry=%#llx phoff=%#llx phnum=%u phent=%u interp=%#llx interp_entry=%#llx\n",
                    file, header.type,
                    (unsigned long long) load_addr,
@@ -493,6 +502,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                    header.phent_count, header.phent_size,
                    (unsigned long long) interp_base,
                    (unsigned long long) entry);
+            printk("amd64 exec mapcheck: start=%#llx brk=%#llx first_gap=%#llx\n",
+                   (unsigned long long) load_addr,
+                   (unsigned long long) save->mm->start_brk,
+                   first_gap == 0 ? ~0ULL : (unsigned long long) first_gap);
         }
     }
 

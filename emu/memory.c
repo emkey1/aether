@@ -273,6 +273,17 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
                 break;
             mem_next_page(mem, &region_page);
         }
+        if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+            enum { AMD64_PT_REGION_LOG_BUDGET = 24 };
+            static unsigned amd64_pt_region_log_count;
+            if (amd64_pt_region_log_count < AMD64_PT_REGION_LOG_BUDGET) {
+                amd64_pt_region_log_count++;
+                printk("amd64 pt_find_hole region: start=%#llx end=%#llx size=%#llx\n",
+                       (unsigned long long) ((guest_addr_t) page << PAGE_BITS),
+                       (unsigned long long) ((guest_addr_t) region_page << PAGE_BITS),
+                       (unsigned long long) ((guest_addr_t) (region_page - page) << PAGE_BITS));
+            }
+        }
         prev_end = region_page;
         page = mem_next_mapped_page(mem, region_page);
     }
