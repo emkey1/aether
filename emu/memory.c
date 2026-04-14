@@ -273,6 +273,8 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
                 break;
             mem_next_page(mem, &region_page);
         }
+        if (region_page > mem->mmap_ceiling)
+            region_page = mem->mmap_ceiling;
         if (current != NULL && current->abi == GUEST_ABI_AMD64) {
             enum { AMD64_PT_REGION_LOG_BUDGET = 24 };
             static unsigned amd64_pt_region_log_count;
