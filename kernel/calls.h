@@ -15,6 +15,7 @@
 #include "kernel/ptrace.h"
 
 void handle_interrupt(int interrupt);
+void amd64_trace_track_exec(pid_t_ pid, const char *file);
 
 int must_check user_read(guest_addr_t addr, void *buf, size_t count);
 int must_check user_write(guest_addr_t addr, const void *buf, size_t count);

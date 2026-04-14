@@ -37,6 +37,24 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
 }
 
+static pid_t_ amd64_traced_exec_pid;
+static unsigned amd64_traced_exec_trace_count;
+
+void amd64_trace_track_exec(pid_t_ pid, const char *file) {
+    if (file == NULL)
+        return;
+    if (strstr(file, "rustc") == NULL && strstr(file, "cargo") == NULL)
+        return;
+    amd64_traced_exec_pid = pid;
+    amd64_traced_exec_trace_count = 0;
+    printk("amd64 tracked exec: pid=%d file=%s\n", pid, file);
+}
+
+static bool amd64_tracked_exec_trace_enabled(void) {
+    return current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            amd64_traced_exec_pid != 0 && current->pid == amd64_traced_exec_pid;
+}
+
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
     enum { AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET = 256 };
     static unsigned amd64_tty2_shell_syscall_trace_count;
@@ -59,31 +77,25 @@ static void amd64_tty2_shell_syscall_trace_exit(qword_t syscall_num, qword_t res
            (unsigned long long) result);
 }
 
-static bool amd64_rustc_trace_enabled(void) {
-    return current != NULL && current->abi == GUEST_ABI_AMD64 &&
-            strcmp(current->comm, "rustc") == 0;
-}
-
 static void amd64_rustc_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
     enum { AMD64_RUSTC_SYSCALL_TRACE_BUDGET = 256 };
-    static unsigned amd64_rustc_syscall_trace_count;
-    if (!amd64_rustc_trace_enabled())
+    if (!amd64_tracked_exec_trace_enabled())
         return;
-    if (amd64_rustc_syscall_trace_count >= AMD64_RUSTC_SYSCALL_TRACE_BUDGET)
+    if (amd64_traced_exec_trace_count >= AMD64_RUSTC_SYSCALL_TRACE_BUDGET)
         return;
-    amd64_rustc_syscall_trace_count++;
-    printk("amd64 rustc syscall: pid=%d nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
-           current->pid, (unsigned long long) syscall_num,
+    amd64_traced_exec_trace_count++;
+    printk("amd64 rustc syscall: pid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
+           current->pid, current->comm, (unsigned long long) syscall_num,
            (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
            (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
            (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
 }
 
 static void amd64_rustc_syscall_trace_exit(qword_t syscall_num, qword_t result) {
-    if (!amd64_rustc_trace_enabled())
+    if (!amd64_tracked_exec_trace_enabled())
         return;
-    printk("amd64 rustc syscall ret: pid=%d nr=%llu result=%#llx\n",
-           current->pid, (unsigned long long) syscall_num,
+    printk("amd64 rustc syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
+           current->pid, current->comm, (unsigned long long) syscall_num,
            (unsigned long long) result);
 }
 
