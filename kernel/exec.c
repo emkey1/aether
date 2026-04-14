@@ -308,7 +308,21 @@ static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_in
     page_t hole = pt_find_hole(current->mem, size);
     if (hole == BAD_PAGE)
         return 0;
-    return ((guest_addr_t) hole - first_page) << PAGE_BITS;
+    guest_addr_t base = ((guest_addr_t) hole - first_page) << PAGE_BITS;
+    if (header->abi == GUEST_ABI_AMD64) {
+        enum { AMD64_HOLE_LOG_BUDGET = 12 };
+        static unsigned amd64_hole_log_count;
+        if (amd64_hole_log_count < AMD64_HOLE_LOG_BUDGET) {
+            amd64_hole_log_count++;
+            printk("amd64 hole: type=%u first=%#llx size=%#llx hole=%#llx base=%#llx\n",
+                   header->type,
+                   (unsigned long long) ((guest_addr_t) first_page << PAGE_BITS),
+                   (unsigned long long) ((guest_addr_t) size << PAGE_BITS),
+                   (unsigned long long) ((guest_addr_t) hole << PAGE_BITS),
+                   (unsigned long long) base);
+        }
+    }
+    return base;
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
