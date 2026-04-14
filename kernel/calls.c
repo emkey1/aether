@@ -59,6 +59,34 @@ static void amd64_tty2_shell_syscall_trace_exit(qword_t syscall_num, qword_t res
            (unsigned long long) result);
 }
 
+static bool amd64_rustc_trace_enabled(void) {
+    return current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            strcmp(current->comm, "rustc") == 0;
+}
+
+static void amd64_rustc_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
+    enum { AMD64_RUSTC_SYSCALL_TRACE_BUDGET = 256 };
+    static unsigned amd64_rustc_syscall_trace_count;
+    if (!amd64_rustc_trace_enabled())
+        return;
+    if (amd64_rustc_syscall_trace_count >= AMD64_RUSTC_SYSCALL_TRACE_BUDGET)
+        return;
+    amd64_rustc_syscall_trace_count++;
+    printk("amd64 rustc syscall: pid=%d nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
+           current->pid, (unsigned long long) syscall_num,
+           (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+           (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+           (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
+}
+
+static void amd64_rustc_syscall_trace_exit(qword_t syscall_num, qword_t result) {
+    if (!amd64_rustc_trace_enabled())
+        return;
+    printk("amd64 rustc syscall ret: pid=%d nr=%llu result=%#llx\n",
+           current->pid, (unsigned long long) syscall_num,
+           (unsigned long long) result);
+}
+
 static void amd64_enomem_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_ENOMEM_TRACE_BUDGET = 32 };
     static unsigned amd64_enomem_trace_count;
@@ -1616,10 +1644,13 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     dispatch->syscall_args(cpu, raw_args);
     amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
+    amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
         amd64_enomem_syscall_trace(syscall_num, raw_args,
                 dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax);
+        amd64_rustc_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
+                cpu->amd64_regs[amd64_rax] : cpu->eax);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
                 cpu->amd64_regs[amd64_rax] : cpu->eax);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
@@ -1637,6 +1668,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
     amd64_enomem_syscall_trace(syscall_num, raw_args, result);
+    amd64_rustc_syscall_trace_exit(syscall_num, result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
