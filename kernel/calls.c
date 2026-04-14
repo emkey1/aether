@@ -106,7 +106,7 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
 
 static bool amd64_tracked_exec_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64 &&
-            amd64_traced_exec_tgid != 0 && current->tgid == amd64_traced_exec_tgid;
+            amd64_trace_is_lineage_tgid(current->tgid);
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
