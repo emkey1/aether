@@ -27,6 +27,29 @@ static bool trace_session_exit_task(struct task *task) {
         strcmp(task->comm, "agetty") == 0;
 }
 
+static void amd64_decode_wait_status_exit(int status, char *buf, size_t size) {
+    if (size == 0)
+        return;
+    if ((status & 0xff) == 0x7f) {
+        snprintf(buf, size, "stopped sig=%d status=%#x", (status >> 8) & 0xff, status);
+        return;
+    }
+    if ((status & 0x7f) == 0) {
+        snprintf(buf, size, "exited code=%d status=%#x", (status >> 8) & 0xff, status);
+        return;
+    }
+    snprintf(buf, size, "signaled sig=%d core=%d status=%#x",
+             status & 0x7f, (status & 0x80) != 0, status);
+}
+
+static bool amd64_trace_task_or_parent_lineage(struct task *task) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64)
+        return false;
+    if (amd64_trace_is_lineage_tgid(task->tgid))
+        return true;
+    return task->parent != NULL && amd64_trace_is_lineage_tgid(task->parent->tgid);
+}
+
 // Removes a task from its thread group. The caller is responsible for ensuring
 // the task is quiescent before taking pids_lock and calling this helper.
 static bool exit_tgroup(struct task *task) {
@@ -197,6 +220,15 @@ noreturn void do_exit(struct task *task, int status) {
     }
     // save things that our parent might be interested in
     task->exit_code = status; // FIXME locking
+    if (amd64_trace_task_or_parent_lineage(task)) {
+        char decoded[64];
+        amd64_decode_wait_status_exit(status, decoded, sizeof(decoded));
+        printk("amd64 tracked exit: pid=%d tgid=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
+               task->pid, task->tgid, task->comm,
+               task->parent != NULL ? task->parent->pid : -1,
+               task->parent != NULL ? task->parent->tgid : -1,
+               task->did_exec, decoded);
+    }
     struct rusage_ rusage = rusage_get_current();
     lock(&task->group->lock, 0);
     rusage_add(&task->group->rusage, &rusage);
@@ -528,6 +560,13 @@ retry:
 
     info->sig = SIGCHLD_;
 found_something:
+    if (current->abi == GUEST_ABI_AMD64 && amd64_trace_is_lineage_tgid(current->tgid)) {
+        char decoded[64];
+        amd64_decode_wait_status_exit(info->child.status, decoded, sizeof(decoded));
+        printk("amd64 tracked reap: pid=%d tgid=%d comm=%s child=%d %s options=%#x\n",
+               current->pid, current->tgid, current->comm,
+               info->child.pid, decoded, options);
+    }
     unlock(&pids_lock);
     return 0;
 
