@@ -11,6 +11,31 @@
 extern bool doEnableExtraLocking;
 extern struct timespec lock_pause;
 
+static bool amd64_vm_failure_trace_enabled(void) {
+    return current != NULL && current->abi == GUEST_ABI_AMD64;
+}
+
+static void amd64_vm_failure_trace(const char *syscall, qword_t result,
+        qword_t a0, qword_t a1, qword_t a2, qword_t a3, qword_t a4, qword_t a5) {
+    enum { AMD64_VM_FAILURE_TRACE_BUDGET = 32 };
+    static unsigned amd64_vm_failure_trace_count;
+    if (!amd64_vm_failure_trace_enabled())
+        return;
+    if (amd64_vm_failure_trace_count >= AMD64_VM_FAILURE_TRACE_BUDGET)
+        return;
+    amd64_vm_failure_trace_count++;
+    printk("amd64 vm fail: pid=%d comm=%s %s(%#llx, %#llx, %#llx, %#llx, %#llx, %#llx) = %#llx floor=%#llx ceiling=%#llx brk=%#llx start_brk=%#llx\n",
+           current->pid, current->comm, syscall,
+           (unsigned long long) a0, (unsigned long long) a1,
+           (unsigned long long) a2, (unsigned long long) a3,
+           (unsigned long long) a4, (unsigned long long) a5,
+           (unsigned long long) result,
+           (unsigned long long) ((guest_addr_t) current->mem->mmap_floor << PAGE_BITS),
+           (unsigned long long) ((guest_addr_t) current->mem->mmap_ceiling << PAGE_BITS),
+           (unsigned long long) current->mm->brk,
+           (unsigned long long) current->mm->start_brk);
+}
+
 static void mm_apply_abi_layout(struct mm *mm, enum guest_abi abi) {
     struct guest_vm_layout layout = guest_abi_vm_layout(abi);
     mem_set_page_limit(&mm->mem, layout.page_limit);
@@ -125,6 +150,8 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
     write_lock(&current->mem->lock);
     guest_addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
     write_unlock(&current->mem->lock);
+    if ((sqword_t) res == _ENOMEM)
+        amd64_vm_failure_trace("mmap", res, addr, len, prot, flags, (qword_t) fd_no, offset);
     return res;
 }
 
@@ -235,11 +262,17 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     }
     page_t extra_start = PAGE(addr) + old_pages;
     pages_t extra_pages = new_pages - old_pages;
-    if (!pt_is_hole(current->mem, extra_start, extra_pages))
+    bool extra_is_hole = pt_is_hole(current->mem, extra_start, extra_pages);
+    if (!extra_is_hole)
+        amd64_vm_failure_trace("mremap", _ENOMEM, addr, old_len, new_len, flags, 0, 0);
+    if (!extra_is_hole)
         return _ENOMEM;
     int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
-    if (err < 0)
+    if (err < 0) {
+        if (err == _ENOMEM)
+            amd64_vm_failure_trace("mremap", err, addr, old_len, new_len, flags, 0, 0);
         return err;
+    }
     return addr;
 }
 
@@ -258,6 +291,8 @@ int_t sys_mprotect_guest(guest_addr_t addr, qword_t len, int_t prot) {
     write_lock(&current->mem->lock);
     int err = pt_set_flags(current->mem, PAGE(addr), pages, prot);
     write_unlock(&current->mem->lock);
+    if (err == _ENOMEM)
+        amd64_vm_failure_trace("mprotect", err, addr, len, prot, 0, 0, 0);
     return err;
 }
 
@@ -314,6 +349,7 @@ int_t sys_msync(addr_t addr, dword_t len, int_t flags) {
 guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
     STRACE("brk(%#llx)", (unsigned long long) new_brk);
     struct mm *mm = current->mm;
+    bool expand_failed = false;
 
     write_lock(&mm->mem.lock);
     if (new_brk < mm->start_brk)
@@ -326,11 +362,15 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
         // if the brk is 0x2000, page 0x2000 shouldn't be mapped, but it should be if the brk is 0x2001.
         page_t start = PAGE_ROUND_UP(old_brk);
         pages_t size = PAGE_ROUND_UP(new_brk) - PAGE_ROUND_UP(old_brk);
-        if (!pt_is_hole(&mm->mem, start, size))
+        if (!pt_is_hole(&mm->mem, start, size)) {
+            expand_failed = true;
             goto out;
+        }
         int err = pt_map_nothing(&mm->mem, start, size, P_WRITE);
-        if (err < 0)
+        if (err < 0) {
+            expand_failed = true;
             goto out;
+        }
     } else if (new_brk < old_brk) {
         // shrink heap: unmap region from new_brk to old_brk
         // first page to unmap is PAGE(new_brk)
@@ -342,6 +382,8 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
 out:;
     guest_addr_t brk = mm->brk;
     write_unlock(&mm->mem.lock);
+    if (expand_failed)
+        amd64_vm_failure_trace("brk", brk, new_brk, old_brk, 0, 0, 0, 0);
     return brk;
 }
 
