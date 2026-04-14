@@ -2,6 +2,7 @@
 #include "debug.h"
 #include "kernel/calls.h"
 #include "kernel/errno.h"
+#include "kernel/fs.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "emu/memory.h"
@@ -34,6 +35,21 @@ static void amd64_vm_failure_trace(const char *syscall, qword_t result,
            (unsigned long long) ((guest_addr_t) current->mem->mmap_ceiling << PAGE_BITS),
            (unsigned long long) current->mm->brk,
            (unsigned long long) current->mm->start_brk);
+    if (strcmp(syscall, "mmap") == 0 && (sqword_t) a4 >= 0) {
+        struct fd *fd = f_get_retain((fd_t) a4);
+        if (fd != NULL) {
+            char path[MAX_PATH];
+            int path_err = generic_getpath(fd, path);
+            if (path_err == 0) {
+                printk("amd64 vm fail mmap fd: pid=%d fd=%lld path=%s\n",
+                       current->pid, (long long) (fd_t) a4, path);
+            } else {
+                printk("amd64 vm fail mmap fd: pid=%d fd=%lld path_err=%d\n",
+                       current->pid, (long long) (fd_t) a4, path_err);
+            }
+            fd_close(fd);
+        }
+    }
 }
 
 static void mm_apply_abi_layout(struct mm *mm, enum guest_abi abi) {
