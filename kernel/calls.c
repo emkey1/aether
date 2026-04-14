@@ -261,6 +261,87 @@ static void amd64_tracked_enoent_path_trace(qword_t syscall_num, const qword_t r
            (unsigned long long) raw_args[0], (unsigned long long) result);
 }
 
+static void amd64_trace_escape_text(const char *src, size_t src_len, char *dst, size_t dst_size) {
+    size_t si = 0, di = 0;
+    if (dst_size == 0)
+        return;
+    while (si < src_len && di + 1 < dst_size) {
+        unsigned char ch = (unsigned char) src[si++];
+        if (ch == '\n') {
+            if (di + 2 >= dst_size) break;
+            dst[di++] = '\\';
+            dst[di++] = 'n';
+            continue;
+        }
+        if (ch == '\r') {
+            if (di + 2 >= dst_size) break;
+            dst[di++] = '\\';
+            dst[di++] = 'r';
+            continue;
+        }
+        if (ch == '\t') {
+            if (di + 2 >= dst_size) break;
+            dst[di++] = '\\';
+            dst[di++] = 't';
+            continue;
+        }
+        if (ch >= 32 && ch <= 126) {
+            dst[di++] = (char) ch;
+            continue;
+        }
+        if (di + 4 >= dst_size)
+            break;
+        snprintf(&dst[di], dst_size - di, "\\x%02x", ch);
+        di += 4;
+    }
+    dst[di] = '\0';
+}
+
+static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { AMD64_WRITE_TRACE_BUDGET = 32, AMD64_WRITE_COPY_MAX = 192, AMD64_WRITE_ESCAPED_MAX = 512 };
+    static unsigned amd64_write_trace_count;
+    char raw[AMD64_WRITE_COPY_MAX];
+    char escaped[AMD64_WRITE_ESCAPED_MAX];
+    qword_t fd, buf_addr, size;
+    size_t to_copy;
+
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if (amd64_write_trace_count >= AMD64_WRITE_TRACE_BUDGET)
+        return;
+    if ((sqword_t) result <= 0)
+        return;
+
+    switch (syscall_num) {
+    case 1: // write
+        fd = raw_args[0];
+        buf_addr = raw_args[1];
+        size = raw_args[2];
+        break;
+    default:
+        return;
+    }
+
+    if (fd != 1 && fd != 2)
+        return;
+
+    to_copy = (size_t) result;
+    if (to_copy > (size_t) size)
+        to_copy = (size_t) size;
+    if (to_copy > AMD64_WRITE_COPY_MAX - 1)
+        to_copy = AMD64_WRITE_COPY_MAX - 1;
+    if (to_copy == 0)
+        return;
+    if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0)
+        return;
+    raw[to_copy] = '\0';
+    amd64_trace_escape_text(raw, to_copy, escaped, sizeof(escaped));
+    amd64_write_trace_count++;
+    printk("amd64 tracked write: pid=%d tgid=%d fd=%llu count=%llu text=\"%s\"\n",
+           current->pid, current->tgid, (unsigned long long) fd,
+           (unsigned long long) result, escaped);
+}
+
 static void amd64_enomem_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_ENOMEM_TRACE_BUDGET = 32 };
     static unsigned amd64_enomem_trace_count;
@@ -1825,6 +1906,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_trace_track_child(syscall_num, result);
         amd64_tty_process_trace(syscall_num, raw_args, result);
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
+        amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_rustc_syscall_trace_exit(syscall_num, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
@@ -1842,12 +1924,15 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
-    amd64_trace_track_child(syscall_num, result);
-    amd64_tty_process_trace(syscall_num, raw_args, result);
-    amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
-    amd64_enomem_syscall_trace(syscall_num, raw_args, result);
-    amd64_rustc_syscall_trace_exit(syscall_num, result);
-    amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
+    qword_t trace_result = syscall_result_is_errno(result) ?
+        (qword_t) (sqword_t) syscall_result_errno(result) : (qword_t) result;
+    amd64_trace_track_child(syscall_num, trace_result);
+    amd64_tty_process_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_enoent_path_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_write_trace(syscall_num, raw_args, trace_result);
+    amd64_enomem_syscall_trace(syscall_num, raw_args, trace_result);
+    amd64_rustc_syscall_trace_exit(syscall_num, trace_result);
+    amd64_tty2_shell_syscall_trace_exit(syscall_num, trace_result);
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);
