@@ -51,6 +51,8 @@ static bool fs_trace_interesting_path(const char *path) {
 static struct tty *amd64_tty_stdio_trace_tty(fd_t fd_no) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || fd_no > 2)
         return NULL;
+    if (strcmp(current->comm, "sh") != 0)
+        return NULL;
     struct fd *fd = f_get(fd_no);
     if (fd == NULL || fd->tty == NULL)
         return NULL;

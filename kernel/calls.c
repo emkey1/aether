@@ -31,14 +31,14 @@ dword_t syscall_eopnotsupp_stub(void) {
 static bool amd64_tty2_shell_syscall_trace_enabled(void) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64)
         return false;
-    if (strcmp(current->comm, "login") != 0 && strcmp(current->comm, "sh") != 0)
+    if (strcmp(current->comm, "sh") != 0)
         return false;
     struct tty *tty = current->group != NULL ? current->group->tty : NULL;
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
-    enum { AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET = 128 };
+    enum { AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET = 256 };
     static unsigned amd64_tty2_shell_syscall_trace_count;
     if (!amd64_tty2_shell_syscall_trace_enabled())
         return;
