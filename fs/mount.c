@@ -177,7 +177,7 @@ bool mount_param_flag(const char *info, const char *flag) {
 #define MS_SUPPORTED (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_REMOUNT_|MS_NOATIME_|MS_NODIRATIME_|MS_SILENT_|MS_RELATIME_|MS_STRICTATIME_)
 #define MS_FLAGS (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_NOATIME_|MS_NODIRATIME_|MS_RELATIME_|MS_STRICTATIME_)
 
-dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword_t flags, addr_t data_addr) {
+dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest_addr_t type_addr, dword_t flags, guest_addr_t data_addr) {
     char source[MAX_PATH] = "";
     if (source_addr != 0 && user_read_string(source_addr, source, sizeof(source)))
         return _EFAULT;
@@ -254,6 +254,10 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
         printk("INFO: elogind mount-result pid=%d comm=%s target=%s result=%d\n",
                current->pid, current->comm, point, err);
     return err;
+}
+
+dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword_t flags, addr_t data_addr) {
+    return sys_mount_guest(source_addr, point_addr, type_addr, flags, data_addr);
 }
 
 #define UMOUNT_NOFOLLOW_ 8

@@ -763,6 +763,18 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_open_guest(
                 raw_args[0], (dword_t) raw_args[1], (mode_t_) raw_args[2]));
         return true;
+    case 4:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_stat_amd64_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 5:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fstat_amd64_guest(
+                (fd_t) raw_args[0], raw_args[1]));
+        return true;
+    case 6:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_lstat_amd64_guest(
+                raw_args[0], raw_args[1]));
+        return true;
     case 9:
         amd64_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], (dword_t) raw_args[1],
                 (dword_t) raw_args[2], (dword_t) raw_args[3], (fd_t) raw_args[4],
@@ -775,6 +787,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 14:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_sigprocmask_guest(
                 (dword_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 21:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_access_guest(
+                raw_args[0], (dword_t) raw_args[1]));
         return true;
     case 11:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_munmap_guest(raw_args[0],
@@ -795,6 +811,75 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, sys_madvise_guest(raw_args[0], (dword_t) raw_args[1],
                 (dword_t) raw_args[2]));
         return true;
+    case 76:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_truncate64_guest(
+                raw_args[0], (dword_t) raw_args[1], (dword_t) (raw_args[1] >> 32)));
+        return true;
+    case 79:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getcwd_guest(
+                raw_args[0], (dword_t) raw_args[1]));
+        return true;
+    case 80:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chdir_guest(raw_args[0]));
+        return true;
+    case 82:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rename_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 83:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mkdir_guest(
+                raw_args[0], (mode_t_) raw_args[1]));
+        return true;
+    case 84:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rmdir_guest(raw_args[0]));
+        return true;
+    case 85:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_creat_guest(
+                raw_args[0], (mode_t_) raw_args[1]));
+        return true;
+    case 86:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_link_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 87:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_unlink_guest(raw_args[0]));
+        return true;
+    case 88:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_symlink_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 89:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_readlink_guest(
+                raw_args[0], raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 90:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chmod_guest(
+                raw_args[0], (dword_t) raw_args[1]));
+        return true;
+    case 92:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chown32_guest(
+                raw_args[0], (uid_t_) raw_args[1], (uid_t_) raw_args[2]));
+        return true;
+    case 94:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_lchown_guest(
+                raw_args[0], (uid_t_) raw_args[1], (uid_t_) raw_args[2]));
+        return true;
+    case 132:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utime_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 133:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mknod_guest(
+                raw_args[0], (mode_t_) raw_args[1], (dev_t_) raw_args[2]));
+        return true;
+    case 137:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_statfs_amd64_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 138:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fstatfs_amd64_guest(
+                (fd_t) raw_args[0], raw_args[1]));
+        return true;
     case 149:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mlock_guest(raw_args[0],
                 (dword_t) raw_args[1]));
@@ -807,13 +892,91 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_arch_prctl_guest(
                 (int_t) raw_args[0], raw_args[1]));
         return true;
+    case 161:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chroot_guest(raw_args[0]));
+        return true;
+    case 165:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mount_guest(
+                raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], raw_args[4]));
+        return true;
     case 218:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_set_tid_address_guest(
                 raw_args[0]));
         return true;
+    case 235:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimes_guest(
+                raw_args[0], raw_args[1]));
+        return true;
     case 257:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_openat_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (mode_t_) raw_args[3]));
+        return true;
+    case 258:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mkdirat_guest(
+                (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2]));
+        return true;
+    case 259:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mknodat_guest(
+                (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dev_t_) raw_args[3]));
+        return true;
+    case 260:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fchownat_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3],
+                (int) raw_args[4]));
+        return true;
+    case 261:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_futimesat_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2]));
+        return true;
+    case 262:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_newfstatat_amd64_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 263:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_unlinkat_guest(
+                (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 264:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_renameat_guest(
+                (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]));
+        return true;
+    case 265:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_linkat_guest(
+                (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]));
+        return true;
+    case 266:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_symlinkat_guest(
+                raw_args[0], (fd_t) raw_args[1], raw_args[2]));
+        return true;
+    case 267:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_readlinkat_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 268:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fchmodat_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 269:
+    case 439:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_faccessat_guest(
+                (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 280:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 332:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_statx_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3],
+                raw_args[4]));
+        return true;
+    case 437:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_openat2_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 452:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fchmodat2_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]));
         return true;
     default:
         return false;

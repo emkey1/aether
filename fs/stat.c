@@ -181,7 +181,7 @@ static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, i
     return 0;
 }
 
-static dword_t sys_stat_path_amd64(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, int flags) {
+static dword_t sys_stat_path_amd64_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t statbuf_addr, int flags) {
     int err;
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
@@ -199,16 +199,25 @@ static dword_t sys_stat_path_amd64(fd_t at_f, addr_t path_addr, addr_t statbuf_a
     return 0;
 }
 
+dword_t sys_stat_amd64_guest(guest_addr_t path_addr, guest_addr_t statbuf_addr) {
+    return sys_stat_path_amd64_guest(AT_FDCWD_, path_addr, statbuf_addr, 0);
+}
 dword_t sys_stat_amd64(addr_t path_addr, addr_t statbuf_addr) {
-    return sys_stat_path_amd64(AT_FDCWD_, path_addr, statbuf_addr, 0);
+    return sys_stat_amd64_guest(path_addr, statbuf_addr);
 }
 
+dword_t sys_lstat_amd64_guest(guest_addr_t path_addr, guest_addr_t statbuf_addr) {
+    return sys_stat_path_amd64_guest(AT_FDCWD_, path_addr, statbuf_addr, AT_SYMLINK_NOFOLLOW_);
+}
 dword_t sys_lstat_amd64(addr_t path_addr, addr_t statbuf_addr) {
-    return sys_stat_path_amd64(AT_FDCWD_, path_addr, statbuf_addr, AT_SYMLINK_NOFOLLOW_);
+    return sys_lstat_amd64_guest(path_addr, statbuf_addr);
 }
 
+dword_t sys_newfstatat_amd64_guest(fd_t at, guest_addr_t path_addr, guest_addr_t statbuf_addr, dword_t flags) {
+    return sys_stat_path_amd64_guest(at, path_addr, statbuf_addr, flags);
+}
 dword_t sys_newfstatat_amd64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags) {
-    return sys_stat_path_amd64(at, path_addr, statbuf_addr, flags);
+    return sys_newfstatat_amd64_guest(at, path_addr, statbuf_addr, flags);
 }
 
 dword_t sys_stat64(addr_t path_addr, addr_t statbuf_addr) {
@@ -238,7 +247,7 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
     return 0;
 }
 
-dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr) {
+dword_t sys_fstat_amd64_guest(fd_t fd_no, guest_addr_t statbuf_addr) {
     STRACE("fstat_amd64(%d, 0x%x)", fd_no, statbuf_addr);
     struct fd *fd = f_get(fd_no);
     if (fd == NULL)
@@ -251,6 +260,9 @@ dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr) {
     if (user_put(statbuf_addr, guest_stat))
         return _EFAULT;
     return 0;
+}
+dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr) {
+    return sys_fstat_amd64_guest(fd_no, statbuf_addr);
 }
 
 // Legacy i386 stat ABI.
@@ -301,7 +313,7 @@ dword_t sys_fstat(fd_t fd_no, addr_t statbuf_addr) {
     return 0;
 }
 
-dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr) {
+dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask, guest_addr_t statxbuf_addr) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
         return _EFAULT;
@@ -334,4 +346,7 @@ dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr
     if (user_write(statxbuf_addr, &statx, sizeof(statx)))
         return _EFAULT;
     return 0;
+}
+dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr) {
+    return sys_statx_guest(at_f, path_addr, flags, mask, statxbuf_addr);
 }
