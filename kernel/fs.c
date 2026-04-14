@@ -130,7 +130,7 @@ dword_t sys_faccessat(fd_t at_f, addr_t path_addr, mode_t_ mode, dword_t flags) 
     return err;
 }
 
-fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
+fd_t sys_openat_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, mode_t_ mode) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
         return _EFAULT;
@@ -152,8 +152,16 @@ fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
     return installed;
 }
 
+fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
+    return sys_openat_guest(at_f, path_addr, flags, mode);
+}
+
+fd_t sys_open_guest(guest_addr_t path_addr, dword_t flags, mode_t_ mode) {
+    return sys_openat_guest(AT_FDCWD_, path_addr, flags, mode);
+}
+
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode) {
-    return sys_openat(AT_FDCWD_, path_addr, flags, mode);
+    return sys_open_guest(path_addr, flags, mode);
 }
 
 fd_t sys_openat2(fd_t at_f, addr_t path_addr, addr_t how_addr, dword_t size) {

@@ -146,8 +146,10 @@ int_t sys_memfd_create(addr_t name_addr, uint_t flags);
 
 // file management
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode);
+fd_t sys_open_guest(guest_addr_t path_addr, dword_t flags, mode_t_ mode);
 fd_t sys_creat(addr_t path_addr, mode_t_ mode);
 fd_t sys_openat(fd_t at, addr_t path_addr, dword_t flags, mode_t_ mode);
+fd_t sys_openat_guest(fd_t at, guest_addr_t path_addr, dword_t flags, mode_t_ mode);
 fd_t sys_openat2(fd_t at, addr_t path_addr, addr_t how_addr, dword_t size);
 dword_t sys_close(fd_t fd);
 dword_t sys_link(addr_t src_addr, addr_t dst_addr);
