@@ -911,7 +911,9 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         struct tty *tty = current->group->tty;
         bool trace_exec = tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
         bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
-        if ((trace_exec || tracked_exec) && amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
+        bool tracked_lineage = amd64_trace_is_lineage_pid(current->pid);
+        if ((trace_exec || tracked_exec || tracked_lineage) &&
+                amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
             amd64_exec_trace_count++;
             const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
             printk("amd64 execve: tty=%d pid=%d file=%s comm=%s argv0=%s\n",

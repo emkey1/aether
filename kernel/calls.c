@@ -37,14 +37,46 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
 }
 
+enum { AMD64_TRACE_LINEAGE_MAX = 32 };
 static pid_t_ amd64_traced_exec_pid;
 static unsigned amd64_traced_exec_trace_count;
+static pid_t_ amd64_traced_lineage[AMD64_TRACE_LINEAGE_MAX];
+
+static void amd64_trace_clear_lineage(void) {
+    memset(amd64_traced_lineage, 0, sizeof(amd64_traced_lineage));
+}
+
+bool amd64_trace_is_lineage_pid(pid_t_ pid) {
+    if (pid == 0)
+        return false;
+    for (unsigned i = 0; i < AMD64_TRACE_LINEAGE_MAX; i++) {
+        if (amd64_traced_lineage[i] == pid)
+            return true;
+    }
+    return false;
+}
+
+static void amd64_trace_add_lineage_pid(pid_t_ pid) {
+    if (pid == 0 || amd64_trace_is_lineage_pid(pid))
+        return;
+    for (unsigned i = 0; i < AMD64_TRACE_LINEAGE_MAX; i++) {
+        if (amd64_traced_lineage[i] == 0) {
+            amd64_traced_lineage[i] = pid;
+            return;
+        }
+    }
+}
 
 void amd64_trace_track_exec(pid_t_ pid, const char *file) {
     if (file == NULL)
         return;
-    if (strstr(file, "rustc") == NULL && strstr(file, "cargo") == NULL)
+    bool is_cargo = strstr(file, "cargo") != NULL;
+    bool is_rustc = strstr(file, "rustc") != NULL;
+    if (!is_cargo && !is_rustc)
         return;
+    if (is_cargo)
+        amd64_trace_clear_lineage();
+    amd64_trace_add_lineage_pid(pid);
     amd64_traced_exec_pid = pid;
     amd64_traced_exec_trace_count = 0;
     printk("amd64 tracked exec: pid=%d file=%s\n", pid, file);
@@ -97,6 +129,32 @@ static void amd64_rustc_syscall_trace_exit(qword_t syscall_num, qword_t result) 
     printk("amd64 rustc syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
            current->pid, current->comm, (unsigned long long) syscall_num,
            (unsigned long long) result);
+}
+
+static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
+    enum { AMD64_TRACE_CHILD_BUDGET = 64 };
+    static unsigned amd64_trace_child_count;
+    if (current == NULL || current->abi != GUEST_ABI_AMD64)
+        return;
+    if (!amd64_trace_is_lineage_pid(current->pid))
+        return;
+    if (result == 0 || (sqword_t) result < 0)
+        return;
+    switch (syscall_num) {
+    case 56: // clone
+    case 57: // fork
+    case 58: // vfork
+    case 435: // clone3
+        amd64_trace_add_lineage_pid((pid_t_) result);
+        if (amd64_trace_child_count < AMD64_TRACE_CHILD_BUDGET) {
+            amd64_trace_child_count++;
+            printk("amd64 tracked child: parent=%d child=%d nr=%llu\n",
+                   current->pid, (pid_t_) result, (unsigned long long) syscall_num);
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 static void amd64_enomem_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
@@ -1659,6 +1717,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
+        amd64_trace_track_child(syscall_num,
+                dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax);
         amd64_enomem_syscall_trace(syscall_num, raw_args,
                 dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax);
         amd64_rustc_syscall_trace_exit(syscall_num, dispatch->abi == GUEST_ABI_AMD64 ?
@@ -1679,6 +1739,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
            current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
+    amd64_trace_track_child(syscall_num, result);
     amd64_enomem_syscall_trace(syscall_num, raw_args, result);
     amd64_rustc_syscall_trace_exit(syscall_num, result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
