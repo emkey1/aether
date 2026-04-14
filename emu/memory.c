@@ -254,15 +254,9 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
             best = page - size;
 
         page_t region_page = page;
-        struct pt_entry *start_pt = mem_pt(mem, region_page);
-        struct data *data = start_pt->data;
         while (region_page < mem->mmap_ceiling) {
             struct pt_entry *pt = mem_pt(mem, region_page);
             if (pt == NULL)
-                break;
-            if ((pt->flags & P_RWX) != (start_pt->flags & P_RWX))
-                break;
-            if (!(pt->data == data || ((pt->flags & P_ANONYMOUS) && (start_pt->flags & P_ANONYMOUS))))
                 break;
             mem_next_page(mem, &region_page);
         }
