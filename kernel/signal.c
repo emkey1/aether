@@ -966,7 +966,7 @@ int_t sys_pause(void) {
     return _EINTR;
 }
 
-static int_t sys_rt_sigtimedwait_common(addr_t set_addr, addr_t info_addr, addr_t timeout_addr, uint_t set_size,
+static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size,
         bool timeout_time64) {
     if (set_size != sizeof(sigset_t_))
         return _EINVAL;
@@ -1034,7 +1034,15 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
     return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, false);
 }
 
+int_t sys_rt_sigtimedwait_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size) {
+    return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, false);
+}
+
 int_t sys_rt_sigtimedwait_time64(addr_t set_addr, addr_t info_addr, addr_t timeout_addr, uint_t set_size) {
+    return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, true);
+}
+
+int_t sys_rt_sigtimedwait_time64_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size) {
     return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, true);
 }
 

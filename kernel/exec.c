@@ -1071,6 +1071,39 @@ ssize_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
     return err;
 }
 
+ssize_t sys_execve_guest(guest_addr_t filename_addr, guest_addr_t argv_addr, guest_addr_t envp_addr) {
+    char filename[MAX_PATH];
+    if (user_read_string(filename_addr, filename, sizeof(filename)))
+        return _EFAULT;
+
+    ssize_t argc;
+    char *argv = NULL;
+    char *envp = NULL;
+    ssize_t err = read_execve_user_args(argv_addr, envp_addr, &argc, &argv, &envp);
+    if (err < 0)
+        return err;
+
+    STRACE("execve(\"%.1000s\", {", filename);
+    const char *args = argv;
+    while (*args != '\0') {
+        STRACE("\"%.1000s\", ", args);
+        args += strlen(args) + 1;
+    }
+    STRACE("}, {");
+    args = envp;
+    while (*args != '\0') {
+        STRACE("\"%.1000s\", ", args);
+        args += strlen(args) + 1;
+    }
+    STRACE("})");
+
+    err = do_execve(filename, argc, argv, envp);
+
+    free(envp);
+    free(argv);
+    return err;
+}
+
 ssize_t sys_execveat(fd_t dirfd, addr_t filename_addr, addr_t argv_addr, addr_t envp_addr, int_t flags) {
     if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_))
         return _EINVAL;
@@ -1115,6 +1148,71 @@ ssize_t sys_execveat(fd_t dirfd, addr_t filename_addr, addr_t argv_addr, addr_t 
     }
 
     STRACE("execveat(%d, \"%s\", ..., %#x)", dirfd, filename, flags);
+    err = do_execve(resolved, argc, argv, envp);
+
+out_free_args:
+    free(envp);
+    free(argv);
+    return err;
+}
+
+ssize_t sys_execveat_guest(fd_t dirfd, guest_addr_t filename_addr, guest_addr_t argv_addr, guest_addr_t envp_addr, int_t flags) {
+    if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_))
+        return _EINVAL;
+
+    char filename[MAX_PATH] = "";
+    if (filename_addr != 0 && user_read_string(filename_addr, filename, sizeof(filename)))
+        return _EFAULT;
+
+    ssize_t argc;
+    char *argv = NULL;
+    char *envp = NULL;
+    ssize_t err = read_execve_user_args(argv_addr, envp_addr, &argc, &argv, &envp);
+    if (err < 0)
+        return err;
+
+    char resolved[MAX_PATH];
+    if (filename[0] == '\0') {
+        if (!(flags & AT_EMPTY_PATH_)) {
+            err = _ENOENT;
+            goto out_free_args;
+        }
+        struct fd *fd = (dirfd == AT_FDCWD_) ? AT_PWD : f_get(dirfd);
+        if (fd == NULL) {
+            err = _EBADF;
+            goto out_free_args;
+        }
+        err = generic_getpath(fd, resolved);
+        if (err < 0)
+            goto out_free_args;
+    } else if (filename[0] == '/') {
+        strcpy(resolved, filename);
+    } else {
+        struct fd *at = (dirfd == AT_FDCWD_) ? AT_PWD : f_get(dirfd);
+        if (at == NULL) {
+            err = _EBADF;
+            goto out_free_args;
+        }
+        err = path_normalize(at, filename, resolved,
+                (flags & AT_SYMLINK_NOFOLLOW_) ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW);
+        if (err < 0)
+            goto out_free_args;
+    }
+
+    STRACE("execveat(%d, \"%.1000s\", {", dirfd, resolved);
+    const char *args = argv;
+    while (*args != '\0') {
+        STRACE("\"%.1000s\", ", args);
+        args += strlen(args) + 1;
+    }
+    STRACE("}, {");
+    args = envp;
+    while (*args != '\0') {
+        STRACE("\"%.1000s\", ", args);
+        args += strlen(args) + 1;
+    }
+    STRACE("}, %d)", flags);
+
     err = do_execve(resolved, argc, argv, envp);
 
 out_free_args:
