@@ -882,8 +882,16 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     bool need_siginfo = action->flags & SA_SIGINFO_;
 
     guest_addr_t sp = current_user_sp(current);
-    if ((action->flags & SA_ONSTACK_) && current->altstack && !is_on_altstack(sp, current))
-        sp = current->altstack + current->altstack_size;
+    if (current->abi == GUEST_ABI_AMD64) {
+        if ((action->flags & SA_ONSTACK_) && current->altstack && !is_on_altstack(sp, current))
+            sp = current->altstack + current->altstack_size;
+    } else {
+        // Preserve longstanding i386 behavior. Existing 32-bit userspace in
+        // this tree has historically run all handlers on the altstack when
+        // one is configured, regardless of SA_ONSTACK.
+        if (current->altstack && !is_on_altstack(sp, current))
+            sp = current->altstack + current->altstack_size;
+    }
 
     if (current->abi == GUEST_ABI_AMD64) {
         struct rt_sigframe_amd64 frame;
