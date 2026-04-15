@@ -12,6 +12,7 @@
 extern const struct fd_ops socket_fdops;
 
 int_t sys_socketcall(dword_t call_num, addr_t args_addr);
+int_t sys_socketcall_guest(dword_t call_num, guest_addr_t args_addr);
 
 int_t sys_socket(dword_t domain, dword_t type, dword_t protocol);
 int_t sys_bind(fd_t sock_fd, addr_t sockaddr_addr, uint_t sockaddr_len);

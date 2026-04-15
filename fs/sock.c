@@ -4085,7 +4085,7 @@ static struct socket_call {
 // #define SYS_RECVMMSG    19        /* sys_recvmmsg(2)        */
 // #define SYS_SENDMMSG    20        /* sys_sendmmsg(2)        */
 
-int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
+int_t sys_socketcall_guest(dword_t call_num, guest_addr_t args_addr) {
     STRACE("%d ", call_num);
     if (call_num < 1 || call_num >= sizeof(socket_calls)/sizeof(socket_calls[0]))
         return _EINVAL;
@@ -4100,4 +4100,8 @@ int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
         return _EFAULT;
     int_t result = call.func(args[0], args[1], args[2], args[3], args[4], args[5]);
     return result;
+}
+
+int_t sys_socketcall(dword_t call_num, addr_t args_addr) {
+    return sys_socketcall_guest(call_num, args_addr);
 }

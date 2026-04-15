@@ -524,8 +524,10 @@ void ipc_mm_release(struct mm *mm) {
     }
 }
 
-int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth) {
-    STRACE("ipc(%u, %d, %d, %d, %#x, %d)", call, first, second, third, ptr, fifth);
+static int_t sys_ipc_common(uint_t call, int_t first, int_t second, qword_t third,
+        guest_addr_t ptr, int_t fifth) {
+    STRACE("ipc(%u, %d, %d, %#llx, %#llx, %d)", call, first, second,
+            (unsigned long long) third, (unsigned long long) ptr, fifth);
     use(fifth);
 
     uint_t version = call >> 16;
@@ -534,22 +536,32 @@ int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, i
 
     switch (op) {
         case IPCOP_SHMGET_:
-            return shmget_internal((dword_t) first, (size_t) second, third);
+            return shmget_internal((dword_t) first, (size_t) second, (int_t) third);
         case IPCOP_SHMAT_: {
             guest_addr_t out_addr = shmat_internal(first, ptr, second);
             if (IS_ERR((void *) (uintptr_t) out_addr))
                 return (int_t) PTR_ERR((void *) (uintptr_t) out_addr);
-            if (user_put((addr_t) third, out_addr))
+            if (user_put((guest_addr_t) third, out_addr))
                 return _EFAULT;
             return 0;
         }
         case IPCOP_SHMDT_:
             return shmdt_internal(current->mm, ptr, current->pid, false);
         case IPCOP_SHMCTL_:
-            return shmctl_internal_i386(first, second, ptr);
+            if (current->abi == GUEST_ABI_AMD64)
+                return shmctl_internal_amd64(first, second, ptr);
+            return shmctl_internal_i386(first, second, (addr_t) ptr);
         default:
             return _ENOSYS;
     }
+}
+
+int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth) {
+    return sys_ipc_common(call, first, second, third, ptr, fifth);
+}
+
+int_t sys_ipc_guest(uint_t call, int_t first, int_t second, guest_addr_t third, guest_addr_t ptr, int_t fifth) {
+    return sys_ipc_common(call, first, second, third, ptr, fifth);
 }
 
 int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg) {
