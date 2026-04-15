@@ -109,12 +109,46 @@ enum amd64_greg_index {
     AMD64_GREG_COUNT,
 };
 
+enum {
+    AMD64_USER_CS = 0x33,
+    AMD64_USER_SS = 0x2b,
+    AMD64_UC_FP_XSTATE = 0x1,
+    AMD64_UC_SIGCONTEXT_SS = 0x2,
+    AMD64_UC_STRICT_RESTORE_SS = 0x4,
+};
+
 struct amd64_stack_t_marshaled {
     qword_t stack;
     dword_t flags;
     dword_t pad;
     qword_t size;
 };
+
+struct amd64_fpxreg_ {
+    word_t significand[4];
+    word_t exponent;
+    word_t padding[3];
+};
+
+struct amd64_xmmreg_ {
+    uint32_t element[4];
+};
+
+struct amd64_fpstate_ {
+    word_t cwd;
+    word_t swd;
+    word_t twd;
+    word_t fop;
+    qword_t rip;
+    qword_t rdp;
+    dword_t mxcsr;
+    dword_t mxcr_mask;
+    struct amd64_fpxreg_ st[8];
+    struct amd64_xmmreg_ xmm[16];
+    dword_t reserved1[24];
+};
+
+static_assert(sizeof(struct amd64_fpstate_) == 512, "amd64 fpstate layout mismatch");
 
 struct amd64_mcontext_ {
     qword_t gregs[AMD64_GREG_COUNT];
@@ -128,6 +162,8 @@ struct amd64_ucontext_ {
     struct amd64_stack_t_marshaled stack;
     struct amd64_mcontext_ mcontext;
     sigset_t_ sigmask;
+    struct amd64_fpstate_ fpregs_mem;
+    qword_t ssp[4];
 };
 
 struct rt_sigframe_amd64 {
@@ -746,15 +782,38 @@ static void setup_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_st
     mcontext->gregs[AMD64_GREG_RIP] = cpu->amd64_rip;
     collapse_flags(cpu);
     mcontext->gregs[AMD64_GREG_EFL] = cpu->eflags;
-    mcontext->gregs[AMD64_GREG_CSGSFS] = 0x33;
+    mcontext->gregs[AMD64_GREG_CSGSFS] =
+        AMD64_USER_CS |
+        ((qword_t) cpu->gs << 16) |
+        ((qword_t) AMD64_USER_SS << 48);
     mcontext->gregs[AMD64_GREG_ERR] = 0;
     mcontext->gregs[AMD64_GREG_TRAPNO] = 0;
     mcontext->gregs[AMD64_GREG_OLDMASK] = current->blocked;
 }
 
+static void setup_amd64_fpstate(struct amd64_fpstate_ *fpstate, struct cpu_state *cpu) {
+    memset(fpstate, 0, sizeof(*fpstate));
+    fpstate->cwd = cpu->fcw;
+    fpstate->swd = cpu->fsw;
+    fpstate->mxcsr = 0x1f80;
+
+    for (int i = 0; i < 8; i++) {
+        const float80 value = cpu->fp[i];
+        for (int j = 0; j < 4; j++)
+            fpstate->st[i].significand[j] = (word_t) (value.signif >> (j * 16));
+        fpstate->st[i].exponent = value.signExp;
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            fpstate->xmm[i].element[j] = cpu->xmm[i].u32[j];
+}
+
 static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_amd64 *frame) {
     memset(frame, 0, sizeof(*frame));
-    frame->uc.flags = 0;
+    frame->uc.flags = AMD64_UC_FP_XSTATE |
+                      AMD64_UC_SIGCONTEXT_SS |
+                      AMD64_UC_STRICT_RESTORE_SS;
     frame->uc.link = 0;
     frame->uc.stack = (struct amd64_stack_t_marshaled) {
         .stack = current->altstack,
@@ -762,6 +821,7 @@ static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_am
         .size = current->altstack_size,
     };
     setup_amd64_mcontext(&frame->uc.mcontext, &current->cpu);
+    setup_amd64_fpstate(&frame->uc.fpregs_mem, &current->cpu);
     if (signal_should_capture_trap_state(info->sig)) {
         frame->uc.mcontext.gregs[AMD64_GREG_TRAPNO] = current->cpu.trapno;
         if (current->cpu.trapno == INT_PF)
@@ -828,6 +888,7 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
         if (restorer == 0)
             restorer = sp + offsetof(struct rt_sigframe_amd64, retcode);
         frame.pretcode = restorer;
+        frame.uc.mcontext.fpstate = sp + offsetof(struct rt_sigframe_amd64, uc.fpregs_mem);
 
         current->cpu.amd64_regs[amd64_rsp] = sp;
         current->cpu.esp = (dword_t) sp;
@@ -1013,6 +1074,25 @@ static void sync_i386_shadows_from_amd64(struct cpu_state *cpu) {
     cpu->eip = (dword_t) cpu->amd64_rip;
 }
 
+static void restore_amd64_fpstate(struct amd64_fpstate_ *fpstate, struct cpu_state *cpu) {
+    cpu->fcw = fpstate->cwd;
+    cpu->fsw = fpstate->swd;
+
+    for (int i = 0; i < 8; i++) {
+        uint64_t significand = 0;
+        for (int j = 0; j < 4; j++)
+            significand |= (uint64_t) fpstate->st[i].significand[j] << (j * 16);
+        cpu->fp[i] = (float80) {
+            .signif = significand,
+            .signExp = fpstate->st[i].exponent,
+        };
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            cpu->xmm[i].u32[j] = fpstate->xmm[i].element[j];
+}
+
 static void restore_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_state *cpu) {
     cpu->amd64_regs[amd64_r8] = mcontext->gregs[AMD64_GREG_R8];
     cpu->amd64_regs[amd64_r9] = mcontext->gregs[AMD64_GREG_R9];
@@ -1064,6 +1144,7 @@ dword_t sys_rt_sigreturn(void) {
 qword_t sys_rt_sigreturn_amd64(void) {
     struct cpu_state *cpu = &current->cpu;
     struct rt_sigframe_amd64 frame;
+    struct amd64_fpstate_ fpstate;
     guest_addr_t frame_addr = cpu->amd64_regs[amd64_rsp] - offsetof(struct rt_sigframe_amd64, uc);
     if (user_get(frame_addr, frame)) {
         deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
@@ -1071,6 +1152,13 @@ qword_t sys_rt_sigreturn_amd64(void) {
     }
 
     restore_amd64_mcontext(&frame.uc.mcontext, cpu);
+    if (frame.uc.mcontext.fpstate != 0) {
+        if (user_get(frame.uc.mcontext.fpstate, fpstate)) {
+            deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+            return _EFAULT;
+        }
+        restore_amd64_fpstate(&fpstate, cpu);
+    }
 
     lock(&current->sighand->lock, 0);
     restore_altstack(cpu->amd64_regs[amd64_rsp], frame.uc.stack.stack,
