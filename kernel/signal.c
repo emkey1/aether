@@ -9,6 +9,7 @@
 #include "kernel/task.h"
 #include "kernel/vdso.h"
 #include "emu/interrupt.h"
+#include "emu/memory.h"
 #include "util/sync.h"
 
 #if is_gcc(9)
@@ -111,7 +112,6 @@ enum amd64_greg_index {
 
 enum {
     AMD64_USER_CS = 0x33,
-    AMD64_USER_SS = 0x2b,
     AMD64_UC_FP_XSTATE = 0x1,
     AMD64_UC_SIGCONTEXT_SS = 0x2,
     AMD64_UC_STRICT_RESTORE_SS = 0x4,
@@ -699,6 +699,23 @@ static bool signal_should_capture_trap_state(int sig) {
     }
 }
 
+static qword_t signal_trap_error(struct cpu_state *cpu) {
+    switch (cpu->trapno) {
+        case INT_PF: {
+            qword_t err = 0x4; // user-mode fault
+            if (cpu->segfault_was_write)
+                err |= 0x2;
+            read_lock(&current->mem->lock);
+            if (mem_segv_reason(current->mem, cpu->segfault_addr) == SEGV_ACCERR_)
+                err |= 0x1;
+            read_unlock(&current->mem->lock);
+            return err;
+        }
+        default:
+            return 0;
+    }
+}
+
 static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu, int sig) {
     sc->ax = cpu->eax;
     sc->bx = cpu->ebx;
@@ -712,6 +729,7 @@ static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu, int 
     collapse_flags(cpu);
     sc->flags = cpu->eflags;
     sc->trapno = signal_should_capture_trap_state(sig) ? cpu->trapno : 0;
+    sc->err = signal_should_capture_trap_state(sig) ? (dword_t) signal_trap_error(cpu) : 0;
     if (sc->trapno == INT_PF)
         sc->cr2 = cpu->segfault_addr;
     else
@@ -782,11 +800,11 @@ static void setup_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_st
     mcontext->gregs[AMD64_GREG_RIP] = cpu->amd64_rip;
     collapse_flags(cpu);
     mcontext->gregs[AMD64_GREG_EFL] = cpu->eflags;
+    // Linux x86_64 REG_CSGSFS packs CS, GS, FS, and a zero pad word.
     mcontext->gregs[AMD64_GREG_CSGSFS] =
         AMD64_USER_CS |
-        ((qword_t) cpu->gs << 16) |
-        ((qword_t) AMD64_USER_SS << 48);
-    mcontext->gregs[AMD64_GREG_ERR] = 0;
+        ((qword_t) cpu->gs << 16);
+    mcontext->gregs[AMD64_GREG_ERR] = signal_trap_error(cpu);
     mcontext->gregs[AMD64_GREG_TRAPNO] = 0;
     mcontext->gregs[AMD64_GREG_OLDMASK] = current->blocked;
 }
@@ -811,9 +829,7 @@ static void setup_amd64_fpstate(struct amd64_fpstate_ *fpstate, struct cpu_state
 
 static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_amd64 *frame) {
     memset(frame, 0, sizeof(*frame));
-    frame->uc.flags = AMD64_UC_FP_XSTATE |
-                      AMD64_UC_SIGCONTEXT_SS |
-                      AMD64_UC_STRICT_RESTORE_SS;
+    frame->uc.flags = AMD64_UC_FP_XSTATE;
     frame->uc.link = 0;
     frame->uc.stack = (struct amd64_stack_t_marshaled) {
         .stack = current->altstack,

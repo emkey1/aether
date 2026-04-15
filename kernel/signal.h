@@ -64,7 +64,10 @@ struct sigaction_ {
 #define SI_TIMER_ -2
 #define SI_TKILL_ -6
 #define SI_KERNEL_ 128
+#define TRAP_BRKPT_ 1
 #define TRAP_TRACE_ 2
+#define ILL_ILLOPC_ 1
+#define FPE_INTDIV_ 1
 #define SEGV_MAPERR_ 1
 #define SEGV_ACCERR_ 2
 

@@ -11,6 +11,8 @@
 
 extern bool isGlibC;
 
+static guest_addr_t current_fault_ip(const struct cpu_state *cpu);
+
 dword_t syscall_stub(void) {
     STRACE("syscall_stub()");
     return _ENOSYS;
@@ -2242,8 +2244,8 @@ static void handle_amd64_syscall_interrupt(struct cpu_state *cpu) {
         printk("ERROR: %d(%s) amd64 syscall instruction in non-amd64 task at 0x%x\n",
                current->pid, current->comm, cpu->eip);
         struct siginfo_ info = {
-            .code = SI_KERNEL_,
-            .fault.addr = cpu->eip,
+            .code = ILL_ILLOPC_,
+            .fault.addr = current_fault_ip(cpu),
         };
         deliver_signal(current, SIGILL_, info);
         return;
@@ -2354,6 +2356,10 @@ static void dump_amd64_store_trace(const struct cpu_state *cpu);
 static void dump_fault_pt_state(guest_addr_t addr);
 static bool amd64_verbose_fault_trace_enabled(void);
 
+static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
+    return current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip;
+}
+
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
     read_lock(&current->mem->lock);
     void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
@@ -2447,7 +2453,7 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
     cpu->segfault_was_write = false;
     struct siginfo_ info = {
         .code = SI_KERNEL_,
-        .fault.addr = cpu->eip,
+        .fault.addr = current_fault_ip(cpu),
     };
     deliver_signal(current, SIGSEGV_, info);
 }
@@ -2974,8 +2980,8 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     }
     dump_stack(8);
     struct siginfo_ info = {
-        .code = SI_KERNEL_,
-        .fault.addr = cpu->eip,
+        .code = ILL_ILLOPC_,
+        .fault.addr = current_fault_ip(cpu),
     };
     deliver_signal(current, SIGILL_, info);
 }
@@ -2984,8 +2990,8 @@ static void handle_arithmetic_interrupt(struct cpu_state *cpu) {
     printk("ERROR: %d(%s) arithmetic fault at 0x%x\n", current->pid, current->comm, cpu->eip);
     dump_stack(8);
     struct siginfo_ info = {
-        .code = SI_KERNEL_,
-        .fault.addr = cpu->eip,
+        .code = FPE_INTDIV_,
+        .fault.addr = current_fault_ip(cpu),
     };
     deliver_signal(current, SIGFPE_, info);
 }
@@ -3029,7 +3035,8 @@ void handle_interrupt(int interrupt) {
             complex_lockt(&pids_lock, 0);
             send_signal(current, SIGTRAP_, (struct siginfo_) {
                 .sig = SIGTRAP_,
-                .code = SI_KERNEL_,
+                .code = TRAP_BRKPT_,
+                .fault.addr = current_fault_ip(cpu),
             });
             unlock(&pids_lock);
             break;
@@ -3038,6 +3045,7 @@ void handle_interrupt(int interrupt) {
             send_signal(current, SIGTRAP_, (struct siginfo_) {
                 .sig = SIGTRAP_,
                 .code = TRAP_TRACE_,
+                .fault.addr = current_fault_ip(cpu),
             });
             unlock(&pids_lock);
             break;
