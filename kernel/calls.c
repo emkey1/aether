@@ -2359,6 +2359,7 @@ static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
 static void dump_fault_pt_state(guest_addr_t addr);
 static bool amd64_verbose_fault_trace_enabled(void);
+static bool handle_i386_stack_store_gpf(struct cpu_state *cpu);
 
 static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
     return current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip;
@@ -2452,6 +2453,8 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
         }
     }
     dump_stack(8);
+    if (handle_i386_stack_store_gpf(cpu))
+        return;
     cpu->trapno = INT_GPF;
     cpu->segfault_addr = 0;
     cpu->segfault_was_write = false;
@@ -2460,6 +2463,43 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
         .fault.addr = current_fault_ip(cpu),
     };
     deliver_signal(current, SIGSEGV_, info);
+}
+
+static bool handle_i386_stack_store_gpf(struct cpu_state *cpu) {
+    if (current->abi == GUEST_ABI_AMD64)
+        return false;
+
+    byte_t opcode;
+    byte_t modrm;
+    byte_t sib;
+    if (user_get(cpu->eip, opcode) || user_get(cpu->eip + 1, modrm) || user_get(cpu->eip + 2, sib))
+        return false;
+
+    // Detect `mov [esp], r32` style faults. If the stack page itself is the
+    // real problem, report it as a write fault on ESP instead of a generic GPF
+    // at EIP.
+    if (opcode != 0x89 || (modrm & 0xc7) != 0x04 || sib != 0x24)
+        return false;
+
+    read_lock(&current->mem->lock);
+    void *ptr = mem_ptr(current->mem, cpu->esp, MEM_WRITE);
+    int segv_code = ptr == NULL ? mem_segv_reason(current->mem, cpu->esp) : 0;
+    read_unlock(&current->mem->lock);
+
+    if (ptr != NULL)
+        return false;
+
+    printk("i386 gpf stack-write reinterpret: pid=%d comm=%s eip=%#x esp=%#x\n",
+           current->pid, current->comm, cpu->eip, cpu->esp);
+    cpu->trapno = INT_PF;
+    cpu->segfault_addr = cpu->esp;
+    cpu->segfault_was_write = true;
+    struct siginfo_ info = {
+        .code = segv_code,
+        .fault.addr = cpu->esp,
+    };
+    deliver_signal(current, SIGSEGV_, info);
+    return true;
 }
 
 static int amd64_nop_instruction_len(addr_t ip) {
