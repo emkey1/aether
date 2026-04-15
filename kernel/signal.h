@@ -69,10 +69,47 @@ struct sigaction_ {
 
 union sigval_ {
     int_t sv_int;
+    guest_addr_t sv_ptr;
+};
+
+union i386_sigval_ {
+    int_t sv_int;
     addr_t sv_ptr;
 };
 
 struct siginfo_ {
+    int_t sig;
+    int_t sig_errno;
+    int_t code;
+    union {
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
+        } kill;
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
+            int_t status;
+            clock_t_ utime;
+            clock_t_ stime;
+        } child;
+        struct {
+            guest_addr_t addr;
+        } fault;
+        struct {
+            guest_addr_t addr;
+            int_t syscall;
+        } sigsys;
+        struct {
+            int_t timer;
+            int_t overrun;
+            union sigval_ value;
+            int_t _private;
+        } timer;
+    };
+};
+
+struct i386_siginfo_ {
     int_t sig;
     int_t sig_errno;
     int_t code;
@@ -98,7 +135,7 @@ struct siginfo_ {
         struct {
             int_t timer;
             int_t overrun;
-            union sigval_ value;
+            union i386_sigval_ value;
             int_t _private;
         } timer;
     };
@@ -186,7 +223,7 @@ struct stack_t_ {
 #define SS_ONSTACK_ 1
 #define SS_DISABLE_ 2
 #define MINSIGSTKSZ_ 2048
-dword_t sys_sigaltstack(addr_t ss, addr_t old_ss);
+dword_t sys_sigaltstack(guest_addr_t ss, guest_addr_t old_ss);
 dword_t sys_sigaltstack_guest(guest_addr_t ss, guest_addr_t old_ss);
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size);
@@ -204,6 +241,7 @@ int_t sys_signalfd4_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize, 
 dword_t sys_kill(pid_t_ pid, dword_t sig);
 dword_t sys_tkill(pid_t_ tid, dword_t sig);
 dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig);
+int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info);
 
 // signal frame structs. There's a good chance this should go in its own header file
 
@@ -294,7 +332,7 @@ struct rt_sigframe_ {
     addr_t pinfo;
     addr_t puc;
     union {
-        struct siginfo_ info;
+        struct i386_siginfo_ info;
         char __pad[128];
     };
     struct ucontext_ uc;

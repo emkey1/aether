@@ -588,7 +588,7 @@ dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t 
     }
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
-    if (info_addr != 0 && user_put(info_addr, info))
+    if (info_addr != 0 && siginfo_to_user(current, info_addr, &info))
         return _EFAULT;
     return 0;
 }

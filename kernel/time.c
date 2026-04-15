@@ -686,6 +686,21 @@ static void posix_timer_callback(struct posix_timer *timer) {
 #define SIGEV_NONE_ 1
 #define SIGEV_THREAD_ID_ 4
 
+struct i386_sigevent_marshaled {
+    union i386_sigval_ value;
+    int_t signo;
+    int_t method;
+    pid_t_ tid;
+};
+
+struct amd64_sigevent_marshaled {
+    union sigval_ value;
+    int_t signo;
+    int_t method;
+    pid_t_ tid;
+    dword_t __pad;
+};
+
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
     return sys_timer_create_guest(clock, sigevent_addr, timer_addr);
 }
@@ -698,9 +713,30 @@ int_t sys_timer_create_guest(dword_t clock, guest_addr_t sigevent_addr, guest_ad
     clockid_t real_clockid;
     if (clockid_to_real(clock, &real_clockid))
         return _EINVAL;
-    struct sigevent_ sigev;
-    if (user_get(sigevent_addr, sigev))
-        return _EFAULT;
+    struct sigevent_ sigev = {};
+    if (current->abi == GUEST_ABI_AMD64) {
+        struct amd64_sigevent_marshaled user_sigev;
+        if (user_get(sigevent_addr, user_sigev))
+            return _EFAULT;
+        sigev = (struct sigevent_) {
+            .value = user_sigev.value,
+            .signo = user_sigev.signo,
+            .method = user_sigev.method,
+            .tid = user_sigev.tid,
+        };
+    } else {
+        struct i386_sigevent_marshaled user_sigev;
+        if (user_get(sigevent_addr, user_sigev))
+            return _EFAULT;
+        dword_t raw_value = 0;
+        memcpy(&raw_value, &user_sigev.value, sizeof(raw_value));
+        sigev = (struct sigevent_) {
+            .value.sv_ptr = raw_value,
+            .signo = user_sigev.signo,
+            .method = user_sigev.method,
+            .tid = user_sigev.tid,
+        };
+    }
     if (sigev.method != SIGEV_SIGNAL_ && sigev.method != SIGEV_NONE_ && sigev.method != SIGEV_THREAD_ID_)
         return _EINVAL;
 

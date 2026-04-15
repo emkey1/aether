@@ -75,7 +75,7 @@ struct task {
     cond_t pause; // please don't signal this
     // per-thread alternate signal stack (not shared with CLONE_SIGHAND threads)
     guest_addr_t altstack;
-    dword_t altstack_size;
+    guest_addr_t altstack_size;
     // private
     sigset_t_ saved_mask;
     bool has_saved_mask;

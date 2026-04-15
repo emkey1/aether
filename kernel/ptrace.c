@@ -365,7 +365,7 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (data && user_put(data, child->ptrace.info)) {
+            if (data && siginfo_to_user(current, data, &child->ptrace.info)) {
                 return _EFAULT;
             }
             unlock(&child->ptrace.lock);

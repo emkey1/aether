@@ -18,7 +18,7 @@
 int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
-static bool is_on_altstack(dword_t sp, struct task *task);
+static bool is_on_altstack(guest_addr_t sp, struct task *task);
 static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
@@ -130,6 +130,12 @@ static void wake_waiting_task(struct task *task) {
 
     memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
     pthread_mutex_unlock(&task->waiting_cond_lock.m);
+}
+
+static guest_addr_t current_user_sp(struct task *task) {
+    if (task->abi == GUEST_ABI_AMD64)
+        return task->cpu.amd64_regs[amd64_rsp];
+    return task->cpu.esp;
 }
 
 struct signalfd_state {
@@ -252,6 +258,40 @@ static bool signalfd_take_next_locked(struct task *task, sigset_t_ mask, struct 
         return true;
     }
     return false;
+}
+
+static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo_ *info) {
+    memset(out, 0, sizeof(*out));
+    out->sig = info->sig;
+    out->sig_errno = info->sig_errno;
+    out->code = info->code;
+    out->kill.pid = info->kill.pid;
+    out->kill.uid = info->kill.uid;
+    out->child.pid = info->child.pid;
+    out->child.uid = info->child.uid;
+    out->child.status = info->child.status;
+    out->child.utime = info->child.utime;
+    out->child.stime = info->child.stime;
+    out->fault.addr = (addr_t) info->fault.addr;
+    out->sigsys.addr = (addr_t) info->sigsys.addr;
+    out->sigsys.syscall = info->sigsys.syscall;
+    out->timer.timer = info->timer.timer;
+    out->timer.overrun = info->timer.overrun;
+    out->timer.value.sv_int = info->timer.value.sv_int;
+    out->timer._private = info->timer._private;
+}
+
+int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info) {
+    if (task->abi == GUEST_ABI_AMD64) {
+        if (user_put(user_addr, *info))
+            return _EFAULT;
+    } else {
+        struct i386_siginfo_ user_info;
+        siginfo_to_i386_user(&user_info, info);
+        if (user_put(user_addr, user_info))
+            return _EFAULT;
+    }
+    return 0;
 }
 
 static void signalfd_info_from_siginfo(struct signalfd_siginfo_ *out, struct siginfo_ *info) {
@@ -520,7 +560,7 @@ static void setup_sigframe(struct siginfo_ *info, struct sigframe_ *frame) {
 static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame) {
     frame->restorer = sigreturn_trampoline("__kernel_rt_sigreturn");
     frame->sig = info->sig;
-    frame->info = *info;
+    siginfo_to_i386_user(&frame->info, info);
     frame->uc.flags = 0;
     frame->uc.link = 0;
     altstack_to_i386_user(current, &frame->uc.stack);
@@ -916,7 +956,7 @@ int_t sys_rt_sigpending_guest(guest_addr_t set_addr) {
     return 0;
 }
 
-static bool is_on_altstack(dword_t sp, struct task *task) {
+static bool is_on_altstack(guest_addr_t sp, struct task *task) {
     return sp > task->altstack && sp <= task->altstack + task->altstack_size;
 }
 
@@ -931,7 +971,7 @@ static dword_t current_altstack_flags(struct task *task) {
     dword_t flags = 0;
     if (task->altstack == 0)
         flags |= SS_DISABLE_;
-    if (is_on_altstack(task->cpu.esp, task))
+    if (is_on_altstack(current_user_sp(task), task))
         flags |= SS_ONSTACK_;
     return flags;
 }
@@ -939,10 +979,10 @@ static dword_t current_altstack_flags(struct task *task) {
 static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack) {
     user_stack->stack = task->altstack;
     user_stack->flags = current_altstack_flags(task);
-    user_stack->size = task->altstack_size;
+    user_stack->size = (dword_t) task->altstack_size;
 }
 
-static int altstack_to_user(struct task *task, addr_t user_addr) {
+static int altstack_to_user(struct task *task, guest_addr_t user_addr) {
     dword_t flags = current_altstack_flags(task);
     if (task->abi == GUEST_ABI_AMD64) {
         struct amd64_stack_t_marshaled user_stack = {
@@ -956,7 +996,7 @@ static int altstack_to_user(struct task *task, addr_t user_addr) {
         struct stack_t_ user_stack = {
             .stack = task->altstack,
             .flags = flags,
-            .size = task->altstack_size,
+            .size = (dword_t) task->altstack_size,
         };
         if (user_put(user_addr, user_stack))
             return _EFAULT;
@@ -964,13 +1004,13 @@ static int altstack_to_user(struct task *task, addr_t user_addr) {
     return 0;
 }
 
-static int altstack_from_user(struct task *task, guest_addr_t user_addr, guest_addr_t *stack_out, dword_t *size_out, dword_t *flags_out) {
+static int altstack_from_user(struct task *task, guest_addr_t user_addr, guest_addr_t *stack_out, guest_addr_t *size_out, dword_t *flags_out) {
     if (task->abi == GUEST_ABI_AMD64) {
         struct amd64_stack_t_marshaled user_stack;
         if (user_get(user_addr, user_stack))
             return _EFAULT;
         *stack_out = user_stack.stack;
-        *size_out = (dword_t) user_stack.size;
+        *size_out = user_stack.size;
         *flags_out = user_stack.flags;
     } else {
         struct stack_t_ user_stack;
@@ -983,8 +1023,8 @@ static int altstack_from_user(struct task *task, guest_addr_t user_addr, guest_a
     return 0;
 }
 
-dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
-    STRACE("sigaltstack(0x%x, 0x%x)", ss_addr, old_ss_addr);
+dword_t sys_sigaltstack(guest_addr_t ss_addr, guest_addr_t old_ss_addr) {
+    STRACE("sigaltstack(%#llx, %#llx)", (unsigned long long) ss_addr, (unsigned long long) old_ss_addr);
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
     if (old_ss_addr != 0) {
@@ -994,12 +1034,12 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
         }
     }
     if (ss_addr != 0) {
-        if (is_on_altstack(current->cpu.esp, current)) {
+        if (is_on_altstack(current_user_sp(current), current)) {
             unlock(&sighand->lock);
             return _EPERM;
         }
         guest_addr_t stack;
-        dword_t size;
+        guest_addr_t size;
         dword_t flags;
         int err = altstack_from_user(current, ss_addr, &stack, &size, &flags);
         if (err < 0) {
@@ -1008,6 +1048,7 @@ dword_t sys_sigaltstack(addr_t ss_addr, addr_t old_ss_addr) {
         }
         if (flags & SS_DISABLE_) {
             current->altstack = 0;
+            current->altstack_size = 0;
         } else {
             if (size < MINSIGSTKSZ_) {
                 unlock(&sighand->lock);
@@ -1115,7 +1156,7 @@ static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info
     struct siginfo_ info = sigqueue->info;
     free(sigqueue);
     if (info_addr != 0)
-        if (user_put(info_addr, info))
+        if (siginfo_to_user(current, info_addr, &info))
             return _EFAULT;
     STRACE("done sigtimedwait = %d\n", info.sig);
     return info.sig;
