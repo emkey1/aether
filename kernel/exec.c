@@ -318,7 +318,7 @@ static void amd64_trace_exec_attempt(const char *file, const char *argv) {
     enum { AMD64_EXEC_ATTEMPT_TRACE_BUDGET = 64 };
     static unsigned amd64_exec_attempt_trace_count;
 
-    if (current == NULL || current->abi != GUEST_ABI_AMD64 || file == NULL)
+    if (current == NULL || file == NULL)
         return;
 
     bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
@@ -329,8 +329,9 @@ static void amd64_trace_exec_attempt(const char *file, const char *argv) {
         amd64_exec_attempt_trace_count++;
         struct tty *tty = current->group != NULL ? current->group->tty : NULL;
         const char *argv0 = argv != NULL && argv[0] != '\0' ? argv : "";
-        printk("amd64 execve attempt: tty=%d pid=%d tgid=%d file=%s comm=%s argv0=%s\n",
-               tty != NULL ? tty->num : -1, current->pid, current->tgid, file, current->comm, argv0);
+        printk("amd64 execve attempt: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
+               tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
+               file, current->comm, argv0);
     }
     amd64_trace_track_exec(current->pid, current->tgid, file);
 }
@@ -927,21 +928,24 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
 
-    if (current->abi == GUEST_ABI_AMD64) {
+    {
         enum { AMD64_EXEC_TRACE_BUDGET = 64 };
         static unsigned amd64_exec_trace_count;
         struct tty *tty = current->group->tty;
-        bool trace_exec = tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
+        bool trace_exec = current->abi == GUEST_ABI_AMD64 &&
+                tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
         bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
         bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
         if ((trace_exec || tracked_exec || tracked_lineage) &&
                 amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
             amd64_exec_trace_count++;
             const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
-            printk("amd64 execve: tty=%d pid=%d tgid=%d file=%s comm=%s argv0=%s\n",
-                   tty != NULL ? tty->num : -1, current->pid, current->tgid, file, current->comm, argv0);
+            printk("amd64 execve: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
+                   tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
+                   file, current->comm, argv0);
         }
-        amd64_trace_track_exec(current->pid, current->tgid, file);
+        if (tracked_exec || tracked_lineage)
+            amd64_trace_track_exec(current->pid, current->tgid, file);
     }
 
     update_thread_name();

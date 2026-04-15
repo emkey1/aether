@@ -43,7 +43,7 @@ static void amd64_decode_wait_status_exit(int status, char *buf, size_t size) {
 }
 
 static bool amd64_trace_task_or_parent_lineage(struct task *task) {
-    if (task == NULL || task->abi != GUEST_ABI_AMD64)
+    if (task == NULL)
         return false;
     if (amd64_trace_is_lineage_tgid(task->tgid))
         return true;
@@ -223,8 +223,8 @@ noreturn void do_exit(struct task *task, int status) {
     if (amd64_trace_task_or_parent_lineage(task)) {
         char decoded[64];
         amd64_decode_wait_status_exit(status, decoded, sizeof(decoded));
-        printk("amd64 tracked exit: pid=%d tgid=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
-               task->pid, task->tgid, task->comm,
+        printk("amd64 tracked exit: pid=%d tgid=%d abi=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
+               task->pid, task->tgid, task->abi, task->comm,
                task->parent != NULL ? task->parent->pid : -1,
                task->parent != NULL ? task->parent->tgid : -1,
                task->did_exec, decoded);
