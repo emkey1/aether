@@ -330,11 +330,25 @@ dword_t sys_mbind(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(mode),
     return 0;
 }
 
+dword_t sys_mbind_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), int_t UNUSED(mode),
+        guest_addr_t UNUSED(nodemask), qword_t UNUSED(maxnode), uint_t UNUSED(flags)) {
+    return 0;
+}
+
 long sys_get_mempolicy(int *UNUSED(mode), unsigned long *UNUSED(nodemask), unsigned long UNUSED(maxnode), void *UNUSED(addr), unsigned long UNUSED(flags)) {
     return 0;
 }
 
+long sys_get_mempolicy_guest(guest_addr_t UNUSED(mode_addr), guest_addr_t UNUSED(nodemask_addr),
+        qword_t UNUSED(maxnode), guest_addr_t UNUSED(addr), qword_t UNUSED(flags)) {
+    return 0;
+}
+
 long sys_set_mempolicy(int UNUSED(mode), const unsigned long *UNUSED(nodemask), unsigned long UNUSED(maxnode)) {
+    return 0;
+}
+
+long sys_set_mempolicy_guest(int UNUSED(mode), guest_addr_t UNUSED(nodemask_addr), qword_t UNUSED(maxnode)) {
     return 0;
 }
 

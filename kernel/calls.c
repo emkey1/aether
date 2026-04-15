@@ -1666,6 +1666,42 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_prlimit64_guest(
                 (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
+    case 188:
+    case 189:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setxattr_guest(
+                raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]));
+        return true;
+    case 190:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fsetxattr_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]));
+        return true;
+    case 191:
+    case 192:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getxattr_guest(
+                raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 193:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fgetxattr_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 194:
+    case 195:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_listxattr_guest(
+                raw_args[0], raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 196:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_flistxattr_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 197:
+    case 198:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_removexattr_guest(
+                raw_args[0], raw_args[1]));
+        return true;
+    case 199:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fremovexattr_guest(
+                (fd_t) raw_args[0], raw_args[1]));
+        return true;
     case 307:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendmmsg_guest(
                 (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3]));
@@ -1691,6 +1727,19 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rseq_guest(
                 raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]));
         return true;
+    case 237:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mbind_guest(
+                raw_args[0], raw_args[1], (int_t) raw_args[2], raw_args[3], raw_args[4],
+                (uint_t) raw_args[5]));
+        return true;
+    case 238:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_set_mempolicy_guest(
+                (int_t) raw_args[0], raw_args[1], raw_args[2]));
+        return true;
+    case 239:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_get_mempolicy_guest(
+                raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]));
+        return true;
     case 310:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_process_vm_readv_guest(
                 (pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3],
@@ -1699,6 +1748,20 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 72:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fcntl_guest(
                 (fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]));
+        return true;
+    case 29:
+    case 395:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_shmget_guest(
+                (dword_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 30:
+    case 397:
+        amd64_syscall_result_qword(cpu, (qword_t) sys_shmat_guest(
+                (int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 67:
+    case 398:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_shmdt_guest(raw_args[0]));
         return true;
     case 56:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clone_guest(
@@ -1858,7 +1921,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 284: // eventfd
     case 291: // epoll_create
     case 294: // inotify_init1
-    case 67:  // shmdt
     case 225: // timer_getoverrun
     case 226: // timer_delete
         return 1;
@@ -1922,8 +1984,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 20:  // writev
     case 26:  // msync
     case 28:  // madvise
-    case 29:  // shmget
-    case 30:  // shmat
     case 31:  // shmctl
     case 41:  // socket
     case 42:  // connect
@@ -1973,7 +2033,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 282: // signalfd
     case 334: // rseq
     case 222: // timer_create
-    case 238: // set_mempolicy
         return 3;
     case 13:  // rt_sigaction
     case 14:  // rt_sigprocmask
@@ -1985,9 +2044,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 53:  // socketpair
     case 54:  // setsockopt
     case 61:  // wait4
-    case 188: // setxattr
-    case 189: // lsetxattr
-    case 190: // fsetxattr
     case 257: // openat
     case 259: // mknodat
     case 262: // newfstatat
@@ -2013,12 +2069,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 55:  // getsockopt
     case 157: // prctl
     case 23:  // select
-    case 191: // getxattr
-    case 192: // lgetxattr
-    case 193: // fgetxattr
-    case 194: // listxattr
-    case 195: // llistxattr
-    case 196: // flistxattr
     case 250: // keyctl
     case 260: // fchownat
     case 265: // linkat
@@ -2028,20 +2078,14 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 316: // renameat2
     case 332: // statx
     case 322: // execveat
-    case 239: // get_mempolicy
     case 247: // waitid
     case 414: // ppoll_time64
     case 417: // recvmmsg_time64
         return 5;
-    case 197: // removexattr
-    case 198: // lremovexattr
-    case 199: // fremovexattr
-        return 2;
     case 9:   // mmap
     case 44:  // sendto
     case 45:  // recvfrom
     case 202: // futex
-    case 237: // mbind
     case 275: // splice
     case 310: // process_vm_readv
     case 326: // copy_file_range

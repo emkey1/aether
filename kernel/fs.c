@@ -1617,3 +1617,44 @@ dword_t sys_xattr_stub(addr_t UNUSED(path_addr), addr_t UNUSED(name_addr),
         addr_t UNUSED(value_addr), dword_t UNUSED(size), dword_t UNUSED(flags)) {
     return _ENOTSUP;
 }
+
+static dword_t sys_xattr_stub_guest_impl(guest_addr_t UNUSED(path_addr), guest_addr_t UNUSED(name_addr),
+        guest_addr_t UNUSED(value_addr), dword_t UNUSED(size), dword_t UNUSED(flags)) {
+    return _ENOTSUP;
+}
+
+dword_t sys_setxattr_guest(guest_addr_t path_addr, guest_addr_t name_addr,
+        guest_addr_t value_addr, dword_t size, dword_t flags) {
+    return sys_xattr_stub_guest_impl(path_addr, name_addr, value_addr, size, flags);
+}
+
+dword_t sys_fsetxattr_guest(fd_t UNUSED(fd), guest_addr_t name_addr,
+        guest_addr_t value_addr, dword_t size, dword_t flags) {
+    return sys_xattr_stub_guest_impl(0, name_addr, value_addr, size, flags);
+}
+
+dword_t sys_getxattr_guest(guest_addr_t path_addr, guest_addr_t name_addr,
+        guest_addr_t value_addr, dword_t size) {
+    return sys_xattr_stub_guest_impl(path_addr, name_addr, value_addr, size, 0);
+}
+
+dword_t sys_fgetxattr_guest(fd_t UNUSED(fd), guest_addr_t name_addr,
+        guest_addr_t value_addr, dword_t size) {
+    return sys_xattr_stub_guest_impl(0, name_addr, value_addr, size, 0);
+}
+
+dword_t sys_listxattr_guest(guest_addr_t path_addr, guest_addr_t list_addr, dword_t size) {
+    return sys_xattr_stub_guest_impl(path_addr, 0, list_addr, size, 0);
+}
+
+dword_t sys_flistxattr_guest(fd_t UNUSED(fd), guest_addr_t list_addr, dword_t size) {
+    return sys_xattr_stub_guest_impl(0, 0, list_addr, size, 0);
+}
+
+dword_t sys_removexattr_guest(guest_addr_t path_addr, guest_addr_t name_addr) {
+    return sys_xattr_stub_guest_impl(path_addr, name_addr, 0, 0, 0);
+}
+
+dword_t sys_fremovexattr_guest(fd_t UNUSED(fd), guest_addr_t name_addr) {
+    return sys_xattr_stub_guest_impl(0, name_addr, 0, 0, 0);
+}

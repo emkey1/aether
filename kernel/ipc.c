@@ -85,7 +85,7 @@ struct shm_segment {
 struct shm_region {
     struct list mm_regions;
     struct shm_segment *segment;
-    addr_t addr;
+    guest_addr_t addr;
     pages_t pages;
 };
 
@@ -211,7 +211,7 @@ static int shmget_internal(dword_t key, size_t size, int flags) {
     return id;
 }
 
-static addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, addr_t attach_addr, int shmflg) {
+static guest_addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, guest_addr_t attach_addr, int shmflg) {
     int prot = PROT_READ;
     unsigned mem_flags = P_READ | P_SHARED;
     if (!(shmflg & SHM_RDONLY_)) {
@@ -221,7 +221,7 @@ static addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, addr
 
     void *mapping = mmap(NULL, segment->alloc_size, prot, MAP_SHARED, segment->fd, 0);
     if (mapping == MAP_FAILED)
-        return (addr_t) errno_map();
+        return (guest_addr_t) errno_map();
 
     page_t page = 0;
     if (attach_addr != 0) {
@@ -229,7 +229,7 @@ static addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, addr
             attach_addr = BYTES_ROUND_DOWN(attach_addr);
         else if (PGOFFSET(attach_addr) != 0) {
             munmap(mapping, segment->alloc_size);
-            return (addr_t) _EINVAL;
+            return (guest_addr_t) _EINVAL;
         }
         page = PAGE(attach_addr);
     }
@@ -240,30 +240,30 @@ static addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, addr
         if (!pt_is_hole(&mm->mem, page, segment->pages)) {
             write_unlock(&mm->mem.lock);
             munmap(mapping, segment->alloc_size);
-            return (addr_t) _EINVAL;
+            return (guest_addr_t) _EINVAL;
         }
     } else {
         page = pt_find_hole(&mm->mem, segment->pages);
         if (page == BAD_PAGE) {
             write_unlock(&mm->mem.lock);
             munmap(mapping, segment->alloc_size);
-            return (addr_t) _ENOMEM;
+            return (guest_addr_t) _ENOMEM;
         }
-        attach_addr = page << PAGE_BITS;
+        attach_addr = (guest_addr_t) page << PAGE_BITS;
     }
 
     int err = pt_map(&mm->mem, page, segment->pages, mapping, 0, mem_flags);
     if (err < 0) {
         write_unlock(&mm->mem.lock);
         munmap(mapping, segment->alloc_size);
-        return (addr_t) err;
+        return (guest_addr_t) err;
     }
 
     struct shm_region *region = malloc(sizeof(*region));
     if (region == NULL) {
         pt_unmap_always(&mm->mem, page, segment->pages);
         write_unlock(&mm->mem.lock);
-        return (addr_t) _ENOMEM;
+        return (guest_addr_t) _ENOMEM;
     }
     *region = (struct shm_region) {
         .segment = segment,
@@ -283,16 +283,16 @@ static addr_t shm_region_attach(struct mm *mm, struct shm_segment *segment, addr
     return attach_addr;
 }
 
-static addr_t shmat_internal(int id, addr_t shmaddr, int shmflg) {
+static guest_addr_t shmat_internal(int id, guest_addr_t shmaddr, int shmflg) {
     lock(&shm_lock, 0);
     struct shm_segment *segment = shm_segment_find_by_id(id);
     unlock(&shm_lock);
     if (segment == NULL || segment->removed)
-        return (addr_t) _EINVAL;
+        return (guest_addr_t) _EINVAL;
     return shm_region_attach(current->mm, segment, shmaddr, shmflg);
 }
 
-static int shmdt_internal(struct mm *mm, addr_t addr, pid_t_ lpid, bool from_release) {
+static int shmdt_internal(struct mm *mm, guest_addr_t addr, pid_t_ lpid, bool from_release) {
     write_lock(&mm->mem.lock);
     struct shm_region *region, *tmp;
     list_for_each_entry_safe(&mm->shm_regions, region, tmp, mm_regions) {
@@ -412,7 +412,7 @@ void ipc_mm_copy(struct mm *dst, struct mm *src) {
 void ipc_mm_release(struct mm *mm) {
     struct shm_region *region, *tmp;
     list_for_each_entry_safe(&mm->shm_regions, region, tmp, mm_regions) {
-        addr_t addr = region->addr;
+        guest_addr_t addr = region->addr;
         shmdt_internal(mm, addr, current ? current->pid : 0, true);
     }
 }
@@ -429,7 +429,7 @@ int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, i
         case IPCOP_SHMGET_:
             return shmget_internal((dword_t) first, (size_t) second, third);
         case IPCOP_SHMAT_: {
-            addr_t out_addr = shmat_internal(first, ptr, second);
+            guest_addr_t out_addr = shmat_internal(first, ptr, second);
             if (IS_ERR((void *) (uintptr_t) out_addr))
                 return (int_t) PTR_ERR((void *) (uintptr_t) out_addr);
             if (user_put((addr_t) third, out_addr))
@@ -449,11 +449,23 @@ int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg) {
     return shmget_internal(key, size, shmflg);
 }
 
+int_t sys_shmget_guest(dword_t key, qword_t size, dword_t shmflg) {
+    return shmget_internal(key, (size_t) size, shmflg);
+}
+
 addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg) {
     return shmat_internal(shmid, shmaddr, shmflg);
 }
 
+guest_addr_t sys_shmat_guest(int_t shmid, guest_addr_t shmaddr, int_t shmflg) {
+    return shmat_internal(shmid, shmaddr, shmflg);
+}
+
 int_t sys_shmdt(addr_t shmaddr) {
+    return shmdt_internal(current->mm, shmaddr, current->pid, false);
+}
+
+int_t sys_shmdt_guest(guest_addr_t shmaddr) {
     return shmdt_internal(current->mm, shmaddr, current->pid, false);
 }
 

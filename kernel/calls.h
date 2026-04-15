@@ -81,8 +81,11 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
+dword_t sys_mbind_guest(guest_addr_t addr, qword_t len, int_t mode, guest_addr_t nodemask, qword_t maxnode, uint_t flags);
 long sys_get_mempolicy(int *mode, unsigned long *nodemask, unsigned long maxnode, void *addr, unsigned long flags);
+long sys_get_mempolicy_guest(guest_addr_t mode_addr, guest_addr_t nodemask_addr, qword_t maxnode, guest_addr_t addr, qword_t flags);
 long sys_set_mempolicy(int mode, const unsigned long *nodemask, unsigned long maxnode);
+long sys_set_mempolicy_guest(int mode, guest_addr_t nodemask_addr, qword_t maxnode);
 
 int_t sys_mlock(addr_t addr, dword_t len);
 int_t sys_mlock_guest(guest_addr_t addr, qword_t len);
@@ -301,6 +304,14 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t target_addr, gues
 dword_t sys_umount2(addr_t target_addr, dword_t flags);
 
 dword_t sys_xattr_stub(addr_t path_addr, addr_t name_addr, addr_t value_addr, dword_t size, dword_t flags);
+dword_t sys_setxattr_guest(guest_addr_t path_addr, guest_addr_t name_addr, guest_addr_t value_addr, dword_t size, dword_t flags);
+dword_t sys_fsetxattr_guest(fd_t fd, guest_addr_t name_addr, guest_addr_t value_addr, dword_t size, dword_t flags);
+dword_t sys_getxattr_guest(guest_addr_t path_addr, guest_addr_t name_addr, guest_addr_t value_addr, dword_t size);
+dword_t sys_fgetxattr_guest(fd_t fd, guest_addr_t name_addr, guest_addr_t value_addr, dword_t size);
+dword_t sys_listxattr_guest(guest_addr_t path_addr, guest_addr_t list_addr, dword_t size);
+dword_t sys_flistxattr_guest(fd_t fd, guest_addr_t list_addr, dword_t size);
+dword_t sys_removexattr_guest(guest_addr_t path_addr, guest_addr_t name_addr);
+dword_t sys_fremovexattr_guest(fd_t fd, guest_addr_t name_addr);
 
 // process information
 pid_t_ sys_getpid(void);
@@ -410,8 +421,11 @@ size_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
 size_t sys_syslog_guest(int_t type, guest_addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
 int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg);
+int_t sys_shmget_guest(dword_t key, qword_t size, dword_t shmflg);
 addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg);
+guest_addr_t sys_shmat_guest(int_t shmid, guest_addr_t shmaddr, int_t shmflg);
 int_t sys_shmdt(addr_t shmaddr);
+int_t sys_shmdt_guest(guest_addr_t shmaddr);
 int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 
 // Syscall dispatch is selected from current->abi. The i386 path is live today;
