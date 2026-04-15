@@ -105,8 +105,7 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
-    return current != NULL && current->abi == GUEST_ABI_AMD64 &&
-            amd64_trace_is_lineage_tgid(current->tgid);
+    return current != NULL && amd64_trace_is_lineage_tgid(current->tgid);
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
@@ -181,8 +180,8 @@ static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t ra
     case 58: // vfork
     case 435: // clone3
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
                (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
                (unsigned long long) raw_args[4]);
@@ -193,15 +192,16 @@ static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t ra
         qword_t path_arg = syscall_num == 322 ? raw_args[1] : raw_args[0];
         amd64_trace_copy_user_path(path_arg, path, sizeof(path));
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu file=%s\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num, path);
+        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu file=%s\n",
+               current->pid, current->tgid, current->abi, current->comm,
+               (unsigned long long) syscall_num, path);
         break;
     }
     case 61: // wait4
     case 247: // waitid
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
                (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
         break;
@@ -220,8 +220,8 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
     case 435: // clone3
     case 59: // execve
     case 322: // execveat
-        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
     case 61: { // wait4
@@ -230,20 +230,20 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
             if (!user_get((addr_t) raw_args[1], status)) {
                 char decoded[64];
                 amd64_decode_wait_status(status, decoded, sizeof(decoded));
-                printk("amd64 tracked wait4: pid=%d tgid=%d comm=%s child=%#llx %s\n",
-                       current->pid, current->tgid, current->comm,
+                printk("amd64 tracked wait4: pid=%d tgid=%d abi=%d comm=%s child=%#llx %s\n",
+                       current->pid, current->tgid, current->abi, current->comm,
                        (unsigned long long) result, decoded);
                 return;
             }
         }
-        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
     }
     case 247: // waitid
-        printk("amd64 tracked proc ret: pid=%d tgid=%d comm=%s nr=%llu result=%#llx\n",
-               current->pid, current->tgid, current->comm, (unsigned long long) syscall_num,
+        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
     default:
@@ -254,7 +254,7 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
 static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     enum { AMD64_TRACE_CHILD_BUDGET = 64 };
     static unsigned amd64_trace_child_count;
-    if (current == NULL || current->abi != GUEST_ABI_AMD64)
+    if (current == NULL)
         return;
     if (!amd64_trace_is_lineage_tgid(current->tgid))
         return;
@@ -268,8 +268,9 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
         amd64_trace_add_lineage_tgid((pid_t_) result);
         if (amd64_trace_child_count < AMD64_TRACE_CHILD_BUDGET) {
             amd64_trace_child_count++;
-            printk("amd64 tracked child: parent=%d tgid=%d child=%d nr=%llu\n",
-                   current->pid, current->tgid, (pid_t_) result, (unsigned long long) syscall_num);
+            printk("amd64 tracked child: parent=%d tgid=%d abi=%d child=%d nr=%llu\n",
+                   current->pid, current->tgid, current->abi, (pid_t_) result,
+                   (unsigned long long) syscall_num);
         }
         break;
     default:

@@ -560,11 +560,11 @@ retry:
 
     info->sig = SIGCHLD_;
 found_something:
-    if (current->abi == GUEST_ABI_AMD64 && amd64_trace_is_lineage_tgid(current->tgid)) {
+    if (amd64_trace_is_lineage_tgid(current->tgid)) {
         char decoded[64];
         amd64_decode_wait_status_exit(info->child.status, decoded, sizeof(decoded));
-        printk("amd64 tracked reap: pid=%d tgid=%d comm=%s child=%d %s options=%#x\n",
-               current->pid, current->tgid, current->comm,
+        printk("amd64 tracked reap: pid=%d tgid=%d abi=%d comm=%s child=%d %s options=%#x\n",
+               current->pid, current->tgid, current->abi, current->comm,
                info->child.pid, decoded, options);
     }
     unlock(&pids_lock);
