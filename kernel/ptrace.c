@@ -1,6 +1,8 @@
 #include "ptrace.h"
 #include "kernel/calls.h"
 #include "kernel/errno.h"
+#include "kernel/abi/amd64.h"
+#include "kernel/abi/i386.h"
 #include "kernel/signal.h"
 #include "task.h"
 #include <string.h>
@@ -162,6 +164,79 @@ static int ptrace_put_eventmsg(struct task *tracer, guest_addr_t data_addr, qwor
     }
 }
 
+struct ptrace_iovec_ {
+    guest_addr_t base;
+    qword_t len;
+};
+
+static int ptrace_iovec_get(struct task *tracer, guest_addr_t iov_addr, struct ptrace_iovec_ *iov) {
+    if (tracer->abi == GUEST_ABI_AMD64) {
+        struct amd64_iovec_ raw;
+        if (user_get(iov_addr, raw))
+            return _EFAULT;
+        *iov = (struct ptrace_iovec_) {
+            .base = raw.base,
+            .len = raw.len,
+        };
+    } else {
+        struct i386_iovec_ raw;
+        if (user_get(iov_addr, raw))
+            return _EFAULT;
+        *iov = (struct ptrace_iovec_) {
+            .base = raw.base,
+            .len = raw.len,
+        };
+    }
+    return 0;
+}
+
+static int ptrace_iovec_put(struct task *tracer, guest_addr_t iov_addr, const struct ptrace_iovec_ *iov) {
+    if (tracer->abi == GUEST_ABI_AMD64) {
+        struct amd64_iovec_ raw = {
+            .base = iov->base,
+            .len = iov->len,
+        };
+        if (user_put(iov_addr, raw))
+            return _EFAULT;
+    } else {
+        struct i386_iovec_ raw = {
+            .base = (addr_t) iov->base,
+            .len = (dword_t) iov->len,
+        };
+        if (user_put(iov_addr, raw))
+            return _EFAULT;
+    }
+    return 0;
+}
+
+static int ptrace_getregset_write(struct task *tracer, guest_addr_t iov_addr,
+        const void *buf, size_t buf_size) {
+    struct ptrace_iovec_ iov;
+    int err = ptrace_iovec_get(tracer, iov_addr, &iov);
+    if (err < 0)
+        return err;
+
+    size_t copy_len = iov.len < buf_size ? (size_t) iov.len : buf_size;
+    if (copy_len != 0 && user_write(iov.base, buf, copy_len))
+        return _EFAULT;
+
+    iov.len = copy_len;
+    return ptrace_iovec_put(tracer, iov_addr, &iov);
+}
+
+static int ptrace_setregset_read(struct task *tracer, guest_addr_t iov_addr,
+        void *buf, size_t buf_size) {
+    struct ptrace_iovec_ iov;
+    int err = ptrace_iovec_get(tracer, iov_addr, &iov);
+    if (err < 0)
+        return err;
+    if (iov.len < buf_size)
+        return _EIO;
+    if (user_read(iov.base, buf, buf_size))
+        return _EFAULT;
+    return 0;
+}
+
 // Ensure stopped, ptrace locked, etc. before calling this
 static void get_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
     user_regs_->ebx = cpu->ebx;
@@ -210,6 +285,79 @@ static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
     cpu->df_offset = cpu->df ? -1 : 1;
     cpu->esp = user_regs_->esp;
 //  cpu->xss = user_regs_->xss;
+}
+
+static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_t iov_addr,
+        qword_t note_type) {
+    switch (note_type) {
+        case NT_PRSTATUS_: {
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_regs_struct_amd64_ user_regs_amd64 = {};
+                get_user_regs_amd64(child, &user_regs_amd64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
+            } else {
+                struct user_regs_struct_ user_regs_ = {};
+                get_user_regs_and_syscall(child, &user_regs_);
+                user_regs_.orig_eax = child->ptrace.syscall;
+                return ptrace_getregset_write(tracer, iov_addr, &user_regs_, sizeof(user_regs_));
+            }
+        }
+        case NT_PRFPREG_:
+        case NT_X86_XSTATE_: {
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_fpregs_struct_amd64_ user_fpregs_amd64 = {};
+                get_user_fpregs_amd64(child, &user_fpregs_amd64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_amd64, sizeof(user_fpregs_amd64));
+            } else {
+                struct user_fpregs_struct_ user_fpregs_ = {};
+                return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_, sizeof(user_fpregs_));
+            }
+        }
+        default:
+            return _EINVAL;
+    }
+}
+
+static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_t iov_addr,
+        qword_t note_type) {
+    switch (note_type) {
+        case NT_PRSTATUS_: {
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_regs_struct_amd64_ user_regs_amd64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
+                if (err < 0)
+                    return err;
+                set_user_regs_amd64(&child->cpu, &user_regs_amd64);
+            } else {
+                struct user_regs_struct_ user_regs_;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_, sizeof(user_regs_));
+                if (err < 0)
+                    return err;
+                set_user_regs(&child->cpu, &user_regs_);
+            }
+            return 0;
+        }
+        case NT_PRFPREG_:
+        case NT_X86_XSTATE_: {
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_fpregs_struct_amd64_ user_fpregs_amd64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_amd64, sizeof(user_fpregs_amd64));
+                if (err < 0)
+                    return err;
+                set_user_fpregs_amd64(&child->cpu, &user_fpregs_amd64);
+            } else {
+                struct user_fpregs_struct_ user_fpregs_;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_, sizeof(user_fpregs_));
+                if (err < 0)
+                    return err;
+                // TODO set floating point registers for i386 tracees
+                (void) user_fpregs_;
+            }
+            return 0;
+        }
+        default:
+            return _EINVAL;
+    }
 }
 
 static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscall_stop) {
@@ -584,6 +732,28 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             }
             unlock(&child->ptrace.lock);
             return 0;
+        }
+
+        case PTRACE_GETREGSET_: {
+            STRACE("ptrace(PTRACE_GETREGSET, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
+            struct task *child = find_child(pid);
+            if (!child) return _EPERM;
+
+            int err = ptrace_getregset(current, child, data, addr);
+            unlock(&child->ptrace.lock);
+            return err < 0 ? err : 0;
+        }
+
+        case PTRACE_SETREGSET_: {
+            STRACE("ptrace(PTRACE_SETREGSET, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
+            struct task *child = find_child(pid);
+            if (!child) return _EPERM;
+
+            int err = ptrace_setregset(current, child, data, addr);
+            unlock(&child->ptrace.lock);
+            return err < 0 ? err : 0;
         }
 
         default:
