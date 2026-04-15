@@ -19,6 +19,7 @@ int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
 static bool is_on_altstack(guest_addr_t sp, struct task *task);
+static void restore_altstack(guest_addr_t sp, guest_addr_t stack, guest_addr_t size, dword_t flags);
 static dword_t current_altstack_flags(struct task *task);
 static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack);
 static void signalfd_wakeup_task(struct task *task, int sig);
@@ -133,6 +134,7 @@ struct rt_sigframe_amd64 {
     guest_addr_t pretcode;
     struct amd64_ucontext_ uc;
     struct amd64_siginfo_ info;
+    char retcode[8];
 };
 
 static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct sigaction_ *action) {
@@ -738,7 +740,6 @@ static void setup_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_st
 
 static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_amd64 *frame) {
     memset(frame, 0, sizeof(*frame));
-    frame->pretcode = signal_restorer(&current->sighand->action[info->sig], true);
     frame->uc.flags = 0;
     frame->uc.link = 0;
     frame->uc.stack = (struct amd64_stack_t_marshaled) {
@@ -749,6 +750,17 @@ static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_am
     setup_amd64_mcontext(&frame->uc.mcontext, &current->cpu);
     frame->uc.sigmask = current->blocked;
     siginfo_to_amd64_user(&frame->info, info);
+
+    static const struct {
+        uint8_t mov_rax_imm32;
+        uint32_t nr_rt_sigreturn;
+        uint16_t syscall;
+    } __attribute__((packed)) rt_retcode = {
+        .mov_rax_imm32 = 0xb8,
+        .nr_rt_sigreturn = 15,
+        .syscall = 0x050f,
+    };
+    memcpy(frame->retcode, &rt_retcode, sizeof(rt_retcode));
 }
 
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
@@ -792,6 +804,11 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
         }
         sp -= frame_size;
         sp = (sp & ~0xfull) - 8;
+
+        guest_addr_t restorer = action->restorer;
+        if (restorer == 0)
+            restorer = sp + offsetof(struct rt_sigframe_amd64, retcode);
+        frame.pretcode = restorer;
 
         current->cpu.amd64_regs[amd64_rsp] = sp;
         current->cpu.esp = (dword_t) sp;
@@ -1022,12 +1039,7 @@ dword_t sys_rt_sigreturn(void) {
     restore_sigcontext(&frame.uc.mcontext, cpu);
 
     lock(&current->sighand->lock, 0);
-    // FIXME this duplicates logic from sys_sigaltstack
-    if (!is_on_altstack(cpu->esp, current) &&
-            frame.uc.stack.size >= MINSIGSTKSZ_) {
-        current->altstack = frame.uc.stack.stack;
-        current->altstack_size = frame.uc.stack.size;
-    }
+    restore_altstack(cpu->esp, frame.uc.stack.stack, frame.uc.stack.size, frame.uc.stack.flags);
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
     return cpu->eax;
@@ -1045,11 +1057,8 @@ qword_t sys_rt_sigreturn_amd64(void) {
     restore_amd64_mcontext(&frame.uc.mcontext, cpu);
 
     lock(&current->sighand->lock, 0);
-    if (!is_on_altstack(cpu->amd64_regs[amd64_rsp], current) &&
-            frame.uc.stack.size >= MINSIGSTKSZ_) {
-        current->altstack = frame.uc.stack.stack;
-        current->altstack_size = frame.uc.stack.size;
-    }
+    restore_altstack(cpu->amd64_regs[amd64_rsp], frame.uc.stack.stack,
+            frame.uc.stack.size, frame.uc.stack.flags);
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
     return cpu->amd64_regs[amd64_rax];
@@ -1240,6 +1249,20 @@ int_t sys_rt_sigpending_guest(guest_addr_t set_addr) {
 
 static bool is_on_altstack(guest_addr_t sp, struct task *task) {
     return sp > task->altstack && sp <= task->altstack + task->altstack_size;
+}
+
+static void restore_altstack(guest_addr_t sp, guest_addr_t stack, guest_addr_t size, dword_t flags) {
+    if (is_on_altstack(sp, current))
+        return;
+    if (flags & SS_DISABLE_) {
+        current->altstack = 0;
+        current->altstack_size = 0;
+        return;
+    }
+    if (size >= MINSIGSTKSZ_) {
+        current->altstack = stack;
+        current->altstack_size = size;
+    }
 }
 
 static dword_t current_altstack_flags(struct task *task) {
