@@ -427,6 +427,7 @@ guest_addr_t sys_shmat_guest(int_t shmid, guest_addr_t shmaddr, int_t shmflg);
 int_t sys_shmdt(addr_t shmaddr);
 int_t sys_shmdt_guest(guest_addr_t shmaddr);
 int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
+int_t sys_shmctl_guest(int_t shmid, int_t cmd, guest_addr_t buf);
 
 // Syscall dispatch is selected from current->abi. The i386 path is live today;
 // amd64 keeps a separate bring-up path because it needs different syscall
