@@ -134,6 +134,10 @@ dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr) {
 }
 
 dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_t old_limit_addr) {
+    return sys_prlimit64_guest(pid, resource, new_limit_addr, old_limit_addr);
+}
+
+dword_t sys_prlimit64_guest(pid_t_ pid, dword_t resource, guest_addr_t new_limit_addr, guest_addr_t old_limit_addr) {
     STRACE("prlimit64(%d, %d)", pid, resource);
     if (pid != 0)
         return _EINVAL;
@@ -319,7 +323,11 @@ int_t sys_setpriority(int_t which, pid_t_ who, int_t prio) {
 }
 
 // realtime scheduling stubs
-int_t sys_sched_getparam(pid_t_ UNUSED(pid), addr_t param_addr) {
+int_t sys_sched_getparam(pid_t_ pid, addr_t param_addr) {
+    return sys_sched_getparam_guest(pid, param_addr);
+}
+
+int_t sys_sched_getparam_guest(pid_t_ UNUSED(pid), guest_addr_t param_addr) {
     int_t sched_priority = 0;
     if (user_put(param_addr, sched_priority))
         return _EFAULT;
@@ -329,7 +337,11 @@ int_t sys_sched_getparam(pid_t_ UNUSED(pid), addr_t param_addr) {
 int_t sys_sched_getscheduler(pid_t_ UNUSED(pid)) {
     return SCHED_OTHER_;
 }
-int_t sys_sched_setscheduler(pid_t_ UNUSED(pid), int_t policy, addr_t param_addr) {
+int_t sys_sched_setscheduler(pid_t_ pid, int_t policy, addr_t param_addr) {
+    return sys_sched_setscheduler_guest(pid, policy, param_addr);
+}
+
+int_t sys_sched_setscheduler_guest(pid_t_ UNUSED(pid), int_t policy, guest_addr_t param_addr) {
     if (policy != SCHED_OTHER_)
         return _EINVAL;
     int_t sched_priority;

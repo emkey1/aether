@@ -23,6 +23,68 @@ static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
+struct sigaction_i386_marshaled {
+    addr_t handler;
+    dword_t flags;
+    addr_t restorer;
+    sigset_t_ mask;
+} __attribute__((packed));
+
+struct sigaction_amd64_marshaled {
+    qword_t handler;
+    qword_t flags;
+    qword_t restorer;
+    sigset_t_ mask;
+} __attribute__((packed));
+
+static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct sigaction_ *action) {
+    if (task->abi == GUEST_ABI_AMD64) {
+        struct sigaction_amd64_marshaled user_action;
+        if (user_get(user_addr, user_action))
+            return _EFAULT;
+        *action = (struct sigaction_) {
+            .handler = user_action.handler,
+            .flags = user_action.flags,
+            .restorer = user_action.restorer,
+            .mask = user_action.mask,
+        };
+    } else {
+        struct sigaction_i386_marshaled user_action;
+        if (user_get(user_addr, user_action))
+            return _EFAULT;
+        *action = (struct sigaction_) {
+            .handler = user_action.handler,
+            .flags = user_action.flags,
+            .restorer = user_action.restorer,
+            .mask = user_action.mask,
+        };
+    }
+    return 0;
+}
+
+static int sigaction_to_user(struct task *task, guest_addr_t user_addr, const struct sigaction_ *action) {
+    if (task->abi == GUEST_ABI_AMD64) {
+        struct sigaction_amd64_marshaled user_action = {
+            .handler = action->handler,
+            .flags = action->flags,
+            .restorer = action->restorer,
+            .mask = action->mask,
+        };
+        if (user_put(user_addr, user_action))
+            return _EFAULT;
+    } else {
+        struct sigaction_i386_marshaled user_action = {
+            .handler = (addr_t) action->handler,
+            .flags = (dword_t) action->flags,
+            .restorer = (addr_t) action->restorer,
+            .mask = action->mask,
+        };
+        if (user_put(user_addr, user_action))
+            return _EFAULT;
+    }
+    return 0;
+}
+
 static void wake_waiting_task(struct task *task) {
     if (pthread_mutex_trylock(&task->waiting_cond_lock.m) != 0)
         return;
@@ -733,15 +795,26 @@ static int do_sigaction(int sig, const struct sigaction_ *action, struct sigacti
 }
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size) {
+    return sys_rt_sigaction_guest(signum, action_addr, oldaction_addr, sigset_size);
+}
+
+dword_t sys_rt_sigaction_guest(dword_t signum, guest_addr_t action_addr, guest_addr_t oldaction_addr, dword_t sigset_size) {
     if (sigset_size != sizeof(sigset_t_))
         return _EINVAL;
-    struct sigaction_ action, oldaction;
-    if (action_addr != 0)
-        if (user_get(action_addr, action))
-            return _EFAULT;
-    STRACE("rt_sigaction(%d, %#x {handler=%#x, flags=%#x, restorer=%#x, mask=%#llx}, 0x%x, %d)", signum,
-            action_addr, action.handler, action.flags, action.restorer,
-            (unsigned long long) action.mask, oldaction_addr, sigset_size);
+    struct sigaction_ action = {};
+    struct sigaction_ oldaction = {};
+    if (action_addr != 0) {
+        int err = sigaction_from_user(current, action_addr, &action);
+        if (err < 0)
+            return err;
+    }
+    STRACE("rt_sigaction(%d, %#llx {handler=%#llx, flags=%#llx, restorer=%#llx, mask=%#llx}, %#llx, %d)", signum,
+            (unsigned long long) action_addr,
+            (unsigned long long) action.handler,
+            (unsigned long long) action.flags,
+            (unsigned long long) action.restorer,
+            (unsigned long long) action.mask,
+            (unsigned long long) oldaction_addr, sigset_size);
 
     int err = do_sigaction(signum,
             action_addr ? &action : NULL,
@@ -749,9 +822,11 @@ dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_ad
     if (err < 0)
         return err;
 
-    if (oldaction_addr != 0)
-        if (user_put(oldaction_addr, oldaction))
-            return _EFAULT;
+    if (oldaction_addr != 0) {
+        err = sigaction_to_user(current, oldaction_addr, &oldaction);
+        if (err < 0)
+            return err;
+    }
     return err;
 }
 
@@ -829,7 +904,11 @@ dword_t sys_rt_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr, dwo
 }
 
 int_t sys_rt_sigpending(addr_t set_addr) {
-    STRACE("rt_sigpending(%#x)");
+    return sys_rt_sigpending_guest(set_addr);
+}
+
+int_t sys_rt_sigpending_guest(guest_addr_t set_addr) {
+    STRACE("rt_sigpending(%#llx)", (unsigned long long) set_addr);
     // as defined by the standard
     sigset_t_ pending = current->pending & current->blocked;
     if (user_put(set_addr, pending))
@@ -947,6 +1026,10 @@ dword_t sys_sigaltstack_guest(guest_addr_t ss_addr, guest_addr_t old_ss_addr) {
 }
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size) {
+    return sys_rt_sigsuspend_guest(mask_addr, size);
+}
+
+int_t sys_rt_sigsuspend_guest(guest_addr_t mask_addr, uint_t size) {
     if (size != sizeof(sigset_t_))
         return _EINVAL;
     sigset_t_ mask;

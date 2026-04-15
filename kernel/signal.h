@@ -18,11 +18,11 @@ typedef qword_t sigset_t_;
 #define SA_RESETHAND_ 0x80000000
 
 struct sigaction_ {
-    addr_t handler;
-    dword_t flags;
-    addr_t restorer;
+    guest_addr_t handler;
+    qword_t flags;
+    guest_addr_t restorer;
     sigset_t_ mask;
-} __attribute__((packed));
+};
 
 #define NUM_SIGS 64
 
@@ -149,6 +149,7 @@ struct sighand *sighand_copy(struct sighand *sighand);
 void sighand_release(struct sighand *sighand);
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size);
+dword_t sys_rt_sigaction_guest(dword_t signum, guest_addr_t action_addr, guest_addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr);
 dword_t sys_rt_sigreturn(void);
 dword_t sys_sigreturn(void);
@@ -160,6 +161,7 @@ typedef uint64_t sigset_t_;
 dword_t sys_rt_sigprocmask(dword_t how, addr_t set, addr_t oldset, dword_t size);
 dword_t sys_rt_sigprocmask_guest(dword_t how, guest_addr_t set, guest_addr_t oldset, dword_t size);
 int_t sys_rt_sigpending(addr_t set_addr);
+int_t sys_rt_sigpending_guest(guest_addr_t set_addr);
 
 static inline sigset_t_ sig_mask(int sig) {
     assert(sig >= 1 && sig < NUM_SIGS);
@@ -188,6 +190,7 @@ dword_t sys_sigaltstack(addr_t ss, addr_t old_ss);
 dword_t sys_sigaltstack_guest(guest_addr_t ss, guest_addr_t old_ss);
 
 int_t sys_rt_sigsuspend(addr_t mask_addr, uint_t size);
+int_t sys_rt_sigsuspend_guest(guest_addr_t mask_addr, uint_t size);
 int_t sys_pause(void);
 int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr, uint_t set_size);
 int_t sys_rt_sigtimedwait_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size);

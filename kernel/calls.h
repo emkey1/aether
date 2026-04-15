@@ -332,6 +332,8 @@ int_t sys_getgroups(dword_t size, addr_t list);
 int_t sys_setgroups(dword_t size, addr_t list);
 int_t sys_capget(addr_t header_addr, addr_t data_addr);
 int_t sys_capset(addr_t header_addr, addr_t data_addr);
+int_t sys_capget_guest(guest_addr_t header_addr, guest_addr_t data_addr);
+int_t sys_capset_guest(guest_addr_t header_addr, guest_addr_t data_addr);
 int_t sys_keyctl(dword_t cmd, dword_t arg2, dword_t arg3, dword_t arg4, dword_t arg5);
 dword_t sys_getcwd(addr_t buf_addr, dword_t size);
 dword_t sys_getcwd_guest(guest_addr_t buf_addr, dword_t size);
@@ -354,6 +356,7 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t arg4, 
 int_t sys_arch_prctl(int_t code, addr_t addr);
 int_t sys_arch_prctl_guest(int_t code, guest_addr_t addr);
 int_t sys_rseq(addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig);
+int_t sys_rseq_guest(guest_addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig);
 int_t sys_reboot(int_t magic, int_t magic2, int_t cmd);
 
 // system information
@@ -404,6 +407,7 @@ int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_
 dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);
 dword_t sys_getrandom_guest(guest_addr_t buf_addr, dword_t len, dword_t flags);
 size_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
+size_t sys_syslog_guest(int_t type, guest_addr_t buf_addr, int_t len);
 int_t sys_ipc(uint_t call, int_t first, int_t second, int_t third, addr_t ptr, int_t fifth);
 int_t sys_shmget(dword_t key, dword_t size, dword_t shmflg);
 addr_t sys_shmat(int_t shmid, addr_t shmaddr, int_t shmflg);

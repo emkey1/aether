@@ -241,7 +241,11 @@ int_t sys_setgroups(dword_t size, addr_t list) {
 
 // this does not really work
 int_t sys_capget(addr_t header_addr, addr_t data_addr) {
-    STRACE("capget(%#x, %#x)", header_addr, data_addr);
+    return sys_capget_guest(header_addr, data_addr);
+}
+
+int_t sys_capget_guest(guest_addr_t header_addr, guest_addr_t data_addr) {
+    STRACE("capget(%#llx, %#llx)", (unsigned long long) header_addr, (unsigned long long) data_addr);
     struct cap_user_header_ header;
     if (user_read(header_addr, &header, sizeof(header)))
         return _EFAULT;
@@ -269,7 +273,11 @@ int_t sys_capget(addr_t header_addr, addr_t data_addr) {
     return 0;
 }
 int_t sys_capset(addr_t header_addr, addr_t data_addr) {
-    STRACE("capset(%#x, %#x)", header_addr, data_addr);
+    return sys_capset_guest(header_addr, data_addr);
+}
+
+int_t sys_capset_guest(guest_addr_t header_addr, guest_addr_t data_addr) {
+    STRACE("capset(%#llx, %#llx)", (unsigned long long) header_addr, (unsigned long long) data_addr);
     struct cap_user_header_ header;
     if (user_read(header_addr, &header, sizeof(header)))
         return _EFAULT;

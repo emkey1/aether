@@ -203,7 +203,11 @@ int_t sys_arch_prctl(int_t code, addr_t addr) {
 }
 
 int_t sys_rseq(addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig) {
-    STRACE("rseq(%#x, %u, %#x, %#x)", rseq_addr, rseq_len, flags, sig);
+    return sys_rseq_guest(rseq_addr, rseq_len, flags, sig);
+}
+
+int_t sys_rseq_guest(guest_addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig) {
+    STRACE("rseq(%#llx, %u, %#x, %#x)", (unsigned long long) rseq_addr, rseq_len, flags, sig);
     // Deliberately report rseq as unsupported. Modern glibc falls back cleanly
     // on ENOSYS, but a fake success here would expose an ABI we do not emulate.
     return _ENOSYS;

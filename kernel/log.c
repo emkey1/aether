@@ -114,6 +114,10 @@ static size_t do_syslog(int type, addr_t buf_addr, int_t len) {
     }
 }
 size_t sys_syslog(int_t type, addr_t buf_addr, int_t len) {
+    return sys_syslog_guest(type, buf_addr, len);
+}
+
+size_t sys_syslog_guest(int_t type, guest_addr_t buf_addr, int_t len) {
     lock(&log_lock, 0);
     size_t retval = do_syslog(type, buf_addr, len);
     unlock(&log_lock);

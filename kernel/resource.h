@@ -40,6 +40,7 @@ dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr);
 dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr);
 dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr);
 dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_t old_limit_addr);
+dword_t sys_prlimit64_guest(pid_t_ pid, dword_t resource, guest_addr_t new_limit_addr, guest_addr_t old_limit_addr);
 dword_t sys_old_getrlimit32(dword_t resource, addr_t rlim_addr);
 
 rlim_t_ rlimit(int resource);
@@ -98,8 +99,10 @@ int_t sys_getpriority(int_t which, pid_t_ who);
 int_t sys_setpriority(int_t which, pid_t_ who, int_t prio);
 
 int_t sys_sched_getparam(pid_t_ pid, addr_t param_addr);
+int_t sys_sched_getparam_guest(pid_t_ pid, guest_addr_t param_addr);
 int_t sys_sched_getscheduler(pid_t_ UNUSED(pid));
 int_t sys_sched_setscheduler(pid_t_ UNUSED(pid), int_t policy, addr_t param_addr);
+int_t sys_sched_setscheduler_guest(pid_t_ pid, int_t policy, guest_addr_t param_addr);
 int_t sys_sched_get_priority_max(int_t policy);
 int_t sys_sched_get_priority_min(int_t policy);
 

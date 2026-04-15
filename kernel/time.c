@@ -472,18 +472,45 @@ static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, 
     return timer_set(group->itimer, spec, old_spec);
 }
 
-long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
-    struct itimerval_ val;
-    if (user_get(new_val_addr, val))
-        return _EFAULT;
-    STRACE("setitimer(%d, {%ds %dus, %ds %dus}, 0x%x)", which, val.value.sec, val.value.usec, val.interval.sec, val.interval.usec, old_val_addr);
+struct amd64_itimerval_ {
+    struct amd64_timeval_ interval;
+    struct amd64_timeval_ value;
+};
 
-    struct timer_spec spec = {
-        .interval.tv_sec = val.interval.sec,
-        .interval.tv_nsec = val.interval.usec * 1000,
-        .value.tv_sec = val.value.sec,
-        .value.tv_nsec = val.value.usec * 1000,
-    };
+long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
+    return sys_setitimer_guest(which, new_val_addr, old_val_addr);
+}
+
+long sys_setitimer_guest(int_t which, guest_addr_t new_val_addr, guest_addr_t old_val_addr) {
+    struct timer_spec spec = {};
+    if (current->abi == GUEST_ABI_AMD64) {
+        struct amd64_itimerval_ val;
+        if (user_get(new_val_addr, val))
+            return _EFAULT;
+        STRACE("setitimer(%d, {%llds %lldus, %llds %lldus}, %#llx)", which,
+                (long long) val.value.sec, (long long) val.value.usec,
+                (long long) val.interval.sec, (long long) val.interval.usec,
+                (unsigned long long) old_val_addr);
+        spec = (struct timer_spec) {
+            .interval.tv_sec = val.interval.sec,
+            .interval.tv_nsec = val.interval.usec * 1000,
+            .value.tv_sec = val.value.sec,
+            .value.tv_nsec = val.value.usec * 1000,
+        };
+    } else {
+        struct itimerval_ val;
+        if (user_get(new_val_addr, val))
+            return _EFAULT;
+        STRACE("setitimer(%d, {%ds %dus, %ds %dus}, %#llx)", which,
+                val.value.sec, val.value.usec, val.interval.sec, val.interval.usec,
+                (unsigned long long) old_val_addr);
+        spec = (struct timer_spec) {
+            .interval.tv_sec = val.interval.sec,
+            .interval.tv_nsec = val.interval.usec * 1000,
+            .value.tv_sec = val.value.sec,
+            .value.tv_nsec = val.value.usec * 1000,
+        };
+    }
     struct timer_spec old_spec;
 
     struct tgroup *group = current->group;
@@ -494,13 +521,25 @@ long sys_setitimer(int_t which, addr_t new_val_addr, addr_t old_val_addr) {
         return err;
 
     if (old_val_addr != 0) {
-        struct itimerval_ old_val;
-        old_val.interval.sec = (dword_t)old_spec.interval.tv_sec;
-        old_val.interval.usec = (dword_t)old_spec.interval.tv_nsec / 1000;
-        old_val.value.sec = (dword_t)old_spec.value.tv_sec;
-        old_val.value.usec = (dword_t)old_spec.value.tv_nsec / 1000;
-        if (user_put(old_val_addr, old_val))
-            return _EFAULT;
+        if (current->abi == GUEST_ABI_AMD64) {
+            struct amd64_itimerval_ old_val = {
+                .interval.sec = old_spec.interval.tv_sec,
+                .interval.usec = old_spec.interval.tv_nsec / 1000,
+                .value.sec = old_spec.value.tv_sec,
+                .value.usec = old_spec.value.tv_nsec / 1000,
+            };
+            if (user_put(old_val_addr, old_val))
+                return _EFAULT;
+        } else {
+            struct itimerval_ old_val = {
+                .interval.sec = (dword_t) old_spec.interval.tv_sec,
+                .interval.usec = (dword_t) old_spec.interval.tv_nsec / 1000,
+                .value.sec = (dword_t) old_spec.value.tv_sec,
+                .value.usec = (dword_t) old_spec.value.tv_nsec / 1000,
+            };
+            if (user_put(old_val_addr, old_val))
+                return _EFAULT;
+        }
     }
 
     return 0;

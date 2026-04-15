@@ -10,6 +10,7 @@
 
 // Function prototypes
 size_t sys_syslog(int_t type, addr_t buf_addr, int_t len);
+size_t sys_syslog_guest(int_t type, guest_addr_t buf_addr, int_t len);
 void ish_vprintk(const char *msg, va_list args);
 void ish_printk(const char *msg, ...);
 __attribute__((__noreturn__)) void die(const char *msg, ...);

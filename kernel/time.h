@@ -95,6 +95,7 @@ struct tms_ {
 };
 
 long sys_setitimer(int_t which, addr_t new_val, addr_t old_val);
+long sys_setitimer_guest(int_t which, guest_addr_t new_val, guest_addr_t old_val);
 long sys_alarm(uint_t seconds);
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr);
 int_t sys_timer_create_guest(dword_t clock, guest_addr_t sigevent_addr, guest_addr_t timer_addr);
