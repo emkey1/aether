@@ -111,8 +111,55 @@ static void set_user_regs_amd64(struct cpu_state *cpu, const struct user_regs_st
     sync_i386_shadows_from_amd64_ptrace(cpu);
 }
 
+static void get_user_fpregs_amd64(struct task *task, struct user_fpregs_struct_amd64_ *user_fpregs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_fpregs_, 0, sizeof(*user_fpregs_));
+    user_fpregs_->cwd = cpu->fcw;
+    user_fpregs_->swd = cpu->fsw;
+    user_fpregs_->mxcsr = 0x1f80;
+
+    for (int i = 0; i < 8; i++) {
+        const float80 value = cpu->fp[i];
+        for (int j = 0; j < 4; j++)
+            user_fpregs_->st[i].significand[j] = (word_t) (value.signif >> (j * 16));
+        user_fpregs_->st[i].exponent = value.signExp;
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            user_fpregs_->xmm[i].element[j] = cpu->xmm[i].u32[j];
+}
+
+static void set_user_fpregs_amd64(struct cpu_state *cpu, const struct user_fpregs_struct_amd64_ *user_fpregs_) {
+    cpu->fcw = user_fpregs_->cwd;
+    cpu->fsw = user_fpregs_->swd;
+
+    for (int i = 0; i < 8; i++) {
+        uint64_t significand = 0;
+        for (int j = 0; j < 4; j++)
+            significand |= (uint64_t) user_fpregs_->st[i].significand[j] << (j * 16);
+        cpu->fp[i] = (float80) {
+            .signif = significand,
+            .signExp = user_fpregs_->st[i].exponent,
+        };
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            cpu->xmm[i].u32[j] = user_fpregs_->xmm[i].element[j];
+}
+
 static size_t ptrace_word_size(const struct task *task) {
     return task->abi == GUEST_ABI_AMD64 ? sizeof(qword_t) : sizeof(dword_t);
+}
+
+static int ptrace_put_eventmsg(struct task *tracer, guest_addr_t data_addr, qword_t eventmsg) {
+    if (tracer->abi == GUEST_ABI_AMD64) {
+        return user_put(data_addr, eventmsg);
+    } else {
+        dword_t compat_eventmsg = (dword_t) eventmsg;
+        return user_put(data_addr, compat_eventmsg);
+    }
 }
 
 // Ensure stopped, ptrace locked, etc. before calling this
@@ -201,7 +248,7 @@ void ptrace_signal_stop(int sig, struct siginfo_ *info) {
     ptrace_stop_common(sig, info, false);
 }
 
-void ptrace_event_stop(int sig, struct siginfo_ *info, int event, dword_t eventmsg) {
+void ptrace_event_stop(int sig, struct siginfo_ *info, int event, qword_t eventmsg) {
     lock(&current->ptrace.lock, 0);
     current->ptrace.trap_event = event;
     current->ptrace.eventmsg = eventmsg;
@@ -426,12 +473,21 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            struct user_fpregs_struct_ user_fpregs_ = {};
-            if (user_put(data, user_fpregs_)) {
-                unlock(&child->ptrace.lock);
-                return _EFAULT;
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_fpregs_struct_amd64_ user_fpregs_amd64 = {};
+                get_user_fpregs_amd64(child, &user_fpregs_amd64);
+                if (user_put(data, user_fpregs_amd64)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+            } else {
+                struct user_fpregs_struct_ user_fpregs_ = {};
+                if (user_put(data, user_fpregs_)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+                // TODO get float point registers for i386 tracees
             }
-            // TODO get float point registers
             unlock(&child->ptrace.lock);
 
             return 0;
@@ -443,11 +499,21 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            struct user_fpregs_struct_ user_fpregs_;
-            if (user_get(data, user_fpregs_)) {
-                return _EFAULT;
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_fpregs_struct_amd64_ user_fpregs_amd64;
+                if (user_get(data, user_fpregs_amd64)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+                set_user_fpregs_amd64(&child->cpu, &user_fpregs_amd64);
             } else {
-                // TODO set floating point registers
+                struct user_fpregs_struct_ user_fpregs_;
+                if (user_get(data, user_fpregs_)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                } else {
+                    // TODO set floating point registers for i386 tracees
+                }
             }
             unlock(&child->ptrace.lock);
 
@@ -497,6 +563,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             if (!child) return _EPERM;
 
             if (data && siginfo_to_user(current, data, &child->ptrace.info)) {
+                unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
             unlock(&child->ptrace.lock);
@@ -510,8 +577,8 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            dword_t eventmsg = child->ptrace.eventmsg;
-            if (data && user_put(data, eventmsg)) {
+            qword_t eventmsg = child->ptrace.eventmsg;
+            if (data && ptrace_put_eventmsg(current, data, eventmsg)) {
                 unlock(&child->ptrace.lock);
                 return _EFAULT;
             }

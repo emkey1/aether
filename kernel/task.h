@@ -94,7 +94,7 @@ struct task {
         int signal;
         struct siginfo_ info;
         int trap_event;
-        dword_t eventmsg;
+        qword_t eventmsg;
         int syscall;
         struct task *tracer;
     } ptrace;
