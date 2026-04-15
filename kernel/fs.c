@@ -737,20 +737,25 @@ dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, 
 }
 
 dword_t sys_lseek(fd_t f, dword_t off, dword_t whence) {
+    off_t_ res = sys_lseek_guest(f, off, whence);
+    if ((dword_t) res != res)
+        return _EOVERFLOW;
+    return (dword_t) res;
+}
+
+off_t_ sys_lseek_guest(fd_t f, off_t_ off, dword_t whence) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;
     if (!fd->ops->lseek)
         return _ESPIPE;
     lock(&fd->lock, 0);
-    off_t res = fd->ops->lseek(fd, off, whence);
+    off_t_ res = fd->ops->lseek(fd, off, whence);
     unlock(&fd->lock);
-    if ((dword_t) res != res)
-        return _EOVERFLOW;
     return res;
 }
 
-dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
+dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off) {
     STRACE("pread(%d, 0x%x, %d, %d)", f, buf_addr, size, off);
     if (size > MAX_RW_COUNT)
         size = MAX_RW_COUNT;
@@ -805,7 +810,11 @@ out:
     return res;
 }
 
-dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
+dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
+    return sys_pread_guest(f, buf_addr, size, off);
+}
+
+dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off) {
     STRACE("pwrite(%d, 0x%x, %d, %d)", f, buf_addr, size, off);
     if (size > MAX_RW_COUNT)
         size = MAX_RW_COUNT;
@@ -848,6 +857,10 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
     unlock(&fd->lock);
     if (buf != stack_buf) free(buf);
     return res;
+}
+
+dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
+    return sys_pwrite_guest(f, buf_addr, size, off);
 }
 
 static bool ioctl_user_arg_needs_read(dword_t cmd) {

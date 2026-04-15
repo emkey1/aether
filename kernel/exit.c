@@ -184,7 +184,7 @@ noreturn void do_exit(struct task *task, int status) {
     while (exit_wait_needed(task)) { // Wait for other references and locks, but ignore extra pending signals while exiting.
         nanosleep(&lock_pause, NULL);
     }
-    addr_t clear_tid = task->clear_tid;
+    guest_addr_t clear_tid = task->clear_tid;
     if (clear_tid) {
         pid_t_ zero = 0;
         if (user_put(clear_tid, zero) == 0)
@@ -576,6 +576,10 @@ error:
 }
 
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
+    return sys_waitid_guest(idtype, id, info_addr, options);
+}
+
+dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t options) {
     STRACE("waitid(%d, %d, %#x, %#x)", idtype, id, info_addr, options);
     struct siginfo_ info = {};
     int_t res = 0;
@@ -590,6 +594,10 @@ dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
 }
 
 dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_addr) {
+    return sys_wait4_guest(id, status_addr, options, rusage_addr);
+}
+
+dword_t sys_wait4_guest(pid_t_ id, guest_addr_t status_addr, dword_t options, guest_addr_t rusage_addr) {
     STRACE("wait4(%d, %#x, %#x, %#x)", id, status_addr, options, rusage_addr);
     if (options & WNOWAIT_)
         return _EINVAL;

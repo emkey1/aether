@@ -56,13 +56,13 @@ static bool prctl_cap_test(const dword_t caps[2], uint_t cap) {
     return (caps[cap / 32] & (1u << (cap % 32))) != 0;
 }
 
-int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), uint_t UNUSED(arg5)) {
+int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED(arg4), qword_t UNUSED(arg5)) {
     switch (option) {
         case PRCTL_SET_PDEATHSIG_:
-            current->pdeath_signal = arg2;
+            current->pdeath_signal = (dword_t) arg2;
             return 0;
         case PRCTL_GET_PDEATHSIG_:
-            if (user_put(arg2, current->pdeath_signal))
+            if (user_put((guest_addr_t) arg2, current->pdeath_signal))
                 return _EFAULT;
             return 0;
         case PRCTL_GET_DUMPABLE_:
@@ -80,7 +80,7 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
             lock(&current->general_lock, 0);
             strncpy(name, current->comm, sizeof(name) - 1);
             unlock(&current->general_lock);
-            if (user_write(arg2, name, sizeof(name)))
+            if (user_write((guest_addr_t) arg2, name, sizeof(name)))
                 return _EFAULT;
             return 0;
         }
@@ -95,7 +95,7 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
             return 0;
         case PRCTL_SET_NAME_: {
             char name[16];
-            if (user_read_string(arg2, name, sizeof(name) - 1))
+            if (user_read_string((guest_addr_t) arg2, name, sizeof(name) - 1))
                 return _EFAULT;
             name[sizeof(name) - 1] = '\0';
             STRACE("prctl(PRCTL_SET_NAME, \"%s\")", name);
@@ -136,7 +136,7 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
             return 0;
         case PRCTL_GET_CHILD_SUBREAPER_: {
             dword_t value = 0;
-            if (user_write(arg2, &value, sizeof(value)))
+            if (user_write((guest_addr_t) arg2, &value, sizeof(value)))
                 return _EFAULT;
             return 0;
         }
@@ -150,12 +150,12 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
         case PRCTL_CAP_AMBIENT_:
             switch (arg2) {
                 case PRCTL_CAP_AMBIENT_IS_SET_:
-                    if (!prctl_cap_valid(arg3))
+                    if (!prctl_cap_valid((uint_t) arg3))
                         return _EINVAL;
                     return 0;
                 case PRCTL_CAP_AMBIENT_RAISE_:
                 case PRCTL_CAP_AMBIENT_LOWER_:
-                    if (!prctl_cap_valid(arg3))
+                    if (!prctl_cap_valid((uint_t) arg3))
                         return _EINVAL;
                     return 0;
                 case PRCTL_CAP_AMBIENT_CLEAR_ALL_:
@@ -167,6 +167,10 @@ int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t UNUSED(arg4), u
             STRACE("prctl(%#x)", option);
             return _EINVAL;
     }
+}
+
+int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t arg4, uint_t arg5) {
+    return sys_prctl_guest(option, arg2, arg3, arg4, arg5);
 }
 
 int_t sys_arch_prctl_guest(int_t code, guest_addr_t addr) {

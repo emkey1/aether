@@ -35,7 +35,9 @@ int must_check user_write_string(guest_addr_t addr, const char *buf);
 
 // process lifecycle
 dword_t sys_clone(dword_t flags, addr_t stack, addr_t ptid, addr_t tls, addr_t ctid);
+dword_t sys_clone_guest(qword_t flags, guest_addr_t stack, guest_addr_t ptid, guest_addr_t tls, guest_addr_t ctid);
 dword_t sys_clone3(addr_t uargs_addr, dword_t size);
+dword_t sys_clone3_guest(guest_addr_t uargs_addr, dword_t size);
 dword_t sys_unshare(dword_t flags);
 dword_t sys_fork(void);
 dword_t sys_vfork(void);
@@ -49,10 +51,14 @@ noreturn void do_exit(struct task *task, int status);
 noreturn void do_exit_group(int status);
 dword_t sys_exit_group(dword_t status);
 dword_t sys_wait4(pid_t_ pid, addr_t status_addr, dword_t options, addr_t rusage_addr);
+dword_t sys_wait4_guest(pid_t_ pid, guest_addr_t status_addr, dword_t options, guest_addr_t rusage_addr);
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options);
+dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t options);
 dword_t sys_waitpid(pid_t_ pid, addr_t status_addr, dword_t options);
 dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
                              addr_t remote_iov_addr, dword_t riovcnt, dword_t flags);
+dword_t sys_process_vm_readv_guest(pid_t_ pid, guest_addr_t local_iov_addr, dword_t liovcnt,
+                             guest_addr_t remote_iov_addr, dword_t riovcnt, dword_t flags);
 
 // memory management
 addr_t sys_brk(addr_t new_brk);
@@ -112,11 +118,15 @@ dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count);
 dword_t sys_writev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count);
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence);
 dword_t sys_lseek(fd_t f, dword_t off, dword_t whence);
+off_t_ sys_lseek_guest(fd_t f, off_t_ off, dword_t whence);
 dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t buf_size, off_t_ off);
+dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off);
+dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off);
 dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg);
 dword_t sys_ioctl_guest(fd_t f, dword_t cmd, guest_addr_t arg);
 dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg);
+dword_t sys_fcntl_guest(fd_t f, dword_t cmd, guest_addr_t arg);
 dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg);
 dword_t sys_dup(fd_t fd);
 dword_t sys_dup2(fd_t fd, fd_t new_fd);
@@ -158,8 +168,10 @@ int_t sys_eventfd(uint_t initval);
 int_t sys_inotify_init(void);
 int_t sys_inotify_init1(int_t flags);
 int_t sys_inotify_add_watch(fd_t fd, addr_t pathname_addr, uint_t mask);
+int_t sys_inotify_add_watch_guest(fd_t fd, guest_addr_t pathname_addr, uint_t mask);
 int_t sys_inotify_rm_watch(fd_t fd, int_t wd);
 int_t sys_memfd_create(addr_t name_addr, uint_t flags);
+int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags);
 
 // file management
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode);
@@ -338,6 +350,7 @@ dword_t sys_getsid(pid_t_ pid);
 
 int_t sys_sched_yield(void);
 int_t sys_prctl(dword_t option, uint_t arg2, uint_t arg3, uint_t arg4, uint_t arg5);
+int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t arg4, qword_t arg5);
 int_t sys_arch_prctl(int_t code, addr_t addr);
 int_t sys_arch_prctl_guest(int_t code, guest_addr_t addr);
 int_t sys_rseq(addr_t rseq_addr, dword_t rseq_len, dword_t flags, dword_t sig);
@@ -355,7 +368,9 @@ struct uname {
 };
 void do_uname(struct uname *uts);
 dword_t sys_uname(addr_t uts_addr);
+dword_t sys_uname_guest(guest_addr_t uts_addr);
 dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len);
+dword_t sys_sethostname_guest(guest_addr_t hostname_addr, dword_t hostname_len);
 
 struct sys_info {
     dword_t uptime;
@@ -378,8 +393,12 @@ dword_t sys_sysinfo_guest(guest_addr_t info_addr);
 // futexes
 dword_t sys_futex(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2, addr_t uaddr2, dword_t val3);
 dword_t sys_futex_time64(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2, addr_t uaddr2, dword_t val3);
+dword_t sys_futex_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2, guest_addr_t uaddr2, dword_t val3);
+dword_t sys_futex_time64_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2, guest_addr_t uaddr2, dword_t val3);
 int_t sys_set_robust_list(addr_t robust_list, dword_t len);
+int_t sys_set_robust_list_guest(guest_addr_t robust_list, dword_t len);
 int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr);
+int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr);
 
 // misc
 dword_t sys_getrandom(addr_t buf_addr, dword_t len, dword_t flags);

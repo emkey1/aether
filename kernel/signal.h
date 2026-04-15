@@ -195,6 +195,8 @@ int_t sys_rt_sigtimedwait_time64(addr_t set_addr, addr_t info_addr, addr_t timeo
 int_t sys_rt_sigtimedwait_time64_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size);
 int_t sys_signalfd(int_t fd, addr_t mask_addr, dword_t sigsetsize);
 int_t sys_signalfd4(int_t fd, addr_t mask_addr, dword_t sigsetsize, int_t flags);
+int_t sys_signalfd_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize);
+int_t sys_signalfd4_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize, int_t flags);
 
 dword_t sys_kill(pid_t_ pid, dword_t sig);
 dword_t sys_tkill(pid_t_ tid, dword_t sig);

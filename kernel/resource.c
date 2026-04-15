@@ -260,6 +260,10 @@ dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
 }
 
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {
+    return sys_sched_getaffinity_guest(pid, cpusetsize, cpuset_addr);
+}
+
+int_t sys_sched_getaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t cpuset_addr) {
     STRACE("sched_getaffinity(%d, %d, %#x)", pid, cpusetsize, cpuset_addr);
 
     // Handle pid check separately for clarity
@@ -296,6 +300,10 @@ int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) 
 int_t sys_sched_setaffinity(pid_t_ UNUSED(pid), dword_t UNUSED(cpusetsize), addr_t UNUSED(cpuset_addr)) {
     // meh
     return 0;
+}
+
+int_t sys_sched_setaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t cpuset_addr) {
+    return sys_sched_setaffinity(pid, cpusetsize, (addr_t) cpuset_addr);
 }
 
 int_t sys_getpriority(int_t which, pid_t_ who) {

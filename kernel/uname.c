@@ -65,6 +65,10 @@ void do_uname(struct uname *uts) {
 }
 
 dword_t sys_uname(addr_t uts_addr) {
+    return sys_uname_guest(uts_addr);
+}
+
+dword_t sys_uname_guest(guest_addr_t uts_addr) {
     struct uname uts;
     do_uname(&uts);
     if (user_put(uts_addr, uts))
@@ -73,6 +77,10 @@ dword_t sys_uname(addr_t uts_addr) {
 }
 
 dword_t sys_sethostname(addr_t hostname_addr, dword_t hostname_len) {
+    return sys_sethostname_guest(hostname_addr, hostname_len);
+}
+
+dword_t sys_sethostname_guest(guest_addr_t hostname_addr, dword_t hostname_len) {
     struct uname uts;
 
     if (current->uid != 0) {

@@ -277,6 +277,10 @@ int_t sys_inotify_init(void) {
 }
 
 int_t sys_inotify_add_watch(fd_t fd_no, addr_t pathname_addr, uint_t mask) {
+    return sys_inotify_add_watch_guest(fd_no, pathname_addr, mask);
+}
+
+int_t sys_inotify_add_watch_guest(fd_t fd_no, guest_addr_t pathname_addr, uint_t mask) {
     char path_raw[MAX_PATH];
     if (user_read_string(pathname_addr, path_raw, sizeof(path_raw)))
         return _EFAULT;

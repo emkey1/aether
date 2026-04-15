@@ -44,7 +44,7 @@ extern bool doEnableMulticore;
 struct futex {
     atomic_uint refcount;
     struct mem *mem;
-    addr_t addr;
+    guest_addr_t addr;
     struct list queue;
     struct list chain; // locked by futex_hash_lock
 };
@@ -67,8 +67,8 @@ static void __attribute__((constructor)) init_futex_hash(void) {
         list_init(&futex_hash[i]);
 }
 
-static struct futex *futex_get_unlocked(addr_t addr) {
-    int hash = (addr ^ (unsigned long) current->mem) % FUTEX_HASH_SIZE;
+static struct futex *futex_get_unlocked(guest_addr_t addr) {
+    int hash = (int) ((addr ^ (unsigned long) current->mem) % FUTEX_HASH_SIZE);
     struct list *bucket = &futex_hash[hash];
     struct futex *futex;
     list_for_each_entry(bucket, futex, chain) {
@@ -93,7 +93,7 @@ static struct futex *futex_get_unlocked(addr_t addr) {
 
 // Returns the futex for the current process at the given addr, and locks it
 // Unlocked variant is available for times when you need to get two futexes at once
-static struct futex *futex_get(addr_t addr) {
+static struct futex *futex_get(guest_addr_t addr) {
     lock(&futex_lock, 0);
     struct futex *futex = futex_get_unlocked(addr);
     if (futex == NULL)
@@ -127,7 +127,7 @@ static int futex_load(struct futex *futex, dword_t *out) {
     return 0;
 }
 
-static int futex_wait_masked(addr_t uaddr, dword_t val, struct timespec *timeout, dword_t bitset) {
+static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *timeout, dword_t bitset) {
     struct futex *futex = futex_get(uaddr);
     int err = 0;
     dword_t tmp;
@@ -154,11 +154,11 @@ static int futex_wait_masked(addr_t uaddr, dword_t val, struct timespec *timeout
     return err;
 }
 
-static int futex_wait(addr_t uaddr, dword_t val, struct timespec *timeout) {
+static int futex_wait(guest_addr_t uaddr, dword_t val, struct timespec *timeout) {
     return futex_wait_masked(uaddr, val, timeout, ~0u);
 }
 
-static int futex_read_timeout(addr_t timeout_addr, bool time64, struct timespec *timeout) {
+static int futex_read_timeout(guest_addr_t timeout_addr, bool time64, struct timespec *timeout) {
     if (!time64) {
         struct timespec_ timeout_guest;
         if (user_get(timeout_addr, timeout_guest))
@@ -177,7 +177,8 @@ static int futex_read_timeout(addr_t timeout_addr, bool time64, struct timespec 
     return 0;
 }
 
-static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeue_max, addr_t requeue_addr, dword_t wake_mask) {
+static int futex_wakelike(int op, guest_addr_t uaddr, dword_t wake_max, dword_t requeue_max,
+        guest_addr_t requeue_addr, dword_t wake_mask) {
     struct futex *futex = futex_get(uaddr);
 
     struct futex_wait *wait, *tmp;
@@ -215,11 +216,12 @@ static int futex_wakelike(int op, addr_t uaddr, dword_t wake_max, dword_t requeu
     return woken;
 }
 
-int futex_wake(addr_t uaddr, dword_t wake_max) {
+int futex_wake(guest_addr_t uaddr, dword_t wake_max) {
     return futex_wakelike(FUTEX_WAKE_, uaddr, wake_max, 0, 0, ~0u);
 }
 
-static int futex_cmp_requeue(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t UNUSED(val3)) {
+static int futex_cmp_requeue(guest_addr_t uaddr1, dword_t val, guest_addr_t uaddr2, dword_t val2,
+        dword_t UNUSED(val3)) {
     struct futex *futex1 = futex_get(uaddr1);
     struct futex *futex2 = futex_get_unlocked(uaddr2);
     int err = 0;
@@ -266,7 +268,8 @@ void set_thread_priority(pthread_t thread, int priority) {
     pthread_setschedparam(thread, policy, &param);
 }
 
-static int futex_cmp_requeue_pi(addr_t uaddr1, dword_t val, addr_t uaddr2, dword_t val2, dword_t UNUSED(val3)) {
+static int futex_cmp_requeue_pi(guest_addr_t uaddr1, dword_t val, guest_addr_t uaddr2, dword_t val2,
+        dword_t UNUSED(val3)) {
     struct futex *futex1 = futex_get(uaddr1);
     struct futex *futex2 = futex_get_unlocked(uaddr2);
     int err = 0;
@@ -316,8 +319,8 @@ static int futex_cmp_requeue_pi(addr_t uaddr1, dword_t val, addr_t uaddr2, dword
     return err;
 }
 
-dword_t sys_futex_common(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_or_val2,
-        addr_t uaddr2, dword_t val3, bool timeout_time64) {
+dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
+        guest_addr_t uaddr2, dword_t val3, bool timeout_time64) {
     if (!(op & FUTEX_PRIVATE_FLAG_)) {
         STRACE("!FUTEX_PRIVATE ");
     }
@@ -400,15 +403,31 @@ dword_t sys_futex_time64(addr_t uaddr, dword_t op, dword_t val, addr_t timeout_o
     return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, true);
 }
 
-struct robust_list_head_ {
-    addr_t list;
-    dword_t offset;
-    addr_t list_op_pending;
-};
+static dword_t robust_list_head_size(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? 24 : 12;
+}
+
+dword_t sys_futex_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
+        guest_addr_t uaddr2, dword_t val3) {
+    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, false);
+}
+
+dword_t sys_futex_time64_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
+        guest_addr_t uaddr2, dword_t val3) {
+    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, true);
+}
 
 int_t sys_set_robust_list(addr_t robust_list, dword_t len) {
     STRACE("set_robust_list(%#x, %d)", robust_list, len);
-    if (len != sizeof(struct robust_list_head_))
+    if (len != robust_list_head_size(current->abi))
+        return _EINVAL;
+    current->robust_list = robust_list;
+    return 0;
+}
+
+int_t sys_set_robust_list_guest(guest_addr_t robust_list, dword_t len) {
+    STRACE("set_robust_list(%#llx, %u)", (unsigned long long) robust_list, len);
+    if (len != robust_list_head_size(current->abi))
         return _EINVAL;
     current->robust_list = robust_list;
     return 0;
@@ -423,9 +442,35 @@ int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
     if (task != current)
         return _EPERM;
 
+    addr_t robust_list = (addr_t) current->robust_list;
+    dword_t len = robust_list_head_size(current->abi);
+    if (user_put(robust_list_ptr, robust_list))
+        return _EFAULT;
+    if (user_put(len_ptr, len))
+        return _EFAULT;
+    return 0;
+}
+
+int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr) {
+    STRACE("get_robust_list(%d, %#llx, %#llx)", pid,
+            (unsigned long long) robust_list_ptr, (unsigned long long) len_ptr);
+
+    complex_lockt(&pids_lock,0);
+    struct task *task = pid_get_task(pid);
+    unlock(&pids_lock);
+    if (task != current)
+        return _EPERM;
+
     if (user_put(robust_list_ptr, current->robust_list))
         return _EFAULT;
-    if (user_put(len_ptr, (int[]) {sizeof(struct robust_list_head_)}))
-        return _EFAULT;
+    if (current->abi == GUEST_ABI_AMD64) {
+        qword_t len = robust_list_head_size(current->abi);
+        if (user_put(len_ptr, len))
+            return _EFAULT;
+    } else {
+        dword_t len = robust_list_head_size(current->abi);
+        if (user_put(len_ptr, len))
+            return _EFAULT;
+    }
     return 0;
 }

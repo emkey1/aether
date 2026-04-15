@@ -300,8 +300,8 @@ struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi,
     return iov;
 }
 
-dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
-                             addr_t remote_iov_addr, dword_t riovcnt, dword_t flags) {
+dword_t sys_process_vm_readv_guest(pid_t_ pid, guest_addr_t local_iov_addr, dword_t liovcnt,
+                             guest_addr_t remote_iov_addr, dword_t riovcnt, dword_t flags) {
     if (flags != 0)
         return _EINVAL;
 
@@ -375,4 +375,9 @@ dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
     free(remote_iov);
     task_ref_cnt_mod(task, -1);
     return total;
+}
+
+dword_t sys_process_vm_readv(pid_t_ pid, addr_t local_iov_addr, dword_t liovcnt,
+                             addr_t remote_iov_addr, dword_t riovcnt, dword_t flags) {
+    return sys_process_vm_readv_guest(pid, local_iov_addr, liovcnt, remote_iov_addr, riovcnt, flags);
 }

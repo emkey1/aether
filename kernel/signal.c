@@ -317,6 +317,10 @@ static struct fd_ops signalfd_ops = {
 };
 
 int_t sys_signalfd4(int_t fd_no, addr_t mask_addr, dword_t sigsetsize, int_t flags) {
+    return sys_signalfd4_guest(fd_no, mask_addr, sigsetsize, flags);
+}
+
+int_t sys_signalfd4_guest(int_t fd_no, guest_addr_t mask_addr, dword_t sigsetsize, int_t flags) {
     if (sigsetsize != sizeof(sigset_t_))
         return _EINVAL;
     if (flags & ~(O_CLOEXEC_ | O_NONBLOCK_))
@@ -349,7 +353,11 @@ int_t sys_signalfd4(int_t fd_no, addr_t mask_addr, dword_t sigsetsize, int_t fla
 }
 
 int_t sys_signalfd(int_t fd, addr_t mask_addr, dword_t sigsetsize) {
-    return sys_signalfd4(fd, mask_addr, sigsetsize, 0);
+    return sys_signalfd4_guest(fd, mask_addr, sigsetsize, 0);
+}
+
+int_t sys_signalfd_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize) {
+    return sys_signalfd4_guest(fd, mask_addr, sigsetsize, 0);
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {

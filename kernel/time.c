@@ -132,7 +132,7 @@ size_t guest_timespec_size(enum guest_abi abi) {
     return abi == GUEST_ABI_AMD64 ? sizeof(struct timespec64_) : sizeof(struct timespec_);
 }
 
-int read_guest_timeval_abi(enum guest_abi abi, addr_t addr, struct timeval *out) {
+int read_guest_timeval_abi(enum guest_abi abi, guest_addr_t addr, struct timeval *out) {
     if (abi == GUEST_ABI_AMD64) {
         struct amd64_timeval_ guest;
         if (user_get(addr, guest))
@@ -149,7 +149,7 @@ int read_guest_timeval_abi(enum guest_abi abi, addr_t addr, struct timeval *out)
     return 0;
 }
 
-int write_guest_timeval_abi(enum guest_abi abi, addr_t addr, const struct timeval *in) {
+int write_guest_timeval_abi(enum guest_abi abi, guest_addr_t addr, const struct timeval *in) {
     if (abi == GUEST_ABI_AMD64) {
         struct amd64_timeval_ guest = {
             .sec = in->tv_sec,
@@ -168,7 +168,7 @@ int write_guest_timeval_abi(enum guest_abi abi, addr_t addr, const struct timeva
     return 0;
 }
 
-int read_guest_timespec_abi(enum guest_abi abi, addr_t addr, struct timespec *out) {
+int read_guest_timespec_abi(enum guest_abi abi, guest_addr_t addr, struct timespec *out) {
     if (abi == GUEST_ABI_AMD64) {
         struct timespec64_ guest;
         if (user_get(addr, guest))
@@ -183,7 +183,7 @@ int read_guest_timespec_abi(enum guest_abi abi, addr_t addr, struct timespec *ou
     return 0;
 }
 
-int write_guest_timespec_abi(enum guest_abi abi, addr_t addr, const struct timespec *in) {
+int write_guest_timespec_abi(enum guest_abi abi, guest_addr_t addr, const struct timespec *in) {
     if (abi == GUEST_ABI_AMD64) {
         struct timespec64_ guest = timespec_to_guest64(*in);
         if (user_put(addr, guest))
@@ -197,7 +197,7 @@ int write_guest_timespec_abi(enum guest_abi abi, addr_t addr, const struct times
 }
 
 static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespec req,
-        addr_t rem_addr, bool rem_time64) {
+        guest_addr_t rem_addr, bool rem_time64) {
     clockid_t clock_id;
     if (clockid_to_real(clock, &clock_id))
         return _EINVAL;
@@ -249,6 +249,10 @@ static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespe
 }
 
 dword_t sys_clock_nanosleep(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr) {
+    return sys_clock_nanosleep_guest(clock_id, flags, req_addr, rem_addr);
+}
+
+dword_t sys_clock_nanosleep_guest(dword_t clock_id, int_t flags, guest_addr_t req_addr, guest_addr_t rem_addr) {
     struct timespec req_ts;
     if (read_guest_timespec_abi(current->abi, req_addr, &req_ts))
         return _EFAULT;
@@ -258,6 +262,10 @@ dword_t sys_clock_nanosleep(dword_t clock_id, int_t flags, addr_t req_addr, addr
 }
 
 dword_t sys_clock_nanosleep_time64(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr) {
+    return sys_clock_nanosleep_time64_guest(clock_id, flags, req_addr, rem_addr);
+}
+
+dword_t sys_clock_nanosleep_time64_guest(dword_t clock_id, int_t flags, guest_addr_t req_addr, guest_addr_t rem_addr) {
     struct timespec64_ req_ts;
     if (user_get(req_addr, req_ts))
         return _EFAULT;
@@ -297,10 +305,24 @@ dword_t sys_ppoll_time64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t s
 }
 
 dword_t sys_time(addr_t time_out) {
-    dword_t now = (dword_t)time(NULL);
-    if (time_out != 0)
-        if (user_put(time_out, now))
-            return _EFAULT;
+    qword_t now = sys_time_guest(time_out);
+    if ((dword_t) now != now)
+        return _EOVERFLOW;
+    return (dword_t) now;
+}
+
+qword_t sys_time_guest(guest_addr_t time_out) {
+    qword_t now = (qword_t) time(NULL);
+    if (time_out != 0) {
+        if (current->abi == GUEST_ABI_AMD64) {
+            if (user_put(time_out, now))
+                return (qword_t) (sqword_t) _EFAULT;
+        } else {
+            dword_t now32 = (dword_t) now;
+            if (user_put(time_out, now32))
+                return (qword_t) (sqword_t) _EFAULT;
+        }
+    }
     return now;
 }
 
@@ -309,6 +331,10 @@ dword_t sys_stime(addr_t UNUSED(time)) {
 }
 
 dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
+    return sys_clock_gettime_guest(clock, tp);
+}
+
+dword_t sys_clock_gettime_guest(dword_t clock, guest_addr_t tp) {
     STRACE("clock_gettime(%d, 0x%x)", clock, tp);
 
     struct timespec ts;
@@ -330,6 +356,10 @@ dword_t sys_clock_gettime(dword_t clock, addr_t tp) {
 }
 
 dword_t sys_clock_gettime64(dword_t clock, addr_t tp) {
+    return sys_clock_gettime64_guest(clock, tp);
+}
+
+dword_t sys_clock_gettime64_guest(dword_t clock, guest_addr_t tp) {
     STRACE("clock_gettime64(%d, 0x%x)", clock, tp);
 
     struct timespec ts;
@@ -355,6 +385,10 @@ dword_t sys_clock_gettime64(dword_t clock, addr_t tp) {
 
 
 dword_t sys_clock_getres(dword_t clock, addr_t res_addr) {
+    return sys_clock_getres_guest(clock, res_addr);
+}
+
+dword_t sys_clock_getres_guest(dword_t clock, guest_addr_t res_addr) {
     STRACE("clock_getres(%d, %#x)", clock, res_addr);
     clockid_t clock_id;
     if (clockid_to_real(clock, &clock_id)) return _EINVAL;
@@ -369,6 +403,10 @@ dword_t sys_clock_getres(dword_t clock, addr_t res_addr) {
 }
 
 dword_t sys_clock_getres_time64(dword_t clock, addr_t res_addr) {
+    return sys_clock_getres_time64_guest(clock, res_addr);
+}
+
+dword_t sys_clock_getres_time64_guest(dword_t clock, guest_addr_t res_addr) {
     STRACE("clock_getres_time64(%d, %#x)", clock, res_addr);
     clockid_t clock_id;
     if (clockid_to_real(clock, &clock_id))
@@ -495,6 +533,10 @@ long sys_alarm(uint_t seconds) {
 }
 
 dword_t sys_nanosleep(addr_t req_addr, addr_t rem_addr) {
+    return sys_nanosleep_guest(req_addr, rem_addr);
+}
+
+dword_t sys_nanosleep_guest(guest_addr_t req_addr, guest_addr_t rem_addr) {
     struct timespec req_ts;
     if (read_guest_timespec_abi(current->abi, req_addr, &req_ts))
         return _EFAULT;
@@ -606,6 +648,10 @@ static void posix_timer_callback(struct posix_timer *timer) {
 #define SIGEV_THREAD_ID_ 4
 
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
+    return sys_timer_create_guest(clock, sigevent_addr, timer_addr);
+}
+
+int_t sys_timer_create_guest(dword_t clock, guest_addr_t sigevent_addr, guest_addr_t timer_addr) {
     STRACE("timer_create(%d, %#x, %#x)", clock, sigevent_addr, timer_addr);
     if (time_warning_trace_enabled())
         printk("WARNING: timer_create pid=%d tgid=%d comm=%s clock=%u sigevent=%#x timer_addr=%#x\n",
@@ -661,7 +707,7 @@ int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr) {
     return 0;
 }
 
-static int_t sys_timer_gettime_common(dword_t timer_id, addr_t curr_value_addr, bool time64) {
+static int_t sys_timer_gettime_common(dword_t timer_id, guest_addr_t curr_value_addr, bool time64) {
     STRACE("timer_gettime(%d, %#x)", timer_id, curr_value_addr);
     if (timer_id >= TIMERS_MAX)
         return _EINVAL;
@@ -698,6 +744,10 @@ static int_t sys_timer_gettime_common(dword_t timer_id, addr_t curr_value_addr, 
 }
 
 int_t sys_timer_gettime(dword_t timer_id, addr_t curr_value_addr) {
+    return sys_timer_gettime_guest(timer_id, curr_value_addr);
+}
+
+int_t sys_timer_gettime_guest(dword_t timer_id, guest_addr_t curr_value_addr) {
     return sys_timer_gettime_common(timer_id, curr_value_addr, false);
 }
 
@@ -714,7 +764,8 @@ int_t sys_timer_getoverrun(dword_t timer_id) {
     return 0;
 }
 
-static int_t sys_timer_settime_common(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr,
+static int_t sys_timer_settime_common(dword_t timer_id, int_t flags, guest_addr_t new_value_addr,
+        guest_addr_t old_value_addr,
         bool time64) {
     STRACE("timer_settime(%d, %d, %#x, %#x)", timer_id, flags, new_value_addr, old_value_addr);
     if (time_warning_trace_enabled())
@@ -767,14 +818,26 @@ static int_t sys_timer_settime_common(dword_t timer_id, int_t flags, addr_t new_
 }
 
 int_t sys_timer_settime(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
+    return sys_timer_settime_guest(timer_id, flags, new_value_addr, old_value_addr);
+}
+
+int_t sys_timer_settime_guest(dword_t timer_id, int_t flags, guest_addr_t new_value_addr, guest_addr_t old_value_addr) {
     return sys_timer_settime_common(timer_id, flags, new_value_addr, old_value_addr, false);
 }
 
 int_t sys_timer_settime64(dword_t timer_id, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
+    return sys_timer_settime64_guest(timer_id, flags, new_value_addr, old_value_addr);
+}
+
+int_t sys_timer_settime64_guest(dword_t timer_id, int_t flags, guest_addr_t new_value_addr, guest_addr_t old_value_addr) {
     return sys_timer_settime_common(timer_id, flags, new_value_addr, old_value_addr, true);
 }
 
 int_t sys_timer_gettime64(dword_t timer_id, addr_t curr_value_addr) {
+    return sys_timer_gettime64_guest(timer_id, curr_value_addr);
+}
+
+int_t sys_timer_gettime64_guest(dword_t timer_id, guest_addr_t curr_value_addr) {
     return sys_timer_gettime_common(timer_id, curr_value_addr, true);
 }
 
@@ -842,7 +905,8 @@ static struct timer_spec timerfd_current_spec(struct fd *fd) {
     return spec;
 }
 
-static int_t sys_timerfd_settime_common(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr,
+static int_t sys_timerfd_settime_common(fd_t f, int_t flags, guest_addr_t new_value_addr,
+        guest_addr_t old_value_addr,
         bool time64) {
     STRACE("timerfd_settime(%d, %d, %#x, %#x)", f, flags, new_value_addr, old_value_addr);
     if (time_warning_trace_enabled())
@@ -894,14 +958,22 @@ static int_t sys_timerfd_settime_common(fd_t f, int_t flags, addr_t new_value_ad
 }
 
 int_t sys_timerfd_settime(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
+    return sys_timerfd_settime_guest(f, flags, new_value_addr, old_value_addr);
+}
+
+int_t sys_timerfd_settime_guest(fd_t f, int_t flags, guest_addr_t new_value_addr, guest_addr_t old_value_addr) {
     return sys_timerfd_settime_common(f, flags, new_value_addr, old_value_addr, false);
 }
 
 int_t sys_timerfd_settime64(fd_t f, int_t flags, addr_t new_value_addr, addr_t old_value_addr) {
+    return sys_timerfd_settime64_guest(f, flags, new_value_addr, old_value_addr);
+}
+
+int_t sys_timerfd_settime64_guest(fd_t f, int_t flags, guest_addr_t new_value_addr, guest_addr_t old_value_addr) {
     return sys_timerfd_settime_common(f, flags, new_value_addr, old_value_addr, true);
 }
 
-static int_t sys_timerfd_gettime_common(fd_t f, addr_t curr_value_addr, bool time64) {
+static int_t sys_timerfd_gettime_common(fd_t f, guest_addr_t curr_value_addr, bool time64) {
     STRACE("timerfd_gettime(%d, %#x)", f, curr_value_addr);
     struct fd *fd;
     int err = timerfd_lookup(f, &fd);
@@ -921,10 +993,18 @@ static int_t sys_timerfd_gettime_common(fd_t f, addr_t curr_value_addr, bool tim
 }
 
 int_t sys_timerfd_gettime(fd_t f, addr_t curr_value_addr) {
+    return sys_timerfd_gettime_guest(f, curr_value_addr);
+}
+
+int_t sys_timerfd_gettime_guest(fd_t f, guest_addr_t curr_value_addr) {
     return sys_timerfd_gettime_common(f, curr_value_addr, false);
 }
 
 int_t sys_timerfd_gettime64(fd_t f, addr_t curr_value_addr) {
+    return sys_timerfd_gettime64_guest(f, curr_value_addr);
+}
+
+int_t sys_timerfd_gettime64_guest(fd_t f, guest_addr_t curr_value_addr) {
     return sys_timerfd_gettime_common(f, curr_value_addr, true);
 }
 

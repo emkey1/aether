@@ -195,6 +195,10 @@ static struct fd_ops memfd_ops = {
 };
 
 int_t sys_memfd_create(addr_t name_addr, uint_t flags) {
+    return sys_memfd_create_guest(name_addr, flags);
+}
+
+int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags) {
     char name[MEMFD_MAX_NAME + 1];
     if (user_read_string(name_addr, name, sizeof(name)))
         return _EFAULT;

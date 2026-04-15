@@ -35,12 +35,19 @@ int_t sys_recvfrom(fd_t sock_fd, addr_t buffer_addr, dword_t len, dword_t flags,
 int_t sys_recvfrom_guest(fd_t sock_fd, guest_addr_t buffer_addr, dword_t len, dword_t flags, guest_addr_t sockaddr_addr, guest_addr_t sockaddr_len_addr);
 int_t sys_shutdown(fd_t sock_fd, dword_t how);
 int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len);
+int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, dword_t value_len);
 int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr);
+int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, guest_addr_t len_addr);
 int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags);
+int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags);
 int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags);
+int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags);
 int_t sys_recvmmsg(fd_t sock_fd, addr_t msgvec_addr, uint_t msgvec_len, int_t flags, addr_t timeout_addr);
+int_t sys_recvmmsg_guest(fd_t sock_fd, guest_addr_t msgvec_addr, uint_t msgvec_len, int_t flags, guest_addr_t timeout_addr);
 int_t sys_recvmmsg_time64(fd_t sock_fd, addr_t msgvec_addr, uint_t msgvec_len, int_t flags, addr_t timeout_addr);
+int_t sys_recvmmsg_time64_guest(fd_t sock_fd, guest_addr_t msgvec_addr, uint_t msgvec_len, int_t flags, guest_addr_t timeout_addr);
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msgvec_addr, uint_t msgvec_len, int_t flags);
+int_t sys_sendmmsg_guest(fd_t sock_fd, guest_addr_t msgvec_addr, uint_t msgvec_len, int_t flags);
 
 #define SOCKADDR_DATA_MAX 108
 

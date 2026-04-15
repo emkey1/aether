@@ -2659,8 +2659,9 @@ static void sock_init_emulation_defaults(struct fd *fd) {
     strcpy(fd->socket.tcp_congestion, DEFAULT_TCP_CONGESTION);
 }
 
-int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
-    STRACE("setsockopt(%d, %d, %d, 0x%x, %d)", sock_fd, level, option, value_addr, value_len);
+int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, dword_t value_len) {
+    STRACE("setsockopt(%d, %d, %d, %#llx, %d)", sock_fd, level, option,
+            (unsigned long long) value_addr, value_len);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
@@ -2820,6 +2821,10 @@ int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     return 0;
 }
 
+int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
+    return sys_setsockopt_guest(sock_fd, level, option, value_addr, value_len);
+}
+
 static void sockopt_store_value(void *dst, dword_t dst_len, dword_t *result_len,
         const void *src, dword_t src_len) {
     size_t copy_len = dst_len < src_len ? dst_len : src_len;
@@ -2841,8 +2846,9 @@ static bool sockopt_is_linux_soft_unsupported(dword_t level, dword_t option) {
     return false;
 }
 
-int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
-    STRACE("getsockopt(%d, %d, %d, %#x, %#x)", sock_fd, level, option, value_addr, len_addr);
+int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, guest_addr_t len_addr) {
+    STRACE("getsockopt(%d, %d, %d, %#llx, %#llx)", sock_fd, level, option,
+            (unsigned long long) value_addr, (unsigned long long) len_addr);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
@@ -3056,6 +3062,10 @@ int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_a
     return 0;
 }
 
+int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
+    return sys_getsockopt_guest(sock_fd, level, option, value_addr, len_addr);
+}
+
 static void scm_free(struct scm *scm) {
     for (unsigned i = 0; i < scm->num_fds; i++)
         fd_close(scm->fds[i]);
@@ -3063,11 +3073,11 @@ static void scm_free(struct scm *scm) {
 }
 
 struct guest_msghdr_marshaled {
-    addr_t msg_name;
+    guest_addr_t msg_name;
     uint_t msg_namelen;
-    addr_t msg_iov;
+    guest_addr_t msg_iov;
     uint_t msg_iovlen;
-    addr_t msg_control;
+    guest_addr_t msg_control;
     uint_t msg_controllen;
     int_t msg_flags;
 };
@@ -3086,28 +3096,28 @@ static size_t guest_mmsghdr_len_offset(enum guest_abi abi) {
     return abi == GUEST_ABI_AMD64 ? offsetof(struct amd64_mmsghdr_, len) : offsetof(struct i386_mmsghdr_, len);
 }
 
-static bool guest_marshaled_addr_valid(enum guest_abi abi, qword_t addr) {
-    return guest_abi_addr_valid(abi, addr) && addr <= UINT32_MAX;
+static bool guest_msghdr_addr_valid(enum guest_abi abi, qword_t addr) {
+    return guest_abi_addr_valid(abi, addr);
 }
 
-static int read_guest_msghdr(addr_t msghdr_addr, enum guest_abi abi, struct guest_msghdr_marshaled *msg) {
+static int read_guest_msghdr(guest_addr_t msghdr_addr, enum guest_abi abi, struct guest_msghdr_marshaled *msg) {
     if (abi == GUEST_ABI_AMD64) {
         struct amd64_msghdr_ raw;
         if (user_read(msghdr_addr, &raw, sizeof(raw)))
             return _EFAULT;
-        if (!guest_marshaled_addr_valid(abi, raw.msg_name) ||
-                !guest_marshaled_addr_valid(abi, raw.msg_iov) ||
-                !guest_marshaled_addr_valid(abi, raw.msg_control) ||
+        if (!guest_msghdr_addr_valid(abi, raw.msg_name) ||
+                !guest_msghdr_addr_valid(abi, raw.msg_iov) ||
+                !guest_msghdr_addr_valid(abi, raw.msg_control) ||
                 raw.msg_namelen > UINT32_MAX ||
                 raw.msg_iovlen > UINT32_MAX ||
                 raw.msg_controllen > UINT32_MAX)
             return _EINVAL;
         *msg = (struct guest_msghdr_marshaled) {
-            .msg_name = (addr_t) raw.msg_name,
+            .msg_name = raw.msg_name,
             .msg_namelen = raw.msg_namelen,
-            .msg_iov = (addr_t) raw.msg_iov,
+            .msg_iov = raw.msg_iov,
             .msg_iovlen = (uint_t) raw.msg_iovlen,
-            .msg_control = (addr_t) raw.msg_control,
+            .msg_control = raw.msg_control,
             .msg_controllen = (uint_t) raw.msg_controllen,
             .msg_flags = raw.msg_flags,
         };
@@ -3129,7 +3139,7 @@ static int read_guest_msghdr(addr_t msghdr_addr, enum guest_abi abi, struct gues
     return 0;
 }
 
-static int write_guest_msghdr(addr_t msghdr_addr, enum guest_abi abi, const struct guest_msghdr_marshaled *msg) {
+static int write_guest_msghdr(guest_addr_t msghdr_addr, enum guest_abi abi, const struct guest_msghdr_marshaled *msg) {
     if (abi == GUEST_ABI_AMD64) {
         struct amd64_msghdr_ raw = {
             .msg_name = msg->msg_name,
@@ -3251,9 +3261,9 @@ static bool unix_socket_get_peer_cred(struct fd *sock, struct ucred_ *cred) {
     return have_cred;
 }
 
-int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
+int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     int err;
-    STRACE("sendmsg(%d, %#x, %d)", sock_fd, msghdr_addr, flags);
+    STRACE("sendmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
@@ -3494,8 +3504,12 @@ out_free_iov:
     return err;
 }
 
-int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
-    STRACE("recvmsg(%d, %#x, %d)", sock_fd, msghdr_addr, flags);
+int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
+    return sys_sendmsg_guest(sock_fd, msghdr_addr, flags);
+}
+
+int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+    STRACE("recvmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
@@ -3776,16 +3790,20 @@ out_recvmsg_fault:
     return _EFAULT;
 }
 
-int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t UNUSED(timeout_addr)) {
+int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
+    return sys_recvmsg_guest(sock_fd, msghdr_addr, flags);
+}
+
+int_t sys_recvmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags, guest_addr_t UNUSED(timeout_addr)) {
     int num_received = 0;
     int recv_flags = flags;
     size_t msg_stride = guest_mmsghdr_size(current->abi);
     size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
     for (unsigned i = 0; i < vec_len; i++) {
-        addr_t msghdr = msg_vec + i * msg_stride;
-        int_t res = sys_recvmsg(sock_fd, msghdr, recv_flags);
+        guest_addr_t msghdr = msg_vec + i * msg_stride;
+        int_t res = sys_recvmsg_guest(sock_fd, msghdr, recv_flags);
         if (res >= 0) {
-            addr_t msg_len_addr = msghdr + msg_len_offset;
+            guest_addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
                 res = _EFAULT;
         }
@@ -3800,19 +3818,27 @@ int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, ad
     return num_received;
 }
 
-int_t sys_recvmmsg_time64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
-    return sys_recvmmsg(sock_fd, msg_vec, vec_len, flags, timeout_addr);
+int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
+    return sys_recvmmsg_guest(sock_fd, msg_vec, vec_len, flags, timeout_addr);
 }
 
-int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
+int_t sys_recvmmsg_time64_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags, guest_addr_t timeout_addr) {
+    return sys_recvmmsg_guest(sock_fd, msg_vec, vec_len, flags, timeout_addr);
+}
+
+int_t sys_recvmmsg_time64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
+    return sys_recvmmsg_time64_guest(sock_fd, msg_vec, vec_len, flags, timeout_addr);
+}
+
+int_t sys_sendmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags) {
     int num_sent = 0;
     size_t msg_stride = guest_mmsghdr_size(current->abi);
     size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
     for (unsigned i = 0; i < vec_len; i++) {
-        addr_t msghdr = msg_vec + i * msg_stride;
-        int_t res = sys_sendmsg(sock_fd, msghdr, flags);
+        guest_addr_t msghdr = msg_vec + i * msg_stride;
+        int_t res = sys_sendmsg_guest(sock_fd, msghdr, flags);
         if (res >= 0) {
-            addr_t msg_len_addr = msghdr + msg_len_offset;
+            guest_addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
                 res = _EFAULT;
         }
@@ -3832,6 +3858,10 @@ int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
         }
     }
     return num_sent;
+}
+
+int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
+    return sys_sendmmsg_guest(sock_fd, msg_vec, vec_len, flags);
 }
 
 static void sock_translate_err(struct fd *fd, int *err) {

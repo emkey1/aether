@@ -44,21 +44,102 @@ meson_cpu_family() {
     esac
 }
 
+apple_sdk_name() {
+    local sdk="${SDKROOT:-}"
+    if [[ -z "$sdk" ]]; then
+        case "${PLATFORM_NAME:-}" in
+            iphoneos|iphonesimulator|macosx) sdk="$PLATFORM_NAME" ;;
+            *) sdk=macosx ;;
+        esac
+    elif [[ "$sdk" == */* ]]; then
+        case "$sdk" in
+            *iPhoneOS.platform/*) sdk=iphoneos ;;
+            *iPhoneSimulator.platform/*) sdk=iphonesimulator ;;
+            *MacOSX.platform/*) sdk=macosx ;;
+        esac
+    fi
+    echo "$sdk"
+}
+
+apple_sdk_path() {
+    local sdk_name="$1"
+    if [[ -n "${SDKROOT:-}" && "${SDKROOT:-}" == */* && -d "${SDKROOT:-}" ]]; then
+        echo "$SDKROOT"
+    else
+        xcrun --sdk "$sdk_name" --show-sdk-path
+    fi
+}
+
+apple_target_triple() {
+    local sdk_name="$1"
+    local arch="$2"
+    case "$sdk_name" in
+        iphoneos)
+            local version="${IPHONEOS_DEPLOYMENT_TARGET:-11.0}"
+            echo "${arch}-apple-ios${version}"
+            ;;
+        iphonesimulator)
+            local version="${IPHONEOS_DEPLOYMENT_TARGET:-11.0}"
+            echo "${arch}-apple-ios${version}-simulator"
+            ;;
+        macosx)
+            local version="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+            echo "${arch}-apple-macos${version}"
+            ;;
+        *)
+            echo "${arch}-apple-darwin"
+            ;;
+    esac
+}
+
+json_array() {
+    python3 - "$@" <<'PY'
+import json
+import sys
+
+print(json.dumps(sys.argv[1:]))
+PY
+}
+
+meson_option_json() {
+    local config_json="$1"
+    local option_name="$2"
+    OPTION_NAME="$option_name" python3 -c 'import json, os, sys
+name = os.environ["OPTION_NAME"]
+for option in json.load(sys.stdin):
+    if option["name"] == name:
+        print(json.dumps(option["value"]))
+        break
+else:
+    raise SystemExit(f"missing option: {name}")' <<<"$config_json"
+}
+
 configure_arch() {
     local arch="$1"
     local meson_dir="$MESON_BUILD_DIR/$arch"
-    local crossfile="$meson_dir/cross.txt"
+    local crossfile_dir="$MESON_BUILD_DIR/cross"
+    local crossfile="$crossfile_dir/$arch.txt"
+    local crossfile_tmp="$crossfile_dir/$arch.txt.tmp"
     local meson_arch
     local config
+    local sdk_name
+    local sdk_path
+    local target_triple
+    local meson_needs_setup=0
+    local meson_needs_wipe=0
+    local desired_c_args_json
+    local current_c_args_json
+    local current_c_link_args_json
 
-    mkdir -p "$meson_dir"
-    cd "$meson_dir"
+    mkdir -p "$meson_dir" "$crossfile_dir"
 
-    if [[ ! -f meson-private/coredata.dat ]]; then
-        export CC_FOR_BUILD="env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET xcrun clang"
-        export CC="$CC_FOR_BUILD" # compatibility with meson < 0.54.0
-        meson_arch=$(meson_cpu_family "$arch")
-        cat >"$crossfile" <<-EOF
+    sdk_name=$(apple_sdk_name)
+    sdk_path=$(apple_sdk_path "$sdk_name")
+    target_triple=$(apple_target_triple "$sdk_name" "$arch")
+    meson_arch=$(meson_cpu_family "$arch")
+    desired_c_args_json=$(json_array -target "$target_triple" -isysroot "$sdk_path")
+
+    cat >"$crossfile_tmp" <<-EOF
 	[binaries]
 	c = 'clang'
 	ar = 'ar'
@@ -70,13 +151,43 @@ configure_arch() {
 	endian = 'little'
 
 	[built-in options]
-	c_args = ['-arch', '$arch']
+	c_args = ['-target', '$target_triple', '-isysroot', '$sdk_path']
+	c_link_args = ['-target', '$target_triple', '-isysroot', '$sdk_path']
 
 	[properties]
 	needs_exe_wrapper = true
 EOF
-        (set -x; meson "$SRCROOT" --cross-file "$crossfile") || exit $?
+
+    if [[ ! -f "$crossfile" ]] || ! cmp -s "$crossfile_tmp" "$crossfile"; then
+        mv "$crossfile_tmp" "$crossfile"
+        meson_needs_setup=1
+    else
+        rm -f "$crossfile_tmp"
     fi
+
+    export CC_FOR_BUILD="env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET xcrun clang"
+    export CC="$CC_FOR_BUILD" # compatibility with meson < 0.54.0
+
+    if [[ ! -f "$meson_dir/meson-private/coredata.dat" ]]; then
+        meson_needs_setup=1
+    else
+        config=$(meson introspect --buildoptions "$meson_dir")
+        current_c_args_json=$(meson_option_json "$config" c_args)
+        current_c_link_args_json=$(meson_option_json "$config" c_link_args)
+        if [[ "$current_c_args_json" != "$desired_c_args_json" ]] || [[ "$current_c_link_args_json" != "$desired_c_args_json" ]]; then
+            meson_needs_wipe=1
+        fi
+    fi
+
+    if (( meson_needs_wipe )); then
+        (set -x; meson setup --wipe "$meson_dir" "$SRCROOT" --cross-file "$crossfile") || exit $?
+    elif [[ ! -f "$meson_dir/meson-private/coredata.dat" ]]; then
+        (set -x; meson setup "$meson_dir" "$SRCROOT" --cross-file "$crossfile") || exit $?
+    elif (( meson_needs_setup )); then
+        (set -x; meson setup --reconfigure "$meson_dir" "$SRCROOT" --cross-file "$crossfile") || exit $?
+    fi
+
+    cd "$meson_dir"
     config=$(meson introspect --buildoptions)
 
     buildtype=debug
