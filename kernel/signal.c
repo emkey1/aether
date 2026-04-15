@@ -978,6 +978,8 @@ static void restore_sigcontext(struct sigcontext_ *context, struct cpu_state *cp
     // Use AC, RF, OF, DF, TF, SF, ZF, AF, PF, CF
 #define USE_FLAGS 0b1010000110111010101
     cpu->eflags = (context->flags & USE_FLAGS) | (cpu->eflags & ~USE_FLAGS);
+    expand_flags(cpu);
+    cpu->df_offset = cpu->df ? -1 : 1;
 }
 
 static void sync_i386_shadows_from_amd64(struct cpu_state *cpu) {
@@ -1014,12 +1016,7 @@ static void restore_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_
     cpu->segfault_addr = mcontext->gregs[AMD64_GREG_CR2];
 
     cpu->eflags = (dword_t) mcontext->gregs[AMD64_GREG_EFL];
-    cpu->cf = cpu->cf_bit;
-    cpu->of = cpu->of_bit;
-    cpu->zf_res = 0;
-    cpu->sf_res = 0;
-    cpu->pf_res = 0;
-    cpu->af_ops = 0;
+    expand_flags(cpu);
     cpu->df_offset = cpu->df ? -1 : 1;
 
     sync_i386_shadows_from_amd64(cpu);
