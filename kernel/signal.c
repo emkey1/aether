@@ -401,20 +401,37 @@ static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo
     out->sig = info->sig;
     out->sig_errno = info->sig_errno;
     out->code = info->code;
-    out->kill.pid = info->kill.pid;
-    out->kill.uid = info->kill.uid;
-    out->child.pid = info->child.pid;
-    out->child.uid = info->child.uid;
-    out->child.status = info->child.status;
-    out->child.utime = info->child.utime;
-    out->child.stime = info->child.stime;
-    out->fault.addr = (addr_t) info->fault.addr;
-    out->sigsys.addr = (addr_t) info->sigsys.addr;
-    out->sigsys.syscall = info->sigsys.syscall;
-    out->timer.timer = info->timer.timer;
-    out->timer.overrun = info->timer.overrun;
-    out->timer.value.sv_int = info->timer.value.sv_int;
-    out->timer._private = info->timer._private;
+    switch (info->sig) {
+        case SIGCHLD_:
+            out->child.pid = info->child.pid;
+            out->child.uid = info->child.uid;
+            out->child.status = info->child.status;
+            out->child.utime = info->child.utime;
+            out->child.stime = info->child.stime;
+            break;
+        case SIGILL_:
+        case SIGTRAP_:
+        case SIGBUS_:
+        case SIGFPE_:
+        case SIGSEGV_:
+            out->fault.addr = (addr_t) info->fault.addr;
+            break;
+        case SIGSYS_:
+            out->sigsys.addr = (addr_t) info->sigsys.addr;
+            out->sigsys.syscall = info->sigsys.syscall;
+            break;
+        default:
+            if (info->code == SI_TIMER_) {
+                out->timer.timer = info->timer.timer;
+                out->timer.overrun = info->timer.overrun;
+                memcpy(&out->timer.value, &info->timer.value, sizeof(out->timer.value));
+                out->timer._private = info->timer._private;
+            } else {
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            }
+            break;
+    }
 }
 
 static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct siginfo_ *info) {
@@ -422,20 +439,37 @@ static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct sigin
     out->sig = info->sig;
     out->sig_errno = info->sig_errno;
     out->code = info->code;
-    out->kill.pid = info->kill.pid;
-    out->kill.uid = info->kill.uid;
-    out->child.pid = info->child.pid;
-    out->child.uid = info->child.uid;
-    out->child.status = info->child.status;
-    out->child.utime = info->child.utime;
-    out->child.stime = info->child.stime;
-    out->fault.addr = info->fault.addr;
-    out->sigsys.call_addr = info->sigsys.addr;
-    out->sigsys.syscall = info->sigsys.syscall;
-    out->timer.timer = info->timer.timer;
-    out->timer.overrun = info->timer.overrun;
-    out->timer.value = info->timer.value;
-    out->timer._private = info->timer._private;
+    switch (info->sig) {
+        case SIGCHLD_:
+            out->child.pid = info->child.pid;
+            out->child.uid = info->child.uid;
+            out->child.status = info->child.status;
+            out->child.utime = info->child.utime;
+            out->child.stime = info->child.stime;
+            break;
+        case SIGILL_:
+        case SIGTRAP_:
+        case SIGBUS_:
+        case SIGFPE_:
+        case SIGSEGV_:
+            out->fault.addr = info->fault.addr;
+            break;
+        case SIGSYS_:
+            out->sigsys.call_addr = info->sigsys.addr;
+            out->sigsys.syscall = info->sigsys.syscall;
+            break;
+        default:
+            if (info->code == SI_TIMER_) {
+                out->timer.timer = info->timer.timer;
+                out->timer.overrun = info->timer.overrun;
+                out->timer.value = info->timer.value;
+                out->timer._private = info->timer._private;
+            } else {
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            }
+            break;
+    }
 }
 
 int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info) {
