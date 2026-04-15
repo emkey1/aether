@@ -1441,6 +1441,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 100:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_times_guest(raw_args[0]));
         return true;
+    case 101:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ptrace_guest(
+                (dword_t) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]));
+        return true;
     case 201:
         amd64_syscall_result_qword(cpu, sys_time_guest(raw_args[0]));
         return true;

@@ -47,6 +47,74 @@ void ptrace_attach_fork_child(struct task *child, struct task *tracee) {
     unlock(&pids_lock);
 }
 
+static void sync_i386_shadows_from_amd64_ptrace(struct cpu_state *cpu) {
+    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    cpu->ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+    cpu->ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+    cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+    cpu->esi = (dword_t) cpu->amd64_regs[amd64_rsi];
+    cpu->edi = (dword_t) cpu->amd64_regs[amd64_rdi];
+    cpu->ebp = (dword_t) cpu->amd64_regs[amd64_rbp];
+    cpu->esp = (dword_t) cpu->amd64_regs[amd64_rsp];
+    cpu->eip = (dword_t) cpu->amd64_rip;
+}
+
+static void get_user_regs_amd64(struct task *task, struct user_regs_struct_amd64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_regs_, 0, sizeof(*user_regs_));
+    user_regs_->r15 = cpu->amd64_regs[amd64_r15];
+    user_regs_->r14 = cpu->amd64_regs[amd64_r14];
+    user_regs_->r13 = cpu->amd64_regs[amd64_r13];
+    user_regs_->r12 = cpu->amd64_regs[amd64_r12];
+    user_regs_->rbp = cpu->amd64_regs[amd64_rbp];
+    user_regs_->rbx = cpu->amd64_regs[amd64_rbx];
+    user_regs_->r11 = cpu->amd64_regs[amd64_r11];
+    user_regs_->r10 = cpu->amd64_regs[amd64_r10];
+    user_regs_->r9 = cpu->amd64_regs[amd64_r9];
+    user_regs_->r8 = cpu->amd64_regs[amd64_r8];
+    user_regs_->rax = cpu->amd64_regs[amd64_rax];
+    user_regs_->rcx = cpu->amd64_regs[amd64_rcx];
+    user_regs_->rdx = cpu->amd64_regs[amd64_rdx];
+    user_regs_->rsi = cpu->amd64_regs[amd64_rsi];
+    user_regs_->rdi = cpu->amd64_regs[amd64_rdi];
+    user_regs_->orig_rax = task->ptrace.syscall;
+    user_regs_->rip = cpu->amd64_rip;
+    user_regs_->cs = 0x33;
+    user_regs_->eflags = cpu->eflags;
+    user_regs_->rsp = cpu->amd64_regs[amd64_rsp];
+    user_regs_->ss = 0x2b;
+    user_regs_->fs_base = cpu->tls_ptr;
+}
+
+static void set_user_regs_amd64(struct cpu_state *cpu, const struct user_regs_struct_amd64_ *user_regs_) {
+    cpu->amd64_regs[amd64_r15] = user_regs_->r15;
+    cpu->amd64_regs[amd64_r14] = user_regs_->r14;
+    cpu->amd64_regs[amd64_r13] = user_regs_->r13;
+    cpu->amd64_regs[amd64_r12] = user_regs_->r12;
+    cpu->amd64_regs[amd64_rbp] = user_regs_->rbp;
+    cpu->amd64_regs[amd64_rbx] = user_regs_->rbx;
+    cpu->amd64_regs[amd64_r11] = user_regs_->r11;
+    cpu->amd64_regs[amd64_r10] = user_regs_->r10;
+    cpu->amd64_regs[amd64_r9] = user_regs_->r9;
+    cpu->amd64_regs[amd64_r8] = user_regs_->r8;
+    cpu->amd64_regs[amd64_rax] = user_regs_->rax;
+    cpu->amd64_regs[amd64_rcx] = user_regs_->rcx;
+    cpu->amd64_regs[amd64_rdx] = user_regs_->rdx;
+    cpu->amd64_regs[amd64_rsi] = user_regs_->rsi;
+    cpu->amd64_regs[amd64_rdi] = user_regs_->rdi;
+    cpu->amd64_rip = user_regs_->rip;
+    cpu->eflags = (dword_t) user_regs_->eflags;
+    expand_flags(cpu);
+    cpu->df_offset = cpu->df ? -1 : 1;
+    cpu->amd64_regs[amd64_rsp] = user_regs_->rsp;
+    cpu->tls_ptr = user_regs_->fs_base;
+    sync_i386_shadows_from_amd64_ptrace(cpu);
+}
+
+static size_t ptrace_word_size(const struct task *task) {
+    return task->abi == GUEST_ABI_AMD64 ? sizeof(qword_t) : sizeof(dword_t);
+}
+
 // Ensure stopped, ptrace locked, etc. before calling this
 static void get_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
     user_regs_->ebx = cpu->ebx;
@@ -91,6 +159,8 @@ static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
     cpu->eip = user_regs_->eip;
 //  cpu->xcs = user_regs_->xcs;
     cpu->eflags = user_regs_->eflags;
+    expand_flags(cpu);
+    cpu->df_offset = cpu->df ? -1 : 1;
     cpu->esp = user_regs_->esp;
 //  cpu->xss = user_regs_->xss;
 }
@@ -147,7 +217,8 @@ void ptrace_syscall_stop(struct cpu_state *cpu) {
 
     lock(&current->ptrace.lock, 0);
     if (!current->ptrace.syscall_stopped)
-        current->ptrace.syscall = cpu->eax;
+        current->ptrace.syscall = current->abi == GUEST_ABI_AMD64 ?
+            (int) cpu->amd64_regs[amd64_rax] : (int) cpu->eax;
     current->ptrace.syscall_stopped = !current->ptrace.syscall_stopped;
     unlock(&current->ptrace.lock);
 
@@ -155,26 +226,37 @@ void ptrace_syscall_stop(struct cpu_state *cpu) {
 }
 
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
+    return sys_ptrace_guest(request, pid, addr, data);
+}
+
+dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_addr_t data) {
     switch (request) {
         case PTRACE_TRACEME_:
-            STRACE("ptrace(PTRACE_TRACEME, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_TRACEME, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             current->ptrace.traced = true;
             current->ptrace.tracer = current->parent;
             return 0;
 
         case PTRACE_PEEKTEXT_:
         case PTRACE_PEEKDATA_: {
-            STRACE("ptrace(PTRACE_PEEKDATA, %d, %#x, %#x)", pid, addr, data);
-            dword_t peek;
+            STRACE("ptrace(PTRACE_PEEKDATA, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (user_get_task(child, addr, peek)) {
-                unlock(&child->ptrace.lock);
-                return _EFAULT;
-            } else if (user_put(data, peek)) {
-                unlock(&child->ptrace.lock);
-                return _EFAULT;
+            if (child->abi == GUEST_ABI_AMD64) {
+                qword_t peek;
+                if (user_get_task(child, addr, peek) || user_put(data, peek)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+            } else {
+                dword_t peek;
+                if (user_get_task(child, addr, peek) || user_put(data, peek)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
             }
             unlock(&child->ptrace.lock);
 
@@ -182,21 +264,41 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_PEEKUSER_: {
-            STRACE("ptrace(PTRACE_PEEKUSER, %d, %#x, %#x)", pid, addr, data);
-            dword_t peek;
+            STRACE("ptrace(PTRACE_PEEKUSER, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            struct user_ user_ = {};
-            get_user_regs_and_syscall(child, &user_.user_regs);
+            if (child->abi == GUEST_ABI_AMD64) {
+                qword_t peek;
+                struct user_regs_struct_amd64_ user_regs_amd64 = {};
+                get_user_regs_amd64(child, &user_regs_amd64);
 
-            if (addr & (sizeof(peek) - 1) || addr >= sizeof(struct user_))
-                return _EIO;
+                if (addr & (sizeof(peek) - 1) || addr >= sizeof(user_regs_amd64)) {
+                    unlock(&child->ptrace.lock);
+                    return _EIO;
+                }
 
-            memcpy(&peek, (char *)&user_ + addr, sizeof(peek));
-            if (user_put(data, peek)) {
-                unlock(&child->ptrace.lock);
-                return _EFAULT;
+                memcpy(&peek, (char *) &user_regs_amd64 + addr, sizeof(peek));
+                if (user_put(data, peek)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+            } else {
+                dword_t peek;
+                struct user_ user_ = {};
+                get_user_regs_and_syscall(child, &user_.user_regs);
+
+                if (addr & (sizeof(peek) - 1) || addr >= sizeof(struct user_)) {
+                    unlock(&child->ptrace.lock);
+                    return _EIO;
+                }
+
+                memcpy(&peek, (char *) &user_ + addr, sizeof(peek));
+                if (user_put(data, peek)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
             }
             unlock(&child->ptrace.lock);
 
@@ -205,11 +307,12 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
 
         case PTRACE_POKETEXT_:
         case PTRACE_POKEDATA_: {
-            STRACE("ptrace(PTRACE_POKEDATA, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_POKEDATA, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (user_write_task_ptrace(child, addr, &data, sizeof(data))) {
+            if (user_write_task_ptrace(child, addr, &data, ptrace_word_size(child))) {
                 unlock(&child->ptrace.lock);
                 return _EFAULT;
             }
@@ -219,7 +322,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_CONT_: {
-            STRACE("ptrace(PTRACE_CONT, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_CONT, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -234,7 +338,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_KILL_: {
-            STRACE("ptrace(PTRACE_KILL, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_KILL, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -246,7 +351,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_SINGLESTEP_: {
-            STRACE("ptrace(PTRACE_SINGLESTEP, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_SINGLESTEP, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -261,16 +367,26 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_GETREGS_: {
-            STRACE("ptrace(PTRACE_GETREGS, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_GETREGS, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            struct user_regs_struct_ user_regs_ = {};
-            get_user_regs_and_syscall(child, &user_regs_);
-            user_regs_.orig_eax = child->ptrace.syscall;
-            if (user_put(data, user_regs_)) {
-                unlock(&child->ptrace.lock);
-                return _EFAULT;
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_regs_struct_amd64_ user_regs_amd64 = {};
+                get_user_regs_amd64(child, &user_regs_amd64);
+                if (user_put(data, user_regs_amd64)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+            } else {
+                struct user_regs_struct_ user_regs_ = {};
+                get_user_regs_and_syscall(child, &user_regs_);
+                user_regs_.orig_eax = child->ptrace.syscall;
+                if (user_put(data, user_regs_)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
             }
             unlock(&child->ptrace.lock);
 
@@ -278,14 +394,24 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_SETREGS_: {
-            STRACE("ptrace(PTRACE_SETREGS, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_SETREGS, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            struct user_regs_struct_ user_regs_;
-            if (user_get(data, user_regs_)) {
-                return _EFAULT;
+            if (child->abi == GUEST_ABI_AMD64) {
+                struct user_regs_struct_amd64_ user_regs_amd64;
+                if (user_get(data, user_regs_amd64)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
+                set_user_regs_amd64(&child->cpu, &user_regs_amd64);
             } else {
+                struct user_regs_struct_ user_regs_;
+                if (user_get(data, user_regs_)) {
+                    unlock(&child->ptrace.lock);
+                    return _EFAULT;
+                }
                 set_user_regs(&child->cpu, &user_regs_);
             }
             unlock(&child->ptrace.lock);
@@ -295,7 +421,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
 
         // GDB needs the fpregs functions to exist if you want to evaluate things
         case PTRACE_GETFPREGS_: {
-            STRACE("ptrace(PTRACE_GETFPREGS, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_GETFPREGS, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -311,7 +438,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_SETFPREGS_: {
-            STRACE("ptrace(PTRACE_SETFPREGS, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_SETFPREGS, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -327,7 +455,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_SYSCALL_: {
-            STRACE("ptrace(PTRACE_SYSCALL, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_SYSCALL, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -341,7 +470,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_SETOPTIONS_: {
-            STRACE("ptrace(PTRACE_SETOPTIONS, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_SETOPTIONS, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
             // Ideally we would have this condition, but strace annonyingly
@@ -361,7 +491,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_GETSIGINFO_: {
-            STRACE("ptrace(PTRACE_GETSIGINFO, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_GETSIGINFO, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -374,7 +505,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         case PTRACE_GETEVENTMSG_: {
-            STRACE("ptrace(PTRACE_GETEVENTMSG, %d, %#x, %#x)", pid, addr, data);
+            STRACE("ptrace(PTRACE_GETEVENTMSG, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
@@ -388,7 +520,8 @@ dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
         }
 
         default:
-            STRACE("ptrace(%d, %d, %#x, %#x)", request, pid, addr, data);
+            STRACE("ptrace(%d, %d, %#llx, %#llx)", request, pid,
+                    (unsigned long long) addr, (unsigned long long) data);
             return _EPERM;
     }
 }

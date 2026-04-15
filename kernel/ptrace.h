@@ -58,6 +58,36 @@ struct user_regs_struct_ {
     dword_t xss;
 };
 
+struct user_regs_struct_amd64_ {
+    qword_t r15;
+    qword_t r14;
+    qword_t r13;
+    qword_t r12;
+    qword_t rbp;
+    qword_t rbx;
+    qword_t r11;
+    qword_t r10;
+    qword_t r9;
+    qword_t r8;
+    qword_t rax;
+    qword_t rcx;
+    qword_t rdx;
+    qword_t rsi;
+    qword_t rdi;
+    qword_t orig_rax;
+    qword_t rip;
+    qword_t cs;
+    qword_t eflags;
+    qword_t rsp;
+    qword_t ss;
+    qword_t fs_base;
+    qword_t gs_base;
+    qword_t ds;
+    qword_t es;
+    qword_t fs;
+    qword_t gs;
+};
+
 struct user_fpregs_struct_ {
     dword_t cwd;
     dword_t swd;
@@ -75,6 +105,7 @@ struct user_ {
 };
 
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data);
+dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_addr_t data);
 void ptrace_signal_stop(int sig, struct siginfo_ *info);
 void ptrace_syscall_stop(struct cpu_state *cpu);
 void ptrace_event_stop(int sig, struct siginfo_ *info, int event, dword_t eventmsg);
