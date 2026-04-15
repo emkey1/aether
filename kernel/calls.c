@@ -2288,6 +2288,23 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
     amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
     amd64_tracked_proc_trace_enter(syscall_num, raw_args);
+    if (dispatch->abi == GUEST_ABI_AMD64 && syscall_num == 15) {
+        qword_t result = sys_rt_sigreturn_amd64();
+        sqword_t signed_result = (sqword_t) result;
+        if (signed_result < 0 && signed_result >= -4095)
+            amd64_syscall_result_qword(cpu, result);
+        amd64_trace_track_child(syscall_num, result);
+        amd64_tty_process_trace(syscall_num, raw_args, result);
+        amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
+        amd64_tracked_write_trace(syscall_num, raw_args, result);
+        amd64_enomem_syscall_trace(syscall_num, raw_args, result);
+        amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
+        amd64_rustc_syscall_trace_exit(syscall_num, result);
+        amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+            ptrace_syscall_stop(cpu);
+        return;
+    }
     if (dispatch->abi == GUEST_ABI_AMD64 &&
             handle_amd64_native_memory_syscall(cpu, syscall_num, raw_args)) {
         qword_t result = dispatch->abi == GUEST_ABI_AMD64 ? cpu->amd64_regs[amd64_rax] : cpu->eax;

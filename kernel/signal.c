@@ -19,6 +19,7 @@ int xsave_extra = 0;
 int fxsave_extra = 0;
 static void sigmask_set(sigset_t_ set);
 static bool is_on_altstack(guest_addr_t sp, struct task *task);
+static dword_t current_altstack_flags(struct task *task);
 static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
@@ -36,6 +37,103 @@ struct sigaction_amd64_marshaled {
     qword_t restorer;
     sigset_t_ mask;
 } __attribute__((packed));
+
+struct amd64_siginfo_ {
+    int_t sig;
+    int_t sig_errno;
+    int_t code;
+    int_t __pad0;
+    union {
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
+        } kill;
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
+            int_t status;
+            int_t __pad0;
+            qword_t utime;
+            qword_t stime;
+        } child;
+        struct {
+            guest_addr_t addr;
+            word_t addr_lsb;
+            byte_t __pad0[6];
+            guest_addr_t lower;
+            guest_addr_t upper;
+        } fault;
+        struct {
+            int_t timer;
+            int_t overrun;
+            union sigval_ value;
+            int_t _private;
+            int_t __pad0;
+        } timer;
+        struct {
+            guest_addr_t call_addr;
+            int_t syscall;
+            dword_t arch;
+        } sigsys;
+        byte_t __pad[112];
+    };
+} __attribute__((packed));
+
+static_assert(sizeof(struct amd64_siginfo_) == 128, "amd64 siginfo layout mismatch");
+
+enum amd64_greg_index {
+    AMD64_GREG_R8 = 0,
+    AMD64_GREG_R9,
+    AMD64_GREG_R10,
+    AMD64_GREG_R11,
+    AMD64_GREG_R12,
+    AMD64_GREG_R13,
+    AMD64_GREG_R14,
+    AMD64_GREG_R15,
+    AMD64_GREG_RDI,
+    AMD64_GREG_RSI,
+    AMD64_GREG_RBP,
+    AMD64_GREG_RBX,
+    AMD64_GREG_RDX,
+    AMD64_GREG_RAX,
+    AMD64_GREG_RCX,
+    AMD64_GREG_RSP,
+    AMD64_GREG_RIP,
+    AMD64_GREG_EFL,
+    AMD64_GREG_CSGSFS,
+    AMD64_GREG_ERR,
+    AMD64_GREG_TRAPNO,
+    AMD64_GREG_OLDMASK,
+    AMD64_GREG_CR2,
+    AMD64_GREG_COUNT,
+};
+
+struct amd64_stack_t_marshaled {
+    qword_t stack;
+    dword_t flags;
+    dword_t pad;
+    qword_t size;
+};
+
+struct amd64_mcontext_ {
+    qword_t gregs[AMD64_GREG_COUNT];
+    guest_addr_t fpstate;
+    qword_t reserved1[8];
+};
+
+struct amd64_ucontext_ {
+    qword_t flags;
+    guest_addr_t link;
+    struct amd64_stack_t_marshaled stack;
+    struct amd64_mcontext_ mcontext;
+    sigset_t_ sigmask;
+};
+
+struct rt_sigframe_amd64 {
+    guest_addr_t pretcode;
+    struct amd64_ucontext_ uc;
+    struct amd64_siginfo_ info;
+};
 
 static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct sigaction_ *action) {
     if (task->abi == GUEST_ABI_AMD64) {
@@ -281,9 +379,32 @@ static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo
     out->timer._private = info->timer._private;
 }
 
+static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct siginfo_ *info) {
+    memset(out, 0, sizeof(*out));
+    out->sig = info->sig;
+    out->sig_errno = info->sig_errno;
+    out->code = info->code;
+    out->kill.pid = info->kill.pid;
+    out->kill.uid = info->kill.uid;
+    out->child.pid = info->child.pid;
+    out->child.uid = info->child.uid;
+    out->child.status = info->child.status;
+    out->child.utime = info->child.utime;
+    out->child.stime = info->child.stime;
+    out->fault.addr = info->fault.addr;
+    out->sigsys.call_addr = info->sigsys.addr;
+    out->sigsys.syscall = info->sigsys.syscall;
+    out->timer.timer = info->timer.timer;
+    out->timer.overrun = info->timer.overrun;
+    out->timer.value = info->timer.value;
+    out->timer._private = info->timer._private;
+}
+
 int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info) {
     if (task->abi == GUEST_ABI_AMD64) {
-        if (user_put(user_addr, *info))
+        struct amd64_siginfo_ user_info;
+        siginfo_to_amd64_user(&user_info, info);
+        if (user_put(user_addr, user_info))
             return _EFAULT;
     } else {
         struct i386_siginfo_ user_info;
@@ -512,12 +633,18 @@ int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
     return 0;
 }
 
-static addr_t sigreturn_trampoline(const char *name) {
+static guest_addr_t sigreturn_trampoline(const char *name) {
     addr_t sigreturn_addr = vdso_symbol(name);
     if (sigreturn_addr == 0) {
         die("sigreturn not found in vdso, this should never happen");
     }
     return current->mm->vdso + sigreturn_addr;
+}
+
+static guest_addr_t signal_restorer(const struct sigaction_ *action, bool rt) {
+    if (current->abi == GUEST_ABI_AMD64)
+        return action->restorer;
+    return sigreturn_trampoline(rt ? "__kernel_rt_sigreturn" : "__kernel_sigreturn");
 }
 
 static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
@@ -540,7 +667,7 @@ static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
 }
 
 static void setup_sigframe(struct siginfo_ *info, struct sigframe_ *frame) {
-    frame->restorer = sigreturn_trampoline("__kernel_sigreturn");
+    frame->restorer = (addr_t) signal_restorer(&current->sighand->action[info->sig], false);
     frame->sig = info->sig;
     setup_sigcontext(&frame->sc, &current->cpu);
     frame->extramask = current->blocked >> 32;
@@ -558,7 +685,7 @@ static void setup_sigframe(struct siginfo_ *info, struct sigframe_ *frame) {
 }
 
 static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame) {
-    frame->restorer = sigreturn_trampoline("__kernel_rt_sigreturn");
+    frame->restorer = (addr_t) signal_restorer(&current->sighand->action[info->sig], true);
     frame->sig = info->sig;
     siginfo_to_i386_user(&frame->info, info);
     frame->uc.flags = 0;
@@ -578,6 +705,50 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
         .int80 = 0x80cd,
     };
     memcpy(frame->retcode, &rt_retcode, sizeof(rt_retcode));
+}
+
+static void setup_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_state *cpu) {
+    memset(mcontext, 0, sizeof(*mcontext));
+    mcontext->gregs[AMD64_GREG_R8] = cpu->amd64_regs[amd64_r8];
+    mcontext->gregs[AMD64_GREG_R9] = cpu->amd64_regs[amd64_r9];
+    mcontext->gregs[AMD64_GREG_R10] = cpu->amd64_regs[amd64_r10];
+    mcontext->gregs[AMD64_GREG_R11] = cpu->amd64_regs[amd64_r11];
+    mcontext->gregs[AMD64_GREG_R12] = cpu->amd64_regs[amd64_r12];
+    mcontext->gregs[AMD64_GREG_R13] = cpu->amd64_regs[amd64_r13];
+    mcontext->gregs[AMD64_GREG_R14] = cpu->amd64_regs[amd64_r14];
+    mcontext->gregs[AMD64_GREG_R15] = cpu->amd64_regs[amd64_r15];
+    mcontext->gregs[AMD64_GREG_RDI] = cpu->amd64_regs[amd64_rdi];
+    mcontext->gregs[AMD64_GREG_RSI] = cpu->amd64_regs[amd64_rsi];
+    mcontext->gregs[AMD64_GREG_RBP] = cpu->amd64_regs[amd64_rbp];
+    mcontext->gregs[AMD64_GREG_RBX] = cpu->amd64_regs[amd64_rbx];
+    mcontext->gregs[AMD64_GREG_RDX] = cpu->amd64_regs[amd64_rdx];
+    mcontext->gregs[AMD64_GREG_RAX] = cpu->amd64_regs[amd64_rax];
+    mcontext->gregs[AMD64_GREG_RCX] = cpu->amd64_regs[amd64_rcx];
+    mcontext->gregs[AMD64_GREG_RSP] = cpu->amd64_regs[amd64_rsp];
+    mcontext->gregs[AMD64_GREG_RIP] = cpu->amd64_rip;
+    collapse_flags(cpu);
+    mcontext->gregs[AMD64_GREG_EFL] = cpu->eflags;
+    mcontext->gregs[AMD64_GREG_CSGSFS] = 0x33;
+    mcontext->gregs[AMD64_GREG_ERR] = 0;
+    mcontext->gregs[AMD64_GREG_TRAPNO] = cpu->trapno;
+    mcontext->gregs[AMD64_GREG_OLDMASK] = current->blocked;
+    if (cpu->trapno == INT_PF)
+        mcontext->gregs[AMD64_GREG_CR2] = cpu->segfault_addr;
+}
+
+static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_amd64 *frame) {
+    memset(frame, 0, sizeof(*frame));
+    frame->pretcode = signal_restorer(&current->sighand->action[info->sig], true);
+    frame->uc.flags = 0;
+    frame->uc.link = 0;
+    frame->uc.stack = (struct amd64_stack_t_marshaled) {
+        .stack = current->altstack,
+        .flags = current_altstack_flags(current),
+        .size = current->altstack_size,
+    };
+    setup_amd64_mcontext(&frame->uc.mcontext, &current->cpu);
+    frame->uc.sigmask = current->blocked;
+    siginfo_to_amd64_user(&frame->info, info);
 }
 
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
@@ -603,6 +774,51 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     struct sigaction_ *action = &sighand->action[info->sig];
     bool need_siginfo = action->flags & SA_SIGINFO_;
 
+    guest_addr_t sp = current_user_sp(current);
+    if ((action->flags & SA_ONSTACK_) && current->altstack && !is_on_altstack(sp, current))
+        sp = current->altstack + current->altstack_size;
+
+    if (current->abi == GUEST_ABI_AMD64) {
+        struct rt_sigframe_amd64 frame;
+        size_t frame_size = sizeof(frame);
+        setup_rt_sigframe_amd64(info, &frame);
+
+        if (sp > 128)
+            sp -= 128;
+        if (xsave_extra) {
+            sp -= xsave_extra;
+            sp &= ~0x3full;
+            sp -= fxsave_extra;
+        }
+        sp -= frame_size;
+        sp = (sp & ~0xfull) - 8;
+
+        current->cpu.amd64_regs[amd64_rsp] = sp;
+        current->cpu.esp = (dword_t) sp;
+        current->cpu.amd64_rip = action->handler;
+        current->cpu.eip = (dword_t) action->handler;
+        current->cpu.amd64_regs[amd64_rdi] = info->sig;
+        current->cpu.amd64_regs[amd64_rsi] = need_siginfo ? sp + offsetof(struct rt_sigframe_amd64, info) : 0;
+        current->cpu.amd64_regs[amd64_rdx] = need_siginfo ? sp + offsetof(struct rt_sigframe_amd64, uc) : 0;
+        current->cpu.edi = (dword_t) current->cpu.amd64_regs[amd64_rdi];
+        current->cpu.esi = (dword_t) current->cpu.amd64_regs[amd64_rsi];
+        current->cpu.edx = (dword_t) current->cpu.amd64_regs[amd64_rdx];
+
+        if (!(action->flags & SA_NODEFER_))
+            sigset_add(&current->blocked, info->sig);
+        current->blocked |= action->mask;
+
+        if (user_write(sp, &frame, frame_size)) {
+            printk("WARNING: failed to install amd64 frame for %d at %#llx\n",
+                   info->sig, (unsigned long long) sp);
+            deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+        }
+
+        if (action->flags & SA_RESETHAND_)
+            *action = (struct sigaction_) {.handler = SIG_DFL_};
+        return;
+    }
+
     // setup the frame
     union {
         struct sigframe_ sigframe;
@@ -619,12 +835,8 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
     // set up registers for signal handler
     current->cpu.eax = info->sig;
-    current->cpu.eip = sighand->action[info->sig].handler;
+    current->cpu.eip = action->handler;
 
-    dword_t sp = current->cpu.esp;
-    if (current->altstack && !is_on_altstack(sp, current)) {
-        sp = current->altstack + current->altstack_size;
-    }
     if (xsave_extra) {
         // do as the kernel does
         // this is superhypermega condensed version of fpu__alloc_mathframe in
@@ -751,8 +963,56 @@ static void restore_sigcontext(struct sigcontext_ *context, struct cpu_state *cp
     cpu->eflags = (context->flags & USE_FLAGS) | (cpu->eflags & ~USE_FLAGS);
 }
 
+static void sync_i386_shadows_from_amd64(struct cpu_state *cpu) {
+    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    cpu->ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+    cpu->ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+    cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+    cpu->esi = (dword_t) cpu->amd64_regs[amd64_rsi];
+    cpu->edi = (dword_t) cpu->amd64_regs[amd64_rdi];
+    cpu->ebp = (dword_t) cpu->amd64_regs[amd64_rbp];
+    cpu->esp = (dword_t) cpu->amd64_regs[amd64_rsp];
+    cpu->eip = (dword_t) cpu->amd64_rip;
+}
+
+static void restore_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_state *cpu) {
+    cpu->amd64_regs[amd64_r8] = mcontext->gregs[AMD64_GREG_R8];
+    cpu->amd64_regs[amd64_r9] = mcontext->gregs[AMD64_GREG_R9];
+    cpu->amd64_regs[amd64_r10] = mcontext->gregs[AMD64_GREG_R10];
+    cpu->amd64_regs[amd64_r11] = mcontext->gregs[AMD64_GREG_R11];
+    cpu->amd64_regs[amd64_r12] = mcontext->gregs[AMD64_GREG_R12];
+    cpu->amd64_regs[amd64_r13] = mcontext->gregs[AMD64_GREG_R13];
+    cpu->amd64_regs[amd64_r14] = mcontext->gregs[AMD64_GREG_R14];
+    cpu->amd64_regs[amd64_r15] = mcontext->gregs[AMD64_GREG_R15];
+    cpu->amd64_regs[amd64_rdi] = mcontext->gregs[AMD64_GREG_RDI];
+    cpu->amd64_regs[amd64_rsi] = mcontext->gregs[AMD64_GREG_RSI];
+    cpu->amd64_regs[amd64_rbp] = mcontext->gregs[AMD64_GREG_RBP];
+    cpu->amd64_regs[amd64_rbx] = mcontext->gregs[AMD64_GREG_RBX];
+    cpu->amd64_regs[amd64_rdx] = mcontext->gregs[AMD64_GREG_RDX];
+    cpu->amd64_regs[amd64_rax] = mcontext->gregs[AMD64_GREG_RAX];
+    cpu->amd64_regs[amd64_rcx] = mcontext->gregs[AMD64_GREG_RCX];
+    cpu->amd64_regs[amd64_rsp] = mcontext->gregs[AMD64_GREG_RSP];
+    cpu->amd64_rip = mcontext->gregs[AMD64_GREG_RIP];
+    cpu->trapno = (dword_t) mcontext->gregs[AMD64_GREG_TRAPNO];
+    cpu->segfault_addr = mcontext->gregs[AMD64_GREG_CR2];
+
+    cpu->eflags = (dword_t) mcontext->gregs[AMD64_GREG_EFL];
+    cpu->cf = cpu->cf_bit;
+    cpu->of = cpu->of_bit;
+    cpu->zf_res = 0;
+    cpu->sf_res = 0;
+    cpu->pf_res = 0;
+    cpu->af_ops = 0;
+    cpu->df_offset = cpu->df ? -1 : 1;
+
+    sync_i386_shadows_from_amd64(cpu);
+}
+
 dword_t sys_rt_sigreturn(void) {
     struct cpu_state *cpu = &current->cpu;
+    if (current->abi == GUEST_ABI_AMD64)
+        return (dword_t) sys_rt_sigreturn_amd64();
+
     struct rt_sigframe_ frame;
     // esp points past the first field of the frame
     if (user_get(cpu->esp - offsetof(struct rt_sigframe_, sig), frame)) {
@@ -771,6 +1031,28 @@ dword_t sys_rt_sigreturn(void) {
     sigmask_set(frame.uc.sigmask);
     unlock(&current->sighand->lock);
     return cpu->eax;
+}
+
+qword_t sys_rt_sigreturn_amd64(void) {
+    struct cpu_state *cpu = &current->cpu;
+    struct rt_sigframe_amd64 frame;
+    guest_addr_t frame_addr = cpu->amd64_regs[amd64_rsp] - offsetof(struct rt_sigframe_amd64, uc);
+    if (user_get(frame_addr, frame)) {
+        deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+        return _EFAULT;
+    }
+
+    restore_amd64_mcontext(&frame.uc.mcontext, cpu);
+
+    lock(&current->sighand->lock, 0);
+    if (!is_on_altstack(cpu->amd64_regs[amd64_rsp], current) &&
+            frame.uc.stack.size >= MINSIGSTKSZ_) {
+        current->altstack = frame.uc.stack.stack;
+        current->altstack_size = frame.uc.stack.size;
+    }
+    sigmask_set(frame.uc.sigmask);
+    unlock(&current->sighand->lock);
+    return cpu->amd64_regs[amd64_rax];
 }
 
 dword_t sys_sigreturn(void) {
@@ -959,13 +1241,6 @@ int_t sys_rt_sigpending_guest(guest_addr_t set_addr) {
 static bool is_on_altstack(guest_addr_t sp, struct task *task) {
     return sp > task->altstack && sp <= task->altstack + task->altstack_size;
 }
-
-struct amd64_stack_t_marshaled {
-    qword_t stack;
-    dword_t flags;
-    dword_t pad;
-    qword_t size;
-};
 
 static dword_t current_altstack_flags(struct task *task) {
     dword_t flags = 0;

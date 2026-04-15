@@ -14,6 +14,7 @@ typedef qword_t sigset_t_;
 #define SIG_IGN_ 1
 
 #define SA_SIGINFO_ 4
+#define SA_ONSTACK_ 0x08000000
 #define SA_NODEFER_ 0x40000000
 #define SA_RESETHAND_ 0x80000000
 
@@ -189,6 +190,7 @@ dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_ad
 dword_t sys_rt_sigaction_guest(dword_t signum, guest_addr_t action_addr, guest_addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr);
 dword_t sys_rt_sigreturn(void);
+qword_t sys_rt_sigreturn_amd64(void);
 dword_t sys_sigreturn(void);
 
 #define SIG_BLOCK_ 0
