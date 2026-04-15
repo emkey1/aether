@@ -649,7 +649,21 @@ static guest_addr_t signal_restorer(const struct sigaction_ *action, bool rt) {
     return sigreturn_trampoline(rt ? "__kernel_rt_sigreturn" : "__kernel_sigreturn");
 }
 
-static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
+static bool signal_should_capture_trap_state(int sig) {
+    switch (sig) {
+        case SIGILL_:
+        case SIGTRAP_:
+        case SIGBUS_:
+        case SIGFPE_:
+        case SIGSEGV_:
+        case SIGSYS_:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu, int sig) {
     sc->ax = cpu->eax;
     sc->bx = cpu->ebx;
     sc->cx = cpu->ecx;
@@ -661,9 +675,11 @@ static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
     sc->ip = cpu->eip;
     collapse_flags(cpu);
     sc->flags = cpu->eflags;
-    sc->trapno = cpu->trapno;
-    if (cpu->trapno == INT_PF)
+    sc->trapno = signal_should_capture_trap_state(sig) ? cpu->trapno : 0;
+    if (sc->trapno == INT_PF)
         sc->cr2 = cpu->segfault_addr;
+    else
+        sc->cr2 = 0;
     // TODO more shit
     sc->oldmask = current->blocked & 0xffffffff;
 }
@@ -671,7 +687,7 @@ static void setup_sigcontext(struct sigcontext_ *sc, struct cpu_state *cpu) {
 static void setup_sigframe(struct siginfo_ *info, struct sigframe_ *frame) {
     frame->restorer = (addr_t) signal_restorer(&current->sighand->action[info->sig], false);
     frame->sig = info->sig;
-    setup_sigcontext(&frame->sc, &current->cpu);
+    setup_sigcontext(&frame->sc, &current->cpu, info->sig);
     frame->extramask = current->blocked >> 32;
 
     static const struct {
@@ -693,7 +709,7 @@ static void setup_rt_sigframe(struct siginfo_ *info, struct rt_sigframe_ *frame)
     frame->uc.flags = 0;
     frame->uc.link = 0;
     altstack_to_i386_user(current, &frame->uc.stack);
-    setup_sigcontext(&frame->uc.mcontext, &current->cpu);
+    setup_sigcontext(&frame->uc.mcontext, &current->cpu, info->sig);
     frame->uc.sigmask = current->blocked;
 
     static const struct {
@@ -732,10 +748,8 @@ static void setup_amd64_mcontext(struct amd64_mcontext_ *mcontext, struct cpu_st
     mcontext->gregs[AMD64_GREG_EFL] = cpu->eflags;
     mcontext->gregs[AMD64_GREG_CSGSFS] = 0x33;
     mcontext->gregs[AMD64_GREG_ERR] = 0;
-    mcontext->gregs[AMD64_GREG_TRAPNO] = cpu->trapno;
+    mcontext->gregs[AMD64_GREG_TRAPNO] = 0;
     mcontext->gregs[AMD64_GREG_OLDMASK] = current->blocked;
-    if (cpu->trapno == INT_PF)
-        mcontext->gregs[AMD64_GREG_CR2] = cpu->segfault_addr;
 }
 
 static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_amd64 *frame) {
@@ -748,6 +762,11 @@ static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_am
         .size = current->altstack_size,
     };
     setup_amd64_mcontext(&frame->uc.mcontext, &current->cpu);
+    if (signal_should_capture_trap_state(info->sig)) {
+        frame->uc.mcontext.gregs[AMD64_GREG_TRAPNO] = current->cpu.trapno;
+        if (current->cpu.trapno == INT_PF)
+            frame->uc.mcontext.gregs[AMD64_GREG_CR2] = current->cpu.segfault_addr;
+    }
     frame->uc.sigmask = current->blocked;
     siginfo_to_amd64_user(&frame->info, info);
 
