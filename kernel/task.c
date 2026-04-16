@@ -19,7 +19,7 @@ pthread_mutex_t extra_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t delay_lock = PTHREAD_MUTEX_INITIALIZER;
 extern lock_t atomic_l_lock;
 pthread_mutex_t wait_for_lock = PTHREAD_MUTEX_INITIALIZER;
-time_t boot_time;  // Store the boot time.  -mke
+time_t boot_time;  // Store the boot time.
 
 struct list tasks_pending_deletion_queue;
 pthread_mutex_t tasks_pending_deletion_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -27,7 +27,7 @@ pthread_mutex_t tasks_pending_deletion_lock = PTHREAD_MUTEX_INITIALIZER;
 int iOSMajorRelease;
 
 bool doEnableMulticore; // Enable multicore if toggled, should default to false
-bool isGlibC = false; // Try to guess if we're running a non musl distro.  -mke
+bool isGlibC = false; // Try to guess if we're running a non-musl distro.
 bool doEnableExtraLocking; // Enable extra locking if toggled, should default to true
 
 __thread struct task *current;
@@ -88,9 +88,9 @@ struct pid *pid_get_last_allocated(void) {
     return pid_get(last_allocated_pid);
 }
 
-inline void task_ref_cnt_mod(struct task *task, int value) { // value Should only be -1 or 1.  -mke
+inline void task_ref_cnt_mod(struct task *task, int value) { // value should only be -1 or 1.
     // Keep track of how many threads are referencing this task
-    if(!doEnableExtraLocking) { // If they want to fly by the seat of their pants...  -mke
+    if(!doEnableExtraLocking) {
         return;
     }
     
@@ -102,9 +102,15 @@ inline void task_ref_cnt_mod(struct task *task, int value) { // value Should onl
         }
     }
 
+    if (value != 1 && value != -1) {
+        printk("ERROR: invalid task refcount delta %d for %s:%d\n",
+               value, task->comm, task->pid);
+        return;
+    }
+
     pthread_mutex_lock(&task->reference.lock);
     
-    if(((task->reference.count + value) < 0) && (task->pid > 9)) { // Prevent our unsigned value attempting to go negative.  -mke
+    if(((task->reference.count + value) < 0) && (task->pid > 9)) { // Prevent the count from going negative.
         void *caller = __builtin_return_address(0);
         Dl_info caller_info = {};
         const char *caller_name = "?";
@@ -333,7 +339,11 @@ void task_run_current(void) {
 }
 
 static void *task_thread(void *task) {
-    
+    sigset_t sigusr1;
+    sigemptyset(&sigusr1);
+    sigaddset(&sigusr1, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &sigusr1, NULL);
+
     current = task;
     
     update_thread_name();
@@ -385,10 +395,16 @@ void update_thread_name(void) {
 #endif
 }
 
-inline void modify_locks_held_count(struct task *task, int value) { // value Should only be -1 or 1.  -mke
+inline void modify_locks_held_count(struct task *task, int value) { // value should only be -1 or 1.
     if ((task == NULL) && (current != NULL)) {
         task = current;
     } else if (task == NULL) {
+        return;
+    }
+
+    if (value != 1 && value != -1) {
+        printk("ERROR: invalid locks_held delta %d for %s:%d\n",
+               value, task->comm, task->pid);
         return;
     }
     

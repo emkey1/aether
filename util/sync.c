@@ -6,7 +6,7 @@
 #include "kernel/errno.h"
 #include <string.h>
 
-int noprintk = 0; // Used to suprress calls to printk.  -mke
+int noprintk = 0; // Used to suppress calls to printk.
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t wait_for_lock; // Synchroniztion lock
 

@@ -70,7 +70,7 @@ static size_t syslog_read(addr_t buf_addr, size_t len, int flags) {
         
         pointer++;
         if(pointer < (buf_addr + (len -1))) {
-            token = strtok(NULL, "\n");  // Grab next token, deal with when back at top of while loop. -mke
+            token = strtok(NULL, "\n");  // Grab next token; the top of the loop handles it.
         } else {
             token = NULL;
         }

@@ -1112,6 +1112,24 @@ static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
     return f_install(fd, type & ~SOCKET_TYPE_MASK);
 }
 
+static bool unix_seqpacket_fallback_needed(int domain, int type, int protocol, int err) {
+    if (domain != AF_LOCAL_)
+        return false;
+    if ((type & SOCKET_TYPE_MASK) != SOCK_SEQPACKET_)
+        return false;
+    if (protocol != 0)
+        return false;
+    switch (err) {
+        case EPROTONOSUPPORT:
+        case EPROTOTYPE:
+        case ESOCKTNOSUPPORT:
+        case EOPNOTSUPP:
+            return true;
+        default:
+            return false;
+    }
+}
+
 int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     STRACE("socket(%d, %d, %d)", domain, type, protocol);
     if (domain == AF_NETLINK_) {
@@ -1147,6 +1165,10 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
         protocol = IPPROTO_ICMP;
 
     int sock = socket(real_domain, real_type, protocol);
+#if defined(__APPLE__)
+    if (sock < 0 && unix_seqpacket_fallback_needed(domain, type, protocol, errno))
+        sock = socket(real_domain, SOCK_STREAM, protocol);
+#endif
     if (sock < 0)
         return errno_map();
 
@@ -2411,6 +2433,10 @@ static int_t sys_socketpair_common(dword_t domain, dword_t type, dword_t protoco
 
     int sockets[2];
     int err = socketpair(real_domain, real_type, protocol, sockets);
+#if defined(__APPLE__)
+    if (err < 0 && unix_seqpacket_fallback_needed(domain, type, protocol, errno))
+        err = socketpair(real_domain, SOCK_STREAM, protocol, sockets);
+#endif
     if (err < 0)
         return errno_map();
 

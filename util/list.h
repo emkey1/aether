@@ -66,12 +66,14 @@ static inline void list_init_add(struct list *list, struct list *item) {
     list_add(list, item);
 }
 
-static inline void list_remove(struct list *item) { // MKEMKE Check
-    if (!list_null(item)) { // MKE, hack to work around thread coherency issues.  Global lock?  FIXME-MKE
-        item->prev->next = item->next; // Crashed here 19 Nov 2022
-        item->next->prev = item->prev;
-       item->next = item->prev = NULL;
+static inline void list_remove(struct list *item) {
+    if (item->next == NULL || item->prev == NULL) {
+        item->next = item->prev = NULL;
+        return;
     }
+    item->prev->next = item->next;
+    item->next->prev = item->prev;
+    item->next = item->prev = NULL;
 }
 
 static inline void list_remove_safe(struct list *item) {

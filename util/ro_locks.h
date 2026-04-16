@@ -44,7 +44,7 @@ typedef struct {
 #endif
 } lock_t;
 
-extern lock_t atomic_l_lock; // Used to make all lock operations atomic, even read->write and right->read -mke
+extern lock_t atomic_l_lock; // Used to make lock state transitions atomic.
 extern bool doEnableExtraLocking;
 
 void lock_init(lock_t *lock, char lname[16]);
@@ -212,7 +212,7 @@ static inline int trylocknl(lock_t *lock, char *comm, int pid) {
         lock->debug.pid = current_pid(current);
     }
 #endif
-    if(!status) {// iSH-AOK crashes if low number processes are not excluded.  Might be able to go lower then 10?  -mke
+    if(!status) {
         modify_locks_held_count(current, 1);
         
         //STRACE("trylock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);

@@ -20,6 +20,7 @@
 #include "fs/path.h"
 #include "kernel/elf.h"
 #include "kernel/vdso.h"
+#include "jit/jit.h"
 #include "tools/ptraceomatic-config.h"
 #include "util/sync.h"
 
@@ -67,6 +68,8 @@ static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_pr
 static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
 static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
 static void amd64_trace_exec_attempt(const char *file, const char *argv);
+static void amd64_trace_exec_loader_failure(const char *stage, const char *file, enum guest_abi abi,
+        struct elf_prg_info *ph, guest_addr_t bias, struct fd *fd, int err, const char *interp_name);
 
 static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi_out) {
     enum guest_abi abi;
@@ -236,8 +239,10 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
 
     if ((err = fd->ops->mmap(fd, current->mem, PAGE(addr),
                     PAGE_ROUND_UP(filesize + PGOFFSET(addr)),
-                    offset - PGOFFSET(addr), flags, MMAP_PRIVATE)) < 0)
+                    offset - PGOFFSET(addr), flags, MMAP_PRIVATE)) < 0) {
+        amd64_trace_exec_loader_failure("segment-mmap", NULL, abi, &ph, bias, fd, err, NULL);
         return err;
+    }
     // TODO find a better place for these to avoid code duplication
     mem_pt(current->mem, PAGE(addr))->data->fd = fd_retain(fd);
     mem_pt(current->mem, PAGE(addr))->data->file_offset = offset - PGOFFSET(addr);
@@ -268,16 +273,20 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
             int memset_err = user_memset(file_end, 0, tail_size);
             write_lock(&mem->lock);
             mem_ref_cnt_mod(mem, -1);
-            if (memset_err)
+            if (memset_err) {
+                amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
                 return _EFAULT;
+            }
         }
 
         // then map the pages from after the file mapping up to and including the end of bss
         dword_t extra_bss_size = bss_size - tail_size;
         if (extra_bss_size != 0) {
             if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(addr + filesize),
-                            PAGE_ROUND_UP(extra_bss_size), flags)) < 0)
+                            PAGE_ROUND_UP(extra_bss_size), flags)) < 0) {
+                amd64_trace_exec_loader_failure("segment-bss-map", NULL, abi, &ph, bias, fd, err, NULL);
                 return err;
+            }
         }
     }
 
@@ -329,11 +338,61 @@ static void amd64_trace_exec_attempt(const char *file, const char *argv) {
         amd64_exec_attempt_trace_count++;
         struct tty *tty = current->group != NULL ? current->group->tty : NULL;
         const char *argv0 = argv != NULL && argv[0] != '\0' ? argv : "";
-        printk("amd64 execve attempt: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
+        printk("tracked execve attempt: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
                tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
                file, current->comm, argv0);
     }
     amd64_trace_track_exec(current->pid, current->tgid, file);
+}
+
+static void amd64_trace_exec_loader_failure(const char *stage, const char *file, enum guest_abi abi,
+        struct elf_prg_info *ph, guest_addr_t bias, struct fd *fd, int err, const char *interp_name) {
+    enum { AMD64_EXEC_FAIL_TRACE_BUDGET = 64 };
+    static unsigned amd64_exec_fail_trace_count;
+
+    bool tracked_exec = file != NULL && (strstr(file, "cargo") != NULL || strstr(file, "rustc") != NULL);
+    bool tracked_lineage = current != NULL && amd64_trace_is_lineage_tgid(current->tgid);
+    if (abi != GUEST_ABI_AMD64 && !tracked_exec && !tracked_lineage)
+        return;
+    if (amd64_exec_fail_trace_count >= AMD64_EXEC_FAIL_TRACE_BUDGET)
+        return;
+    amd64_exec_fail_trace_count++;
+
+    char path[MAX_PATH] = "<path err>";
+    if (file != NULL && file[0] != '\0') {
+        strncpy(path, file, sizeof(path));
+        path[sizeof(path) - 1] = '\0';
+    } else if (fd != NULL && generic_getpath(fd, path) != 0) {
+        strncpy(path, "<path err>", sizeof(path));
+        path[sizeof(path) - 1] = '\0';
+    }
+
+    if (ph != NULL) {
+        printk("tracked exec fail: pid=%d tgid=%d comm=%s stage=%s file=%s interp=%s err=%d abi=%d bias=%#llx vaddr=%#llx off=%#llx filesz=%#llx memsz=%#llx flags=%#x\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->tgid : -1,
+               current != NULL ? current->comm : "<none>",
+               stage != NULL ? stage : "<none>",
+               path,
+               interp_name != NULL ? interp_name : "",
+               err, abi,
+               (unsigned long long) bias,
+               (unsigned long long) ph->vaddr,
+               (unsigned long long) ph->offset,
+               (unsigned long long) ph->filesize,
+               (unsigned long long) ph->memsize,
+               ph->flags);
+        return;
+    }
+
+    printk("tracked exec fail: pid=%d tgid=%d comm=%s stage=%s file=%s interp=%s err=%d abi=%d\n",
+           current != NULL ? current->pid : -1,
+           current != NULL ? current->tgid : -1,
+           current != NULL ? current->comm : "<none>",
+           stage != NULL ? stage : "<none>",
+           path,
+           interp_name != NULL ? interp_name : "",
+           err, abi);
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
@@ -724,6 +783,7 @@ out_free_ph:
     return err;
 
 beyond_hope:
+    amd64_trace_exec_loader_failure("elf-exec", file, header.abi, NULL, bias, fd, err, interp_name);
     if (mem_locked)
         write_unlock(&save->mem->lock);
     goto out_free_interp;
@@ -899,8 +959,10 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     if (err == _ENOEXEC)
         err = shebang_exec(fd, file, argv, envp);
     fd_close(fd);
-    if (err < 0)
+    if (err < 0) {
+        amd64_trace_exec_loader_failure("do-execve", file, current->abi, NULL, 0, NULL, err, NULL);
         return err;
+    }
 
     // setuid/setgid
     if (stat.mode & S_ISUID) {
@@ -928,6 +990,20 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
 
+    current->force_single_step = current->abi == GUEST_ABI_I386 &&
+            i386_single_step_comm_matches(current->comm);
+    current->force_no_jit_cache = current->abi == GUEST_ABI_I386 &&
+            i386_no_cache_comm_matches(current->comm);
+    if (current->force_single_step) {
+        printk("tracked i386 single-step: pid=%d tgid=%d file=%s comm=%s\n",
+               current->pid, current->tgid, file, current->comm);
+    }
+    if (current->force_no_jit_cache) {
+        i386_special_trace_reset(current->tgid, current->comm);
+        printk("tracked i386 no-cache: pid=%d tgid=%d file=%s comm=%s\n",
+               current->pid, current->tgid, file, current->comm);
+    }
+
     {
         enum { AMD64_EXEC_TRACE_BUDGET = 64 };
         static unsigned amd64_exec_trace_count;
@@ -940,7 +1016,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
                 amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
             amd64_exec_trace_count++;
             const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
-            printk("amd64 execve: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
+            printk("tracked execve: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
                    tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
                    file, current->comm, argv0);
         }
@@ -1108,8 +1184,12 @@ ssize_t sys_execve_guest(guest_addr_t filename_addr, guest_addr_t argv_addr, gue
 }
 
 ssize_t sys_execveat(fd_t dirfd, addr_t filename_addr, addr_t argv_addr, addr_t envp_addr, int_t flags) {
-    if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_))
+    if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_)) {
+        if (current != NULL && current->abi == GUEST_ABI_AMD64 && amd64_trace_is_lineage_tgid(current->tgid))
+            printk("amd64 execveat invalid flags: pid=%d tgid=%d comm=%s flags=%#x dirfd=%d guest=0\n",
+                   current->pid, current->tgid, current->comm, flags, dirfd);
         return _EINVAL;
+    }
 
     char filename[MAX_PATH] = "";
     if (filename_addr != 0 && user_read_string(filename_addr, filename, sizeof(filename)))
@@ -1161,8 +1241,12 @@ out_free_args:
 }
 
 ssize_t sys_execveat_guest(fd_t dirfd, guest_addr_t filename_addr, guest_addr_t argv_addr, guest_addr_t envp_addr, int_t flags) {
-    if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_))
+    if (flags & ~(AT_EMPTY_PATH_ | AT_SYMLINK_NOFOLLOW_)) {
+        if (current != NULL && current->abi == GUEST_ABI_AMD64 && amd64_trace_is_lineage_tgid(current->tgid))
+            printk("amd64 execveat invalid flags: pid=%d tgid=%d comm=%s flags=%#x dirfd=%d guest=1\n",
+                   current->pid, current->tgid, current->comm, flags, dirfd);
         return _EINVAL;
+    }
 
     char filename[MAX_PATH] = "";
     if (filename_addr != 0 && user_read_string(filename_addr, filename, sizeof(filename)))

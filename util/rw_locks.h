@@ -88,7 +88,7 @@ static inline void _write_unlock(wrlock_t *lock) {
     //modify_locks_held_count(current, -1);
 }
 
-static inline void write_unlock(wrlock_t *lock) { // Wrap it.  External calls lock, internal calls using _write_unlock() don't -mke
+static inline void write_unlock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
     atomic_l_lockf("w_unlock\0", 0);
     _write_unlock(lock);
     atomic_l_unlockf();
@@ -110,10 +110,10 @@ static inline void loop_lock_generic(wrlock_t *lock, int is_write) {
 static inline void _read_lock(wrlock_t *lock) {
     loop_lock_read(lock);
     //pthread_rwlock_rdlock(&lock->l);
-    // assert(lock->val >= 0);  //  If it isn't >= zero we have a problem since that means there is a write lock somehow.  -mke
+    // assert(lock->val >= 0);  // If it is negative, a writer is recorded here.
     if(lock->val) {
         lock->val++;
-    } else if (lock->val > -1){  // Deal with insanity.  -mke
+    } else if (lock->val > -1){
         lock->val++;
     } else {
         printk("ERROR: _read_lock() val is %d\n", lock->val);
@@ -133,7 +133,7 @@ static inline void _read_lock(wrlock_t *lock) {
     //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
-static inline void read_lock(wrlock_t *lock) { // Wrapper so that external calls lock, internal calls using _read_unlock() don't -mke
+static inline void read_lock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
     atomic_l_lockf("r_lock\0", 0);
     _read_lock(lock);
     atomic_l_unlockf();
@@ -161,14 +161,14 @@ static inline void write_lock(wrlock_t *lock) {
 }
 
 
-static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a RO lock to a Write lock.  -mke
+static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a read lock to a write lock.
     atomic_l_lockf("rtw_lock\0", 0);
     _read_unlock(lock);
     _write_lock(lock);
     atomic_l_unlockf();
 }
 
-static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a Write lock to a RO lock.  -mke
+static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a write lock to a read lock.
     atomic_l_lockf("wtr_lock\0", 0);
     _write_unlock(lock);
     _read_lock(lock);
@@ -184,7 +184,7 @@ static inline void write_unlock_and_destroy(wrlock_t *lock) {
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
     atomic_l_lockf("ruad_lock", 0);
-    if(trylockw(lock)) // It should be locked, but just in case.  Likely masking underlying issue.  -mke
+    if(trylockw(lock)) // Expected to already be held; only fall back to read unlock if it is still active.
         _read_unlock(lock);
     
     _lock_destroy(lock);
@@ -209,6 +209,19 @@ static inline int trylockw(wrlock_t *lock) {
         //lock->pid = current_pid(current);
         //strncpy(lock->comm, current_comm(current), 16);
     }
+    return status;
+}
+
+static inline int trylockr(wrlock_t *lock) {
+    atomic_l_lockf("trylockr\0", 0);
+    int status = pthread_rwlock_tryrdlock(&lock->l);
+    if (status == 0) {
+        if (lock->val < 0) {
+            printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, lock->val);
+        }
+        lock->val++;
+    }
+    atomic_l_unlockf();
     return status;
 }
 

@@ -558,7 +558,7 @@ static const char *viRepeatKeys = "hjkl";
          */
         //if (@available(iOS 15.0, *)) {
         //    [self addFunctionKey:UIKeyInputDelete withName:@"Del" withNormalEscapeSequence:@"\x1b[3~" withShiftEscapeSequence:@"\x1b[3;2~" withControlEscapeSequence:@"\x1b[3;5~"];
-       // } // This breaks the del key.  -mke
+       // } // This breaks the Del key.
         [self addFunctionKey:UIKeyInputPageUp withName:@"PgUp" withNormalEscapeSequence:@"\x1b[5~" withShiftEscapeSequence:@"\x1b[5;2~" withControlEscapeSequence:@"\x1b[5;5~" withAltEscapeSequence:@"\x1b[5;3~"];
         [self addFunctionKey:UIKeyInputPageDown withName:@"PgDn" withNormalEscapeSequence:@"\x1b[6~" withShiftEscapeSequence:@"\x1b[6;2~" withControlEscapeSequence:@"\x1b[6;5~" withAltEscapeSequence:@"\x1b[6;3~"];
         [self addFunctionKey:UIKeyInputHome withName:@"Home" withNormalEscapeSequence:@"\x1bOH" withShiftEscapeSequence:@"\x1b[1;2H" withControlEscapeSequence:@"\x1b[1;5H" withAltEscapeSequence:@"\x1b[1;3H"];

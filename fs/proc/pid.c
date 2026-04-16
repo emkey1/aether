@@ -144,7 +144,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
-    // lock(&task->sighand->lock); //mkemke.  Evil, but I'm tired of trying to track down why this is getting munged for now.
+    // lock(&task->sighand->lock); // Left disabled; this proc path currently reports ignored/caught as zeroes.
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
@@ -193,7 +193,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     proc_printf(buf, "%lu ", (unsigned long) task->pending & 0xffffffff);
     proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
-    /* uint32_t ignored = 0; // MKEMKEMKE try enabling this at some point
+    /* uint32_t ignored = 0; // Try enabling this at some point.
     uint32_t caught = 0;
     for (int i = 0; i < 32; i++) {
         if (task->sighand->action[i].handler == SIG_IGN_)

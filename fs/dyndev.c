@@ -52,7 +52,7 @@ int dyn_dev_register(struct dev_ops *ops, int type, int major, int minor) {
 
 static int dyn_open(int type, int major, int minor, struct fd *fd) {
     assert((type == DEV_CHAR) || (type == DEV_BLOCK));
-    assert(major == DYN_DEV_MAJOR || major == DEV_RTC_MAJOR); // mkemkemke
+    assert(major == DYN_DEV_MAJOR || major == DEV_RTC_MAJOR);
     // it's safe to access devs without locking (read-only)
     
     if(major == DEV_RTC_MAJOR) {
@@ -80,4 +80,3 @@ static int dyn_open_char(int major, int minor, struct fd *fd) {
 struct dev_ops dyn_dev_char = {
     .open = dyn_open_char,
 };
-

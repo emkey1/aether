@@ -7,7 +7,7 @@
 
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
-//mkemkemke #import "iSHUITests-Swift.h"
+// #import "iSHUITests-Swift.h"
 
 @interface Screenshots : XCTestCase
 
@@ -20,7 +20,7 @@
 - (void)setUp {
     self.continueAfterFailure = NO;
     XCUIApplication *app = self.app = [XCUIApplication new];
-    //mkemkemke[Snapshot setupSnapshot:app waitForAnimations:NO];
+    // [Snapshot setupSnapshot:app waitForAnimations:NO];
     NSString *hostnameOverride = nil;
     switch (UIDevice.currentDevice.userInterfaceIdiom) {
         case UIUserInterfaceIdiomPad: hostnameOverride = @"iPad"; break;
@@ -77,7 +77,7 @@
 
 - (void)snapshot:(NSString *)name order:(NSUInteger)order {
     name = [NSString stringWithFormat:@"%02u%@", (unsigned) order, name];
-    //mkemkemke[Snapshot snapshot:name timeWaitingForIdle:10];
+    // [Snapshot snapshot:name timeWaitingForIdle:10];
 }
 
 - (void)testSystemInfo {

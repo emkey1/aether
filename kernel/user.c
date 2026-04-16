@@ -107,7 +107,7 @@ static int __user_write_task_mem(struct task *task, struct mem *mem, guest_addr_
             return 1;
         trace_htop_user_write(task, mem, p, &cbuf[p - addr], chunk_end - p, ptrace);
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
-     /*   if(!strcmp(task->comm, "ls")) {  // Turns out this code mostly deals with linked libraries, at least in the case of ls.  -mke
+     /*   if(!strcmp(task->comm, "ls")) {  // This mostly dealt with shared-library writes for ls during debugging.
             char foo[500] = {};
             memcpy(foo, &cbuf[p - addr], 50);
             int a = 0;

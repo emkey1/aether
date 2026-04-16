@@ -93,6 +93,14 @@ void jit_invalidate_all(struct jit *jit);
 
 bool amd64_jit_is_enabled(void);
 void amd64_jit_set_enabled(bool enabled);
+bool i386_single_step_comm_matches(const char *comm);
+void i386_single_step_comm_set(const char *comm);
+void i386_single_step_comm_get(char *buf, size_t bufsize);
+bool i386_no_cache_comm_matches(const char *comm);
+void i386_no_cache_comm_set(const char *comm);
+void i386_no_cache_comm_get(char *buf, size_t bufsize);
+void i386_special_trace_reset(pid_t_ tgid, const char *comm);
+void i386_trace_special_op(const char *op, addr_t ip);
 
 #endif
 

@@ -10,7 +10,7 @@
 #include "jit/jit.h"
 #include "task.h"
 
-// Stuff to allow for cleaning up when doEnableExtraLocking is disabled.  -mke
+// Helpers for cleanup when extra locking is disabled.
 extern bool doEnableExtraLocking;
 extern lock_t pids_lock;
 extern struct list alive_pids_list;
@@ -472,8 +472,8 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldEnableExtraLocking:(id *)value error:(NSError **)error {
-    // Should set task->critical_region.count to 0 for all active processes when this is set to false.  Otherwise stuff blows up.  -mke
-    if(doEnableExtraLocking == true) {  // This needs to be the opposite of what you would expect because of reasons.  -mke
+    // Toggling this at runtime still needs coordinated cleanup of active tasks.
+    if(doEnableExtraLocking == true) {
 //        complex_lockt(&pids_lock, 0, __FILE__, __LINE__);
  //       zero_critical_regions_count();
   //      unlock(&pids_lock);

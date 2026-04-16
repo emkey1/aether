@@ -11,10 +11,19 @@
 #include "util/sync.h"
 #include <stdatomic.h>
 #include <pthread.h>
+#include <string.h>
 
 extern int current_pid(struct task *task);
 
 static atomic_bool amd64_jit_enabled = false;
+static pthread_mutex_t i386_single_step_comm_lock = PTHREAD_MUTEX_INITIALIZER;
+static char i386_single_step_comm[16] = "";
+static pthread_mutex_t i386_no_cache_comm_lock = PTHREAD_MUTEX_INITIALIZER;
+static char i386_no_cache_comm[16] = "";
+static pthread_mutex_t i386_special_trace_lock = PTHREAD_MUTEX_INITIALIZER;
+static pid_t_ i386_special_trace_tgid;
+static char i386_special_trace_comm[16] = "";
+static unsigned i386_special_trace_count;
 
 bool amd64_jit_is_enabled(void) {
     return atomic_load_explicit(&amd64_jit_enabled, memory_order_relaxed);
@@ -22,6 +31,100 @@ bool amd64_jit_is_enabled(void) {
 
 void amd64_jit_set_enabled(bool enabled) {
     atomic_store_explicit(&amd64_jit_enabled, enabled, memory_order_relaxed);
+}
+
+bool i386_single_step_comm_matches(const char *comm) {
+    bool match = false;
+    if (comm == NULL || comm[0] == '\0')
+        return false;
+    pthread_mutex_lock(&i386_single_step_comm_lock);
+    match = i386_single_step_comm[0] != '\0' &&
+            strcmp(i386_single_step_comm, comm) == 0;
+    pthread_mutex_unlock(&i386_single_step_comm_lock);
+    return match;
+}
+
+void i386_single_step_comm_set(const char *comm) {
+    pthread_mutex_lock(&i386_single_step_comm_lock);
+    if (comm == NULL) {
+        i386_single_step_comm[0] = '\0';
+    } else {
+        strncpy(i386_single_step_comm, comm, sizeof(i386_single_step_comm));
+        i386_single_step_comm[sizeof(i386_single_step_comm) - 1] = '\0';
+    }
+    pthread_mutex_unlock(&i386_single_step_comm_lock);
+}
+
+void i386_single_step_comm_get(char *buf, size_t bufsize) {
+    if (buf == NULL || bufsize == 0)
+        return;
+    pthread_mutex_lock(&i386_single_step_comm_lock);
+    strncpy(buf, i386_single_step_comm, bufsize);
+    buf[bufsize - 1] = '\0';
+    pthread_mutex_unlock(&i386_single_step_comm_lock);
+}
+
+bool i386_no_cache_comm_matches(const char *comm) {
+    bool match = false;
+    if (comm == NULL || comm[0] == '\0')
+        return false;
+    pthread_mutex_lock(&i386_no_cache_comm_lock);
+    match = i386_no_cache_comm[0] != '\0' &&
+            strcmp(i386_no_cache_comm, comm) == 0;
+    pthread_mutex_unlock(&i386_no_cache_comm_lock);
+    return match;
+}
+
+void i386_no_cache_comm_set(const char *comm) {
+    pthread_mutex_lock(&i386_no_cache_comm_lock);
+    if (comm == NULL) {
+        i386_no_cache_comm[0] = '\0';
+    } else {
+        strncpy(i386_no_cache_comm, comm, sizeof(i386_no_cache_comm));
+        i386_no_cache_comm[sizeof(i386_no_cache_comm) - 1] = '\0';
+    }
+    pthread_mutex_unlock(&i386_no_cache_comm_lock);
+}
+
+void i386_no_cache_comm_get(char *buf, size_t bufsize) {
+    if (buf == NULL || bufsize == 0)
+        return;
+    pthread_mutex_lock(&i386_no_cache_comm_lock);
+    strncpy(buf, i386_no_cache_comm, bufsize);
+    buf[bufsize - 1] = '\0';
+    pthread_mutex_unlock(&i386_no_cache_comm_lock);
+}
+
+void i386_special_trace_reset(pid_t_ tgid, const char *comm) {
+    pthread_mutex_lock(&i386_special_trace_lock);
+    i386_special_trace_tgid = tgid;
+    i386_special_trace_count = 0;
+    if (comm == NULL) {
+        i386_special_trace_comm[0] = '\0';
+    } else {
+        strncpy(i386_special_trace_comm, comm, sizeof(i386_special_trace_comm));
+        i386_special_trace_comm[sizeof(i386_special_trace_comm) - 1] = '\0';
+    }
+    pthread_mutex_unlock(&i386_special_trace_lock);
+}
+
+void i386_trace_special_op(const char *op, addr_t ip) {
+    enum { I386_SPECIAL_TRACE_BUDGET = 128 };
+
+    if (current == NULL || !current->force_no_jit_cache || op == NULL)
+        return;
+
+    pthread_mutex_lock(&i386_special_trace_lock);
+    bool trace = current->tgid == i386_special_trace_tgid &&
+            i386_special_trace_count < I386_SPECIAL_TRACE_BUDGET;
+    if (trace) {
+        i386_special_trace_count++;
+        printk("tracked i386 special: pid=%d tgid=%d comm=%s ip=%#x op=%s count=%u\n",
+               current->pid, current->tgid,
+               i386_special_trace_comm[0] != '\0' ? i386_special_trace_comm : current->comm,
+               ip, op, i386_special_trace_count);
+    }
+    pthread_mutex_unlock(&i386_special_trace_lock);
 }
 
 // Defined in app/hook.c; installs EXC_BAD_ACCESS handler on the calling thread.
@@ -94,6 +197,34 @@ static bool jetsam_write_lock_timed(struct jit *jit) {
         nanosleep(&kDelay, NULL);
     }
     return false;
+}
+
+static bool jit_i386_gpf_addr_accessible(guest_addr_t addr, int type) {
+    if (current == NULL || addr == 0)
+        return false;
+
+    bool accessible = false;
+    if (trylockr(&current->mem->lock) != 0)
+        return false;
+    struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
+    if (entry != NULL && entry->data != NULL && entry->data->data != NULL) {
+        accessible = type != MEM_WRITE || P_WRITABLE(entry->flags);
+    }
+    read_unlock(&current->mem->lock);
+    return accessible;
+}
+
+static bool jit_i386_gpf_looks_retryable(struct cpu_state *cpu) {
+    if (current == NULL || current->abi == GUEST_ABI_AMD64)
+        return false;
+    if (cpu->segfault_addr == 0)
+        return false;
+
+    bool read_ok = jit_i386_gpf_addr_accessible(cpu->segfault_addr, MEM_READ);
+    bool write_ok = jit_i386_gpf_addr_accessible(cpu->segfault_addr, MEM_WRITE);
+    if (cpu->segfault_was_write)
+        return write_ok;
+    return read_ok || write_ok;
 }
 
 struct jit *jit_new(struct mmu *mmu) {
@@ -410,6 +541,10 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     // Track cleanup_seq locally (NOT in frame, which would corrupt assembly
     // gadget offsets for ret_cache — see frame.h "keep in sync with asm").
     unsigned last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+    addr_t last_retry_eip = 0;
+    guest_addr_t last_retry_addr = 0;
+    bool last_retry_write = false;
+    unsigned last_retry_count = 0;
 
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
@@ -613,6 +748,9 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
 
         TRACE("%d %08x --- cycle %ld\n", current_pid(current), ip, frame->cpu.cycle);
 
+        bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
+        if (force_block_boundary_break)
+            __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
         interrupt = jit_enter(block, frame, tlb);
         // Use load (not exchange) so we don't clear write_wanted — only the
         // write-lock holder should clear it after jetsam cleanup completes.
@@ -621,6 +759,43 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
         *cpu = frame->cpu;
+        if (current != NULL && current->force_no_jit_cache) {
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            if (force_block_boundary_break && interrupt == INT_TIMER)
+                interrupt = INT_NONE;
+        }
+        if (interrupt == INT_GPF && current != NULL && current->abi != GUEST_ABI_AMD64) {
+            bool retryable = jit_i386_gpf_looks_retryable(cpu);
+            if (!retryable)
+                goto no_jit_retry;
+            bool same_retry = cpu->eip == last_retry_eip &&
+                    cpu->segfault_addr == last_retry_addr &&
+                    cpu->segfault_was_write == last_retry_write;
+            if (!same_retry) {
+                last_retry_eip = cpu->eip;
+                last_retry_addr = cpu->segfault_addr;
+                last_retry_write = cpu->segfault_was_write;
+                last_retry_count = 0;
+            }
+            if (last_retry_count < 1) {
+                last_retry_count++;
+                lock(&jit->lock, 0);
+                if (!block->is_jetsam) {
+                    jit_block_disconnect(jit, block);
+                    block->is_jetsam = true;
+                    list_add(&jit->jetsam, &block->jetsam);
+                }
+                cache[cache_index] = NULL;
+                frame->last_block = NULL;
+                memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+                unlock(&jit->lock);
+                tlb_flush(tlb);
+                interrupt = INT_NONE;
+                continue;
+            }
+        }
+no_jit_retry:
     }
 
     // Release jetsam_lock before freeing: with debug malloc scribbling, free()
@@ -651,6 +826,22 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
     jit_block_free(NULL, block);
     if (interrupt == INT_NONE)
         interrupt = INT_DEBUG;
+    return interrupt;
+}
+
+static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
+    struct gen_state state;
+    if (!gen_start(cpu->eip, &state))
+        return INT_GPF;
+    gen_step(&state, tlb);
+    gen_exit(&state);
+    gen_end(&state);
+
+    struct jit_block *block = state.block;
+    struct jit_frame frame = {.cpu = *cpu};
+    int interrupt = jit_enter(block, &frame, tlb);
+    *cpu = frame.cpu;
+    jit_block_free(NULL, block);
     return interrupt;
 }
 
@@ -725,7 +916,17 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     cpu->poked_ptr = &cpu->_poked;
 
     tlb_refresh(tlb, cpu->mmu);
-    int interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke
+    int interrupt;
+    if (current != NULL && current->force_single_step) {
+        interrupt = INT_NONE;
+        while (interrupt == INT_NONE) {
+            interrupt = cpu_single_step_no_debug(cpu, tlb);
+            if (interrupt == INT_NONE && cpu_take_poke(cpu))
+                interrupt = INT_TIMER;
+        }
+    } else {
+        interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke
+    }
     cpu->trapno = interrupt;
 
     lock(&jit->lock, 0);

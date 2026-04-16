@@ -9,7 +9,7 @@
 // dev_ops handing char device with DYN_DEV_MAJOR major number
 extern struct dev_ops dyn_dev_char;
 
-// Implement fake rtc -mke
+// Implement fake rtc.
 extern struct dev_ops rtc_dev_char;
 
 // Registeres new block/character device with provided major and

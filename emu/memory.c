@@ -545,7 +545,7 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
 
             // copy/paste from above
             mem_ref_cnt_mod(mem, 1);
-            memcpy(copy, data, PAGE_SIZE);  //mkemkemke  Crashes here a lot when running both the go and parallel make test. 01 June 2022
+            memcpy(copy, data, PAGE_SIZE);
             mem_ref_cnt_mod(mem, -1);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
             if (locked_general_lock)
@@ -614,19 +614,24 @@ void mem_coredump(struct mem *mem, const char *file) {
     close(fd);
 }
 
-void mem_ref_cnt_mod(struct mem *mem, int value) { // value Should only be -1 or 1.  -mke
+void mem_ref_cnt_mod(struct mem *mem, int value) { // value should only be -1 or 1.
     // Keep track of how many threads are referencing this task
-    if(!doEnableExtraLocking) {// If they want to fly by the seat of their pants...  -mke
+    if(!doEnableExtraLocking) {
         return;
     }
     
     if(mem == NULL) {
             return;
     }
+
+    if (value != 1 && value != -1) {
+        printk("ERROR: invalid mem refcount delta %d\n", value);
+        return;
+    }
     
     pthread_mutex_lock(&mem->reference.lock);
     
-    if(((mem->reference.count + value) < 0)) { // Prevent our unsigned value attempting to go negative.  -mke
+    if(((mem->reference.count + value) < 0)) { // Prevent the count from going negative.
         printk("ERROR: Attempt to decrement mem reference count to be negative, ignoring(%d:%d)\n", mem->reference.count, value);
         pthread_mutex_unlock(&mem->reference.lock);
         return;

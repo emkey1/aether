@@ -45,8 +45,9 @@
 
     .gadget atomic_cmpxchg\size\()_mem
         write_prep \size, atomic_cmpxchg\size\()_mem
+        dmb ish
         mov w12, eax
-        ldr w11, [_xaddr]
+        ldr\s w11, [_xaddr]
     1:
         mov w8, w11
         setf_a eax, w8
@@ -71,6 +72,7 @@
         stlxr\s w10, w8, [_xaddr]
         cbnz w10, 2b
 
+        dmb ish
         write_done \size, atomic_cmpxchg\size\()_mem
         gret 1
         write_bullshit \size, atomic_cmpxchg\size\()_mem
@@ -96,6 +98,7 @@
 
     #cmpxchg8b via aligned exclusive 8b load
     write_prep 64, atomic_cmpxchg8b
+    dmb ish
     mov w9, eax
     bfi x9, xdx, 32, 32
     mov w10, ebx
@@ -114,6 +117,7 @@
     mov x9, x8                // x9 = actual value (for edx:eax return)
     mov w11, wzr              // failure
 4:
+    dmb ish
     write_done 64, atomic_cmpxchg8b
     ubfx xax, x9, 0, 32
     ubfx xdx, x9, 32, 32
@@ -308,4 +312,3 @@ do_helper 2
     ldrh w10, [_cpu, CPU_fsw]
     movs eax, w10, h
     gret
-

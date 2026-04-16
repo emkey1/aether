@@ -28,7 +28,7 @@ static inline dword_t cpuid_leaf1_edx_features(void) {
         | (1 << 23) // mmx
         | (1 << 26); // sse2
     if (isGlibC)
-        features |= (1 << 25); // sse; musl handles sse being enabled badly. -mke
+        features |= (1 << 25); // SSE; musl in this tree handles it badly, glibc expects it.
     return features;
 }
 

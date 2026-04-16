@@ -223,7 +223,7 @@ noreturn void do_exit(struct task *task, int status) {
     if (amd64_trace_task_or_parent_lineage(task)) {
         char decoded[64];
         amd64_decode_wait_status_exit(status, decoded, sizeof(decoded));
-        printk("amd64 tracked exit: pid=%d tgid=%d abi=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
+        printk("tracked exit: pid=%d tgid=%d abi=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
                task->pid, task->tgid, task->abi, task->comm,
                task->parent != NULL ? task->parent->pid : -1,
                task->parent != NULL ? task->parent->tgid : -1,
@@ -326,6 +326,11 @@ noreturn void do_exit_group(int status) {
     struct tgroup *group = current->group;
     complex_lockt(&pids_lock, 0);
     lock(&group->lock, 0);
+    if (amd64_trace_is_lineage_tgid(current->tgid)) {
+        printk("tracked exit_group begin: current=%d tgid=%d abi=%d status=%#x threads=%lu doing=%d\n",
+               current->pid, current->tgid, current->abi, status,
+               list_size(&group->threads), group->doing_group_exit);
+    }
     if (!group->doing_group_exit) {
         group->doing_group_exit = true;
         group->group_exit_code = status;
@@ -335,15 +340,16 @@ noreturn void do_exit_group(int status) {
 
     // kill everyone else in the group
     struct task *task;
-    int tmpvar = locks_held_count(current);
-    
-    if(tmpvar > 10000) { // If this happens, something has gone wrong  -mke
-        tmpvar *= -1; // Convert to negative integer.  -mke
-        modify_locks_held_count(current, tmpvar); // Reset to zero -mke
-    }
-    
     task_ref_cnt_mod(current, 1);
     list_for_each_entry(&group->threads, task, group_links) {
+        if (amd64_trace_is_lineage_tgid(current->tgid)) {
+            printk("tracked exit_group member: current=%d target=%d tgid=%d exiting=%d zombie=%d io_block=%d pending=%#llx blocked=%#llx self=%d\n",
+                   current->pid, task->pid, task->tgid, task->exiting, task->zombie,
+                   task->io_block,
+                   (unsigned long long) task->pending,
+                   (unsigned long long) task->blocked,
+                   task == current);
+        }
         if (task != current) {
             deliver_signal(task, SIGKILL_, SIGINFO_NIL);
             task->group->stopped = false;
@@ -353,7 +359,7 @@ noreturn void do_exit_group(int status) {
 
     unlock(&pids_lock);
     unlock(&group->lock);
-    if(current->pid <= MAX_PID) // abort if crazy.  -mke
+    if(current->pid <= MAX_PID)
         do_exit(current, status);
     
     task_ref_cnt_mod(current, -1);

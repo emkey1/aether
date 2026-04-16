@@ -158,11 +158,13 @@
         # xchg must be atomic
         .gadget \op\size\()_mem
             write_prep \size, \op\size\()_mem
+            dmb ish
         1:
             ldaxr\s w8, [_xaddr]
             stlxr\s w10, _tmp, [_xaddr]
             cbnz w10, 1b
             movs _tmp, w8
+            dmb ish
             write_done \size, \op\size\()_mem
             gret 1
             write_bullshit \size, \op\size\()_mem
@@ -217,6 +219,7 @@
         # There's so much stuff going on inside most of these operations that
         # the implementation is a compare-and-swap loop, instead of just ldaxr/stlxr
         write_prep \size, atomic_\opname\size\()_mem
+        dmb ish
         ldr\s w12, [_xaddr]
     1:
         mov w8, w12
@@ -290,6 +293,7 @@
         .ifc \op,xadd
             mov _tmp, w9
         .endif
+        dmb ish
         write_done \size, atomic_\opname\size\()_mem
         gret 1
         write_bullshit \size, atomic_\opname\size\()_mem

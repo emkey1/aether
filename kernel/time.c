@@ -588,7 +588,7 @@ dword_t sys_nanosleep_guest(guest_addr_t req_addr, guest_addr_t rem_addr) {
                (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
     }
     struct timespec rem;
-   // rem.tv_sec = 0; // Be anal and set both to zero.  -mke
+   // rem.tv_sec = 0;
     //rem.tv_nsec = 0;
     int res = 0;
     TASK_MAY_BLOCK {

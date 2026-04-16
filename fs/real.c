@@ -18,6 +18,57 @@
 #include "fs/dev.h"
 #include "fs/real.h"
 #include "fs/tty.h"
+#include "util/sync.h"
+
+static bool realfs_guest_signal_pending(void) {
+    lock(&current->sighand->lock, 0);
+    bool signal_pending = !!(current->pending & ~current->blocked);
+    unlock(&current->sighand->lock);
+    return signal_pending;
+}
+
+static int realfs_wait_readable(int real_fd) {
+    const int poll_timeout_ms = 100;
+    for (;;) {
+        struct pollfd pfd = {
+            .fd = real_fd,
+            .events = POLLIN | POLLERR | POLLHUP,
+        };
+        sigset_t sigusr1, oldmask;
+        sigemptyset(&sigusr1);
+        sigaddset(&sigusr1, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
+
+        if (sigunwind_start()) {
+            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            errno = EINTR;
+            return errno_map();
+        }
+
+        if (realfs_guest_signal_pending()) {
+            sigunwind_end();
+            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            errno = EINTR;
+            return errno_map();
+        }
+
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+        int res = poll(&pfd, 1, poll_timeout_ms);
+        sigunwind_end();
+        if (res > 0)
+            return res;
+        if (res == 0) {
+            if (realfs_guest_signal_pending()) {
+                errno = EINTR;
+                return errno_map();
+            }
+            continue;
+        }
+        if (errno == EINTR && !realfs_guest_signal_pending())
+            continue;
+        return errno_map();
+    }
+}
 
 static int getpath(int fd, char *buf) {
 #if defined(__linux__)
@@ -131,10 +182,46 @@ int realfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
 }
 
 ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
-    ssize_t res = read(fd->real_fd, buf, bufsize);
-    if (res < 0)
-        return errno_map();
-    return res;
+    if (bufsize == 0)
+        return 0;
+
+    if (fd->flags & O_NONBLOCK_) {
+        ssize_t res = read(fd->real_fd, buf, bufsize);
+        if (res < 0)
+            return errno_map();
+        return res;
+    }
+
+    int saved_flags = fcntl(fd->real_fd, F_GETFL, 0);
+    bool forced_nonblock = false;
+    if (saved_flags >= 0 && !(saved_flags & O_NONBLOCK) &&
+            fcntl(fd->real_fd, F_SETFL, saved_flags | O_NONBLOCK) == 0) {
+        forced_nonblock = true;
+    }
+
+    for (;;) {
+        int wait_res = realfs_wait_readable(fd->real_fd);
+        if (wait_res < 0) {
+            if (forced_nonblock)
+                (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
+            return wait_res;
+        }
+
+        ssize_t res = read(fd->real_fd, buf, bufsize);
+        if (res >= 0) {
+            if (forced_nonblock)
+                (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
+            return res;
+        }
+        if ((errno == EAGAIN || errno == EWOULDBLOCK) ||
+                (errno == EINTR && !realfs_guest_signal_pending())) {
+            continue;
+        }
+        int err = errno_map();
+        if (forced_nonblock)
+            (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
+        return err;
+    }
 }
 
 ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {

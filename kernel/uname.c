@@ -34,7 +34,7 @@ void do_uname(struct uname *uts) {
     char hostname[sizeof(uts->hostname)];
     get_current_hostname(hostname, sizeof(hostname));
     
-    // Get current date and format it in a sane way.  -mke
+    // Get current date and format it in a sane way.
     char build_date[100];
     time_t now = time(NULL);
     if (now == (time_t)-1) {

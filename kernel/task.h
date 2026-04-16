@@ -29,6 +29,8 @@ extern pthread_mutex_t tasks_pending_deletion_lock;
 struct task {
     enum guest_abi abi;
     struct cpu_state cpu;
+    bool force_single_step;
+    bool force_no_jit_cache;
     struct mm *mm; // locked by general_lock
     struct mem *mem; // pointer to mm.mem, for convenience
     pthread_t thread;
@@ -42,7 +44,7 @@ struct task {
     
     struct {
         pthread_mutex_t lock;
-        int count; // Count of locks held by current task =mke
+        int count; // Count of locks held by the current task.
     } locks_held;
     
     int stuck_count;
@@ -288,16 +290,17 @@ static inline unsigned task_ref_cnt_get(struct task *task, unsigned UNUSED(lock_
 
 
 static inline unsigned locks_held_count(struct task *task) {
-   // return 0; // Short circuit for now
-    if(task->pid < 10)  // Here be monsters.  -mke
+    if(task->pid < 10)  // Bootstrap tasks are exempt from this accounting path.
         return 0;
-    if(task->locks_held.count > 0) {
-        return(task->locks_held.count -1);
-    }
     unsigned tmp = 0;
     pthread_mutex_lock(&task->locks_held.lock);
     tmp = task->locks_held.count;
     pthread_mutex_unlock(&task->locks_held.lock);
+
+    // Exit/reap paths intentionally hold one bookkeeping lock while asking
+    // whether any other locks are still outstanding.  Discount that slot here.
+    if (tmp > 0)
+        tmp--;
 
     return tmp;
 }

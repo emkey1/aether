@@ -64,6 +64,13 @@ static pid_t_ amd64_traced_exec_pid;
 static pid_t_ amd64_traced_exec_tgid;
 static unsigned amd64_traced_exec_trace_count;
 static pid_t_ amd64_traced_tgid_lineage[AMD64_TRACE_LINEAGE_MAX];
+static unsigned amd64_tracked_proc_trace_count;
+static unsigned amd64_trace_child_count;
+static unsigned amd64_tty_proc_trace_count;
+static unsigned amd64_enoent_path_trace_count;
+static unsigned amd64_errno_trace_count;
+static unsigned amd64_other_errno_trace_count;
+static unsigned amd64_signal_trace_count;
 
 static void amd64_trace_clear_lineage(void) {
     memset(amd64_traced_tgid_lineage, 0, sizeof(amd64_traced_tgid_lineage));
@@ -103,7 +110,15 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
     amd64_traced_exec_pid = pid;
     amd64_traced_exec_tgid = tgid;
     amd64_traced_exec_trace_count = 0;
-    printk("amd64 tracked exec: pid=%d tgid=%d file=%s\n", pid, tgid, file);
+    amd64_tracked_proc_trace_count = 0;
+    amd64_trace_child_count = 0;
+    amd64_tty_proc_trace_count = 0;
+    amd64_enoent_path_trace_count = 0;
+    amd64_errno_trace_count = 0;
+    amd64_other_errno_trace_count = 0;
+    amd64_signal_trace_count = 0;
+    printk("tracked exec: pid=%d tgid=%d abi=%d file=%s\n",
+           pid, tgid, current != NULL ? current->abi : -1, file);
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
@@ -118,7 +133,7 @@ static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qwor
     if (amd64_tty2_shell_syscall_trace_count >= AMD64_TTY2_SHELL_SYSCALL_TRACE_BUDGET)
         return;
     amd64_tty2_shell_syscall_trace_count++;
-    printk("amd64 tty2 syscall: pid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+    printk("tracked tty2 syscall: pid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
            current->pid, current->comm, (unsigned long long) syscall_num,
            (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
            (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
@@ -127,29 +142,7 @@ static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qwor
 static void amd64_tty2_shell_syscall_trace_exit(qword_t syscall_num, qword_t result) {
     if (!amd64_tty2_shell_syscall_trace_enabled())
         return;
-    printk("amd64 tty2 syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
-           current->pid, current->comm, (unsigned long long) syscall_num,
-           (unsigned long long) result);
-}
-
-static void amd64_rustc_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
-    enum { AMD64_RUSTC_SYSCALL_TRACE_BUDGET = 256 };
-    if (!amd64_tracked_exec_trace_enabled())
-        return;
-    if (amd64_traced_exec_trace_count >= AMD64_RUSTC_SYSCALL_TRACE_BUDGET)
-        return;
-    amd64_traced_exec_trace_count++;
-    printk("amd64 rustc syscall: pid=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
-           current->pid, current->comm, (unsigned long long) syscall_num,
-           (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
-           (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
-           (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
-}
-
-static void amd64_rustc_syscall_trace_exit(qword_t syscall_num, qword_t result) {
-    if (!amd64_tracked_exec_trace_enabled())
-        return;
-    printk("amd64 rustc syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
+    printk("tracked tty2 syscall ret: pid=%d comm=%s nr=%llu result=%#llx\n",
            current->pid, current->comm, (unsigned long long) syscall_num,
            (unsigned long long) result);
 }
@@ -171,7 +164,6 @@ static void amd64_decode_wait_status(int status, char *buf, size_t size) {
 
 static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
     enum { AMD64_TRACKED_PROC_TRACE_BUDGET = 128 };
-    static unsigned amd64_tracked_proc_trace_count;
     if (!amd64_tracked_exec_trace_enabled())
         return;
     if (amd64_tracked_proc_trace_count >= AMD64_TRACKED_PROC_TRACE_BUDGET)
@@ -182,7 +174,7 @@ static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t ra
     case 58: // vfork
     case 435: // clone3
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx\n",
+        printk("tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx\n",
                current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
                (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
@@ -194,7 +186,7 @@ static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t ra
         qword_t path_arg = syscall_num == 322 ? raw_args[1] : raw_args[0];
         amd64_trace_copy_user_path(path_arg, path, sizeof(path));
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu file=%s\n",
+        printk("tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu file=%s\n",
                current->pid, current->tgid, current->abi, current->comm,
                (unsigned long long) syscall_num, path);
         break;
@@ -202,7 +194,7 @@ static void amd64_tracked_proc_trace_enter(qword_t syscall_num, const qword_t ra
     case 61: // wait4
     case 247: // waitid
         amd64_tracked_proc_trace_count++;
-        printk("amd64 tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+        printk("tracked proc enter: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
                current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
                (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
@@ -222,7 +214,7 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
     case 435: // clone3
     case 59: // execve
     case 322: // execveat
-        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+        printk("tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
                current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
@@ -232,19 +224,19 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
             if (!user_get((addr_t) raw_args[1], status)) {
                 char decoded[64];
                 amd64_decode_wait_status(status, decoded, sizeof(decoded));
-                printk("amd64 tracked wait4: pid=%d tgid=%d abi=%d comm=%s child=%#llx %s\n",
+                printk("tracked wait4: pid=%d tgid=%d abi=%d comm=%s child=%#llx %s\n",
                        current->pid, current->tgid, current->abi, current->comm,
                        (unsigned long long) result, decoded);
                 return;
             }
         }
-        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+        printk("tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
                current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
     }
     case 247: // waitid
-        printk("amd64 tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
+        printk("tracked proc ret: pid=%d tgid=%d abi=%d comm=%s nr=%llu result=%#llx\n",
                current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
@@ -255,7 +247,6 @@ static void amd64_tracked_proc_trace_exit(qword_t syscall_num, const qword_t raw
 
 static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     enum { AMD64_TRACE_CHILD_BUDGET = 64 };
-    static unsigned amd64_trace_child_count;
     if (current == NULL)
         return;
     if (!amd64_trace_is_lineage_tgid(current->tgid))
@@ -270,7 +261,7 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
         amd64_trace_add_lineage_tgid((pid_t_) result);
         if (amd64_trace_child_count < AMD64_TRACE_CHILD_BUDGET) {
             amd64_trace_child_count++;
-            printk("amd64 tracked child: parent=%d tgid=%d abi=%d child=%d nr=%llu\n",
+            printk("tracked child: parent=%d tgid=%d abi=%d child=%d nr=%llu\n",
                    current->pid, current->tgid, current->abi, (pid_t_) result,
                    (unsigned long long) syscall_num);
         }
@@ -282,7 +273,6 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
 
 static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_TTY_PROC_TRACE_BUDGET = 128 };
-    static unsigned amd64_tty_proc_trace_count;
     struct tty *tty = amd64_console_tty();
     if (tty == NULL)
         return;
@@ -295,14 +285,14 @@ static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[
     case 58: // vfork
     case 435: // clone3
         amd64_tty_proc_trace_count++;
-        printk("amd64 tty proc: tty=%d pid=%d tgid=%d nr=%llu result=%#llx\n",
+        printk("tracked tty proc: tty=%d pid=%d tgid=%d nr=%llu result=%#llx\n",
                tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
                (unsigned long long) result);
         break;
     case 61: // wait4
     case 247: // waitid
         amd64_tty_proc_trace_count++;
-        printk("amd64 tty wait: tty=%d pid=%d tgid=%d nr=%llu a0=%#llx result=%#llx\n",
+        printk("tracked tty wait: tty=%d pid=%d tgid=%d nr=%llu a0=%#llx result=%#llx\n",
                tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) result);
         break;
@@ -312,7 +302,7 @@ static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[
         qword_t path_arg = syscall_num == 322 ? raw_args[1] : raw_args[0];
         amd64_trace_copy_user_path(path_arg, path, sizeof(path));
         amd64_tty_proc_trace_count++;
-        printk("amd64 tty exec syscall: tty=%d pid=%d tgid=%d nr=%llu file=%s result=%#llx\n",
+        printk("tracked tty exec syscall: tty=%d pid=%d tgid=%d nr=%llu file=%s result=%#llx\n",
                tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
                path, (unsigned long long) result);
         break;
@@ -324,7 +314,6 @@ static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[
 
 static void amd64_tracked_enoent_path_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_ENOENT_PATH_TRACE_BUDGET = 64 };
-    static unsigned amd64_enoent_path_trace_count;
     char path[128];
     qword_t path_arg = 0;
 
@@ -357,9 +346,163 @@ static void amd64_tracked_enoent_path_trace(qword_t syscall_num, const qword_t r
 
     amd64_trace_copy_user_path(path_arg, path, sizeof(path));
     amd64_enoent_path_trace_count++;
-    printk("amd64 enoent path: pid=%d tgid=%d nr=%llu path=%s a0=%#llx result=%#llx\n",
+    printk("tracked enoent path: pid=%d tgid=%d nr=%llu path=%s a0=%#llx result=%#llx\n",
            current->pid, current->tgid, (unsigned long long) syscall_num, path,
            (unsigned long long) raw_args[0], (unsigned long long) result);
+}
+
+static void amd64_tracked_einval_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { AMD64_EINVAL_TRACE_BUDGET = 64 };
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if ((sqword_t) result != _EINVAL)
+        return;
+    if (syscall_num == 85) // i386 readlink: EINVAL on non-symlink probes is expected
+        return;
+    if (amd64_errno_trace_count >= AMD64_EINVAL_TRACE_BUDGET)
+        return;
+    amd64_errno_trace_count++;
+
+    char path[128] = "";
+    bool have_path = false;
+    switch (syscall_num) {
+    case 2:   // open
+    case 4:   // stat
+    case 6:   // lstat
+    case 21:  // access
+    case 59:  // execve
+    case 85:  // creat
+        amd64_trace_copy_user_path(raw_args[0], path, sizeof(path));
+        have_path = true;
+        break;
+    case 257: // openat
+    case 262: // newfstatat
+    case 269: // faccessat
+    case 322: // execveat
+    case 437: // openat2
+    case 439: // faccessat2
+        amd64_trace_copy_user_path(raw_args[1], path, sizeof(path));
+        have_path = true;
+        break;
+    default:
+        break;
+    }
+
+    if (have_path) {
+        printk("tracked einval: pid=%d tgid=%d abi=%d comm=%s nr=%llu path=%s a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
+               path,
+               (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+               (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
+        return;
+    }
+
+    printk("tracked einval: pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
+           current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
+           (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+           (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+           (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
+}
+
+static void amd64_tracked_errno_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { AMD64_OTHER_ERRNO_TRACE_BUDGET = 64 };
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if ((sqword_t) result >= 0)
+        return;
+    if ((syscall_num == 39 && (sqword_t) result == _EEXIST) ||
+            (syscall_num == 54 && (sqword_t) result == _ENOTTY) ||
+            (syscall_num == 140 && (sqword_t) result == _ESPIPE) ||
+            (syscall_num == 240 && (sqword_t) result == _ETIMEDOUT))
+        return;
+    if ((sqword_t) result == _ENOENT || (sqword_t) result == _ENOSYS || (sqword_t) result == _EINVAL)
+        return;
+    if (amd64_other_errno_trace_count >= AMD64_OTHER_ERRNO_TRACE_BUDGET)
+        return;
+    amd64_other_errno_trace_count++;
+
+    char path[128] = "";
+    bool have_path = false;
+    switch (syscall_num) {
+    case 2:   // open
+    case 4:   // stat
+    case 5:   // open/i386
+    case 6:   // lstat
+    case 11:  // execve/i386
+    case 21:  // access
+    case 33:  // access/i386
+    case 59:  // execve
+    case 85:  // creat
+        amd64_trace_copy_user_path(raw_args[0], path, sizeof(path));
+        have_path = true;
+        break;
+    case 257: // openat
+    case 262: // newfstatat
+    case 269: // faccessat
+    case 295: // openat/i386
+    case 307: // faccessat/i386
+    case 322: // execveat
+    case 437: // openat2
+    case 439: // faccessat2
+        amd64_trace_copy_user_path(raw_args[1], path, sizeof(path));
+        have_path = true;
+        break;
+    default:
+        break;
+    }
+
+    if (have_path) {
+        printk("tracked errno: pid=%d tgid=%d abi=%d comm=%s nr=%llu err=%lld path=%s a0=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+               current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
+               (long long) -(sqword_t) result, path,
+               (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+               (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
+        return;
+    }
+
+    printk("tracked errno: pid=%d tgid=%d abi=%d comm=%s nr=%llu err=%lld a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
+           current->pid, current->tgid, current->abi, current->comm, (unsigned long long) syscall_num,
+           (long long) -(sqword_t) result,
+           (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+           (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+           (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
+}
+
+static void amd64_tracked_sigabrt_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    enum { TRACKED_SIGABRT_TRACE_BUDGET = 16 };
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
+    if ((sqword_t) result != 0)
+        return;
+    if (amd64_signal_trace_count >= TRACKED_SIGABRT_TRACE_BUDGET)
+        return;
+
+    pid_t_ target = 0;
+    pid_t_ target_tgid = 0;
+    dword_t sig = 0;
+    switch (syscall_num) {
+    case 37:  // kill (i386)
+    case 62:  // kill (amd64)
+    case 200: // tkill (amd64)
+    case 238: // tkill (i386)
+        target = (pid_t_) raw_args[0];
+        sig = (dword_t) raw_args[1];
+        break;
+    case 234: // tgkill (amd64)
+    case 270: // tgkill (i386)
+        target_tgid = (pid_t_) raw_args[0];
+        target = (pid_t_) raw_args[1];
+        sig = (dword_t) raw_args[2];
+        break;
+    default:
+        return;
+    }
+    if (sig != SIGABRT_)
+        return;
+    amd64_signal_trace_count++;
+    printk("tracked sigabrt: sender=%d sender_tgid=%d abi=%d comm=%s nr=%llu target=%d target_tgid=%d\n",
+           current->pid, current->tgid, current->abi, current->comm,
+           (unsigned long long) syscall_num, target, target_tgid);
 }
 
 static void amd64_trace_escape_text(const char *src, size_t src_len, char *dst, size_t dst_size) {
@@ -429,7 +572,7 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
     if (to_copy > AMD64_WRITE_COPY_MAX - 1)
         to_copy = AMD64_WRITE_COPY_MAX - 1;
     amd64_write_trace_count++;
-    printk("amd64 tracked write meta: pid=%d tgid=%d fd=%llu size=%llu result=%llu buf=%#llx\n",
+    printk("tracked write meta: pid=%d tgid=%d fd=%llu size=%llu result=%llu buf=%#llx\n",
            current->pid, current->tgid, (unsigned long long) fd,
            (unsigned long long) size, (unsigned long long) result,
            (unsigned long long) buf_addr);
@@ -438,14 +581,14 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
     if (to_copy == 0)
         return;
     if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0) {
-        printk("amd64 tracked write unreadable: pid=%d tgid=%d fd=%llu buf=%#llx count=%zu\n",
+        printk("tracked write unreadable: pid=%d tgid=%d fd=%llu buf=%#llx count=%zu\n",
                current->pid, current->tgid, (unsigned long long) fd,
                (unsigned long long) buf_addr, to_copy);
         return;
     }
     raw[to_copy] = '\0';
     amd64_trace_escape_text(raw, to_copy, escaped, sizeof(escaped));
-    printk("amd64 tracked write: pid=%d tgid=%d fd=%llu count=%llu text=\"%s\"\n",
+    printk("tracked write: pid=%d tgid=%d fd=%llu count=%llu text=\"%s\"\n",
            current->pid, current->tgid, (unsigned long long) fd,
            (unsigned long long) result, escaped);
 }
@@ -2292,7 +2435,6 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 
     dispatch->syscall_args(cpu, raw_args);
     amd64_tty2_shell_syscall_trace_enter(syscall_num, raw_args);
-    amd64_rustc_syscall_trace_enter(syscall_num, raw_args);
     amd64_tracked_proc_trace_enter(syscall_num, raw_args);
     if (dispatch->abi == GUEST_ABI_AMD64 && syscall_num == 15) {
         qword_t result = sys_rt_sigreturn_amd64();
@@ -2302,10 +2444,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_trace_track_child(syscall_num, result);
         amd64_tty_process_trace(syscall_num, raw_args, result);
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
+        amd64_tracked_einval_trace(syscall_num, raw_args, result);
+        amd64_tracked_errno_trace(syscall_num, raw_args, result);
+        amd64_tracked_sigabrt_trace(syscall_num, raw_args, result);
         amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
-        amd64_rustc_syscall_trace_exit(syscall_num, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
             ptrace_syscall_stop(cpu);
@@ -2317,10 +2461,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_trace_track_child(syscall_num, result);
         amd64_tty_process_trace(syscall_num, raw_args, result);
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
+        amd64_tracked_einval_trace(syscall_num, raw_args, result);
+        amd64_tracked_errno_trace(syscall_num, raw_args, result);
+        amd64_tracked_sigabrt_trace(syscall_num, raw_args, result);
         amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
-        amd64_rustc_syscall_trace_exit(syscall_num, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
         if (current->ptrace.traced && current->ptrace.stop_at_syscall)
             ptrace_syscall_stop(cpu);
@@ -2341,10 +2487,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_trace_track_child(syscall_num, trace_result);
     amd64_tty_process_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_enoent_path_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_einval_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_errno_trace(syscall_num, raw_args, trace_result);
+    amd64_tracked_sigabrt_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_write_trace(syscall_num, raw_args, trace_result);
     amd64_enomem_syscall_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_proc_trace_exit(syscall_num, raw_args, trace_result);
-    amd64_rustc_syscall_trace_exit(syscall_num, trace_result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, trace_result);
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
@@ -2359,6 +2507,9 @@ static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
 static void dump_fault_pt_state(guest_addr_t addr);
 static bool amd64_verbose_fault_trace_enabled(void);
+static bool handle_i386_read_fault_gpf(struct cpu_state *cpu);
+static bool handle_i386_write_fault_gpf(struct cpu_state *cpu);
+static bool handle_i386_call_stack_gpf(struct cpu_state *cpu);
 static bool handle_i386_stack_store_gpf(struct cpu_state *cpu);
 
 static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
@@ -2432,6 +2583,15 @@ static void dump_fault_pt_state(guest_addr_t addr) {
 }
 
 static void handle_general_protection_interrupt(struct cpu_state *cpu) {
+    if (handle_i386_read_fault_gpf(cpu))
+        return;
+    if (handle_i386_write_fault_gpf(cpu))
+        return;
+    if (handle_i386_call_stack_gpf(cpu))
+        return;
+    if (handle_i386_stack_store_gpf(cpu))
+        return;
+
     uint8_t first_opcode = 0;
     bool have_first_opcode = user_get(cpu->eip, first_opcode) == 0;
     printk("ERROR: %d(%s) general protection fault at 0x%x: ", current->pid, current->comm, cpu->eip);
@@ -2453,8 +2613,6 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
         }
     }
     dump_stack(8);
-    if (handle_i386_stack_store_gpf(cpu))
-        return;
     cpu->trapno = INT_GPF;
     cpu->segfault_addr = 0;
     cpu->segfault_was_write = false;
@@ -2463,6 +2621,258 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
         .fault.addr = current_fault_ip(cpu),
     };
     deliver_signal(current, SIGSEGV_, info);
+}
+
+static bool i386_gpf_fetch_u8(addr_t *ip, byte_t *value) {
+    if (user_get(*ip, *value))
+        return false;
+    (*ip)++;
+    return true;
+}
+
+static bool i386_gpf_fetch_i8(addr_t *ip, int8_t *value) {
+    if (user_get(*ip, *value))
+        return false;
+    (*ip)++;
+    return true;
+}
+
+static bool i386_gpf_fetch_i32(addr_t *ip, int32_t *value) {
+    if (user_get(*ip, *value))
+        return false;
+    (*ip) += sizeof(*value);
+    return true;
+}
+
+static bool i386_gpf_decode_ea32(struct cpu_state *cpu, addr_t *ip, byte_t modrm,
+                                 guest_addr_t segment_base, guest_addr_t *addr) {
+    unsigned mod = modrm >> 6;
+    unsigned rm = modrm & 7;
+    if (mod == 3)
+        return false;
+
+    dword_t effective = segment_base;
+    if (rm == 4) {
+        byte_t sib;
+        if (!i386_gpf_fetch_u8(ip, &sib))
+            return false;
+        unsigned scale = sib >> 6;
+        unsigned index = (sib >> 3) & 7;
+        unsigned base = sib & 7;
+
+        if (!(mod == 0 && base == 5))
+            effective += cpu->regs[base];
+        if (index != 4)
+            effective += cpu->regs[index] << scale;
+        if (mod == 0 && base == 5) {
+            int32_t disp32;
+            if (!i386_gpf_fetch_i32(ip, &disp32))
+                return false;
+            effective += disp32;
+        } else if (mod == 1) {
+            int8_t disp8;
+            if (!i386_gpf_fetch_i8(ip, &disp8))
+                return false;
+            effective += disp8;
+        } else if (mod == 2) {
+            int32_t disp32;
+            if (!i386_gpf_fetch_i32(ip, &disp32))
+                return false;
+            effective += disp32;
+        }
+    } else {
+        if (!(mod == 0 && rm == 5))
+            effective += cpu->regs[rm];
+        if (mod == 0 && rm == 5) {
+            int32_t disp32;
+            if (!i386_gpf_fetch_i32(ip, &disp32))
+                return false;
+            effective += disp32;
+        } else if (mod == 1) {
+            int8_t disp8;
+            if (!i386_gpf_fetch_i8(ip, &disp8))
+                return false;
+            effective += disp8;
+        } else if (mod == 2) {
+            int32_t disp32;
+            if (!i386_gpf_fetch_i32(ip, &disp32))
+                return false;
+            effective += disp32;
+        }
+    }
+
+    *addr = effective;
+    return true;
+}
+
+static bool i386_gpf_decode_prefix_and_opcode(struct cpu_state *cpu, addr_t *ip, byte_t *opcode,
+                                              guest_addr_t *segment_base) {
+    *ip = cpu->eip;
+    *segment_base = 0;
+
+    for (;;) {
+        byte_t prefix;
+        if (!i386_gpf_fetch_u8(ip, &prefix))
+            return false;
+        switch (prefix) {
+            case 0x64:
+            case 0x65:
+                *segment_base = cpu->tls_ptr;
+                break;
+            case 0x66:
+            case 0x67:
+            case 0xf0:
+            case 0xf2:
+            case 0xf3:
+                break;
+            default:
+                *opcode = prefix;
+                return true;
+        }
+    }
+}
+
+static bool i386_gpf_decode_write_addr(struct cpu_state *cpu, guest_addr_t *addr) {
+    addr_t ip;
+    byte_t opcode;
+    byte_t modrm;
+    guest_addr_t segment_base;
+    if (!i386_gpf_decode_prefix_and_opcode(cpu, &ip, &opcode, &segment_base) ||
+            !i386_gpf_fetch_u8(&ip, &modrm))
+        return false;
+
+    unsigned reg = (modrm >> 3) & 7;
+    switch (opcode) {
+        case 0x89:
+            break;
+        case 0xc7:
+            if (reg != 0)
+                return false;
+            break;
+        case 0x83:
+            if (reg == 7)
+                return false;
+            break;
+        default:
+            return false;
+    }
+
+    return i386_gpf_decode_ea32(cpu, &ip, modrm, segment_base, addr);
+}
+
+static bool i386_gpf_decode_read_addr(struct cpu_state *cpu, guest_addr_t *addr) {
+    addr_t ip;
+    byte_t opcode;
+    byte_t modrm;
+    guest_addr_t segment_base;
+    if (!i386_gpf_decode_prefix_and_opcode(cpu, &ip, &opcode, &segment_base) ||
+            !i386_gpf_fetch_u8(&ip, &modrm))
+        return false;
+
+    unsigned reg = (modrm >> 3) & 7;
+    switch (opcode) {
+        case 0xff:
+            if (reg != 2 && reg != 4)
+                return false;
+            break;
+        default:
+            return false;
+    }
+
+    return i386_gpf_decode_ea32(cpu, &ip, modrm, segment_base, addr);
+}
+
+static bool i386_gpf_addr_needs_page_fault(guest_addr_t fault_addr, int type) {
+    read_lock(&current->mem->lock);
+    struct pt_entry *entry = mem_pt(current->mem, PAGE(fault_addr));
+    bool needs_page_fault = entry == NULL || entry->data == NULL || entry->data->data == NULL ||
+            (type == MEM_WRITE && !P_WRITABLE(entry->flags));
+    read_unlock(&current->mem->lock);
+    return needs_page_fault;
+}
+
+static bool handle_i386_read_fault_gpf(struct cpu_state *cpu) {
+    if (current->abi == GUEST_ABI_AMD64)
+        return false;
+
+    guest_addr_t fault_addr = 0;
+    bool used_decoded_addr = false;
+    if (i386_gpf_decode_read_addr(cpu, &fault_addr)) {
+        used_decoded_addr = true;
+        if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_READ))
+            return false;
+    } else if (cpu->segfault_addr != 0 && !cpu->segfault_was_write &&
+               i386_gpf_addr_needs_page_fault(cpu->segfault_addr, MEM_READ)) {
+        fault_addr = cpu->segfault_addr;
+    } else {
+        return false;
+    }
+
+    cpu->trapno = INT_PF;
+    cpu->segfault_addr = fault_addr;
+    cpu->segfault_was_write = false;
+    handle_page_fault_interrupt(cpu);
+    return true;
+}
+
+static bool handle_i386_write_fault_gpf(struct cpu_state *cpu) {
+    if (current->abi == GUEST_ABI_AMD64)
+        return false;
+
+    guest_addr_t fault_addr = 0;
+    bool used_decoded_addr = false;
+    if (cpu->segfault_was_write && cpu->segfault_addr != 0) {
+        fault_addr = cpu->segfault_addr;
+    } else {
+        if (!i386_gpf_decode_write_addr(cpu, &fault_addr))
+            return false;
+        used_decoded_addr = true;
+    }
+
+    if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_WRITE))
+        return false;
+    cpu->trapno = INT_PF;
+    cpu->segfault_addr = fault_addr;
+    cpu->segfault_was_write = true;
+    handle_page_fault_interrupt(cpu);
+    return true;
+}
+
+static bool handle_i386_call_stack_gpf(struct cpu_state *cpu) {
+    if (current->abi == GUEST_ABI_AMD64)
+        return false;
+
+    addr_t ip;
+    byte_t opcode;
+    byte_t modrm = 0;
+    guest_addr_t segment_base;
+    if (!i386_gpf_decode_prefix_and_opcode(cpu, &ip, &opcode, &segment_base))
+        return false;
+
+    bool is_call = false;
+    switch (opcode) {
+        case 0xe8:
+            is_call = true;
+            break;
+        case 0xff:
+            if (!i386_gpf_fetch_u8(&ip, &modrm))
+                return false;
+            is_call = ((modrm >> 3) & 7) == 2;
+            break;
+        default:
+            return false;
+    }
+    if (!is_call)
+        return false;
+
+    guest_addr_t push_addr = cpu->esp - 4;
+    if (!i386_gpf_addr_needs_page_fault(push_addr, MEM_WRITE))
+        return false;
+    cpu->trapno = INT_PF;
+    cpu->segfault_addr = push_addr;
+    cpu->segfault_was_write = true;
+    handle_page_fault_interrupt(cpu);
+    return true;
 }
 
 static bool handle_i386_stack_store_gpf(struct cpu_state *cpu) {
@@ -2489,8 +2899,6 @@ static bool handle_i386_stack_store_gpf(struct cpu_state *cpu) {
     if (ptr != NULL)
         return false;
 
-    printk("i386 gpf stack-write reinterpret: pid=%d comm=%s eip=%#x esp=%#x\n",
-           current->pid, current->comm, cpu->eip, cpu->esp);
     cpu->trapno = INT_PF;
     cpu->segfault_addr = cpu->esp;
     cpu->segfault_was_write = true;

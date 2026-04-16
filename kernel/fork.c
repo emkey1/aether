@@ -197,7 +197,7 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
     // task might be destroyed by the time we finish, so save the pid
     pid_t pid = task->pid;
     if (amd64_trace_is_lineage_tgid(current->tgid)) {
-        printk("amd64 kernel child: parent=%d tgid=%d abi=%d child=%d child_tgid=%d flags=%#x\n",
+        printk("tracked kernel child: parent=%d tgid=%d abi=%d child=%d child_tgid=%d flags=%#x\n",
                current->pid, current->tgid, current->abi, pid, task->tgid, flags);
     }
     bool trace_child = false;

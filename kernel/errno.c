@@ -100,7 +100,7 @@ int err_map(int err) {
 
 int errno_map() {
     if (errno == EPIPE) {
-        if(strcmp(current->comm, "dpkg-deb")) { // Ignore in the case of the dpkg-deb command so that apt will hopefully work.  -mke
+        if(strcmp(current->comm, "dpkg-deb") != 0) { // Suppress SIGPIPE only for dpkg-deb.
             send_signal(current, SIGPIPE_, SIGINFO_NIL);
         } else {
             printk("INFO: EPIPE in dpkg-deb (%d)\n", current->pid);

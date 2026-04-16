@@ -80,6 +80,20 @@ static int proc_ish_show_amd64_jit(struct proc_entry *UNUSED(entry), struct proc
     return 0;
 }
 
+static int proc_ish_show_i386_single_step_comm(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    char comm[16];
+    i386_single_step_comm_get(comm, sizeof(comm));
+    proc_printf(buf, "%s\n", comm);
+    return 0;
+}
+
+static int proc_ish_show_i386_no_cache_comm(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    char comm[16];
+    i386_no_cache_comm_get(comm, sizeof(comm));
+    proc_printf(buf, "%s\n", comm);
+    return 0;
+}
+
 static int proc_ish_update_amd64_jit(struct proc_entry *UNUSED(entry), struct proc_data *data) {
     size_t start = 0;
     size_t end = data->size;
@@ -104,6 +118,50 @@ static int proc_ish_update_amd64_jit(struct proc_entry *UNUSED(entry), struct pr
     return _EINVAL;
 }
 
+static int proc_ish_update_i386_single_step_comm(struct proc_entry *UNUSED(entry), struct proc_data *data) {
+    size_t start = 0;
+    size_t end = data->size;
+
+    while (start < end && (data->data[start] == ' ' || data->data[start] == '\t' ||
+            data->data[start] == '\r' || data->data[start] == '\n'))
+        start++;
+    while (end > start && (data->data[end - 1] == ' ' || data->data[end - 1] == '\t' ||
+            data->data[end - 1] == '\r' || data->data[end - 1] == '\n'))
+        end--;
+
+    size_t len = end - start;
+    if (len >= 16)
+        return _EINVAL;
+
+    char comm[16];
+    memcpy(comm, &data->data[start], len);
+    comm[len] = '\0';
+    i386_single_step_comm_set(comm);
+    return 0;
+}
+
+static int proc_ish_update_i386_no_cache_comm(struct proc_entry *UNUSED(entry), struct proc_data *data) {
+    size_t start = 0;
+    size_t end = data->size;
+
+    while (start < end && (data->data[start] == ' ' || data->data[start] == '\t' ||
+            data->data[start] == '\r' || data->data[start] == '\n'))
+        start++;
+    while (end > start && (data->data[end - 1] == ' ' || data->data[end - 1] == '\t' ||
+            data->data[end - 1] == '\r' || data->data[end - 1] == '\n'))
+        end--;
+
+    size_t len = end - start;
+    if (len >= 16)
+        return _EINVAL;
+
+    char comm[16];
+    memcpy(comm, &data->data[start], len);
+    comm[len] = '\0';
+    i386_no_cache_comm_set(comm);
+    return 0;
+}
+
 static void proc_ish_defaults_getname(struct proc_entry *entry, char *buf) {
     strcpy(buf, entry->name);
 }
@@ -126,7 +184,7 @@ static int proc_ish_underlying_defaults_show(struct proc_entry *entry, struct pr
 }
 
 static int proc_ish_underlying_defaults_update(struct proc_entry *entry, struct proc_data *data) {
-    if (!set_user_default(entry->name, data->data, data->size)) //mkemkemke Set Defaults
+    if (!set_user_default(entry->name, data->data, data->size))
         return _EIO;
     return 0;
 }
@@ -350,6 +408,8 @@ static int proc_ish_show_host_info(struct proc_entry *UNUSED(entry), struct proc
 struct proc_children proc_ish_children = PROC_CHILDREN({
     {"amd64_jit", S_IFREG | 0644, .show = proc_ish_show_amd64_jit, .update = proc_ish_update_amd64_jit},
     {"amd_jit", S_IFREG | 0644, .show = proc_ish_show_amd64_jit, .update = proc_ish_update_amd64_jit},
+    {"i386_no_cache_comm", S_IFREG | 0644, .show = proc_ish_show_i386_no_cache_comm, .update = proc_ish_update_i386_no_cache_comm},
+    {"i386_single_step_comm", S_IFREG | 0644, .show = proc_ish_show_i386_single_step_comm, .update = proc_ish_update_i386_single_step_comm},
     {"BAT0", .show = proc_ish_show_battery},
     {"BAT0_capacity", .show = proc_ish_show_battery_capacity},
     {"BAT0_status", .show = proc_ish_show_battery_status},

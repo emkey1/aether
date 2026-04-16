@@ -319,9 +319,8 @@ static int signal_is_blockable(int sig) {
 static int signal_action(struct sighand *sighand, int sig) {
     if (signal_is_blockable(sig)) {
         struct sigaction_ *action = &sighand->action[sig];
-        if(sig > 63) // Bogus -mke
-            //return SIGNAL_IGNORE;
-            return 0;
+        if(sig > 63)
+            return SIGNAL_IGNORE;
         
         if (action->handler == SIG_IGN_)
             return SIGNAL_IGNORE;
@@ -360,7 +359,18 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         return;
 
     if (task != current) {
-        pthread_kill(task->thread, SIGUSR1);
+        int wake_err = pthread_kill(task->thread, SIGUSR1);
+        if ((sig == SIGKILL_ || sig == SIGABRT_) &&
+                (amd64_trace_is_lineage_tgid(task->tgid) ||
+                 (current != NULL && amd64_trace_is_lineage_tgid(current->tgid)))) {
+            printk("tracked signal wake: sender=%d sender_tgid=%d sig=%d target=%d target_tgid=%d abi=%d wake_err=%d exiting=%d io_block=%d pending=%#llx blocked=%#llx\n",
+                   current != NULL ? current->pid : -1,
+                   current != NULL ? current->tgid : -1,
+                   sig, task->pid, task->tgid, task->abi, wake_err,
+                   task->exiting, task->io_block,
+                   (unsigned long long) task->pending,
+                   (unsigned long long) task->blocked);
+        }
         if (task->cpu.poked_ptr)
             cpu_poke(&task->cpu);
 
@@ -664,7 +674,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
 
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
-    if ((signal_action(sighand, sig) != SIGNAL_IGNORE) && (task->pid <= MAX_PID)) { // Deal with normal and crazy.  -mke
+    if ((signal_action(sighand, sig) != SIGNAL_IGNORE) && (task->pid <= MAX_PID)) {
         deliver_signal_unlocked(task, sig, info);
     }
     unlock(&sighand->lock);

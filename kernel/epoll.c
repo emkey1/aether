@@ -118,7 +118,7 @@ static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events,
         struct timespec mytime;
         mytime.tv_sec = 2;
         mytime.tv_nsec = 0;
-        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime); // This is arguably evil, but it makes go work much better and I haven't found a downside yet.  -mke
+        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime); // Use a bounded wait in single-core mode to keep Go progressing.
     } else {
         res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout_ts_ptr);
     }
