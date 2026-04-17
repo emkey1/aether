@@ -60,7 +60,7 @@
             read_prep \size, \op\size\()_\rep
             ldr\s w8, [_xaddr]
             mov _tmp, eax
-            setf_a src=w8, dst=_tmp
+            setf_a src=w8, dst=_tmp, s=\s
             do_add sub, _tmp, w8, \s
             setf_zsp \s
 
@@ -71,7 +71,7 @@
             mov _addr, edi
             read_prep \size, \op\size\()_\rep\()2
             ldr\s w8, [_xaddr]
-            setf_a src=w8, dst=_tmp
+            setf_a src=w8, dst=_tmp, s=\s
             do_add sub, _tmp, w8, \s
             setf_zsp \s
         .endif N .endif N .endif N .endif N .endif

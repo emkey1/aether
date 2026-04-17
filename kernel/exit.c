@@ -592,6 +592,8 @@ dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t 
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, NULL, options);
     }
+    if (res == _EINTR && signal_should_restart_syscall())
+        return _ERESTART;
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
     if (info_addr != 0 && siginfo_to_user(current, info_addr, &info))
@@ -627,6 +629,8 @@ dword_t sys_wait4_guest(pid_t_ id, guest_addr_t status_addr, dword_t options, gu
     TASK_MAY_BLOCK {
         res = do_wait(idtype, id, &info, &rusage, options | WEXITED_);
     }
+    if (res == _EINTR && signal_should_restart_syscall())
+        return _ERESTART;
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
     if (status_addr != 0 && user_put(status_addr, info.child.status))

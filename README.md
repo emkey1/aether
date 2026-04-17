@@ -134,6 +134,44 @@ For many emulator changes, this is enough:
 ninja -C build libish.a
 ```
 
+## Regression Tests
+
+The tree has both end-to-end tests under `tests/e2e/` and focused guest-side probes under `tests/manual/`.
+
+The most relevant reduced atomic/JIT regression probe is:
+
+- [tests/manual/atomics32.c](/Users/mke/git/ish-AOK/tests/manual/atomics32.c)
+- [tests/manual/atomic_xadd32.c](/Users/mke/git/ish-AOK/tests/manual/atomic_xadd32.c)
+- [tests/manual/atomic_cmpxchg32.c](/Users/mke/git/ish-AOK/tests/manual/atomic_cmpxchg32.c)
+- [tests/manual/atomic_cmpxchg8b.c](/Users/mke/git/ish-AOK/tests/manual/atomic_cmpxchg8b.c)
+- [tests/manual/atomic_logic32.c](/Users/mke/git/ish-AOK/tests/manual/atomic_logic32.c)
+- [tests/manual/futex_core.c](/Users/mke/git/ish-AOK/tests/manual/futex_core.c)
+- [tests/manual/signal_core.c](/Users/mke/git/ish-AOK/tests/manual/signal_core.c)
+- [tests/manual/signal_restart.c](/Users/mke/git/ish-AOK/tests/manual/signal_restart.c)
+- [tests/manual/signal_realtime.c](/Users/mke/git/ish-AOK/tests/manual/signal_realtime.c)
+- [tests/manual/signal_altstack.c](/Users/mke/git/ish-AOK/tests/manual/signal_altstack.c)
+- [tests/manual/test_common.h](/Users/mke/git/ish-AOK/tests/manual/test_common.h)
+
+`atomics32.c` is the umbrella probe. The split programs are intended to be compiled inside the guest and now exit non-zero on mismatch, so they can be used as repeatable regression targets for:
+
+- locked `xadd`
+- locked `cmpxchg`
+- locked `cmpxchg8b`
+- locked logic ops and nearby flag consumers
+- futex wait/wake, timeout, signal interruption, and restart behavior
+- signal delivery, pending masks, `sigtimedwait`, `signalfd`, `sigsuspend`, and thread-directed signals
+- restart behavior for blocking syscalls under `SA_RESTART`
+- queued realtime signals with payload delivery
+- alternate-stack signal handler delivery
+
+For app-bundled roots or imported roots running under iSH-AOK, the guest-side setup helper is:
+
+- [tests/manual/setup-regressions.sh](/Users/mke/git/ish-AOK/tests/manual/setup-regressions.sh)
+
+Inside the guest, the equivalent `/AOK/tests/setup-regressions.sh` can stage, build, and run the focused suite.
+
+All focused guest-side regressions accept `-v` or `--verbose`. Without it they only print failures plus the final suite `PASS`/`FAIL` line.
+
 ## Working with Root Filesystems
 
 This fork currently exposes three bundled choices in the app:

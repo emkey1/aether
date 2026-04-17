@@ -754,6 +754,7 @@ static syscall_t i386_syscall_table[] = {
     [175] = (syscall_t) sys_rt_sigprocmask,
     [176] = (syscall_t) sys_rt_sigpending,
     [177] = (syscall_t) sys_rt_sigtimedwait,
+    [178] = (syscall_t) sys_rt_sigqueueinfo,
     [179] = (syscall_t) sys_rt_sigsuspend,
     [180] = (syscall_t) sys_pread,
     [181] = (syscall_t) sys_pwrite,
@@ -1108,6 +1109,7 @@ static syscall_t amd64_syscall_table[453] = {
     [126] = (syscall_t) sys_capset,
     [127] = (syscall_t) sys_rt_sigpending,
     [128] = (syscall_t) sys_rt_sigtimedwait,
+    [129] = (syscall_t) sys_rt_sigqueueinfo,
     [130] = (syscall_t) sys_rt_sigsuspend,
     [131] = (syscall_t) sys_sigaltstack,
     [132] = (syscall_t) sys_utime,
@@ -1281,8 +1283,26 @@ static bool syscall_result_is_errno(dword_t result) {
     return signed_result < 0 && signed_result >= -4095;
 }
 
+static bool syscall_result_should_restart(dword_t result) {
+    return (sdword_t) result == _ERESTART;
+}
+
 static sdword_t syscall_result_errno(dword_t result) {
     return (sdword_t) result;
+}
+
+static void prepare_syscall_restart(struct cpu_state *cpu, const struct syscall_abi_dispatch *dispatch,
+                                    qword_t syscall_num) {
+    if (dispatch->abi == GUEST_ABI_AMD64) {
+        cpu->amd64_regs[amd64_rax] = syscall_num;
+        cpu->eax = (dword_t) syscall_num;
+        cpu->amd64_rip -= 2;
+        cpu->eip = (dword_t) cpu->amd64_rip;
+        return;
+    }
+
+    cpu->eax = (dword_t) syscall_num;
+    cpu->eip -= 2;
 }
 
 static inline qword_t i386_syscall_number(const struct cpu_state *cpu) {
@@ -2169,6 +2189,8 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 227: // clock_settime
     case 230: // clock_nanosleep
     case 234: // tgkill
+    case 129: // rt_sigqueueinfo
+    case 178: // rt_sigqueueinfo
     case 251: // ioprio_set
     case 254: // inotify_add_watch
     case 258: // mkdirat
@@ -2494,6 +2516,13 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_enomem_syscall_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_proc_trace_exit(syscall_num, raw_args, trace_result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, trace_result);
+    if (syscall_result_should_restart(result)) {
+        prepare_syscall_restart(cpu, dispatch, syscall_num);
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+            ptrace_syscall_stop(cpu);
+        STRACE(" = restart\n");
+        return;
+    }
     dispatch->syscall_result(cpu, result);
     if (current->ptrace.traced && current->ptrace.stop_at_syscall)
         ptrace_syscall_stop(cpu);

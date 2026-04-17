@@ -504,6 +504,8 @@ static dword_t sys_read_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size) 
     TASK_MAY_BLOCK {
         res = (int_t)sys_read_buf(fd_no, buf, size);
     }
+    if (res == _EINTR && signal_should_restart_syscall())
+        res = _ERESTART;
     amd64_tty_stdio_trace("read", fd_no, buf_addr, size, res, buf, res > 0 ? (size_t) res : 0);
     if (res >= 0) {
         if (user_write(buf_addr, buf, res))

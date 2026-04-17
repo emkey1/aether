@@ -53,6 +53,11 @@ struct amd64_siginfo_ {
         struct {
             pid_t_ pid;
             uid_t_ uid;
+            union sigval_ value;
+        } rt;
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
             int_t status;
             int_t __pad0;
             qword_t utime;
@@ -309,6 +314,10 @@ static int signal_is_blockable(int sig) {
     return sig != SIGKILL_ && sig != SIGSTOP_;
 }
 
+static bool signal_is_realtime(int sig) {
+    return sig > SIGSYS_ && sig < NUM_SIGS;
+}
+
 #define UNBLOCKABLE_MASK (sig_mask(SIGKILL_) | sig_mask(SIGSTOP_))
 
 #define SIGNAL_IGNORE 0
@@ -342,7 +351,7 @@ static int signal_action(struct sighand *sighand, int sig) {
 }
 
 static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ info) {
-    if (sigset_has(task->pending, sig))
+    if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
         return;
 
     if (task->exiting)
@@ -392,14 +401,25 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     unlock(&task->sighand->lock);
 }
 
-static bool signalfd_take_next_locked(struct task *task, sigset_t_ mask, struct siginfo_ *info_out) {
+static bool signal_still_pending_locked(struct task *task, int sig) {
+    struct sigqueue *sigqueue;
+    list_for_each_entry(&task->queue, sigqueue, queue) {
+        if (sigqueue->info.sig == sig)
+            return true;
+    }
+    return false;
+}
+
+static bool signal_take_next_locked(struct task *task, sigset_t_ mask, struct siginfo_ *info_out) {
     struct sigqueue *sigqueue;
     list_for_each_entry(&task->queue, sigqueue, queue) {
         if (!sigset_has(mask, sigqueue->info.sig))
             continue;
         *info_out = sigqueue->info;
+        int sig = sigqueue->info.sig;
         list_remove(&sigqueue->queue);
-        sigset_del(&task->pending, sigqueue->info.sig);
+        if (!signal_still_pending_locked(task, sig))
+            sigset_del(&task->pending, sig);
         free(sigqueue);
         return true;
     }
@@ -437,8 +457,14 @@ static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo
                 memcpy(&out->timer.value, &info->timer.value, sizeof(out->timer.value));
                 out->timer._private = info->timer._private;
             } else {
-                out->kill.pid = info->kill.pid;
-                out->kill.uid = info->kill.uid;
+                if (info->code == SI_QUEUE_) {
+                    out->rt.pid = info->rt.pid;
+                    out->rt.uid = info->rt.uid;
+                    memcpy(&out->rt.value, &info->rt.value, sizeof(out->rt.value));
+                } else {
+                    out->kill.pid = info->kill.pid;
+                    out->kill.uid = info->kill.uid;
+                }
             }
             break;
     }
@@ -475,11 +501,63 @@ static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct sigin
                 out->timer.value = info->timer.value;
                 out->timer._private = info->timer._private;
             } else {
-                out->kill.pid = info->kill.pid;
-                out->kill.uid = info->kill.uid;
+                if (info->code == SI_QUEUE_) {
+                    out->rt.pid = info->rt.pid;
+                    out->rt.uid = info->rt.uid;
+                    out->rt.value = info->rt.value;
+                } else {
+                    out->kill.pid = info->kill.pid;
+                    out->kill.uid = info->kill.uid;
+                }
             }
             break;
     }
+}
+
+static int siginfo_from_user(struct task *task, guest_addr_t user_addr, struct siginfo_ *info) {
+    memset(info, 0, sizeof(*info));
+    if (task->abi == GUEST_ABI_AMD64) {
+        struct amd64_siginfo_ user_info;
+        if (user_get(user_addr, user_info))
+            return _EFAULT;
+        info->sig = user_info.sig;
+        info->sig_errno = user_info.sig_errno;
+        info->code = user_info.code;
+        if (info->code == SI_TIMER_) {
+            info->timer.timer = user_info.timer.timer;
+            info->timer.overrun = user_info.timer.overrun;
+            info->timer.value = user_info.timer.value;
+            info->timer._private = user_info.timer._private;
+        } else if (info->code == SI_QUEUE_) {
+            info->rt.pid = user_info.rt.pid;
+            info->rt.uid = user_info.rt.uid;
+            info->rt.value = user_info.rt.value;
+        } else {
+            info->kill.pid = user_info.kill.pid;
+            info->kill.uid = user_info.kill.uid;
+        }
+    } else {
+        struct i386_siginfo_ user_info;
+        if (user_get(user_addr, user_info))
+            return _EFAULT;
+        info->sig = user_info.sig;
+        info->sig_errno = user_info.sig_errno;
+        info->code = user_info.code;
+        if (info->code == SI_TIMER_) {
+            info->timer.timer = user_info.timer.timer;
+            info->timer.overrun = user_info.timer.overrun;
+            memcpy(&info->timer.value, &user_info.timer.value, sizeof(info->timer.value));
+            info->timer._private = user_info.timer._private;
+        } else if (info->code == SI_QUEUE_) {
+            info->rt.pid = user_info.rt.pid;
+            info->rt.uid = user_info.rt.uid;
+            memcpy(&info->rt.value, &user_info.rt.value, sizeof(info->rt.value));
+        } else {
+            info->kill.pid = user_info.kill.pid;
+            info->kill.uid = user_info.kill.uid;
+        }
+    }
+    return 0;
 }
 
 int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info) {
@@ -502,11 +580,11 @@ static void signalfd_info_from_siginfo(struct signalfd_siginfo_ *out, struct sig
     out->signo = info->sig;
     out->sig_errno = info->sig_errno;
     out->code = info->code;
-    out->pid = info->kill.pid;
-    out->uid = info->kill.uid;
+    out->pid = info->code == SI_QUEUE_ ? info->rt.pid : info->kill.pid;
+    out->uid = info->code == SI_QUEUE_ ? info->rt.uid : info->kill.uid;
     out->status = info->child.status;
-    out->sig_int = info->timer.value.sv_int;
-    out->sig_ptr = info->timer.value.sv_ptr;
+    out->sig_int = info->code == SI_QUEUE_ ? info->rt.value.sv_int : info->timer.value.sv_int;
+    out->sig_ptr = info->code == SI_QUEUE_ ? info->rt.value.sv_ptr : info->timer.value.sv_ptr;
     out->utime = info->child.utime;
     out->stime = info->child.stime;
     out->addr = info->fault.addr;
@@ -584,28 +662,30 @@ static ssize_t signalfd_read(struct fd *fd, void *buf, size_t bufsize) {
 
     size_t max_infos = bufsize / sizeof(struct signalfd_siginfo_);
     size_t count = 0;
-    lock(&current->sighand->lock, 0);
+    lock(&fd->lock, 0);
     while (count == 0) {
+        lock(&current->sighand->lock, 0);
         while (count < max_infos) {
             struct siginfo_ info;
-            if (!signalfd_take_next_locked(current, state->mask, &info))
+            if (!signal_take_next_locked(current, state->mask, &info))
                 break;
             signalfd_info_from_siginfo(&((struct signalfd_siginfo_ *) buf)[count], &info);
             count++;
         }
+        unlock(&current->sighand->lock);
         if (count != 0)
             break;
         if (fd->flags & O_NONBLOCK_) {
-            unlock(&current->sighand->lock);
+            unlock(&fd->lock);
             return _EAGAIN;
         }
-        int err = wait_for(&current->pause, &current->sighand->lock, NULL);
+        int err = wait_for(&fd->cond, &fd->lock, NULL);
         if (err != 0) {
-            unlock(&current->sighand->lock);
+            unlock(&fd->lock);
             return err;
         }
     }
-    unlock(&current->sighand->lock);
+    unlock(&fd->lock);
     return count * sizeof(struct signalfd_siginfo_);
 }
 
@@ -674,7 +754,9 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
 
     struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
-    if ((signal_action(sighand, sig) != SIGNAL_IGNORE) && (task->pid <= MAX_PID)) {
+    bool ignored = signal_action(sighand, sig) == SIGNAL_IGNORE;
+    bool synchronously_consumed = sigset_has(task->blocked | task->waiting, sig);
+    if ((!ignored || synchronously_consumed) && (task->pid <= MAX_PID)) {
         deliver_signal_unlocked(task, sig, info);
     }
     unlock(&sighand->lock);
@@ -685,6 +767,29 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);
     }
+}
+
+bool signal_should_restart_syscall(void) {
+    if (current == NULL)
+        return false;
+
+    struct sighand *sighand = current->sighand;
+    lock(&sighand->lock, 0);
+    struct sigqueue *sigqueue;
+    list_for_each_entry(&current->queue, sigqueue, queue) {
+        int sig = sigqueue->info.sig;
+        if (sigset_has(current->blocked, sig))
+            continue;
+        if (signal_action(sighand, sig) != SIGNAL_CALL_HANDLER) {
+            unlock(&sighand->lock);
+            return false;
+        }
+        bool restart = !!(sighand->action[sig].flags & SA_RESTART_);
+        unlock(&sighand->lock);
+        return restart;
+    }
+    unlock(&sighand->lock);
+    return false;
 }
 
 bool try_self_signal(int sig) {
@@ -1070,7 +1175,8 @@ void receive_signals(void) {
         if (sigset_has(blocked, sig))
             continue;
         list_remove(&sigqueue->queue);
-        sigset_del(&current->pending, sig);
+        if (!signal_still_pending_locked(current, sig))
+            sigset_del(&current->pending, sig);
 
         if (current->ptrace.traced && sig != SIGKILL_) {
             // This notifies the parent, goes to sleep, and waits for the
@@ -1596,6 +1702,15 @@ static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info
     STRACE("sigtimedwait(%#llx, %#x, %#x) = ...\n", (long long) set, info_addr, timeout_addr);
 
     lock(&current->sighand->lock, 0);
+    struct siginfo_ info;
+    if (signal_take_next_locked(current, set, &info)) {
+        unlock(&current->sighand->lock);
+        if (info_addr != 0)
+            if (siginfo_to_user(current, info_addr, &info))
+                return _EFAULT;
+        STRACE("done sigtimedwait immediate = %d\n", info.sig);
+        return info.sig;
+    }
     assert(current->waiting == 0);
     current->waiting = set;
     int err = 0;
@@ -1611,20 +1726,10 @@ static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info
         return _EAGAIN;
     }
 
-    struct sigqueue *sigqueue;
-    bool found = false;
-    list_for_each_entry(&current->queue, sigqueue, queue) {
-        if (sigset_has(set, sigqueue->info.sig)) {
-            found = true;
-            list_remove(&sigqueue->queue);
-            break;
-        }
-    }
+    bool found = signal_take_next_locked(current, set, &info);
     unlock(&current->sighand->lock);
     if (!found)
         return _EINTR;
-    struct siginfo_ info = sigqueue->info;
-    free(sigqueue);
     if (info_addr != 0)
         if (siginfo_to_user(current, info_addr, &info))
             return _EFAULT;
@@ -1662,6 +1767,19 @@ static int kill_task(struct task *task, dword_t sig) {
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
+
+    send_signal(task, sig, info);
+    return 0;
+}
+
+static int queue_signal_task(struct task *task, dword_t sig, struct siginfo_ info) {
+    if (!superuser() &&
+            current->uid != task->uid &&
+            current->uid != task->suid &&
+            current->euid != task->uid &&
+            current->euid != task->suid) {
+        return _EPERM;
+    }
 
     send_signal(task, sig, info);
     return 0;
@@ -1746,4 +1864,35 @@ dword_t sys_tkill(pid_t_ tid, dword_t sig) {
     if (tid <= 0)
         return _EINVAL;
     return do_kill(tid, sig, 0);
+}
+
+dword_t sys_rt_sigqueueinfo(pid_t_ pid, dword_t sig, addr_t uinfo_addr) {
+    return sys_rt_sigqueueinfo_guest(pid, sig, uinfo_addr);
+}
+
+dword_t sys_rt_sigqueueinfo_guest(pid_t_ pid, dword_t sig, guest_addr_t uinfo_addr) {
+    if (pid <= 0 || sig <= 0 || sig >= NUM_SIGS)
+        return _EINVAL;
+
+    struct siginfo_ info;
+    int err = siginfo_from_user(current, uinfo_addr, &info);
+    if (err < 0)
+        return err;
+
+    info.sig = sig;
+    info.sig_errno = 0;
+    info.code = SI_QUEUE_;
+    info.rt.pid = current->pid;
+    info.rt.uid = current->uid;
+
+    complex_lockt(&pids_lock, 0);
+    struct task *task = pid_get_task(pid);
+    if (task == NULL) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+
+    err = queue_signal_task(task, sig, info);
+    unlock(&pids_lock);
+    return err;
 }

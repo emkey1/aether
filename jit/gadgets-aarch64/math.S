@@ -26,7 +26,7 @@
     .endif N .endif
 
     .ifin(\op, add,sub,adc,sbc)
-        setf_a \arg, _tmp
+        setf_a \arg, _tmp, \s
     .endifin
     .ifin(\op, and,orr,eor)
         clearf_a
@@ -219,6 +219,21 @@
         # There's so much stuff going on inside most of these operations that
         # the implementation is a compare-and-swap loop, instead of just ldaxr/stlxr
         write_prep \size, atomic_\opname\size\()_mem
+        .if \size != 8
+            tst _addr, (\size/8)-1
+            b.eq 9f
+            save_c
+            mov x0, _cpu
+            mov w1, _addr
+            .if \size == 16
+                mov w2, 3
+            .else
+                mov w2, 4
+            .endif
+            bl NAME(helper_trace_unaligned_atomic)
+            restore_c
+        9:
+        .endif
         dmb ish
         ldr\s w12, [_xaddr]
     1:
@@ -227,7 +242,7 @@
         # do the operation
         # dest = w8, src = _tmp
         .ifin(\op, add,sub,adc,sbc)
-            setf_a src=_tmp, dst=w8
+            setf_a src=_tmp, dst=w8, s=\s
         .endifin
         .ifin(\op, and,orr,eor)
             clearf_a
@@ -253,6 +268,7 @@
             # exchange, then add
             mov w9, w8
             mov w8, _tmp
+            setf_a src=w9, dst=w8, s=\s
             do_add add, w8, w9, \s
         .endif
 
@@ -262,7 +278,7 @@
 
         .ifin(\op, inc,dec)
             mov w10, 1
-            setf_a src=w10, dst=w8
+            setf_a src=w10, dst=w8, s=\s
             .ifb \s
                 .ifc \op,inc
                     adds w8, w8, 1
@@ -322,7 +338,7 @@
 
 .macro do_inc size, s
     mov w10, 1
-    setf_a w10, _tmp
+    setf_a w10, _tmp, \s
     .ifb \s
         adds _tmp, _tmp, 1
         cset w8, vs
@@ -337,7 +353,7 @@
 .endm
 .macro do_dec size, s
     mov w10, 1
-    setf_a w10, _tmp
+    setf_a w10, _tmp, \s
     .ifb \s
         subs _tmp, _tmp, 1
         cset w8, vs

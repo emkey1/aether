@@ -22,11 +22,13 @@
     restore_c
     gret
 
+.extern helper_trace_unaligned_atomic
+
 .macro do_cmpxchg size, s
     .gadget cmpxchg\size\()_mem
         write_prep \size, cmpxchg\size\()_mem
         ldr\s w8, [_xaddr]
-        setf_a eax, w8
+        setf_a w8, eax, \s
         mov w9, eax
         do_add sub, w9, w8, \s
         setf_zsp \s, val=w9
@@ -45,12 +47,27 @@
 
     .gadget atomic_cmpxchg\size\()_mem
         write_prep \size, atomic_cmpxchg\size\()_mem
+        .if \size != 8
+            tst _addr, (\size/8)-1
+            b.eq 9f
+            save_c
+            mov x0, _cpu
+            mov w1, _addr
+            .if \size == 16
+                mov w2, 1
+            .else
+                mov w2, 2
+            .endif
+            bl NAME(helper_trace_unaligned_atomic)
+            restore_c
+        9:
+        .endif
         dmb ish
         mov w12, eax
         ldr\s w11, [_xaddr]
     1:
         mov w8, w11
-        setf_a eax, w8
+        setf_a w8, eax, \s
         mov w9, eax
         do_add sub, w9, w8, \s
         setf_zsp \s, val=w9
@@ -132,6 +149,12 @@
     write_bullshit 64, atomic_cmpxchg8b
 
 2:  #All unaligned paths
+    save_c
+    mov x0, _cpu
+    mov w1, _addr
+    mov w2, 5
+    bl NAME(helper_trace_unaligned_atomic)
+    restore_c
     b segfault_write
 
 

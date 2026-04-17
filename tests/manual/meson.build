@@ -20,6 +20,16 @@ executable('signal', ['signal.c'], link_args: ['-static'])
 executable('forkexec', ['forkexec.c'])
 
 executable('thread', ['thread.c'], dependencies: dependency('threads'))
+executable('atomics32', ['atomics32.c'], dependencies: dependency('threads'))
+executable('atomic_xadd32', ['atomic_xadd32.c'], dependencies: dependency('threads'))
+executable('atomic_cmpxchg32', ['atomic_cmpxchg32.c'], dependencies: dependency('threads'))
+executable('atomic_cmpxchg8b', ['atomic_cmpxchg8b.c'], dependencies: dependency('threads'))
+executable('atomic_logic32', ['atomic_logic32.c'])
+executable('signal_core', ['signal_core.c'], dependencies: dependency('threads'))
+executable('signal_restart', ['signal_restart.c'], dependencies: dependency('threads'))
+executable('signal_realtime', ['signal_realtime.c'], dependencies: dependency('threads'))
+executable('signal_altstack', ['signal_altstack.c'], dependencies: dependency('threads'))
+executable('futex_core', ['futex_core.c'], dependencies: dependency('threads'))
 
 # various tests for code that modifies itself
 executable('modify', ['modify.c'], link_args: ['-zexecstack'])

@@ -101,6 +101,7 @@ void i386_no_cache_comm_set(const char *comm);
 void i386_no_cache_comm_get(char *buf, size_t bufsize);
 void i386_special_trace_reset(pid_t_ tgid, const char *comm);
 void i386_trace_special_op(const char *op, addr_t ip);
+void i386_trace_special_reg_op(const char *op, addr_t ip, int reg);
 
 #endif
 

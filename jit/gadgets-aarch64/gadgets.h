@@ -132,9 +132,11 @@ back_write_done_\id :
     strb w10, [_cpu, CPU_of]
     setf_c
 .endm
-.macro setf_a src, dst
-    str \src, [_cpu, CPU_op1]
-    str \dst, [_cpu, CPU_op2]
+.macro setf_a src, dst, s=
+    movs w10, \src, \s
+    str w10, [_cpu, CPU_op1]
+    movs w10, \dst, \s
+    str w10, [_cpu, CPU_op2]
     ldr w10, [_cpu, CPU_flags_res]
     orr w10, w10, AF_OPS
     str w10, [_cpu, CPU_flags_res]

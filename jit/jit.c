@@ -127,6 +127,25 @@ void i386_trace_special_op(const char *op, addr_t ip) {
     pthread_mutex_unlock(&i386_special_trace_lock);
 }
 
+void i386_trace_special_reg_op(const char *op, addr_t ip, int reg) {
+    enum { I386_SPECIAL_TRACE_BUDGET = 128 };
+
+    if (current == NULL || !current->force_no_jit_cache || op == NULL)
+        return;
+
+    pthread_mutex_lock(&i386_special_trace_lock);
+    bool trace = current->tgid == i386_special_trace_tgid &&
+            i386_special_trace_count < I386_SPECIAL_TRACE_BUDGET;
+    if (trace) {
+        i386_special_trace_count++;
+        printk("tracked i386 special: pid=%d tgid=%d comm=%s ip=%#x op=%s reg=%d count=%u\n",
+               current->pid, current->tgid,
+               i386_special_trace_comm[0] != '\0' ? i386_special_trace_comm : current->comm,
+               ip, op, reg, i386_special_trace_count);
+    }
+    pthread_mutex_unlock(&i386_special_trace_lock);
+}
+
 // Defined in app/hook.c; installs EXC_BAD_ACCESS handler on the calling thread.
 // No-op on non-arm64.  Forward-declared here to avoid a circular header dep.
 extern void jit_install_thread_exception_handler(void);

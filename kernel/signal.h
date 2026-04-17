@@ -15,6 +15,7 @@ typedef qword_t sigset_t_;
 
 #define SA_SIGINFO_ 4
 #define SA_ONSTACK_ 0x08000000
+#define SA_RESTART_ 0x10000000
 #define SA_NODEFER_ 0x40000000
 #define SA_RESETHAND_ 0x80000000
 
@@ -61,6 +62,7 @@ struct sigaction_ {
 #define SIGSYS_    31
 
 #define SI_USER_ 0
+#define SI_QUEUE_ -1
 #define SI_TIMER_ -2
 #define SI_TKILL_ -6
 #define SI_KERNEL_ 128
@@ -93,6 +95,11 @@ struct siginfo_ {
         struct {
             pid_t_ pid;
             uid_t_ uid;
+            union sigval_ value;
+        } rt;
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
             int_t status;
             clock_t_ utime;
             clock_t_ stime;
@@ -122,6 +129,11 @@ struct i386_siginfo_ {
             pid_t_ pid;
             uid_t_ uid;
         } kill;
+        struct {
+            pid_t_ pid;
+            uid_t_ uid;
+            union i386_sigval_ value;
+        } rt;
         struct {
             pid_t_ pid;
             uid_t_ uid;
@@ -167,6 +179,8 @@ struct sigevent_ {
 void send_signal(struct task *task, int sig, struct siginfo_ info);
 // send a signal without regard for whether the signal is blocked or ignored
 void deliver_signal(struct task *task, int sig, struct siginfo_ info);
+// true when the next unblocked pending signal would run a handler with SA_RESTART
+bool signal_should_restart_syscall(void);
 // send a signal to current if it's not blocked or ignored, return whether that worked
 // exists specifically for sending SIGTTIN/SIGTTOU
 bool try_self_signal(int sig);
@@ -238,6 +252,8 @@ int_t sys_rt_sigtimedwait(addr_t set_addr, addr_t info_addr, addr_t timeout_addr
 int_t sys_rt_sigtimedwait_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size);
 int_t sys_rt_sigtimedwait_time64(addr_t set_addr, addr_t info_addr, addr_t timeout_addr, uint_t set_size);
 int_t sys_rt_sigtimedwait_time64_guest(guest_addr_t set_addr, guest_addr_t info_addr, guest_addr_t timeout_addr, uint_t set_size);
+dword_t sys_rt_sigqueueinfo(pid_t_ pid, dword_t sig, addr_t uinfo_addr);
+dword_t sys_rt_sigqueueinfo_guest(pid_t_ pid, dword_t sig, guest_addr_t uinfo_addr);
 int_t sys_signalfd(int_t fd, addr_t mask_addr, dword_t sigsetsize);
 int_t sys_signalfd4(int_t fd, addr_t mask_addr, dword_t sigsetsize, int_t flags);
 int_t sys_signalfd_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize);

@@ -208,11 +208,13 @@ restart:
                            READMODRM; IMUL2(modrm_val, modrm_reg,oz); break;
 
                 case 0xb0: TRACEI("cmpxchg reg8, modrm8");
-                           TRACE_SPECIAL("cmpxchg8");
-                           READMODRM_MEM; CMPXCHG(modrm_reg, modrm_val,8); break;
+                           READMODRM_MEM;
+                           i386_trace_special_reg_op("cmpxchg8", state->orig_ip, modrm.reg);
+                           CMPXCHG(modrm_reg, modrm_val,8); break;
                 case 0xb1: TRACEI("cmpxchg reg, modrm");
-                           TRACE_SPECIAL("cmpxchg");
-                           READMODRM_MEM; CMPXCHG(modrm_reg, modrm_val,oz); break;
+                           READMODRM_MEM;
+                           TRACE_SPECIAL(OP_SIZE == 16 ? "cmpxchg16" : "cmpxchg32");
+                           CMPXCHG(modrm_reg, modrm_val,oz); break;
 
                 case 0xb3: TRACEI("btr reg, modrm");
                            READMODRM; if (modrm.type != modrm_reg) TRACE_SPECIAL("btr");
@@ -251,11 +253,13 @@ restart:
                            READMODRM; MOVSX(modrm_val, modrm_reg,16,oz); break;
 
                 case 0xc0: TRACEI("xadd reg8, modrm8");
-                           TRACE_SPECIAL("xadd8");
-                           READMODRM; XADD(modrm_reg, modrm_val,8); break;
+                           READMODRM;
+                           i386_trace_special_reg_op("xadd8", state->orig_ip, modrm.reg);
+                           XADD(modrm_reg, modrm_val,8); break;
                 case 0xc1: TRACEI("xadd reg, modrm");
-                           TRACE_SPECIAL("xadd");
-                           READMODRM; XADD(modrm_reg, modrm_val,oz); break;
+                           READMODRM;
+                           TRACE_SPECIAL(OP_SIZE == 16 ? "xadd16" : "xadd32");
+                           XADD(modrm_reg, modrm_val,oz); break;
                 case 0xc2: TRACEI("cmppd xmm:modrm, xmm, imm8");
                            READMODRM; READIMM8; V_OP_IMM(fcmp_p, xmm_modrm_val, xmm_modrm_reg,64); break;
 
@@ -1221,18 +1225,22 @@ restart:
 #undef GRP8_ATOMIC
 
                         case 0xb0: TRACEI("lock cmpxchg reg8, modrm8");
-                                   TRACE_SPECIAL("lock cmpxchg8");
-                                   READMODRM_MEM; ATOMIC_CMPXCHG(modrm_reg, modrm_val,8); break;
+                                   READMODRM_MEM;
+                                   i386_trace_special_reg_op("lock cmpxchg8", state->orig_ip, modrm.reg);
+                                   ATOMIC_CMPXCHG(modrm_reg, modrm_val,8); break;
                         case 0xb1: TRACEI("lock cmpxchg reg, modrm");
-                                   TRACE_SPECIAL("lock cmpxchg");
-                                   READMODRM_MEM; ATOMIC_CMPXCHG(modrm_reg, modrm_val,oz); break;
+                                   READMODRM_MEM;
+                                   TRACE_SPECIAL(OP_SIZE == 16 ? "lock cmpxchg16" : "lock cmpxchg32");
+                                   ATOMIC_CMPXCHG(modrm_reg, modrm_val,oz); break;
 
                         case 0xc0: TRACEI("lock xadd reg8, modrm8");
-                                   TRACE_SPECIAL("lock xadd8");
-                                   READMODRM_MEM; ATOMIC_XADD(modrm_reg, modrm_val,8); break;
+                                   READMODRM_MEM;
+                                   i386_trace_special_reg_op("lock xadd8", state->orig_ip, modrm.reg);
+                                   ATOMIC_XADD(modrm_reg, modrm_val,8); break;
                         case 0xc1: TRACEI("lock xadd reg, modrm");
-                                   TRACE_SPECIAL("lock xadd");
-                                   READMODRM_MEM; ATOMIC_XADD(modrm_reg, modrm_val,oz); break;
+                                   READMODRM_MEM;
+                                   TRACE_SPECIAL(OP_SIZE == 16 ? "lock xadd16" : "lock xadd32");
+                                   ATOMIC_XADD(modrm_reg, modrm_val,oz); break;
 
                         case 0xc7: READMODRM_MEM; switch (modrm.opcode) {
                                        case 1: TRACEI("lock cmpxchg8b modrm");
