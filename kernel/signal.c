@@ -227,12 +227,14 @@ static int sigaction_to_user(struct task *task, guest_addr_t user_addr, const st
 }
 
 static void wake_waiting_task(struct task *task) {
-    if (pthread_mutex_trylock(&task->waiting_cond_lock.m) != 0)
-        return;
+    pthread_mutex_lock(&task->waiting_cond_lock.m);
     task->waiting_cond_lock.owner = pthread_self();
 
     cond_t *waiting_cond = task->waiting_cond;
     lock_t *waiting_lock = task->waiting_lock;
+    bool *waiting_interrupt_flag = task->waiting_interrupt_flag;
+    if (waiting_interrupt_flag != NULL)
+        __atomic_store_n(waiting_interrupt_flag, true, __ATOMIC_RELEASE);
     if (waiting_cond != NULL && waiting_lock != NULL) {
         bool have_wait_lock = false;
         bool using_existing_wait_lock = false;
@@ -247,19 +249,14 @@ static void wake_waiting_task(struct task *task) {
             // existing lock ownership.
             have_wait_lock = true;
             using_existing_wait_lock = true;
-        } else if (wait_lock_status == EBUSY &&
-                   pthread_equal(waiting_lock->owner, task->thread)) {
-            for (int attempt = 0; attempt < 64; attempt++) {
-                sched_yield();
-                wait_lock_status = pthread_mutex_trylock(&waiting_lock->m);
-                if (wait_lock_status == 0) {
-                    have_wait_lock = true;
-                    break;
-                }
-                if (wait_lock_status != EBUSY ||
-                    !pthread_equal(waiting_lock->owner, task->thread))
-                    break;
-            }
+        } else if (wait_lock_status == EBUSY) {
+            // The waiter has published its condition but may not have reached
+            // pthread_cond_wait() yet, or the lock owner field may have been
+            // overwritten by unrelated lock traffic on shared locks such as
+            // futex_lock. Block until the mutex becomes available so the wake
+            // cannot be lost just because owner bookkeeping is stale.
+            pthread_mutex_lock(&waiting_lock->m);
+            have_wait_lock = true;
         }
 
         if (have_wait_lock) {
@@ -366,6 +363,8 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
 
     if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig))
         return;
+
+    __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
 
     if (task != current) {
         int wake_err = pthread_kill(task->thread, SIGUSR1);

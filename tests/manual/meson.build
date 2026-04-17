@@ -29,6 +29,7 @@ executable('signal_core', ['signal_core.c'], dependencies: dependency('threads')
 executable('signal_restart', ['signal_restart.c'], dependencies: dependency('threads'))
 executable('signal_realtime', ['signal_realtime.c'], dependencies: dependency('threads'))
 executable('signal_altstack', ['signal_altstack.c'], dependencies: dependency('threads'))
+executable('eventfd_interrupt', ['eventfd_interrupt.c'], dependencies: dependency('threads'))
 executable('futex_core', ['futex_core.c'], dependencies: dependency('threads'))
 
 # various tests for code that modifies itself

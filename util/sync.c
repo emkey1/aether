@@ -72,15 +72,20 @@ static bool is_signal_pending(lock_t *lock) {
     return pending;
 }
 
+static bool consume_wait_interrupted(void) {
+    if (!current)
+        return false;
+    return __atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL);
+}
 
 int wait_for(cond_t *cond, lock_t *lock, struct timespec *timeout) {
-    if (is_signal_pending(lock))
+    if (consume_wait_interrupted() || is_signal_pending(lock))
         return _EINTR;
     int err = wait_for_internal(cond, lock, timeout, true);
+    if (consume_wait_interrupted() || is_signal_pending(lock))
+        return _EINTR;
     if (err < 0)
         return _ETIMEDOUT;
-    if (is_signal_pending(lock))
-        return _EINTR;
     return 0;
 }
 
@@ -99,7 +104,7 @@ static int wait_for_internal(cond_t *cond, lock_t *lock, struct timespec *timeou
     lock->debug = (struct lock_debug) { .initialized = lock->debug.initialized };
 #endif
 
-    if (interruptible && is_signal_pending(lock))
+    if (interruptible && (consume_wait_interrupted() || is_signal_pending(lock)))
         goto out;
     rc = cond_wait_with_optional_timeout(cond, lock, timeout);
 #if LOCK_DEBUG
@@ -113,6 +118,7 @@ out:
         lock(&current->waiting_cond_lock, 0);
         current->waiting_cond = NULL;
         current->waiting_lock = NULL;
+        current->waiting_interrupt_flag = NULL;
         unlock(&current->waiting_cond_lock);
     }
     lock->wait4 = false;
@@ -134,8 +140,11 @@ void notify_once(cond_t *cond) {
 
 __thread sigjmp_buf unwind_buf;
 __thread bool should_unwind = false;
+__thread bool should_mark_wait_interrupted = false;
 
 void sigusr1_handler(int UNUSED(sig)) {
+    if (should_mark_wait_interrupted && current != NULL)
+        __atomic_store_n(&current->wait_interrupted, true, __ATOMIC_RELEASE);
     if (should_unwind) {
         should_unwind = false;
         siglongjmp(unwind_buf, 1);

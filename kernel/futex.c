@@ -54,6 +54,7 @@ struct futex_wait {
     struct futex *futex; // The futex on which the thread is waiting
     pthread_t thread;    // The thread that is waiting
     dword_t bitset;      // Match mask for FUTEX_WAIT_BITSET / WAKE_BITSET
+    bool interrupted;
     struct list queue;   // For linking in the futex's queue
 };
 
@@ -127,6 +128,17 @@ static int futex_load(struct futex *futex, dword_t *out) {
     return 0;
 }
 
+static bool futex_wait_has_pending_signal(void) {
+    if (current == NULL)
+        return false;
+    if (__atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL))
+        return true;
+    lock(&current->sighand->lock, 0);
+    bool pending = !!(current->pending & ~current->blocked);
+    unlock(&current->sighand->lock);
+    return pending;
+}
+
 static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *timeout, dword_t bitset) {
     struct futex *futex = futex_get(uaddr);
     int err = 0;
@@ -136,6 +148,13 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *t
     else if (tmp != val)
         err = _EAGAIN;
     else {
+        const struct timespec wait_slice = {
+            .tv_sec = 0,
+            .tv_nsec = 50000000,
+        };
+        struct timespec deadline = {};
+        if (timeout != NULL)
+            deadline = timespec_add(timespec_now(CLOCK_MONOTONIC), *timeout);
         struct futex_wait wait = {
             .cond = COND_INITIALIZER,
         };
@@ -143,8 +162,37 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *t
         wait.thread = pthread_self();
         wait.bitset = bitset;
         list_add_tail(&futex->queue, &wait.queue);
-        TASK_MAY_BLOCK {
-            err = wait_for(&wait.cond, &futex_lock, timeout);
+        for (;;) {
+            struct timespec remaining = wait_slice;
+            if (timeout != NULL) {
+                remaining = timespec_subtract(deadline, timespec_now(CLOCK_MONOTONIC));
+                if (!timespec_positive(remaining)) {
+                    err = futex_wait_has_pending_signal() ? _EINTR : _ETIMEDOUT;
+                    break;
+                }
+                if (remaining.tv_sec > wait_slice.tv_sec ||
+                        (remaining.tv_sec == wait_slice.tv_sec &&
+                         remaining.tv_nsec > wait_slice.tv_nsec))
+                    remaining = wait_slice;
+            }
+            TASK_MAY_BLOCK {
+                lock(&current->waiting_cond_lock, 0);
+                current->waiting_interrupt_flag = &wait.interrupted;
+                unlock(&current->waiting_cond_lock);
+                should_mark_wait_interrupted = true;
+                err = wait_for(&wait.cond, &futex_lock, &remaining);
+                should_mark_wait_interrupted = false;
+            }
+            if (__atomic_load_n(&wait.interrupted, __ATOMIC_ACQUIRE) || futex_wait_has_pending_signal()) {
+                err = _EINTR;
+                break;
+            }
+            if (err == _EINTR)
+                break;
+            if (list_null(&wait.queue))
+                break;
+            if (err != _ETIMEDOUT)
+                break;
         }
         futex = wait.futex;
         list_remove_safe(&wait.queue);
@@ -342,6 +390,8 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
             dword_t return_val;
             return_val = futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
+            if ((int) return_val == _EINTR && signal_should_restart_syscall())
+                return _ERESTART;
             return return_val;
         case FUTEX_WAKE_:
             STRACE("futex(FUTEX_WAKE, %#x, %d)", uaddr, val);
@@ -376,7 +426,12 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             STRACE("futex(FUTEX_WAIT_BITSET, %#x, %d, timeout=%#x, bitset=%#x)", uaddr, val, timeout_or_val2, val3);
             if (val3 == 0)
                 return _EINVAL;
-            return futex_wait_masked(uaddr, val, timeout_or_val2 ? &timeout : NULL, val3);
+            {
+                dword_t return_val = futex_wait_masked(uaddr, val, timeout_or_val2 ? &timeout : NULL, val3);
+                if ((int) return_val == _EINTR && signal_should_restart_syscall())
+                    return _ERESTART;
+                return return_val;
+            }
         case FUTEX_WAKE_BITSET_:
             STRACE("futex(FUTEX_WAKE_BITSET, %#x, %d, bitset=%#x)", uaddr, val, val3);
             if (val3 == 0)

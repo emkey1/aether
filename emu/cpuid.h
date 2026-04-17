@@ -23,13 +23,11 @@ static inline dword_t cpuid_leaf1_ecx_features(void) {
 }
 
 static inline dword_t cpuid_leaf1_edx_features(void) {
-    dword_t features = (1 << 0)  // fpu
-        | (1 << 15) // cmov
-        | (1 << 23) // mmx
-        | (1 << 26); // sse2
-    if (isGlibC)
-        features |= (1 << 25); // SSE; musl in this tree handles it badly, glibc expects it.
-    return features;
+    return (1 << 0)   // fpu
+        | (1 << 15)   // cmov
+        | (1 << 23)   // mmx
+        | (1 << 25)   // sse
+        | (1 << 26);  // sse2
 }
 
 static inline dword_t cpuid_leaf80000001_ecx_features(void) {

@@ -97,6 +97,7 @@ need_file signal_core.c
 need_file signal_restart.c
 need_file signal_realtime.c
 need_file signal_altstack.c
+need_file eventfd_interrupt.c
 need_file futex_core.c
 
 mkdir -p "$work_dir/bin"
@@ -114,6 +115,7 @@ build_one signal_core
 build_one signal_restart
 build_one signal_realtime
 build_one signal_altstack
+build_one eventfd_interrupt
 build_one futex_core
 
 cat >"$work_dir/run-regressions.sh" <<EOF
@@ -121,7 +123,7 @@ cat >"$work_dir/run-regressions.sh" <<EOF
 set -eu
 
 status=0
-for test in atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack futex_core; do
+for test in atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack eventfd_interrupt futex_core; do
     echo "==> \$test"
     if ! "$work_dir/bin/\$test" "\$@"; then
         status=\$?

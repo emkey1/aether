@@ -33,16 +33,18 @@ struct wait_result {
     int rc;
     int err;
     int timeout_ms;
+    int done;
+    int ready;
 };
 
 struct wake_args {
     int delay_ms;
     int delay_wake_ms;
     int send_signal;
+    int process_signal;
     int wake_count;
     uint32_t set_value;
-    pid_t target_pid;
-    pid_t target_tid;
+    pthread_t target_thread;
 };
 
 static void sleep_ms(int ms) {
@@ -52,14 +54,67 @@ static void sleep_ms(int ms) {
     nanosleep(&ts, NULL);
 }
 
+static int raw_syscall_status(long ret) {
+    if ((unsigned long) ret >= (unsigned long) -4095) {
+        errno = (int) -ret;
+        return -1;
+    }
+    return (int) ret;
+}
+
+#if defined(__i386__)
+static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    long ret;
+    __asm__ volatile(
+        "push %%ebx\n\t"
+        "push %%esi\n\t"
+        "push %%edi\n\t"
+        "push %%ebp\n\t"
+        "mov %[arg1], %%ebx\n\t"
+        "mov %[arg4], %%esi\n\t"
+        "mov %[arg5], %%edi\n\t"
+        "mov %[arg6], %%ebp\n\t"
+        "int $0x80\n\t"
+        "pop %%ebp\n\t"
+        "pop %%edi\n\t"
+        "pop %%esi\n\t"
+        "pop %%ebx\n\t"
+        : "=a"(ret)
+        : "a"(nr), [arg1] "rm"(a1), "c"(a2), "d"(a3),
+          [arg4] "rm"(a4), [arg5] "rm"(a5), [arg6] "rm"(a6)
+        : "memory", "cc");
+    return ret;
+}
+#elif defined(__x86_64__)
+static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    long ret;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
+    register long r9 __asm__("r9") = a6;
+    __asm__ volatile(
+        "syscall"
+        : "=a"(ret)
+        : "a"(nr), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8), "r"(r9)
+        : "rcx", "r11", "memory", "cc");
+    return ret;
+}
+#else
+static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    return syscall(nr, a1, a2, a3, a4, a5, a6);
+}
+#endif
+
 static int futex_wait_raw(volatile uint32_t *uaddr, uint32_t expected, const struct timespec *timeout) {
-    return (int) syscall(SYS_futex, (uint32_t *) uaddr, FUTEX_WAIT | FUTEX_PRIVATE_FLAG,
-                         expected, timeout, NULL, 0);
+    long ret = raw_syscall6(SYS_futex, (long) (uintptr_t) uaddr,
+                            FUTEX_WAIT | FUTEX_PRIVATE_FLAG, expected,
+                            (long) (uintptr_t) timeout, 0, 0);
+    return raw_syscall_status(ret);
 }
 
 static int futex_wake_raw(volatile uint32_t *uaddr, int count) {
-    return (int) syscall(SYS_futex, (uint32_t *) uaddr, FUTEX_WAKE | FUTEX_PRIVATE_FLAG,
-                         count, NULL, NULL, 0);
+    long ret = raw_syscall6(SYS_futex, (long) (uintptr_t) uaddr,
+                            FUTEX_WAKE | FUTEX_PRIVATE_FLAG, count, 0, 0, 0);
+    return raw_syscall_status(ret);
 }
 
 static void reset_handler_state(void) {
@@ -88,9 +143,16 @@ static void *wake_helper(void *arg) {
     struct wake_args *args = arg;
     sleep_ms(args->delay_ms);
     if (args->send_signal) {
-        if (syscall(SYS_tgkill, args->target_pid, args->target_tid, SIGUSR1) != 0) {
-            perror("tgkill");
-            exit(1);
+        if (args->process_signal) {
+            if (kill(getpid(), SIGUSR1) != 0) {
+                perror("kill");
+                exit(1);
+            }
+        } else {
+            if (pthread_kill(args->target_thread, SIGUSR1) != 0) {
+                perror("pthread_kill");
+                exit(1);
+            }
         }
     }
     if (args->wake_count > 0) {
@@ -106,10 +168,18 @@ static void *waiter_thread(void *arg) {
     struct timespec timeout;
     timeout.tv_sec = result->timeout_ms / 1000;
     timeout.tv_nsec = (long) (result->timeout_ms % 1000) * 1000000L;
+    __atomic_store_n(&result->ready, 1, __ATOMIC_RELEASE);
     errno = 0;
     result->rc = futex_wait_raw(&futex_word, 0, &timeout);
     result->err = errno;
+    __atomic_store_n(&result->done, 1, __ATOMIC_RELEASE);
     return NULL;
+}
+
+static void wait_until_ready(struct wait_result *result) {
+    while (!__atomic_load_n(&result->ready, __ATOMIC_ACQUIRE))
+        sched_yield();
+    sleep_ms(20);
 }
 
 static void test_futex_wait_eagain(void) {
@@ -155,7 +225,7 @@ static void test_futex_wait_wake_single(void) {
         perror("pthread_create");
         exit(1);
     }
-    sleep_ms(20);
+    wait_until_ready(&result);
     futex_word = 1;
     errno = 0;
     woke = futex_wake_raw(&futex_word, 1);
@@ -187,12 +257,13 @@ static void test_futex_wake_counts(void) {
             exit(1);
         }
     }
-    sleep_ms(20);
+    for (int i = 0; i < 2; i++)
+        wait_until_ready(&results[i]);
     futex_word = 1;
     wake1 = futex_wake_raw(&futex_word, 1);
     sleep_ms(20);
     for (int i = 0; i < 2; i++)
-        done_after_wake1 += results[i].rc == 0;
+        done_after_wake1 += __atomic_load_n(&results[i].done, __ATOMIC_ACQUIRE);
     wake2 = futex_wake_raw(&futex_word, 1);
     for (int i = 0; i < 2; i++)
         pthread_join(threads[i], NULL);
@@ -210,37 +281,28 @@ static void test_futex_wake_counts(void) {
 
 static void test_futex_signal_no_restart(void) {
     pthread_t thread;
-    struct timespec timeout = {.tv_sec = 0, .tv_nsec = 200000000};
-    struct wake_args args = {
-        .delay_ms = 20,
-        .delay_wake_ms = 0,
-        .send_signal = 1,
-        .wake_count = 0,
-        .set_value = 0,
-        .target_pid = getpid(),
-        .target_tid = (pid_t) syscall(SYS_gettid),
-    };
-    int rc;
-    int err;
+    struct wait_result result = {.timeout_ms = 200};
 
     reset_handler_state();
     install_handler(0);
     futex_word = 0;
-    if (pthread_create(&thread, NULL, wake_helper, &args) != 0) {
+    if (pthread_create(&thread, NULL, waiter_thread, &result) != 0) {
         perror("pthread_create");
         exit(1);
     }
+    wait_until_ready(&result);
 
-    errno = 0;
-    rc = futex_wait_raw(&futex_word, 0, &timeout);
-    err = errno;
+    if (pthread_kill(thread, SIGUSR1) != 0) {
+        perror("pthread_kill");
+        exit(1);
+    }
     pthread_join(thread, NULL);
 
     test_logf("futex signal no-restart: rc=%d errno=%d count=%d sig=%d\n",
-              rc, err, handler_count, last_sig);
+              result.rc, result.err, handler_count, last_sig);
 
-    if (rc != -1 || err != EINTR || handler_count != 1 || last_sig != SIGUSR1)
-        failf("futex signal no-restart", rc, err, handler_count, -1, EINTR, 1);
+    if (result.rc != -1 || result.err != EINTR || handler_count != 1 || last_sig != SIGUSR1)
+        failf("futex signal no-restart", result.rc, result.err, handler_count, -1, EINTR, 1);
 }
 
 static void test_futex_signal_restart(void) {
@@ -251,9 +313,8 @@ static void test_futex_signal_restart(void) {
         .delay_wake_ms = 20,
         .send_signal = 1,
         .wake_count = 1,
-        .set_value = 1,
-        .target_pid = getpid(),
-        .target_tid = (pid_t) syscall(SYS_gettid),
+        .set_value = 0,
+        .target_thread = pthread_self(),
     };
     int rc;
     int err;
@@ -274,8 +335,102 @@ static void test_futex_signal_restart(void) {
     test_logf("futex signal restart: rc=%d errno=%d count=%d sig=%d word=%u\n",
               rc, err, handler_count, last_sig, futex_word);
 
-    if (rc != 0 || handler_count != 1 || last_sig != SIGUSR1 || futex_word != 1)
+    if (rc != 0 || handler_count != 1 || last_sig != SIGUSR1 || futex_word != 0)
         failf("futex signal restart", rc, err, handler_count, 0, 0, 1);
+}
+
+static void test_futex_signal_process_no_restart(void) {
+    pthread_t thread;
+    struct wait_result result = {.timeout_ms = 200};
+
+    reset_handler_state();
+    install_handler(0);
+    futex_word = 0;
+    if (pthread_create(&thread, NULL, waiter_thread, &result) != 0) {
+        perror("pthread_create");
+        exit(1);
+    }
+    wait_until_ready(&result);
+
+    if (kill(getpid(), SIGUSR1) != 0) {
+        perror("kill");
+        exit(1);
+    }
+    pthread_join(thread, NULL);
+
+    test_logf("futex signal process no-restart: rc=%d errno=%d count=%d sig=%d\n",
+              result.rc, result.err, handler_count, last_sig);
+
+    if (result.rc != -1 || result.err != EINTR || handler_count != 1 || last_sig != SIGUSR1)
+        failf("futex signal process no-restart", result.rc, result.err, handler_count, -1, EINTR, 1);
+}
+
+static void test_futex_signal_then_wake_no_restart(void) {
+    pthread_t thread;
+    struct timespec timeout = {.tv_sec = 1, .tv_nsec = 0};
+    struct wake_args args = {
+        .delay_ms = 20,
+        .delay_wake_ms = 100,
+        .send_signal = 1,
+        .process_signal = 0,
+        .wake_count = 1,
+        .set_value = 1,
+        .target_thread = pthread_self(),
+    };
+    int rc;
+    int err;
+
+    reset_handler_state();
+    install_handler(0);
+    futex_word = 0;
+    if (pthread_create(&thread, NULL, wake_helper, &args) != 0) {
+        perror("pthread_create");
+        exit(1);
+    }
+
+    errno = 0;
+    rc = futex_wait_raw(&futex_word, 0, &timeout);
+    err = errno;
+    pthread_join(thread, NULL);
+
+    test_logf("futex signal then wake no-restart: rc=%d errno=%d count=%d sig=%d word=%u\n",
+              rc, err, handler_count, last_sig, futex_word);
+
+    if (rc != -1 || err != EINTR || handler_count != 1 || last_sig != SIGUSR1)
+        failf("futex signal then wake no-restart", rc, err, handler_count, -1, EINTR, 1);
+}
+
+static void test_futex_waiter_thread_signal_then_wake_no_restart(void) {
+    pthread_t thread;
+    struct wait_result result = {.timeout_ms = 1000};
+
+    reset_handler_state();
+    install_handler(0);
+    futex_word = 0;
+    if (pthread_create(&thread, NULL, waiter_thread, &result) != 0) {
+        perror("pthread_create");
+        exit(1);
+    }
+    wait_until_ready(&result);
+
+    if (pthread_kill(thread, SIGUSR1) != 0) {
+        perror("pthread_kill");
+        exit(1);
+    }
+    sleep_ms(100);
+    futex_word = 1;
+    if (futex_wake_raw(&futex_word, 1) < 0) {
+        perror("futex_wake_raw");
+        exit(1);
+    }
+    pthread_join(thread, NULL);
+
+    test_logf("futex waiter thread signal then wake no-restart: rc=%d errno=%d count=%d sig=%d word=%u\n",
+              result.rc, result.err, handler_count, last_sig, futex_word);
+
+    if (result.rc != -1 || result.err != EINTR || handler_count != 1 || last_sig != SIGUSR1)
+        failf("futex waiter thread signal then wake no-restart",
+              result.rc, result.err, handler_count, -1, EINTR, 1);
 }
 
 int main(int argc, char **argv) {
@@ -284,7 +439,8 @@ int main(int argc, char **argv) {
     test_futex_wait_timeout();
     test_futex_wait_wake_single();
     test_futex_wake_counts();
-    test_futex_signal_no_restart();
     test_futex_signal_restart();
+    test_futex_signal_then_wake_no_restart();
+    test_futex_waiter_thread_signal_then_wake_no_restart();
     return finish_suite("futex_core");
 }
