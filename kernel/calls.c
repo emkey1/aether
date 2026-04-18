@@ -1,5 +1,7 @@
 #include <string.h>
+#include <stdio.h>
 #include "debug.h"
+#include "app/DiagnosticsBridge.h"
 #include "kernel/calls.h"
 #include "emu/interrupt.h"
 #include "emu/memory.h"
@@ -39,13 +41,34 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
 }
 
-static struct tty *amd64_console_tty(void) {
+static struct tty *amd64_session_tty(void) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || current->group == NULL)
         return NULL;
     struct tty *tty = current->group->tty;
-    if (tty == NULL || tty->type != TTY_CONSOLE_MAJOR)
+    if (tty == NULL)
+        return NULL;
+    if (tty->type != TTY_CONSOLE_MAJOR && tty->type != TTY_PSEUDO_SLAVE_MAJOR)
         return NULL;
     return tty;
+}
+
+static bool amd64_console_tty_is_num(struct tty *tty, int tty_num) {
+    return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == tty_num;
+}
+
+static bool amd64_session_tty_is_interactive(struct tty *tty) {
+    return tty != NULL &&
+        (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR);
+}
+
+static bool amd64_interactive_session_comm(const char *comm) {
+    return strcmp(comm, "login") == 0 ||
+        strcmp(comm, "sh") == 0 ||
+        strcmp(comm, "ash") == 0 ||
+        strcmp(comm, "dash") == 0 ||
+        strcmp(comm, "bash") == 0 ||
+        strcmp(comm, "getty") == 0 ||
+        strcmp(comm, "agetty") == 0;
 }
 
 static void amd64_trace_copy_user_path(qword_t guest_path, char *buf, size_t size) {
@@ -102,7 +125,15 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
         return;
     bool is_cargo = strstr(file, "cargo") != NULL;
     bool is_rustc = strstr(file, "rustc") != NULL;
-    if (!is_cargo && !is_rustc)
+    struct tty *tty = current != NULL && current->group != NULL ? current->group->tty : NULL;
+    bool is_interactive_tty1 =
+        current != NULL &&
+        current->abi == GUEST_ABI_AMD64 &&
+        amd64_session_tty_is_interactive(tty) &&
+        (amd64_interactive_session_comm(current->comm) ||
+         strcmp(current->comm, "init") == 0 ||
+         amd64_trace_is_lineage_tgid(current->tgid));
+    if (!is_cargo && !is_rustc && !is_interactive_tty1)
         return;
     if (is_cargo)
         amd64_trace_clear_lineage();
@@ -117,8 +148,9 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
     amd64_errno_trace_count = 0;
     amd64_other_errno_trace_count = 0;
     amd64_signal_trace_count = 0;
-    printk("tracked exec: pid=%d tgid=%d abi=%d file=%s\n",
-           pid, tgid, current != NULL ? current->abi : -1, file);
+    printk("tracked exec: pid=%d tgid=%d abi=%d tty=%d file=%s\n",
+           pid, tgid, current != NULL ? current->abi : -1,
+           tty != NULL ? tty->num : -1, file);
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
@@ -273,7 +305,7 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
 
 static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_TTY_PROC_TRACE_BUDGET = 128 };
-    struct tty *tty = amd64_console_tty();
+    struct tty *tty = amd64_session_tty();
     if (tty == NULL)
         return;
     if (amd64_tty_proc_trace_count >= AMD64_TTY_PROC_TRACE_BUDGET)
@@ -292,6 +324,17 @@ static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[
     case 61: // wait4
     case 247: // waitid
         amd64_tty_proc_trace_count++;
+        if (syscall_num == 61 && (sqword_t) result > 0 && raw_args[1] != 0) {
+            dword_t status = 0;
+            char decoded[64];
+            if (user_get((guest_addr_t) raw_args[1], status) == 0) {
+                amd64_decode_wait_status((int) status, decoded, sizeof(decoded));
+                printk("tracked tty wait: tty=%d pid=%d tgid=%d nr=%llu a0=%#llx result=%#llx child_status=%s\n",
+                       tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
+                       (unsigned long long) raw_args[0], (unsigned long long) result, decoded);
+                break;
+            }
+        }
         printk("tracked tty wait: tty=%d pid=%d tgid=%d nr=%llu a0=%#llx result=%#llx\n",
                tty->num, current->pid, current->tgid, (unsigned long long) syscall_num,
                (unsigned long long) raw_args[0], (unsigned long long) result);
@@ -1347,8 +1390,11 @@ static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result) {
 
 static inline void amd64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
     sqword_t signed_result = (sqword_t) result;
+    sdword_t signed_result32 = (sdword_t) (dword_t) result;
     if (signed_result < 0 && signed_result >= -4095)
         cpu->amd64_regs[amd64_rax] = (qword_t) signed_result;
+    else if ((result >> 32) == 0 && signed_result32 < 0 && signed_result32 >= -4095)
+        cpu->amd64_regs[amd64_rax] = (qword_t) (sqword_t) signed_result32;
     else
         cpu->amd64_regs[amd64_rax] = result;
     cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
@@ -1453,6 +1499,18 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 21:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_access_guest(
                 raw_args[0], (dword_t) raw_args[1]));
+        return true;
+    case 22:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pipe(
+                raw_args[0]));
+        return true;
+    case 23:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_select_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]));
+        return true;
+    case 293:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pipe2(
+                raw_args[0], (int_t) raw_args[1]));
         return true;
     case 35:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_nanosleep_guest(
@@ -1619,6 +1677,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_sigtimedwait_guest(
                 raw_args[0], raw_args[1], raw_args[2], (uint_t) raw_args[3]));
         return true;
+    case 129:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_sigqueueinfo_guest(
+                (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]));
+        return true;
     case 132:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utime_guest(
                 raw_args[0], raw_args[1]));
@@ -1650,6 +1712,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 157:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_prctl_guest(
                 (dword_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]));
+        return true;
+    case 160:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setrlimit64_guest(
+                (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 125:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_capget_guest(
@@ -1694,6 +1760,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 223:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_settime_guest(
                 (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
+        return true;
+    case 224:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_gettime_guest(
+                (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 228:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_gettime_guest(
@@ -1767,6 +1837,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 264:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_renameat_guest(
                 (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]));
+        return true;
+    case 316:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_renameat2_guest(
+                (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3], (int_t) raw_args[4]));
         return true;
     case 265:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_linkat_guest(
@@ -1998,6 +2072,18 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 411:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_settime64_guest(
                 (fd_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
+        return true;
+    case 412:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 413:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_guest(
+                (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5]));
+        return true;
+    case 414:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_guest(
+                raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3], (dword_t) raw_args[4]));
         return true;
     case 59:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_execve_guest(
@@ -2541,6 +2627,68 @@ static bool handle_i386_write_fault_gpf(struct cpu_state *cpu);
 static bool handle_i386_call_stack_gpf(struct cpu_state *cpu);
 static bool handle_i386_stack_store_gpf(struct cpu_state *cpu);
 
+static void record_guest_fault_event(const char *kind, const struct cpu_state *cpu,
+                                     guest_addr_t fault_addr, bool is_write) {
+    char summary[512];
+    char detail[1024];
+    char opcode[128];
+    size_t opcode_pos = 0;
+    guest_addr_t ip = current_fault_ip(cpu);
+
+    snprintf(summary, sizeof(summary),
+             "pid=%d comm=%s abi=%s ip=%#llx fault_addr=%#llx access=%s",
+             current != NULL ? current->pid : -1,
+             current != NULL ? current->comm : "?",
+             (current != NULL && current->abi == GUEST_ABI_AMD64) ? "amd64" : "i386",
+             (unsigned long long) ip,
+             (unsigned long long) fault_addr,
+             is_write ? "write" : "read");
+
+    for (int i = -4; i < 12 && opcode_pos + 4 < sizeof(opcode); i++) {
+        uint8_t byte = 0;
+        guest_addr_t addr = ip + i;
+        if (i == 0 && opcode_pos + 1 < sizeof(opcode))
+            opcode[opcode_pos++] = '[';
+        if (user_get(addr, byte)) {
+            opcode_pos += snprintf(opcode + opcode_pos, sizeof(opcode) - opcode_pos, "??");
+        } else {
+            opcode_pos += snprintf(opcode + opcode_pos, sizeof(opcode) - opcode_pos, "%02x", byte);
+        }
+        if (i == 0 && opcode_pos + 1 < sizeof(opcode))
+            opcode[opcode_pos++] = ']';
+        if (i != 11 && opcode_pos + 1 < sizeof(opcode))
+            opcode[opcode_pos++] = ' ';
+    }
+    opcode[opcode_pos < sizeof(opcode) ? opcode_pos : sizeof(opcode) - 1] = '\0';
+
+    if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+        snprintf(detail, sizeof(detail),
+                 "opcode window: %s\n"
+                 "rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx\n"
+                 "rsi=%#llx rdi=%#llx rbp=%#llx rsp=%#llx rip=%#llx",
+                 opcode,
+                 (unsigned long long) cpu->amd64_regs[amd64_rax],
+                 (unsigned long long) cpu->amd64_regs[amd64_rbx],
+                 (unsigned long long) cpu->amd64_regs[amd64_rcx],
+                 (unsigned long long) cpu->amd64_regs[amd64_rdx],
+                 (unsigned long long) cpu->amd64_regs[amd64_rsi],
+                 (unsigned long long) cpu->amd64_regs[amd64_rdi],
+                 (unsigned long long) cpu->amd64_regs[amd64_rbp],
+                 (unsigned long long) cpu->amd64_regs[amd64_rsp],
+                 (unsigned long long) cpu->amd64_rip);
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "opcode window: %s\n"
+                 "eax=%#x ebx=%#x ecx=%#x edx=%#x\n"
+                 "esi=%#x edi=%#x ebp=%#x esp=%#x eip=%#x",
+                 opcode,
+                 cpu->eax, cpu->ebx, cpu->ecx, cpu->edx,
+                 cpu->esi, cpu->edi, cpu->ebp, cpu->esp, cpu->eip);
+    }
+
+    ISHDiagnosticsRecordGuestFatalSync(kind, summary, detail);
+}
+
 static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
     return current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip;
 }
@@ -2565,6 +2713,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
                 dump_amd64_store_trace(cpu);
             }
         }
+        record_guest_fault_event("page-fault", cpu, cpu->segfault_addr, cpu->segfault_was_write);
         struct siginfo_ info = {
             .code = mem_segv_reason(current->mem, cpu->segfault_addr),
             .fault.addr = cpu->segfault_addr,
@@ -2641,6 +2790,7 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
             dump_amd64_store_trace(cpu);
         }
     }
+    record_guest_fault_event("general-protection-fault", cpu, cpu->segfault_addr, cpu->segfault_was_write);
     dump_stack(8);
     cpu->trapno = INT_GPF;
     cpu->segfault_addr = 0;
@@ -3287,7 +3437,7 @@ static bool amd64_trap_mem_write(qword_t guest_addr, unsigned size, qword_t valu
     }
 }
 
-static bool amd64_trap_decode_modrm(addr_t *ip, struct amd64_trap_rex_prefix rex, struct amd64_trap_modrm *modrm) {
+static bool amd64_trap_decode_modrm(guest_addr_t *ip, struct amd64_trap_rex_prefix rex, struct amd64_trap_modrm *modrm) {
     byte_t modrm_byte;
     if (!amd64_trap_fetch_u8(ip, &modrm_byte))
         return false;
@@ -3459,6 +3609,7 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             dump_amd64_store_trace(cpu);
         }
     }
+    record_guest_fault_event("illegal-instruction", cpu, current_fault_ip(cpu), false);
     dump_stack(8);
     struct siginfo_ info = {
         .code = ILL_ILLOPC_,

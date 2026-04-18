@@ -7,11 +7,16 @@
 
 #import <MobileCoreServices/MobileCoreServices.h>
 #include <dirent.h>
+#import "../AppGroup.h"
 #import "FileProviderExtension.h"
 #import "FileProviderEnumerator.h"
 #import "FileProviderItem.h"
 #import "NSError+ISHErrno.h"
 #include "fs/fake-db.h"
+
+static NSNumber *ISHFileProviderEnumeratorDurationMilliseconds(NSTimeInterval start) {
+    return @((NSInteger) ((NSDate.date.timeIntervalSinceReferenceDate - start) * 1000.0));
+}
 
 @interface FileProviderEnumerator ()
 
@@ -30,21 +35,46 @@
 
 - (void)enumerateItemsForObserver:(id<NSFileProviderEnumerationObserver>)observer startingAtPage:(NSFileProviderPage)page {
     NSLog(@"enumeration start %@", self.item.itemIdentifier);
+    NSString *containerIdentifier = self.item.itemIdentifier ?: @"working-set";
+    NSString *domainIdentifier = self.item.mountOwner.domainIdentifier ?: @"";
+    ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.begin",
+                                    @{@"container": containerIdentifier,
+                                      @"domain": domainIdentifier});
+    NSTimeInterval start = NSDate.date.timeIntervalSinceReferenceDate;
     // if we're asked to enumerate the working set
     if (self.item == nil) {
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.end",
+                                        @{@"container": containerIdentifier,
+                                          @"domain": domainIdentifier,
+                                          @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                          @"count": @0});
         [observer finishEnumeratingUpToPage:page];
         return;
     }
     // if we're asked to enumerate a file
     if (![self.item.typeIdentifier isEqualToString:(NSString *) kUTTypeFolder]) {
         NSLog(@"not enumerating a file (%@)", self.item.typeIdentifier);
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.end",
+                                        @{@"container": containerIdentifier,
+                                          @"domain": domainIdentifier,
+                                          @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                          @"count": @0,
+                                          @"skipped": @YES});
         [observer finishEnumeratingUpToPage:page];
         return;
     }
+
+    int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", domainIdentifier, NO, nil);
     
     NSError *error;
     int fd = [self.item openNewFDWithError:&error];
     if (fd == -1) {
+        ISHAppGroupReleaseLock(rootLockFd);
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.failed",
+                                        @{@"container": containerIdentifier,
+                                          @"domain": domainIdentifier,
+                                          @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                          @"error": error.localizedDescription ?: @"unknown"});
         [observer finishEnumeratingWithError:error];
         return;
     }
@@ -63,7 +93,7 @@
             childIdent = _item.parentItemIdentifier;
         } else if (strcmp(dirent->d_name, ".") != 0) {
             NSString *childPath = [path stringByAppendingPathComponent:[NSString stringWithUTF8String:dirent->d_name]];
-            db_begin(&_item.mount->db);
+            db_begin_read(&_item.mount->db);
             inode_t inode = path_get_inode(&_item.mount->db, childPath.fileSystemRepresentation);
             db_commit(&_item.mount->db);
             if (inode == 0) {
@@ -74,8 +104,14 @@
         }
 
         NSLog(@"returning %s %@", dirent->d_name, childIdent);
-        FileProviderItem *item = [[FileProviderItem alloc] initWithIdentifier:childIdent mount:_item.mount error:&error];
+        FileProviderItem *item = [[FileProviderItem alloc] initWithIdentifier:childIdent mountOwner:_item.mountOwner error:&error];
         if (item == nil) {
+            ISHAppGroupReleaseLock(rootLockFd);
+            ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.failed",
+                                            @{@"container": containerIdentifier,
+                                              @"domain": domainIdentifier,
+                                              @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                              @"error": error.localizedDescription ?: @"unknown"});
             [observer finishEnumeratingWithError:error];
             closedir(dir);
             return;
@@ -86,13 +122,25 @@
     if (errno != 0) {
         NSError *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
         NSLog(@"readdir returned %@", error);
+        ISHAppGroupReleaseLock(rootLockFd);
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.failed",
+                                        @{@"container": containerIdentifier,
+                                          @"domain": domainIdentifier,
+                                          @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                          @"error": error.localizedDescription ?: @"unknown"});
         [observer finishEnumeratingWithError:error];
         closedir(dir);
         return;
     }
 
     closedir(dir);
+    ISHAppGroupReleaseLock(rootLockFd);
     NSLog(@"returning %@", items);
+    ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.end",
+                                    @{@"container": containerIdentifier,
+                                      @"domain": domainIdentifier,
+                                      @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                      @"count": @(items.count)});
     [observer didEnumerateItems:items];
     [observer finishEnumeratingUpToPage:nil];
 }

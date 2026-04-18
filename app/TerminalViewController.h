@@ -8,9 +8,16 @@
 #import <UIKit/UIKit.h>
 #import "Terminal.h"
 
+typedef NS_ENUM(NSInteger, ISHFreshSessionTerminalDisplayMode) {
+    ISHFreshSessionTerminalDisplayModeAuto = 0,
+    ISHFreshSessionTerminalDisplayModeSessionShell,
+    ISHFreshSessionTerminalDisplayModeSystemConsole,
+};
+
 @interface TerminalViewController : UIViewController
 
 @property (nonatomic) Terminal *terminal;
+@property (nonatomic) ISHFreshSessionTerminalDisplayMode freshSessionTerminalDisplayMode;
 
 - (void)startNewSession;
 - (void)showSystemConsoleForCurrentSession;

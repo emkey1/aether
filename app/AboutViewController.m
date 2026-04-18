@@ -290,7 +290,7 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
     if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowChooseFilesystemValue])
         return @"Choose Filesystem";
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
-        return @"Session Shell (pts/0)";
+        return @"Session Shell (pts/1)";
     return @"Plain Terminal";
 }
 
@@ -316,8 +316,8 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
         ? @"Plain Terminal  Current"
         : @"Plain Terminal";
     NSString *sessionTitle = [currentValue isEqualToString:@"session-shell"]
-        ? @"Session Shell (pts/0)  Current"
-        : @"Session Shell (pts/0)";
+        ? @"Session Shell (pts/1)  Current"
+        : @"Session Shell (pts/1)";
 
     [alert addAction:[UIAlertAction actionWithTitle:workspaceTitle
                                               style:UIAlertActionStyleDefault

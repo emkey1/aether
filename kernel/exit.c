@@ -8,6 +8,7 @@
 #include "kernel/task.h"
 #include "util/sync.h"
 #include "fs/fd.h"
+#include "fs/devices.h"
 #include "fs/tty.h"
 
 extern bool doEnableExtraLocking;
@@ -18,6 +19,10 @@ extern const char extra_lock_comm;
 static void halt_system_locked(void);
 
 static bool trace_session_exit_task(struct task *task) {
+    struct tty *tty = task != NULL && task->group != NULL ? task->group->tty : NULL;
+    if (task != NULL && task->abi == GUEST_ABI_AMD64 &&
+            tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 1)
+        return true;
     return strcmp(task->comm, "login") == 0 ||
         strcmp(task->comm, "sshd") == 0 ||
         strcmp(task->comm, "sh") == 0 ||
@@ -192,14 +197,21 @@ noreturn void do_exit(struct task *task, int status) {
     }
 
     // release all our resources
+    // mm_release can free IPC/mm state that expects pids_lock to be held, but
+    // holding pids_lock across all the exit wait loops blocks unrelated task
+    // lookups and session startup on the main thread. Take it only for the
+    // mm_release window, then drop it again until we actually need the pid
+    // table for reparenting and zombie bookkeeping.
     do {
         nanosleep(&lock_pause, NULL);
         nanosleep(&lock_pause, NULL);
     } while (exit_wait_needed(task)); // Wait for now, task is in one or more critical
+    complex_lockt(&pids_lock, 0);
     mm_release(task->mm);
     task->mm = NULL;
     task->mem = NULL;
     task->cpu.mmu = NULL;
+    unlock(&pids_lock);
     
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
@@ -218,24 +230,12 @@ noreturn void do_exit(struct task *task, int status) {
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
     }
-    // save things that our parent might be interested in
-    task->exit_code = status; // FIXME locking
-    if (amd64_trace_task_or_parent_lineage(task)) {
-        char decoded[64];
-        amd64_decode_wait_status_exit(status, decoded, sizeof(decoded));
-        printk("tracked exit: pid=%d tgid=%d abi=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
-               task->pid, task->tgid, task->abi, task->comm,
-               task->parent != NULL ? task->parent->pid : -1,
-               task->parent != NULL ? task->parent->tgid : -1,
-               task->did_exec, decoded);
-    }
     struct rusage_ rusage = rusage_get_current();
     lock(&task->group->lock, 0);
     rusage_add(&task->group->rusage, &rusage);
     struct rusage_ group_rusage = task->group->rusage;
     unlock(&task->group->lock);
 
-    // the actual freeing needs pids_lock
     // release the sighand
     while (exit_wait_needed(task)) { // We added one to the task reference count above, thus the check is 2, in case any other thread is accessing.
         nanosleep(&lock_pause, NULL);
@@ -245,10 +245,19 @@ noreturn void do_exit(struct task *task, int status) {
     struct siginfo_ signal_info = {};
     int signal_no = 0;
 
-    // Only hold pids_lock for the process-tree and thread-group teardown below.
-    // Holding it across mm/files/fs release and the wait loops above wedges task
-    // creation and other global process operations behind a slow exit path.
     complex_lockt(&pids_lock, 0);
+
+    // save things that our parent might be interested in
+    task->exit_code = status;
+    if (amd64_trace_task_or_parent_lineage(task)) {
+        char decoded[64];
+        amd64_decode_wait_status_exit(status, decoded, sizeof(decoded));
+        printk("tracked exit: pid=%d tgid=%d abi=%d comm=%s parent=%d parent_tgid=%d did_exec=%d %s\n",
+               task->pid, task->tgid, task->abi, task->comm,
+               task->parent != NULL ? task->parent->pid : -1,
+               task->parent != NULL ? task->parent->tgid : -1,
+               task->did_exec, decoded);
+    }
 
     sighand_release(task->sighand);
     task->sighand = NULL;

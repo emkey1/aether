@@ -26,6 +26,14 @@ static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
+static bool should_trace_signal_task(struct task *task) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64)
+        return false;
+    if (amd64_trace_is_lineage_tgid(task->tgid))
+        return true;
+    return task->parent != NULL && amd64_trace_is_lineage_tgid(task->parent->tgid);
+}
+
 struct sigaction_i386_marshaled {
     addr_t handler;
     dword_t flags;
@@ -226,21 +234,25 @@ static int sigaction_to_user(struct task *task, guest_addr_t user_addr, const st
     return 0;
 }
 
-static void wake_waiting_task(struct task *task) {
+static bool wake_waiting_task(struct task *task) {
     pthread_mutex_lock(&task->waiting_cond_lock.m);
     task->waiting_cond_lock.owner = pthread_self();
 
     cond_t *waiting_cond = task->waiting_cond;
     lock_t *waiting_lock = task->waiting_lock;
     bool *waiting_interrupt_flag = task->waiting_interrupt_flag;
+    bool interrupted_wait = waiting_interrupt_flag != NULL ||
+        (waiting_cond != NULL && waiting_lock != NULL);
     if (waiting_interrupt_flag != NULL)
         __atomic_store_n(waiting_interrupt_flag, true, __ATOMIC_RELEASE);
     if (waiting_cond != NULL && waiting_lock != NULL) {
         bool have_wait_lock = false;
+        bool acquired_wait_lock = false;
         bool using_existing_wait_lock = false;
         int wait_lock_status = pthread_mutex_trylock(&waiting_lock->m);
         if (wait_lock_status == 0) {
             have_wait_lock = true;
+            acquired_wait_lock = true;
         } else if (wait_lock_status == EBUSY &&
                    pthread_equal(waiting_lock->owner, pthread_self())) {
             // The signal sender may already hold the mutex associated with the
@@ -250,24 +262,38 @@ static void wake_waiting_task(struct task *task) {
             have_wait_lock = true;
             using_existing_wait_lock = true;
         } else if (wait_lock_status == EBUSY) {
-            // The waiter has published its condition but may not have reached
-            // pthread_cond_wait() yet, or the lock owner field may have been
-            // overwritten by unrelated lock traffic on shared locks such as
-            // futex_lock. Block until the mutex becomes available so the wake
-            // cannot be lost just because owner bookkeeping is stale.
+            // Do not block on waiting_lock while holding waiting_cond_lock.
+            // The waiter clears waiting_cond/waiting_lock after
+            // pthread_cond_wait() returns, while still holding waiting_lock and
+            // then taking waiting_cond_lock. Holding waiting_cond_lock here and
+            // then blocking on waiting_lock deadlocks with that path.
+            memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
+            pthread_mutex_unlock(&task->waiting_cond_lock.m);
+
+            // Wait until the waiter either reaches pthread_cond_wait() and
+            // releases waiting_lock, or finishes the wait path entirely.
             pthread_mutex_lock(&waiting_lock->m);
             have_wait_lock = true;
+            acquired_wait_lock = true;
+
+            pthread_mutex_lock(&task->waiting_cond_lock.m);
+            task->waiting_cond_lock.owner = pthread_self();
+            if (task->waiting_cond != waiting_cond || task->waiting_lock != waiting_lock)
+                have_wait_lock = false;
         }
 
         if (have_wait_lock) {
             notify(waiting_cond);
             if (!using_existing_wait_lock)
                 pthread_mutex_unlock(&waiting_lock->m);
+        } else if (acquired_wait_lock && !using_existing_wait_lock) {
+            pthread_mutex_unlock(&waiting_lock->m);
         }
     }
 
     memset(&task->waiting_cond_lock.owner, 0, sizeof(task->waiting_cond_lock.owner));
     pthread_mutex_unlock(&task->waiting_cond_lock.m);
+    return interrupted_wait;
 }
 
 static guest_addr_t current_user_sp(struct task *task) {
@@ -364,8 +390,7 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
     if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig))
         return;
 
-    __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
-
+    bool interrupted_wait = false;
     if (task != current) {
         int wake_err = pthread_kill(task->thread, SIGUSR1);
         if ((sig == SIGKILL_ || sig == SIGABRT_) &&
@@ -388,9 +413,14 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         // is not lost. This avoids global timed polling in wait_for().
         memset(&task->sighand->lock.owner, 0, sizeof(task->sighand->lock.owner));
         pthread_mutex_unlock(&task->sighand->lock.m);
-        wake_waiting_task(task);
+        interrupted_wait = wake_waiting_task(task);
         pthread_mutex_lock(&task->sighand->lock.m);
         task->sighand->lock.owner = pthread_self();
+    } else {
+        interrupted_wait = wake_waiting_task(task);
+    }
+    if (interrupted_wait) {
+        __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
     }
 }
 
@@ -755,6 +785,12 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
     lock(&sighand->lock, 0);
     bool ignored = signal_action(sighand, sig) == SIGNAL_IGNORE;
     bool synchronously_consumed = sigset_has(task->blocked | task->waiting, sig);
+    if (should_trace_signal_task(task)) {
+        printk("tracked signal send: target=%d tgid=%d comm=%s sig=%d ignored=%d sync=%d blocked=%#x waiting=%#x pending=%#x sender=%d/%s\n",
+               task->pid, task->tgid, task->comm, sig, ignored, synchronously_consumed,
+               task->blocked, task->waiting, task->pending,
+               current != NULL ? current->pid : 0, current != NULL ? current->comm : "?");
+    }
     if ((!ignored || synchronously_consumed) && (task->pid <= MAX_PID)) {
         deliver_signal_unlocked(task, sig, info);
     }
@@ -1009,6 +1045,11 @@ static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_am
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
+    if (should_trace_signal_task(current)) {
+        printk("tracked signal receive: pid=%d tgid=%d comm=%s sig=%d action=%d blocked=%#x pending=%#x waiting=%#x\n",
+               current->pid, current->tgid, current->comm, sig,
+               signal_action(sighand, sig), current->blocked, current->pending, current->waiting);
+    }
 
     switch (signal_action(sighand, sig)) {
         case SIGNAL_IGNORE:

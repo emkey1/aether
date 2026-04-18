@@ -2,10 +2,20 @@
 set -eu
 
 src_dir=${ISH_AOK_TEST_SRC:-/AOK/tests}
-work_dir=${ISH_AOK_REGRESS_DIR:-${TMPDIR:-/tmp}/ish-aok-regressions}
+work_dir=${ISH_AOK_REGRESS_DIR:-}
 run_after=0
 install_deps=0
 run_args=
+
+if [ -z "$work_dir" ]; then
+    if [ -n "${TMPDIR:-}" ]; then
+        work_dir=$TMPDIR/ish-aok-regressions
+    elif [ -d /tmp ] && [ -w /tmp ]; then
+        work_dir=/tmp/ish-aok-regressions
+    else
+        work_dir=./ish-aok-regressions
+    fi
+fi
 
 usage() {
     cat <<EOF
@@ -97,10 +107,16 @@ need_file signal_core.c
 need_file signal_restart.c
 need_file signal_realtime.c
 need_file signal_altstack.c
+need_file signal_poll.c
 need_file eventfd_interrupt.c
 need_file futex_core.c
+need_file process_lifecycle.c
+need_file pthread_sync.c
 
-mkdir -p "$work_dir/bin"
+if ! mkdir -p "$work_dir/bin"; then
+    echo "failed to create work directory: $work_dir" >&2
+    exit 1
+fi
 
 build_one() {
     name=$1
@@ -115,15 +131,18 @@ build_one signal_core
 build_one signal_restart
 build_one signal_realtime
 build_one signal_altstack
+build_one signal_poll
 build_one eventfd_interrupt
 build_one futex_core
+build_one process_lifecycle
+build_one pthread_sync
 
 cat >"$work_dir/run-regressions.sh" <<EOF
 #!/bin/sh
 set -eu
 
 status=0
-for test in atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack eventfd_interrupt futex_core; do
+for test in atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync; do
     echo "==> \$test"
     if ! "$work_dir/bin/\$test" "\$@"; then
         status=\$?

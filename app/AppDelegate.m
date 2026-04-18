@@ -18,6 +18,7 @@
 #import "AppGroup.h"
 #import "CurrentRoot.h"
 #import "Diagnostics.h"
+#import "DiagnosticsBridge.h"
 #import "iOSFS.h"
 #import "SceneDelegate.h"
 #import "AudioDevice.h"
@@ -75,10 +76,30 @@ static void ios_handle_exit(struct task *task, int code) {
 
     // pid should be saved now since task would be freed
     pid_t pid = task->pid;
+    pid_t ppid = task->parent != NULL ? task->parent->pid : -1;
+    pid_t tgid = task->tgid;
+    char comm[sizeof(task->comm)];
+    snprintf(comm, sizeof(comm), "%s", task->comm);
+    ISHDiagnosticsRecordGuestExitSyncDetailed(pid, ppid, tgid, comm, code);
+    NSString *commString = [NSString stringWithUTF8String:comm] ?: @"";
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *decoded = nil;
+        if ((code & 0xff) == 0x7f) {
+            decoded = [NSString stringWithFormat:@"stopped sig=%d status=%#x", (code >> 8) & 0xff, code];
+        } else if ((code & 0x7f) == 0) {
+            decoded = [NSString stringWithFormat:@"exited code=%d status=%#x", (code >> 8) & 0xff, code];
+        } else {
+            decoded = [NSString stringWithFormat:@"signaled sig=%d core=%d status=%#x",
+                       code & 0x7f, (code & 0x80) != 0, code];
+        }
         [ISHDiagnosticsStore recordBreadcrumb:@"process.exit"
-                                      details:@{@"pid": @(pid), @"code": @(code)}];
+                                      details:@{@"pid": @(pid),
+                                                @"ppid": @(ppid),
+                                                @"tgid": @(tgid),
+                                                @"comm": commString,
+                                                @"code": @(code),
+                                                @"decoded": decoded ?: @""}];
         [[NSNotificationCenter defaultCenter] postNotificationName:ProcessExitedNotification
                                                             object:nil
                                                           userInfo:@{@"pid": @(pid),
@@ -104,6 +125,7 @@ static void ios_handle_die(const char *msg) {
     pthread_getname_np(pthread_self(), name, sizeof(name));
     NSString *newName = [NSString stringWithFormat:@"%s died: %s", name, msg];
     pthread_setname_np(newName.UTF8String);
+    ISHDiagnosticsRecordGuestFatalSync("die", msg, NULL);
 }
 #elif ISH_LINUX
 void ReportPanic(const char *message) {
@@ -117,6 +139,9 @@ static NSString *const kMetricKitDiagnosticsDirectory = @"MetricKitDiagnostics";
 NSString *const ISHDiagnosticsStoreDidUpdateNotification = @"ISHDiagnosticsStoreDidUpdateNotification";
 static NSString *const kDiagnosticsDirectory = @"Diagnostics";
 static NSString *const kDiagnosticsBreadcrumbsFile = @"breadcrumbs.json";
+static NSString *const kDiagnosticsLaunchJournalFile = @"launch-journal.json";
+static NSString *const kDiagnosticsGuestFatalFile = @"guest-fatal-event.json";
+static NSString *const kDiagnosticsGuestExitsFile = @"guest-exits.json";
 
 static NSString *MetricKitISO8601StringFromDate(NSDate *date) {
     if (date == nil)
@@ -169,6 +194,27 @@ static NSURL *DiagnosticsBreadcrumbsURL(void) {
     return [directoryURL URLByAppendingPathComponent:kDiagnosticsBreadcrumbsFile isDirectory:NO];
 }
 
+static NSURL *DiagnosticsLaunchJournalURL(void) {
+    NSURL *directoryURL = DiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return nil;
+    return [directoryURL URLByAppendingPathComponent:kDiagnosticsLaunchJournalFile isDirectory:NO];
+}
+
+static NSURL *DiagnosticsGuestFatalURL(void) {
+    NSURL *directoryURL = DiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return nil;
+    return [directoryURL URLByAppendingPathComponent:kDiagnosticsGuestFatalFile isDirectory:NO];
+}
+
+static NSURL *DiagnosticsGuestExitsURL(void) {
+    NSURL *directoryURL = DiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return nil;
+    return [directoryURL URLByAppendingPathComponent:kDiagnosticsGuestExitsFile isDirectory:NO];
+}
+
 static NSString *DiagnosticsISO8601StringFromDate(NSDate *date) {
     return MetricKitISO8601StringFromDate(date);
 }
@@ -182,6 +228,100 @@ static NSString *DiagnosticsHostMachine(void) {
 
 static NSString *DiagnosticsByteCountString(long long bytes) {
     return [NSByteCountFormatter stringFromByteCount:bytes countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+static void DiagnosticsEnsureDirectoryExists(void) {
+    NSURL *directoryURL = DiagnosticsDirectoryURL();
+    if (directoryURL == nil)
+        return;
+    [NSFileManager.defaultManager createDirectoryAtURL:directoryURL
+                           withIntermediateDirectories:YES
+                                            attributes:nil
+                                                 error:nil];
+}
+
+static void DiagnosticsWriteJSONObject(NSURL *url, id object) {
+    if (url == nil || object == nil)
+        return;
+    DiagnosticsEnsureDirectoryExists();
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:object
+                                                       options:NSJSONWritingPrettyPrinted
+                                                         error:nil];
+    if (jsonData != nil)
+        [jsonData writeToURL:url options:NSDataWritingAtomic error:nil];
+}
+
+static NSDictionary<NSString *, id> *DiagnosticsGuestExitDictionary(int pid, int ppid, int tgid,
+                                                                    NSString *comm, int code) {
+    NSMutableDictionary<NSString *, id> *entry = [NSMutableDictionary dictionary];
+    entry[@"timestamp"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+    entry[@"pid"] = @(pid);
+    entry[@"ppid"] = @(ppid);
+    entry[@"tgid"] = @(tgid);
+    if (comm.length != 0)
+        entry[@"comm"] = comm;
+    entry[@"code"] = @(code);
+    if ((code & 0xff) == 0x7f) {
+        entry[@"kind"] = @"stopped";
+        entry[@"signal"] = @((code >> 8) & 0xff);
+    } else if ((code & 0x7f) == 0) {
+        entry[@"kind"] = @"exited";
+        entry[@"exitCode"] = @((code >> 8) & 0xff);
+    } else {
+        entry[@"kind"] = @"signaled";
+        entry[@"signal"] = @(code & 0x7f);
+        entry[@"coreDumped"] = @((code & 0x80) != 0);
+    }
+    entry[@"statusHex"] = [NSString stringWithFormat:@"%#x", code];
+    return entry;
+}
+
+void ISHDiagnosticsRecordGuestFatalSync(const char *kind, const char *summary, const char *detail) {
+    @autoreleasepool {
+        NSMutableDictionary<NSString *, id> *record = [NSMutableDictionary dictionary];
+        record[@"timestamp"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+        if (kind != NULL)
+            record[@"kind"] = [NSString stringWithUTF8String:kind] ?: @"";
+        if (summary != NULL)
+            record[@"summary"] = [NSString stringWithUTF8String:summary] ?: @"";
+        if (detail != NULL)
+            record[@"detail"] = [NSString stringWithUTF8String:detail] ?: @"";
+        DiagnosticsWriteJSONObject(DiagnosticsGuestFatalURL(), record);
+    }
+}
+
+void ISHDiagnosticsRecordGuestExitSyncDetailed(int pid, int ppid, int tgid, const char *comm, int code) {
+    @autoreleasepool {
+        NSURL *url = DiagnosticsGuestExitsURL();
+        if (url == nil)
+            return;
+        DiagnosticsEnsureDirectoryExists();
+
+        NSData *existingData = [NSData dataWithContentsOfURL:url];
+        NSMutableArray<NSDictionary<NSString *, id> *> *entries = [NSMutableArray array];
+        if (existingData.length > 0) {
+            id existingObject = [NSJSONSerialization JSONObjectWithData:existingData options:NSJSONReadingMutableContainers error:nil];
+            if ([existingObject isKindOfClass:[NSArray class]])
+                [entries addObjectsFromArray:existingObject];
+        }
+
+        NSString *commString = comm != NULL ? [NSString stringWithUTF8String:comm] : nil;
+        [entries addObject:DiagnosticsGuestExitDictionary(pid, ppid, tgid, commString, code)];
+        const NSUInteger maxEntries = 32;
+        if (entries.count > maxEntries) {
+            NSRange overflow = NSMakeRange(0, entries.count - maxEntries);
+            [entries removeObjectsInRange:overflow];
+        }
+        DiagnosticsWriteJSONObject(url, entries);
+    }
+}
+
+void ISHScheduleLaunchJournalCompletion(NSDictionary<NSString *, id> *details) {
+    NSDictionary<NSString *, id> *detailsCopy = [details copy];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [ISHDiagnosticsStore completeLaunchWithDetails:detailsCopy];
+    });
 }
 
 static int EnsurePathRemoved(const char *path, const struct statbuf *stat) {
@@ -272,7 +412,6 @@ static int EnsureSymlink(const char *path, const char *target) {
                                withIntermediateDirectories:YES
                                                 attributes:nil
                                                      error:nil];
-
         NSData *existingData = [NSData dataWithContentsOfURL:breadcrumbsURL];
         NSMutableArray<NSDictionary<NSString *, id> *> *breadcrumbs = [NSMutableArray array];
         if (existingData.length > 0) {
@@ -302,6 +441,135 @@ static int EnsureSymlink(const char *path, const char *target) {
             });
         }
     });
+}
+
++ (void)updateLaunchJournal:(void (^)(NSMutableDictionary<NSString *, id> *journal))block {
+    if (block == nil)
+        return;
+    dispatch_sync(self.queue, ^{
+        NSURL *directoryURL = DiagnosticsDirectoryURL();
+        NSURL *journalURL = DiagnosticsLaunchJournalURL();
+        if (directoryURL == nil || journalURL == nil)
+            return;
+        [NSFileManager.defaultManager createDirectoryAtURL:directoryURL
+                               withIntermediateDirectories:YES
+                                                attributes:nil
+                                                     error:nil];
+
+        NSMutableDictionary<NSString *, id> *journal = [NSMutableDictionary dictionary];
+        NSData *existingData = [NSData dataWithContentsOfURL:journalURL];
+        if (existingData.length > 0) {
+            id existingObject = [NSJSONSerialization JSONObjectWithData:existingData options:NSJSONReadingMutableContainers error:nil];
+            if ([existingObject isKindOfClass:[NSDictionary class]])
+                [journal addEntriesFromDictionary:existingObject];
+        }
+
+        block(journal);
+
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:journal options:NSJSONWritingPrettyPrinted error:nil];
+        if (jsonData != nil)
+            [jsonData writeToURL:journalURL options:NSDataWritingAtomic error:nil];
+    });
+}
+
++ (void)recordLaunchStage:(NSString *)stage {
+    [self recordLaunchStage:stage details:nil];
+}
+
++ (void)recordLaunchStage:(NSString *)stage details:(NSDictionary<NSString *,id> *)details {
+    if (stage.length == 0)
+        return;
+    [self updateLaunchJournal:^(NSMutableDictionary<NSString *,id> *journal) {
+        NSString *processIdentifier = [NSString stringWithFormat:@"%d", NSProcessInfo.processInfo.processIdentifier];
+        NSString *existingProcessIdentifier = journal[@"processIdentifier"];
+        if (![existingProcessIdentifier isEqualToString:processIdentifier]) {
+            [journal removeAllObjects];
+            journal[@"launchID"] = NSUUID.UUID.UUIDString;
+            journal[@"processIdentifier"] = processIdentifier;
+            journal[@"startedAt"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+            journal[@"completed"] = @NO;
+            journal[@"stages"] = [NSMutableArray array];
+        }
+
+        NSMutableArray<NSDictionary<NSString *, id> *> *stages = [journal[@"stages"] isKindOfClass:[NSMutableArray class]]
+            ? journal[@"stages"]
+            : [NSMutableArray array];
+        NSMutableDictionary<NSString *, id> *entry = [NSMutableDictionary dictionary];
+        entry[@"timestamp"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+        entry[@"stage"] = stage;
+        if (details.count != 0)
+            entry[@"details"] = details;
+        [stages addObject:entry];
+        if (stages.count > 64) {
+            NSRange overflow = NSMakeRange(0, stages.count - 64);
+            [stages removeObjectsInRange:overflow];
+        }
+        journal[@"stages"] = stages;
+        journal[@"lastStage"] = stage;
+        journal[@"updatedAt"] = entry[@"timestamp"];
+        journal[@"completed"] = @NO;
+        [journal removeObjectForKey:@"completedAt"];
+        [journal removeObjectForKey:@"completionDetails"];
+    }];
+}
+
++ (void)completeLaunchWithDetails:(NSDictionary<NSString *,id> *)details {
+    [self updateLaunchJournal:^(NSMutableDictionary<NSString *,id> *journal) {
+        if (journal.count == 0)
+            return;
+        journal[@"completed"] = @YES;
+        journal[@"completedAt"] = DiagnosticsISO8601StringFromDate([NSDate date]) ?: @"";
+        if (details.count != 0)
+            journal[@"completionDetails"] = details;
+        else
+            [journal removeObjectForKey:@"completionDetails"];
+    }];
+}
+
++ (NSDictionary<NSString *,id> *)currentLaunchJournal {
+    __block NSDictionary<NSString *, id> *result = nil;
+    dispatch_sync(self.queue, ^{
+        NSData *data = [NSData dataWithContentsOfURL:DiagnosticsLaunchJournalURL()];
+        if (data.length == 0)
+            return;
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([object isKindOfClass:[NSDictionary class]])
+            result = object;
+    });
+    return result;
+}
+
++ (NSDictionary<NSString *, id> *)currentGuestFatalEvent {
+    __block NSDictionary<NSString *, id> *result = nil;
+    dispatch_sync(self.queue, ^{
+        NSData *data = [NSData dataWithContentsOfURL:DiagnosticsGuestFatalURL()];
+        if (data.length == 0)
+            return;
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if ([object isKindOfClass:[NSDictionary class]])
+            result = object;
+    });
+    return result;
+}
+
++ (NSArray<NSDictionary<NSString *, id> *> *)recentGuestExitsWithLimit:(NSUInteger)limit {
+    __block NSArray<NSDictionary<NSString *, id> *> *result = @[];
+    dispatch_sync(self.queue, ^{
+        NSData *data = [NSData dataWithContentsOfURL:DiagnosticsGuestExitsURL()];
+        if (data.length == 0)
+            return;
+        id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (![object isKindOfClass:[NSArray class]])
+            return;
+        NSArray<NSDictionary<NSString *, id> *> *entries = object;
+        if (limit == 0 || entries.count <= limit) {
+            result = [[entries reverseObjectEnumerator] allObjects];
+        } else {
+            NSRange range = NSMakeRange(entries.count - limit, limit);
+            result = [[[entries subarrayWithRange:range] reverseObjectEnumerator] allObjects];
+        }
+    });
+    return result;
 }
 
 + (NSArray<NSDictionary<NSString *,id> *> *)recentBreadcrumbsWithLimit:(NSUInteger)limit {
@@ -400,6 +668,89 @@ static int EnsureSymlink(const char *path, const char *target) {
     if (summary[@"initialRootImportError"] != nil)
         [report appendFormat:@"Initial Root Import Error: %@\n", summary[@"initialRootImportError"]];
 
+    NSDictionary<NSString *, id> *launchJournal = [self currentLaunchJournal];
+    [report appendString:@"\nLast Launch Journal\n"];
+    if (launchJournal.count == 0) {
+        [report appendString:@"  none\n"];
+    } else {
+        [report appendFormat:@"  launchID: %@\n", launchJournal[@"launchID"] ?: @"unknown"];
+        [report appendFormat:@"  pid: %@\n", launchJournal[@"processIdentifier"] ?: @"unknown"];
+        [report appendFormat:@"  started: %@\n", launchJournal[@"startedAt"] ?: @"unknown"];
+        [report appendFormat:@"  updated: %@\n", launchJournal[@"updatedAt"] ?: @"unknown"];
+        [report appendFormat:@"  completed: %@\n", [launchJournal[@"completed"] boolValue] ? @"yes" : @"no"];
+        if (launchJournal[@"completedAt"] != nil)
+            [report appendFormat:@"  completedAt: %@\n", launchJournal[@"completedAt"]];
+        if (launchJournal[@"lastStage"] != nil)
+            [report appendFormat:@"  lastStage: %@\n", launchJournal[@"lastStage"]];
+        NSDictionary *completionDetails = launchJournal[@"completionDetails"];
+        if (completionDetails.count != 0)
+            [report appendFormat:@"  completionDetails: %@\n",
+             [[completionDetails description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "]];
+        NSArray<NSDictionary<NSString *, id> *> *stages = launchJournal[@"stages"];
+        for (NSDictionary<NSString *, id> *entry in stages) {
+            [report appendFormat:@"    %@  %@",
+             entry[@"timestamp"] ?: @"",
+             entry[@"stage"] ?: @""];
+            NSDictionary *details = entry[@"details"];
+            if (details.count != 0)
+                [report appendFormat:@"  %@",
+                 [[details description] stringByReplacingOccurrencesOfString:@"\n" withString:@" "]];
+            [report appendString:@"\n"];
+        }
+    }
+
+    NSDictionary<NSString *, id> *guestFatal = [self currentGuestFatalEvent];
+    [report appendString:@"\nLast Guest Fatal Event\n"];
+    if (guestFatal.count == 0) {
+        [report appendString:@"  none\n"];
+    } else {
+        [report appendFormat:@"  timestamp: %@\n", guestFatal[@"timestamp"] ?: @"unknown"];
+        [report appendFormat:@"  kind: %@\n", guestFatal[@"kind"] ?: @"unknown"];
+        [report appendFormat:@"  summary: %@\n", guestFatal[@"summary"] ?: @"unknown"];
+        if ([guestFatal[@"detail"] length] != 0) {
+            NSString *detail = [guestFatal[@"detail"] stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
+            for (NSString *line in [detail componentsSeparatedByString:@"\n"]) {
+                if (line.length == 0)
+                    continue;
+                [report appendFormat:@"    %@\n", line];
+            }
+        }
+    }
+
+    NSArray<NSDictionary<NSString *, id> *> *guestExits = [self recentGuestExitsWithLimit:20];
+    [report appendString:@"\nRecent Guest Exits\n"];
+    if (guestExits.count == 0) {
+        [report appendString:@"  none\n"];
+    } else {
+        for (NSDictionary<NSString *, id> *entry in guestExits) {
+            NSMutableArray<NSString *> *parts = [NSMutableArray array];
+            [parts addObject:[NSString stringWithFormat:@"pid=%@", entry[@"pid"] ?: @"?"]];
+            if (entry[@"ppid"] != nil)
+                [parts addObject:[NSString stringWithFormat:@"ppid=%@", entry[@"ppid"]]];
+            if (entry[@"tgid"] != nil)
+                [parts addObject:[NSString stringWithFormat:@"tgid=%@", entry[@"tgid"]]];
+            if ([entry[@"comm"] length] != 0)
+                [parts addObject:[NSString stringWithFormat:@"comm=%@", entry[@"comm"]]];
+            NSString *kind = entry[@"kind"];
+            if ([kind isEqualToString:@"exited"]) {
+                [parts addObject:[NSString stringWithFormat:@"exit=%@", entry[@"exitCode"] ?: @"?"]];
+            } else if ([kind isEqualToString:@"signaled"]) {
+                [parts addObject:[NSString stringWithFormat:@"signal=%@", entry[@"signal"] ?: @"?"]];
+                if ([entry[@"coreDumped"] boolValue])
+                    [parts addObject:@"core=1"];
+            } else if ([kind isEqualToString:@"stopped"]) {
+                [parts addObject:[NSString stringWithFormat:@"stopped=%@", entry[@"signal"] ?: @"?"]];
+            } else {
+                [parts addObject:[NSString stringWithFormat:@"code=%@", entry[@"code"] ?: @"?"]];
+            }
+            if (entry[@"statusHex"] != nil)
+                [parts addObject:[NSString stringWithFormat:@"status=%@", entry[@"statusHex"]]];
+            [report appendFormat:@"  %@  %@\n",
+             entry[@"timestamp"] ?: @"",
+             [parts componentsJoinedByString:@" "]];
+        }
+    }
+
     NSArray<NSDictionary<NSString *, id> *> *payloads = [self recentMetricKitPayloadsWithLimit:5];
     [report appendString:@"\nRecent MetricKit Payloads\n"];
     if (payloads.count == 0) {
@@ -472,6 +823,24 @@ static int EnsureSymlink(const char *path, const char *target) {
     if (breadcrumbsURL != nil && [NSFileManager.defaultManager fileExistsAtPath:breadcrumbsURL.path]) {
         [NSFileManager.defaultManager copyItemAtURL:breadcrumbsURL
                                               toURL:[baseDirectory URLByAppendingPathComponent:breadcrumbsURL.lastPathComponent]
+                                              error:nil];
+    }
+    NSURL *launchJournalURL = DiagnosticsLaunchJournalURL();
+    if (launchJournalURL != nil && [NSFileManager.defaultManager fileExistsAtPath:launchJournalURL.path]) {
+        [NSFileManager.defaultManager copyItemAtURL:launchJournalURL
+                                              toURL:[baseDirectory URLByAppendingPathComponent:launchJournalURL.lastPathComponent]
+                                              error:nil];
+    }
+    NSURL *guestFatalURL = DiagnosticsGuestFatalURL();
+    if (guestFatalURL != nil && [NSFileManager.defaultManager fileExistsAtPath:guestFatalURL.path]) {
+        [NSFileManager.defaultManager copyItemAtURL:guestFatalURL
+                                              toURL:[baseDirectory URLByAppendingPathComponent:guestFatalURL.lastPathComponent]
+                                              error:nil];
+    }
+    NSURL *guestExitsURL = DiagnosticsGuestExitsURL();
+    if (guestExitsURL != nil && [NSFileManager.defaultManager fileExistsAtPath:guestExitsURL.path]) {
+        [NSFileManager.defaultManager copyItemAtURL:guestExitsURL
+                                              toURL:[baseDirectory URLByAppendingPathComponent:guestExitsURL.lastPathComponent]
                                               error:nil];
     }
 
@@ -731,11 +1100,18 @@ static TerminalViewController *CreateTerminalViewController(void) {
 + (intptr_t)ensureBooted {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.begin"];
         AppDelegate *delegate = (AppDelegate *) UIApplication.sharedApplication.delegate;
         if ([delegate isKindOfClass:AppDelegate.class]) {
             bootError = [delegate boot];
         } else {
             bootError = _ESRCH;
+        }
+        if (bootError < 0) {
+            [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.failed"
+                                           details:@{@"error": @(bootError)}];
+        } else {
+            [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.end"];
         }
     });
     return bootError;
@@ -743,12 +1119,28 @@ static TerminalViewController *CreateTerminalViewController(void) {
 
 - (intptr_t)boot {
 #if !ISH_LINUX
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.begin"];
     NSString *defaultRoot = Roots.instance.defaultRoot;
     if (defaultRoot == nil)
         return _ENOENT;
+    NSError *rootLockError = nil;
+    int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", defaultRoot, YES, &rootLockError);
+    if (rootLockFd < 0) {
+        [ISHDiagnosticsStore recordLaunchStage:@"boot.root.lock.failed"
+                                       details:@{@"root": defaultRoot,
+                                                 @"error": rootLockError.localizedDescription ?: @"unknown"}];
+    } else {
+        [ISHDiagnosticsStore recordLaunchStage:@"boot.root.locked"
+                                       details:@{@"root": defaultRoot}];
+    }
+    @try {
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.root.selected"
+                                   details:@{@"root": defaultRoot}];
     NSString *guestABI = [Roots.instance guestABIForRootNamed:defaultRoot];
     if ([guestABI isEqualToString:@"amd64"]) {
         NSLog(@"Attempting experimental amd64 guest boot for root %@", defaultRoot);
+        [ISHDiagnosticsStore recordLaunchStage:@"boot.root.amd64"
+                                       details:@{@"root": defaultRoot}];
     }
 
     NSURL *root = [Roots.instance rootUrl:defaultRoot];
@@ -756,6 +1148,8 @@ static TerminalViewController *CreateTerminalViewController(void) {
     intptr_t err = mount_root(&fakefs, [root URLByAppendingPathComponent:@"data"].fileSystemRepresentation);
     if (err < 0)
         return err;
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.root.mounted"
+                                   details:@{@"root": defaultRoot}];
 
     fs_register(&iosfs);
     fs_register(&iosfs_unsafe);
@@ -764,6 +1158,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
     err = become_first_process();
     if (err < 0)
         return err;
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.first_process.ready"];
 
     FsInitialize();
 
@@ -863,7 +1258,12 @@ static TerminalViewController *CreateTerminalViewController(void) {
     err = do_execve(command[0].UTF8String, command.count, argv, envp);
     if (err < 0)
         return err;
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.init.exec"];
     task_start(current);
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.init.started"];
+    } @finally {
+        ISHAppGroupReleaseLock(rootLockFd);
+    }
 
 #else
     // On first launch, this will trigger the import of the default root. Make sure to do this before entering the kernel, because it needs to run something on the main thread, and that would deadlock.
@@ -1105,6 +1505,8 @@ void SyncHostname(void) {
 }
 
 - (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary<UIApplicationLaunchOptionsKey,id> *)launchOptions {
+    [ISHDiagnosticsStore recordLaunchStage:@"application.willFinishLaunching"
+                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     [ISHDiagnosticsStore recordBreadcrumb:@"application.willFinishLaunching"
                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
@@ -1117,8 +1519,13 @@ void SyncHostname(void) {
         return YES;
 
     [Roots instance];
+    [ISHDiagnosticsStore recordLaunchStage:@"roots.loaded"
+                                   details:@{@"needsInitialRootSelection": @(Roots.instance.needsInitialRootSelection),
+                                             @"defaultRoot": Roots.instance.defaultRoot ?: @""}];
     if (!Roots.instance.needsInitialRootSelection) {
         bootError = [AppDelegate ensureBooted];
+        [ISHDiagnosticsStore recordLaunchStage:@"application.boot.checked"
+                                       details:@{@"bootError": @(bootError)}];
     }
 
 #if ISH_LINUX
@@ -1145,6 +1552,8 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    [ISHDiagnosticsStore recordLaunchStage:@"application.didFinishLaunching"
+                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     [ISHDiagnosticsStore recordBreadcrumb:@"application.didFinishLaunching"
                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     // get the network permissions popup to appear on chinese devices
@@ -1211,11 +1620,15 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
     if (self.window != nil) {
         // For iOS <13, where the app delegate owns the window instead of the scene
         if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
+            [ISHDiagnosticsStore recordLaunchStage:@"launch.rootController.diagnostics"];
             self.window.rootViewController = CreateAboutNavigationController(NO, YES);
+            ISHScheduleLaunchJournalCompletion(@{@"rootController": @"diagnostics"});
             return YES;
         }
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
+            [ISHDiagnosticsStore recordLaunchStage:@"launch.rootController.recovery"];
             self.window.rootViewController = CreateAboutNavigationController(YES, NO);
+            ISHScheduleLaunchJournalCompletion(@{@"rootController": @"recovery"});
             return YES;
         }
         if (Roots.instance.needsInitialRootSelection) {
@@ -1226,15 +1639,20 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
                                                    selector:@selector(rootsDidFinishInitialSelection:)
                                                        name:RootsDidFinishInitialSelectionNotification
                                                      object:nil];
+            [ISHDiagnosticsStore recordLaunchStage:@"launch.rootController.initialRootSelection"];
             self.window.rootViewController = CreateRootSelectionViewController();
+            ISHScheduleLaunchJournalCompletion(@{@"rootController": @"initial-root-selection"});
             return YES;
         }
         if (ISHShouldLaunchWorkspaceAtStartup()) {
+            [ISHDiagnosticsStore recordLaunchStage:@"launch.rootController.workspace"];
             self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+            ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace"});
             return YES;
         }
         TerminalViewController *vc = (TerminalViewController *) self.window.rootViewController;
         currentTerminalViewController = vc;
+        [ISHDiagnosticsStore recordLaunchStage:@"launch.terminal.startNewSession"];
         [vc startNewSession];
     }
     return YES;
@@ -1250,7 +1668,9 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 
     self.waitingForInitialRootImport = NO;
     if (ISHShouldLaunchWorkspaceAtStartup()) {
+        [ISHDiagnosticsStore recordLaunchStage:@"launch.rootController.workspace.afterInitialImport"];
         self.window.rootViewController = ISHCreateWorkspaceNavigationController();
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace"});
         return;
     }
     TerminalViewController *vc = CreateTerminalViewController();
@@ -1259,6 +1679,7 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 
     self.window.rootViewController = vc;
     currentTerminalViewController = vc;
+    [ISHDiagnosticsStore recordLaunchStage:@"launch.terminal.startNewSession.afterInitialImport"];
     [vc startNewSession];
 }
 

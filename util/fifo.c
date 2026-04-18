@@ -50,7 +50,7 @@ int fifo_read(struct fifo *fifo, void *buf, size_t size, int flags) {
     if (flags & FIFO_LAST)
         start = (start + (fifo->size - size)) % fifo->capacity;
 
-    size_t first_copy_size = fifo->capacity - fifo->start;
+    size_t first_copy_size = fifo->capacity - start;
     if (first_copy_size > size)
         first_copy_size = size;
     memcpy(buf, &fifo->buf[start], first_copy_size);

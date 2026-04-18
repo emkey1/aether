@@ -484,7 +484,7 @@ static NSString *ISHInitialWindowTitle(void) {
     if ([initialWindow isEqualToString:ISHInitialWindowChooseFilesystemValue])
         return @"Choose Filesystem";
     if ([initialWindow isEqualToString:@"session-shell"])
-        return @"Session Shell (pts/0)";
+        return @"Session Shell (pts/1)";
     return @"Plain Terminal";
 }
 
@@ -2424,11 +2424,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     BOOL hasTerminalWindow = frontmostTerminalWindow != nil;
     BOOL frontmostIsTerminal = frontmostTerminalWindow != nil && frontmostWindow == frontmostTerminalWindow;
     NSString *terminalState = @"Open Shell";
-    if (shellWindow != nil) {
-        terminalState = frontmostWindow == shellWindow ? @"Front" : @"Focus Shell";
-    } else if (hasTerminalWindow) {
-        terminalState = frontmostIsTerminal ? @"Front" : @"Focus";
-    }
+    if (shellWindow != nil || hasTerminalWindow)
+        terminalState = @"Another Shell";
     [self configureDockTileButton:self.dockTerminalButton
                             title:@"Terminal"
                             state:terminalState
@@ -2502,19 +2499,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)openOrFocusTerminalFromDock:(UIButton *)sender {
     (void) sender;
-    ISHWorkspaceContainedWindowView *shellWindow = [self desktopWindowForTerminalRole:ISHWorkspaceTerminalRoleSessionShell];
-    if (shellWindow != nil) {
-        [self focusDesktopWindow:shellWindow];
-        return;
-    }
-
-    ISHWorkspaceContainedWindowView *frontmostTerminalWindow = [self frontmostDesktopTerminalWindow];
-    if (frontmostTerminalWindow != nil) {
-        [self focusDesktopWindow:frontmostTerminalWindow];
-        return;
-    }
-
-    [self openTerminalHerePreferringConsole:NO];
+    [self openDesktopTerminalHerePreferringConsole:NO
+                                     reuseExisting:NO
+                                   trackPrimaryRole:NO];
 }
 
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)dockUtilityToolDescriptors {
@@ -2687,6 +2674,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self presentSceneActivationError:nil];
         return;
     }
+    terminalViewController.freshSessionTerminalDisplayMode =
+        preferConsole ? ISHFreshSessionTerminalDisplayModeSystemConsole
+                      : ISHFreshSessionTerminalDisplayModeSessionShell;
 
     NSString *title = preferConsole ? @"System Console" : @"Session Shell";
     ISHWorkspaceContainedWindowView *windowView =
@@ -2703,7 +2693,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         windowView.titleLabel.text = ISHWorkspaceTitleForTerminalRole(terminalRole, terminalViewController.terminal);
     } else {
         windowView.workspaceTerminalRole = ISHWorkspaceTerminalRoleGeneric;
-        windowView.titleLabel.text = ISHWorkspaceTerminalDisplayName(terminalViewController.terminal);
+        windowView.titleLabel.text = title;
     }
     [self refreshDockButtons];
 }

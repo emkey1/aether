@@ -7,6 +7,8 @@
 
 #import <UIKit/UIKit.h>
 
+FOUNDATION_EXPORT void ISHScheduleLaunchJournalCompletion(NSDictionary<NSString *, id> * _Nullable details);
+
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 
 @property (strong, nonatomic) UIWindow *window;

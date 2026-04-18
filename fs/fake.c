@@ -168,7 +168,10 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     struct fd *fd = realfs.open(mount, path, flags, 0666);
     if (IS_ERR(fd))
         return fd;
-    db_begin(fs);
+    if (flags & O_CREAT_)
+        db_begin_write(fs);
+    else
+        db_begin_read(fs);
     fd->fake_inode = path_get_inode(fs, path);
     if (flags & O_CREAT_) {
         struct ish_stat ishstat;
@@ -195,7 +198,7 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
 // WARNING: giant hack, just for file providerws
 struct fd *fakefs_open_inode(struct mount *mount, ino_t inode) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_read(fs);
     sqlite3_stmt *stmt = fs->stmt.path_from_inode;
     sqlite3_bind_int64(stmt, 1, inode);
 step:
@@ -219,7 +222,7 @@ step:
 
 static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     int err = realfs.link(mount, src, dst);
     if (err < 0) {
         db_rollback(fs);
@@ -232,7 +235,7 @@ static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
 
 static int fakefs_unlink(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     int err = realfs.unlink(mount, path);
     if (err < 0) {
         db_rollback(fs);
@@ -246,7 +249,7 @@ static int fakefs_unlink(struct mount *mount, const char *path) {
 
 static int fakefs_rmdir(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     int err = realfs.rmdir(mount, path);
     if (err < 0) {
         db_rollback(fs);
@@ -260,7 +263,7 @@ static int fakefs_rmdir(struct mount *mount, const char *path) {
 
 static int fakefs_rename(struct mount *mount, const char *src, const char *dst) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     path_rename(fs, src, dst);
     int err = realfs.rename(mount, src, dst);
     if (err < 0) {
@@ -273,7 +276,7 @@ static int fakefs_rename(struct mount *mount, const char *src, const char *dst) 
 
 static int fakefs_symlink(struct mount *mount, const char *target, const char *link) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     // create a file containing the target
     int fd = openat(mount->root_fd, fix_path(link), O_WRONLY | O_CREAT | O_EXCL, 0666);
     if (fd < 0) {
@@ -308,7 +311,7 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
         real_mode |= S_IFREG;
     else
         real_mode |= mode & S_IFMT;
-    db_begin(fs);
+    db_begin_write(fs);
     int err = realfs.mknod(mount, path, real_mode, 0);
     if (err < 0) {
         db_rollback(fs);
@@ -397,7 +400,7 @@ static int fakefs_setattr(struct mount *mount, const char *path, struct attr att
     struct fakefs_db *fs = &mount->fakefs;
     if (attr.type == attr_size)
         return realfs.setattr(mount, path, attr);
-    db_begin(fs);
+    db_begin_write(fs);
     struct ish_stat ishstat;
     ino_t inode;
     if (!path_read_stat(fs, path, &ishstat, &inode)) {
@@ -414,7 +417,7 @@ static int fakefs_fsetattr(struct fd *fd, struct attr attr) {
     struct fakefs_db *fs = &fd->mount->fakefs;
     if (attr.type == attr_size)
         return realfs.fsetattr(fd, attr);
-    db_begin(fs);
+    db_begin_write(fs);
     struct ish_stat ishstat;
     if (!inode_read_stat(fs, fd->fake_inode, &ishstat)) {
         // File was deleted while fd was still open - return ENOENT
@@ -430,7 +433,7 @@ static int fakefs_fsetattr(struct fd *fd, struct attr attr) {
 
 static int fakefs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     int err = realfs.mkdir(mount, path, 0777);
     if (err < 0) {
         db_rollback(fs);
@@ -460,7 +463,7 @@ static ssize_t file_readlink(struct mount *mount, const char *path, char *buf, s
 
 static ssize_t fakefs_readlink(struct mount *mount, const char *path, char *buf, size_t bufsize) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_read(fs);
     struct ish_stat ishstat;
     if (!path_read_stat(fs, path, &ishstat, NULL)) {
         db_rollback(fs);
@@ -504,7 +507,7 @@ retry:
     }
 
     struct fakefs_db *fs = &fd->mount->fakefs;
-    db_begin(fs);
+    db_begin_read(fs);
     entry->inode = path_get_inode(fs, entry_path);
     db_commit(fs);
     // it's quite possible that due to some mishap there's no metadata for this file
@@ -560,7 +563,7 @@ static int fakefs_umount(struct mount *mount) {
 
 static void fakefs_inode_orphaned(struct mount *mount, ino_t inode) {
     struct fakefs_db *fs = &mount->fakefs;
-    db_begin(fs);
+    db_begin_write(fs);
     sqlite3_bind_int64(fs->stmt.try_cleanup_inode, 1, inode);
     db_exec_reset(fs, fs->stmt.try_cleanup_inode);
     db_commit(fs);

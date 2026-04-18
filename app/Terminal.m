@@ -50,6 +50,7 @@ NSNotificationName const TerminalRegistryDidChangeNotification = @"TerminalRegis
 
 @property NSNumber *terminalsKey;
 @property NSUUID *uuid;
+@property (nonatomic, copy) NSString *pendingDestroyReason;
 
 @end
 
@@ -113,6 +114,20 @@ static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
     return literal;
 }
 
+static NSString *ISHTerminalTypeString(int type) {
+    if (type == TTY_CONSOLE_MAJOR)
+        return @"console";
+    if (type == TTY_PSEUDO_SLAVE_MAJOR)
+        return @"pty-slave";
+    if (type == TTY_PSEUDO_MASTER_MAJOR)
+        return @"pty-master";
+    return [NSString stringWithFormat:@"%d", type];
+}
+
+static NSString *ISHStringFromBOOL(BOOL value) {
+    return value ? @"yes" : @"no";
+}
+
 static void NotifyTerminalRegistryChanged(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:TerminalRegistryDidChangeNotification object:nil];
@@ -159,6 +174,18 @@ static void NotifyTerminalRegistryChanged(void) {
                                                           object:self
                                                         userInfo:error != nil ? @{@"error": error} : @{}];
     });
+}
+
+- (void)recordLifecycleEvent:(NSString *)event details:(NSDictionary<NSString *, id> *)details {
+    NSMutableDictionary<NSString *, id> *payload = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
+    payload[@"terminalUUID"] = self.uuid.UUIDString ?: @"";
+    payload[@"type"] = ISHTerminalTypeString(self.type);
+    payload[@"number"] = @(self.number);
+    payload[@"loaded"] = ISHStringFromBOOL(self.loaded);
+    [ISHDiagnosticsStore recordBreadcrumb:event details:payload];
+    NSLog(@"%@ %@ type=%@ num=%d loaded=%@ details=%@",
+          event, self.uuid.UUIDString ?: @"", ISHTerminalTypeString(self.type), self.number,
+          ISHStringFromBOOL(self.loaded), payload);
 }
 
 - (WKWebView *)webView {
@@ -212,6 +239,8 @@ static void NotifyTerminalRegistryChanged(void) {
     if ([message.name isEqualToString:@"load"]) {
         self.loaded = YES;
         self.didReportLoadFailure = NO;
+        [self recordLifecycleEvent:@"terminal.webview.load"
+                           details:@{@"script": @"load"}];
         NSLog(@"Terminal %@ finished loading terminal UI", self.uuid.UUIDString ?: @"(unknown)");
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:TerminalDidLoadNotification
@@ -223,8 +252,11 @@ static void NotifyTerminalRegistryChanged(void) {
         self.enableVoiceOverAnnounce = self.enableVoiceOverAnnounce;
     } else if ([message.name isEqualToString:@"sendInput"]) {
         NSData *data = [message.body dataUsingEncoding:NSUTF8StringEncoding];
+        [self recordLifecycleEvent:@"terminal.webview.sendInput"
+                           details:@{@"bytes": @(data.length)}];
         [self sendInput:data];
     } else if ([message.name isEqualToString:@"resize"]) {
+        [self recordLifecycleEvent:@"terminal.webview.resize" details:nil];
         [self syncWindowSize];
     } else if ([message.name isEqualToString:@"propUpdate"]) {
         [self setValue:message.body[1] forKey:message.body[0]];
@@ -241,8 +273,8 @@ static void NotifyTerminalRegistryChanged(void) {
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
     self.loaded = NO;
-    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.webContentProcessTerminated"
-                                  details:@{@"terminalUUID": self.uuid.UUIDString ?: @""}];
+    [self recordLifecycleEvent:@"terminal.webContentProcessTerminated"
+                       details:@{@"webViewHidden": ISHStringFromBOOL(webView.isHidden)}];
     NSError *error = [NSError errorWithDomain:WKErrorDomain
                                          code:WKErrorWebContentProcessTerminated
                                      userInfo:@{NSLocalizedDescriptionKey: @"terminal web content process terminated"}];
@@ -339,6 +371,12 @@ static void NotifyTerminalRegistryChanged(void) {
 - (void)sendInput:(NSData *)input {
     if (self.tty == NULL)
         return;
+    if (input.length > 0) {
+        uint8_t first = ((const uint8_t *) input.bytes)[0];
+        [self recordLifecycleEvent:@"terminal.sendInput"
+                           details:@{@"bytes": @(input.length),
+                                     @"firstByte": [NSString stringWithFormat:@"%#x", first]}];
+    }
 #if !ISH_LINUX
     tty_input(self.tty, input.bytes, input.length, 0);
 #else
@@ -478,6 +516,10 @@ static void NotifyTerminalRegistryChanged(void) {
     }
 }
 
+- (void)setPendingDestroyReason:(NSString *)reason {
+    _pendingDestroyReason = [reason copy];
+}
+
 - (int)type {
     return dev_major((dev_t_) self.terminalsKey.unsignedIntValue);
 }
@@ -488,10 +530,28 @@ static void NotifyTerminalRegistryChanged(void) {
 
 - (void)destroy {
     tty_t tty = self.tty;
+    NSString *reason = self.pendingDestroyReason ?: @"unspecified";
+    self.pendingDestroyReason = nil;
+    NSMutableDictionary<NSString *, id> *details = [NSMutableDictionary dictionaryWithDictionary:@{
+        @"reason": reason,
+        @"ttyAttached": ISHStringFromBOOL(tty != NULL),
+    }];
+#if !ISH_LINUX
+    if (tty != NULL) {
+        details[@"ttyHungUp"] = ISHStringFromBOOL(tty->hung_up);
+        details[@"ttyEverOpened"] = ISHStringFromBOOL(tty->ever_opened);
+        details[@"ttySession"] = @(tty->session);
+        details[@"ttyFgGroup"] = @(tty->fg_group);
+    }
+#endif
+    [self recordLifecycleEvent:@"terminal.destroy" details:details];
     if (tty != NULL) {
 #if !ISH_LINUX
         if (tty != NULL) {
             lock(&tty->lock, 0);
+            [self recordLifecycleEvent:@"terminal.destroy.hangup"
+                               details:@{@"reason": reason,
+                                         @"ttyHungUpBefore": ISHStringFromBOOL(tty->hung_up)}];
             tty_hangup(tty);
             unlock(&tty->lock);
         }

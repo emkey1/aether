@@ -82,6 +82,16 @@ static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, 
     return restorationActivity;
 }
 
+static void ISHScheduleDeferredFileProviderDomainSyncRelease(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [Roots.instance resumeDeferredFileProviderDomainSync];
+        });
+    });
+}
+
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) API_AVAILABLE(ios(13.0));
 static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     if (delegate.window == nil) {
@@ -96,9 +106,14 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     vc.sceneSession = session;
     NSString *terminalUUID = activity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
     if (terminalUUID.length == 0) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.terminal.startNewSession"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         [vc startNewSession];
     } else {
         delegate.terminalUUID = terminalUUID;
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.terminal.reconnectSession"
+                                       details:@{@"session": session.persistentIdentifier ?: @"",
+                                                 @"terminalUUID": terminalUUID}];
         [vc reconnectSessionFromTerminalUUID:
          [[NSUUID alloc] initWithUUIDString:delegate.terminalUUID]];
     }
@@ -107,6 +122,9 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 @implementation SceneDelegate
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
+    [ISHDiagnosticsStore recordLaunchStage:@"scene.willConnect"
+                                   details:@{@"session": session.persistentIdentifier ?: @"",
+                                             @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
     [ISHDiagnosticsStore recordBreadcrumb:@"scene.willConnect"
                                   details:@{@"session": session.persistentIdentifier ?: @"",
                                             @"recovery": @([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"])}];
@@ -114,13 +132,21 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     NSUserActivity *requestedActivity = SceneEffectiveRequestedActivity(session, connectionOptions);
 
     if ([NSUserDefaults.standardUserDefaults boolForKey:kPreferenceOpenDiagnosticsOnLaunchKey]) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.diagnostics"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = ISHCreateAboutNavigationController(NO, YES);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"diagnostics",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
     if ([NSUserDefaults.standardUserDefaults boolForKey:@"recovery"]) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.recovery"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = ISHCreateAboutNavigationController(YES, NO);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"recovery",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
 
@@ -132,19 +158,27 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                                selector:@selector(rootsDidFinishInitialSelection:)
                                                    name:RootsDidFinishInitialSelectionNotification
                                                  object:nil];
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.initialRootSelection"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = CreateRootSelectionViewController(NO, nil);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"initial-root-selection",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
 
     if (requestedActivity.activityType.length == 0 && ISHShouldChooseFilesystemAtStartup()) {
         __weak typeof(self) weakSelf = self;
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.chooseFilesystem"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = CreateRootSelectionViewController(YES, ^(__unused NSString *rootName) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
             UISceneSession *activeSession = strongSelf.window.windowScene.session ?: session;
             [strongSelf continueAfterInitialRootImportForSession:activeSession];
         });
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"choose-filesystem",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
 
@@ -155,13 +189,23 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         || [activityType isEqualToString:ISHSceneActivityTypeLegacy];
     if (wantsWorkspace) {
         NSString *toolIdentifier = requestedActivity.userInfo[ISHSceneWorkspaceToolUserInfoKey];
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace"
+                                       details:@{@"session": session.persistentIdentifier ?: @"",
+                                                 @"tool": toolIdentifier ?: @""}];
         self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(toolIdentifier);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
+                                             @"session": session.persistentIdentifier ?: @"",
+                                             @"tool": toolIdentifier ?: @""});
         return;
     }
     if (activityType.length == 0 && ISHShouldLaunchWorkspaceAtStartup()) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.default"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
     if (!wantsTerminal) {
@@ -178,6 +222,9 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         self.window.rootViewController = vc;
         [self.window makeKeyAndVisible];
     }
+    [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.terminal"
+                                   details:@{@"session": session.persistentIdentifier ?: @"",
+                                             @"activityType": activityType ?: @""}];
     ConfigureTerminalViewController(self, vc, session, requestedActivity);
 }
 
@@ -189,8 +236,12 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 
     self.waitingForInitialRootImport = NO;
     if (ISHShouldLaunchWorkspaceAtStartup()) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.afterInitialImport"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
         self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
     TerminalViewController *vc = CreateTerminalViewController();
@@ -199,6 +250,8 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
+    [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.terminal.afterInitialImport"
+                                   details:@{@"session": session.persistentIdentifier ?: @""}];
     ConfigureTerminalViewController(self, vc, session, SceneEffectiveRequestedActivity(session, nil));
 }
 
@@ -251,6 +304,8 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene {
+    [ISHDiagnosticsStore recordLaunchStage:@"scene.didBecomeActive"
+                                   details:@{@"session": scene.session.persistentIdentifier ?: @""}];
     [ISHDiagnosticsStore recordBreadcrumb:@"scene.didBecomeActive"
                                   details:@{@"session": scene.session.persistentIdentifier ?: @""}];
     UIViewController *rootViewController = self.window.rootViewController;
@@ -259,6 +314,9 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     } else {
         currentTerminalViewController = NULL;
     }
+    ISHScheduleDeferredFileProviderDomainSyncRelease();
+    ISHScheduleLaunchJournalCompletion(@{@"rootController": NSStringFromClass(rootViewController.class) ?: @"unknown",
+                                         @"session": scene.session.persistentIdentifier ?: @""});
 }
 
 - (void)sceneWillResignActive:(UIScene *)scene {

@@ -40,10 +40,16 @@ void db_exec_reset(struct fakefs_db *fs, sqlite3_stmt *stmt) {
     db_reset(fs, stmt);
 }
 
-void db_begin(struct fakefs_db *fs) {
+void db_begin_read(struct fakefs_db *fs) {
     sqlite3_mutex_enter(fs->lock);
-    db_exec_reset(fs, fs->stmt.begin);
+    db_exec_reset(fs, fs->stmt.begin_deferred);
 }
+
+void db_begin_write(struct fakefs_db *fs) {
+    sqlite3_mutex_enter(fs->lock);
+    db_exec_reset(fs, fs->stmt.begin_immediate);
+}
+
 void db_commit(struct fakefs_db *fs) {
     db_exec_reset(fs, fs->stmt.commit);
     sqlite3_mutex_leave(fs->lock);
@@ -292,7 +298,8 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
 
     fs->next_inode = fakefs_next_inode_init(fs);
     fs->lock = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
-    fs->stmt.begin = db_prepare(fs, "begin");
+    fs->stmt.begin_deferred = db_prepare(fs, "begin deferred");
+    fs->stmt.begin_immediate = db_prepare(fs, "begin immediate");
     fs->stmt.commit = db_prepare(fs, "commit");
     fs->stmt.rollback = db_prepare(fs, "rollback");
     fs->stmt.path_get_inode = db_prepare(fs, "select inode from paths where path = ?");
@@ -312,7 +319,8 @@ int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
 
 int fake_db_deinit(struct fakefs_db *fs) {
     if (fs->db) {
-        sqlite3_finalize(fs->stmt.begin);
+        sqlite3_finalize(fs->stmt.begin_deferred);
+        sqlite3_finalize(fs->stmt.begin_immediate);
         sqlite3_finalize(fs->stmt.commit);
         sqlite3_finalize(fs->stmt.rollback);
         sqlite3_finalize(fs->stmt.path_get_inode);

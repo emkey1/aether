@@ -6,6 +6,7 @@
 #include "emu/fpu.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
+#include "emu/vec.h"
 #include "emu/interrupt.h"
 #include "emu/modrm.h"
 #include "kernel/task.h"
@@ -3005,10 +3006,11 @@ restart_prefix:
                 op2 == 0x16 || op2 == 0x17 ||
                 op2 == 0x28 || op2 == 0x29 || op2 == 0x58 || op2 == 0x59 ||
                 op2 == 0x5c || op2 == 0x5d || op2 == 0x5e || op2 == 0x54 || op2 == 0x55 ||
+                op2 == 0x5f ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x60 || op2 == 0x61 ||
                 op2 == 0x62 || op2 == 0x63 || op2 == 0x67 || op2 == 0x68 || op2 == 0x69 || op2 == 0x6a || op2 == 0x6b || op2 == 0x6c ||
                 op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
-                op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc4 || op2 == 0xc5 || op2 == 0xc6 ||
+                op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc2 || op2 == 0xc4 || op2 == 0xc5 || op2 == 0xc6 ||
                 op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 ||
                 op2 == 0xd8 || op2 == 0xd9 || op2 == 0xda || op2 == 0xdb || op2 == 0xdc || op2 == 0xdd || op2 == 0xde || op2 == 0xdf ||
                 op2 == 0xeb || op2 == 0xef ||
@@ -3120,7 +3122,7 @@ restart_prefix:
                     value.qw[1] = src_xmm.qw[1];
                 }
                 cpu->xmm[modrm.reg] = value;
-            } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d || op2 == 0x5e) {
+            } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d || op2 == 0x5e || op2 == 0x5f) {
                 value = cpu->xmm[modrm.reg];
                 if (rep_mode == AMD64_REPZ) {
                     if (operand_size_prefix)
@@ -3153,6 +3155,9 @@ restart_prefix:
                         case 0x5e:
                             value.f32[0] = lhs / rhs;
                             break;
+                        case 0x5f:
+                            value.f32[0] = lhs > rhs ? lhs : rhs;
+                            break;
                         }
                     }
                 } else if (rep_mode == AMD64_REPNZ) {
@@ -3184,6 +3189,9 @@ restart_prefix:
                         case 0x5e:
                             value.f64[0] = lhs / rhs;
                             break;
+                        case 0x5f:
+                            value.f64[0] = lhs > rhs ? lhs : rhs;
+                            break;
                         }
                     }
                 } else {
@@ -3210,6 +3218,10 @@ restart_prefix:
                         case 0x5e:
                             value.f64[0] /= src_xmm.f64[0];
                             value.f64[1] /= src_xmm.f64[1];
+                            break;
+                        case 0x5f:
+                            value.f64[0] = value.f64[0] > src_xmm.f64[0] ? value.f64[0] : src_xmm.f64[0];
+                            value.f64[1] = value.f64[1] > src_xmm.f64[1] ? value.f64[1] : src_xmm.f64[1];
                             break;
                         }
                     } else {
@@ -3243,6 +3255,12 @@ restart_prefix:
                             value.f32[1] /= src_xmm.f32[1];
                             value.f32[2] /= src_xmm.f32[2];
                             value.f32[3] /= src_xmm.f32[3];
+                            break;
+                        case 0x5f:
+                            value.f32[0] = value.f32[0] > src_xmm.f32[0] ? value.f32[0] : src_xmm.f32[0];
+                            value.f32[1] = value.f32[1] > src_xmm.f32[1] ? value.f32[1] : src_xmm.f32[1];
+                            value.f32[2] = value.f32[2] > src_xmm.f32[2] ? value.f32[2] : src_xmm.f32[2];
+                            value.f32[3] = value.f32[3] > src_xmm.f32[3] ? value.f32[3] : src_xmm.f32[3];
                             break;
                         }
                     }
@@ -3469,6 +3487,55 @@ restart_prefix:
                         value.u16[4 + i] = src_xmm.u16[4 + ((imm8 >> (i * 2)) & 3)];
                 } else {
                     return INT_UNDEFINED;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (op2 == 0xc2) {
+                if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = saved_rip;
+                    return INT_GPF;
+                }
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                value = cpu->xmm[modrm.reg];
+                imm8 &= 7;
+                if (rep_mode == AMD64_REPNZ) {
+                    vec_single_fcmp64(cpu, &src_xmm.f64[0], &value, imm8);
+                } else if (rep_mode == AMD64_REPZ) {
+                    vec_single_fcmp32(cpu, &src_xmm.f32[0], &value, imm8);
+                } else if (operand_size_prefix) {
+                    vec_fcmp_p64(cpu, &src_xmm, &value, imm8);
+                } else {
+                    for (int i = 0; i < 4; i++) {
+                        float lhs = value.f32[i];
+                        float rhs = src_xmm.f32[i];
+                        switch (imm8) {
+                        case 0:
+                            value.u32[i] = lhs == rhs ? 0xffffffffu : 0;
+                            break;
+                        case 1:
+                            value.u32[i] = lhs < rhs ? 0xffffffffu : 0;
+                            break;
+                        case 2:
+                            value.u32[i] = lhs <= rhs ? 0xffffffffu : 0;
+                            break;
+                        case 3:
+                            value.u32[i] = isnan(lhs) || isnan(rhs) ? 0xffffffffu : 0;
+                            break;
+                        case 4:
+                            value.u32[i] = lhs != rhs ? 0xffffffffu : 0;
+                            break;
+                        case 5:
+                            value.u32[i] = !(lhs < rhs) ? 0xffffffffu : 0;
+                            break;
+                        case 6:
+                            value.u32[i] = !(lhs <= rhs) ? 0xffffffffu : 0;
+                            break;
+                        case 7:
+                            value.u32[i] = !(isnan(lhs) || isnan(rhs)) ? 0xffffffffu : 0;
+                            break;
+                        }
+                    }
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xc4) {

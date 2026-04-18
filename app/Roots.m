@@ -268,6 +268,8 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 @property NSMutableOrderedSet<NSString *> *roots;
 @property BOOL updatingDomains;
 @property BOOL domainsNeedUpdate;
+@property BOOL fileProviderDomainSyncEnabled;
+@property NSUInteger fileProviderDomainSyncGeneration;
 @property BOOL wantsVersionFile;
 @property BOOL initialBundledRootImportInProgress;
 @property (nullable) NSError *initialBundledRootImportError;
@@ -290,12 +292,13 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
             }
         }
         self.roots = roots;
+        self.fileProviderDomainSyncEnabled = NO;
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {
             if (self.defaultRoot == nil && self.roots.count)
                 self.defaultRoot = self.roots[0];
-            [self syncFileProviderDomains];
+            [self requestFileProviderDomainSync];
         }];
-        [self syncFileProviderDomains];
+        [self requestFileProviderDomainSync];
 
         if ((!self.defaultRoot || ![self.roots containsObject:self.defaultRoot]) && self.roots.count)
             self.defaultRoot = self.roots.firstObject;
@@ -342,12 +345,41 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 }
 
 - (void)syncFileProviderDomains {
-    if (self.updatingDomains) {
+    [self requestFileProviderDomainSync];
+}
+
+- (void)resumeDeferredFileProviderDomainSync {
+    @synchronized (self) {
+        if (self.fileProviderDomainSyncEnabled)
+            return;
+        self.fileProviderDomainSyncEnabled = YES;
         self.domainsNeedUpdate = YES;
-        return;
     }
-    self.updatingDomains = YES;
-    self.domainsNeedUpdate = NO;
+    [ISHDiagnosticsStore recordBreadcrumb:@"fileprovider.domainSync.resumed"];
+    [self requestFileProviderDomainSync];
+}
+
+- (void)requestFileProviderDomainSync {
+    NSArray<NSString *> *rootsSnapshot = nil;
+    NSUInteger requestedGeneration = 0;
+    @synchronized (self) {
+        self.fileProviderDomainSyncGeneration++;
+        requestedGeneration = self.fileProviderDomainSyncGeneration;
+        if (!self.fileProviderDomainSyncEnabled) {
+            self.domainsNeedUpdate = YES;
+            [ISHDiagnosticsStore recordBreadcrumb:@"fileprovider.domainSync.deferred"
+                                          details:@{@"roots": @(self.roots.count),
+                                                    @"generation": @(requestedGeneration)}];
+            return;
+        }
+        if (self.updatingDomains) {
+            self.domainsNeedUpdate = YES;
+            return;
+        }
+        self.updatingDomains = YES;
+        self.domainsNeedUpdate = NO;
+        rootsSnapshot = self.roots.array.copy;
+    }
 
     [NSFileProviderManager getDomainsWithCompletionHandler:^(NSArray<NSFileProviderDomain *> *domains, NSError *error) {
         void (^onError)(NSError *error) = ^(NSError *error) {
@@ -355,7 +387,7 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
                 NSLog(@"error adjusting domains: %@", error);
         };
         onError(error);
-        NSMutableOrderedSet<NSString *> *missingRoots = [self.roots mutableCopy];
+        NSMutableOrderedSet<NSString *> *missingRoots = [NSMutableOrderedSet orderedSetWithArray:rootsSnapshot ?: @[]];
         for (NSFileProviderDomain *domain in domains) {
             if ([missingRoots containsObject:domain.identifier]) {
                 [missingRoots removeObject:domain.identifier];
@@ -373,9 +405,15 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
                                                                 pathRelativeToDocumentStorage:rootId]
                            completionHandler:onError];
         }
-        if (self.domainsNeedUpdate)
-            [self syncFileProviderDomains];
-        self.updatingDomains = NO;
+        BOOL shouldResync = NO;
+        @synchronized (self) {
+            shouldResync = self.domainsNeedUpdate ||
+                self.fileProviderDomainSyncGeneration != requestedGeneration;
+            self.updatingDomains = NO;
+            self.domainsNeedUpdate = NO;
+        }
+        if (shouldResync)
+            [self requestFileProviderDomainSync];
     }];
 }
 

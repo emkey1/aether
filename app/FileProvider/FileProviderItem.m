@@ -8,6 +8,7 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#import "../AppGroup.h"
 #import "FileProviderExtension.h"
 #import "FileProviderItem.h"
 #include "fs/fake-db.h"
@@ -64,15 +65,19 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
 
 @implementation FileProviderItem
 
-- (instancetype)initWithIdentifier:(NSFileProviderItemIdentifier)identifier mount:(struct fakefs_mount *)mount error:(NSError *__autoreleasing  _Nullable *)error {
+- (instancetype)initWithIdentifier:(NSFileProviderItemIdentifier)identifier mountOwner:(ISHFileProviderMount *)mountOwner error:(NSError *__autoreleasing  _Nullable *)error {
     if (self = [super init]) {
         _identifier = identifier;
-        _mount = mount;
+        _mountOwner = mountOwner;
         _fd = [self openNewFDWithError:error];
         if (_fd == -1)
             return nil;
     }
     return self;
+}
+
+- (struct fakefs_mount *)mount {
+    return self.mountOwner.mount;
 }
 
 - (BOOL)isRoot {
@@ -90,34 +95,36 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
 - (int)openNewFDWithError:(NSError *__autoreleasing  _Nullable *)error {
     int fd = -1;
     if (self.isRoot) {
-        fd = open(_mount->source, O_DIRECTORY | O_RDONLY);
+        fd = open(self.mount->source, O_DIRECTORY | O_RDONLY);
     } else if (self.isVirtualItem) {
         NSString *path = self.virtualPath;
         if (path != nil)
-            fd = openat(_mount->root_fd, fix_path(path.fileSystemRepresentation), O_RDONLY);
+            fd = openat(self.mount->root_fd, fix_path(path.fileSystemRepresentation), O_RDONLY);
     } else {
-        db_begin(&_mount->db);
-        sqlite3_stmt *stmt = _mount->db.stmt.path_from_inode;
-        sqlite3_bind_int64(_mount->db.stmt.path_from_inode, 1, _identifier.longLongValue);
-        while (db_exec(&_mount->db, stmt)) {
+        db_begin_read(&self.mount->db);
+        sqlite3_stmt *stmt = self.mount->db.stmt.path_from_inode;
+        sqlite3_bind_int64(self.mount->db.stmt.path_from_inode, 1, _identifier.longLongValue);
+        while (db_exec(&self.mount->db, stmt)) {
             const char *path = (const char *) sqlite3_column_text(stmt, 0);
-            fd = openat(_mount->root_fd, fix_path(path), O_RDWR);
+            fd = openat(self.mount->root_fd, fix_path(path), O_RDWR);
             if (fd == -1 && errno == EISDIR)
-                fd = openat(_mount->root_fd, fix_path(path), O_RDONLY);
+                fd = openat(self.mount->root_fd, fix_path(path), O_RDONLY);
             if (fd == -1 && errno != ENOENT)
                 break;
         }
-        db_reset(&_mount->db, stmt);
-        db_commit(&_mount->db);
+        db_reset(&self.mount->db, stmt);
+        db_commit(&self.mount->db);
     }
     if (fd == -1) {
+        NSError *openError = nil;
         if (error != nil) {
             if (errno == ENOENT)
-                *error = [NSError fileProviderErrorForNonExistentItemWithIdentifier:_identifier];
+                openError = [NSError fileProviderErrorForNonExistentItemWithIdentifier:_identifier];
             else
-                *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+                openError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            *error = openError;
         }
-        NSLog(@"opening %@ failed: %@", self.identifier, *error);
+        NSLog(@"opening %@ failed: %@", self.identifier, openError);
         return -1;
     }
     return fd;
@@ -129,12 +136,12 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
     char path[PATH_MAX] = "";
     int err = fcntl(_fd, F_GETPATH, path);
     [self handleError:err inFunction:@"getpath"];
-    const char *myPath = path + strlen(_mount->source);
+    const char *myPath = path + strlen(self.mount->source);
     return [NSFileManager.defaultManager stringWithFileSystemRepresentation:myPath length:strlen(myPath)];
 }
 
 - (NSURL *)URL {
-    NSURL *rootURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:_mount->source]];
+    NSURL *rootURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:self.mount->source]];
     if (self.isRoot)
         return rootURL;
     return [rootURL URLByAppendingPathComponent:self.path];
@@ -150,12 +157,12 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
         stat.rdev = real.st_rdev;
         return stat;
     }
-    db_begin(&_mount->db);
+    db_begin_read(&self.mount->db);
     inode_t inode = _identifier.longLongValue;
     if ([_identifier isEqualToString:NSFileProviderRootContainerItemIdentifier])
-        inode = path_get_inode(&_mount->db, "");
-    inode_read_stat(&_mount->db, inode, &stat);
-    db_commit(&_mount->db);
+        inode = path_get_inode(&self.mount->db, "");
+    inode_read_stat(&self.mount->db, inode, &stat);
+    db_commit(&self.mount->db);
     return stat;
 }
 - (struct stat)realStat {
@@ -179,9 +186,9 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
     if ([parentPath isEqualToString:@"/"])
         return NSFileProviderRootContainerItemIdentifier;
     if (self.isVirtualItem) {
-        db_begin(&_mount->db);
-        inode_t parentInode = path_get_inode(&_mount->db, parentPath.UTF8String);
-        db_commit(&_mount->db);
+        db_begin_read(&self.mount->db);
+        inode_t parentInode = path_get_inode(&self.mount->db, parentPath.UTF8String);
+        db_commit(&self.mount->db);
         if (parentInode != 0) {
             NSString *parent = [NSString stringWithFormat:@"%lu", (unsigned long) parentInode];
             NSLog(@"parent of %@ is %@", self.path, parent);
@@ -191,9 +198,9 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
         NSLog(@"parent of %@ is %@", self.path, parent);
         return parent;
     }
-    db_begin(&_mount->db);
-    inode_t parentInode = path_get_inode(&_mount->db, parentPath.UTF8String);
-    db_commit(&_mount->db);
+    db_begin_read(&self.mount->db);
+    inode_t parentInode = path_get_inode(&self.mount->db, parentPath.UTF8String);
+    db_commit(&self.mount->db);
     assert(parentInode != 0);
     NSString *parent = [NSString stringWithFormat:@"%lu", (unsigned long) parentInode];
     NSLog(@"parent of %@ is %@", self.path, parent);
@@ -282,12 +289,14 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
     NSLog(@"copying %@ to %@", self.path, url);
     NSURL *itemURL = self.URL;
     NSError *err;
-    sqlite3_mutex_enter(_mount->db.lock);
+    int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", self.mountOwner.domainIdentifier ?: @"", NO, nil);
+    [self.mountOwner.ioLock lock];
     [NSFileManager.defaultManager removeItemAtURL:url error:nil];
     BOOL success = [NSFileManager.defaultManager copyItemAtURL:itemURL
                                                          toURL:url
                                                          error:&err];
-    sqlite3_mutex_leave(_mount->db.lock);
+    [self.mountOwner.ioLock unlock];
+    ISHAppGroupReleaseLock(rootLockFd);
     if (!success) {
         NSLog(@"error copying to %@: %@", url, err);
     }
@@ -297,12 +306,14 @@ NSString *ISHFileProviderPathForIdentifier(NSString *identifier) {
     NSLog(@"copying %@ from %@", self.path, url);
     NSURL *itemURL = self.URL;
     NSError *err;
-    sqlite3_mutex_enter(_mount->db.lock);
+    int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", self.mountOwner.domainIdentifier ?: @"", YES, nil);
+    [self.mountOwner.ioLock lock];
     [NSFileManager.defaultManager removeItemAtURL:itemURL error:nil];
     BOOL success = [NSFileManager.defaultManager copyItemAtURL:url
                                                          toURL:itemURL
                                                          error:&err];
-    sqlite3_mutex_leave(_mount->db.lock);
+    [self.mountOwner.ioLock unlock];
+    ISHAppGroupReleaseLock(rootLockFd);
     if (!success) {
         NSLog(@"error copying to %@: %@", url, err);
     }

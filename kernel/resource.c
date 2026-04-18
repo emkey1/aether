@@ -124,6 +124,10 @@ dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr) {
 }
 
 dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr) {
+    return sys_setrlimit64_guest(resource, rlim_addr);
+}
+
+dword_t sys_setrlimit64_guest(dword_t resource, guest_addr_t rlim_addr) {
     struct rlimit_ rlimit;
     if (user_get(rlim_addr, rlimit))
         return _EFAULT;

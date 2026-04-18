@@ -39,6 +39,7 @@ dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr);
 dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr);
 dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr);
 dword_t sys_setrlimit64(dword_t resource, addr_t rlim_addr);
+dword_t sys_setrlimit64_guest(dword_t resource, guest_addr_t rlim_addr);
 dword_t sys_prlimit64(pid_t_ pid, dword_t resource, addr_t new_limit_addr, addr_t old_limit_addr);
 dword_t sys_prlimit64_guest(pid_t_ pid, dword_t resource, guest_addr_t new_limit_addr, guest_addr_t old_limit_addr);
 dword_t sys_old_getrlimit32(dword_t resource, addr_t rlim_addr);

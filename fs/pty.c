@@ -114,11 +114,12 @@ DEFINE_TTY_DRIVER(pty_slave, &pty_slave_ops, TTY_PSEUDO_SLAVE_MAJOR, MAX_PTYS);
 static int pty_reserve_next() {
     int pty_num;
     lock(&ttys_lock, 0);
-    for (pty_num = 0; pty_num < MAX_PTYS; pty_num++) {
+    for (pty_num = 1; pty_num < MAX_PTYS; pty_num++) {
         if (pty_slave.ttys[pty_num] == NULL)
             break;
     }
-    pty_slave.ttys[pty_num] = (void *) 1; // anything non-null to reserve it
+    if (pty_num < MAX_PTYS)
+        pty_slave.ttys[pty_num] = (void *) 1; // anything non-null to reserve it
     unlock(&ttys_lock);
     return pty_num;
 }

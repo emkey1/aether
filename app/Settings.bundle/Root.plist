@@ -44,7 +44,7 @@
 				<string>Workspace</string>
 				<string>Choose Filesystem</string>
 				<string>Terminal (tty1)</string>
-				<string>Session Shell (pts/0)</string>
+				<string>Session Shell (pts/1)</string>
 			</array>
 			<key>Values</key>
 			<array>

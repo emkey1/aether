@@ -10,6 +10,7 @@
 #import "UserPreferences.h"
 #import "UIApplication+OpenURL.h"
 #import "NSObject+SaneKVO.h"
+#import "Diagnostics.h"
 
 struct rowcol {
     int row;
@@ -102,11 +103,23 @@ struct rowcol {
 
 static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight", @"newScrollTop", @"openLink"};
 
+static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDictionary<NSString *, id> *details) {
+    NSMutableDictionary<NSString *, id> *payload = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
+    payload[@"terminalUUID"] = terminal.uuid.UUIDString ?: @"";
+    payload[@"type"] = @(terminal.type);
+    payload[@"number"] = @(terminal.number);
+    [ISHDiagnosticsStore recordBreadcrumb:event details:payload];
+    NSLog(@"%@ terminal=%@ type=%d num=%d details=%@",
+          event, terminal.uuid.UUIDString ?: @"", terminal.type, terminal.number, payload);
+}
+
 - (void)setTerminal:(Terminal *)terminal {
     if (_terminal == terminal)
         return;
 
     if (_terminal) {
+        ISHRecordTerminalViewEvent(@"terminalView.setTerminal.detach", _terminal,
+                                   @{@"reason": @"replace-terminal"} );
         [_terminal removeObserver:self forKeyPath:@"loaded"];
         [self uninstallTerminalView];
     }
@@ -115,6 +128,8 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     if (_terminal == nil)
         return;
 
+    ISHRecordTerminalViewEvent(@"terminalView.setTerminal.attach", _terminal,
+                               @{@"loaded": _terminal.loaded ? @"yes" : @"no"} );
     [_terminal webView];
     [_terminal addObserver:self forKeyPath:@"loaded" options:NSKeyValueObservingOptionInitial context:nil];
     [self installTerminalView];
@@ -124,10 +139,15 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     UIView *superview = self.terminal.webView.superview;
     if (superview != nil) {
         NSAssert(superview == self.scrollbarView, @"installing terminal that is already installed elsewhere");
+        ISHRecordTerminalViewEvent(@"terminalView.install.skip", self.terminal,
+                                   @{@"reason": @"already-installed",
+                                     @"sameSuperview": superview == self.scrollbarView ? @"yes" : @"no"} );
         return;
     }
 
     WKWebView *webView = _terminal.webView;
+    ISHRecordTerminalViewEvent(@"terminalView.install.begin", _terminal,
+                               @{@"loaded": _terminal.loaded ? @"yes" : @"no"} );
     _terminal.enableVoiceOverAnnounce = YES;
     webView.scrollView.scrollEnabled = NO;
     webView.scrollView.delaysContentTouches = NO;
@@ -144,6 +164,7 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
 
     self.scrollbarView.contentView = webView;
     [self.scrollbarView addSubview:webView];
+    ISHRecordTerminalViewEvent(@"terminalView.install.end", _terminal, nil);
 }
 
 - (void)uninstallTerminalView {
@@ -151,15 +172,19 @@ static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight",
     UIView *superview = _terminal.webView.superview;
     if (superview != self.scrollbarView) {
         NSAssert(superview == nil, @"uninstalling terminal that is installed elsewhere");
+        ISHRecordTerminalViewEvent(@"terminalView.uninstall.skip", _terminal,
+                                   @{@"reason": superview == nil ? @"already-detached" : @"installed-elsewhere"} );
         return;
     }
 
+    ISHRecordTerminalViewEvent(@"terminalView.uninstall.begin", _terminal, nil);
     [_terminal.webView removeFromSuperview];
     self.scrollbarView.contentView = nil;
     for (int i = 0; i < sizeof(HANDLERS)/sizeof(HANDLERS[0]); i++) {
         [_terminal.webView.configuration.userContentController removeScriptMessageHandlerForName:HANDLERS[i]];
     }
     _terminal.enableVoiceOverAnnounce = NO;
+    ISHRecordTerminalViewEvent(@"terminalView.uninstall.end", _terminal, nil);
 }
 
 #pragma mark Styling

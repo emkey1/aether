@@ -124,14 +124,36 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return ERR_PTR(_ENOENT);
+
     bool created = false;
-    if (flags & O_CREAT_) {
-        struct statbuf existing;
-        int stat_err = mount->fs->stat(mount, path, &existing);
-        if (stat_err == _ENOENT)
-            created = true;
-    }
+
+    struct statbuf stat;
     lock(&inodes_lock, 0); // TODO: don't do this
+
+    // Stat before open so permission checks happen before backends can truncate
+    // or otherwise mutate an existing file as a side effect of open.
+    err = mount->fs->stat(mount, path, &stat);
+    if (err < 0) {
+        if ((flags & O_CREAT_) && err == _ENOENT) {
+            created = true;
+        } else {
+            unlock(&inodes_lock);
+            mount_release(mount);
+            return ERR_PTR(err);
+        }
+    } else {
+        int accmode;
+        if (flags & O_RDWR_) accmode = AC_R | AC_W;
+        else if (flags & O_WRONLY_) accmode = AC_W;
+        else accmode = AC_R;
+        err = access_check(&stat, accmode);
+        if (err < 0) {
+            unlock(&inodes_lock);
+            mount_release(mount);
+            return ERR_PTR(err);
+        }
+    }
+
     struct fd *fd = mount->fs->open(mount, path, flags, mode);
     if (IS_ERR(fd)) {
         unlock(&inodes_lock);
@@ -142,7 +164,6 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     }
     fd->mount = mount;
 
-    struct statbuf stat;
     err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0) {
         unlock(&inodes_lock);
@@ -152,14 +173,6 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     unlock(&inodes_lock);
     fd->type = stat.mode & S_IFMT;
     fd->flags = flags;
-
-    int accmode;
-    if (flags & O_RDWR_) accmode = AC_R | AC_W;
-    else if (flags & O_WRONLY_) accmode = AC_W;
-    else accmode = AC_R;
-    err = access_check(&stat, accmode);
-    if (err < 0)
-        goto error;
 
     assert(!S_ISLNK(fd->type)); // would mean path_normalize didn't do its job
     if (S_ISBLK(fd->type) || S_ISCHR(fd->type)) {

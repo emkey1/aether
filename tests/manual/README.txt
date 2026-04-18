@@ -21,8 +21,11 @@ Focused tests:
   signal_restart.c     SA_RESTART behavior for read and waitpid
   signal_realtime.c    sigqueue and realtime queued-signal coverage
   signal_altstack.c    sigaltstack and SA_ONSTACK coverage
+  signal_poll.c        poll/select/pselect signal interruption coverage
   eventfd_interrupt.c  eventfd read/poll interruption via the generic wait path
   futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage
+  process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage
+  pthread_sync.c       mutex/condvar/rwlock/timed wait and pthread_once coverage
 
 All focused tests accept -v or --verbose. Without it they print only failures
 plus the final PASS/FAIL line for each test.

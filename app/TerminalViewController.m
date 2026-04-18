@@ -13,6 +13,7 @@
 #import "UserPreferences.h"
 #import "AboutViewController.h"
 #import "CurrentRoot.h"
+#import "Diagnostics.h"
 #import "Roots.h"
 #import "NSObject+SaneKVO.h"
 #import "UIViewController+Extras.h"
@@ -80,6 +81,7 @@ static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excl
 
 @property int sessionPid;
 @property (nonatomic) Terminal *sessionTerminal;
+@property (nonatomic) BOOL sessionStartInProgress;
 @property BOOL ignoreKeyboardMotion;
 @property (nonatomic) BOOL hasExternalKeyboard;
 @property (nonatomic) BOOL didApplyDeferredSafeAreaUpdate;
@@ -119,6 +121,14 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (BOOL)shouldPreferConsoleForFreshSession {
+    switch (self.freshSessionTerminalDisplayMode) {
+        case ISHFreshSessionTerminalDisplayModeSessionShell:
+            return NO;
+        case ISHFreshSessionTerminalDisplayModeSystemConsole:
+            return YES;
+        case ISHFreshSessionTerminalDisplayModeAuto:
+            break;
+    }
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
     if ([initialWindow isEqualToString:@"session-shell"])
         return NO;
@@ -146,17 +156,29 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         return;
 
     if (_terminal == nil) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminalVC.applyTerminal"
+                                      details:@{@"action": @"clear"}];
         self.termView.terminal = nil;
         return;
     }
 
     if ([self _isTerminalInstalledElsewhere:_terminal]) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminalVC.applyTerminal"
+                                      details:@{@"action": @"skip-installed-elsewhere",
+                                                @"terminalUUID": _terminal.uuid.UUIDString ?: @"",
+                                                @"type": @(_terminal.type),
+                                                @"number": @(_terminal.number)}];
         self.termView.terminal = nil;
         NSLog(@"Skipping terminal attach for %@ because it is already installed elsewhere", _terminal.uuid.UUIDString);
         [self _showTerminalStartupFailureOverlayWithText:@"Terminal already open in another window."];
         return;
     }
 
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminalVC.applyTerminal"
+                                  details:@{@"action": @"attach",
+                                            @"terminalUUID": _terminal.uuid.UUIDString ?: @"",
+                                            @"type": @(_terminal.type),
+                                            @"number": @(_terminal.number)}];
     self.termView.terminal = _terminal;
 }
 
@@ -577,9 +599,28 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)startNewSession {
+    if (self.sessionStartInProgress) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.ignored"
+                                      details:@{@"reason": @"already-starting"}];
+        return;
+    }
+    if (self.sessionPid > 0 && self.sessionTerminal != nil) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.ignored"
+                                      details:@{@"reason": @"already-running",
+                                                @"pid": @(self.sessionPid)}];
+        self.terminal = [self preferredTerminalForFreshSession];
+        return;
+    }
+
+    self.sessionStartInProgress = YES;
     [self _showTerminalStartupOverlayWithText:@"Starting terminal..."];
     intptr_t err = [self startSession];
+    self.sessionStartInProgress = NO;
     if (err < 0) {
+        Terminal *failedTerminal = self.sessionTerminal;
+        self.sessionTerminal = nil;
+        self.sessionPid = 0;
+        [failedTerminal destroy];
         [self _showTerminalStartupFailureOverlayWithText:@"Could not start session."];
         [self showMessage:@"could not start session"
                  subtitle:[NSString stringWithFormat:@"error code %ld", err]];
@@ -611,6 +652,14 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid {
     Terminal *terminal = [Terminal terminalWithUUID:uuid];
     if (terminal == nil) {
+        if (self.sessionStartInProgress || self.sessionPid > 0 || self.sessionTerminal != nil) {
+            [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.reconnect.deferred"
+                                          details:@{@"reason": self.sessionStartInProgress ? @"starting" : @"session-exists",
+                                                    @"terminalUUID": uuid.UUIDString ?: @""}];
+            if (self.sessionTerminal != nil)
+                self.terminal = self.sessionTerminal;
+            return;
+        }
         [self startNewSession];
         return;
     }
@@ -631,35 +680,66 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
 - (intptr_t)startSession {
     NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
+    NSString *commandString = [command componentsJoinedByString:@" "];
 
 #if !ISH_LINUX
     intptr_t err = [AppDelegate ensureBooted];
-    if (err < 0)
+    if (err < 0) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+                                      details:@{@"stage": @"ensureBooted",
+                                                @"error": @(err),
+                                                @"command": commandString ?: @""}];
         return err;
+    }
     err = become_new_init_child();
-    if (err < 0)
+    if (err < 0) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+                                      details:@{@"stage": @"become_new_init_child",
+                                                @"error": @(err),
+                                                @"command": commandString ?: @""}];
         return err;
+    }
     struct tty *tty;
     self.sessionTerminal = nil;
     Terminal *terminal = [Terminal createPseudoTerminal:&tty];
     if (terminal == nil) {
         NSAssert(IS_ERR(tty), @"tty should be error");
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+                                      details:@{@"stage": @"createPseudoTerminal",
+                                                @"error": @((int) PTR_ERR(tty)),
+                                                @"command": commandString ?: @""}];
         return (int) PTR_ERR(tty);
     }
     self.sessionTerminal = terminal;
     NSString *stdioFile = [NSString stringWithFormat:@"/dev/pts/%d", tty->num];
     err = create_stdio(stdioFile.fileSystemRepresentation, TTY_PSEUDO_SLAVE_MAJOR, tty->num);
-    if (err < 0)
+    if (err < 0) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+                                      details:@{@"stage": @"create_stdio",
+                                                @"error": @(err),
+                                                @"command": commandString ?: @"",
+                                                @"stdio": stdioFile ?: @""}];
         return err;
+    }
     tty_release(tty);
 
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
     const char *envp = "TERM=xterm-256color\0";
     err = do_execve(command[0].UTF8String, command.count, argv, envp);
-    if (err < 0)
+    if (err < 0) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+                                      details:@{@"stage": @"do_execve",
+                                                @"error": @(err),
+                                                @"command": commandString ?: @"",
+                                                @"path": command.firstObject ?: @""}];
         return err;
+    }
     self.sessionPid = current->pid;
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.execed"
+                                  details:@{@"pid": @(self.sessionPid),
+                                            @"command": commandString ?: @"",
+                                            @"path": command.firstObject ?: @""}];
     task_start(current);
 #else
     const char *argv_arr[command.count + 1];
@@ -699,19 +779,15 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     if (pid != self.sessionPid)
         return;
 
-    [self.sessionTerminal destroy];
-    // On iOS 13, there are multiple windows, so just close this one.
-    if (@available(iOS 13, *)) {
-        // On iPhone, destroying scenes will fail, but the error doesn't actually go to the error handler, which is really stupid. Apple doesn't fix bugs, so I'm forced to just add a check here.
-        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad && self.sceneSession != nil) {
-            [UIApplication.sharedApplication requestSceneSessionDestruction:self.sceneSession options:nil errorHandler:^(NSError *error) {
-                NSLog(@"scene destruction error %@", error);
-                self.sceneSession = nil;
-                [self processExited:notif];
-            }];
-            return;
-        }
-    }
+    Terminal *exitedTerminal = self.sessionTerminal;
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.processExited"
+                                  details:@{@"pid": @(pid),
+                                            @"sceneSession": self.sceneSession.persistentIdentifier ?: @"",
+                                            @"restarting": @YES}];
+    self.sessionTerminal = nil;
+    self.sessionPid = 0;
+    [exitedTerminal setPendingDestroyReason:@"session-process-exited"];
+    [exitedTerminal destroy];
     current = NULL; // it's been freed
     [self startNewSession];
 }
@@ -1181,6 +1257,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)setTerminal:(Terminal *)terminal {
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminalVC.setTerminal"
+                                  details:@{@"terminalUUID": terminal.uuid.UUIDString ?: @"",
+                                            @"type": terminal != nil ? @(terminal.type) : @(-1),
+                                            @"number": terminal != nil ? @(terminal.number) : @(-1)}];
     _terminal = terminal;
     [self _applyCurrentTerminalToViewIfPossible];
     BOOL installedElsewhere = [self _isTerminalInstalledElsewhere:_terminal];

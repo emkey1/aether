@@ -7,6 +7,10 @@
 
 #import "AppGroup.h"
 #import <Foundation/Foundation.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <mach-o/getsect.h>
@@ -137,4 +141,71 @@ NSArray<NSString *> *CurrentAppGroups(void) {
 NSURL *ContainerURL(void) {
     NSString *appGroup = CurrentAppGroups()[0];
     return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:appGroup];
+}
+
+static NSString *ISHAppGroupLockSafeComponent(NSString *value) {
+    if (value.length == 0)
+        return @"default";
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+                               @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"];
+    NSMutableString *safe = [NSMutableString stringWithCapacity:value.length];
+    for (NSUInteger i = 0; i < value.length; i++) {
+        unichar ch = [value characterAtIndex:i];
+        if ([allowed characterIsMember:ch]) {
+            [safe appendFormat:@"%C", ch];
+        } else {
+            [safe appendFormat:@"_%02x", (unsigned) ch & 0xff];
+        }
+    }
+    return safe;
+}
+
+int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error) {
+    NSURL *containerURL = ContainerURL();
+    if (containerURL == nil) {
+        if (error != nil) {
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
+                                         code:ENOENT
+                                     userInfo:@{NSLocalizedDescriptionKey: @"Missing app group container"}];
+        }
+        return -1;
+    }
+
+    NSURL *locksDirectoryURL = [containerURL URLByAppendingPathComponent:@"Locks" isDirectory:YES];
+    if (![NSFileManager.defaultManager createDirectoryAtURL:locksDirectoryURL
+                                withIntermediateDirectories:YES
+                                                 attributes:nil
+                                                      error:error]) {
+        return -1;
+    }
+
+    NSString *safeCategory = ISHAppGroupLockSafeComponent(category ?: @"shared");
+    NSString *safeName = ISHAppGroupLockSafeComponent(name ?: @"default");
+    NSURL *lockURL = [locksDirectoryURL URLByAppendingPathComponent:
+                      [NSString stringWithFormat:@"%@-%@.lock", safeCategory, safeName]
+                                                 isDirectory:NO];
+
+    int fd = open(lockURL.fileSystemRepresentation, O_CREAT | O_RDWR | O_CLOEXEC, 0666);
+    if (fd < 0) {
+        if (error != nil)
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return -1;
+    }
+
+    int operation = exclusive ? LOCK_EX : LOCK_SH;
+    if (flock(fd, operation) < 0) {
+        int flockErrno = errno;
+        close(fd);
+        if (error != nil)
+            *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:flockErrno userInfo:nil];
+        return -1;
+    }
+    return fd;
+}
+
+void ISHAppGroupReleaseLock(int fd) {
+    if (fd < 0)
+        return;
+    flock(fd, LOCK_UN);
+    close(fd);
 }

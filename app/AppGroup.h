@@ -8,3 +8,5 @@
 #import <Foundation/Foundation.h>
 
 NSURL *ContainerURL(void);
+int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error);
+void ISHAppGroupReleaseLock(int fd);

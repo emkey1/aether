@@ -330,13 +330,26 @@ static void amd64_trace_exec_attempt(const char *file, const char *argv) {
     if (current == NULL || file == NULL)
         return;
 
+    struct tty *tty = current->group != NULL ? current->group->tty : NULL;
+    bool interactive_session =
+        current->abi == GUEST_ABI_AMD64 &&
+        tty != NULL &&
+        (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR) &&
+        (strcmp(current->comm, "init") == 0 ||
+         strcmp(current->comm, "login") == 0 ||
+         strcmp(current->comm, "sh") == 0 ||
+         strcmp(current->comm, "ash") == 0 ||
+         strcmp(current->comm, "dash") == 0 ||
+         strcmp(current->comm, "bash") == 0 ||
+         strcmp(current->comm, "getty") == 0 ||
+         strcmp(current->comm, "agetty") == 0 ||
+         amd64_trace_is_lineage_tgid(current->tgid));
     bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
     bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
-    if (!tracked_exec && !tracked_lineage)
+    if (!tracked_exec && !tracked_lineage && !interactive_session)
         return;
     if (amd64_exec_attempt_trace_count < AMD64_EXEC_ATTEMPT_TRACE_BUDGET) {
         amd64_exec_attempt_trace_count++;
-        struct tty *tty = current->group != NULL ? current->group->tty : NULL;
         const char *argv0 = argv != NULL && argv[0] != '\0' ? argv : "";
         printk("tracked execve attempt: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
                tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
@@ -1009,7 +1022,8 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         static unsigned amd64_exec_trace_count;
         struct tty *tty = current->group->tty;
         bool trace_exec = current->abi == GUEST_ABI_AMD64 &&
-                tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
+                tty != NULL &&
+                (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR);
         bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
         bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
         if ((trace_exec || tracked_exec || tracked_lineage) &&
