@@ -94,6 +94,7 @@ static unsigned amd64_enoent_path_trace_count;
 static unsigned amd64_errno_trace_count;
 static unsigned amd64_other_errno_trace_count;
 static unsigned amd64_signal_trace_count;
+static unsigned amd64_write_trace_count;
 
 static void amd64_trace_clear_lineage(void) {
     memset(amd64_traced_tgid_lineage, 0, sizeof(amd64_traced_tgid_lineage));
@@ -148,6 +149,7 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
     amd64_errno_trace_count = 0;
     amd64_other_errno_trace_count = 0;
     amd64_signal_trace_count = 0;
+    amd64_write_trace_count = 0;
     printk("tracked exec: pid=%d tgid=%d abi=%d tty=%d file=%s\n",
            pid, tgid, current != NULL ? current->abi : -1,
            tty != NULL ? tty->num : -1, file);
@@ -584,12 +586,49 @@ static void amd64_trace_escape_text(const char *src, size_t src_len, char *dst, 
     dst[di] = '\0';
 }
 
+static bool amd64_copy_writev_data(qword_t iov_addr, qword_t iov_count, qword_t result,
+        char *raw, size_t raw_size, size_t *copied_out) {
+    struct guest_iovec_ *iovec;
+    size_t copied = 0;
+    size_t want;
+
+    if (raw_size == 0 || copied_out == NULL)
+        return false;
+    *copied_out = 0;
+    if ((sqword_t) result <= 0)
+        return false;
+
+    want = (size_t) result;
+    if (want > raw_size - 1)
+        want = raw_size - 1;
+
+    iovec = user_read_iovecs_abi(current, current->abi, (guest_addr_t) iov_addr, (dword_t) iov_count);
+    if (IS_ERR(iovec))
+        return false;
+
+    for (dword_t i = 0; i < (dword_t) iov_count && copied < want; i++) {
+        size_t chunk = iovec[i].len;
+        if (chunk > want - copied)
+            chunk = want - copied;
+        if (chunk == 0)
+            continue;
+        if (user_read(iovec[i].base, raw + copied, chunk) != 0) {
+            free(iovec);
+            return false;
+        }
+        copied += chunk;
+    }
+
+    free(iovec);
+    *copied_out = copied;
+    return true;
+}
+
 static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_WRITE_TRACE_BUDGET = 64, AMD64_WRITE_COPY_MAX = 1024, AMD64_WRITE_ESCAPED_MAX = 3072 };
-    static unsigned amd64_write_trace_count;
     char raw[AMD64_WRITE_COPY_MAX];
     char escaped[AMD64_WRITE_ESCAPED_MAX];
-    qword_t fd, buf_addr, size;
+    qword_t fd, buf_addr = 0, size = 0, iov_count = 0;
     size_t to_copy;
 
     if (!amd64_tracked_exec_trace_enabled())
@@ -605,9 +644,18 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
         buf_addr = raw_args[1];
         size = raw_args[2];
         break;
+    case 20: // writev
+        fd = raw_args[0];
+        buf_addr = raw_args[1];
+        iov_count = raw_args[2];
+        size = result;
+        break;
     default:
         return;
     }
+
+    if (fd != 1 && fd != 2)
+        return;
 
     to_copy = (size_t) result;
     if (to_copy > (size_t) size)
@@ -619,15 +667,25 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
            current->pid, current->tgid, (unsigned long long) fd,
            (unsigned long long) size, (unsigned long long) result,
            (unsigned long long) buf_addr);
-    if (fd != 1 && fd != 2)
-        return;
     if (to_copy == 0)
         return;
-    if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0) {
-        printk("tracked write unreadable: pid=%d tgid=%d fd=%llu buf=%#llx count=%zu\n",
-               current->pid, current->tgid, (unsigned long long) fd,
-               (unsigned long long) buf_addr, to_copy);
-        return;
+    switch (syscall_num) {
+    case 1:
+        if (user_read((guest_addr_t) buf_addr, raw, to_copy) != 0) {
+            printk("tracked write unreadable: pid=%d tgid=%d fd=%llu buf=%#llx count=%zu\n",
+                   current->pid, current->tgid, (unsigned long long) fd,
+                   (unsigned long long) buf_addr, to_copy);
+            return;
+        }
+        break;
+    case 20:
+        if (!amd64_copy_writev_data(buf_addr, iov_count, result, raw, sizeof(raw), &to_copy)) {
+            printk("tracked writev unreadable: pid=%d tgid=%d fd=%llu iov=%#llx iovcnt=%llu count=%zu\n",
+                   current->pid, current->tgid, (unsigned long long) fd,
+                   (unsigned long long) buf_addr, (unsigned long long) iov_count, to_copy);
+            return;
+        }
+        break;
     }
     raw[to_copy] = '\0';
     amd64_trace_escape_text(raw, to_copy, escaped, sizeof(escaped));

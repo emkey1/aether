@@ -85,6 +85,95 @@ static void amd64_tty_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
            (unsigned long long) addr, size, res, preview);
 }
 
+static bool amd64_as_source_trace_enabled(void) {
+    return current != NULL &&
+        current->abi == GUEST_ABI_AMD64 &&
+        strcmp(current->comm, "as") == 0;
+}
+
+static bool amd64_as_source_trace_path(const char *path) {
+    size_t len;
+    if (path == NULL)
+        return false;
+    if (strncmp(path, "/tmp/", 5) != 0)
+        return false;
+    len = strlen(path);
+    return len >= 3 && strcmp(path + len - 2, ".s") == 0;
+}
+
+static void amd64_as_source_trace_open(fd_t fd_no, const char *path, dword_t flags) {
+    enum { AMD64_AS_SOURCE_OPEN_BUDGET = 16 };
+    static unsigned amd64_as_source_open_count;
+
+    if (!amd64_as_source_trace_enabled() || !amd64_as_source_trace_path(path))
+        return;
+    if (amd64_as_source_open_count >= AMD64_AS_SOURCE_OPEN_BUDGET)
+        return;
+    amd64_as_source_open_count++;
+    printk("amd64 as source open: pid=%d tgid=%d fd=%d flags=%#x path=%s\n",
+           current->pid, current->tgid, fd_no, flags, path);
+}
+
+static void amd64_as_source_trace_read(fd_t fd_no, const char *path, const void *buf, size_t buf_len) {
+    enum {
+        AMD64_AS_SOURCE_READ_BUDGET = 8,
+        AMD64_AS_SOURCE_MAX_BYTES = 4096,
+        AMD64_AS_SOURCE_MAX_LINES = 80,
+        AMD64_AS_SOURCE_LINE_MAX = 192
+    };
+    static unsigned amd64_as_source_read_count;
+    static pid_t_ amd64_as_source_last_pid;
+    static fd_t amd64_as_source_last_fd;
+    const unsigned char *src = buf;
+    size_t limit, i = 0;
+    unsigned line_no = 1;
+
+    if (!amd64_as_source_trace_enabled() || !amd64_as_source_trace_path(path))
+        return;
+    if (amd64_as_source_read_count >= AMD64_AS_SOURCE_READ_BUDGET)
+        return;
+    if (amd64_as_source_last_pid == current->pid && amd64_as_source_last_fd == fd_no)
+        return;
+
+    amd64_as_source_last_pid = current->pid;
+    amd64_as_source_last_fd = fd_no;
+    amd64_as_source_read_count++;
+
+    limit = buf_len;
+    if (limit > AMD64_AS_SOURCE_MAX_BYTES)
+        limit = AMD64_AS_SOURCE_MAX_BYTES;
+
+    printk("amd64 as source read: pid=%d tgid=%d fd=%d path=%s bytes=%zu\n",
+           current->pid, current->tgid, fd_no, path, limit);
+
+    while (i < limit && line_no <= AMD64_AS_SOURCE_MAX_LINES) {
+        char line[AMD64_AS_SOURCE_LINE_MAX];
+        size_t li = 0;
+
+        while (i < limit) {
+            unsigned char ch = src[i++];
+            if (ch == '\n')
+                break;
+            if (li + 1 >= sizeof(line))
+                continue;
+            if (ch == '\t') {
+                if (li + 2 < sizeof(line)) {
+                    line[li++] = '\\';
+                    line[li++] = 't';
+                }
+                continue;
+            }
+            line[li++] = (ch >= 0x20 && ch <= 0x7e) ? (char) ch : '.';
+        }
+        line[li] = '\0';
+        printk("amd64 as source:%4u | %s\n", line_no, line);
+        line_no++;
+    }
+
+    if (i < buf_len)
+        printk("amd64 as source: ... truncated after %zu bytes\n", limit);
+}
+
 static void apply_umask(mode_t_ *mode) {
     struct fs_info *fs = current->fs;
     lock(&fs->lock, 0);
@@ -197,6 +286,7 @@ fd_t sys_openat_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, mode_t_ 
     if (IS_ERR(fd))
         return PTR_ERR(fd);
     fd_t installed = f_install(fd, flags);
+    amd64_as_source_trace_open(installed, path, flags);
     return installed;
 }
 
@@ -474,12 +564,15 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
 
     if (res >= 0) {
         char path[MAX_PATH];
-        if (fs_trace_elogind() && generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
-            size_t print_size = res;
-            if (print_size > 80)
-                print_size = 80;
-            printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
-                   current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+        if (generic_getpath(fd, path) == 0) {
+            amd64_as_source_trace_read(fd_no, path, buf, (size_t) res);
+            if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
+                size_t print_size = res;
+                if (print_size > 80)
+                    print_size = 80;
+                printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
+                       current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+            }
         }
         STRACE(" -> %zd bytes", res);
     }

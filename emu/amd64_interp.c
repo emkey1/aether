@@ -153,6 +153,25 @@ static inline bool amd64_bash_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "bash") == 0;
 }
 
+static inline bool amd64_trace_copy_guest_locked(guest_addr_t guest_addr, void *out, size_t size) {
+    uint8_t *dst = out;
+    size_t copied = 0;
+
+    while (copied < size) {
+        struct pt_entry *pt = mem_pt(current->mem, PAGE(guest_addr + copied));
+        if (pt == NULL || pt->data == NULL || pt->data->data == NULL)
+            return false;
+        size_t page_off = PGOFFSET(guest_addr + copied);
+        size_t chunk = PAGE_SIZE - page_off;
+        if (chunk > size - copied)
+            chunk = size - copied;
+        memcpy(dst + copied, (uint8_t *) pt->data->data + pt->offset + page_off, chunk);
+        copied += chunk;
+    }
+
+    return true;
+}
+
 static inline bool amd64_trace_read_guest(qword_t addr, void *out, size_t size) {
     if (current == NULL || current->mem == NULL)
         return false;
@@ -161,11 +180,7 @@ static inline bool amd64_trace_read_guest(qword_t addr, void *out, size_t size) 
         return false;
     bool ok = false;
     read_lock(&current->mem->lock);
-    void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-    if (ptr != NULL) {
-        memcpy(out, ptr, size);
-        ok = true;
-    }
+    ok = amd64_trace_copy_guest_locked(guest_addr, out, size);
     read_unlock(&current->mem->lock);
     return ok;
 }
@@ -262,9 +277,7 @@ static inline void amd64_trace_cc1_slot_probe(struct cpu_state *cpu, qword_t rip
     read_lock(&current->mem->lock);
     guest_addr_t guest_addr;
     if (amd64_guest_addr_ok(addr, sizeof(bytes), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(bytes, ptr, sizeof(bytes));
+        if (amd64_trace_copy_guest_locked(guest_addr, bytes, sizeof(bytes))) {
             have_bytes = sizeof(bytes);
         }
     }
@@ -342,30 +355,9 @@ static inline void amd64_trace_cc1_va_list_branch_probe(struct cpu_state *cpu, q
     bool have_ms_slot = false;
     bool have_sysv_slot = false;
 
-    read_lock(&current->mem->lock);
-    guest_addr_t guest_addr;
-    if (amd64_guest_addr_ok(AMD64_CC1_ABI_FLAG_ADDR, sizeof(abi_flags), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&abi_flags, ptr, sizeof(abi_flags));
-            have_abi_flags = true;
-        }
-    }
-    if (amd64_guest_addr_ok(AMD64_CC1_NULL_SLOT_ADDR, sizeof(ms_slot), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&ms_slot, ptr, sizeof(ms_slot));
-            have_ms_slot = true;
-        }
-    }
-    if (amd64_guest_addr_ok(AMD64_CC1_SYSV_SLOT_ADDR, sizeof(sysv_slot), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&sysv_slot, ptr, sizeof(sysv_slot));
-            have_sysv_slot = true;
-        }
-    }
-    read_unlock(&current->mem->lock);
+    have_abi_flags = amd64_trace_read_guest(AMD64_CC1_ABI_FLAG_ADDR, &abi_flags, sizeof(abi_flags));
+    have_ms_slot = amd64_trace_read_guest(AMD64_CC1_NULL_SLOT_ADDR, &ms_slot, sizeof(ms_slot));
+    have_sysv_slot = amd64_trace_read_guest(AMD64_CC1_SYSV_SLOT_ADDR, &sysv_slot, sizeof(sysv_slot));
 
     amd64_cc1_va_list_branch_probe_count++;
     printk("amd64 cc1 va_list branch: rip=%#llx kind=%s taken=%d target=%#llx zf=%d cf=%d sf=%d of=%d rdi=%#llx rbp=%#llx flags=%#llx%s ms=%#llx%s sysv=%#llx%s\n",
@@ -475,37 +467,10 @@ static inline void amd64_trace_cc1_va_list_init_probe(struct cpu_state *cpu) {
     bool have_abi_flags = false;
     bool have_option = false;
 
-    read_lock(&current->mem->lock);
-    guest_addr_t guest_addr;
-    if (amd64_guest_addr_ok(AMD64_CC1_NULL_SLOT_ADDR, sizeof(ms_slot), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&ms_slot, ptr, sizeof(ms_slot));
-            have_ms_slot = true;
-        }
-    }
-    if (amd64_guest_addr_ok(AMD64_CC1_SYSV_SLOT_ADDR, sizeof(sysv_slot), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&sysv_slot, ptr, sizeof(sysv_slot));
-            have_sysv_slot = true;
-        }
-    }
-    if (amd64_guest_addr_ok(AMD64_CC1_ABI_FLAG_ADDR, sizeof(abi_flags), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&abi_flags, ptr, sizeof(abi_flags));
-            have_abi_flags = true;
-        }
-    }
-    if (amd64_guest_addr_ok(AMD64_CC1_MS_VARIANT_ADDR, sizeof(option), &guest_addr)) {
-        void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-        if (ptr != NULL) {
-            memcpy(&option, ptr, sizeof(option));
-            have_option = true;
-        }
-    }
-    read_unlock(&current->mem->lock);
+    have_ms_slot = amd64_trace_read_guest(AMD64_CC1_NULL_SLOT_ADDR, &ms_slot, sizeof(ms_slot));
+    have_sysv_slot = amd64_trace_read_guest(AMD64_CC1_SYSV_SLOT_ADDR, &sysv_slot, sizeof(sysv_slot));
+    have_abi_flags = amd64_trace_read_guest(AMD64_CC1_ABI_FLAG_ADDR, &abi_flags, sizeof(abi_flags));
+    have_option = amd64_trace_read_guest(AMD64_CC1_MS_VARIANT_ADDR, &option, sizeof(option));
 
     amd64_cc1_va_list_init_probe_count++;
     printk("amd64 cc1 va_list init: rip=%#llx rax=%#llx rbx=%#llx rdi=%#llx rsi=%#llx rbp=%#llx flags=%#llx%s ms=%#llx%s sysv=%#llx%s opt=%#x%s\n",
@@ -557,9 +522,7 @@ static inline void amd64_trace_cc1_step(struct cpu_state *cpu) {
         return;
 
     read_lock(&current->mem->lock);
-    void *ptr = mem_ptr(current->mem, guest_addr, MEM_READ);
-    if (ptr != NULL) {
-        memcpy(trace->bytes, ptr, sizeof(trace->bytes));
+    if (amd64_trace_copy_guest_locked(guest_addr, trace->bytes, sizeof(trace->bytes))) {
         trace->byte_count = sizeof(trace->bytes);
     }
     read_unlock(&current->mem->lock);
@@ -5464,6 +5427,19 @@ restart_prefix:
                     ((int32_t) amd64_reg_get(cpu, amd64_rax, 32) < 0) ? 0xffffffffu : 0);
         }
         break;
+    case 0x1f: {
+        // Toolchains use 0f 1f /0 for alignment NOPs. Be tolerant if dispatch
+        // lands on the second byte and consume the ModRM form here as well.
+        struct amd64_modrm modrm;
+        if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = saved_rip;
+            return INT_GPF;
+        }
+        if (modrm.reg != 0)
+            return INT_UNDEFINED;
+        break;
+    }
     case 0x04:
     case 0x05:
     case 0x0c:
