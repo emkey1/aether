@@ -77,7 +77,7 @@ static inline void atomic_l_lockf(char lname[16], int skiplog) {
 
     int res = pthread_mutex_lock(&atomic_l_lock.m);
     if(!res) {
-        strlcpy((char *)&atomic_l_lock.lname, lname, 16);
+        strlcpy(atomic_l_lock.lname, lname, sizeof(atomic_l_lock.lname));
         // Track owner so jit_crash_fn can release the mutex if the JIT thread
         // faults while holding it (e.g. inside read_lock/read_unlock).
         atomic_l_lock.owner = pthread_self();
@@ -133,7 +133,7 @@ static inline void atomic_l_unlockf(void) {
     if(!doEnableExtraLocking)
         return;
     int res = 0;
-    strncpy((char *)&atomic_l_lock.lname,"\0", 1);
+    atomic_l_lock.lname[0] = '\0';
     atomic_l_lock.owner = zero_init(pthread_t);  // Clear owner before unlock
     res = pthread_mutex_unlock(&atomic_l_lock.m);
     if(res) {

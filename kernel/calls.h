@@ -339,6 +339,8 @@ uid_t_ sys_setfsuid(uid_t_ uid);
 uid_t_ sys_setfsgid(uid_t_ gid);
 int_t sys_getresuid(addr_t ruid_addr, addr_t euid_addr, addr_t suid_addr);
 int_t sys_getresgid(addr_t rgid_addr, addr_t egid_addr, addr_t sgid_addr);
+int_t sys_getresuid_guest(guest_addr_t ruid_addr, guest_addr_t euid_addr, guest_addr_t suid_addr);
+int_t sys_getresgid_guest(guest_addr_t rgid_addr, guest_addr_t egid_addr, guest_addr_t sgid_addr);
 int_t sys_getgroups(dword_t size, addr_t list);
 int_t sys_setgroups(dword_t size, addr_t list);
 int_t sys_capget(addr_t header_addr, addr_t data_addr);

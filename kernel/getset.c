@@ -122,6 +122,20 @@ int_t sys_getresuid(addr_t ruid_addr, addr_t euid_addr, addr_t suid_addr) {
     return 0;
 }
 
+int_t sys_getresuid_guest(guest_addr_t ruid_addr, guest_addr_t euid_addr, guest_addr_t suid_addr) {
+    STRACE("getresuid(%#llx, %#llx, %#llx)",
+            (unsigned long long) ruid_addr,
+            (unsigned long long) euid_addr,
+            (unsigned long long) suid_addr);
+    if (user_put(ruid_addr, current->uid))
+        return _EFAULT;
+    if (user_put(euid_addr, current->euid))
+        return _EFAULT;
+    if (user_put(suid_addr, current->suid))
+        return _EFAULT;
+    return 0;
+}
+
 int_t sys_setreuid(uid_t_ ruid, uid_t_ euid) {
     return sys_setresuid(ruid, euid, -1);
 }
@@ -191,6 +205,20 @@ dword_t sys_setresgid(uid_t_ rgid, uid_t_ egid, uid_t_ sgid) {
 
 int_t sys_getresgid(addr_t rgid_addr, addr_t egid_addr, addr_t sgid_addr) {
     STRACE("getresgid(%#x, %#x, %#x)", rgid_addr, egid_addr, sgid_addr);
+    if (user_put(rgid_addr, current->gid))
+        return _EFAULT;
+    if (user_put(egid_addr, current->egid))
+        return _EFAULT;
+    if (user_put(sgid_addr, current->sgid))
+        return _EFAULT;
+    return 0;
+}
+
+int_t sys_getresgid_guest(guest_addr_t rgid_addr, guest_addr_t egid_addr, guest_addr_t sgid_addr) {
+    STRACE("getresgid(%#llx, %#llx, %#llx)",
+            (unsigned long long) rgid_addr,
+            (unsigned long long) egid_addr,
+            (unsigned long long) sgid_addr);
     if (user_put(rgid_addr, current->gid))
         return _EFAULT;
     if (user_put(egid_addr, current->egid))

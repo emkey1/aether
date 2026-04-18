@@ -1649,6 +1649,14 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) sys_syslog_guest(
                 (int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
         return true;
+    case 118:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getresuid_guest(
+                raw_args[0], raw_args[1], raw_args[2]));
+        return true;
+    case 120:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getresgid_guest(
+                raw_args[0], raw_args[1], raw_args[2]));
+        return true;
     case 127:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_sigpending_guest(raw_args[0]));
         return true;
@@ -2708,6 +2716,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
             dump_fault_pt_state(cpu->segfault_addr);
+            dump_amd64_cc1_trace(cpu);
             if (amd64_verbose_fault_trace_enabled()) {
                 dump_amd64_loader_state(cpu);
                 dump_amd64_store_trace(cpu);
@@ -3582,6 +3591,7 @@ static bool amd64_try_emulate_add(guest_addr_t ip, struct cpu_state *cpu) {
 }
 
 void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
+    guest_addr_t ip = current_fault_ip(cpu);
     if (current->abi == GUEST_ABI_AMD64) {
         int nop_len = amd64_nop_instruction_len(cpu->eip);
         if (nop_len > 0) {
@@ -3593,17 +3603,19 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             return;
     }
 
-    printk("ERROR: %d(%s) illegal instruction at 0x%x: ", current->pid, current->comm, cpu->eip);
+    printk("ERROR: %d(%s) illegal instruction at %#llx: ",
+           current->pid, current->comm, (unsigned long long) ip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
-        if (user_get(cpu->eip + i, b))
+        if (user_get(ip + i, b))
             break;
         printk("%02x ", b);
     }
     printk("\n");
-    dump_opcode_window(cpu->eip);
+    dump_opcode_window(ip);
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
+        dump_amd64_cc1_trace(cpu);
         if (amd64_verbose_fault_trace_enabled()) {
             dump_amd64_loader_state(cpu);
             dump_amd64_store_trace(cpu);

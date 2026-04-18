@@ -16,6 +16,7 @@ struct tlb;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
+void dump_amd64_cc1_trace(const struct cpu_state *cpu);
 
 enum amd64_reg {
     amd64_rax = 0,
@@ -54,7 +55,6 @@ struct amd64_syscall_state {
 };
 
 #define AMD64_STORE_TRACE_COUNT 32
-
 struct amd64_store_trace {
     qword_t rip;
     qword_t addr;
@@ -120,6 +120,7 @@ struct cpu_state {
     qword_t amd64_regs[amd64_reg_count];
     qword_t amd64_rip;
     qword_t amd64_current_insn_rip;
+    bool amd64_address_size_prefix;
 
     struct amd64_syscall_state amd64_syscall;
     struct amd64_store_trace amd64_store_trace[AMD64_STORE_TRACE_COUNT];

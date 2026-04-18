@@ -67,6 +67,8 @@ static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
 static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
 static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
+static int elf_load_addr_candidate(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias,
+        guest_addr_t *addr_out);
 static void amd64_trace_exec_attempt(const char *file, const char *argv);
 static void amd64_trace_exec_loader_failure(const char *stage, const char *file, enum guest_abi abi,
         struct elf_prg_info *ph, guest_addr_t bias, struct fd *fd, int err, const char *interp_name);
@@ -294,33 +296,55 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
 }
 
 static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
-    struct elf_prg_info *first = NULL, *last = NULL;
+    bool found = false;
     page_t first_page = 0;
+    page_t last_page = 0;
     for (int i = 0; i < header->phent_count; i++) {
-        if (ph[i].type == PT_LOAD) {
-            if (first == NULL) {
-                first = &ph[i];
-                first_page = PAGE(ph[i].vaddr);
-            }
-            last = &ph[i];
+        if (ph[i].type != PT_LOAD)
+            continue;
+
+        qword_t end_vaddr = ph[i].vaddr + ph[i].memsize;
+        if (end_vaddr < ph[i].vaddr)
+            return 0;
+        if (!elf_value_fits_addr(header->abi, end_vaddr) || !elf_value_fits_addr(header->abi, ph[i].vaddr))
+            return 0;
+
+        page_t seg_first = PAGE(ph[i].vaddr);
+        page_t seg_last = PAGE_ROUND_UP(end_vaddr);
+        if (!found) {
+            first_page = seg_first;
+            last_page = seg_last;
+            found = true;
+            continue;
         }
+        if (seg_first < first_page)
+            first_page = seg_first;
+        if (seg_last > last_page)
+            last_page = seg_last;
     }
     pages_t size = 0;
-    if (first != NULL) {
-        qword_t end_vaddr = last->vaddr + last->memsize;
-        if (end_vaddr < last->vaddr)
+    if (found) {
+        if (last_page < first_page)
             return 0;
-        if (!elf_value_fits_addr(header->abi, end_vaddr) || !elf_value_fits_addr(header->abi, first->vaddr))
-            return 0;
-        pages_t a = PAGE_ROUND_UP(end_vaddr);
-        pages_t b = first_page;
-        size = a - b;
+        size = last_page - first_page;
     }
     page_t hole = pt_find_hole(current->mem, size);
     if (hole == BAD_PAGE)
         return 0;
     guest_addr_t base = ((guest_addr_t) hole - first_page) << PAGE_BITS;
     return base;
+}
+
+static int elf_load_addr_candidate(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias,
+        guest_addr_t *addr_out) {
+    qword_t mapped_load_addr = (qword_t) bias + ph.vaddr;
+    if (ph.offset > mapped_load_addr)
+        return _EOVERFLOW;
+    mapped_load_addr -= ph.offset;
+    if (!elf_value_fits_addr(abi, mapped_load_addr))
+        return _EOVERFLOW;
+    *addr_out = (guest_addr_t) mapped_load_addr;
+    return 0;
 }
 
 static void amd64_trace_exec_attempt(const char *file, const char *argv) {
@@ -513,18 +537,11 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         if ((err = load_entry(header.abi, ph[i], bias, fd)) < 0)
             goto beyond_hope;
 
-        if (!load_addr_set) {
-            qword_t mapped_load_addr = (qword_t) bias + ph[i].vaddr;
-            if (ph[i].offset > mapped_load_addr) {
-                err = _EOVERFLOW;
-                goto beyond_hope;
-            }
-            mapped_load_addr -= ph[i].offset;
-            if (!elf_value_fits_addr(header.abi, mapped_load_addr)) {
-                err = _EOVERFLOW;
-                goto beyond_hope;
-            }
-            load_addr = (guest_addr_t) mapped_load_addr;
+        guest_addr_t candidate_load_addr;
+        if ((err = elf_load_addr_candidate(header.abi, ph[i], bias, &candidate_load_addr)) < 0)
+            goto beyond_hope;
+        if (!load_addr_set || candidate_load_addr < load_addr) {
+            load_addr = candidate_load_addr;
             load_addr_set = true;
         }
 
