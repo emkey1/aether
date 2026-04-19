@@ -13,6 +13,7 @@
 #import "UIViewController+Extras.h"
 #import "NSObject+SaneKVO.h"
 #import "UserPreferences.h"
+#import "WorkspaceViewController.h"
 
 @interface RootsTableViewController ()
 @end
@@ -138,8 +139,11 @@
                         [self presentError:error title:@"Import failed"];
                     return;
                 }
+                NSString *currentInitialWindow =
+                    [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
                 if (!self.choosesRootOnSelection &&
                     wasInitialSelection &&
+                    ![currentInitialWindow isEqualToString:ISHInitialWindowWorkspaceValue] &&
                     ([initialWindow isEqualToString:@"terminal"] ||
                      [initialWindow isEqualToString:@"session-shell"])) {
                     [NSUserDefaults.standardUserDefaults setObject:initialWindow

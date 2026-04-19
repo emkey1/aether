@@ -422,3 +422,21 @@ struct proc_children proc_ish_children = PROC_CHILDREN({
     {"ips", .show = proc_ish_show_ips},
     {"version", .show = proc_ish_show_version},
 });
+
+void proc_ish_init(struct proc_dir_entry *root_entry) {
+    struct proc_dir_entry *defaults_dir;
+    struct proc_dir_entry *underlying_defaults_dir;
+
+    if (root_entry == NULL)
+        return;
+
+    proc_set_children_parent(&proc_ish_children, root_entry);
+
+    underlying_defaults_dir = proc_children_find(&proc_ish_children, ".defaults");
+    if (underlying_defaults_dir != NULL)
+        proc_ish_underlying_defaults_fd.parent = underlying_defaults_dir;
+
+    defaults_dir = proc_children_find(&proc_ish_children, "defaults");
+    if (defaults_dir != NULL)
+        proc_ish_defaults_fd.parent = defaults_dir;
+}

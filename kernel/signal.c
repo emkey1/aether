@@ -27,11 +27,7 @@ static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 
 static bool should_trace_signal_task(struct task *task) {
-    if (task == NULL || task->abi != GUEST_ABI_AMD64)
-        return false;
-    if (amd64_trace_is_lineage_tgid(task->tgid))
-        return true;
-    return task->parent != NULL && amd64_trace_is_lineage_tgid(task->parent->tgid);
+    return false;
 }
 
 struct sigaction_i386_marshaled {

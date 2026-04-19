@@ -67,19 +67,10 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     fdtable_release(files);
     task_ref_cnt_mod(task, -1);
 
-    if (fd->type == S_IFREG || fd->type == S_IFDIR) {
-        char reopened_path[MAX_PATH];
-        int err = generic_getpath(fd, reopened_path);
-        if (err >= 0) {
-            int reopen_flags = fd->flags & (O_RDWR_ | O_WRONLY_ | O_NONBLOCK_ | O_APPEND_ | O_DIRECTORY_);
-            struct fd *reopened = generic_open(reopened_path, reopen_flags, 0);
-            if (!IS_ERR(reopened)) {
-                fd_close(fd);
-                return reopened;
-            }
-        }
-    }
-
+    // /proc/<pid>/fd/<n> should behave like dup(2): return another reference to
+    // the same open file description, not a path-based reopen. Reopening by
+    // pathname loses Linux procfd semantics for transient or deleted files and
+    // can substitute the wrong backing object during exec or shell script loads.
     return fd;
 }
 

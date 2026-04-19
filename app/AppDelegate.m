@@ -129,7 +129,10 @@ static void ios_handle_die(const char *msg) {
 }
 #elif ISH_LINUX
 void ReportPanic(const char *message) {
-    [NSNotificationCenter.defaultCenter postNotificationName:KernelPanicNotification object:nil userInfo:@{@"message":@(message)}];
+    NSDictionary *userInfo = message != NULL ? @{@"message": @(message)} : nil;
+    [NSNotificationCenter.defaultCenter postNotificationName:KernelPanicNotification
+                                                      object:nil
+                                                    userInfo:userInfo];
 }
 #endif
 

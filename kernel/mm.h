@@ -23,6 +23,7 @@ struct mm {
     guest_addr_t auxv_start;
     guest_addr_t auxv_end;
     guest_addr_t stack_start;
+    dword_t mlockall_flags;
     struct fd *exefile;
 };
 

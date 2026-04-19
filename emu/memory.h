@@ -61,6 +61,7 @@ struct data {
     void *data; // immutable
     size_t size; // also immutable
     atomic_uint refcount;
+    uintptr_t shared_key;
 
     // for display in /proc/pid/maps
     struct fd *fd;

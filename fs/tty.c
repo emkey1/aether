@@ -908,7 +908,7 @@ void tty_set_winsize(struct tty *tty, struct winsize_ winsize) {
     tty->winsize = winsize;
     if (tty->fg_group == 0)
         return;
-    if (pthread_mutex_trylock(&pids_lock.m) != 0)
+    if (trylock(&pids_lock) != 0)
         return;
     struct pid *pid = pid_get(tty->fg_group);
     if (pid != NULL) {
@@ -917,7 +917,7 @@ void tty_set_winsize(struct tty *tty, struct winsize_ winsize) {
             send_signal(tgroup->leader, SIGWINCH_, SIGINFO_NIL);
         }
     }
-    pthread_mutex_unlock(&pids_lock.m);
+    unlock(&pids_lock);
 }
 
 void tty_hangup(struct tty *tty) {

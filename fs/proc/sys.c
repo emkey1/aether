@@ -210,3 +210,36 @@ struct proc_children proc_sys_children = PROC_CHILDREN({
     {"vm", S_IFDIR, .readdir = sys_show_vm},
    //{"dev", .show = proc_show_dev},
 });
+
+void proc_sys_init(struct proc_dir_entry *root_entry) {
+    struct proc_dir_entry *debug_dir;
+    struct proc_dir_entry *fs_dir;
+    struct proc_dir_entry *kernel_dir;
+    struct proc_dir_entry *net_dir;
+
+    if (root_entry == NULL)
+        return;
+
+    proc_set_children_parent(&proc_sys_children, root_entry);
+
+    debug_dir = proc_children_find(&proc_sys_children, "debug");
+    if (debug_dir != NULL)
+        proc_set_entries_parent(proc_sys_debug, PROC_SYS_DEBUG_LEN, debug_dir);
+
+    fs_dir = proc_children_find(&proc_sys_children, "fs");
+    if (fs_dir != NULL) {
+        proc_set_entries_parent(proc_sys_fs_entries, PROC_SYS_FS_LEN, fs_dir);
+        proc_set_entries_parent(proc_binfmt_misc_entries, PROC_BINFMT_MISC_LEN,
+                proc_find_entry(proc_sys_fs_entries, PROC_SYS_FS_LEN, "binfmt_misc"));
+    }
+
+    kernel_dir = proc_children_find(&proc_sys_children, "kernel");
+    if (kernel_dir != NULL)
+        proc_set_entries_parent(proc_sys_kernel, PROC_SYS_KERNEL_LEN, kernel_dir);
+
+    net_dir = proc_children_find(&proc_sys_children, "net");
+    if (net_dir != NULL) {
+        proc_set_entries_parent(proc_sys_net, PROC_SYS_NET_LEN, net_dir);
+        proc_net.parent = net_dir;
+    }
+}

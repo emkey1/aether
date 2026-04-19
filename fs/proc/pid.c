@@ -794,3 +794,23 @@ static struct proc_dir_entry proc_pid_fdinfo_entry = {NULL, S_IFREG,
 
 static struct proc_dir_entry proc_pid_task = {NULL, S_IFDIR,
     .children = &proc_pid_children, .getname = proc_pid_task_getname};
+
+void proc_pid_init(void) {
+    struct proc_dir_entry *fd_dir;
+    struct proc_dir_entry *fdinfo_dir;
+    struct proc_dir_entry *task_dir;
+
+    proc_set_children_parent(&proc_pid_children, &proc_pid);
+
+    fd_dir = proc_children_find(&proc_pid_children, "fd");
+    if (fd_dir != NULL)
+        proc_pid_fd.parent = fd_dir;
+
+    fdinfo_dir = proc_children_find(&proc_pid_children, "fdinfo");
+    if (fdinfo_dir != NULL)
+        proc_pid_fdinfo_entry.parent = fdinfo_dir;
+
+    task_dir = proc_children_find(&proc_pid_children, "task");
+    if (task_dir != NULL)
+        proc_pid_task.parent = task_dir;
+}

@@ -562,6 +562,16 @@ static bool proc_root_readdir(struct proc_entry *entry, unsigned long *index, st
 
 struct proc_dir_entry proc_root = {NULL, S_IFDIR, .readdir = proc_root_readdir};
 
+void proc_root_init(void) {
+    proc_set_entries_parent(proc_root_entries, PROC_ROOT_LEN, &proc_root);
+    proc_pid.parent = &proc_root;
+
+    proc_ish_init(proc_find_entry(proc_root_entries, PROC_ROOT_LEN, "ish"));
+    proc_net_init(proc_find_entry(proc_root_entries, PROC_ROOT_LEN, "net"));
+    proc_sys_init(proc_find_entry(proc_root_entries, PROC_ROOT_LEN, "sys"));
+    proc_pid_init();
+}
+
 enum sysfs_node_kind {
     sysfs_root,
     sysfs_devices,

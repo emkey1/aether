@@ -103,3 +103,24 @@ void proc_entry_cleanup(struct proc_entry *entry) {
         free_string_array(entry->child_names);
     *entry = (struct proc_entry) {0};
 }
+
+void proc_set_entries_parent(struct proc_dir_entry *entries, size_t count, struct proc_dir_entry *parent) {
+    for (size_t i = 0; i < count; i++)
+        entries[i].parent = parent;
+}
+
+void proc_set_children_parent(struct proc_children *children, struct proc_dir_entry *parent) {
+    proc_set_entries_parent(children->entries, children->count, parent);
+}
+
+struct proc_dir_entry *proc_find_entry(struct proc_dir_entry *entries, size_t count, const char *name) {
+    for (size_t i = 0; i < count; i++) {
+        if (entries[i].name != NULL && strcmp(entries[i].name, name) == 0)
+            return &entries[i];
+    }
+    return NULL;
+}
+
+struct proc_dir_entry *proc_children_find(struct proc_children *children, const char *name) {
+    return proc_find_entry(children->entries, children->count, name);
+}

@@ -295,6 +295,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
     *data = (struct data) {
         .data = memory,
         .size = pages * PAGE_SIZE + offset,
+        .shared_key = 0,
 
 #if LEAK_DEBUG
         .pid = current ? current->pid : 0,

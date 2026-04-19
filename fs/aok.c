@@ -14,6 +14,11 @@ enum aokfs_node_kind {
     aokfs_root = 1,
     aokfs_readme,
     aokfs_version,
+    aokfs_fixes_dir,
+    aokfs_fixes_devuan_dir,
+    aokfs_fixes_devuan_readme,
+    aokfs_fixes_devuan_pkcsslotd_init,
+    aokfs_fixes_debian_link,
     aokfs_tests_dir,
     aokfs_tests_readme,
     aokfs_tests_atomics32,
@@ -47,7 +52,15 @@ static void *aokfs_encode_node(enum aokfs_node_kind node) {
 }
 
 static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
-    return node == aokfs_root || node == aokfs_tests_dir || node == aokfs_tests_audio_dir;
+    return node == aokfs_root ||
+        node == aokfs_fixes_dir ||
+        node == aokfs_fixes_devuan_dir ||
+        node == aokfs_tests_dir ||
+        node == aokfs_tests_audio_dir;
+}
+
+static bool aokfs_node_is_symlink(enum aokfs_node_kind node) {
+    return node == aokfs_fixes_debian_link;
 }
 
 static bool aokfs_node_is_bundled_file(enum aokfs_node_kind node) {
@@ -57,6 +70,8 @@ static bool aokfs_node_is_bundled_file(enum aokfs_node_kind node) {
 static mode_t_ aokfs_node_mode(enum aokfs_node_kind node) {
     if (aokfs_node_is_dir(node))
         return S_IFDIR | 0555;
+    if (aokfs_node_is_symlink(node))
+        return S_IFLNK | 0777;
     return S_IFREG | 0444;
 }
 
@@ -72,6 +87,16 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/README.txt";
         case aokfs_version:
             return "/VERSION";
+        case aokfs_fixes_dir:
+            return "/fixes";
+        case aokfs_fixes_devuan_dir:
+            return "/fixes/devuan";
+        case aokfs_fixes_devuan_readme:
+            return "/fixes/devuan/README.txt";
+        case aokfs_fixes_devuan_pkcsslotd_init:
+            return "/fixes/devuan/fix-pkcsslotd-init.sh";
+        case aokfs_fixes_debian_link:
+            return "/fixes/debian";
         case aokfs_tests_dir:
             return "/tests";
         case aokfs_tests_readme:
@@ -131,6 +156,11 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_root,
         aokfs_readme,
         aokfs_version,
+        aokfs_fixes_dir,
+        aokfs_fixes_devuan_dir,
+        aokfs_fixes_devuan_readme,
+        aokfs_fixes_devuan_pkcsslotd_init,
+        aokfs_fixes_debian_link,
         aokfs_tests_dir,
         aokfs_tests_readme,
         aokfs_tests_atomics32,
@@ -165,6 +195,19 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
     return false;
 }
 
+static const char *aokfs_symlink_target(enum aokfs_node_kind node, size_t *size_out) {
+    static const char fixes_debian[] = "devuan";
+
+    switch (node) {
+        case aokfs_fixes_debian_link:
+            *size_out = sizeof(fixes_debian) - 1;
+            return fixes_debian;
+        default:
+            *size_out = 0;
+            return "";
+    }
+}
+
 static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *size_out) {
     static const char readme[] =
         "iSH-AOK support files\n"
@@ -172,6 +215,110 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         "This is a small read-only pseudo-filesystem provided by iSH-AOK.\n"
         "It is mounted at /AOK regardless of the installed Linux rootfs.\n";
     static const char version[] = "iSH-AOK\n";
+    static const char fixes_devuan_readme[] =
+        "pkcsslotd init fix\n"
+        "\n"
+        "On current Devuan and Debian roots, /usr/sbin/pkcsslotd starts and\n"
+        "daemonizes successfully but does not create /var/run/pkcsslotd.pid.\n"
+        "\n"
+        "The stock /etc/init.d/pkcsslotd script requires that pidfile via\n"
+        "start-stop-daemon, so boot-time service management can report failure\n"
+        "even while the daemon is already running.\n"
+        "\n"
+        "Apply the fix with:\n"
+        "  sh /AOK/fixes/devuan/fix-pkcsslotd-init.sh\n"
+        "\n"
+        "The /AOK/fixes/debian entry is a symlink to this same directory.\n";
+    static const char fixes_devuan_pkcsslotd_init[] =
+        "#!/bin/sh\n"
+        "set -e\n"
+        "\n"
+        "target=/etc/init.d/pkcsslotd\n"
+        "backup=/etc/init.d/pkcsslotd.bak\n"
+        "\n"
+        "if [ ! -x /usr/sbin/pkcsslotd ]; then\n"
+        "    echo \"ERROR: /usr/sbin/pkcsslotd is missing\"\n"
+        "    exit 1\n"
+        "fi\n"
+        "\n"
+        "if [ -f \"$target\" ] && [ ! -f \"$backup\" ]; then\n"
+        "    cp \"$target\" \"$backup\"\n"
+        "fi\n"
+        "\n"
+        "cat >\"$target\" <<'EOF'\n"
+        "#!/bin/sh\n"
+        "\n"
+        "### BEGIN INIT INFO\n"
+        "# Provides:             pkcsslotd\n"
+        "# Required-Start:       $local_fs $remote_fs\n"
+        "# Required-Stop:        $local_fs $remote_fs\n"
+        "# Should-Start:\n"
+        "# Should-Stop:\n"
+        "# Default-Start:        2 3 4 5\n"
+        "# Default-Stop:         0 1 6\n"
+        "# Short-Description:    starts pkcsslotd\n"
+        "# Description:          pkcsslotd belongs to opencryptoki\n"
+        "### END INIT INFO\n"
+        "\n"
+        ". /lib/lsb/init-functions\n"
+        "\n"
+        "PATH=/sbin:/bin:/usr/sbin:/usr/bin\n"
+        "DAEMON=/usr/sbin/pkcsslotd\n"
+        "NAME=pkcsslotd\n"
+        "DESC=\"PKCS#11 slot daemon\"\n"
+        "\n"
+        "test -x \"$DAEMON\" || exit 0\n"
+        "\n"
+        "set -e\n"
+        "\n"
+        "case \"${1}\" in\n"
+        "        start)\n"
+        "                echo -n \"Starting $DESC: \"\n"
+        "\n"
+        "                mkdir -m 0770 -p /var/lock/opencryptoki /var/lock/opencryptoki/icsf /var/lock/opencryptoki/swtok /var/lock/opencryptoki/tpm /var/lock/opencryptoki/lite /var/lock/opencryptoki/ccatok /var/lock/opencryptoki/ep11tok\n"
+        "                chown root:pkcs11 /var/lock/opencryptoki /var/lock/opencryptoki/icsf /var/lock/opencryptoki/swtok /var/lock/opencryptoki/tpm /var/lock/opencryptoki/lite /var/lock/opencryptoki/ccatok /var/lock/opencryptoki/ep11tok\n"
+        "\n"
+        "                start-stop-daemon --start --quiet --oknodo --exec \"$DAEMON\" -- $DAEMON_OPTS\n"
+        "                echo \"$NAME.\"\n"
+        "                ;;\n"
+        "\n"
+        "        stop)\n"
+        "                echo -n \"Stopping $DESC: \"\n"
+        "                start-stop-daemon --stop --oknodo --quiet --exec \"$DAEMON\"\n"
+        "                echo \"$NAME.\"\n"
+        "                ;;\n"
+        "\n"
+        "        restart|force-reload)\n"
+        "                \"${0}\" stop\n"
+        "                sleep 1\n"
+        "                \"${0}\" start\n"
+        "                ;;\n"
+        "\n"
+        "        status)\n"
+        "                if pidof pkcsslotd >/dev/null 2>&1\n"
+        "                then\n"
+        "                        echo \"$NAME is running.\"\n"
+        "                else\n"
+        "                        echo \"$NAME is not running.\"\n"
+        "                        exit 1\n"
+        "                fi\n"
+        "                ;;\n"
+        "\n"
+        "        *)\n"
+        "                N=/etc/init.d/$NAME\n"
+        "                echo \"Usage: $N {start|stop|restart|force-reload|status}\" >&2\n"
+        "                exit 1\n"
+        "                ;;\n"
+        "esac\n"
+        "\n"
+        "exit 0\n"
+        "EOF\n"
+        "\n"
+        "chmod 755 \"$target\"\n"
+        "echo \"Installed pkcsslotd init fix at $target\"\n"
+        "if [ -f \"$backup\" ]; then\n"
+        "    echo \"Backup saved at $backup\"\n"
+        "fi\n";
     static const char tests_readme[] =
         "Focused iSH-AOK guest regression suite\n"
         "\n"
@@ -4088,6 +4235,12 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         case aokfs_version:
             *size_out = sizeof(version) - 1;
             return version;
+        case aokfs_fixes_devuan_readme:
+            *size_out = sizeof(fixes_devuan_readme) - 1;
+            return fixes_devuan_readme;
+        case aokfs_fixes_devuan_pkcsslotd_init:
+            *size_out = sizeof(fixes_devuan_pkcsslotd_init) - 1;
+            return fixes_devuan_pkcsslotd_init;
         case aokfs_tests_readme:
             *size_out = sizeof(tests_readme) - 1;
             return tests_readme;
@@ -4162,7 +4315,10 @@ static int aokfs_open_backing_file(struct mount *mount, enum aokfs_node_kind nod
 
 static int aokfs_inline_stat(enum aokfs_node_kind node, struct statbuf *stat) {
     size_t size = 0;
-    aokfs_inline_file_data(node, &size);
+    if (aokfs_node_is_symlink(node))
+        aokfs_symlink_target(node, &size);
+    else
+        aokfs_inline_file_data(node, &size);
     stat->size = size;
     stat->blksize = 4096;
     stat->blocks = (size + 511) / 512;
@@ -4207,7 +4363,7 @@ static int aokfs_statfs(struct mount *UNUSED(mount), struct statfsbuf *stat) {
     memset(stat, 0, sizeof(*stat));
     stat->type = AOKFS_MAGIC;
     stat->bsize = 4096;
-    stat->files = 22;
+    stat->files = 30;
     stat->ffree = 0;
     stat->namelen = NAME_MAX;
     stat->flags = MS_READONLY_;
@@ -4228,6 +4384,21 @@ static int aokfs_fstat(struct fd *fd, struct statbuf *stat) {
 static int aokfs_getpath(struct fd *fd, char *buf) {
     strcpy(buf, aokfs_node_path(aokfs_decode_node(fd->fs_data)));
     return 0;
+}
+
+static ssize_t aokfs_readlink(struct mount *UNUSED(mount), const char *path, char *buf, size_t bufsize) {
+    enum aokfs_node_kind node;
+    if (!aokfs_lookup_node(path, &node))
+        return _ENOENT;
+    if (!aokfs_node_is_symlink(node))
+        return _EINVAL;
+
+    size_t size = 0;
+    const char *target = aokfs_symlink_target(node, &size);
+    if (bufsize > size)
+        bufsize = size;
+    memcpy(buf, target, bufsize);
+    return bufsize;
 }
 
 static ssize_t aokfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
@@ -4289,7 +4460,22 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
             switch (fd->offset++) {
                 case 0: child = aokfs_readme; break;
                 case 1: child = aokfs_version; break;
-                case 2: child = aokfs_tests_dir; break;
+                case 2: child = aokfs_fixes_dir; break;
+                case 3: child = aokfs_tests_dir; break;
+                default: return 0;
+            }
+            break;
+        case aokfs_fixes_dir:
+            switch (fd->offset++) {
+                case 0: child = aokfs_fixes_devuan_dir; break;
+                case 1: child = aokfs_fixes_debian_link; break;
+                default: return 0;
+            }
+            break;
+        case aokfs_fixes_devuan_dir:
+            switch (fd->offset++) {
+                case 0: child = aokfs_fixes_devuan_readme; break;
+                case 1: child = aokfs_fixes_devuan_pkcsslotd_init; break;
                 default: return 0;
             }
             break;
@@ -4385,5 +4571,6 @@ const struct fs_ops aokfs = {
     .open = aokfs_open,
     .stat = aokfs_stat,
     .fstat = aokfs_fstat,
+    .readlink = aokfs_readlink,
     .getpath = aokfs_getpath,
 };

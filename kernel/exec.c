@@ -249,42 +249,39 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
     mem_pt(current->mem, PAGE(addr))->data->fd = fd_retain(fd);
     mem_pt(current->mem, PAGE(addr))->data->file_offset = offset - PGOFFSET(addr);
 
+    guest_addr_t file_end = addr + filesize;
+
+    // ELF requires the remainder of the final file-backed page in a PT_LOAD
+    // segment to read as zero. When the host page size is larger than the
+    // guest page size, the mmap above can otherwise expose later file bytes in
+    // that guest-visible tail.
+    dword_t tail_size = PAGE_SIZE - PGOFFSET(file_end);
+    if (tail_size == PAGE_SIZE)
+        tail_size = 0;
+
+    if (tail_size != 0 && (flags & P_WRITE)) {
+        // Unlock and lock the mem because the user functions must be
+        // called without locking mem.
+        struct mem *mem = current->mem;
+        write_unlock(&mem->lock);
+
+        mem_ref_cnt_mod(mem, 1);
+        int memset_err = user_memset(file_end, 0, tail_size);
+        write_lock(&mem->lock);
+        mem_ref_cnt_mod(mem, -1);
+        if (memset_err) {
+            amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
+            return _EFAULT;
+        }
+    }
+
     if (memsize > filesize) {
-        // put zeroes between addr + filesize and addr + memsize, call that bss
         dword_t bss_size = memsize - filesize;
-
-        // first zero the tail from the end of the file mapping to the end
-        // of the load entry or the end of the page, whichever comes first
-        guest_addr_t file_end = addr + filesize;
-        dword_t tail_size = PAGE_SIZE - PGOFFSET(file_end);
-
-        if (tail_size == PAGE_SIZE)
-            // if you can calculate tail_size better and not have to do this please let me know
-            tail_size = 0;
-
         if (tail_size > bss_size)
             tail_size = bss_size;
-
-        if (tail_size != 0) {
-            // Unlock and lock the mem because the user functions must be
-            // called without locking mem.
-            struct mem *mem = current->mem;
-            write_unlock(&mem->lock);
-
-            mem_ref_cnt_mod(mem, 1);
-            int memset_err = user_memset(file_end, 0, tail_size);
-            write_lock(&mem->lock);
-            mem_ref_cnt_mod(mem, -1);
-            if (memset_err) {
-                amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
-                return _EFAULT;
-            }
-        }
-
-        // then map the pages from after the file mapping up to and including the end of bss
         dword_t extra_bss_size = bss_size - tail_size;
         if (extra_bss_size != 0) {
-            if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(addr + filesize),
+            if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(file_end),
                             PAGE_ROUND_UP(extra_bss_size), flags)) < 0) {
                 amd64_trace_exec_loader_failure("segment-bss-map", NULL, abi, &ph, bias, fd, err, NULL);
                 return err;
@@ -348,88 +345,25 @@ static int elf_load_addr_candidate(enum guest_abi abi, struct elf_prg_info ph, g
 }
 
 static void amd64_trace_exec_attempt(const char *file, const char *argv) {
-    enum { AMD64_EXEC_ATTEMPT_TRACE_BUDGET = 64 };
-    static unsigned amd64_exec_attempt_trace_count;
-
-    if (current == NULL || file == NULL)
-        return;
-
-    struct tty *tty = current->group != NULL ? current->group->tty : NULL;
-    bool interactive_session =
-        current->abi == GUEST_ABI_AMD64 &&
-        tty != NULL &&
-        (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR) &&
-        (strcmp(current->comm, "init") == 0 ||
-         strcmp(current->comm, "login") == 0 ||
-         strcmp(current->comm, "sh") == 0 ||
-         strcmp(current->comm, "ash") == 0 ||
-         strcmp(current->comm, "dash") == 0 ||
-         strcmp(current->comm, "bash") == 0 ||
-         strcmp(current->comm, "getty") == 0 ||
-         strcmp(current->comm, "agetty") == 0 ||
-         amd64_trace_is_lineage_tgid(current->tgid));
-    bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
-    bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
-    if (!tracked_exec && !tracked_lineage && !interactive_session)
-        return;
-    if (amd64_exec_attempt_trace_count < AMD64_EXEC_ATTEMPT_TRACE_BUDGET) {
-        amd64_exec_attempt_trace_count++;
-        const char *argv0 = argv != NULL && argv[0] != '\0' ? argv : "";
-        printk("tracked execve attempt: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
-               tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
-               file, current->comm, argv0);
-    }
-    amd64_trace_track_exec(current->pid, current->tgid, file);
+    (void) file;
+    (void) argv;
 }
 
 static void amd64_trace_exec_loader_failure(const char *stage, const char *file, enum guest_abi abi,
         struct elf_prg_info *ph, guest_addr_t bias, struct fd *fd, int err, const char *interp_name) {
-    enum { AMD64_EXEC_FAIL_TRACE_BUDGET = 64 };
-    static unsigned amd64_exec_fail_trace_count;
+    (void) stage;
+    (void) file;
+    (void) abi;
+    (void) ph;
+    (void) bias;
+    (void) fd;
+    (void) err;
+    (void) interp_name;
+}
 
-    bool tracked_exec = file != NULL && (strstr(file, "cargo") != NULL || strstr(file, "rustc") != NULL);
-    bool tracked_lineage = current != NULL && amd64_trace_is_lineage_tgid(current->tgid);
-    if (abi != GUEST_ABI_AMD64 && !tracked_exec && !tracked_lineage)
-        return;
-    if (amd64_exec_fail_trace_count >= AMD64_EXEC_FAIL_TRACE_BUDGET)
-        return;
-    amd64_exec_fail_trace_count++;
-
-    char path[MAX_PATH] = "<path err>";
-    if (file != NULL && file[0] != '\0') {
-        strncpy(path, file, sizeof(path));
-        path[sizeof(path) - 1] = '\0';
-    } else if (fd != NULL && generic_getpath(fd, path) != 0) {
-        strncpy(path, "<path err>", sizeof(path));
-        path[sizeof(path) - 1] = '\0';
-    }
-
-    if (ph != NULL) {
-        printk("tracked exec fail: pid=%d tgid=%d comm=%s stage=%s file=%s interp=%s err=%d abi=%d bias=%#llx vaddr=%#llx off=%#llx filesz=%#llx memsz=%#llx flags=%#x\n",
-               current != NULL ? current->pid : -1,
-               current != NULL ? current->tgid : -1,
-               current != NULL ? current->comm : "<none>",
-               stage != NULL ? stage : "<none>",
-               path,
-               interp_name != NULL ? interp_name : "",
-               err, abi,
-               (unsigned long long) bias,
-               (unsigned long long) ph->vaddr,
-               (unsigned long long) ph->offset,
-               (unsigned long long) ph->filesize,
-               (unsigned long long) ph->memsize,
-               ph->flags);
-        return;
-    }
-
-    printk("tracked exec fail: pid=%d tgid=%d comm=%s stage=%s file=%s interp=%s err=%d abi=%d\n",
-           current != NULL ? current->pid : -1,
-           current != NULL ? current->tgid : -1,
-           current != NULL ? current->comm : "<none>",
-           stage != NULL ? stage : "<none>",
-           path,
-           interp_name != NULL ? interp_name : "",
-           err, abi);
+static bool i386_force_safe_exec_comm(const char *comm) {
+    return comm != NULL &&
+        (strcmp(comm, "pkcsslotd") == 0);
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {
@@ -1020,18 +954,14 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     current->comm[sizeof(current->comm) - 1] = '\0';
     unlock(&current->general_lock);
 
-    current->force_single_step = current->abi == GUEST_ABI_I386 &&
-            i386_single_step_comm_matches(current->comm);
-    current->force_no_jit_cache = current->abi == GUEST_ABI_I386 &&
-            i386_no_cache_comm_matches(current->comm);
-    if (current->force_single_step) {
-        printk("tracked i386 single-step: pid=%d tgid=%d file=%s comm=%s\n",
-               current->pid, current->tgid, file, current->comm);
-    }
+    bool force_safe_i386 = current->abi == GUEST_ABI_I386 &&
+            i386_force_safe_exec_comm(current->comm);
+    current->force_single_step = (current->abi == GUEST_ABI_I386 &&
+            i386_single_step_comm_matches(current->comm)) || force_safe_i386;
+    current->force_no_jit_cache = (current->abi == GUEST_ABI_I386 &&
+            i386_no_cache_comm_matches(current->comm)) || force_safe_i386;
     if (current->force_no_jit_cache) {
         i386_special_trace_reset(current->tgid, current->comm);
-        printk("tracked i386 no-cache: pid=%d tgid=%d file=%s comm=%s\n",
-               current->pid, current->tgid, file, current->comm);
     }
 
     {
@@ -1044,13 +974,8 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         bool tracked_exec = strstr(file, "rustc") != NULL || strstr(file, "cargo") != NULL;
         bool tracked_lineage = amd64_trace_is_lineage_tgid(current->tgid);
         if ((trace_exec || tracked_exec || tracked_lineage) &&
-                amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET) {
+                amd64_exec_trace_count < AMD64_EXEC_TRACE_BUDGET)
             amd64_exec_trace_count++;
-            const char *argv0 = argv.args != NULL && argv.args[0] != '\0' ? argv.args : "";
-            printk("tracked execve: tty=%d pid=%d tgid=%d abi=%d file=%s comm=%s argv0=%s\n",
-                   tty != NULL ? tty->num : -1, current->pid, current->tgid, current->abi,
-                   file, current->comm, argv0);
-        }
         if (tracked_exec || tracked_lineage)
             amd64_trace_track_exec(current->pid, current->tgid, file);
     }

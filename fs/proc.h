@@ -69,6 +69,7 @@ extern struct proc_dir_entry proc_pid;
 extern struct proc_children proc_ish_children;
 extern struct proc_children proc_net_children;
 extern struct proc_children proc_sys_children;
+extern struct proc_dir_entry proc_root_entries[];
 
 int proc_show_mountinfo(struct proc_entry *entry, struct proc_data *buf);
 
@@ -84,5 +85,16 @@ bool proc_dir_read(struct proc_entry *entry, unsigned long *index, struct proc_e
 
 void proc_buf_append(struct proc_data *buf, const void *data, size_t size);
 void proc_printf(struct proc_data *buf, const char *format, ...);
+
+void proc_set_entries_parent(struct proc_dir_entry *entries, size_t count, struct proc_dir_entry *parent);
+void proc_set_children_parent(struct proc_children *children, struct proc_dir_entry *parent);
+struct proc_dir_entry *proc_find_entry(struct proc_dir_entry *entries, size_t count, const char *name);
+struct proc_dir_entry *proc_children_find(struct proc_children *children, const char *name);
+
+void proc_root_init(void);
+void proc_pid_init(void);
+void proc_ish_init(struct proc_dir_entry *root_entry);
+void proc_net_init(struct proc_dir_entry *root_entry);
+void proc_sys_init(struct proc_dir_entry *root_entry);
 
 #endif

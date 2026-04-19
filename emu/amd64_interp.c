@@ -11,6 +11,7 @@
 #include "emu/interrupt.h"
 #include "emu/modrm.h"
 #include "kernel/task.h"
+#include "kernel/elf.h"
 #include "util/sync.h"
 
 struct amd64_rex_prefix {
@@ -145,12 +146,169 @@ static struct amd64_cc1_trace amd64_cc1_trace[AMD64_CC1_TRACE_COUNT];
 static unsigned amd64_cc1_trace_next;
 static pid_t_ amd64_cc1_trace_pid;
 
+#define AMD64_AS_TRACE_COUNT 16384
+struct amd64_as_trace {
+    qword_t rip;
+    qword_t rax;
+    qword_t rbx;
+    qword_t rcx;
+    qword_t rdx;
+    qword_t rsi;
+    qword_t rdi;
+    qword_t rsp;
+    qword_t rbp;
+    qword_t r8;
+    qword_t r9;
+    qword_t r12;
+    uint8_t bytes[8];
+    uint8_t byte_count;
+};
+
+static struct amd64_as_trace amd64_as_trace[AMD64_AS_TRACE_COUNT];
+static unsigned amd64_as_trace_next;
+static pid_t_ amd64_as_trace_pid;
+
+#define AMD64_AS_EVENT_COUNT 128
+#define AMD64_AS_RESET_DONE_RIP 0x7ffffdf67be1ull
+#define AMD64_AS_STATE31_WRITE1_DONE_RIP 0x7ffffdf6bbbfull
+#define AMD64_AS_STATE31_WRITE2_DONE_RIP 0x7ffffdf76c74ull
+#define AMD64_AS_STATE31_CHECK_DONE_RIP 0x7ffffdf6f25bull
+#define AMD64_AS_STATE31_ADDR 0x7ffffdfff8b1ull
+
+enum amd64_as_event_kind {
+    amd64_as_event_reset_done = 1,
+    amd64_as_event_state31_write,
+    amd64_as_event_state31_check,
+};
+
+struct amd64_as_event {
+    qword_t rip;
+    qword_t rax;
+    qword_t rbx;
+    qword_t rcx;
+    qword_t rdx;
+    qword_t rsi;
+    qword_t rdi;
+    qword_t r12;
+    uint8_t state31;
+    uint8_t kind;
+};
+
+static struct amd64_as_event amd64_as_events[AMD64_AS_EVENT_COUNT];
+static unsigned amd64_as_event_next;
+static pid_t_ amd64_as_event_pid;
+
+enum amd64_as_suspect_kind {
+    amd64_as_suspect_bt = 1,
+    amd64_as_suspect_stack,
+};
+
+enum amd64_as_stack_op {
+    amd64_as_stack_push = 1,
+    amd64_as_stack_pop,
+    amd64_as_stack_leave,
+};
+
+#define AMD64_AS_SUSPECT_COUNT 256
+struct amd64_as_suspect {
+    qword_t rip;
+    qword_t lhs;
+    qword_t value;
+    qword_t addr;
+    qword_t bit_index;
+    qword_t bit;
+    qword_t old_rsp;
+    qword_t new_rsp;
+    uint8_t kind;
+    uint8_t op;
+    uint8_t size;
+    uint8_t aux;
+};
+
+static struct amd64_as_suspect amd64_as_suspects[AMD64_AS_SUSPECT_COUNT];
+static unsigned amd64_as_suspect_next;
+static pid_t_ amd64_as_suspect_pid;
+
+#define AMD64_AS_FOCUS_COUNT 128
+struct amd64_as_focus {
+    qword_t rip;
+    qword_t rax;
+    qword_t rbx;
+    qword_t rcx;
+    qword_t rdx;
+    qword_t rsi;
+    qword_t rdi;
+    qword_t rsp;
+    qword_t rbp;
+    qword_t r12;
+};
+
+static struct amd64_as_focus amd64_as_focus[AMD64_AS_FOCUS_COUNT];
+static unsigned amd64_as_focus_next;
+static pid_t_ amd64_as_focus_pid;
+
+enum amd64_as_state_region_kind {
+    amd64_as_state_region_block = 1,
+    amd64_as_state_region_desc,
+};
+
+#define AMD64_AS_STATE_WRITE_COUNT 256
+struct amd64_as_state_write {
+    qword_t rip;
+    qword_t addr;
+    qword_t value;
+    qword_t region_base;
+    qword_t snapshot_addr;
+    uint8_t size;
+    uint8_t region_kind;
+    uint8_t region_index;
+    uint8_t byte_count;
+    uint8_t bytes[16];
+};
+
+static struct amd64_as_state_write amd64_as_state_writes[AMD64_AS_STATE_WRITE_COUNT];
+static unsigned amd64_as_state_write_next;
+static pid_t_ amd64_as_state_write_pid;
+
+#define AMD64_AS_FOCUS_DISPATCH_RIP 0x7ffffdee87f8ull
+#define AMD64_AS_FOCUS_CASE0_RIP 0x7ffffdee88ffull
+#define AMD64_AS_FOCUS_SOURCE_BRANCH_RIP 0x7ffffdea6758ull
+#define AMD64_AS_FOCUS_SOURCE_SET_RIP 0x7ffffdea6956ull
+#define AMD64_AS_FOCUS_SOURCE_CHECK_RIP 0x7ffffdea6abeull
+#define AMD64_AS_FOCUS_BUILD_RIP 0x7ffffdea6b57ull
+#define AMD64_AS_ERROR_PRINTF_ENTRY_RIP 0x7ffffdea6600ull
+#define AMD64_AS_ERROR_WRAPPER_RIP 0x7ffffdee4e2dull
+#define AMD64_AS_ERROR_REPORT_RIP 0x7ffffdee89d4ull
+#define AMD64_AS_ERROR_PRE_COUNT 192u
+#define AMD64_AS_ERROR_POST_COUNT 16u
+
 static inline bool amd64_cc1_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "cc1") == 0;
 }
 
+static inline bool amd64_as_trace_enabled(void) {
+    return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "as") == 0;
+}
+
 static inline bool amd64_bash_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "bash") == 0;
+}
+
+static inline bool amd64_as_is_error_path_rip(qword_t rip) {
+    switch (rip) {
+    case AMD64_AS_ERROR_REPORT_RIP:
+    case AMD64_AS_ERROR_WRAPPER_RIP:
+    case AMD64_AS_ERROR_PRINTF_ENTRY_RIP:
+    case AMD64_AS_FOCUS_DISPATCH_RIP:
+    case AMD64_AS_FOCUS_CASE0_RIP:
+    case AMD64_AS_FOCUS_SOURCE_BRANCH_RIP:
+    case AMD64_AS_FOCUS_SOURCE_SET_RIP:
+    case AMD64_AS_FOCUS_SOURCE_CHECK_RIP:
+    case AMD64_AS_FOCUS_BUILD_RIP:
+        return true;
+    default:
+        return false;
+    }
 }
 
 static inline bool amd64_trace_copy_guest_locked(guest_addr_t guest_addr, void *out, size_t size) {
@@ -159,6 +317,153 @@ static inline bool amd64_trace_copy_guest_locked(guest_addr_t guest_addr, void *
 
     while (copied < size) {
         struct pt_entry *pt = mem_pt(current->mem, PAGE(guest_addr + copied));
+        if (pt == NULL || pt->data == NULL || pt->data->data == NULL)
+            return false;
+        size_t page_off = PGOFFSET(guest_addr + copied);
+        size_t chunk = PAGE_SIZE - page_off;
+        if (chunk > size - copied)
+            chunk = size - copied;
+        memcpy(dst + copied, (uint8_t *) pt->data->data + pt->offset + page_off, chunk);
+        copied += chunk;
+    }
+
+    return true;
+}
+
+static bool amd64_trace_read_current_guest(qword_t guest_addr, void *out, size_t size) {
+    guest_addr_t addr;
+    if (current == NULL || current->mem == NULL || out == NULL)
+        return false;
+    if (!amd64_guest_addr_ok(guest_addr, size, &addr))
+        return false;
+
+    bool ok;
+    read_lock(&current->mem->lock);
+    ok = amd64_trace_copy_guest_locked(addr, out, size);
+    read_unlock(&current->mem->lock);
+    return ok;
+}
+
+static void amd64_trace_as_event(struct cpu_state *cpu, enum amd64_as_event_kind kind) {
+    if (!amd64_as_trace_enabled())
+        return;
+
+    if (amd64_as_event_pid != current->pid) {
+        memset(amd64_as_events, 0, sizeof(amd64_as_events));
+        amd64_as_event_next = 0;
+        amd64_as_event_pid = current->pid;
+    }
+
+    struct amd64_as_event *event = &amd64_as_events[amd64_as_event_next++ % AMD64_AS_EVENT_COUNT];
+    memset(event, 0, sizeof(*event));
+    event->kind = kind;
+    event->rip = cpu->amd64_current_insn_rip;
+    event->rax = cpu->amd64_regs[amd64_rax];
+    event->rbx = cpu->amd64_regs[amd64_rbx];
+    event->rcx = cpu->amd64_regs[amd64_rcx];
+    event->rdx = cpu->amd64_regs[amd64_rdx];
+    event->rsi = cpu->amd64_regs[amd64_rsi];
+    event->rdi = cpu->amd64_regs[amd64_rdi];
+    event->r12 = cpu->amd64_regs[amd64_r12];
+    amd64_trace_read_current_guest(AMD64_AS_STATE31_ADDR, &event->state31, sizeof(event->state31));
+}
+
+static struct amd64_as_suspect *amd64_trace_as_suspect_reserve(void) {
+    if (!amd64_as_trace_enabled())
+        return NULL;
+
+    if (amd64_as_suspect_pid != current->pid) {
+        memset(amd64_as_suspects, 0, sizeof(amd64_as_suspects));
+        amd64_as_suspect_next = 0;
+        amd64_as_suspect_pid = current->pid;
+    }
+
+    struct amd64_as_suspect *suspect =
+        &amd64_as_suspects[amd64_as_suspect_next++ % AMD64_AS_SUSPECT_COUNT];
+    memset(suspect, 0, sizeof(*suspect));
+    suspect->rip = current->cpu.amd64_current_insn_rip;
+    return suspect;
+}
+
+static void amd64_trace_as_bt(struct cpu_state *cpu, uint8_t op, unsigned size,
+        bool is_mem, qword_t bit_index, qword_t bit, qword_t addr,
+        qword_t lhs, qword_t value) {
+    struct amd64_as_suspect *suspect = amd64_trace_as_suspect_reserve();
+    if (suspect == NULL)
+        return;
+    suspect->kind = amd64_as_suspect_bt;
+    suspect->op = op;
+    suspect->size = size;
+    suspect->aux = is_mem ? 1 : 0;
+    suspect->lhs = lhs;
+    suspect->value = value;
+    suspect->addr = addr;
+    suspect->bit_index = bit_index;
+    suspect->bit = bit;
+    (void) cpu;
+}
+
+static void amd64_trace_as_stack(unsigned op, unsigned size,
+        qword_t old_rsp, qword_t new_rsp, qword_t value) {
+    if (size != 16)
+        return;
+    struct amd64_as_suspect *suspect = amd64_trace_as_suspect_reserve();
+    if (suspect == NULL)
+        return;
+    suspect->kind = amd64_as_suspect_stack;
+    suspect->op = op;
+    suspect->size = size;
+    suspect->old_rsp = old_rsp;
+    suspect->new_rsp = new_rsp;
+    suspect->value = value;
+}
+
+static void amd64_trace_as_focus(struct cpu_state *cpu) {
+    if (!amd64_as_trace_enabled())
+        return;
+
+    switch (cpu->amd64_current_insn_rip) {
+    case AMD64_AS_FOCUS_DISPATCH_RIP:
+    case AMD64_AS_FOCUS_CASE0_RIP:
+    case AMD64_AS_FOCUS_SOURCE_BRANCH_RIP:
+    case AMD64_AS_FOCUS_SOURCE_SET_RIP:
+    case AMD64_AS_FOCUS_SOURCE_CHECK_RIP:
+    case AMD64_AS_FOCUS_BUILD_RIP:
+        break;
+    default:
+        return;
+    }
+
+    if (amd64_as_focus_pid != current->pid) {
+        memset(amd64_as_focus, 0, sizeof(amd64_as_focus));
+        amd64_as_focus_next = 0;
+        amd64_as_focus_pid = current->pid;
+    }
+
+    struct amd64_as_focus *focus = &amd64_as_focus[amd64_as_focus_next++ % AMD64_AS_FOCUS_COUNT];
+    memset(focus, 0, sizeof(*focus));
+    focus->rip = cpu->amd64_current_insn_rip;
+    focus->rax = cpu->amd64_regs[amd64_rax];
+    focus->rbx = cpu->amd64_regs[amd64_rbx];
+    focus->rcx = cpu->amd64_regs[amd64_rcx];
+    focus->rdx = cpu->amd64_regs[amd64_rdx];
+    focus->rsi = cpu->amd64_regs[amd64_rsi];
+    focus->rdi = cpu->amd64_regs[amd64_rdi];
+    focus->rsp = cpu->amd64_regs[amd64_rsp];
+    focus->rbp = cpu->amd64_regs[amd64_rbp];
+    focus->r12 = cpu->amd64_regs[amd64_r12];
+}
+
+static inline bool amd64_trace_copy_task_guest_locked(const struct task *task,
+        guest_addr_t guest_addr, void *out, size_t size) {
+    uint8_t *dst = out;
+    size_t copied = 0;
+
+    if (task == NULL || task->mem == NULL)
+        return false;
+
+    while (copied < size) {
+        struct pt_entry *pt = mem_pt(task->mem, PAGE(guest_addr + copied));
         if (pt == NULL || pt->data == NULL || pt->data->data == NULL)
             return false;
         size_t page_off = PGOFFSET(guest_addr + copied);
@@ -183,6 +488,48 @@ static inline bool amd64_trace_read_guest(qword_t addr, void *out, size_t size) 
     ok = amd64_trace_copy_guest_locked(guest_addr, out, size);
     read_unlock(&current->mem->lock);
     return ok;
+}
+
+static inline bool amd64_trace_read_task_guest(const struct task *task, qword_t addr,
+        void *out, size_t size) {
+    if (task == NULL || task->mem == NULL)
+        return false;
+    guest_addr_t guest_addr;
+    if (!amd64_guest_addr_ok(addr, size, &guest_addr))
+        return false;
+    bool ok = false;
+    read_lock(&task->mem->lock);
+    ok = amd64_trace_copy_task_guest_locked(task, guest_addr, out, size);
+    read_unlock(&task->mem->lock);
+    return ok;
+}
+
+static bool amd64_trace_read_task_guest_cstring(const struct task *task, qword_t addr,
+        char *buf, size_t size) {
+    if (buf == NULL || size == 0) 
+        return false;
+    buf[0] = '\0';
+    if (task == NULL || task->mem == NULL)
+        return false;
+
+    guest_addr_t guest_addr;
+    if (!amd64_guest_addr_ok(addr, 1, &guest_addr))
+        return false;
+
+    size_t i;
+    for (i = 0; i + 1 < size; i++) {
+        char ch;
+        if (!amd64_trace_read_task_guest(task, addr + i, &ch, sizeof(ch)))
+            break;
+        if (ch == '\0')
+            break;
+        if ((unsigned char) ch < 0x20 || (unsigned char) ch > 0x7e)
+            buf[i] = '.';
+        else
+            buf[i] = ch;
+    }
+    buf[i] = '\0';
+    return i != 0;
 }
 
 static inline bool amd64_trace_read_guest_cstring(qword_t addr, char *buf, size_t size) {
@@ -530,6 +877,244 @@ static inline void amd64_trace_cc1_step(struct cpu_state *cpu) {
     amd64_trace_cc1_va_list_init_probe(cpu);
 }
 
+static inline void amd64_trace_as_step(struct cpu_state *cpu) {
+    if (!amd64_as_trace_enabled())
+        return;
+
+    if (amd64_as_trace_pid != current->pid) {
+        memset(amd64_as_trace, 0, sizeof(amd64_as_trace));
+        amd64_as_trace_next = 0;
+        amd64_as_trace_pid = current->pid;
+        memset(amd64_as_events, 0, sizeof(amd64_as_events));
+        amd64_as_event_next = 0;
+        amd64_as_event_pid = current->pid;
+        memset(amd64_as_suspects, 0, sizeof(amd64_as_suspects));
+        amd64_as_suspect_next = 0;
+        amd64_as_suspect_pid = current->pid;
+        memset(amd64_as_focus, 0, sizeof(amd64_as_focus));
+        amd64_as_focus_next = 0;
+        amd64_as_focus_pid = current->pid;
+    }
+
+    struct amd64_as_trace *trace = &amd64_as_trace[amd64_as_trace_next++ % AMD64_AS_TRACE_COUNT];
+    memset(trace, 0, sizeof(*trace));
+    trace->rip = cpu->amd64_current_insn_rip;
+    trace->rax = cpu->amd64_regs[amd64_rax];
+    trace->rbx = cpu->amd64_regs[amd64_rbx];
+    trace->rcx = cpu->amd64_regs[amd64_rcx];
+    trace->rdx = cpu->amd64_regs[amd64_rdx];
+    trace->rsi = cpu->amd64_regs[amd64_rsi];
+    trace->rdi = cpu->amd64_regs[amd64_rdi];
+    trace->rsp = cpu->amd64_regs[amd64_rsp];
+    trace->rbp = cpu->amd64_regs[amd64_rbp];
+    trace->r8 = cpu->amd64_regs[amd64_r8];
+    trace->r9 = cpu->amd64_regs[amd64_r9];
+    trace->r12 = cpu->amd64_regs[amd64_r12];
+
+    guest_addr_t guest_addr;
+    if (!amd64_guest_addr_ok(trace->rip, sizeof(trace->bytes), &guest_addr) || current->mem == NULL)
+        return;
+
+    read_lock(&current->mem->lock);
+    if (amd64_trace_copy_guest_locked(guest_addr, trace->bytes, sizeof(trace->bytes)))
+        trace->byte_count = sizeof(trace->bytes);
+    read_unlock(&current->mem->lock);
+
+    switch (trace->rip) {
+    case AMD64_AS_RESET_DONE_RIP:
+        amd64_trace_as_event(cpu, amd64_as_event_reset_done);
+        break;
+    case AMD64_AS_STATE31_WRITE1_DONE_RIP:
+    case AMD64_AS_STATE31_WRITE2_DONE_RIP:
+        amd64_trace_as_event(cpu, amd64_as_event_state31_write);
+        break;
+    case AMD64_AS_STATE31_CHECK_DONE_RIP:
+        amd64_trace_as_event(cpu, amd64_as_event_state31_check);
+        break;
+    default:
+        break;
+    }
+
+    amd64_trace_as_focus(cpu);
+}
+
+#define AMD64_AS_STATE_BLOCK_OFFSET 0xd3880ull
+#define AMD64_AS_STATE_DUMP_SIZE 0x40u
+#define AMD64_AS_STATE_TRACE_WINDOW 0x140u
+#define AMD64_AS_DESCRIPTOR_SIZE 16u
+
+static bool amd64_trace_read_task_u32(const struct task *task, qword_t addr, uint32_t *value) {
+    return amd64_trace_read_task_guest(task, addr, value, sizeof(*value));
+}
+
+static bool amd64_trace_read_task_u64(const struct task *task, qword_t addr, uint64_t *value) {
+    return amd64_trace_read_task_guest(task, addr, value, sizeof(*value));
+}
+
+static void amd64_dump_as_descriptor_task(const struct task *task, unsigned index, qword_t ptr,
+        uint32_t slot_1c, uint32_t slot_48, uint32_t slot_88, uint32_t slot_9c) {
+    if (ptr == 0 && slot_1c == 0 && slot_48 == 0 && slot_88 == 0 && slot_9c == 0)
+        return;
+
+    printk("amd64 as desc[%u]: slot_1c=%#x slot_48=%#x slot_88=%#x slot_9c=%#x ptr=%#llx",
+           index,
+           slot_1c,
+           slot_48,
+           slot_88,
+           slot_9c,
+           (unsigned long long) ptr);
+    if (ptr == 0) {
+        printk("\n");
+        return;
+    }
+
+    uint8_t desc[16] = {};
+    if (!amd64_trace_read_task_guest(task, ptr, desc, sizeof(desc))) {
+        printk(" unreadable\n");
+        return;
+    }
+
+    printk(" flags=%#x kind=%#x raw="
+           "%02x %02x %02x %02x %02x %02x %02x %02x "
+           "%02x %02x %02x %02x %02x %02x %02x %02x\n",
+           desc[0xc],
+           desc[0xd],
+           desc[0], desc[1], desc[2], desc[3],
+           desc[4], desc[5], desc[6], desc[7],
+           desc[8], desc[9], desc[10], desc[11],
+           desc[12], desc[13], desc[14], desc[15]);
+}
+
+static bool amd64_read_task_auxv64(const struct task *task, qword_t type, qword_t *value) {
+    if (task == NULL || task->mm == NULL || value == NULL)
+        return false;
+    guest_addr_t start = task->mm->auxv_start;
+    guest_addr_t end = task->mm->auxv_end;
+    if (start == 0 || end <= start)
+        return false;
+
+    struct aux64_ent ent;
+    for (guest_addr_t addr = start; addr + sizeof(ent) <= end; addr += sizeof(ent)) {
+        if (!amd64_trace_read_task_guest(task, addr, &ent, sizeof(ent)))
+            return false;
+        if (ent.type == 0)
+            break;
+        if (ent.type == type) {
+            *value = ent.value;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool amd64_resolve_task_image_base(const struct task *task, qword_t *base) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64 || base == NULL)
+        return false;
+
+    qword_t phdr_addr = 0;
+    qword_t phent_size = 0;
+    qword_t phnum = 0;
+    if (!amd64_read_task_auxv64(task, AX_PHDR, &phdr_addr) ||
+            !amd64_read_task_auxv64(task, AX_PHENT, &phent_size) ||
+            !amd64_read_task_auxv64(task, AX_PHNUM, &phnum))
+        return false;
+    if (phdr_addr == 0 || phent_size < sizeof(struct prg_header64) || phnum == 0 || phnum > 128)
+        return false;
+
+    for (qword_t i = 0; i < phnum; i++) {
+        struct prg_header64 ph;
+        qword_t addr = phdr_addr + i * phent_size;
+        if (!amd64_trace_read_task_guest(task, addr, &ph, sizeof(ph)))
+            return false;
+        if (ph.type == PT_PHDR) {
+            *base = phdr_addr - ph.vaddr;
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline bool amd64_trace_intersects_guest_range(qword_t guest_addr, unsigned size,
+        qword_t watch_addr, unsigned watch_size) {
+    qword_t end = guest_addr + size;
+    qword_t watch_end = watch_addr + watch_size;
+    return guest_addr < watch_end && end > watch_addr;
+}
+
+static bool amd64_trace_as_state_region(qword_t guest_addr, unsigned size,
+        qword_t *region_base, uint8_t *region_kind, uint8_t *region_index) {
+    static pid_t_ amd64_as_image_base_pid;
+    static qword_t amd64_as_image_base;
+
+    if (!amd64_as_trace_enabled())
+        return false;
+
+    if (amd64_as_image_base_pid != current->pid) {
+        amd64_as_image_base = 0;
+        if (!amd64_resolve_task_image_base(current, &amd64_as_image_base))
+            return false;
+        amd64_as_image_base_pid = current->pid;
+    }
+
+    qword_t state_addr = amd64_as_image_base + AMD64_AS_STATE_BLOCK_OFFSET;
+    if (amd64_trace_intersects_guest_range(guest_addr, size, state_addr, AMD64_AS_STATE_TRACE_WINDOW)) {
+        *region_base = state_addr;
+        *region_kind = amd64_as_state_region_block;
+        *region_index = 0;
+        return true;
+    }
+
+    for (unsigned i = 0; i <= 4; i++) {
+        uint64_t ptr = 0;
+        if (!amd64_trace_read_current_guest(state_addr + 0x60 + (qword_t) i * 8, &ptr, sizeof(ptr)) || ptr == 0)
+            continue;
+        if (!amd64_trace_intersects_guest_range(guest_addr, size, ptr, AMD64_AS_DESCRIPTOR_SIZE))
+            continue;
+        *region_base = ptr;
+        *region_kind = amd64_as_state_region_desc;
+        *region_index = i;
+        return true;
+    }
+
+    return false;
+}
+
+static void amd64_trace_as_state_write(struct cpu_state *cpu, qword_t guest_addr,
+        const void *value, unsigned size) {
+    qword_t region_base = 0;
+    uint8_t region_kind = 0;
+    uint8_t region_index = 0;
+    if (!amd64_trace_as_state_region(guest_addr, size, &region_base, &region_kind, &region_index))
+        return;
+
+    if (amd64_as_state_write_pid != current->pid) {
+        memset(amd64_as_state_writes, 0, sizeof(amd64_as_state_writes));
+        amd64_as_state_write_next = 0;
+        amd64_as_state_write_pid = current->pid;
+    }
+
+    struct amd64_as_state_write *entry =
+        &amd64_as_state_writes[amd64_as_state_write_next++ % AMD64_AS_STATE_WRITE_COUNT];
+    memset(entry, 0, sizeof(*entry));
+    entry->rip = cpu->amd64_current_insn_rip;
+    entry->addr = guest_addr;
+    entry->region_base = region_base;
+    entry->region_kind = region_kind;
+    entry->region_index = region_index;
+    entry->size = size;
+    memcpy(&entry->value, value, size < sizeof(entry->value) ? size : sizeof(entry->value));
+
+    if (region_kind == amd64_as_state_region_desc) {
+        entry->snapshot_addr = region_base;
+    } else {
+        qword_t offset = guest_addr - region_base;
+        entry->snapshot_addr = region_base + (offset & ~0xfULL);
+    }
+
+    if (amd64_trace_read_current_guest(entry->snapshot_addr, entry->bytes, sizeof(entry->bytes)))
+        entry->byte_count = sizeof(entry->bytes);
+}
+
 void dump_amd64_cc1_trace(const struct cpu_state *cpu) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || strcmp(current->comm, "cc1") != 0)
         return;
@@ -562,6 +1147,395 @@ void dump_amd64_cc1_trace(const struct cpu_state *cpu) {
         for (unsigned j = 0; j < trace->byte_count; j++)
             printk("%02x%s", trace->bytes[j], j + 1 == trace->byte_count ? "" : " ");
         printk("\n");
+    }
+}
+
+void dump_amd64_as_trace_task(const struct task *task) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64 || strcmp(task->comm, "as") != 0)
+        return;
+    if (amd64_as_trace_pid != task->pid)
+        return;
+
+    if (amd64_as_state_write_pid == task->pid && amd64_as_state_write_next != 0) {
+        unsigned total = amd64_as_state_write_next;
+        unsigned count = total < AMD64_AS_STATE_WRITE_COUNT ? total : AMD64_AS_STATE_WRITE_COUNT;
+        unsigned start = total >= AMD64_AS_STATE_WRITE_COUNT ? total - AMD64_AS_STATE_WRITE_COUNT : 0;
+        printk("amd64 as state writes pid=%d (%u entries):\n", task->pid, count);
+        for (unsigned i = 0; i < count; i++) {
+            const struct amd64_as_state_write *entry =
+                &amd64_as_state_writes[(start + i) % AMD64_AS_STATE_WRITE_COUNT];
+            const char *kind = entry->region_kind == amd64_as_state_region_desc ? "desc" : "state";
+            printk("as_state_write[%02u] kind=%s index=%u rip=%#llx addr=%#llx size=%u value=%#llx region=%#llx snapshot=%#llx",
+                   i,
+                   kind,
+                   entry->region_index,
+                   (unsigned long long) entry->rip,
+                   (unsigned long long) entry->addr,
+                   entry->size,
+                   (unsigned long long) entry->value,
+                   (unsigned long long) entry->region_base,
+                   (unsigned long long) entry->snapshot_addr);
+            if (entry->byte_count == 0) {
+                printk(" bytes=?\n");
+                continue;
+            }
+            printk(" bytes=");
+            for (unsigned j = 0; j < entry->byte_count; j++)
+                printk("%02x%s", entry->bytes[j], j + 1 == entry->byte_count ? "" : " ");
+            printk("\n");
+        }
+    }
+
+    if (amd64_as_event_pid == task->pid && amd64_as_event_next != 0) {
+        unsigned total = amd64_as_event_next;
+        unsigned count = total < AMD64_AS_EVENT_COUNT ? total : AMD64_AS_EVENT_COUNT;
+        unsigned start = total >= AMD64_AS_EVENT_COUNT ? total - AMD64_AS_EVENT_COUNT : 0;
+        printk("amd64 as state31 events pid=%d (%u entries):\n", task->pid, count);
+        for (unsigned i = 0; i < count; i++) {
+            const struct amd64_as_event *event = &amd64_as_events[(start + i) % AMD64_AS_EVENT_COUNT];
+            const char *kind = "unknown";
+            switch (event->kind) {
+            case amd64_as_event_reset_done:
+                kind = "reset_done";
+                break;
+            case amd64_as_event_state31_write:
+                kind = "state31_write";
+                break;
+            case amd64_as_event_state31_check:
+                kind = "state31_check";
+                break;
+            default:
+                break;
+            }
+            printk("as_event[%02u] kind=%s rip=%#llx state31=%#x rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx r12=%#llx\n",
+                   i,
+                   kind,
+                   (unsigned long long) event->rip,
+                   event->state31,
+                   (unsigned long long) event->rax,
+                   (unsigned long long) event->rbx,
+                   (unsigned long long) event->rcx,
+                   (unsigned long long) event->rdx,
+                   (unsigned long long) event->rsi,
+                   (unsigned long long) event->rdi,
+                   (unsigned long long) event->r12);
+        }
+    }
+
+    if (amd64_as_suspect_pid == task->pid && amd64_as_suspect_next != 0) {
+        unsigned total = amd64_as_suspect_next;
+        unsigned count = total < AMD64_AS_SUSPECT_COUNT ? total : AMD64_AS_SUSPECT_COUNT;
+        unsigned start = total >= AMD64_AS_SUSPECT_COUNT ? total - AMD64_AS_SUSPECT_COUNT : 0;
+        printk("amd64 as suspect ops pid=%d (%u entries):\n", task->pid, count);
+        for (unsigned i = 0; i < count; i++) {
+            const struct amd64_as_suspect *suspect =
+                &amd64_as_suspects[(start + i) % AMD64_AS_SUSPECT_COUNT];
+            switch (suspect->kind) {
+            case amd64_as_suspect_bt:
+                printk("as_suspect[%02u] kind=bt rip=%#llx op=%#x size=%u mem=%u index=%#llx bit=%#llx addr=%#llx lhs=%#llx value=%#llx aux=%#x\n",
+                       i,
+                       (unsigned long long) suspect->rip,
+                       suspect->op,
+                       suspect->size,
+                       suspect->aux,
+                       (unsigned long long) suspect->bit_index,
+                       (unsigned long long) suspect->bit,
+                       (unsigned long long) suspect->addr,
+                       (unsigned long long) suspect->lhs,
+                       (unsigned long long) suspect->value,
+                       suspect->aux);
+                break;
+            case amd64_as_suspect_stack:
+                printk("as_suspect[%02u] kind=stack rip=%#llx op=%u size=%u old_rsp=%#llx new_rsp=%#llx value=%#llx\n",
+                       i,
+                       (unsigned long long) suspect->rip,
+                       suspect->op,
+                       suspect->size,
+                       (unsigned long long) suspect->old_rsp,
+                       (unsigned long long) suspect->new_rsp,
+                       (unsigned long long) suspect->value);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    if (amd64_as_focus_pid == task->pid && amd64_as_focus_next != 0) {
+        unsigned total = amd64_as_focus_next;
+        unsigned count = total < AMD64_AS_FOCUS_COUNT ? total : AMD64_AS_FOCUS_COUNT;
+        unsigned start = total >= AMD64_AS_FOCUS_COUNT ? total - AMD64_AS_FOCUS_COUNT : 0;
+        printk("amd64 as focus pid=%d (%u entries):\n", task->pid, count);
+        for (unsigned i = 0; i < count; i++) {
+            const struct amd64_as_focus *focus =
+                &amd64_as_focus[(start + i) % AMD64_AS_FOCUS_COUNT];
+            qword_t dword_at_rdx = 0;
+            bool have_dword_at_rdx = amd64_trace_read_task_guest(task, focus->rdx,
+                    &dword_at_rdx, sizeof(uint32_t));
+            char rbx_text[64];
+            char rsi_text[64];
+            char rdi_text[64];
+            bool have_rbx_text = amd64_trace_read_task_guest_cstring(task, focus->rbx,
+                    rbx_text, sizeof(rbx_text));
+            bool have_rsi_text = amd64_trace_read_task_guest_cstring(task, focus->rsi,
+                    rsi_text, sizeof(rsi_text));
+            bool have_rdi_text = amd64_trace_read_task_guest_cstring(task, focus->rdi,
+                    rdi_text, sizeof(rdi_text));
+            printk("as_focus[%02u] rip=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx rsp=%#llx rbp=%#llx r12=%#llx%s%s%s%s\n",
+                   i,
+                   (unsigned long long) focus->rip,
+                   (unsigned long long) focus->rax,
+                   (unsigned long long) focus->rbx,
+                   (unsigned long long) focus->rcx,
+                   (unsigned long long) focus->rdx,
+                   (unsigned long long) focus->rsi,
+                   (unsigned long long) focus->rdi,
+                   (unsigned long long) focus->rsp,
+                   (unsigned long long) focus->rbp,
+                   (unsigned long long) focus->r12,
+                   have_dword_at_rdx ? "" : " [rdx]=?",
+                   have_rbx_text ? "" : " rbx_str=?",
+                   have_rsi_text ? "" : " rsi_str=?",
+                   have_rdi_text ? "" : " rdi_str=?");
+            if (have_dword_at_rdx)
+                printk("as_focus[%02u] [rdx]=%#llx\n", i, (unsigned long long) dword_at_rdx);
+            if (have_rbx_text)
+                printk("as_focus[%02u] rbx_str=\"%s\"\n", i, rbx_text);
+            if (have_rsi_text)
+                printk("as_focus[%02u] rsi_str=\"%s\"\n", i, rsi_text);
+            if (have_rdi_text)
+                printk("as_focus[%02u] rdi_str=\"%s\"\n", i, rdi_text);
+        }
+    }
+
+    unsigned total = amd64_as_trace_next;
+    if (total == 0)
+        return;
+
+    unsigned count = total < AMD64_AS_TRACE_COUNT ? total : AMD64_AS_TRACE_COUNT;
+    unsigned start = total >= AMD64_AS_TRACE_COUNT ? total - AMD64_AS_TRACE_COUNT : 0;
+
+    bool have_error_window = false;
+    unsigned window_first = 0;
+    unsigned window_count = count;
+    unsigned trigger_index = 0;
+    qword_t trigger_rip = 0;
+    for (unsigned i = 0; i < count; i++) {
+        const struct amd64_as_trace *trace = &amd64_as_trace[(start + i) % AMD64_AS_TRACE_COUNT];
+        if (!amd64_as_is_error_path_rip(trace->rip))
+            continue;
+
+        unsigned pre = i < AMD64_AS_ERROR_PRE_COUNT ? i : AMD64_AS_ERROR_PRE_COUNT;
+        unsigned post = count - i;
+        if (post > AMD64_AS_ERROR_POST_COUNT)
+            post = AMD64_AS_ERROR_POST_COUNT;
+        window_first = i - pre;
+        window_count = pre + post;
+        trigger_index = i;
+        trigger_rip = trace->rip;
+        have_error_window = true;
+        break;
+    }
+
+    if (have_error_window) {
+        printk("amd64 as trace pid=%d (%u entries, showing %u around error path rip=%#llx at trace index=%u):\n",
+               task->pid,
+               count,
+               window_count,
+               (unsigned long long) trigger_rip,
+               trigger_index);
+    } else {
+        printk("amd64 as trace pid=%d (%u entries):\n", task->pid, count);
+    }
+
+    for (unsigned i = 0; i < window_count; i++) {
+        unsigned trace_index = window_first + i;
+        const struct amd64_as_trace *trace =
+            &amd64_as_trace[(start + trace_index) % AMD64_AS_TRACE_COUNT];
+        printk("as[%02u] rip=%#llx rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx rsp=%#llx rbp=%#llx r8=%#llx r9=%#llx r12=%#llx bytes=",
+               trace_index,
+               (unsigned long long) trace->rip,
+               (unsigned long long) trace->rax,
+               (unsigned long long) trace->rbx,
+               (unsigned long long) trace->rcx,
+               (unsigned long long) trace->rdx,
+               (unsigned long long) trace->rsi,
+               (unsigned long long) trace->rdi,
+               (unsigned long long) trace->rsp,
+               (unsigned long long) trace->rbp,
+               (unsigned long long) trace->r8,
+               (unsigned long long) trace->r9,
+               (unsigned long long) trace->r12);
+        for (unsigned j = 0; j < trace->byte_count; j++)
+            printk("%02x%s", trace->bytes[j], j + 1 == trace->byte_count ? "" : " ");
+        printk("\n");
+    }
+}
+
+void dump_amd64_as_state_task(const struct task *task) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64 || strcmp(task->comm, "as") != 0)
+        return;
+
+    qword_t image_base = 0;
+    if (!amd64_resolve_task_image_base(task, &image_base)) {
+        printk("amd64 as state: failed to resolve image base\n");
+        return;
+    }
+
+    qword_t state_addr = image_base + AMD64_AS_STATE_BLOCK_OFFSET;
+    uint8_t state[AMD64_AS_STATE_DUMP_SIZE] = {};
+    if (!amd64_trace_read_task_guest(task, state_addr, state, sizeof(state))) {
+        printk("amd64 as state: image_base=%#llx state=%#llx unreadable\n",
+               (unsigned long long) image_base,
+               (unsigned long long) state_addr);
+        return;
+    }
+
+    uint32_t slot_f8 = 0;
+    uint8_t slot_fc = 0;
+    uint8_t slot_100 = 0;
+    uint32_t slot_124 = 0;
+    uint32_t slot_104 = 0;
+    uint32_t slot_108 = 0;
+    uint32_t slot_10c = 0;
+    uint32_t slot_110 = 0;
+    uint32_t slot_114 = 0;
+    uint32_t slot_118 = 0;
+    uint64_t slot_b0 = 0;
+    uint64_t slot_b8 = 0;
+    uint64_t slot_c0 = 0;
+    uint64_t slot_c8 = 0;
+    uint64_t slot_128 = 0;
+    bool have_f8 = amd64_trace_read_task_guest(task, state_addr + 0xf8, &slot_f8, sizeof(slot_f8));
+    bool have_fc = amd64_trace_read_task_guest(task, state_addr + 0xfc, &slot_fc, sizeof(slot_fc));
+    bool have_100 = amd64_trace_read_task_guest(task, state_addr + 0x100, &slot_100, sizeof(slot_100));
+    bool have_104 = amd64_trace_read_task_u32(task, state_addr + 0x104, &slot_104);
+    bool have_108 = amd64_trace_read_task_u32(task, state_addr + 0x108, &slot_108);
+    bool have_10c = amd64_trace_read_task_u32(task, state_addr + 0x10c, &slot_10c);
+    bool have_110 = amd64_trace_read_task_u32(task, state_addr + 0x110, &slot_110);
+    bool have_114 = amd64_trace_read_task_u32(task, state_addr + 0x114, &slot_114);
+    bool have_118 = amd64_trace_read_task_u32(task, state_addr + 0x118, &slot_118);
+    bool have_124 = amd64_trace_read_task_guest(task, state_addr + 0x124, &slot_124, sizeof(slot_124));
+    bool have_b0 = amd64_trace_read_task_u64(task, state_addr + 0xb0, &slot_b0);
+    bool have_b8 = amd64_trace_read_task_u64(task, state_addr + 0xb8, &slot_b8);
+    bool have_c0 = amd64_trace_read_task_u64(task, state_addr + 0xc0, &slot_c0);
+    bool have_c8 = amd64_trace_read_task_u64(task, state_addr + 0xc8, &slot_c8);
+    bool have_128 = amd64_trace_read_task_u64(task, state_addr + 0x128, &slot_128);
+
+    printk("amd64 as state: image_base=%#llx state=%#llx op=%02x%02x mode=%#x flags=%#x extra=%#x state31=%#x%s%s%s%s\n",
+           (unsigned long long) image_base,
+           (unsigned long long) state_addr,
+           state[5],
+           state[4],
+           state[6],
+           state[8],
+           state[0xb],
+           state[0x31],
+           have_f8 ? "" : " f8=?",
+           have_fc ? "" : " fc=?",
+           have_100 ? "" : " 100=?",
+           have_124 ? "" : " 124=?");
+    if (have_f8 || have_fc || have_100 || have_124) {
+        printk("amd64 as state ext: slot_f8=%#x slot_fc=%#x slot_100=%#x slot_124=%#x\n",
+               have_f8 ? slot_f8 : 0,
+               have_fc ? slot_fc : 0,
+               have_100 ? slot_100 : 0,
+               have_124 ? slot_124 : 0);
+    }
+    if (have_104 || have_108 || have_10c || have_110 || have_114 || have_118) {
+        printk("amd64 as state ext2: slot_104=%#x slot_108=%#x slot_10c=%#x slot_110=%#x slot_114=%#x slot_118=%#x\n",
+               have_104 ? slot_104 : 0,
+               have_108 ? slot_108 : 0,
+               have_10c ? slot_10c : 0,
+               have_110 ? slot_110 : 0,
+               have_114 ? slot_114 : 0,
+               have_118 ? slot_118 : 0);
+    }
+    if (have_b0 || have_b8 || have_c0 || have_c8 || have_128) {
+        printk("amd64 as ptrs: slot_b0=%#llx slot_b8=%#llx slot_c0=%#llx slot_c8=%#llx slot_128=%#llx\n",
+               (unsigned long long) (have_b0 ? slot_b0 : 0),
+               (unsigned long long) (have_b8 ? slot_b8 : 0),
+               (unsigned long long) (have_c0 ? slot_c0 : 0),
+               (unsigned long long) (have_c8 ? slot_c8 : 0),
+               (unsigned long long) (have_128 ? slot_128 : 0));
+    }
+
+    for (unsigned i = 0; i < sizeof(state); i += 16) {
+        printk("amd64 as state[%02x]: "
+               "%02x %02x %02x %02x %02x %02x %02x %02x "
+               "%02x %02x %02x %02x %02x %02x %02x %02x\n",
+               i,
+               state[i + 0], state[i + 1], state[i + 2], state[i + 3],
+               state[i + 4], state[i + 5], state[i + 6], state[i + 7],
+               state[i + 8], state[i + 9], state[i + 10], state[i + 11],
+               state[i + 12], state[i + 13], state[i + 14], state[i + 15]);
+    }
+
+    for (unsigned i = 0; i <= 4; i++) {
+        uint32_t slot_1c = 0, slot_48 = 0, slot_88 = 0, slot_9c = 0;
+        uint64_t ptr = 0;
+        bool have_1c = amd64_trace_read_task_u32(task, state_addr + 0x1c + (qword_t) i * 4, &slot_1c);
+        bool have_48 = amd64_trace_read_task_u32(task, state_addr + 0x48 + (qword_t) i * 4, &slot_48);
+        bool have_88 = amd64_trace_read_task_u32(task, state_addr + 0x88 + (qword_t) i * 4, &slot_88);
+        bool have_9c = amd64_trace_read_task_u32(task, state_addr + 0x9c + (qword_t) i * 4, &slot_9c);
+        bool have_ptr = amd64_trace_read_task_u64(task, state_addr + 0x60 + (qword_t) i * 8, &ptr);
+        amd64_dump_as_descriptor_task(task, i, have_ptr ? ptr : 0,
+                                      have_1c ? slot_1c : 0,
+                                      have_48 ? slot_48 : 0,
+                                      have_88 ? slot_88 : 0,
+                                      have_9c ? slot_9c : 0);
+    }
+}
+
+void dump_amd64_as_stack_task(const struct task *task) {
+    if (task == NULL || task->abi != GUEST_ABI_AMD64 || strcmp(task->comm, "as") != 0)
+        return;
+
+    const struct cpu_state *cpu = &task->cpu;
+    qword_t rsp = cpu->amd64_regs[amd64_rsp];
+    qword_t rbp = cpu->amd64_regs[amd64_rbp];
+
+    printk("amd64 as stack pid=%d rip=%#llx rsp=%#llx rbp=%#llx\n",
+           task->pid,
+           (unsigned long long) cpu->amd64_rip,
+           (unsigned long long) rsp,
+           (unsigned long long) rbp);
+
+    for (unsigned i = 0; i < 12; i++) {
+        qword_t addr = rsp + (qword_t) i * 8;
+        qword_t value = 0;
+        if (amd64_trace_read_task_guest(task, addr, &value, sizeof(value))) {
+            printk("as stack[%02u] addr=%#llx value=%#llx%s\n",
+                   i,
+                   (unsigned long long) addr,
+                   (unsigned long long) value,
+                   addr == rbp ? " <rbp>" : "");
+        } else {
+            printk("as stack[%02u] addr=%#llx unreadable%s\n",
+                   i,
+                   (unsigned long long) addr,
+                   addr == rbp ? " <rbp>" : "");
+        }
+    }
+
+    qword_t frame = rbp;
+    for (unsigned depth = 0; depth < 4; depth++) {
+        qword_t next_rbp = 0;
+        qword_t return_rip = 0;
+        if (!amd64_trace_read_task_guest(task, frame, &next_rbp, sizeof(next_rbp)) ||
+                !amd64_trace_read_task_guest(task, frame + 8, &return_rip, sizeof(return_rip))) {
+            printk("as frame[%u] rbp=%#llx unreadable\n",
+                   depth, (unsigned long long) frame);
+            break;
+        }
+        printk("as frame[%u] rbp=%#llx next=%#llx ret=%#llx\n",
+               depth,
+               (unsigned long long) frame,
+               (unsigned long long) next_rbp,
+               (unsigned long long) return_rip);
+        if (next_rbp <= frame || (next_rbp & 7) != 0)
+            break;
+        frame = next_rbp;
     }
 }
 
@@ -1798,6 +2772,7 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
     amd64_trace_cc1_slot_write_probe(cpu, guest_addr, value, size);
     amd64_trace_htop_field_write(cpu, tlb, guest_addr, value, size);
     amd64_trace_htop_r13_block_write(cpu, tlb, guest_addr, value, size);
+    amd64_trace_as_state_write(cpu, guest_addr, value, size);
     if (amd64_verbose_boot_trace_enabled() && amd64_trace_intersects_busybox_slot(guest_addr, size)) {
         qword_t observed = 0;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
@@ -1856,6 +2831,28 @@ static inline bool amd64_push(struct cpu_state *cpu, struct tlb *tlb, qword_t va
     cpu->amd64_regs[amd64_rsp] = rsp;
     amd64_trace_suspicious_rsp_write(cpu, old_rsp, rsp, 64);
     return true;
+}
+
+static inline bool amd64_push_size(struct cpu_state *cpu, struct tlb *tlb, unsigned size,
+        qword_t value) {
+    qword_t old_rsp = cpu->amd64_regs[amd64_rsp];
+
+    switch (size) {
+    case 16: {
+        uint16_t tmp = (uint16_t) value;
+        qword_t rsp = old_rsp - sizeof(tmp);
+        if (!amd64_mem_write(cpu, tlb, rsp, &tmp, sizeof(tmp)))
+            return false;
+        cpu->amd64_regs[amd64_rsp] = rsp;
+        amd64_trace_suspicious_rsp_write(cpu, old_rsp, rsp, size);
+        amd64_trace_as_stack(amd64_as_stack_push, size, old_rsp, rsp, value);
+        return true;
+    }
+    case 64:
+        return amd64_push(cpu, tlb, value);
+    default:
+        return false;
+    }
 }
 
 static inline bool amd64_read_rm(struct cpu_state *cpu, struct tlb *tlb,
@@ -2083,6 +3080,7 @@ static inline bool amd64_pop_size(struct cpu_state *cpu, struct tlb *tlb, unsign
         *value = tmp;
         cpu->amd64_regs[amd64_rsp] = rsp + sizeof(tmp);
         amd64_trace_suspicious_rsp_write(cpu, rsp, cpu->amd64_regs[amd64_rsp], size);
+        amd64_trace_as_stack(amd64_as_stack_pop, size, rsp, cpu->amd64_regs[amd64_rsp], *value);
         return true;
     }
     case 64: {
@@ -2101,6 +3099,86 @@ static inline bool amd64_pop_size(struct cpu_state *cpu, struct tlb *tlb, unsign
 
 static inline bool amd64_pop(struct cpu_state *cpu, struct tlb *tlb, qword_t *value) {
     return amd64_pop_size(cpu, tlb, 64, value);
+}
+
+static inline qword_t amd64_effective_addr(struct cpu_state *cpu, const struct amd64_modrm *modrm,
+        bool fs_prefix);
+
+static inline qword_t amd64_bt_mem_addr(qword_t addr, unsigned size, qword_t bit_index,
+        bool stride_memory, bool signed_index, qword_t *bit_out) {
+    qword_t truncated_index = amd64_trunc(bit_index, size);
+    *bit_out = truncated_index & (size - 1);
+    if (!stride_memory)
+        return addr;
+
+    sqword_t scaled_index = signed_index
+            ? amd64_sign_extend(bit_index, size)
+            : (sqword_t) truncated_index;
+    sqword_t element_index = scaled_index >> __builtin_ctz(size);
+    return addr + (qword_t) (element_index * (sqword_t) (size / 8));
+}
+
+static inline bool amd64_read_bt_operand(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t bit_index,
+        bool stride_memory, bool signed_index, qword_t *value, qword_t *addr_out, qword_t *bit_out) {
+    if (modrm->is_reg) {
+        *addr_out = 0;
+        *bit_out = bit_index & (size - 1);
+        return amd64_read_rm(cpu, tlb, modrm, fs_prefix, size, value);
+    }
+
+    qword_t addr = amd64_bt_mem_addr(amd64_effective_addr(cpu, modrm, fs_prefix),
+            size, bit_index, stride_memory, signed_index, bit_out);
+    *addr_out = addr;
+    switch (size) {
+    case 16: {
+        uint16_t tmp;
+        if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 32: {
+        uint32_t tmp;
+        if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 64: {
+        uint64_t tmp;
+        if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+static inline bool amd64_write_bt_operand(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned size, qword_t addr,
+        qword_t value) {
+    if (modrm->is_reg)
+        return amd64_write_rm(cpu, tlb, modrm, fs_prefix, size, value);
+
+    switch (size) {
+    case 16: {
+        uint16_t tmp = (uint16_t) value;
+        return amd64_mem_write(cpu, tlb, addr, &tmp, sizeof(tmp));
+    }
+    case 32: {
+        uint32_t tmp = (uint32_t) value;
+        return amd64_mem_write(cpu, tlb, addr, &tmp, sizeof(tmp));
+    }
+    case 64: {
+        uint64_t tmp = (uint64_t) value;
+        return amd64_mem_write(cpu, tlb, addr, &tmp, sizeof(tmp));
+    }
+    default:
+        return false;
+    }
 }
 
 static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
@@ -3109,6 +4187,7 @@ static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb
     qword_t saved_rip = cpu->amd64_rip;
     cpu->amd64_current_insn_rip = saved_rip;
     amd64_trace_cc1_step(cpu);
+    amd64_trace_as_step(cpu);
     cpu->amd64_address_size_prefix = false;
     amd64_trace_cargo_start_call(cpu);
     amd64_trace_htop_window(cpu, tlb);
@@ -4388,31 +5467,39 @@ restart_prefix:
         if (op2 == 0xa3) {
             struct amd64_modrm modrm;
             qword_t lhs;
+            qword_t addr;
             qword_t bit;
+            qword_t bit_index;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+            bit_index = amd64_reg_get(cpu, modrm.reg, op_size);
+            if (!amd64_read_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size,
+                    bit_index, true, true, &lhs, &addr, &bit))
                 goto amd64_gpf_restore;
-            bit = amd64_reg_get(cpu, modrm.reg, op_size) & (op_size - 1);
+            (void) addr;
             cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
+            amd64_trace_as_bt(cpu, op2, op_size, !modrm.is_reg, bit_index, bit, addr, lhs, lhs);
             collapse_flags(cpu);
             break;
         }
         if (op2 == 0xab || op2 == 0xb3 || op2 == 0xbb) {
             struct amd64_modrm modrm;
+            qword_t addr;
             qword_t lhs, result;
             qword_t bit;
+            qword_t bit_index;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+            bit_index = amd64_reg_get(cpu, modrm.reg, op_size);
+            if (!amd64_read_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size,
+                    bit_index, true, true, &lhs, &addr, &bit))
                 goto amd64_gpf_restore;
-            bit = amd64_reg_get(cpu, modrm.reg, op_size) & (op_size - 1);
             cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
             result = lhs;
             switch (op2) {
@@ -4426,16 +5513,17 @@ restart_prefix:
                 result = amd64_trunc(lhs ^ (1ull << bit), op_size);
                 break;
             }
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+            amd64_trace_as_bt(cpu, op2, op_size, !modrm.is_reg, bit_index, bit, addr, lhs, result);
+            if (!amd64_write_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size, addr, result))
                 goto amd64_gpf_restore;
             if (!modrm.is_reg && op_size == 64)
-                amd64_trace_qword_store(cpu, saved_rip, 0x0f,
-                        amd64_effective_addr(cpu, &modrm, fs_prefix), result);
+                amd64_trace_qword_store(cpu, saved_rip, 0x0f, addr, result);
             collapse_flags(cpu);
             break;
         }
         if (op2 == 0xba) {
             struct amd64_modrm modrm;
+            qword_t addr;
             qword_t lhs, result;
             qword_t bit;
             uint8_t imm8;
@@ -4451,9 +5539,9 @@ restart_prefix:
             }
             if (modrm.reg < 4 || modrm.reg > 7)
                 return INT_UNDEFINED;
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
+            if (!amd64_read_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size, imm8,
+                    true, false, &lhs, &addr, &bit))
                 goto amd64_gpf_restore;
-            bit = imm8 & (op_size - 1);
             cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
             result = lhs;
             switch (modrm.reg) {
@@ -4469,12 +5557,12 @@ restart_prefix:
                 result = amd64_trunc(lhs ^ (1ull << bit), op_size);
                 break;
             }
+            amd64_trace_as_bt(cpu, op2, op_size, !modrm.is_reg, imm8, bit, addr, lhs, result);
             if (modrm.reg != 4) {
-                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, op_size, result))
+                if (!amd64_write_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size, addr, result))
                     goto amd64_gpf_restore;
                 if (!modrm.is_reg && op_size == 64)
-                    amd64_trace_qword_store(cpu, saved_rip, 0x0f,
-                            amd64_effective_addr(cpu, &modrm, fs_prefix), result);
+                    amd64_trace_qword_store(cpu, saved_rip, 0x0f, addr, result);
             }
             collapse_flags(cpu);
             break;
@@ -5068,16 +6156,19 @@ restart_prefix:
     }
     case 0x50 ... 0x57: {
         unsigned reg = (opcode - 0x50) | (rex.b ? 8 : 0);
-        if (!amd64_push(cpu, tlb, cpu->amd64_regs[reg]))
+        unsigned push_size = operand_size_prefix ? 16 : 64;
+        qword_t value = amd64_reg_get(cpu, reg, push_size);
+        if (!amd64_push_size(cpu, tlb, push_size, value))
             goto amd64_gpf_restore;
         break;
     }
     case 0x58 ... 0x5f: {
         unsigned reg = (opcode - 0x58) | (rex.b ? 8 : 0);
+        unsigned pop_size = operand_size_prefix ? 16 : 64;
         qword_t value;
-        if (!amd64_pop(cpu, tlb, &value))
+        if (!amd64_pop_size(cpu, tlb, pop_size, &value))
             goto amd64_gpf_restore;
-        amd64_reg_set(cpu, reg, 64, value);
+        amd64_reg_set(cpu, reg, pop_size, value);
         break;
     }
     case 0x8f: {
@@ -5098,24 +6189,38 @@ restart_prefix:
         break;
     }
     case 0x68: {
-        int32_t imm32;
-        if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
-            cpu->amd64_rip = saved_rip;
-            cpu->segfault_addr = saved_rip;
-            return INT_GPF;
+        unsigned push_size = operand_size_prefix ? 16 : 64;
+        qword_t value;
+        if (push_size == 16) {
+            uint16_t imm16;
+            if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            value = imm16;
+        } else {
+            int32_t imm32;
+            if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            value = (qword_t) (sqword_t) imm32;
         }
-        if (!amd64_push(cpu, tlb, (qword_t) (sqword_t) imm32))
+        if (!amd64_push_size(cpu, tlb, push_size, value))
             goto amd64_gpf_restore;
         break;
     }
     case 0x6a: {
+        unsigned push_size = operand_size_prefix ? 16 : 64;
         int8_t imm8;
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8))) {
             cpu->amd64_rip = saved_rip;
             cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
-        if (!amd64_push(cpu, tlb, (qword_t) (sqword_t) imm8))
+        if (!amd64_push_size(cpu, tlb, push_size, (qword_t) amd64_sign_extend((uint8_t) imm8, 8)))
             goto amd64_gpf_restore;
         break;
     }
@@ -5575,6 +6680,24 @@ restart_prefix:
         }
         break;
     }
+    case 0xc2: {
+        uint16_t imm16;
+        qword_t target;
+        if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = saved_rip;
+            return INT_GPF;
+        }
+        if (!amd64_pop(cpu, tlb, &target))
+            goto amd64_gpf_restore;
+        qword_t old_rsp = cpu->amd64_regs[amd64_rsp];
+        cpu->amd64_regs[amd64_rsp] = old_rsp + imm16;
+        amd64_trace_suspicious_rsp_write(cpu, old_rsp, cpu->amd64_regs[amd64_rsp], 64);
+        amd64_trace_cc1_xfer_probe(cpu, tlb, saved_rip, target, "ret-imm");
+        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "ret-imm");
+        cpu->amd64_rip = target;
+        break;
+    }
     case 0xc3: {
         qword_t target;
         if (!amd64_pop(cpu, tlb, &target))
@@ -5590,6 +6713,8 @@ restart_prefix:
         qword_t old_rsp = cpu->amd64_regs[amd64_rsp];
         cpu->amd64_regs[amd64_rsp] = cpu->amd64_regs[amd64_rbp];
         amd64_trace_suspicious_rsp_write(cpu, old_rsp, cpu->amd64_regs[amd64_rsp], 64);
+        amd64_trace_as_stack(amd64_as_stack_leave, pop_size, old_rsp, cpu->amd64_regs[amd64_rsp],
+                cpu->amd64_regs[amd64_rbp]);
         if (!amd64_pop_size(cpu, tlb, pop_size, &value))
             goto amd64_gpf_restore;
         amd64_reg_set(cpu, amd64_rbp, pop_size, value);
@@ -5770,9 +6895,10 @@ restart_prefix:
             cpu->amd64_rip = value;
             break;
         case 6:
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix,
+                    operand_size_prefix ? 16 : 64, &value))
                 goto amd64_gpf_restore;
-            if (!amd64_push(cpu, tlb, value))
+            if (!amd64_push_size(cpu, tlb, operand_size_prefix ? 16 : 64, value))
                 goto amd64_gpf_restore;
             break;
         default:

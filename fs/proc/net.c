@@ -576,3 +576,9 @@ struct proc_children proc_net_children = PROC_CHILDREN({
     {"route", .show = proc_show_route },
     {"if_inet6", .show = proc_show_if_inet6 },
 });
+
+void proc_net_init(struct proc_dir_entry *root_entry) {
+    if (root_entry == NULL)
+        return;
+    proc_set_children_parent(&proc_net_children, root_entry);
+}

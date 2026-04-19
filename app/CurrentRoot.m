@@ -117,7 +117,6 @@ static void maybe_restore_login_binary(void) {
         return;
     }
 
-    printk("INFO: restored /bin/login from /bin/login.original due to legacy AOK login marker\n");
 }
 
 static void maybe_normalize_unmanaged_apk_repositories(void) {
@@ -150,7 +149,6 @@ static void maybe_normalize_unmanaged_apk_repositories(void) {
         return;
     }
 
-    printk("INFO: normalized unmanaged Alpine repositories to HTTP for apk compatibility\n");
 }
 #else
 #define read_file linux_read_file

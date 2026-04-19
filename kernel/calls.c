@@ -33,12 +33,7 @@ dword_t syscall_eopnotsupp_stub(void) {
 }
 
 static bool amd64_tty2_shell_syscall_trace_enabled(void) {
-    if (current == NULL || current->abi != GUEST_ABI_AMD64)
-        return false;
-    if (strcmp(current->comm, "sh") != 0)
-        return false;
-    struct tty *tty = current->group != NULL ? current->group->tty : NULL;
-    return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 2;
+    return false;
 }
 
 static struct tty *amd64_session_tty(void) {
@@ -101,12 +96,6 @@ static void amd64_trace_clear_lineage(void) {
 }
 
 bool amd64_trace_is_lineage_tgid(pid_t_ tgid) {
-    if (tgid == 0)
-        return false;
-    for (unsigned i = 0; i < AMD64_TRACE_LINEAGE_MAX; i++) {
-        if (amd64_traced_tgid_lineage[i] == tgid)
-            return true;
-    }
     return false;
 }
 
@@ -122,41 +111,13 @@ static void amd64_trace_add_lineage_tgid(pid_t_ tgid) {
 }
 
 void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
-    if (file == NULL)
-        return;
-    bool is_cargo = strstr(file, "cargo") != NULL;
-    bool is_rustc = strstr(file, "rustc") != NULL;
-    struct tty *tty = current != NULL && current->group != NULL ? current->group->tty : NULL;
-    bool is_interactive_tty1 =
-        current != NULL &&
-        current->abi == GUEST_ABI_AMD64 &&
-        amd64_session_tty_is_interactive(tty) &&
-        (amd64_interactive_session_comm(current->comm) ||
-         strcmp(current->comm, "init") == 0 ||
-         amd64_trace_is_lineage_tgid(current->tgid));
-    if (!is_cargo && !is_rustc && !is_interactive_tty1)
-        return;
-    if (is_cargo)
-        amd64_trace_clear_lineage();
-    amd64_trace_add_lineage_tgid(tgid);
-    amd64_traced_exec_pid = pid;
-    amd64_traced_exec_tgid = tgid;
-    amd64_traced_exec_trace_count = 0;
-    amd64_tracked_proc_trace_count = 0;
-    amd64_trace_child_count = 0;
-    amd64_tty_proc_trace_count = 0;
-    amd64_enoent_path_trace_count = 0;
-    amd64_errno_trace_count = 0;
-    amd64_other_errno_trace_count = 0;
-    amd64_signal_trace_count = 0;
-    amd64_write_trace_count = 0;
-    printk("tracked exec: pid=%d tgid=%d abi=%d tty=%d file=%s\n",
-           pid, tgid, current != NULL ? current->abi : -1,
-           tty != NULL ? tty->num : -1, file);
+    (void) pid;
+    (void) tgid;
+    (void) file;
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
-    return current != NULL && amd64_trace_is_lineage_tgid(current->tgid);
+    return false;
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
@@ -688,6 +649,13 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
         break;
     }
     raw[to_copy] = '\0';
+    if (current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            strcmp(current->comm, "as") == 0 &&
+            strstr(raw, "Internal error in ") != NULL) {
+        dump_amd64_as_trace_task(current);
+        dump_amd64_as_state_task(current);
+        dump_amd64_as_stack_task(current);
+    }
     amd64_trace_escape_text(raw, to_copy, escaped, sizeof(escaped));
     printk("tracked write: pid=%d tgid=%d fd=%llu count=%llu text=\"%s\"\n",
            current->pid, current->tgid, (unsigned long long) fd,
@@ -839,7 +807,8 @@ static syscall_t i386_syscall_table[] = {
     [148] = (syscall_t) sys_fsync, // fdatasync
     [150] = (syscall_t) sys_mlock,
     [151] = (syscall_t) sys_munlock,
-    [152] = (syscall_t) syscall_stub, // mlockall
+    [152] = (syscall_t) sys_mlockall,
+    [153] = (syscall_t) sys_munlockall,
     [155] = (syscall_t) sys_sched_getparam,
     [156] = (syscall_t) sys_sched_setscheduler,
     [157] = (syscall_t) sys_sched_getscheduler,
@@ -1227,6 +1196,8 @@ static syscall_t amd64_syscall_table[453] = {
     [147] = (syscall_t) sys_sched_get_priority_min,
     [149] = (syscall_t) sys_mlock,
     [150] = (syscall_t) sys_munlock,
+    [151] = (syscall_t) sys_mlockall,
+    [152] = (syscall_t) sys_munlockall,
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
     [160] = (syscall_t) sys_setrlimit64,
@@ -2837,17 +2808,19 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
     if (handle_i386_stack_store_gpf(cpu))
         return;
 
+    guest_addr_t ip = current_fault_ip(cpu);
     uint8_t first_opcode = 0;
-    bool have_first_opcode = user_get(cpu->eip, first_opcode) == 0;
-    printk("ERROR: %d(%s) general protection fault at 0x%x: ", current->pid, current->comm, cpu->eip);
+    bool have_first_opcode = user_get(ip, first_opcode) == 0;
+    printk("ERROR: %d(%s) general protection fault at %#llx: ",
+           current->pid, current->comm, (unsigned long long) ip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
-        if (user_get(cpu->eip + i, b))
+        if (user_get(ip + i, b))
             break;
         printk("%02x ", b);
     }
     printk("\n");
-    dump_opcode_window(cpu->eip);
+    dump_opcode_window(ip);
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
         if (have_first_opcode && first_opcode == 0xf4)

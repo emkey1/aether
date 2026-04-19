@@ -45,6 +45,7 @@ struct futex {
     atomic_uint refcount;
     struct mem *mem;
     guest_addr_t addr;
+    uintptr_t shared_key;
     struct list queue;
     struct list chain; // locked by futex_hash_lock
 };
@@ -68,12 +69,34 @@ static void __attribute__((constructor)) init_futex_hash(void) {
         list_init(&futex_hash[i]);
 }
 
-static struct futex *futex_get_unlocked(guest_addr_t addr) {
-    int hash = (int) ((addr ^ (unsigned long) current->mem) % FUTEX_HASH_SIZE);
+static uintptr_t futex_shared_identity(guest_addr_t addr, guest_addr_t *shared_addr) {
+    uintptr_t identity = 0;
+    read_lock(&current->mem->lock);
+    struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
+    if (entry != NULL && (entry->flags & P_SHARED)) {
+        identity = entry->data->shared_key;
+        if (identity == 0 && entry->data->fd != NULL)
+            identity = (uintptr_t) entry->data->fd;
+        if (shared_addr != NULL)
+            *shared_addr = entry->offset + PGOFFSET(addr);
+    }
+    read_unlock(&current->mem->lock);
+    return identity;
+}
+
+static struct futex *futex_get_unlocked(guest_addr_t addr, dword_t op) {
+    guest_addr_t key_addr = addr;
+    uintptr_t shared_key = 0;
+    if (!(op & FUTEX_PRIVATE_FLAG_))
+        shared_key = futex_shared_identity(addr, &key_addr);
+
+    int hash = (int) (((unsigned long) key_addr ^
+            (shared_key != 0 ? shared_key : (uintptr_t) current->mem)) % FUTEX_HASH_SIZE);
     struct list *bucket = &futex_hash[hash];
     struct futex *futex;
     list_for_each_entry(bucket, futex, chain) {
-        if (futex->addr == addr && futex->mem == current->mem) {
+        if (futex->addr == key_addr && futex->shared_key == shared_key &&
+                futex->mem == (shared_key != 0 ? NULL : current->mem)) {
             futex->refcount++;
             return futex;
         }
@@ -85,8 +108,9 @@ static struct futex *futex_get_unlocked(guest_addr_t addr) {
         return NULL;
     }
     futex->refcount = 1;
-    futex->mem = current->mem;
-    futex->addr = addr;
+    futex->mem = shared_key != 0 ? NULL : current->mem;
+    futex->addr = key_addr;
+    futex->shared_key = shared_key;
     list_init(&futex->queue);
     list_add(bucket, &futex->chain);
     return futex;
@@ -94,9 +118,9 @@ static struct futex *futex_get_unlocked(guest_addr_t addr) {
 
 // Returns the futex for the current process at the given addr, and locks it
 // Unlocked variant is available for times when you need to get two futexes at once
-static struct futex *futex_get(guest_addr_t addr) {
+static struct futex *futex_get(guest_addr_t addr, dword_t op) {
     lock(&futex_lock, 0);
-    struct futex *futex = futex_get_unlocked(addr);
+    struct futex *futex = futex_get_unlocked(addr, op);
     if (futex == NULL)
         unlock(&futex_lock);
     return futex;
@@ -117,10 +141,9 @@ static void futex_put(struct futex *futex) {
     unlock(&futex_lock);
 }
 
-static int futex_load(struct futex *futex, dword_t *out) {
-    assert(futex->mem == current->mem);
+static int futex_load(guest_addr_t addr, dword_t *out) {
     read_lock(&current->mem->lock);
-    dword_t *ptr = mem_ptr(current->mem, futex->addr, MEM_READ);
+    dword_t *ptr = mem_ptr(current->mem, addr, MEM_READ);
     read_unlock(&current->mem->lock);
     if (ptr == NULL)
         return 1;
@@ -139,11 +162,11 @@ static bool futex_wait_has_pending_signal(void) {
     return pending;
 }
 
-static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *timeout, dword_t bitset) {
-    struct futex *futex = futex_get(uaddr);
+static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct timespec *timeout, dword_t bitset) {
+    struct futex *futex = futex_get(uaddr, op);
     int err = 0;
     dword_t tmp;
-    if (futex_load(futex, &tmp))
+    if (futex_load(uaddr, &tmp))
         err = _EFAULT;
     else if (tmp != val)
         err = _EAGAIN;
@@ -202,10 +225,6 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t val, struct timespec *t
     return err;
 }
 
-static int futex_wait(guest_addr_t uaddr, dword_t val, struct timespec *timeout) {
-    return futex_wait_masked(uaddr, val, timeout, ~0u);
-}
-
 static int futex_read_timeout(guest_addr_t timeout_addr, bool time64, struct timespec *timeout) {
     if (!time64) {
         struct timespec_ timeout_guest;
@@ -227,7 +246,7 @@ static int futex_read_timeout(guest_addr_t timeout_addr, bool time64, struct tim
 
 static int futex_wakelike(int op, guest_addr_t uaddr, dword_t wake_max, dword_t requeue_max,
         guest_addr_t requeue_addr, dword_t wake_mask) {
-    struct futex *futex = futex_get(uaddr);
+    struct futex *futex = futex_get(uaddr, op);
 
     struct futex_wait *wait, *tmp;
     unsigned woken = 0;
@@ -241,8 +260,8 @@ static int futex_wakelike(int op, guest_addr_t uaddr, dword_t wake_max, dword_t 
         woken++;
     }
 
-    if (op == FUTEX_REQUEUE_) {
-        struct futex *futex2 = futex_get_unlocked(requeue_addr);
+    if ((op & FUTEX_CMD_MASK_) == FUTEX_REQUEUE_) {
+        struct futex *futex2 = futex_get_unlocked(requeue_addr, op);
         unsigned requeued = 0;
         list_for_each_entry_safe(&futex->queue, wait, tmp, queue) {
             if (requeued >= requeue_max)
@@ -268,14 +287,14 @@ int futex_wake(guest_addr_t uaddr, dword_t wake_max) {
     return futex_wakelike(FUTEX_WAKE_, uaddr, wake_max, 0, 0, ~0u);
 }
 
-static int futex_cmp_requeue(guest_addr_t uaddr1, dword_t val, guest_addr_t uaddr2, dword_t val2,
+static int futex_cmp_requeue(guest_addr_t uaddr1, dword_t op, dword_t val, guest_addr_t uaddr2, dword_t val2,
         dword_t UNUSED(val3)) {
-    struct futex *futex1 = futex_get(uaddr1);
-    struct futex *futex2 = futex_get_unlocked(uaddr2);
+    struct futex *futex1 = futex_get(uaddr1, op);
+    struct futex *futex2 = futex_get_unlocked(uaddr2, op);
     int err = 0;
     dword_t tmp;
 
-    if (futex_load(futex1, &tmp)) {
+    if (futex_load(uaddr1, &tmp)) {
         err = _EFAULT;
     } else if (tmp != val) {
         err = _EAGAIN;
@@ -316,14 +335,14 @@ void set_thread_priority(pthread_t thread, int priority) {
     pthread_setschedparam(thread, policy, &param);
 }
 
-static int futex_cmp_requeue_pi(guest_addr_t uaddr1, dword_t val, guest_addr_t uaddr2, dword_t val2,
+static int futex_cmp_requeue_pi(guest_addr_t uaddr1, dword_t op, dword_t val, guest_addr_t uaddr2, dword_t val2,
         dword_t UNUSED(val3)) {
-    struct futex *futex1 = futex_get(uaddr1);
-    struct futex *futex2 = futex_get_unlocked(uaddr2);
+    struct futex *futex1 = futex_get(uaddr1, op);
+    struct futex *futex2 = futex_get_unlocked(uaddr2, op);
     int err = 0;
     dword_t tmp;
 
-    if (futex_load(futex1, &tmp)) {
+    if (futex_load(uaddr1, &tmp)) {
         err = _EFAULT;
     } else if (tmp != val) {
         err = _EAGAIN;
@@ -389,23 +408,23 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
         case FUTEX_WAIT_:
             STRACE("futex(FUTEX_WAIT, %#x, %d, 0x%x {%ds %dns}) = ...\n", uaddr, val, timeout_or_val2, timeout.tv_sec, timeout.tv_nsec);
             dword_t return_val;
-            return_val = futex_wait(uaddr, val, timeout_or_val2 ? &timeout : NULL);
+            return_val = futex_wait_masked(uaddr, op, val, timeout_or_val2 ? &timeout : NULL, ~0u);
             if ((int) return_val == _EINTR && signal_should_restart_syscall())
                 return _ERESTART;
             return return_val;
         case FUTEX_WAKE_:
             STRACE("futex(FUTEX_WAKE, %#x, %d)", uaddr, val);
-            return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, 0, 0, ~0u);
+            return futex_wakelike(op, uaddr, val, 0, 0, ~0u);
         case FUTEX_REQUEUE_:
             STRACE("futex(FUTEX_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
-            return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, timeout_or_val2, uaddr2, ~0u);
+            return futex_wakelike(op, uaddr, val, timeout_or_val2, uaddr2, ~0u);
         case FUTEX_FD_: // Deprecated, little need to support
             STRACE("Unimplemented futex(FUTEX_FD, %#x, %d, %#x)", uaddr, val, uaddr2);
             FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_FD) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
             return _ENOSYS;
         case FUTEX_CMP_REQUEUE_:
             STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
-            return futex_cmp_requeue(uaddr, val, uaddr2, timeout_or_val2, val3);
+            return futex_cmp_requeue(uaddr, op, val, uaddr2, timeout_or_val2, val3);
         case FUTEX_WAKE_OP_:
             STRACE("Unimplemented futex(FUTEX_WAKE_OP, %#x, %d, %#x)", uaddr, val, uaddr2);
             FIXME("Unsupported futex FUTEX_WAKE_OP(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAKE_OP) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
@@ -427,7 +446,7 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             if (val3 == 0)
                 return _EINVAL;
             {
-                dword_t return_val = futex_wait_masked(uaddr, val, timeout_or_val2 ? &timeout : NULL, val3);
+                dword_t return_val = futex_wait_masked(uaddr, op, val, timeout_or_val2 ? &timeout : NULL, val3);
                 if ((int) return_val == _EINTR && signal_should_restart_syscall())
                     return _ERESTART;
                 return return_val;
@@ -436,14 +455,14 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             STRACE("futex(FUTEX_WAKE_BITSET, %#x, %d, bitset=%#x)", uaddr, val, val3);
             if (val3 == 0)
                 return _EINVAL;
-            return futex_wakelike(op & FUTEX_CMD_MASK_, uaddr, val, 0, 0, val3);
+            return futex_wakelike(op, uaddr, val, 0, 0, val3);
         case FUTEX_WAIT_REQUEUE_PI_:
             STRACE("Unimplemented futex(FUTEX_WAIT_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
             FIXME("Unsupported futex FUTEX_WAIT_REQUEUE_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAIT_REQUEUE_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
             return _ENOSYS;
         case FUTEX_CMP_REQUEUE_PI_:
             STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
-            return futex_cmp_requeue_pi(uaddr, val, uaddr2, timeout_or_val2, val3);
+            return futex_cmp_requeue_pi(uaddr, op, val, uaddr2, timeout_or_val2, val3);
     }
     STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
     FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);

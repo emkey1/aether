@@ -66,6 +66,7 @@ struct mm *mm_new(enum guest_abi abi) {
     mm_apply_abi_layout(mm, abi);
     ipc_mm_init(mm);
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
+    mm->mlockall_flags = 0;
     mm->exefile = NULL;
     mm->refcount = 1;
     return mm;
@@ -366,6 +367,35 @@ int_t sys_munlock_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len)) {
 
 int_t sys_munlock(addr_t addr, dword_t len) {
     return sys_munlock_guest(addr, len);
+}
+
+#define MCL_CURRENT_ 0x1
+#define MCL_FUTURE_ 0x2
+#define MCL_ONFAULT_ 0x4
+
+int_t sys_mlockall_guest(qword_t flags) {
+    qword_t supported = MCL_CURRENT_ | MCL_FUTURE_ | MCL_ONFAULT_;
+    if ((flags & ~supported) != 0)
+        return _EINVAL;
+    if ((flags & (MCL_CURRENT_ | MCL_FUTURE_)) == 0)
+        return _EINVAL;
+    if ((flags & MCL_ONFAULT_) != 0 && (flags & (MCL_CURRENT_ | MCL_FUTURE_)) == 0)
+        return _EINVAL;
+    current->mm->mlockall_flags = (dword_t) flags;
+    return 0;
+}
+
+int_t sys_mlockall(dword_t flags) {
+    return sys_mlockall_guest(flags);
+}
+
+int_t sys_munlockall_guest(void) {
+    current->mm->mlockall_flags = 0;
+    return 0;
+}
+
+int_t sys_munlockall(void) {
+    return sys_munlockall_guest();
 }
 
 int_t sys_msync_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), int_t UNUSED(flags)) {

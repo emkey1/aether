@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include "emu/cpu.h"
 #include "kernel/calls.h"
 #include "kernel/mm.h"
 #include "kernel/futex.h"
@@ -19,17 +20,7 @@ extern const char extra_lock_comm;
 static void halt_system_locked(void);
 
 static bool trace_session_exit_task(struct task *task) {
-    struct tty *tty = task != NULL && task->group != NULL ? task->group->tty : NULL;
-    if (task != NULL && task->abi == GUEST_ABI_AMD64 &&
-            tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == 1)
-        return true;
-    return strcmp(task->comm, "login") == 0 ||
-        strcmp(task->comm, "sshd") == 0 ||
-        strcmp(task->comm, "sh") == 0 ||
-        strcmp(task->comm, "bash") == 0 ||
-        strcmp(task->comm, "dash") == 0 ||
-        strcmp(task->comm, "getty") == 0 ||
-        strcmp(task->comm, "agetty") == 0;
+    return false;
 }
 
 static void amd64_decode_wait_status_exit(int status, char *buf, size_t size) {
@@ -197,21 +188,17 @@ noreturn void do_exit(struct task *task, int status) {
     }
 
     // release all our resources
-    // mm_release can free IPC/mm state that expects pids_lock to be held, but
-    // holding pids_lock across all the exit wait loops blocks unrelated task
-    // lookups and session startup on the main thread. Take it only for the
-    // mm_release window, then drop it again until we actually need the pid
-    // table for reparenting and zombie bookkeeping.
+    // mm_release can walk fd/inode teardown and therefore take inodes_lock.
+    // Do not hold pids_lock across it, because procfs open/stat takes
+    // inodes_lock before pids_lock and that lock ordering otherwise deadlocks.
     do {
         nanosleep(&lock_pause, NULL);
         nanosleep(&lock_pause, NULL);
     } while (exit_wait_needed(task)); // Wait for now, task is in one or more critical
-    complex_lockt(&pids_lock, 0);
     mm_release(task->mm);
     task->mm = NULL;
     task->mem = NULL;
     task->cpu.mmu = NULL;
-    unlock(&pids_lock);
     
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
         nanosleep(&lock_pause, NULL);
@@ -258,7 +245,6 @@ noreturn void do_exit(struct task *task, int status) {
                task->parent != NULL ? task->parent->tgid : -1,
                task->did_exec, decoded);
     }
-
     sighand_release(task->sighand);
     task->sighand = NULL;
     struct sigqueue *sigqueue, *sigqueue_tmp;

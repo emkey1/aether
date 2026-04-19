@@ -197,6 +197,8 @@ static inline int trylock(lock_t *lock) {
 #endif
     if (!status) {
         modify_locks_held_count(current, 1);
+        lock->owner = pthread_self();
+        lock->comm[sizeof(lock->comm) - 1] = '\0';
     }
     return status;
 }
@@ -214,10 +216,11 @@ static inline int trylocknl(lock_t *lock, char *comm, int pid) {
 #endif
     if(!status) {
         modify_locks_held_count(current, 1);
-        
+        lock->owner = pthread_self();
         //STRACE("trylock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         lock->pid = pid;
         strncpy(lock->comm, comm, 16);
+        lock->comm[sizeof(lock->comm) - 1] = '\0';
     }
     return status;
 }

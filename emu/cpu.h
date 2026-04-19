@@ -13,10 +13,14 @@
 
 struct cpu_state;
 struct tlb;
+struct task;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
 void dump_amd64_cc1_trace(const struct cpu_state *cpu);
+void dump_amd64_as_trace_task(const struct task *task);
+void dump_amd64_as_state_task(const struct task *task);
+void dump_amd64_as_stack_task(const struct task *task);
 
 enum amd64_reg {
     amd64_rax = 0,
