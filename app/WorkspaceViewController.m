@@ -981,7 +981,7 @@ static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptor(void) {
 static CGFloat ISHWorkspaceCurrentDensity(void) {
     id value = [NSUserDefaults.standardUserDefaults objectForKey:ISHWorkspaceToolDensityPreferenceKey];
     if (![value isKindOfClass:NSNumber.class])
-        return 0.18;
+        return 0.0;
     return MAX(0.0, MIN(1.0, [value doubleValue]));
 }
 
@@ -2076,6 +2076,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     [self refreshWorkspaceStatus];
+    [self applyCompactSizingToOpenWorkspaceToolWindows];
 }
 
 - (ISHWorkspaceContainedWindowView *)desktopWindowDisplayingTerminalUUID:(NSUUID *)terminalUUID {
@@ -2392,6 +2393,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [self applyCompactSizingToOpenWorkspaceToolWindows];
     if (self.didOpenInitialTool || self.initialToolIdentifier.length == 0)
         return;
     self.didOpenInitialTool = YES;
@@ -2403,6 +2405,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
+    [self applyCompactSizingToOpenWorkspaceToolWindows];
     [self refreshDockButtons];
 }
 
@@ -2553,6 +2556,27 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             continue;
         BOOL activeWindow = windowView == self.desktopSurfaceView.subviews.lastObject;
         [windowView applyWorkspaceChromeTheme:theme active:activeWindow];
+    }
+}
+
+- (void)applyCompactSizingToOpenWorkspaceToolWindows {
+    for (ISHWorkspaceContainedWindowView *windowView in self.desktopWindows.copy) {
+        NSString *toolIdentifier = windowView.workspaceToolIdentifier;
+        if (toolIdentifier.length == 0)
+            continue;
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+            continue;
+
+        CGSize targetSize = ISHWorkspacePreferredToolContentSize(toolIdentifier);
+        CGRect currentFrame = windowView.frame;
+        BOOL shouldShrinkWidth = CGRectGetWidth(currentFrame) > targetSize.width + 24.0;
+        BOOL shouldShrinkHeight = CGRectGetHeight(currentFrame) > targetSize.height + 24.0;
+        if (!shouldShrinkWidth && !shouldShrinkHeight)
+            continue;
+
+        CGSize resized = CGSizeMake(shouldShrinkWidth ? targetSize.width : CGRectGetWidth(currentFrame),
+                                    shouldShrinkHeight ? targetSize.height : CGRectGetHeight(currentFrame));
+        [self resizeDesktopWindow:windowView toSize:resized animated:NO];
     }
 }
 
@@ -3379,7 +3403,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _previewProgressView.progress = 0.72f;
     _backgroundPreviewImageView.image = ISHWorkspaceThemeArtworkImage(_editingThemeIdentifier,
                                                                       palette,
-                                                                      CGSizeMake(960, 540),
+                                                                      CGSizeMake(1200, 675),
                                                                       YES);
     _backgroundPreviewImageView.layer.borderColor = previewTheme[@"stroke"].CGColor;
     _densityValueLabel.text = ISHWorkspaceCurrentDensityTitle();
@@ -3651,7 +3675,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [backgroundStack addArrangedSubview:backgroundSubtitle];
     [backgroundStack addArrangedSubview:_backgroundPreviewImageView];
     [NSLayoutConstraint activateConstraints:@[
-        [_backgroundPreviewImageView.heightAnchor constraintEqualToConstant:160],
+        [_backgroundPreviewImageView.heightAnchor constraintEqualToConstant:124],
         [backgroundStack.topAnchor constraintEqualToAnchor:backgroundCard.topAnchor constant:14],
         [backgroundStack.leadingAnchor constraintEqualToAnchor:backgroundCard.leadingAnchor constant:14],
         [backgroundStack.trailingAnchor constraintEqualToAnchor:backgroundCard.trailingAnchor constant:-14],
@@ -3713,7 +3737,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [editorStack addArrangedSubview:editorTitle];
     [editorStack addArrangedSubview:_editorThemeLabel];
     [editorStack addArrangedSubview:_previewSurfaceView];
-    [editorStack addArrangedSubview:backgroundCard];
     [editorStack addArrangedSubview:densityCard];
     [editorStack addArrangedSubview:actionStack];
     for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
@@ -3727,6 +3750,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     ]];
 
     [_contentStack addArrangedSubview:headerCard];
+    [_contentStack addArrangedSubview:backgroundCard];
     [_contentStack addArrangedSubview:libraryCard];
     [_contentStack addArrangedSubview:editorCard];
 
