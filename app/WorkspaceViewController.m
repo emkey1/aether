@@ -81,6 +81,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @property (nonatomic, strong) UIButton *closeButton;
 @property (nonatomic, strong) UIButton *utilityButton;
 @property (nonatomic, strong) UIView *contentContainerView;
+@property (nonatomic, strong) UIView *panelView;
 @property (nonatomic, strong) UIView *resizeHandleView;
 @property (nonatomic, strong) NSLayoutConstraint *resizeHandleTopConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *resizeHandleBottomConstraint;
@@ -99,6 +100,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 
 - (instancetype)initWithTitle:(NSString *)title showsCloseButton:(BOOL)showsCloseButton;
 - (void)setUtilityButtonTitle:(nullable NSString *)title handler:(nullable dispatch_block_t)handler;
+- (void)applyWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active;
 
 @end
 
@@ -124,16 +126,17 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     self.minimumSize = CGSizeMake(280, 180);
     self.maximumSize = CGSizeZero;
 
-    UIView *panelView = [UIView new];
-    panelView.translatesAutoresizingMaskIntoConstraints = NO;
-    panelView.layer.cornerRadius = ISHWorkspaceWindowCornerRadius;
-    panelView.layer.masksToBounds = YES;
+    self.panelView = [UIView new];
+    self.panelView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.panelView.layer.cornerRadius = ISHWorkspaceWindowCornerRadius;
+    self.panelView.layer.masksToBounds = YES;
+    self.panelView.layer.borderWidth = 1;
     if (@available(iOS 13.0, *)) {
-        panelView.backgroundColor = UIColor.secondarySystemBackgroundColor;
+        self.panelView.backgroundColor = UIColor.secondarySystemBackgroundColor;
     } else {
-        panelView.backgroundColor = UIColor.whiteColor;
+        self.panelView.backgroundColor = UIColor.whiteColor;
     }
-    [self addSubview:panelView];
+    [self addSubview:self.panelView];
 
     self.titleBarView = [UIView new];
     self.titleBarView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -142,7 +145,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     } else {
         self.titleBarView.backgroundColor = [UIColor colorWithWhite:0.94 alpha:1.0];
     }
-    [panelView addSubview:self.titleBarView];
+    [self.panelView addSubview:self.titleBarView];
 
     self.titleLabel = [UILabel new];
     self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -184,7 +187,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     } else {
         self.contentContainerView.backgroundColor = UIColor.whiteColor;
     }
-    [panelView addSubview:self.contentContainerView];
+    [self.panelView addSubview:self.contentContainerView];
 
     self.resizeHandleView = [UIView new];
     self.resizeHandleView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -196,26 +199,26 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     } else {
         self.resizeHandleView.backgroundColor = [UIColor colorWithWhite:0.65 alpha:0.9];
     }
-    [panelView addSubview:self.resizeHandleView];
+    [self.panelView addSubview:self.resizeHandleView];
 
     self.resizeHandleLeadingConstraint =
-        [self.resizeHandleView.leadingAnchor constraintGreaterThanOrEqualToAnchor:panelView.leadingAnchor constant:12];
+        [self.resizeHandleView.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.panelView.leadingAnchor constant:12];
     self.resizeHandleTrailingConstraint =
-        [self.resizeHandleView.trailingAnchor constraintEqualToAnchor:panelView.trailingAnchor constant:-12];
+        [self.resizeHandleView.trailingAnchor constraintEqualToAnchor:self.panelView.trailingAnchor constant:-12];
     self.resizeHandleTopConstraint =
-        [self.resizeHandleView.topAnchor constraintEqualToAnchor:panelView.topAnchor constant:12];
+        [self.resizeHandleView.topAnchor constraintEqualToAnchor:self.panelView.topAnchor constant:12];
     self.resizeHandleBottomConstraint =
-        [self.resizeHandleView.bottomAnchor constraintEqualToAnchor:panelView.bottomAnchor constant:-12];
+        [self.resizeHandleView.bottomAnchor constraintEqualToAnchor:self.panelView.bottomAnchor constant:-12];
 
     [NSLayoutConstraint activateConstraints:@[
-        [panelView.topAnchor constraintEqualToAnchor:self.topAnchor],
-        [panelView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
-        [panelView.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
-        [panelView.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+        [self.panelView.topAnchor constraintEqualToAnchor:self.topAnchor],
+        [self.panelView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+        [self.panelView.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+        [self.panelView.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
 
-        [self.titleBarView.topAnchor constraintEqualToAnchor:panelView.topAnchor],
-        [self.titleBarView.leadingAnchor constraintEqualToAnchor:panelView.leadingAnchor],
-        [self.titleBarView.trailingAnchor constraintEqualToAnchor:panelView.trailingAnchor],
+        [self.titleBarView.topAnchor constraintEqualToAnchor:self.panelView.topAnchor],
+        [self.titleBarView.leadingAnchor constraintEqualToAnchor:self.panelView.leadingAnchor],
+        [self.titleBarView.trailingAnchor constraintEqualToAnchor:self.panelView.trailingAnchor],
         [self.titleBarView.heightAnchor constraintEqualToConstant:ISHWorkspaceWindowTitleBarHeight],
 
         [self.closeButton.leadingAnchor constraintEqualToAnchor:self.titleBarView.leadingAnchor constant:ISHWorkspaceWindowButtonInset],
@@ -233,9 +236,9 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
         [self.titleLabel.centerYAnchor constraintEqualToAnchor:self.titleBarView.centerYAnchor],
 
         [self.contentContainerView.topAnchor constraintEqualToAnchor:self.titleBarView.bottomAnchor],
-        [self.contentContainerView.leadingAnchor constraintEqualToAnchor:panelView.leadingAnchor],
-        [self.contentContainerView.trailingAnchor constraintEqualToAnchor:panelView.trailingAnchor],
-        [self.contentContainerView.bottomAnchor constraintEqualToAnchor:panelView.bottomAnchor],
+        [self.contentContainerView.leadingAnchor constraintEqualToAnchor:self.panelView.leadingAnchor],
+        [self.contentContainerView.trailingAnchor constraintEqualToAnchor:self.panelView.trailingAnchor],
+        [self.contentContainerView.bottomAnchor constraintEqualToAnchor:self.panelView.bottomAnchor],
 
         [self.resizeHandleView.widthAnchor constraintEqualToConstant:20],
         [self.resizeHandleView.heightAnchor constraintEqualToConstant:20],
@@ -255,6 +258,38 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     [self addGestureRecognizer:tapGestureRecognizer];
 
     return self;
+}
+
+- (void)applyWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active {
+    if (![theme isKindOfClass:NSDictionary.class])
+        return;
+
+    UIColor *strokeColor = active
+        ? [theme[@"accent"] colorWithAlphaComponent:0.92]
+        : [theme[@"stroke"] colorWithAlphaComponent:0.98];
+    self.panelView.layer.borderWidth = active ? 1.6 : 1.0;
+    self.panelView.layer.borderColor = strokeColor.CGColor;
+    self.panelView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.98];
+    self.titleBarView.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.98];
+    self.contentContainerView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.98];
+    self.titleLabel.textColor = theme[@"primary"];
+
+    UIColor *buttonBackground = [theme[@"backgroundTop"] colorWithAlphaComponent:0.14];
+    UIColor *buttonBorder = [theme[@"accentAlt"] colorWithAlphaComponent:0.34];
+    self.closeButton.backgroundColor = buttonBackground;
+    self.closeButton.layer.borderWidth = 1;
+    self.closeButton.layer.borderColor = buttonBorder.CGColor;
+    [self.closeButton setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
+
+    self.utilityButton.backgroundColor = buttonBackground;
+    self.utilityButton.layer.borderWidth = 1;
+    self.utilityButton.layer.borderColor = buttonBorder.CGColor;
+    [self.utilityButton setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
+
+    self.resizeHandleView.backgroundColor = active
+        ? [theme[@"accent"] colorWithAlphaComponent:0.92]
+        : [theme[@"accentAlt"] colorWithAlphaComponent:0.76];
+    self.layer.shadowColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.55].CGColor;
 }
 
 - (void)layoutSubviews {
@@ -392,11 +427,11 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
         return CGSizeMake(200, 140);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
-        return CGSizeMake(340, 210);
+        return CGSizeMake(520, 340);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
-        return CGSizeMake(400, 240);
+        return CGSizeMake(560, 320);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
-        return CGSizeMake(420, 260);
+        return CGSizeMake(560, 320);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(720, 560);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
@@ -940,6 +975,140 @@ static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptorFromEdita
 static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptor(void) {
     return ISHWorkspaceThemeDescriptorFromEditablePalette(
         ISHWorkspaceThemeEditablePaletteForIdentifier(ISHWorkspaceCurrentThemeIdentifier()));
+}
+
+static void ISHWorkspaceThemeDrawLinearGradient(CGContextRef context,
+                                                CGRect rect,
+                                                UIColor *startColor,
+                                                UIColor *endColor) {
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    NSArray *colors = @[(id) startColor.CGColor, (id) endColor.CGColor];
+    CGGradientRef gradient = CGGradientCreateWithColors(colorSpace, (__bridge CFArrayRef) colors, NULL);
+    CGPoint startPoint = CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect));
+    CGPoint endPoint = CGPointMake(CGRectGetMidX(rect), CGRectGetMaxY(rect));
+    CGContextDrawLinearGradient(context, gradient, startPoint, endPoint, 0);
+    CGGradientRelease(gradient);
+    CGColorSpaceRelease(colorSpace);
+}
+
+static UIImage *ISHWorkspaceThemeArtworkImage(NSString *identifier,
+                                              NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette,
+                                              CGSize size,
+                                              BOOL wallpaper) {
+    if (size.width < 1 || size.height < 1)
+        return nil;
+
+    NSDictionary<NSString *, UIColor *> *theme = ISHWorkspaceThemeDescriptorFromEditablePalette(palette);
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.opaque = YES;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size format:format];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
+        CGContextRef context = rendererContext.CGContext;
+        CGRect rect = CGRectMake(0, 0, size.width, size.height);
+        CGFloat width = CGRectGetWidth(rect);
+        CGFloat height = CGRectGetHeight(rect);
+
+        UIColor *backgroundTop = theme[@"backgroundTop"];
+        UIColor *backgroundBottom = theme[@"backgroundBottom"];
+        UIColor *card = [theme[@"card"] colorWithAlphaComponent:wallpaper ? 0.08 : 0.18];
+        UIColor *accent = [theme[@"accent"] colorWithAlphaComponent:wallpaper ? 0.22 : 0.28];
+        UIColor *accentAlt = [theme[@"accentAlt"] colorWithAlphaComponent:wallpaper ? 0.18 : 0.24];
+        UIColor *secondary = [theme[@"secondary"] colorWithAlphaComponent:wallpaper ? 0.12 : 0.18];
+
+        ISHWorkspaceThemeDrawLinearGradient(context, rect, backgroundTop, backgroundBottom);
+
+        UIBezierPath *glowOrb = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(width * 0.58, -height * 0.1,
+                                                                                   width * 0.44, height * 0.46)];
+        [accent setFill];
+        [glowOrb fill];
+
+        UIBezierPath *secondaryOrb = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(-width * 0.16, height * 0.52,
+                                                                                        width * 0.46, height * 0.38)];
+        [accentAlt setFill];
+        [secondaryOrb fill];
+
+        if ([identifier isEqualToString:ISHWorkspaceToolThemeSolsticeIdentifier]) {
+            UIBezierPath *sun = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(width * 0.62, height * 0.12,
+                                                                                  width * 0.18, width * 0.18)];
+            [[theme[@"card"] colorWithAlphaComponent:wallpaper ? 0.82 : 0.9] setFill];
+            [sun fill];
+
+            NSArray<NSNumber *> *bandOrigins = @[@0.58, @0.68, @0.79];
+            NSArray<UIColor *> *bandColors = @[
+                [theme[@"accent"] colorWithAlphaComponent:0.34],
+                [theme[@"accentAlt"] colorWithAlphaComponent:0.28],
+                [theme[@"card"] colorWithAlphaComponent:0.22],
+            ];
+            for (NSUInteger index = 0; index < bandOrigins.count; index++) {
+                CGFloat origin = bandOrigins[index].doubleValue * height;
+                UIBezierPath *band = [UIBezierPath bezierPath];
+                [band moveToPoint:CGPointMake(-width * 0.1, origin)];
+                [band addCurveToPoint:CGPointMake(width * 1.1, origin - height * 0.04)
+                        controlPoint1:CGPointMake(width * 0.26, origin - height * 0.08)
+                        controlPoint2:CGPointMake(width * 0.72, origin + height * 0.02)];
+                [band addLineToPoint:CGPointMake(width * 1.1, height * 1.1)];
+                [band addLineToPoint:CGPointMake(-width * 0.1, height * 1.1)];
+                [band closePath];
+                [bandColors[index] setFill];
+                [band fill];
+            }
+        } else if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
+            CGContextSaveGState(context);
+            CGContextSetLineWidth(context, MAX(1.0, MIN(width, height) * 0.006));
+            CGContextSetStrokeColorWithColor(context, [secondary colorWithAlphaComponent:0.55].CGColor);
+            CGFloat step = MAX(26.0, MIN(width, height) * 0.12);
+            for (CGFloat x = -height; x <= width + height; x += step) {
+                CGContextMoveToPoint(context, x, 0);
+                CGContextAddLineToPoint(context, x + height * 0.4, height);
+            }
+            CGContextStrokePath(context);
+            CGContextRestoreGState(context);
+
+            UIBezierPath *panel = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(width * 0.1, height * 0.16,
+                                                                                     width * 0.48, height * 0.26)
+                                                             cornerRadius:MIN(width, height) * 0.06];
+            [[theme[@"card"] colorWithAlphaComponent:wallpaper ? 0.18 : 0.28] setFill];
+            [panel fill];
+        } else {
+            UIBezierPath *ribbonA = [UIBezierPath bezierPath];
+            [ribbonA moveToPoint:CGPointMake(-width * 0.1, height * 0.28)];
+            [ribbonA addCurveToPoint:CGPointMake(width * 1.05, height * 0.12)
+                       controlPoint1:CGPointMake(width * 0.22, height * 0.54)
+                       controlPoint2:CGPointMake(width * 0.7, -height * 0.02)];
+            [ribbonA addLineToPoint:CGPointMake(width * 1.05, height * 0.3)];
+            [ribbonA addCurveToPoint:CGPointMake(-width * 0.1, height * 0.46)
+                       controlPoint1:CGPointMake(width * 0.74, height * 0.5)
+                       controlPoint2:CGPointMake(width * 0.2, height * 0.18)];
+            [ribbonA closePath];
+            [accent setFill];
+            [ribbonA fill];
+
+            UIBezierPath *ribbonB = [UIBezierPath bezierPath];
+            [ribbonB moveToPoint:CGPointMake(-width * 0.1, height * 0.5)];
+            [ribbonB addCurveToPoint:CGPointMake(width * 1.05, height * 0.38)
+                       controlPoint1:CGPointMake(width * 0.28, height * 0.68)
+                       controlPoint2:CGPointMake(width * 0.76, height * 0.18)];
+            [ribbonB addLineToPoint:CGPointMake(width * 1.05, height * 0.55)];
+            [ribbonB addCurveToPoint:CGPointMake(-width * 0.1, height * 0.66)
+                       controlPoint1:CGPointMake(width * 0.76, height * 0.72)
+                       controlPoint2:CGPointMake(width * 0.28, height * 0.42)];
+            [ribbonB closePath];
+            [accentAlt setFill];
+            [ribbonB fill];
+        }
+
+        NSArray<NSValue *> *cards = @[
+            [NSValue valueWithCGRect:CGRectMake(width * 0.08, height * 0.12, width * 0.18, height * 0.11)],
+            [NSValue valueWithCGRect:CGRectMake(width * 0.32, height * 0.22, width * 0.22, height * 0.12)],
+            [NSValue valueWithCGRect:CGRectMake(width * 0.62, height * 0.62, width * 0.22, height * 0.12)],
+        ];
+        for (NSValue *value in cards) {
+            UIBezierPath *cardPath = [UIBezierPath bezierPathWithRoundedRect:value.CGRectValue
+                                                                cornerRadius:MIN(width, height) * 0.05];
+            [card setFill];
+            [cardPath fill];
+        }
+    }];
 }
 
 static void ISHWorkspaceSetCurrentThemeIdentifier(NSString *identifier) {
@@ -1665,13 +1834,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         windowView.minimumSize = CGSizeMake(200, 140);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(260, 160);
+        windowView.minimumSize = CGSizeMake(340, 260);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(280, 144);
+        windowView.minimumSize = CGSizeMake(380, 220);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(320, 180);
+        windowView.minimumSize = CGSizeMake(400, 220);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier]) {
         windowView.resizable = YES;
         windowView.minimumSize = CGSizeMake(520, 560);
@@ -2133,6 +2302,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                            selector:@selector(refreshWorkspaceStatus)
                                                name:UIApplicationDidBecomeActiveNotification
                                              object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(workspaceThemeDidChange:)
+                                               name:ISHWorkspaceToolThemeDidChangeNotification
+                                             object:nil];
     if (@available(iOS 13.0, *)) {
         [NSNotificationCenter.defaultCenter addObserver:self
                                                selector:@selector(refreshWorkspaceStatus)
@@ -2145,6 +2318,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     [self refreshWorkspaceStatus];
+    [self refreshDockButtons];
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
@@ -2188,6 +2362,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
+}
+
+- (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
+    [self refreshDockButtons];
 }
 
 - (void)refreshWorkspaceStatus {
@@ -2330,6 +2508,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                             state:terminalState
                            active:hasTerminalWindow
                         frontmost:frontmostIsTerminal];
+
+    NSDictionary<NSString *, UIColor *> *theme = ISHWorkspaceThemeDescriptor();
+    for (ISHWorkspaceContainedWindowView *windowView in self.desktopWindows.copy) {
+        if (![windowView isKindOfClass:ISHWorkspaceContainedWindowView.class] || windowView.hidden)
+            continue;
+        BOOL activeWindow = windowView == self.desktopSurfaceView.subviews.lastObject;
+        [windowView applyWorkspaceChromeTheme:theme active:activeWindow];
+    }
 }
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier {
@@ -2934,8 +3120,23 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.layer.cornerRadius = 14;
     button.layer.borderWidth = 1;
-    button.contentEdgeInsets = UIEdgeInsetsMake(10, 12, 10, 12);
+    button.contentEdgeInsets = UIEdgeInsetsMake(8, 10, 8, 12);
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    button.semanticContentAttribute = UISemanticContentAttributeForceLeftToRight;
+    button.titleLabel.numberOfLines = 2;
     button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    UIImage *previewImage =
+        ISHWorkspaceThemeArtworkImage(identifier,
+                                      ISHWorkspaceThemeEditablePaletteForIdentifier(identifier),
+                                      CGSizeMake(112, 64),
+                                      NO);
+    [button setImage:[previewImage imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal] forState:UIControlStateNormal];
+    button.imageView.contentMode = UIViewContentModeScaleAspectFill;
+    button.imageView.clipsToBounds = YES;
+    button.imageView.layer.cornerRadius = 10;
+    button.imageView.layer.borderWidth = 1;
+    button.titleEdgeInsets = UIEdgeInsetsMake(0, 14, 0, -6);
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:82].active = YES;
     button.accessibilityIdentifier = identifier;
     [button setTitle:title forState:UIControlStateNormal];
     [button addTarget:self action:@selector(selectThemeFromButton:) forControlEvents:UIControlEventTouchUpInside];
@@ -3064,9 +3265,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     for (NSDictionary<NSString *, id> *choice in ISHWorkspaceThemeChoices()) {
         NSString *identifier = choice[@"identifier"];
         NSString *title = choice[@"title"];
+        NSString *detail = [choice[@"builtIn"] boolValue] ? @"Built-in theme" : @"Saved custom theme";
         NSString *labelTitle = [identifier isEqualToString:currentIdentifier]
-            ? [NSString stringWithFormat:@"Applied • %@", title]
-            : title;
+            ? [NSString stringWithFormat:@"Applied • %@\n%@", title, detail]
+            : [NSString stringWithFormat:@"%@\n%@", title, detail];
         UIButton *button = [self themeSelectionButtonWithTitle:labelTitle identifier:identifier];
         [_themeListStack addArrangedSubview:button];
     }
@@ -3179,6 +3381,29 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self refreshThemeSelectionButtons];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)generateThemeBackgroundImage:(id)sender {
+    UIView *sourceView = [sender isKindOfClass:UIView.class] ? (UIView *) sender : _previewSurfaceView;
+    CGSize screenSize = UIScreen.mainScreen.bounds.size;
+    CGFloat scale = MAX(UIScreen.mainScreen.scale, 2.0);
+    CGSize imageSize = CGSizeMake(MAX(1.0, screenSize.width * scale), MAX(1.0, screenSize.height * scale));
+    UIImage *image = ISHWorkspaceThemeArtworkImage(_editingThemeIdentifier,
+                                                   [self draftPalette],
+                                                   imageSize,
+                                                   YES);
+    if (image == nil)
+        return;
+
+    UIActivityViewController *activityViewController =
+        [[UIActivityViewController alloc] initWithActivityItems:@[image] applicationActivities:nil];
+    UIPopoverPresentationController *popover = activityViewController.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:activityViewController animated:YES completion:nil];
 }
 
 - (void)viewDidLoad {
@@ -3294,21 +3519,35 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [previewStack.bottomAnchor constraintEqualToAnchor:_previewSurfaceView.bottomAnchor constant:-18],
     ]];
 
-    UIStackView *actionRow = [UIStackView new];
-    actionRow.axis = UILayoutConstraintAxisHorizontal;
-    actionRow.spacing = 10;
-    actionRow.distribution = UIStackViewDistributionFillEqually;
-    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Save As New"
-                                                           selector:@selector(saveThemeAsNew:)]];
-    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Update Selected"
-                                                           selector:@selector(updateSelectedCustomTheme:)]];
-    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Delete Selected"
-                                                           selector:@selector(deleteSelectedCustomTheme:)]];
+    UIStackView *actionStack = [UIStackView new];
+    actionStack.axis = UILayoutConstraintAxisVertical;
+    actionStack.spacing = 10;
+
+    UIStackView *actionRowTop = [UIStackView new];
+    actionRowTop.axis = UILayoutConstraintAxisHorizontal;
+    actionRowTop.spacing = 10;
+    actionRowTop.distribution = UIStackViewDistributionFillEqually;
+    [actionRowTop addArrangedSubview:[self themeUtilityButtonWithTitle:@"Save As New"
+                                                              selector:@selector(saveThemeAsNew:)]];
+    [actionRowTop addArrangedSubview:[self themeUtilityButtonWithTitle:@"Update Selected"
+                                                              selector:@selector(updateSelectedCustomTheme:)]];
+
+    UIStackView *actionRowBottom = [UIStackView new];
+    actionRowBottom.axis = UILayoutConstraintAxisHorizontal;
+    actionRowBottom.spacing = 10;
+    actionRowBottom.distribution = UIStackViewDistributionFillEqually;
+    [actionRowBottom addArrangedSubview:[self themeUtilityButtonWithTitle:@"Delete Selected"
+                                                                 selector:@selector(deleteSelectedCustomTheme:)]];
+    [actionRowBottom addArrangedSubview:[self themeUtilityButtonWithTitle:@"Export Background"
+                                                                 selector:@selector(generateThemeBackgroundImage:)]];
+
+    [actionStack addArrangedSubview:actionRowTop];
+    [actionStack addArrangedSubview:actionRowBottom];
 
     [editorStack addArrangedSubview:editorTitle];
     [editorStack addArrangedSubview:_editorThemeLabel];
     [editorStack addArrangedSubview:_previewSurfaceView];
-    [editorStack addArrangedSubview:actionRow];
+    [editorStack addArrangedSubview:actionStack];
     for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
         [editorStack addArrangedSubview:[self sliderRowWithTitle:[self themeEditorTitleForKey:key] key:key]];
     }
@@ -3365,6 +3604,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             ? [theme[@"accent"] colorWithAlphaComponent:0.18]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
         button.layer.borderColor = (selected ? theme[@"accent"] : theme[@"stroke"]).CGColor;
+        button.imageView.layer.borderColor = (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
         [button setTitleColor:selected ? theme[@"accent"] : theme[@"primary"] forState:UIControlStateNormal];
     }
     BOOL editingCustom = !ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier);
@@ -3506,7 +3746,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @end
 
 @implementation WorkspaceInfoToolViewController {
+    UIScrollView *_scrollView;
     UIStackView *_contentStack;
+    UIStackView *_topRow;
+    UIStackView *_bottomRow;
     UILabel *_batteryValueLabel;
     UILabel *_rootValueLabel;
     UILabel *_storageValueLabel;
@@ -3553,11 +3796,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [super viewDidLoad];
     self.title = @"Info";
 
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
+
     _contentStack = [UIStackView new];
     _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     _contentStack.axis = UILayoutConstraintAxisVertical;
     _contentStack.spacing = 16;
-    [self.toolContentView addSubview:_contentStack];
+    [_scrollView addSubview:_contentStack];
 
     UILabel *titleLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
     titleLabel.text = @"Workspace Signals";
@@ -3566,33 +3814,48 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     subtitleLabel.text = @"Live native summaries of power, storage, root selection, and startup behavior.";
     subtitleLabel.textAlignment = NSTextAlignmentCenter;
 
-    UIStackView *topRow = [UIStackView new];
-    topRow.axis = UILayoutConstraintAxisHorizontal;
-    topRow.spacing = 16;
-    topRow.distribution = UIStackViewDistributionFillEqually;
-    [topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
-    [topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Root" valueLabel:&_rootValueLabel]];
+    _topRow = [UIStackView new];
+    _topRow.axis = UILayoutConstraintAxisHorizontal;
+    _topRow.spacing = 16;
+    _topRow.distribution = UIStackViewDistributionFillEqually;
+    [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
+    [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Root" valueLabel:&_rootValueLabel]];
 
-    UIStackView *bottomRow = [UIStackView new];
-    bottomRow.axis = UILayoutConstraintAxisHorizontal;
-    bottomRow.spacing = 16;
-    bottomRow.distribution = UIStackViewDistributionFillEqually;
-    [bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Free Storage" valueLabel:&_storageValueLabel]];
-    [bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Startup" valueLabel:&_startupValueLabel]];
+    _bottomRow = [UIStackView new];
+    _bottomRow.axis = UILayoutConstraintAxisHorizontal;
+    _bottomRow.spacing = 16;
+    _bottomRow.distribution = UIStackViewDistributionFillEqually;
+    [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Free Storage" valueLabel:&_storageValueLabel]];
+    [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Startup" valueLabel:&_startupValueLabel]];
 
     [_contentStack addArrangedSubview:titleLabel];
     [_contentStack addArrangedSubview:subtitleLabel];
-    [_contentStack addArrangedSubview:topRow];
-    [_contentStack addArrangedSubview:bottomRow];
+    [_contentStack addArrangedSubview:_topRow];
+    [_contentStack addArrangedSubview:_bottomRow];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_contentStack.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:18],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:18],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-18],
-        [_contentStack.bottomAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.bottomAnchor constant:-18],
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:18],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:18],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-18],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-18],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-36],
     ]];
 
     [self refreshInfo:nil];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 420;
+    _topRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
+    _bottomRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
+    _topRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
+    _bottomRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
