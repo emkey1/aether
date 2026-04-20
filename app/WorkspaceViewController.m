@@ -1233,6 +1233,7 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceThemedToolViewController : UIViewController
 
 @property (nonatomic, strong, readonly) UIView *toolContentView;
+@property (nonatomic, weak) WorkspaceViewController *workspaceHostViewController;
 
 - (UIView *)workspaceThemeCardView;
 - (UILabel *)workspaceThemePrimaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
@@ -1314,9 +1315,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)applyWorkspaceWallpaperImage:(UIImage *)image {
     self.desktopWallpaperView.image = image;
     self.desktopWallpaperView.hidden = (image == nil);
-    self.desktopSurfaceView.layer.contents = image != nil ? (__bridge id) image.CGImage : nil;
-    self.desktopSurfaceView.layer.contentsGravity = kCAGravityResizeAspectFill;
-    self.desktopSurfaceView.layer.contentsScale = image != nil ? image.scale : UIScreen.mainScreen.scale;
+    [self.desktopSurfaceView sendSubviewToBack:self.desktopWallpaperView];
+    self.desktopSurfaceView.layer.contents = nil;
 }
 
 - (UILabel *)workspaceLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
@@ -1656,6 +1656,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)attachViewController:(UIViewController *)viewController toDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    if ([viewController isKindOfClass:WorkspaceThemedToolViewController.class]) {
+        ((WorkspaceThemedToolViewController *) viewController).workspaceHostViewController = self;
+    }
     [self addChildViewController:viewController];
     viewController.view.translatesAutoresizingMaskIntoConstraints = NO;
     [windowView.contentContainerView addSubview:viewController.view];
@@ -3554,25 +3557,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _densityValueLabel.text = ISHWorkspaceCurrentDensityTitle();
 }
 
-- (WorkspaceViewController *)workspaceViewController {
-    UIViewController *controller = self;
-    while (controller != nil && ![controller isKindOfClass:WorkspaceViewController.class]) {
-        controller = controller.parentViewController;
-    }
-    if ([controller isKindOfClass:WorkspaceViewController.class])
-        return (WorkspaceViewController *) controller;
-
-    UIResponder *responder = self.view;
-    while ((responder = responder.nextResponder) != nil) {
-        if ([responder isKindOfClass:WorkspaceViewController.class])
-            return (WorkspaceViewController *) responder;
-    }
-    return nil;
-}
-
 - (void)generateThemeBackgroundImage:(id)sender {
     (void) sender;
-    WorkspaceViewController *workspaceViewController = [self workspaceViewController];
+    WorkspaceViewController *workspaceViewController = self.workspaceHostViewController;
+    if (workspaceViewController == nil)
+        return;
     CGSize targetSize = workspaceViewController.desktopSurfaceView.bounds.size;
     if (targetSize.width <= 1 || targetSize.height <= 1)
         targetSize = UIScreen.mainScreen.bounds.size;
