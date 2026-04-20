@@ -119,6 +119,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @property (nonatomic, copy, nullable) dispatch_block_t closeHandler;
 @property (nonatomic, copy, nullable) dispatch_block_t utilityHandler;
 @property (nonatomic, copy, nullable) dispatch_block_t didBecomeFrontmostHandler;
+@property (nonatomic, copy, nullable) dispatch_block_t frameDidChangeHandler;
 @property (nonatomic, weak) TerminalViewController *hostedTerminalViewController;
 @property (nonatomic, copy) NSString *workspaceToolIdentifier;
 @property (nonatomic, copy) NSString *workspaceTerminalRole;
@@ -325,6 +326,14 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     [super layoutSubviews];
     UIBezierPath *shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:ISHWorkspaceWindowCornerRadius];
     self.layer.shadowPath = shadowPath.CGPath;
+}
+
+- (void)setFrame:(CGRect)frame {
+    CGRect priorFrame = self.frame;
+    [super setFrame:frame];
+    if (!CGRectEqualToRect(priorFrame, frame) && self.frameDidChangeHandler != nil) {
+        self.frameDidChangeHandler();
+    }
 }
 
 - (void)bringWindowToFront {
@@ -2409,6 +2418,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (!CGSizeEqualToSize(minimumSize, CGSizeZero)) {
         windowView.resizable = YES;
         windowView.minimumSize = minimumSize;
+    }
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+        __weak typeof(self) weakSelf = self;
+        windowView.frameDidChangeHandler = ^{
+            [weakSelf persistDefaultWorkspaceUtilityFrames];
+        };
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
     [self refreshDockButtons];
