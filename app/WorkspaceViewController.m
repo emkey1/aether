@@ -46,6 +46,7 @@ static NSString *const ISHWorkspaceToolInfoIdentifier = @"info";
 static NSString *const ISHWorkspaceToolMonitorIdentifier = @"monitor";
 static NSString *const ISHWorkspaceToolNetworksIdentifier = @"networks";
 static NSString *const ISHWorkspaceToolStatusIdentifier = @"status";
+static NSString *const ISHWorkspaceToolThemesIdentifier = @"themes";
 static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
@@ -398,6 +399,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(420, 260);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(720, 560);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+        return CGSizeMake(820, 760);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
         return CGSizeMake(760, 700);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
@@ -443,6 +446,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Networks";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return @"System Status";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+        return @"Themes";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
         return @"Diagnostics";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
@@ -755,6 +760,7 @@ static NSString *ISHWorkspaceSystemStatusText(void) {
 }
 
 static NSString *const ISHWorkspaceToolThemePreferenceKey = @"ISHWorkspaceToolTheme";
+static NSString *const ISHWorkspaceCustomThemesDefaultsKey = @"ISHWorkspaceCustomThemes";
 static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
 static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
 static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
@@ -767,7 +773,48 @@ static UIColor *ISHWorkspaceThemeColor(CGFloat red, CGFloat green, CGFloat blue,
                            alpha:alpha];
 }
 
-static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceThemeChoices(void) {
+static NSDictionary<NSString *, NSNumber *> *ISHWorkspaceThemeColorDescriptor(CGFloat red, CGFloat green, CGFloat blue) {
+    return @{
+        @"red": @(red),
+        @"green": @(green),
+        @"blue": @(blue),
+    };
+}
+
+static UIColor *ISHWorkspaceThemeColorFromDescriptor(NSDictionary<NSString *, NSNumber *> *descriptor) {
+    if (![descriptor isKindOfClass:NSDictionary.class])
+        return UIColor.blackColor;
+    return ISHWorkspaceThemeColor([descriptor[@"red"] doubleValue],
+                                  [descriptor[@"green"] doubleValue],
+                                  [descriptor[@"blue"] doubleValue],
+                                  1.0);
+}
+
+static NSDictionary<NSString *, NSNumber *> *ISHWorkspaceThemeColorDescriptorFromUIColor(UIColor *color) {
+    CGFloat red = 0;
+    CGFloat green = 0;
+    CGFloat blue = 0;
+    CGFloat alpha = 0;
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha]) {
+        CGFloat white = 0;
+        if ([color getWhite:&white alpha:&alpha]) {
+            red = white;
+            green = white;
+            blue = white;
+        }
+    }
+    return @{
+        @"red": @(llround(red * 255.0)),
+        @"green": @(llround(green * 255.0)),
+        @"blue": @(llround(blue * 255.0)),
+    };
+}
+
+static NSArray<NSString *> *ISHWorkspaceThemeEditableColorKeys(void) {
+    return @[@"backgroundTop", @"backgroundBottom", @"card", @"primary", @"secondary", @"accent", @"accentAlt"];
+}
+
+static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceBuiltInThemeChoices(void) {
     return @[
         @{@"identifier": ISHWorkspaceToolThemeAuroraIdentifier, @"title": @"Aurora"},
         @{@"identifier": ISHWorkspaceToolThemeSolsticeIdentifier, @"title": @"Solstice"},
@@ -775,12 +822,78 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceThemeChoices
     ];
 }
 
-static BOOL ISHWorkspaceThemeIdentifierIsValid(NSString *identifier) {
-    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
-        if ([choice[@"identifier"] isEqualToString:identifier])
-            return YES;
+static NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *ISHWorkspaceBuiltInThemePalette(NSString *identifier) {
+    if ([identifier isEqualToString:ISHWorkspaceToolThemeSolsticeIdentifier]) {
+        return @{
+            @"backgroundTop": ISHWorkspaceThemeColorDescriptor(255, 240, 218),
+            @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(255, 174, 111),
+            @"card": ISHWorkspaceThemeColorDescriptor(255, 250, 242),
+            @"primary": ISHWorkspaceThemeColorDescriptor(71, 39, 24),
+            @"secondary": ISHWorkspaceThemeColorDescriptor(122, 85, 63),
+            @"accent": ISHWorkspaceThemeColorDescriptor(214, 97, 42),
+            @"accentAlt": ISHWorkspaceThemeColorDescriptor(196, 133, 18),
+        };
     }
-    return NO;
+    if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
+        return @{
+            @"backgroundTop": ISHWorkspaceThemeColorDescriptor(21, 29, 43),
+            @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(49, 63, 85),
+            @"card": ISHWorkspaceThemeColorDescriptor(33, 42, 58),
+            @"primary": ISHWorkspaceThemeColorDescriptor(239, 244, 255),
+            @"secondary": ISHWorkspaceThemeColorDescriptor(177, 189, 214),
+            @"accent": ISHWorkspaceThemeColorDescriptor(107, 226, 198),
+            @"accentAlt": ISHWorkspaceThemeColorDescriptor(125, 164, 255),
+        };
+    }
+    return @{
+        @"backgroundTop": ISHWorkspaceThemeColorDescriptor(13, 34, 70),
+        @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(44, 129, 167),
+        @"card": ISHWorkspaceThemeColorDescriptor(239, 251, 255),
+        @"primary": ISHWorkspaceThemeColorDescriptor(14, 39, 63),
+        @"secondary": ISHWorkspaceThemeColorDescriptor(69, 99, 128),
+        @"accent": ISHWorkspaceThemeColorDescriptor(0, 156, 183),
+        @"accentAlt": ISHWorkspaceThemeColorDescriptor(109, 204, 128),
+    };
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceCustomThemeRecords(void) {
+    NSArray *records = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceCustomThemesDefaultsKey];
+    return [records isKindOfClass:NSArray.class] ? records : @[];
+}
+
+static NSDictionary<NSString *, id> *ISHWorkspaceThemeRecordForIdentifier(NSString *identifier) {
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceBuiltInThemeChoices()) {
+        if ([choice[@"identifier"] isEqualToString:identifier])
+            return @{
+                @"identifier": choice[@"identifier"],
+                @"title": choice[@"title"],
+                @"palette": ISHWorkspaceBuiltInThemePalette(identifier),
+                @"builtIn": @YES,
+            };
+    }
+    for (NSDictionary<NSString *, id> *record in ISHWorkspaceCustomThemeRecords()) {
+        if ([record[@"identifier"] isEqualToString:identifier])
+            return record;
+    }
+    return nil;
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceThemeChoices(void) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *choices = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceBuiltInThemeChoices()) {
+        [choices addObject:@{
+            @"identifier": choice[@"identifier"],
+            @"title": choice[@"title"],
+            @"palette": ISHWorkspaceBuiltInThemePalette(choice[@"identifier"]),
+            @"builtIn": @YES,
+        }];
+    }
+    [choices addObjectsFromArray:ISHWorkspaceCustomThemeRecords()];
+    return choices;
+}
+
+static BOOL ISHWorkspaceThemeIdentifierIsValid(NSString *identifier) {
+    return ISHWorkspaceThemeRecordForIdentifier(identifier) != nil;
 }
 
 static NSString *ISHWorkspaceCurrentThemeIdentifier(void) {
@@ -791,53 +904,42 @@ static NSString *ISHWorkspaceCurrentThemeIdentifier(void) {
 }
 
 static NSString *ISHWorkspaceCurrentThemeTitle(void) {
-    NSString *identifier = ISHWorkspaceCurrentThemeIdentifier();
-    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
-        if ([choice[@"identifier"] isEqualToString:identifier])
-            return choice[@"title"];
-    }
-    return @"Aurora";
+    NSDictionary<NSString *, id> *record = ISHWorkspaceThemeRecordForIdentifier(ISHWorkspaceCurrentThemeIdentifier());
+    return record[@"title"] ?: @"Aurora";
+}
+
+static NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *ISHWorkspaceThemeEditablePaletteForIdentifier(NSString *identifier) {
+    NSDictionary<NSString *, id> *record = ISHWorkspaceThemeRecordForIdentifier(identifier);
+    NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette = record[@"palette"];
+    if (![palette isKindOfClass:NSDictionary.class])
+        return ISHWorkspaceBuiltInThemePalette(ISHWorkspaceToolThemeAuroraIdentifier);
+    return palette;
+}
+
+static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptorFromEditablePalette(NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette) {
+    UIColor *backgroundTop = ISHWorkspaceThemeColorFromDescriptor(palette[@"backgroundTop"]);
+    UIColor *backgroundBottom = ISHWorkspaceThemeColorFromDescriptor(palette[@"backgroundBottom"]);
+    UIColor *cardBase = ISHWorkspaceThemeColorFromDescriptor(palette[@"card"]);
+    UIColor *primary = ISHWorkspaceThemeColorFromDescriptor(palette[@"primary"]);
+    UIColor *secondary = ISHWorkspaceThemeColorFromDescriptor(palette[@"secondary"]);
+    UIColor *accent = ISHWorkspaceThemeColorFromDescriptor(palette[@"accent"]);
+    UIColor *accentAlt = ISHWorkspaceThemeColorFromDescriptor(palette[@"accentAlt"]);
+    return @{
+        @"backgroundTop": backgroundTop,
+        @"backgroundBottom": backgroundBottom,
+        @"card": [cardBase colorWithAlphaComponent:0.9],
+        @"cardAlt": [cardBase colorWithAlphaComponent:0.76],
+        @"primary": primary,
+        @"secondary": secondary,
+        @"accent": accent,
+        @"accentAlt": accentAlt,
+        @"stroke": [accent colorWithAlphaComponent:0.18],
+    };
 }
 
 static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptor(void) {
-    NSString *identifier = ISHWorkspaceCurrentThemeIdentifier();
-    if ([identifier isEqualToString:ISHWorkspaceToolThemeSolsticeIdentifier]) {
-        return @{
-            @"backgroundTop": ISHWorkspaceThemeColor(255, 240, 218, 1.0),
-            @"backgroundBottom": ISHWorkspaceThemeColor(255, 174, 111, 1.0),
-            @"card": ISHWorkspaceThemeColor(255, 250, 242, 0.92),
-            @"cardAlt": ISHWorkspaceThemeColor(255, 238, 220, 0.82),
-            @"primary": ISHWorkspaceThemeColor(71, 39, 24, 1.0),
-            @"secondary": ISHWorkspaceThemeColor(122, 85, 63, 1.0),
-            @"accent": ISHWorkspaceThemeColor(214, 97, 42, 1.0),
-            @"accentAlt": ISHWorkspaceThemeColor(196, 133, 18, 1.0),
-            @"stroke": ISHWorkspaceThemeColor(214, 97, 42, 0.18),
-        };
-    }
-    if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
-        return @{
-            @"backgroundTop": ISHWorkspaceThemeColor(21, 29, 43, 1.0),
-            @"backgroundBottom": ISHWorkspaceThemeColor(49, 63, 85, 1.0),
-            @"card": ISHWorkspaceThemeColor(33, 42, 58, 0.9),
-            @"cardAlt": ISHWorkspaceThemeColor(52, 64, 86, 0.74),
-            @"primary": ISHWorkspaceThemeColor(239, 244, 255, 1.0),
-            @"secondary": ISHWorkspaceThemeColor(177, 189, 214, 1.0),
-            @"accent": ISHWorkspaceThemeColor(107, 226, 198, 1.0),
-            @"accentAlt": ISHWorkspaceThemeColor(125, 164, 255, 1.0),
-            @"stroke": ISHWorkspaceThemeColor(255, 255, 255, 0.09),
-        };
-    }
-    return @{
-        @"backgroundTop": ISHWorkspaceThemeColor(13, 34, 70, 1.0),
-        @"backgroundBottom": ISHWorkspaceThemeColor(44, 129, 167, 1.0),
-        @"card": ISHWorkspaceThemeColor(239, 251, 255, 0.9),
-        @"cardAlt": ISHWorkspaceThemeColor(211, 241, 245, 0.84),
-        @"primary": ISHWorkspaceThemeColor(14, 39, 63, 1.0),
-        @"secondary": ISHWorkspaceThemeColor(69, 99, 128, 1.0),
-        @"accent": ISHWorkspaceThemeColor(0, 156, 183, 1.0),
-        @"accentAlt": ISHWorkspaceThemeColor(109, 204, 128, 1.0),
-        @"stroke": ISHWorkspaceThemeColor(255, 255, 255, 0.16),
-    };
+    return ISHWorkspaceThemeDescriptorFromEditablePalette(
+        ISHWorkspaceThemeEditablePaletteForIdentifier(ISHWorkspaceCurrentThemeIdentifier()));
 }
 
 static void ISHWorkspaceSetCurrentThemeIdentifier(NSString *identifier) {
@@ -848,6 +950,63 @@ static void ISHWorkspaceSetCurrentThemeIdentifier(NSString *identifier) {
         return;
     [NSUserDefaults.standardUserDefaults setObject:identifier forKey:ISHWorkspaceToolThemePreferenceKey];
     [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceToolThemeDidChangeNotification object:nil];
+}
+
+static NSString *ISHWorkspaceCreateCustomThemeIdentifier(void) {
+    return [NSString stringWithFormat:@"custom-%@", NSUUID.UUID.UUIDString.lowercaseString];
+}
+
+static void ISHWorkspaceSaveCustomThemeRecord(NSString *identifier,
+                                              NSString *title,
+                                              NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette) {
+    if (identifier.length == 0 || title.length == 0 || ![palette isKindOfClass:NSDictionary.class])
+        return;
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *records = [ISHWorkspaceCustomThemeRecords() mutableCopy];
+    NSMutableDictionary<NSString *, id> *record = [@{
+        @"identifier": identifier,
+        @"title": title,
+        @"palette": palette,
+        @"builtIn": @NO,
+    } mutableCopy];
+    BOOL replaced = NO;
+    for (NSUInteger index = 0; index < records.count; index++) {
+        if ([records[index][@"identifier"] isEqualToString:identifier]) {
+            records[index] = record;
+            replaced = YES;
+            break;
+        }
+    }
+    if (!replaced)
+        [records addObject:record];
+    [NSUserDefaults.standardUserDefaults setObject:records forKey:ISHWorkspaceCustomThemesDefaultsKey];
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceToolThemeDidChangeNotification object:nil];
+}
+
+static void ISHWorkspaceDeleteCustomThemeRecord(NSString *identifier) {
+    if (identifier.length == 0)
+        return;
+    NSMutableArray<NSDictionary<NSString *, id> *> *records = [ISHWorkspaceCustomThemeRecords() mutableCopy];
+    NSIndexSet *indexes = [records indexesOfObjectsPassingTest:^BOOL(NSDictionary<NSString *, id> *record, NSUInteger idx, BOOL *stop) {
+        return [record[@"identifier"] isEqualToString:identifier];
+    }];
+    if (indexes.count == 0)
+        return;
+    [records removeObjectsAtIndexes:indexes];
+    [NSUserDefaults.standardUserDefaults setObject:records forKey:ISHWorkspaceCustomThemesDefaultsKey];
+    if ([[NSUserDefaults.standardUserDefaults stringForKey:ISHWorkspaceToolThemePreferenceKey] isEqualToString:identifier]) {
+        [NSUserDefaults.standardUserDefaults setObject:ISHWorkspaceToolThemeAuroraIdentifier
+                                                forKey:ISHWorkspaceToolThemePreferenceKey];
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceToolThemeDidChangeNotification object:nil];
+}
+
+static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceBuiltInThemeChoices()) {
+        if ([choice[@"identifier"] isEqualToString:identifier])
+            return YES;
+    }
+    return NO;
 }
 
 @interface WorkspaceThemedToolViewController : UIViewController
@@ -880,6 +1039,9 @@ static void ISHWorkspaceSetCurrentThemeIdentifier(NSString *identifier) {
 @interface WorkspaceStatusToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceThemesToolViewController : WorkspaceThemedToolViewController
+@end
+
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
         return [WorkspaceClockToolViewController new];
@@ -891,6 +1053,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceNetworksToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return [WorkspaceStatusToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+        return [WorkspaceThemesToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
         return ISHCreateRootsViewController();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier]) {
@@ -913,6 +1077,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolNetworksIdentifier;
     if ([viewController isKindOfClass:WorkspaceStatusToolViewController.class])
         return ISHWorkspaceToolStatusIdentifier;
+    if ([viewController isKindOfClass:WorkspaceThemesToolViewController.class])
+        return ISHWorkspaceToolThemesIdentifier;
     if ([viewController isKindOfClass:NSClassFromString(@"DiagnosticsViewController")])
         return ISHWorkspaceToolDiagnosticsIdentifier;
     if ([viewController isKindOfClass:NSClassFromString(@"AboutViewController")])
@@ -1506,6 +1672,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier]) {
         windowView.resizable = YES;
         windowView.minimumSize = CGSizeMake(320, 180);
+    } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier]) {
+        windowView.resizable = YES;
+        windowView.minimumSize = CGSizeMake(520, 560);
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
     [self refreshDockButtons];
@@ -2204,6 +2373,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)dockUtilityToolDescriptors {
     return @[
         @{@"title": @"Dashboard", @"identifier": @"dashboard"},
+        @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
         @{@"title": @"Clock", @"identifier": ISHWorkspaceToolClockIdentifier},
         @{@"title": @"Info", @"identifier": ISHWorkspaceToolInfoIdentifier},
         @{@"title": @"Monitor", @"identifier": ISHWorkspaceToolMonitorIdentifier},
@@ -2511,8 +2681,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @implementation WorkspaceThemedToolViewController {
     CAGradientLayer *_backgroundGradientLayer;
-    UIView *_themeBadgeView;
-    UIButton *_themeButton;
     UIView *_toolContentView;
     NSMutableArray<UIView *> *_trackedCardViews;
     NSMutableArray<UILabel *> *_trackedPrimaryLabels;
@@ -2540,34 +2708,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _backgroundGradientLayer.endPoint = CGPointMake(0.88, 1.0);
     [self.view.layer insertSublayer:_backgroundGradientLayer atIndex:0];
 
-    _themeBadgeView = [UIView new];
-    _themeBadgeView.translatesAutoresizingMaskIntoConstraints = NO;
-    _themeBadgeView.layer.cornerRadius = 14;
-    _themeBadgeView.layer.borderWidth = 1;
-    [self.view addSubview:_themeBadgeView];
-
-    _themeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _themeButton.translatesAutoresizingMaskIntoConstraints = NO;
-    _themeButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-    _themeButton.contentEdgeInsets = UIEdgeInsetsMake(5, 10, 5, 10);
-    [_themeButton addTarget:self action:@selector(presentWorkspaceThemeOptions:) forControlEvents:UIControlEventTouchUpInside];
-    [_themeBadgeView addSubview:_themeButton];
-
     _toolContentView = [UIView new];
     _toolContentView.translatesAutoresizingMaskIntoConstraints = NO;
     _toolContentView.backgroundColor = UIColor.clearColor;
     [self.view addSubview:_toolContentView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_themeBadgeView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
-        [_themeBadgeView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
-
-        [_themeButton.topAnchor constraintEqualToAnchor:_themeBadgeView.topAnchor],
-        [_themeButton.leadingAnchor constraintEqualToAnchor:_themeBadgeView.leadingAnchor],
-        [_themeButton.trailingAnchor constraintEqualToAnchor:_themeBadgeView.trailingAnchor],
-        [_themeButton.bottomAnchor constraintEqualToAnchor:_themeBadgeView.bottomAnchor],
-
-        [_toolContentView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:42],
+        [_toolContentView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
         [_toolContentView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
         [_toolContentView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
         [_toolContentView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
@@ -2670,48 +2817,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self workspaceApplyTheme];
 }
 
-- (void)presentWorkspaceThemeOptions:(id)sender {
-    UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"Theme"
-                                            message:@"Apply a shared Workspace native app theme."
-                                     preferredStyle:UIAlertControllerStyleActionSheet];
-
-    NSString *currentIdentifier = ISHWorkspaceCurrentThemeIdentifier();
-    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
-        NSString *identifier = choice[@"identifier"];
-        NSString *title = choice[@"title"];
-        NSString *actionTitle = [identifier isEqualToString:currentIdentifier]
-            ? [NSString stringWithFormat:@"✓ %@", title]
-            : title;
-        [sheet addAction:[UIAlertAction actionWithTitle:actionTitle
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(__unused UIAlertAction *action) {
-            ISHWorkspaceSetCurrentThemeIdentifier(identifier);
-        }]];
-    }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
-                                              style:UIAlertActionStyleCancel
-                                            handler:nil]];
-
-    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
-    if (popover != nil) {
-        popover.sourceView = [sender isKindOfClass:UIView.class] ? sender : _themeBadgeView;
-        popover.sourceRect = [sender isKindOfClass:UIView.class] ? ((UIView *) sender).bounds : _themeBadgeView.bounds;
-        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
-    }
-    [self presentViewController:sheet animated:YES completion:nil];
-}
-
 - (void)workspaceApplyTheme {
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     _backgroundGradientLayer.colors = @[
         (id) theme[@"backgroundTop"].CGColor,
         (id) theme[@"backgroundBottom"].CGColor,
     ];
-    _themeBadgeView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.96];
-    _themeBadgeView.layer.borderColor = theme[@"stroke"].CGColor;
-    [_themeButton setTitle:ISHWorkspaceCurrentThemeTitle() forState:UIControlStateNormal];
-    [_themeButton setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
 
     for (UIView *card in _trackedCardViews) {
         card.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.95];
@@ -2734,6 +2845,539 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         UIProgressView *progressView = _trackedProgressViews[index];
         progressView.trackTintColor = [theme[@"accentAlt"] colorWithAlphaComponent:0.18];
         progressView.progressTintColor = index % 2 == 0 ? theme[@"accent"] : theme[@"accentAlt"];
+    }
+}
+
+@end
+
+@implementation WorkspaceThemesToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UIStackView *_themeListStack;
+    UILabel *_activeThemeLabel;
+    UILabel *_editorThemeLabel;
+    UIView *_previewSurfaceView;
+    CAGradientLayer *_previewGradientLayer;
+    UILabel *_previewTitleLabel;
+    UILabel *_previewBodyLabel;
+    UIProgressView *_previewProgressView;
+    NSMutableDictionary<NSString *, UIView *> *_swatchViewsByKey;
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UISlider *> *> *_channelSlidersByKey;
+    NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UILabel *> *> *_channelValueLabelsByKey;
+    NSMutableArray<UIButton *> *_themeSelectionButtons;
+    NSMutableArray<UIButton *> *_editorActionButtons;
+    NSString *_editingThemeIdentifier;
+}
+
+- (NSString *)themeEditorTitleForKey:(NSString *)key {
+    if ([key isEqualToString:@"backgroundTop"])
+        return @"Background Top";
+    if ([key isEqualToString:@"backgroundBottom"])
+        return @"Background Bottom";
+    if ([key isEqualToString:@"card"])
+        return @"Card Surface";
+    if ([key isEqualToString:@"primary"])
+        return @"Primary Text";
+    if ([key isEqualToString:@"secondary"])
+        return @"Secondary Text";
+    if ([key isEqualToString:@"accent"])
+        return @"Accent";
+    if ([key isEqualToString:@"accentAlt"])
+        return @"Accent Alt";
+    return key;
+}
+
+- (NSMutableDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *)mutablePaletteForIdentifier:(NSString *)identifier {
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette =
+        [[ISHWorkspaceThemeEditablePaletteForIdentifier(identifier) mutableCopy] ?: @{}.mutableCopy mutableCopy];
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        NSDictionary<NSString *, NSNumber *> *descriptor = palette[key];
+        if (![descriptor isKindOfClass:NSDictionary.class]) {
+            descriptor = ISHWorkspaceBuiltInThemePalette(ISHWorkspaceToolThemeAuroraIdentifier)[key];
+        }
+        if (descriptor != nil)
+            palette[key] = [descriptor copy];
+    }
+    return palette;
+}
+
+- (NSMutableDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *)draftPalette {
+    NSMutableDictionary *palette = [NSMutableDictionary dictionary];
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        NSMutableDictionary<NSString *, UISlider *> *channels = _channelSlidersByKey[key];
+        if (channels == nil)
+            continue;
+        palette[key] = @{
+            @"red": @((NSInteger) lround(channels[@"red"].value)),
+            @"green": @((NSInteger) lround(channels[@"green"].value)),
+            @"blue": @((NSInteger) lround(channels[@"blue"].value)),
+        };
+    }
+    return palette;
+}
+
+- (UIButton *)themeUtilityButtonWithTitle:(NSString *)title selector:(SEL)selector {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.layer.cornerRadius = 12;
+    button.layer.borderWidth = 1;
+    button.contentEdgeInsets = UIEdgeInsetsMake(10, 14, 10, 14);
+    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    [button setTitle:title forState:UIControlStateNormal];
+    [button addTarget:self action:selector forControlEvents:UIControlEventTouchUpInside];
+    [_editorActionButtons addObject:button];
+    return button;
+}
+
+- (UIButton *)themeSelectionButtonWithTitle:(NSString *)title identifier:(NSString *)identifier {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.layer.cornerRadius = 14;
+    button.layer.borderWidth = 1;
+    button.contentEdgeInsets = UIEdgeInsetsMake(10, 12, 10, 12);
+    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    button.accessibilityIdentifier = identifier;
+    [button setTitle:title forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(selectThemeFromButton:) forControlEvents:UIControlEventTouchUpInside];
+    [_themeSelectionButtons addObject:button];
+    return button;
+}
+
+- (UIView *)sliderRowWithTitle:(NSString *)title
+                         key:(NSString *)key {
+    UIView *card = [self workspaceThemeCardView];
+
+    UIStackView *stack = [UIStackView new];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    [card addSubview:stack];
+
+    UIStackView *headerRow = [UIStackView new];
+    headerRow.axis = UILayoutConstraintAxisHorizontal;
+    headerRow.spacing = 10;
+    headerRow.alignment = UIStackViewAlignmentCenter;
+
+    UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    titleLabel.text = title;
+    UIView *swatch = [UIView new];
+    swatch.translatesAutoresizingMaskIntoConstraints = NO;
+    swatch.layer.cornerRadius = 10;
+    swatch.layer.borderWidth = 1;
+    [_swatchViewsByKey setObject:swatch forKey:key];
+    [swatch.widthAnchor constraintEqualToConstant:44].active = YES;
+    [swatch.heightAnchor constraintEqualToConstant:22].active = YES;
+    [headerRow addArrangedSubview:titleLabel];
+    [headerRow addArrangedSubview:swatch];
+    [titleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [swatch setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    [stack addArrangedSubview:headerRow];
+
+    NSMutableDictionary<NSString *, UISlider *> *channels = [NSMutableDictionary dictionary];
+    NSArray<NSDictionary<NSString *, NSString *> *> *channelDescriptors = @[
+        @{@"name": @"R", @"key": @"red"},
+        @{@"name": @"G", @"key": @"green"},
+        @{@"name": @"B", @"key": @"blue"},
+    ];
+    for (NSDictionary<NSString *, NSString *> *channelDescriptor in channelDescriptors) {
+        UIStackView *row = [UIStackView new];
+        row.axis = UILayoutConstraintAxisHorizontal;
+        row.spacing = 8;
+        row.alignment = UIStackViewAlignmentCenter;
+
+        UILabel *channelLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:YES];
+        channelLabel.text = channelDescriptor[@"name"];
+        channelLabel.textAlignment = NSTextAlignmentCenter;
+        [channelLabel.widthAnchor constraintEqualToConstant:20].active = YES;
+
+        UISlider *slider = [UISlider new];
+        slider.minimumValue = 0.0f;
+        slider.maximumValue = 255.0f;
+        slider.accessibilityIdentifier = [NSString stringWithFormat:@"%@:%@", key, channelDescriptor[@"key"]];
+        [slider addTarget:self action:@selector(themeSliderChanged:) forControlEvents:UIControlEventValueChanged];
+
+        UILabel *valueLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:YES];
+        valueLabel.textAlignment = NSTextAlignmentRight;
+        [valueLabel.widthAnchor constraintEqualToConstant:34].active = YES;
+
+        [row addArrangedSubview:channelLabel];
+        [row addArrangedSubview:slider];
+        [row addArrangedSubview:valueLabel];
+        [channelLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [valueLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [stack addArrangedSubview:row];
+        channels[channelDescriptor[@"key"]] = slider;
+        if (_channelValueLabelsByKey[key] == nil)
+            _channelValueLabelsByKey[key] = [NSMutableDictionary dictionary];
+        _channelValueLabelsByKey[key][channelDescriptor[@"key"]] = valueLabel;
+    }
+    _channelSlidersByKey[key] = channels;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16],
+    ]];
+    return card;
+}
+
+- (void)updateSliderValueLabels {
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        NSDictionary<NSString *, UISlider *> *channels = _channelSlidersByKey[key];
+        for (NSString *channel in channels) {
+            UILabel *label = _channelValueLabelsByKey[key][channel];
+            label.text = [NSString stringWithFormat:@"%ld", (long) lround(channels[channel].value)];
+        }
+    }
+}
+
+- (void)clearArrangedSubviewsFromStack:(UIStackView *)stackView {
+    NSArray<UIView *> *arrangedSubviews = stackView.arrangedSubviews.copy;
+    for (UIView *view in arrangedSubviews) {
+        [stackView removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+}
+
+- (void)loadThemeIntoEditorWithIdentifier:(NSString *)identifier {
+    _editingThemeIdentifier = identifier;
+    NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette = [self mutablePaletteForIdentifier:identifier];
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        NSDictionary<NSString *, NSNumber *> *descriptor = palette[key];
+        NSDictionary<NSString *, UISlider *> *channels = _channelSlidersByKey[key];
+        channels[@"red"].value = [descriptor[@"red"] floatValue];
+        channels[@"green"].value = [descriptor[@"green"] floatValue];
+        channels[@"blue"].value = [descriptor[@"blue"] floatValue];
+    }
+    [self updateSliderValueLabels];
+    [self updateDraftPreview];
+    [self refreshThemeSelectionButtons];
+}
+
+- (void)refreshThemeSelectionButtons {
+    [self clearArrangedSubviewsFromStack:_themeListStack];
+    [_themeSelectionButtons removeAllObjects];
+
+    NSString *currentIdentifier = ISHWorkspaceCurrentThemeIdentifier();
+    for (NSDictionary<NSString *, id> *choice in ISHWorkspaceThemeChoices()) {
+        NSString *identifier = choice[@"identifier"];
+        NSString *title = choice[@"title"];
+        NSString *labelTitle = [identifier isEqualToString:currentIdentifier]
+            ? [NSString stringWithFormat:@"Applied • %@", title]
+            : title;
+        UIButton *button = [self themeSelectionButtonWithTitle:labelTitle identifier:identifier];
+        [_themeListStack addArrangedSubview:button];
+    }
+    [self workspaceApplyTheme];
+}
+
+- (void)updateDraftPreview {
+    NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *palette = [self draftPalette];
+    NSDictionary<NSString *, UIColor *> *previewTheme = ISHWorkspaceThemeDescriptorFromEditablePalette(palette);
+    _previewGradientLayer.colors = @[
+        (id) previewTheme[@"backgroundTop"].CGColor,
+        (id) previewTheme[@"backgroundBottom"].CGColor,
+    ];
+    _previewSurfaceView.backgroundColor = [previewTheme[@"card"] colorWithAlphaComponent:0.96];
+    _previewSurfaceView.layer.borderColor = previewTheme[@"stroke"].CGColor;
+    _previewTitleLabel.textColor = previewTheme[@"accent"];
+    _previewBodyLabel.textColor = previewTheme[@"primary"];
+    _previewProgressView.trackTintColor = [previewTheme[@"accentAlt"] colorWithAlphaComponent:0.18];
+    _previewProgressView.progressTintColor = previewTheme[@"accentAlt"];
+    _previewProgressView.progress = 0.72f;
+
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        UIView *swatch = _swatchViewsByKey[key];
+        UIColor *color = ISHWorkspaceThemeColorFromDescriptor(palette[key]);
+        swatch.backgroundColor = color;
+        swatch.layer.borderColor = [previewTheme[@"stroke"] colorWithAlphaComponent:0.9].CGColor;
+    }
+
+    NSDictionary<NSString *, id> *record = ISHWorkspaceThemeRecordForIdentifier(_editingThemeIdentifier);
+    NSString *title = record[@"title"];
+    if (title.length == 0)
+        title = @"Draft Theme";
+    _editorThemeLabel.text = [NSString stringWithFormat:@"Editing: %@", title];
+}
+
+- (void)themeSliderChanged:(UISlider *)sender {
+    sender.value = roundf(sender.value);
+    [self updateSliderValueLabels];
+    [self updateDraftPreview];
+}
+
+- (void)selectThemeFromButton:(UIButton *)sender {
+    NSString *identifier = sender.accessibilityIdentifier;
+    if (identifier.length == 0)
+        return;
+    ISHWorkspaceSetCurrentThemeIdentifier(identifier);
+    [self loadThemeIntoEditorWithIdentifier:identifier];
+}
+
+- (void)saveThemeAsNew:(id)sender {
+    (void) sender;
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Save Theme"
+                                            message:@"Save the current editor palette as a custom Workspace theme."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Theme name";
+        textField.text = @"Custom Theme";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        NSString *title = alert.textFields.firstObject.text ?: @"";
+        title = [title stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (title.length == 0)
+            title = @"Custom Theme";
+        NSString *identifier = ISHWorkspaceCreateCustomThemeIdentifier();
+        ISHWorkspaceSaveCustomThemeRecord(identifier, title, [self draftPalette]);
+        ISHWorkspaceSetCurrentThemeIdentifier(identifier);
+        [self loadThemeIntoEditorWithIdentifier:identifier];
+        [self refreshThemeSelectionButtons];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)updateSelectedCustomTheme:(id)sender {
+    (void) sender;
+    if (ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier))
+        return;
+    NSDictionary<NSString *, id> *record = ISHWorkspaceThemeRecordForIdentifier(_editingThemeIdentifier);
+    NSString *title = record[@"title"] ?: @"Custom Theme";
+    ISHWorkspaceSaveCustomThemeRecord(_editingThemeIdentifier, title, [self draftPalette]);
+    ISHWorkspaceSetCurrentThemeIdentifier(_editingThemeIdentifier);
+    [self refreshThemeSelectionButtons];
+    [self loadThemeIntoEditorWithIdentifier:_editingThemeIdentifier];
+}
+
+- (void)deleteSelectedCustomTheme:(id)sender {
+    (void) sender;
+    if (ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier))
+        return;
+    NSDictionary<NSString *, id> *record = ISHWorkspaceThemeRecordForIdentifier(_editingThemeIdentifier);
+    NSString *title = record[@"title"] ?: @"this theme";
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Delete Theme?"
+                                            message:[NSString stringWithFormat:@"Remove %@ from saved custom themes.", title]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Delete"
+                                              style:UIAlertActionStyleDestructive
+                                            handler:^(__unused UIAlertAction *action) {
+        ISHWorkspaceDeleteCustomThemeRecord(self->_editingThemeIdentifier);
+        ISHWorkspaceSetCurrentThemeIdentifier(ISHWorkspaceToolThemeAuroraIdentifier);
+        [self loadThemeIntoEditorWithIdentifier:ISHWorkspaceCurrentThemeIdentifier()];
+        [self refreshThemeSelectionButtons];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Themes";
+
+    _swatchViewsByKey = [NSMutableDictionary dictionary];
+    _channelSlidersByKey = [NSMutableDictionary dictionary];
+    _channelValueLabelsByKey = [NSMutableDictionary dictionary];
+    _themeSelectionButtons = [NSMutableArray array];
+    _editorActionButtons = [NSMutableArray array];
+
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 16;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *headerCard = [self workspaceThemeCardView];
+    UIStackView *headerStack = [UIStackView new];
+    headerStack.translatesAutoresizingMaskIntoConstraints = NO;
+    headerStack.axis = UILayoutConstraintAxisVertical;
+    headerStack.spacing = 8;
+    [headerCard addSubview:headerStack];
+    UILabel *headerEyebrow = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    headerEyebrow.text = @"WORKSPACE THEMES";
+    headerEyebrow.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _activeThemeLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle2 monospaced:NO];
+    _activeThemeLabel.numberOfLines = 0;
+    UILabel *headerBody = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
+    headerBody.text = @"Change themes from one native utility, then fine-tune and save custom palettes for every Workspace app.";
+    [headerStack addArrangedSubview:headerEyebrow];
+    [headerStack addArrangedSubview:_activeThemeLabel];
+    [headerStack addArrangedSubview:headerBody];
+    [NSLayoutConstraint activateConstraints:@[
+        [headerStack.topAnchor constraintEqualToAnchor:headerCard.topAnchor constant:18],
+        [headerStack.leadingAnchor constraintEqualToAnchor:headerCard.leadingAnchor constant:18],
+        [headerStack.trailingAnchor constraintEqualToAnchor:headerCard.trailingAnchor constant:-18],
+        [headerStack.bottomAnchor constraintEqualToAnchor:headerCard.bottomAnchor constant:-18],
+    ]];
+
+    UIView *libraryCard = [self workspaceThemeCardView];
+    UIStackView *libraryStack = [UIStackView new];
+    libraryStack.translatesAutoresizingMaskIntoConstraints = NO;
+    libraryStack.axis = UILayoutConstraintAxisVertical;
+    libraryStack.spacing = 12;
+    [libraryCard addSubview:libraryStack];
+    UILabel *libraryTitle = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    libraryTitle.text = @"Theme Library";
+    UILabel *librarySubtitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    librarySubtitle.text = @"Tap any theme to apply it everywhere and load it into the editor below.";
+    _themeListStack = [UIStackView new];
+    _themeListStack.axis = UILayoutConstraintAxisVertical;
+    _themeListStack.spacing = 8;
+    [libraryStack addArrangedSubview:libraryTitle];
+    [libraryStack addArrangedSubview:librarySubtitle];
+    [libraryStack addArrangedSubview:_themeListStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [libraryStack.topAnchor constraintEqualToAnchor:libraryCard.topAnchor constant:18],
+        [libraryStack.leadingAnchor constraintEqualToAnchor:libraryCard.leadingAnchor constant:18],
+        [libraryStack.trailingAnchor constraintEqualToAnchor:libraryCard.trailingAnchor constant:-18],
+        [libraryStack.bottomAnchor constraintEqualToAnchor:libraryCard.bottomAnchor constant:-18],
+    ]];
+
+    UIView *editorCard = [self workspaceThemeCardView];
+    UIStackView *editorStack = [UIStackView new];
+    editorStack.translatesAutoresizingMaskIntoConstraints = NO;
+    editorStack.axis = UILayoutConstraintAxisVertical;
+    editorStack.spacing = 12;
+    [editorCard addSubview:editorStack];
+    UILabel *editorTitle = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    editorTitle.text = @"Palette Editor";
+    _editorThemeLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+
+    _previewSurfaceView = [UIView new];
+    _previewSurfaceView.translatesAutoresizingMaskIntoConstraints = NO;
+    _previewSurfaceView.layer.cornerRadius = 18;
+    _previewSurfaceView.layer.borderWidth = 1;
+    _previewSurfaceView.layer.masksToBounds = YES;
+    _previewGradientLayer = [CAGradientLayer layer];
+    _previewGradientLayer.startPoint = CGPointMake(0.1, 0.0);
+    _previewGradientLayer.endPoint = CGPointMake(0.9, 1.0);
+    [_previewSurfaceView.layer insertSublayer:_previewGradientLayer atIndex:0];
+
+    UIStackView *previewStack = [UIStackView new];
+    previewStack.translatesAutoresizingMaskIntoConstraints = NO;
+    previewStack.axis = UILayoutConstraintAxisVertical;
+    previewStack.spacing = 8;
+    [_previewSurfaceView addSubview:previewStack];
+    _previewTitleLabel = [UILabel new];
+    _previewTitleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle3];
+    _previewTitleLabel.text = @"Preview";
+    _previewBodyLabel = [UILabel new];
+    _previewBodyLabel.numberOfLines = 0;
+    _previewBodyLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    _previewBodyLabel.text = @"Buttons, cards, text, and monitor bars will all update when you apply this theme.";
+    _previewProgressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    _previewProgressView.translatesAutoresizingMaskIntoConstraints = NO;
+    _previewProgressView.transform = CGAffineTransformMakeScale(1.0, 1.4);
+    [previewStack addArrangedSubview:_previewTitleLabel];
+    [previewStack addArrangedSubview:_previewBodyLabel];
+    [previewStack addArrangedSubview:_previewProgressView];
+    [NSLayoutConstraint activateConstraints:@[
+        [_previewSurfaceView.heightAnchor constraintGreaterThanOrEqualToConstant:150],
+        [previewStack.topAnchor constraintEqualToAnchor:_previewSurfaceView.topAnchor constant:18],
+        [previewStack.leadingAnchor constraintEqualToAnchor:_previewSurfaceView.leadingAnchor constant:18],
+        [previewStack.trailingAnchor constraintEqualToAnchor:_previewSurfaceView.trailingAnchor constant:-18],
+        [previewStack.bottomAnchor constraintEqualToAnchor:_previewSurfaceView.bottomAnchor constant:-18],
+    ]];
+
+    UIStackView *actionRow = [UIStackView new];
+    actionRow.axis = UILayoutConstraintAxisHorizontal;
+    actionRow.spacing = 10;
+    actionRow.distribution = UIStackViewDistributionFillEqually;
+    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Save As New"
+                                                           selector:@selector(saveThemeAsNew:)]];
+    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Update Selected"
+                                                           selector:@selector(updateSelectedCustomTheme:)]];
+    [actionRow addArrangedSubview:[self themeUtilityButtonWithTitle:@"Delete Selected"
+                                                           selector:@selector(deleteSelectedCustomTheme:)]];
+
+    [editorStack addArrangedSubview:editorTitle];
+    [editorStack addArrangedSubview:_editorThemeLabel];
+    [editorStack addArrangedSubview:_previewSurfaceView];
+    [editorStack addArrangedSubview:actionRow];
+    for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
+        [editorStack addArrangedSubview:[self sliderRowWithTitle:[self themeEditorTitleForKey:key] key:key]];
+    }
+    [NSLayoutConstraint activateConstraints:@[
+        [editorStack.topAnchor constraintEqualToAnchor:editorCard.topAnchor constant:18],
+        [editorStack.leadingAnchor constraintEqualToAnchor:editorCard.leadingAnchor constant:18],
+        [editorStack.trailingAnchor constraintEqualToAnchor:editorCard.trailingAnchor constant:-18],
+        [editorStack.bottomAnchor constraintEqualToAnchor:editorCard.bottomAnchor constant:-18],
+    ]];
+
+    [_contentStack addArrangedSubview:headerCard];
+    [_contentStack addArrangedSubview:libraryCard];
+    [_contentStack addArrangedSubview:editorCard];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:18],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:18],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-18],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-18],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-36],
+    ]];
+
+    [self refreshThemeSelectionButtons];
+    [self loadThemeIntoEditorWithIdentifier:ISHWorkspaceCurrentThemeIdentifier()];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _previewGradientLayer.frame = _previewSurfaceView.bounds;
+}
+
+- (void)workspaceThemeDidChange:(NSNotification *)notification {
+    [super workspaceThemeDidChange:notification];
+    _activeThemeLabel.text = [NSString stringWithFormat:@"Active Theme: %@", ISHWorkspaceCurrentThemeTitle()];
+    [self refreshThemeSelectionButtons];
+    if (_editingThemeIdentifier.length == 0 || ISHWorkspaceThemeRecordForIdentifier(_editingThemeIdentifier) == nil) {
+        [self loadThemeIntoEditorWithIdentifier:ISHWorkspaceCurrentThemeIdentifier()];
+    }
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _activeThemeLabel.text = [NSString stringWithFormat:@"Active Theme: %@", ISHWorkspaceCurrentThemeTitle()];
+
+    for (UIButton *button in _themeSelectionButtons) {
+        BOOL selected = [button.accessibilityIdentifier isEqualToString:ISHWorkspaceCurrentThemeIdentifier()];
+        button.backgroundColor = selected
+            ? [theme[@"accent"] colorWithAlphaComponent:0.18]
+            : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
+        button.layer.borderColor = (selected ? theme[@"accent"] : theme[@"stroke"]).CGColor;
+        [button setTitleColor:selected ? theme[@"accent"] : theme[@"primary"] forState:UIControlStateNormal];
+    }
+    BOOL editingCustom = !ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier);
+    for (UIButton *button in _editorActionButtons) {
+        button.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
+        button.layer.borderColor = theme[@"stroke"].CGColor;
+        [button setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
+    }
+    if (_editorActionButtons.count >= 3) {
+        _editorActionButtons[1].enabled = editingCustom;
+        _editorActionButtons[1].alpha = editingCustom ? 1.0 : 0.45;
+        _editorActionButtons[2].enabled = editingCustom;
+        _editorActionButtons[2].alpha = editingCustom ? 1.0 : 0.45;
     }
 }
 
