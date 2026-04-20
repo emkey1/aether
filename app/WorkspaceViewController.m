@@ -331,14 +331,6 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     self.layer.shadowPath = shadowPath.CGPath;
 }
 
-- (void)setFrame:(CGRect)frame {
-    CGRect priorFrame = self.frame;
-    [super setFrame:frame];
-    if (!CGRectEqualToRect(priorFrame, frame) && self.frameDidChangeHandler != nil) {
-        self.frameDidChangeHandler();
-    }
-}
-
 - (void)bringWindowToFront {
     [self.superview bringSubviewToFront:self];
     if (self.didBecomeFrontmostHandler != nil)
@@ -403,6 +395,8 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     frame.origin.x = MIN(MAX(frame.origin.x, minX), maxX);
     frame.origin.y = MIN(MAX(frame.origin.y, minY), maxY);
     self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
+    if (self.frameDidChangeHandler != nil)
+        self.frameDidChangeHandler();
     [recognizer setTranslation:CGPointZero inView:self.superview];
 }
 
@@ -438,6 +432,8 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     }
     self.frame = CGRectIntegral(frame);
     self.preferredSize = frame.size;
+    if (self.frameDidChangeHandler != nil)
+        self.frameDidChangeHandler();
     [recognizer setTranslation:CGPointZero inView:self.superview];
 }
 
