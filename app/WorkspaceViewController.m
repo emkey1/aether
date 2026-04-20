@@ -3153,6 +3153,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         NSString *toolIdentifier = windowView.workspaceToolIdentifier;
         if (toolIdentifier.length == 0)
             continue;
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
+            continue;
         if (!ISHWorkspaceUsesPhoneLayout() && [toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             continue;
 
