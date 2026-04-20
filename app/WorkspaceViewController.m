@@ -44,6 +44,8 @@
 - (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
 - (void)ensureDefaultWorkspaceUtilitiesOpen;
 - (void)persistDefaultWorkspaceUtilityFrames;
+- (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
+- (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)openDashboardWindow:(id)sender;
 - (void)openNewWorkspaceWindow:(id)sender;
 - (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
@@ -75,7 +77,7 @@ static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
-static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
+static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
 static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
@@ -2426,6 +2428,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         };
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+        [self applyInitialPlacementToWorkspacesWindow:windowView];
+    }
     [self refreshDockButtons];
     return windowView;
 }
@@ -3163,26 +3168,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier {
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+        ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
+        if (existingWindow != nil) {
+            [self focusDesktopWindow:existingWindow];
+            return;
+        }
+    }
     [self openWorkspaceToolWindowWithIdentifier:toolIdentifier];
 }
 
 - (void)ensureDefaultWorkspaceUtilitiesOpen {
     if ([self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] != nil)
         return;
-    ISHWorkspaceContainedWindowView *windowView =
-        [self openWorkspaceToolWindowWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
-    if (windowView != nil) {
-        NSDictionary<NSString *, id> *frameDescriptor =
-            [NSUserDefaults.standardUserDefaults dictionaryForKey:ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey];
-        if ([frameDescriptor isKindOfClass:NSDictionary.class]) {
-            [self applySavedFrameDescriptor:frameDescriptor
-                                   toWindow:windowView
-                               fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolWorkspacesIdentifier)];
-        } else {
-            [self positionDesktopWindowAtTopRight:windowView];
-        }
-        [self refreshDockButtons];
-    }
+    [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
 }
 
 - (void)persistDefaultWorkspaceUtilityFrames {
@@ -3192,7 +3191,31 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self normalizedFrameDescriptorForFrame:workspacesWindow.frame];
     if (frameDescriptor != nil) {
         [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
-                                                forKey:ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey];
+                                                forKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+    }
+}
+
+- (NSString *)persistentWorkspacesWindowFrameDefaultsKey {
+    NSString *sceneIdentifier = nil;
+    if (@available(iOS 13.0, *)) {
+        sceneIdentifier = self.view.window.windowScene.session.persistentIdentifier;
+    }
+    if (sceneIdentifier.length == 0)
+        return ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix;
+    return [NSString stringWithFormat:@"%@.%@", ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix, sceneIdentifier];
+}
+
+- (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    if (windowView == nil)
+        return;
+    NSDictionary<NSString *, id> *frameDescriptor =
+        [NSUserDefaults.standardUserDefaults dictionaryForKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+    if ([frameDescriptor isKindOfClass:NSDictionary.class]) {
+        [self applySavedFrameDescriptor:frameDescriptor
+                               toWindow:windowView
+                           fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolWorkspacesIdentifier)];
+    } else {
+        [self positionDesktopWindowAtTopRight:windowView];
     }
 }
 
