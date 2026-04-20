@@ -463,7 +463,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(340, 248);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-            return CGSizeMake(250, 170);
+            return CGSizeMake(220, 118);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
             return CGSizeMake(332, 224);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
@@ -493,7 +493,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(460, 300);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-        return CGSizeMake(300, 190);
+        return CGSizeMake(252, 138);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
         return CGSizeMake(440, 268);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
@@ -574,7 +574,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(300, 220);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-            return CGSizeMake(220, 140);
+            return CGSizeMake(188, 96);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
             return CGSizeMake(272, 170);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
@@ -603,7 +603,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return CGSizeMake(300, 156);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-        return CGSizeMake(250, 154);
+        return CGSizeMake(216, 112);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
         return CGSizeMake(340, 200);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
@@ -656,7 +656,7 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
         return @"Diagnostics";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
-        return @"Filesystems";
+        return @"Boot Images";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
         return @"Settings";
     return @"Window";
@@ -763,11 +763,9 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceSceneDescriptors(UIW
 static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceSceneDescriptors(UIWindowScene *currentWindowScene) {
     NSArray<UIScene *> *connectedScenes =
         [UIApplication.sharedApplication.connectedScenes.allObjects sortedArrayUsingComparator:^NSComparisonResult(UIScene *left, UIScene *right) {
-        if (left == currentWindowScene)
-            return NSOrderedAscending;
-        if (right == currentWindowScene)
-            return NSOrderedDescending;
-        return [left.session.persistentIdentifier compare:right.session.persistentIdentifier];
+        NSString *leftIdentifier = left.session.persistentIdentifier ?: @"";
+        NSString *rightIdentifier = right.session.persistentIdentifier ?: @"";
+        return [leftIdentifier compare:rightIdentifier];
     }];
 
     NSMutableArray<NSDictionary<NSString *, id> *> *descriptors = [NSMutableArray array];
@@ -3227,7 +3225,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             @"message": @"Roots, filesystem summaries, and storage detail.",
             @"items": @[
                 @{@"title": @"Storage", @"identifier": ISHWorkspaceToolStorageIdentifier},
-                @{@"title": @"Filesystems", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+                @{@"title": @"Boot Images", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
             ],
         },
         @{
@@ -5181,7 +5179,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ],
         @[
             @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
-            @{@"title": @"Filesystems", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+            @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
         ],
         @[
             @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
@@ -5258,12 +5256,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @implementation WorkspaceWorkspacesToolViewController {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
-    UILabel *_summaryLabel;
     UIStackView *_rowsStack;
     NSMutableArray<UIButton *> *_trackedButtons;
     NSMutableDictionary<NSString *, UIImageView *> *_previewImageViewsByIdentifier;
-    NSMutableDictionary<NSString *, UILabel *> *_titleLabelsByIdentifier;
-    NSMutableDictionary<NSString *, UILabel *> *_detailLabelsByIdentifier;
     NSArray<NSDictionary<NSString *, id> *> *_sceneDescriptors;
 }
 
@@ -5340,20 +5335,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.accessibilityIdentifier = identifier;
+    button.accessibilityLabel = descriptor[@"title"];
+    button.accessibilityValue = descriptor[@"detail"];
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentFill;
     button.contentVerticalAlignment = UIControlContentVerticalAlignmentFill;
     button.layer.cornerRadius = 12;
     button.layer.borderWidth = 1;
-    [button.heightAnchor constraintEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 70.0 : 78.0)].active = YES;
+    [button.heightAnchor constraintEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 54.0 : 62.0)].active = YES;
     [button addTarget:self action:@selector(focusWorkspaceSceneButton:) forControlEvents:UIControlEventTouchUpInside];
-
-    UIStackView *contentRow = [UIStackView new];
-    contentRow.translatesAutoresizingMaskIntoConstraints = NO;
-    contentRow.axis = UILayoutConstraintAxisHorizontal;
-    contentRow.alignment = UIStackViewAlignmentCenter;
-    contentRow.spacing = 8;
-    contentRow.userInteractionEnabled = NO;
-    [button addSubview:contentRow];
 
     UIImageView *previewView = [UIImageView new];
     previewView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -5361,35 +5350,17 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     previewView.clipsToBounds = YES;
     previewView.layer.cornerRadius = 9;
     previewView.layer.borderWidth = 1;
-    [previewView.widthAnchor constraintEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 52.0 : 60.0)].active = YES;
-    [previewView.heightAnchor constraintEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 38.0 : 44.0)].active = YES;
-    [contentRow addArrangedSubview:previewView];
-
-    UIStackView *textStack = [UIStackView new];
-    textStack.axis = UILayoutConstraintAxisVertical;
-    textStack.spacing = 2;
-    textStack.alignment = UIStackViewAlignmentLeading;
-    textStack.userInteractionEnabled = NO;
-    UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
-    titleLabel.numberOfLines = 1;
-    titleLabel.text = descriptor[@"title"];
-    UILabel *detailLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    detailLabel.numberOfLines = 2;
-    detailLabel.text = descriptor[@"detail"];
-    [textStack addArrangedSubview:titleLabel];
-    [textStack addArrangedSubview:detailLabel];
-    [contentRow addArrangedSubview:textStack];
+    previewView.userInteractionEnabled = NO;
+    [button addSubview:previewView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [contentRow.topAnchor constraintEqualToAnchor:button.topAnchor constant:8],
-        [contentRow.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:8],
-        [contentRow.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-8],
-        [contentRow.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-8],
+        [previewView.topAnchor constraintEqualToAnchor:button.topAnchor constant:6],
+        [previewView.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:6],
+        [previewView.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-6],
+        [previewView.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-6],
     ]];
 
     _previewImageViewsByIdentifier[identifier] = previewView;
-    _titleLabelsByIdentifier[identifier] = titleLabel;
-    _detailLabelsByIdentifier[identifier] = detailLabel;
     [_trackedButtons addObject:button];
     return button;
 }
@@ -5402,8 +5373,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     [_trackedButtons removeAllObjects];
     [_previewImageViewsByIdentifier removeAllObjects];
-    [_titleLabelsByIdentifier removeAllObjects];
-    [_detailLabelsByIdentifier removeAllObjects];
 
     if (_sceneDescriptors.count == 0) {
         UILabel *emptyLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
@@ -5412,12 +5381,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
 
-    BOOL twoColumns = _sceneDescriptors.count > 2 && !ISHWorkspaceUsesPhoneLayout();
+    BOOL twoColumns = _sceneDescriptors.count > 1;
     if (twoColumns) {
         for (NSUInteger index = 0; index < _sceneDescriptors.count; index += 2) {
             UIStackView *row = [UIStackView new];
             row.axis = UILayoutConstraintAxisHorizontal;
-            row.spacing = 6;
+            row.spacing = ISHWorkspaceDensityValue(4, 6);
             row.distribution = UIStackViewDistributionFillEqually;
             [row addArrangedSubview:[self workspaceSceneButtonWithDescriptor:_sceneDescriptors[index]]];
             if (index + 1 < _sceneDescriptors.count) {
@@ -5441,8 +5410,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.title = @"Workspaces";
     _trackedButtons = [NSMutableArray array];
     _previewImageViewsByIdentifier = [NSMutableDictionary dictionary];
-    _titleLabelsByIdentifier = [NSMutableDictionary dictionary];
-    _detailLabelsByIdentifier = [NSMutableDictionary dictionary];
 
     _scrollView = [UIScrollView new];
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -5452,28 +5419,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _contentStack = [UIStackView new];
     _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     _contentStack.axis = UILayoutConstraintAxisVertical;
-    _contentStack.spacing = 8;
+    _contentStack.spacing = 0;
     [_scrollView addSubview:_contentStack];
-
-    UIView *summaryCard = [self workspaceThemeCardView];
-    UIStackView *summaryStack = [UIStackView new];
-    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
-    summaryStack.axis = UILayoutConstraintAxisVertical;
-    summaryStack.spacing = 5;
-    [summaryCard addSubview:summaryStack];
-    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    summaryTitle.text = @"WINDOW SWITCHER";
-    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
-    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
-    _summaryLabel.numberOfLines = 0;
-    [summaryStack addArrangedSubview:summaryTitle];
-    [summaryStack addArrangedSubview:_summaryLabel];
-    [NSLayoutConstraint activateConstraints:@[
-        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:10],
-        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:10],
-        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-10],
-        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-10],
-    ]];
 
     UIView *listCard = [self workspaceThemeCardView];
     _rowsStack = [UIStackView new];
@@ -5488,7 +5435,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_rowsStack.bottomAnchor constraintEqualToAnchor:listCard.bottomAnchor constant:-8],
     ]];
 
-    [_contentStack addArrangedSubview:summaryCard];
     [_contentStack addArrangedSubview:listCard];
     [NSLayoutConstraint activateConstraints:@[
         [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
@@ -5536,7 +5482,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
     _rowsStack.spacing = ISHWorkspaceDensityValue(4, 6);
 }
 
@@ -5547,17 +5492,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)refreshWorkspaceScenes {
     if (@available(iOS 13.0, *)) {
         _sceneDescriptors = ISHWorkspaceSceneDescriptors(self.workspaceHostViewController.view.window.windowScene);
-        NSUInteger workspaceCount = 0;
-        for (NSDictionary<NSString *, id> *descriptor in _sceneDescriptors) {
-            if ([descriptor[@"role"] isEqualToString:@"Workspace"])
-                workspaceCount += 1;
-        }
-        _summaryLabel.text = [NSString stringWithFormat:@"%lu windows  •  %lu workspaces",
-                              (unsigned long) _sceneDescriptors.count,
-                              (unsigned long) workspaceCount];
     } else {
         _sceneDescriptors = @[];
-        _summaryLabel.text = @"Scene switching requires iOS 13 windows.";
     }
     [self rebuildSceneButtons];
     [self workspaceApplyTheme];
@@ -5574,7 +5510,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
-    _summaryLabel.textColor = theme[@"accentAlt"];
     for (NSDictionary<NSString *, id> *descriptor in _sceneDescriptors) {
         NSString *identifier = descriptor[@"identifier"];
         UIButton *button = nil;
@@ -5591,12 +5526,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             ? [theme[@"accent"] colorWithAlphaComponent:0.16]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
         button.layer.borderColor = (current ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
-        _previewImageViewsByIdentifier[identifier].image =
-            [self scenePreviewImageForDescriptor:descriptor size:CGSizeMake(120, 88)];
-        _previewImageViewsByIdentifier[identifier].layer.borderColor =
+        UIImageView *previewView = _previewImageViewsByIdentifier[identifier];
+        CGSize previewSize = previewView.bounds.size;
+        if (previewSize.width < 24 || previewSize.height < 24)
+            previewSize = ISHWorkspaceUsesPhoneLayout() ? CGSizeMake(92, 42) : CGSizeMake(106, 50);
+        previewView.image =
+            [self scenePreviewImageForDescriptor:descriptor size:previewSize];
+        previewView.layer.borderColor =
             (current ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
-        _titleLabelsByIdentifier[identifier].textColor = current ? theme[@"accent"] : theme[@"primary"];
-        _detailLabelsByIdentifier[identifier].textColor = theme[@"secondary"];
     }
 }
 
