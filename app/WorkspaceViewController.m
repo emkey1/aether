@@ -425,15 +425,15 @@ static UIViewController *ISHCreateRootsViewController(void) {
 
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
-        return CGSizeMake(170, 112);
+        return CGSizeMake(156, 96);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
-        return CGSizeMake(420, 256);
+        return CGSizeMake(318, 168);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
-        return CGSizeMake(420, 232);
+        return CGSizeMake(360, 182);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
-        return CGSizeMake(420, 236);
+        return CGSizeMake(360, 188);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
-        return CGSizeMake(560, 400);
+        return CGSizeMake(460, 300);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(820, 760);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -1884,16 +1884,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     windowView.workspaceToolIdentifier = toolIdentifier;
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(160, 102);
+        windowView.minimumSize = CGSizeMake(150, 90);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(300, 190);
+        windowView.minimumSize = CGSizeMake(260, 144);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(320, 186);
+        windowView.minimumSize = CGSizeMake(300, 150);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(320, 188);
+        windowView.minimumSize = CGSizeMake(300, 156);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier]) {
         windowView.resizable = YES;
         windowView.minimumSize = CGSizeMake(520, 560);
@@ -3282,7 +3282,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIStackView *stack = [UIStackView new];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 6;
+    stack.spacing = 3;
     [card addSubview:stack];
 
     UIStackView *headerRow = [UIStackView new];
@@ -3997,25 +3997,25 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UILabel *titleLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     titleLabel.text = [title uppercaseString];
-    titleLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    titleLabel.font = [UIFont systemFontOfSize:8 weight:UIFontWeightSemibold];
     titleLabel.textAlignment = NSTextAlignmentCenter;
 
     UILabel *label = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
-    label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     label.textAlignment = NSTextAlignmentCenter;
-    label.numberOfLines = 0;
+    label.numberOfLines = 2;
     label.adjustsFontSizeToFitWidth = YES;
-    label.minimumScaleFactor = 0.65;
+    label.minimumScaleFactor = 0.55;
 
     [stack addArrangedSubview:titleLabel];
     [stack addArrangedSubview:label];
 
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:96],
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:12],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-12],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:58],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:7],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:7],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-7],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-7],
     ]];
 
     if (valueLabel != NULL)
@@ -4035,32 +4035,23 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _contentStack = [UIStackView new];
     _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     _contentStack.axis = UILayoutConstraintAxisVertical;
-    _contentStack.spacing = 10;
+    _contentStack.spacing = 6;
     [_scrollView addSubview:_contentStack];
-
-    UILabel *titleLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
-    titleLabel.text = @"Workspace Signals";
-    titleLabel.textAlignment = NSTextAlignmentCenter;
-    UILabel *subtitleLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
-    subtitleLabel.text = @"Live native summaries of power, storage, root selection, and startup behavior.";
-    subtitleLabel.textAlignment = NSTextAlignmentCenter;
 
     _topRow = [UIStackView new];
     _topRow.axis = UILayoutConstraintAxisHorizontal;
-    _topRow.spacing = 10;
+    _topRow.spacing = 6;
     _topRow.distribution = UIStackViewDistributionFillEqually;
     [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
     [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Root" valueLabel:&_rootValueLabel]];
 
     _bottomRow = [UIStackView new];
     _bottomRow.axis = UILayoutConstraintAxisHorizontal;
-    _bottomRow.spacing = 10;
+    _bottomRow.spacing = 6;
     _bottomRow.distribution = UIStackViewDistributionFillEqually;
     [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Free Storage" valueLabel:&_storageValueLabel]];
     [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Startup" valueLabel:&_startupValueLabel]];
 
-    [_contentStack addArrangedSubview:titleLabel];
-    [_contentStack addArrangedSubview:subtitleLabel];
     [_contentStack addArrangedSubview:_topRow];
     [_contentStack addArrangedSubview:_bottomRow];
 
@@ -4070,11 +4061,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
 
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
     [self refreshInfo:nil];
@@ -4087,7 +4078,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _bottomRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
     _topRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
     _bottomRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
-    CGFloat spacing = ISHWorkspaceDensityValue(6, 14);
+    CGFloat spacing = ISHWorkspaceDensityValue(4, 8);
     _contentStack.spacing = spacing;
     _topRow.spacing = spacing;
     _bottomRow.spacing = spacing;
@@ -4241,11 +4232,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
 
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
     [self refreshMonitor:nil];
@@ -4295,10 +4286,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     contentView.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:contentView];
     [NSLayoutConstraint activateConstraints:@[
-        [contentView.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
-        [contentView.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
-        [contentView.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
-        [contentView.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
+        [contentView.topAnchor constraintEqualToAnchor:card.topAnchor constant:6],
+        [contentView.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:6],
+        [contentView.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-6],
+        [contentView.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-6],
     ]];
     return card;
 }
@@ -4354,7 +4345,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(6, 14);
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
 - (double)sampleSystemCPURatio {
@@ -4483,7 +4474,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _textView = [self workspaceThemeTextView];
     [detailsCard addSubview:_textView];
     [NSLayoutConstraint activateConstraints:@[
-        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:154],
+        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:110],
         [_textView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:8],
         [_textView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:8],
         [_textView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-8],
@@ -4498,11 +4489,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
 
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
     [self refreshNetworks:nil];
@@ -4543,7 +4534,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(6, 14);
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
 @end
@@ -4596,7 +4587,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _runtimeTextView = [self workspaceThemeTextView];
     [runtimeCard addSubview:_runtimeTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:126],
+        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:94],
         [_runtimeTextView.topAnchor constraintEqualToAnchor:runtimeCard.topAnchor constant:8],
         [_runtimeTextView.leadingAnchor constraintEqualToAnchor:runtimeCard.leadingAnchor constant:8],
         [_runtimeTextView.trailingAnchor constraintEqualToAnchor:runtimeCard.trailingAnchor constant:-8],
@@ -4607,7 +4598,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _networkTextView = [self workspaceThemeTextView];
     [networkCard addSubview:_networkTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:108],
+        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:82],
         [_networkTextView.topAnchor constraintEqualToAnchor:networkCard.topAnchor constant:8],
         [_networkTextView.leadingAnchor constraintEqualToAnchor:networkCard.leadingAnchor constant:8],
         [_networkTextView.trailingAnchor constraintEqualToAnchor:networkCard.trailingAnchor constant:-8],
@@ -4618,7 +4609,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _eventsTextView = [self workspaceThemeTextView];
     [eventsCard addSubview:_eventsTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:118],
+        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:90],
         [_eventsTextView.topAnchor constraintEqualToAnchor:eventsCard.topAnchor constant:8],
         [_eventsTextView.leadingAnchor constraintEqualToAnchor:eventsCard.leadingAnchor constant:8],
         [_eventsTextView.trailingAnchor constraintEqualToAnchor:eventsCard.trailingAnchor constant:-8],
@@ -4636,11 +4627,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
 
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
     [self refreshStatus:nil];
@@ -4698,7 +4689,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(6, 14);
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
 @end
