@@ -1707,8 +1707,25 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 
 - (void)exitApp {
     self.exiting = YES;
-    id app = [UIApplication sharedApplication];
+    UIApplication *application = UIApplication.sharedApplication;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in application.connectedScenes) {
+            UISceneSession *session = scene.session;
+            if (session == nil)
+                continue;
+            [application requestSceneSessionDestruction:session
+                                                options:nil
+                                           errorHandler:^(__unused NSError *error) {
+            }];
+        }
+    }
+    id app = application;
     [app suspend];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (750 * NSEC_PER_MSEC)),
+                   dispatch_get_main_queue(), ^{
+        if (self.exiting)
+            exit(0);
+    });
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
