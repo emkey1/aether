@@ -46,6 +46,7 @@
 - (void)persistDefaultWorkspaceUtilityFrames;
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (void)workspaceActivationDidChange:(NSNotification *)notification;
 - (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame;
 - (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)openDashboardWindow:(id)sender;
@@ -2951,7 +2952,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                name:TerminalLoadFailedNotification
                                              object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
-                                           selector:@selector(refreshWorkspaceStatus)
+                                           selector:@selector(workspaceActivationDidChange:)
                                                name:UIApplicationDidBecomeActiveNotification
                                              object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -2960,7 +2961,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                              object:nil];
     if (@available(iOS 13.0, *)) {
         [NSNotificationCenter.defaultCenter addObserver:self
-                                               selector:@selector(refreshWorkspaceStatus)
+                                               selector:@selector(workspaceActivationDidChange:)
                                                    name:UISceneDidActivateNotification
                                                  object:nil];
         [NSNotificationCenter.defaultCenter addObserver:self
@@ -3037,6 +3038,22 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self applyCurrentThemeWallpaperIfNeededForced:YES];
     [self applyCompactSizingToOpenWorkspaceToolWindows];
     [self refreshDockButtons];
+}
+
+- (void)workspaceActivationDidChange:(NSNotification *)notification {
+    if (@available(iOS 13.0, *)) {
+        if ([notification.name isEqualToString:UISceneDidActivateNotification]) {
+            UIWindowScene *currentScene = self.view.window.windowScene;
+            if (notification.object != nil && notification.object != currentScene)
+                return;
+        }
+    }
+    [self refreshWorkspaceStatus];
+    ISHWorkspaceContainedWindowView *workspacesWindow =
+        [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+    if (workspacesWindow != nil) {
+        [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    }
 }
 
 - (void)refreshWorkspaceStatus {
