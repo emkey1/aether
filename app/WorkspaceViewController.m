@@ -3050,6 +3050,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     NSMutableDictionary<NSString *, UIView *> *_swatchViewsByKey;
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UISlider *> *> *_channelSlidersByKey;
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UILabel *> *> *_channelValueLabelsByKey;
+    NSMutableDictionary<NSString *, UIImageView *> *_themePreviewImageViewsByIdentifier;
+    NSMutableDictionary<NSString *, UILabel *> *_themeTitleLabelsByIdentifier;
+    NSMutableDictionary<NSString *, UILabel *> *_themeDetailLabelsByIdentifier;
     NSMutableArray<UIButton *> *_themeSelectionButtons;
     NSMutableArray<UIButton *> *_editorActionButtons;
     NSString *_editingThemeIdentifier;
@@ -3116,30 +3119,60 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (UIButton *)themeSelectionButtonWithTitle:(NSString *)title identifier:(NSString *)identifier {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.layer.cornerRadius = 14;
     button.layer.borderWidth = 1;
-    button.contentEdgeInsets = UIEdgeInsetsMake(8, 10, 8, 12);
-    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    button.semanticContentAttribute = UISemanticContentAttributeForceLeftToRight;
-    button.titleLabel.numberOfLines = 2;
-    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    UIImage *previewImage =
+    button.clipsToBounds = YES;
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:82].active = YES;
+    button.accessibilityIdentifier = identifier;
+    [button addTarget:self action:@selector(selectThemeFromButton:) forControlEvents:UIControlEventTouchUpInside];
+
+    UIStackView *contentRow = [UIStackView new];
+    contentRow.translatesAutoresizingMaskIntoConstraints = NO;
+    contentRow.axis = UILayoutConstraintAxisHorizontal;
+    contentRow.spacing = 12;
+    contentRow.alignment = UIStackViewAlignmentCenter;
+    [button addSubview:contentRow];
+
+    UIImageView *previewView = [[UIImageView alloc] initWithImage:
         ISHWorkspaceThemeArtworkImage(identifier,
                                       ISHWorkspaceThemeEditablePaletteForIdentifier(identifier),
                                       CGSizeMake(112, 64),
-                                      NO);
-    [button setImage:[previewImage imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal] forState:UIControlStateNormal];
-    button.imageView.contentMode = UIViewContentModeScaleAspectFill;
-    button.imageView.clipsToBounds = YES;
-    button.imageView.layer.cornerRadius = 10;
-    button.imageView.layer.borderWidth = 1;
-    button.titleEdgeInsets = UIEdgeInsetsMake(0, 14, 0, -6);
-    [button.heightAnchor constraintGreaterThanOrEqualToConstant:82].active = YES;
-    button.accessibilityIdentifier = identifier;
-    [button setTitle:title forState:UIControlStateNormal];
-    [button addTarget:self action:@selector(selectThemeFromButton:) forControlEvents:UIControlEventTouchUpInside];
+                                      NO)];
+    previewView.translatesAutoresizingMaskIntoConstraints = NO;
+    previewView.contentMode = UIViewContentModeScaleAspectFill;
+    previewView.clipsToBounds = YES;
+    previewView.layer.cornerRadius = 10;
+    previewView.layer.borderWidth = 1;
+    [previewView.widthAnchor constraintEqualToConstant:112].active = YES;
+    [previewView.heightAnchor constraintEqualToConstant:64].active = YES;
+    [contentRow addArrangedSubview:previewView];
+
+    UIStackView *textStack = [UIStackView new];
+    textStack.axis = UILayoutConstraintAxisVertical;
+    textStack.spacing = 4;
+    textStack.alignment = UIStackViewAlignmentLeading;
+    UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
+    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    titleLabel.numberOfLines = 1;
+    titleLabel.text = title;
+    UILabel *detailLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    detailLabel.numberOfLines = 2;
+    [textStack addArrangedSubview:titleLabel];
+    [textStack addArrangedSubview:detailLabel];
+    [contentRow addArrangedSubview:textStack];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [contentRow.topAnchor constraintEqualToAnchor:button.topAnchor constant:9],
+        [contentRow.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:10],
+        [contentRow.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-12],
+        [contentRow.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-9],
+    ]];
+
+    _themePreviewImageViewsByIdentifier[identifier] = previewView;
+    _themeTitleLabelsByIdentifier[identifier] = titleLabel;
+    _themeDetailLabelsByIdentifier[identifier] = detailLabel;
     [_themeSelectionButtons addObject:button];
     return button;
 }
@@ -3260,16 +3293,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)refreshThemeSelectionButtons {
     [self clearArrangedSubviewsFromStack:_themeListStack];
     [_themeSelectionButtons removeAllObjects];
+    [_themePreviewImageViewsByIdentifier removeAllObjects];
+    [_themeTitleLabelsByIdentifier removeAllObjects];
+    [_themeDetailLabelsByIdentifier removeAllObjects];
 
     NSString *currentIdentifier = ISHWorkspaceCurrentThemeIdentifier();
     for (NSDictionary<NSString *, id> *choice in ISHWorkspaceThemeChoices()) {
         NSString *identifier = choice[@"identifier"];
         NSString *title = choice[@"title"];
         NSString *detail = [choice[@"builtIn"] boolValue] ? @"Built-in theme" : @"Saved custom theme";
-        NSString *labelTitle = [identifier isEqualToString:currentIdentifier]
-            ? [NSString stringWithFormat:@"Applied • %@\n%@", title, detail]
-            : [NSString stringWithFormat:@"%@\n%@", title, detail];
-        UIButton *button = [self themeSelectionButtonWithTitle:labelTitle identifier:identifier];
+        UIButton *button = [self themeSelectionButtonWithTitle:title identifier:identifier];
+        UILabel *detailLabel = _themeDetailLabelsByIdentifier[identifier];
+        detailLabel.text = [identifier isEqualToString:currentIdentifier]
+            ? [NSString stringWithFormat:@"Applied • %@", detail]
+            : detail;
         [_themeListStack addArrangedSubview:button];
     }
     [self workspaceApplyTheme];
@@ -3395,8 +3432,17 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (image == nil)
         return;
 
+    NSData *pngData = UIImagePNGRepresentation(image);
+    if (pngData == nil)
+        return;
+    NSString *identifier = _editingThemeIdentifier.length > 0 ? _editingThemeIdentifier : @"theme";
+    NSString *fileName = [NSString stringWithFormat:@"workspace-background-%@.png", identifier];
+    NSURL *fileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
+    if (![pngData writeToURL:fileURL atomically:YES])
+        return;
+
     UIActivityViewController *activityViewController =
-        [[UIActivityViewController alloc] initWithActivityItems:@[image] applicationActivities:nil];
+        [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
     UIPopoverPresentationController *popover = activityViewController.popoverPresentationController;
     if (popover != nil) {
         popover.sourceView = sourceView;
@@ -3413,6 +3459,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _swatchViewsByKey = [NSMutableDictionary dictionary];
     _channelSlidersByKey = [NSMutableDictionary dictionary];
     _channelValueLabelsByKey = [NSMutableDictionary dictionary];
+    _themePreviewImageViewsByIdentifier = [NSMutableDictionary dictionary];
+    _themeTitleLabelsByIdentifier = [NSMutableDictionary dictionary];
+    _themeDetailLabelsByIdentifier = [NSMutableDictionary dictionary];
     _themeSelectionButtons = [NSMutableArray array];
     _editorActionButtons = [NSMutableArray array];
 
@@ -3599,13 +3648,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _activeThemeLabel.text = [NSString stringWithFormat:@"Active Theme: %@", ISHWorkspaceCurrentThemeTitle()];
 
     for (UIButton *button in _themeSelectionButtons) {
-        BOOL selected = [button.accessibilityIdentifier isEqualToString:ISHWorkspaceCurrentThemeIdentifier()];
+        NSString *identifier = button.accessibilityIdentifier;
+        BOOL selected = [identifier isEqualToString:ISHWorkspaceCurrentThemeIdentifier()];
         button.backgroundColor = selected
             ? [theme[@"accent"] colorWithAlphaComponent:0.18]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
         button.layer.borderColor = (selected ? theme[@"accent"] : theme[@"stroke"]).CGColor;
-        button.imageView.layer.borderColor = (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
-        [button setTitleColor:selected ? theme[@"accent"] : theme[@"primary"] forState:UIControlStateNormal];
+        _themePreviewImageViewsByIdentifier[identifier].layer.borderColor =
+            (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
+        _themeTitleLabelsByIdentifier[identifier].textColor = selected ? theme[@"accent"] : theme[@"primary"];
+        _themeDetailLabelsByIdentifier[identifier].textColor = selected ? theme[@"accentAlt"] : theme[@"secondary"];
     }
     BOOL editingCustom = !ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier);
     for (UIButton *button in _editorActionButtons) {
