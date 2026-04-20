@@ -2982,6 +2982,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         self.didEnsureDefaultWorkspaceUtilities = YES;
         [self ensureDefaultWorkspaceUtilitiesOpen];
     }
+    ISHWorkspaceContainedWindowView *workspacesWindow =
+        [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+    if (workspacesWindow != nil) {
+        [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    }
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
