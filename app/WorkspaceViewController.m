@@ -3007,7 +3007,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-    [self persistDefaultWorkspaceUtilityFrames];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -3588,7 +3587,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else {
         return;
     }
-    [self persistDefaultWorkspaceUtilityFrames];
     if (identifier.length == 0) {
         [self presentSceneActivationError:nil title:@"Unable to focus window"];
         return;
