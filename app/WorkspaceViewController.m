@@ -67,6 +67,10 @@ static const CGFloat ISHWorkspaceWindowButtonSize = 18.0;
 static const CGFloat ISHWorkspaceWindowButtonInset = 8.0;
 static const CGFloat ISHWorkspaceWindowTitleSideInset = 34.0;
 
+static BOOL ISHWorkspaceUsesPhoneLayout(void) {
+    return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+}
+
 static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     frame.origin.x = round(frame.origin.x);
     frame.origin.y = round(frame.origin.y);
@@ -427,6 +431,27 @@ static UIViewController *ISHCreateRootsViewController(void) {
 }
 
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
+    if (ISHWorkspaceUsesPhoneLayout()) {
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
+            return CGSizeMake(144, 74);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
+            return CGSizeMake(280, 154);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
+            return CGSizeMake(328, 170);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
+            return CGSizeMake(328, 176);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
+            return CGSizeMake(340, 248);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+            return CGSizeMake(360, 620);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
+            return CGSizeMake(352, 620);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
+            return CGSizeMake(352, 620);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
+            return CGSizeMake(352, 620);
+        return CGSizeMake(344, 580);
+    }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
         return CGSizeMake(156, 76);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
@@ -449,15 +474,87 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
 }
 
 static CGSize ISHWorkspacePreferredTerminalContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(372, 288);
     return CGSizeMake(900, 620);
 }
 
 static CGSize ISHWorkspaceCompactDashboardSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(332, 236);
     return CGSizeMake(440, 320);
 }
 
 static CGSize ISHWorkspacePreferredDockContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(188, 56);
     return CGSizeMake(220, 64);
+}
+
+static CGSize ISHWorkspacePreferredDashboardContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(360, 360);
+    return CGSizeMake(720, 560);
+}
+
+static CGSize ISHWorkspaceMinimumDashboardContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(300, 220);
+    return CGSizeMake(420, 220);
+}
+
+static CGSize ISHWorkspaceMinimumDockContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(156, 48);
+    return CGSizeMake(180, 56);
+}
+
+static CGSize ISHWorkspaceMaximumDockContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(240, 88);
+    return CGSizeMake(320, 104);
+}
+
+static CGSize ISHWorkspaceMinimumTerminalContentSize(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return CGSizeMake(300, 220);
+    return CGSizeMake(520, 340);
+}
+
+static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
+    if (ISHWorkspaceUsesPhoneLayout()) {
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
+            return CGSizeMake(132, 68);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
+            return CGSizeMake(232, 132);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
+            return CGSizeMake(280, 144);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
+            return CGSizeMake(280, 150);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
+            return CGSizeMake(300, 220);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+            return CGSizeMake(320, 420);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
+            return CGSizeMake(320, 420);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
+            return CGSizeMake(320, 420);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
+            return CGSizeMake(320, 420);
+        return CGSizeMake(300, 220);
+    }
+
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
+        return CGSizeMake(150, 72);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
+        return CGSizeMake(260, 144);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
+        return CGSizeMake(300, 150);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
+        return CGSizeMake(300, 156);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+        return CGSizeMake(520, 560);
+    return CGSizeZero;
 }
 
 static NSDictionary<NSString *, NSNumber *> *ISHWorkspaceSizeDescriptor(CGSize size) {
@@ -993,25 +1090,31 @@ static CGFloat ISHWorkspaceDensityValue(CGFloat compact, CGFloat roomy) {
 }
 
 static CGFloat ISHWorkspaceThemeFontSize(UIFontTextStyle textStyle) {
+    CGFloat size = 0;
     if ([textStyle isEqualToString:UIFontTextStyleCaption2])
-        return ISHWorkspaceDensityValue(8, 11);
-    if ([textStyle isEqualToString:UIFontTextStyleCaption1])
-        return ISHWorkspaceDensityValue(9, 12);
-    if ([textStyle isEqualToString:UIFontTextStyleFootnote])
-        return ISHWorkspaceDensityValue(10, 13);
-    if ([textStyle isEqualToString:UIFontTextStyleSubheadline])
-        return ISHWorkspaceDensityValue(11, 15);
-    if ([textStyle isEqualToString:UIFontTextStyleHeadline])
-        return ISHWorkspaceDensityValue(12, 17);
-    if ([textStyle isEqualToString:UIFontTextStyleBody])
-        return ISHWorkspaceDensityValue(12, 16);
-    if ([textStyle isEqualToString:UIFontTextStyleTitle3])
-        return ISHWorkspaceDensityValue(15, 21);
-    if ([textStyle isEqualToString:UIFontTextStyleTitle2])
-        return ISHWorkspaceDensityValue(17, 25);
-    if ([textStyle isEqualToString:UIFontTextStyleLargeTitle])
-        return ISHWorkspaceDensityValue(24, 34);
-    return ISHWorkspaceDensityValue(12, 16);
+        size = ISHWorkspaceDensityValue(8, 11);
+    else if ([textStyle isEqualToString:UIFontTextStyleCaption1])
+        size = ISHWorkspaceDensityValue(9, 12);
+    else if ([textStyle isEqualToString:UIFontTextStyleFootnote])
+        size = ISHWorkspaceDensityValue(10, 13);
+    else if ([textStyle isEqualToString:UIFontTextStyleSubheadline])
+        size = ISHWorkspaceDensityValue(11, 15);
+    else if ([textStyle isEqualToString:UIFontTextStyleHeadline])
+        size = ISHWorkspaceDensityValue(12, 17);
+    else if ([textStyle isEqualToString:UIFontTextStyleBody])
+        size = ISHWorkspaceDensityValue(12, 16);
+    else if ([textStyle isEqualToString:UIFontTextStyleTitle3])
+        size = ISHWorkspaceDensityValue(15, 21);
+    else if ([textStyle isEqualToString:UIFontTextStyleTitle2])
+        size = ISHWorkspaceDensityValue(17, 25);
+    else if ([textStyle isEqualToString:UIFontTextStyleLargeTitle])
+        size = ISHWorkspaceDensityValue(24, 34);
+    else
+        size = ISHWorkspaceDensityValue(12, 16);
+
+    if (ISHWorkspaceUsesPhoneLayout())
+        size *= 0.92;
+    return size;
 }
 
 static void ISHWorkspaceSetCurrentDensity(CGFloat density) {
@@ -1400,15 +1503,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.accessibilityIdentifier = identifier;
-    button.contentEdgeInsets = UIEdgeInsetsMake(1, 5, 1, 5);
+    if (ISHWorkspaceUsesPhoneLayout()) {
+        button.contentEdgeInsets = UIEdgeInsetsMake(1, 4, 1, 4);
+        button.layer.cornerRadius = 8;
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:18].active = YES;
+    } else {
+        button.contentEdgeInsets = UIEdgeInsetsMake(1, 5, 1, 5);
+        button.layer.cornerRadius = 10;
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:20].active = YES;
+    }
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     button.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     button.titleLabel.numberOfLines = 2;
     button.titleLabel.textAlignment = NSTextAlignmentCenter;
     button.titleLabel.adjustsFontForContentSizeCategory = YES;
-    button.layer.cornerRadius = 10;
     button.layer.borderWidth = 1;
-    [button.heightAnchor constraintGreaterThanOrEqualToConstant:20].active = YES;
     [button addTarget:self action:selector forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
@@ -1421,8 +1530,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (button == nil)
         return;
 
-    UIFont *titleFont = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
-    UIFont *stateFont = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+    CGFloat dockFontSize = ISHWorkspaceUsesPhoneLayout() ? 9.0 : 10.0;
+    UIFont *titleFont = [UIFont systemFontOfSize:dockFontSize weight:UIFontWeightSemibold];
+    UIFont *stateFont = [UIFont systemFontOfSize:dockFontSize weight:UIFontWeightMedium];
     NSMutableParagraphStyle *paragraphStyle = [NSMutableParagraphStyle new];
     paragraphStyle.alignment = NSTextAlignmentCenter;
 
@@ -1489,12 +1599,17 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIView *)workspaceCardWithContentStack:(UIStackView **)contentStackOut {
     UIView *card = [UIView new];
     card.translatesAutoresizingMaskIntoConstraints = NO;
-    card.layer.cornerRadius = 18;
+    CGFloat cornerRadius = ISHWorkspaceUsesPhoneLayout() ? 14.0 : 18.0;
+    CGFloat contentInset = ISHWorkspaceUsesPhoneLayout() ? 14.0 : 18.0;
+    CGFloat contentSpacing = ISHWorkspaceUsesPhoneLayout() ? 10.0 : 14.0;
+    CGFloat shadowRadius = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 18.0;
+    CGFloat shadowOffset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
+    card.layer.cornerRadius = cornerRadius;
     card.layer.masksToBounds = NO;
     card.layer.shadowColor = UIColor.blackColor.CGColor;
     card.layer.shadowOpacity = 0.08;
-    card.layer.shadowRadius = 18;
-    card.layer.shadowOffset = CGSizeMake(0, 8);
+    card.layer.shadowRadius = shadowRadius;
+    card.layer.shadowOffset = CGSizeMake(0, shadowOffset);
     if (@available(iOS 13.0, *)) {
         card.backgroundColor = UIColor.secondarySystemBackgroundColor;
     } else {
@@ -1503,15 +1618,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIStackView *contentStack = [UIStackView new];
     contentStack.axis = UILayoutConstraintAxisVertical;
-    contentStack.spacing = 14;
+    contentStack.spacing = contentSpacing;
     contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:contentStack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [contentStack.topAnchor constraintEqualToAnchor:card.topAnchor constant:18],
-        [contentStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18],
-        [contentStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18],
-        [contentStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-18],
+        [contentStack.topAnchor constraintEqualToAnchor:card.topAnchor constant:contentInset],
+        [contentStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:contentInset],
+        [contentStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-contentInset],
+        [contentStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-contentInset],
     ]];
 
     if (contentStackOut != NULL)
@@ -1522,6 +1637,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (CGRect)desktopUsableBounds {
     UIEdgeInsets insets = self.view.safeAreaInsets;
     CGRect bounds = self.desktopSurfaceView.bounds;
+    if (ISHWorkspaceUsesPhoneLayout()) {
+        return UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsMake(insets.top, insets.left, insets.bottom, insets.right));
+    }
     return UIEdgeInsetsInsetRect(bounds, UIEdgeInsetsMake(insets.top, 0, 0, 0));
 }
 
@@ -1529,9 +1647,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGRect usableBounds = [self desktopUsableBounds];
     CGFloat width = MIN(preferredSize.width, CGRectGetWidth(usableBounds));
     CGFloat height = MIN(preferredSize.height, CGRectGetHeight(usableBounds));
-    CGFloat offset = (CGFloat) (self.desktopWindowCascadeIndex % 6) * 28.0;
+    CGFloat cascadeStep = ISHWorkspaceUsesPhoneLayout() ? 14.0 : 28.0;
+    NSUInteger cascadeCount = ISHWorkspaceUsesPhoneLayout() ? 4 : 6;
+    CGFloat verticalOffsetFactor = ISHWorkspaceUsesPhoneLayout() ? 0.08 : 0.16;
+    CGFloat offset = (CGFloat) (self.desktopWindowCascadeIndex % cascadeCount) * cascadeStep;
     CGFloat originX = CGRectGetMinX(usableBounds) + MAX(0, (CGRectGetWidth(usableBounds) - width) * 0.5) + offset;
-    CGFloat originY = CGRectGetMinY(usableBounds) + MAX(0, (CGRectGetHeight(usableBounds) - height) * 0.16) + offset;
+    CGFloat originY = CGRectGetMinY(usableBounds) + MAX(0, (CGRectGetHeight(usableBounds) - height) * verticalOffsetFactor) + offset;
     originX = MIN(originX, CGRectGetMaxX(usableBounds) - width);
     originY = MIN(originY, CGRectGetMaxY(usableBounds) - height);
     self.desktopWindowCascadeIndex += 1;
@@ -1934,21 +2055,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                              preferredSize:preferredSize
                           showsCloseButton:YES];
     windowView.workspaceToolIdentifier = toolIdentifier;
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier]) {
+    CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);
+    if (!CGSizeEqualToSize(minimumSize, CGSizeZero)) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(150, 72);
-    } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier]) {
-        windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(260, 144);
-    } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier]) {
-        windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(300, 150);
-    } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier]) {
-        windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(300, 156);
-    } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier]) {
-        windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(520, 560);
+        windowView.minimumSize = minimumSize;
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
     [self refreshDockButtons];
@@ -1997,6 +2107,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (ISHWorkspaceContainedWindowView *)createDockWindow {
     CGSize preferredSize = ISHWorkspacePreferredDockContentSize();
+    CGFloat stackInsetY = ISHWorkspaceUsesPhoneLayout() ? 2.0 : 3.0;
+    CGFloat stackInsetX = ISHWorkspaceUsesPhoneLayout() ? 4.0 : 6.0;
+    CGFloat tileSpacing = ISHWorkspaceUsesPhoneLayout() ? 3.0 : 4.0;
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:@"Dock"
                              preferredSize:preferredSize
@@ -2005,8 +2118,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     windowView.draggable = YES;
     windowView.resizable = YES;
     windowView.resizeHandleAtTopRight = YES;
-    windowView.minimumSize = CGSizeMake(180, 56);
-    windowView.maximumSize = CGSizeMake(320, 104);
+    windowView.minimumSize = ISHWorkspaceMinimumDockContentSize();
+    windowView.maximumSize = ISHWorkspaceMaximumDockContentSize();
     windowView.pinnedToBottomCenter = YES;
 
     UIStackView *stack = [UIStackView new];
@@ -2017,7 +2130,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIStackView *appsRow = [UIStackView new];
     appsRow.axis = UILayoutConstraintAxisHorizontal;
-    appsRow.spacing = 4;
+    appsRow.spacing = tileSpacing;
     appsRow.distribution = UIStackViewDistributionFillEqually;
     self.dockUtilsButton = [self workspaceDockTileButtonWithTitle:@"Utils"
                                                          selector:@selector(toggleClockFromDock:)
@@ -2040,10 +2153,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [stack addArrangedSubview:appsRow];
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:windowView.contentContainerView.topAnchor constant:3],
-        [stack.leadingAnchor constraintEqualToAnchor:windowView.contentContainerView.leadingAnchor constant:6],
-        [stack.trailingAnchor constraintEqualToAnchor:windowView.contentContainerView.trailingAnchor constant:-6],
-        [stack.bottomAnchor constraintEqualToAnchor:windowView.contentContainerView.bottomAnchor constant:-3],
+        [stack.topAnchor constraintEqualToAnchor:windowView.contentContainerView.topAnchor constant:stackInsetY],
+        [stack.leadingAnchor constraintEqualToAnchor:windowView.contentContainerView.leadingAnchor constant:stackInsetX],
+        [stack.trailingAnchor constraintEqualToAnchor:windowView.contentContainerView.trailingAnchor constant:-stackInsetX],
+        [stack.bottomAnchor constraintEqualToAnchor:windowView.contentContainerView.bottomAnchor constant:-stackInsetY],
     ]];
 
     [self pinDesktopWindowToBottomCenter:windowView];
@@ -2276,7 +2389,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                           showsCloseButton:YES];
     windowView.hostedTerminalViewController = terminalViewController;
     windowView.resizable = YES;
-    windowView.minimumSize = CGSizeMake(520, 340);
+    windowView.minimumSize = ISHWorkspaceMinimumTerminalContentSize();
     [self attachViewController:terminalViewController toDesktopWindow:windowView];
     return windowView;
 }
@@ -2292,7 +2405,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)rebuildWorkspaceColumns {
     [self workspaceClearArrangedSubviewsFromStack:self.bodyStack];
     self.bodyStack.axis = UILayoutConstraintAxisVertical;
-    self.bodyStack.spacing = 20;
+    self.bodyStack.spacing = ISHWorkspaceUsesPhoneLayout() ? 14.0 : 20.0;
     self.bodyStack.alignment = UIStackViewAlignmentFill;
     self.bodyStack.distribution = UIStackViewDistributionFill;
     if (self.windowCard != nil)
@@ -2340,14 +2453,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     ISHWorkspaceContainedWindowView *dashboardWindow =
         [self createDesktopWindowWithTitle:@"Dashboard"
-                             preferredSize:CGSizeMake(720, 560)
+                             preferredSize:ISHWorkspacePreferredDashboardContentSize()
                           showsCloseButton:YES];
     self.dashboardWindow = dashboardWindow;
     self.dashboardExpandedSize = dashboardWindow.preferredSize;
     self.dashboardIsCompact = NO;
     dashboardWindow.draggable = YES;
     dashboardWindow.resizable = YES;
-    dashboardWindow.minimumSize = CGSizeMake(420, 220);
+    dashboardWindow.minimumSize = ISHWorkspaceMinimumDashboardContentSize();
     __weak typeof(self) weakSelf = self;
     __weak typeof(dashboardWindow) weakDashboardWindow = dashboardWindow;
     dashboardWindow.closeHandler = ^{
@@ -2363,7 +2476,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIStackView *contentStack = [UIStackView new];
     contentStack.axis = UILayoutConstraintAxisVertical;
-    contentStack.spacing = 20;
+    contentStack.spacing = ISHWorkspaceUsesPhoneLayout() ? 14.0 : 20.0;
     contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     [scrollView addSubview:contentStack];
 
@@ -2399,17 +2512,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self rebuildWorkspaceColumns];
 
     UILayoutGuide *safeArea = dashboardWindow.contentContainerView.safeAreaLayoutGuide;
+    CGFloat contentInsetY = ISHWorkspaceUsesPhoneLayout() ? 16.0 : 24.0;
+    CGFloat contentInsetX = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 20.0;
     [NSLayoutConstraint activateConstraints:@[
         [scrollView.topAnchor constraintEqualToAnchor:safeArea.topAnchor],
         [scrollView.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor],
         [scrollView.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor],
         [scrollView.bottomAnchor constraintEqualToAnchor:safeArea.bottomAnchor],
 
-        [contentStack.topAnchor constraintEqualToAnchor:scrollView.topAnchor constant:24],
-        [contentStack.leadingAnchor constraintEqualToAnchor:scrollView.leadingAnchor constant:20],
-        [contentStack.trailingAnchor constraintEqualToAnchor:scrollView.trailingAnchor constant:-20],
-        [contentStack.bottomAnchor constraintEqualToAnchor:scrollView.bottomAnchor constant:-24],
-        [contentStack.widthAnchor constraintEqualToAnchor:scrollView.widthAnchor constant:-40],
+        [contentStack.topAnchor constraintEqualToAnchor:scrollView.topAnchor constant:contentInsetY],
+        [contentStack.leadingAnchor constraintEqualToAnchor:scrollView.leadingAnchor constant:contentInsetX],
+        [contentStack.trailingAnchor constraintEqualToAnchor:scrollView.trailingAnchor constant:-contentInsetX],
+        [contentStack.bottomAnchor constraintEqualToAnchor:scrollView.bottomAnchor constant:-contentInsetY],
+        [contentStack.widthAnchor constraintEqualToAnchor:scrollView.widthAnchor constant:-(contentInsetX * 2.0)],
     ]];
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -2654,7 +2769,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         NSString *toolIdentifier = windowView.workspaceToolIdentifier;
         if (toolIdentifier.length == 0)
             continue;
-        if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
+        if (!ISHWorkspaceUsesPhoneLayout() && [toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             continue;
 
         CGSize targetSize = ISHWorkspacePreferredToolContentSize(toolIdentifier);
@@ -3119,12 +3234,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIView *)workspaceThemeCardView {
     UIView *card = [UIView new];
     card.translatesAutoresizingMaskIntoConstraints = NO;
-    card.layer.cornerRadius = ISHWorkspaceDensityValue(14, 22);
+    CGFloat compactCornerRadius = ISHWorkspaceUsesPhoneLayout() ? 10.0 : 14.0;
+    CGFloat roomyCornerRadius = ISHWorkspaceUsesPhoneLayout() ? 16.0 : 22.0;
+    card.layer.cornerRadius = ISHWorkspaceDensityValue(compactCornerRadius, roomyCornerRadius);
     card.layer.borderWidth = 1;
     card.layer.shadowColor = UIColor.blackColor.CGColor;
     card.layer.shadowOpacity = 0.16;
-    card.layer.shadowRadius = ISHWorkspaceDensityValue(10, 18);
-    card.layer.shadowOffset = CGSizeMake(0, ISHWorkspaceDensityValue(6, 10));
+    card.layer.shadowRadius = ISHWorkspaceDensityValue(ISHWorkspaceUsesPhoneLayout() ? 7.0 : 10.0,
+                                                       ISHWorkspaceUsesPhoneLayout() ? 12.0 : 18.0);
+    card.layer.shadowOffset = CGSizeMake(0, ISHWorkspaceDensityValue(ISHWorkspaceUsesPhoneLayout() ? 4.0 : 6.0,
+                                                                     ISHWorkspaceUsesPhoneLayout() ? 7.0 : 10.0));
     [_trackedCardViews addObject:card];
     return card;
 }
@@ -3135,7 +3254,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     textView.editable = NO;
     textView.alwaysBounceVertical = YES;
     textView.backgroundColor = UIColor.clearColor;
-    CGFloat pointSize = ISHWorkspaceDensityValue(9.5, 12.0);
+    CGFloat pointSize = ISHWorkspaceDensityValue(ISHWorkspaceUsesPhoneLayout() ? 8.5 : 9.5,
+                                                 ISHWorkspaceUsesPhoneLayout() ? 11.0 : 12.0);
     if (@available(iOS 13.0, *)) {
         textView.font = [UIFont monospacedSystemFontOfSize:pointSize weight:UIFontWeightRegular];
     } else {
@@ -3148,7 +3268,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIProgressView *)workspaceThemeProgressView {
     UIProgressView *progressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
     progressView.translatesAutoresizingMaskIntoConstraints = NO;
-    progressView.transform = CGAffineTransformMakeScale(1.0, ISHWorkspaceDensityValue(1.04, 1.28));
+    progressView.transform = CGAffineTransformMakeScale(1.0,
+                                                        ISHWorkspaceDensityValue(ISHWorkspaceUsesPhoneLayout() ? 0.98 : 1.04,
+                                                                                 ISHWorkspaceUsesPhoneLayout() ? 1.16 : 1.28));
     [_trackedProgressViews addObject:progressView];
     return progressView;
 }
@@ -4039,6 +4161,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (UIView *)infoMetricCardWithTitle:(NSString *)title valueLabel:(UILabel * __strong *)valueLabel {
     UIView *card = [self workspaceThemeCardView];
+    CGFloat stackInset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 7.0;
+    CGFloat minimumHeight = ISHWorkspaceUsesPhoneLayout() ? 50.0 : 58.0;
 
     UIStackView *stack = [UIStackView new];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -4062,11 +4186,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [stack addArrangedSubview:label];
 
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:58],
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:7],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:7],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-7],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-7],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:minimumHeight],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:stackInset],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:stackInset],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-stackInset],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-stackInset],
     ]];
 
     if (valueLabel != NULL)
@@ -4525,7 +4649,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _textView = [self workspaceThemeTextView];
     [detailsCard addSubview:_textView];
     [NSLayoutConstraint activateConstraints:@[
-        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:110],
+        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 92.0 : 110.0)],
         [_textView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:8],
         [_textView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:8],
         [_textView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-8],
@@ -4638,7 +4762,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _runtimeTextView = [self workspaceThemeTextView];
     [runtimeCard addSubview:_runtimeTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:94],
+        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 76.0 : 94.0)],
         [_runtimeTextView.topAnchor constraintEqualToAnchor:runtimeCard.topAnchor constant:8],
         [_runtimeTextView.leadingAnchor constraintEqualToAnchor:runtimeCard.leadingAnchor constant:8],
         [_runtimeTextView.trailingAnchor constraintEqualToAnchor:runtimeCard.trailingAnchor constant:-8],
@@ -4649,7 +4773,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _networkTextView = [self workspaceThemeTextView];
     [networkCard addSubview:_networkTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:82],
+        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 68.0 : 82.0)],
         [_networkTextView.topAnchor constraintEqualToAnchor:networkCard.topAnchor constant:8],
         [_networkTextView.leadingAnchor constraintEqualToAnchor:networkCard.leadingAnchor constant:8],
         [_networkTextView.trailingAnchor constraintEqualToAnchor:networkCard.trailingAnchor constant:-8],
@@ -4660,7 +4784,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _eventsTextView = [self workspaceThemeTextView];
     [eventsCard addSubview:_eventsTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:90],
+        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 74.0 : 90.0)],
         [_eventsTextView.topAnchor constraintEqualToAnchor:eventsCard.topAnchor constant:8],
         [_eventsTextView.leadingAnchor constraintEqualToAnchor:eventsCard.leadingAnchor constant:8],
         [_eventsTextView.trailingAnchor constraintEqualToAnchor:eventsCard.trailingAnchor constant:-8],
