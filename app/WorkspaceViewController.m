@@ -13,6 +13,7 @@
 #include <mach/mach.h>
 #include <mach/task_info.h>
 #include <net/if.h>
+#include <sys/sysctl.h>
 
 @class ISHWorkspaceContainedWindowView;
 
@@ -37,6 +38,16 @@
 @property (nonatomic, strong) UIStackView *bodyStack;
 @property (nonatomic, strong) UIView *windowCard;
 
+- (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier;
+- (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
+- (void)openDashboardWindow:(id)sender;
+- (void)openNewWorkspaceWindow:(id)sender;
+- (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
+- (void)openExistingTerminalHereWithUUID:(NSUUID *)terminalUUID;
+- (ISHWorkspaceContainedWindowView *)desktopWindowForToolIdentifier:(NSString *)toolIdentifier;
+- (ISHWorkspaceContainedWindowView *)desktopWindowHostingTerminalUUID:(NSUUID *)terminalUUID;
+- (void)focusDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView;
+
 - (UISceneSession *)sceneSessionHostingTerminalUUID:(NSUUID *)terminalUUID API_AVAILABLE(ios(13.0));
 - (BOOL)focusSceneSession:(UISceneSession *)sceneSession title:(NSString *)title API_AVAILABLE(ios(13.0));
 
@@ -49,6 +60,10 @@ static NSString *const ISHWorkspaceToolInfoIdentifier = @"info";
 static NSString *const ISHWorkspaceToolMonitorIdentifier = @"monitor";
 static NSString *const ISHWorkspaceToolNetworksIdentifier = @"networks";
 static NSString *const ISHWorkspaceToolStatusIdentifier = @"status";
+static NSString *const ISHWorkspaceToolProcessesIdentifier = @"processes";
+static NSString *const ISHWorkspaceToolSessionsIdentifier = @"sessions";
+static NSString *const ISHWorkspaceToolStorageIdentifier = @"storage";
+static NSString *const ISHWorkspaceToolShortcutsIdentifier = @"shortcuts";
 static NSString *const ISHWorkspaceToolThemesIdentifier = @"themes";
 static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
@@ -442,6 +457,14 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(328, 176);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(340, 248);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+            return CGSizeMake(332, 224);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+            return CGSizeMake(332, 238);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+            return CGSizeMake(336, 256);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+            return CGSizeMake(312, 184);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             return CGSizeMake(360, 620);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -462,6 +485,14 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(360, 188);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(460, 300);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+        return CGSizeMake(440, 268);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+        return CGSizeMake(460, 286);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+        return CGSizeMake(500, 320);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+        return CGSizeMake(400, 220);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(820, 760);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -533,6 +564,14 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(280, 150);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(300, 220);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+            return CGSizeMake(272, 170);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+            return CGSizeMake(280, 176);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+            return CGSizeMake(288, 188);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+            return CGSizeMake(260, 148);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             return CGSizeMake(320, 420);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -552,6 +591,14 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(300, 150);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return CGSizeMake(300, 156);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+        return CGSizeMake(340, 200);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+        return CGSizeMake(340, 208);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+        return CGSizeMake(360, 220);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+        return CGSizeMake(300, 164);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(520, 560);
     return CGSizeZero;
@@ -581,6 +628,14 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Networks";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return @"System Status";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+        return @"Processes";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+        return @"Sessions";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+        return @"Storage";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+        return @"Shortcuts";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return @"Themes";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -801,6 +856,149 @@ static NSString *ISHWorkspacePrimaryNetworkLine(void) {
     if (lines.count >= 2)
         return lines[1];
     return lines.firstObject ?: @"Network: unavailable";
+}
+
+static NSString *ISHWorkspaceByteCountString(uint64_t bytes) {
+    return [NSByteCountFormatter stringFromByteCount:(long long) bytes
+                                          countStyle:NSByteCountFormatterCountStyleFile];
+}
+
+static NSDictionary<NSString *, NSNumber *> *ISHWorkspaceDirectoryUsage(NSURL *directoryURL) {
+    if (directoryURL == nil)
+        return @{@"bytes": @0, @"files": @0, @"directories": @0};
+
+    uint64_t totalBytes = 0;
+    NSUInteger fileCount = 0;
+    NSUInteger directoryCount = 0;
+    NSArray<NSURLResourceKey> *keys = @[
+        NSURLIsDirectoryKey,
+        NSURLFileAllocatedSizeKey,
+        NSURLTotalFileAllocatedSizeKey,
+        NSURLFileSizeKey,
+    ];
+    NSDirectoryEnumerator<NSURL *> *enumerator =
+        [NSFileManager.defaultManager enumeratorAtURL:directoryURL
+                           includingPropertiesForKeys:keys
+                                              options:0
+                                         errorHandler:^BOOL(__unused NSURL *url, __unused NSError *error) {
+        return YES;
+    }];
+    for (NSURL *itemURL in enumerator) {
+        NSNumber *isDirectory = nil;
+        [itemURL getResourceValue:&isDirectory forKey:NSURLIsDirectoryKey error:nil];
+        if (isDirectory.boolValue) {
+            directoryCount += 1;
+            continue;
+        }
+        NSNumber *size = nil;
+        [itemURL getResourceValue:&size forKey:NSURLTotalFileAllocatedSizeKey error:nil];
+        if (size == nil)
+            [itemURL getResourceValue:&size forKey:NSURLFileAllocatedSizeKey error:nil];
+        if (size == nil)
+            [itemURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+        totalBytes += size.unsignedLongLongValue;
+        fileCount += 1;
+    }
+    return @{
+        @"bytes": @(totalBytes),
+        @"files": @(fileCount),
+        @"directories": @(directoryCount),
+    };
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceRootUsageRecords(void) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
+    NSString *defaultRoot = Roots.instance.defaultRoot;
+    for (NSString *rootName in Roots.instance.roots) {
+        NSURL *rootURL = [Roots.instance rootUrl:rootName];
+        NSDictionary<NSString *, NSNumber *> *usage = ISHWorkspaceDirectoryUsage(rootURL);
+        NSString *guestABI = [Roots.instance guestABIForRootNamed:rootName] ?: @"Unknown ABI";
+        [records addObject:@{
+            @"name": rootName,
+            @"isDefault": @([rootName isEqualToString:defaultRoot]),
+            @"abi": guestABI,
+            @"path": rootURL.path ?: @"",
+            @"bytes": usage[@"bytes"] ?: @0,
+            @"files": usage[@"files"] ?: @0,
+            @"directories": usage[@"directories"] ?: @0,
+        }];
+    }
+    return records;
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceVisibleProcessRecords(NSUInteger limit) {
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t bufferSize = 0;
+    if (sysctl(mib, 4, NULL, &bufferSize, NULL, 0) != 0 || bufferSize == 0)
+        return @[];
+    struct kinfo_proc *processes = malloc(bufferSize);
+    if (processes == NULL)
+        return @[];
+    if (sysctl(mib, 4, processes, &bufferSize, NULL, 0) != 0) {
+        free(processes);
+        return @[];
+    }
+
+    NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
+    NSUInteger processCount = bufferSize / sizeof(struct kinfo_proc);
+    pid_t currentPID = NSProcessInfo.processInfo.processIdentifier;
+    for (NSUInteger index = 0; index < processCount; index++) {
+        struct kinfo_proc process = processes[index];
+        pid_t pid = process.kp_proc.p_pid;
+        if (pid <= 0)
+            continue;
+        NSString *name = [NSString stringWithUTF8String:process.kp_proc.p_comm];
+        if (name.length == 0)
+            continue;
+        NSString *state = @"other";
+        switch (process.kp_proc.p_stat) {
+            case SRUN:
+                state = @"run";
+                break;
+            case SSLEEP:
+                state = @"sleep";
+                break;
+            case SSTOP:
+                state = @"stop";
+                break;
+            case SZOMB:
+                state = @"zombie";
+                break;
+            default:
+                break;
+        }
+        [records addObject:@{
+            @"pid": @(pid),
+            @"name": name,
+            @"state": state,
+            @"isCurrent": @(pid == currentPID),
+        }];
+    }
+    free(processes);
+
+    [records sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *, id> *left,
+                                                     NSDictionary<NSString *, id> *right) {
+        BOOL leftCurrent = [left[@"isCurrent"] boolValue];
+        BOOL rightCurrent = [right[@"isCurrent"] boolValue];
+        if (leftCurrent && !rightCurrent)
+            return NSOrderedAscending;
+        if (!leftCurrent && rightCurrent)
+            return NSOrderedDescending;
+        NSString *leftName = left[@"name"] ?: @"";
+        NSString *rightName = right[@"name"] ?: @"";
+        NSComparisonResult nameResult = [leftName compare:rightName];
+        if (nameResult != NSOrderedSame)
+            return nameResult;
+        if ([left[@"pid"] intValue] < [right[@"pid"] intValue])
+            return NSOrderedAscending;
+        if ([left[@"pid"] intValue] > [right[@"pid"] intValue])
+            return NSOrderedDescending;
+        return NSOrderedSame;
+    }];
+
+    if (limit > 0 && records.count > limit)
+        return [records subarrayWithRange:NSMakeRange(0, limit)];
+    return records;
 }
 
 static NSString *ISHWorkspaceUsageBarString(double ratio, NSUInteger width) {
@@ -1366,6 +1564,18 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceStatusToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceProcessesToolViewController : WorkspaceThemedToolViewController
+@end
+
+@interface WorkspaceSessionsToolViewController : WorkspaceThemedToolViewController
+@end
+
+@interface WorkspaceStorageToolViewController : WorkspaceThemedToolViewController
+@end
+
+@interface WorkspaceShortcutsToolViewController : WorkspaceThemedToolViewController
+@end
+
 @interface WorkspaceThemesToolViewController : WorkspaceThemedToolViewController
 @end
 
@@ -1380,6 +1590,14 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceNetworksToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return [WorkspaceStatusToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
+        return [WorkspaceProcessesToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
+        return [WorkspaceSessionsToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
+        return [WorkspaceStorageToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
+        return [WorkspaceShortcutsToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return [WorkspaceThemesToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
@@ -1404,6 +1622,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolNetworksIdentifier;
     if ([viewController isKindOfClass:WorkspaceStatusToolViewController.class])
         return ISHWorkspaceToolStatusIdentifier;
+    if ([viewController isKindOfClass:WorkspaceProcessesToolViewController.class])
+        return ISHWorkspaceToolProcessesIdentifier;
+    if ([viewController isKindOfClass:WorkspaceSessionsToolViewController.class])
+        return ISHWorkspaceToolSessionsIdentifier;
+    if ([viewController isKindOfClass:WorkspaceStorageToolViewController.class])
+        return ISHWorkspaceToolStorageIdentifier;
+    if ([viewController isKindOfClass:WorkspaceShortcutsToolViewController.class])
+        return ISHWorkspaceToolShortcutsIdentifier;
     if ([viewController isKindOfClass:WorkspaceThemesToolViewController.class])
         return ISHWorkspaceToolThemesIdentifier;
     if ([viewController isKindOfClass:NSClassFromString(@"DiagnosticsViewController")])
@@ -2808,12 +3034,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (toolIdentifier.length == 0)
         return;
 
-    ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
-    if (existingWindow != nil) {
-        [self focusDesktopWindow:existingWindow];
-        return;
-    }
-    [self openWorkspaceToolWithIdentifier:toolIdentifier];
+    [self openOrFocusWorkspaceToolIdentifier:toolIdentifier];
 }
 
 - (void)openOrFocusTerminalFromDock:(UIButton *)sender {
@@ -2823,18 +3044,57 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                    trackPrimaryRole:NO];
 }
 
-- (NSArray<NSDictionary<NSString *, NSString *> *> *)dockUtilityToolDescriptors {
+- (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier {
+    if (toolIdentifier.length == 0)
+        return;
+    ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
+    if (existingWindow != nil) {
+        [self focusDesktopWindow:existingWindow];
+        return;
+    }
+    [self openWorkspaceToolWithIdentifier:toolIdentifier];
+}
+
+- (NSArray<NSDictionary<NSString *, id> *> *)dockUtilityGroupDescriptors {
     return @[
-        @{@"title": @"Dashboard", @"identifier": @"dashboard"},
-        @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
-        @{@"title": @"Clock", @"identifier": ISHWorkspaceToolClockIdentifier},
-        @{@"title": @"Info", @"identifier": ISHWorkspaceToolInfoIdentifier},
-        @{@"title": @"Monitor", @"identifier": ISHWorkspaceToolMonitorIdentifier},
-        @{@"title": @"Networks", @"identifier": ISHWorkspaceToolNetworksIdentifier},
-        @{@"title": @"System Status", @"identifier": ISHWorkspaceToolStatusIdentifier},
-        @{@"title": @"Filesystems", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
-        @{@"title": @"Settings", @"identifier": ISHWorkspaceToolSettingsIdentifier},
-        @{@"title": @"Diagnostics", @"identifier": ISHWorkspaceToolDiagnosticsIdentifier},
+        @{
+            @"title": @"Workspace",
+            @"message": @"Launchers and workspace-wide controls.",
+            @"items": @[
+                @{@"title": @"Dashboard", @"identifier": @"dashboard"},
+                @{@"title": @"Shortcuts", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
+                @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+                @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
+            ],
+        },
+        @{
+            @"title": @"Status",
+            @"message": @"Live clocks, runtime summaries, and process views.",
+            @"items": @[
+                @{@"title": @"Clock", @"identifier": ISHWorkspaceToolClockIdentifier},
+                @{@"title": @"Info", @"identifier": ISHWorkspaceToolInfoIdentifier},
+                @{@"title": @"Monitor", @"identifier": ISHWorkspaceToolMonitorIdentifier},
+                @{@"title": @"Processes", @"identifier": ISHWorkspaceToolProcessesIdentifier},
+                @{@"title": @"Networks", @"identifier": ISHWorkspaceToolNetworksIdentifier},
+                @{@"title": @"System Status", @"identifier": ISHWorkspaceToolStatusIdentifier},
+            ],
+        },
+        @{
+            @"title": @"Storage",
+            @"message": @"Roots, filesystem summaries, and storage detail.",
+            @"items": @[
+                @{@"title": @"Storage", @"identifier": ISHWorkspaceToolStorageIdentifier},
+                @{@"title": @"Filesystems", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+            ],
+        },
+        @{
+            @"title": @"Support",
+            @"message": @"Settings and diagnostics tools.",
+            @"items": @[
+                @{@"title": @"Settings", @"identifier": ISHWorkspaceToolSettingsIdentifier},
+                @{@"title": @"Diagnostics", @"identifier": ISHWorkspaceToolDiagnosticsIdentifier},
+            ],
+        },
     ];
 }
 
@@ -2844,13 +3104,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentUtilsDockActionsFromView:recognizer.view];
 }
 
-- (void)presentUtilsDockActionsFromView:(UIView *)sourceView {
+- (void)presentUtilityGroup:(NSDictionary<NSString *, id> *)groupDescriptor fromView:(UIView *)sourceView {
+    NSString *groupTitle = groupDescriptor[@"title"] ?: @"Utils";
+    NSString *groupMessage = groupDescriptor[@"message"];
     UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"Utils"
-                                            message:@"Open or focus the dashboard or a native workspace tool."
+        [UIAlertController alertControllerWithTitle:groupTitle
+                                            message:groupMessage
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
-    for (NSDictionary<NSString *, NSString *> *descriptor in [self dockUtilityToolDescriptors]) {
+    for (NSDictionary<NSString *, NSString *> *descriptor in groupDescriptor[@"items"]) {
         NSString *toolIdentifier = descriptor[@"identifier"];
         NSString *title = descriptor[@"title"];
         BOOL isDashboardDescriptor = [toolIdentifier isEqualToString:@"dashboard"];
@@ -2870,6 +3132,40 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             } else {
                 [self openWorkspaceToolWithIdentifier:toolIdentifier];
             }
+        }]];
+    }
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Back"
+                                              style:UIAlertActionStyleCancel
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentUtilsDockActionsFromView:sourceView];
+    }]];
+
+    UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
+    if (popoverPresentationController != nil) {
+        popoverPresentationController.sourceView = sourceView ?: self.dockUtilsButton;
+        popoverPresentationController.sourceRect = sourceView != nil ? sourceView.bounds : self.dockUtilsButton.bounds;
+        popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentUtilsDockActionsFromView:(UIView *)sourceView {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Utils"
+                                            message:@"Choose a utility group."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    for (NSDictionary<NSString *, id> *groupDescriptor in [self dockUtilityGroupDescriptors]) {
+        NSString *title = groupDescriptor[@"title"] ?: @"Group";
+        NSArray *items = groupDescriptor[@"items"];
+        NSString *actionTitle = items.count > 0
+            ? [NSString stringWithFormat:@"%@ (%lu)", title, (unsigned long) items.count]
+            : title;
+        [sheet addAction:[UIAlertAction actionWithTitle:actionTitle
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self presentUtilityGroup:groupDescriptor fromView:sourceView];
         }]];
     }
 
@@ -4025,6 +4321,765 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         _editorActionButtons[1].alpha = editingCustom ? 1.0 : 0.45;
         _editorActionButtons[2].enabled = editingCustom;
         _editorActionButtons[2].alpha = editingCustom ? 1.0 : 0.45;
+    }
+}
+
+@end
+
+@implementation WorkspaceProcessesToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UILabel *_summaryLabel;
+    UITextView *_detailsTextView;
+    NSTimer *_timer;
+    NSUInteger _refreshGeneration;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Processes";
+
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 8;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *summaryCard = [self workspaceThemeCardView];
+    UIStackView *summaryStack = [UIStackView new];
+    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
+    summaryStack.axis = UILayoutConstraintAxisVertical;
+    summaryStack.spacing = 6;
+    [summaryCard addSubview:summaryStack];
+    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    summaryTitle.text = @"VISIBLE PROCESSES";
+    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    _summaryLabel.numberOfLines = 0;
+    [summaryStack addArrangedSubview:summaryTitle];
+    [summaryStack addArrangedSubview:_summaryLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:12],
+        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:12],
+        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-12],
+        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-12],
+    ]];
+
+    UIView *detailsCard = [self workspaceThemeCardView];
+    _detailsTextView = [self workspaceThemeTextView];
+    [detailsCard addSubview:_detailsTextView];
+    [NSLayoutConstraint activateConstraints:@[
+        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 116.0 : 144.0)],
+        [_detailsTextView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:8],
+        [_detailsTextView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:8],
+        [_detailsTextView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-8],
+        [_detailsTextView.bottomAnchor constraintEqualToAnchor:detailsCard.bottomAnchor constant:-8],
+    ]];
+
+    [_contentStack addArrangedSubview:summaryCard];
+    [_contentStack addArrangedSubview:detailsCard];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
+    ]];
+
+    [self refreshProcesses:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [_timer invalidate];
+    _timer = [NSTimer scheduledTimerWithTimeInterval:4.0
+                                              target:self
+                                            selector:@selector(refreshProcesses:)
+                                            userInfo:nil
+                                             repeats:YES];
+    [self refreshProcesses:nil];
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [_timer invalidate];
+    _timer = nil;
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
+}
+
+- (void)refreshProcesses:(id)sender {
+    (void) sender;
+    NSUInteger generation = ++_refreshGeneration;
+    _detailsTextView.text = @"Refreshing process table…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSArray<NSDictionary<NSString *, id> *> *processes = ISHWorkspaceVisibleProcessRecords(8);
+        uint64_t footprint = 0;
+        BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, NULL);
+        NSMutableArray<NSString *> *lines = [NSMutableArray array];
+        for (NSDictionary<NSString *, id> *process in processes) {
+            NSString *marker = [process[@"isCurrent"] boolValue] ? @"current app" : process[@"state"];
+            [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@",
+                              [process[@"pid"] intValue],
+                              process[@"name"],
+                              marker]];
+        }
+        NSString *summary = hasMemory
+            ? [NSString stringWithFormat:@"App footprint %@  •  %lu visible processes",
+                                          ISHWorkspaceByteCountString(footprint),
+                                          (unsigned long) processes.count]
+            : [NSString stringWithFormat:@"%lu visible processes", (unsigned long) processes.count];
+        NSString *details = lines.count > 0
+            ? [lines componentsJoinedByString:@"\n\n"]
+            : @"Per-process inspection is unavailable on this device. App memory and terminal activity are still tracked by the other Workspace utilities.";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self->_refreshGeneration)
+                return;
+            self->_summaryLabel.text = summary;
+            self->_detailsTextView.text = details;
+        });
+    });
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    _summaryLabel.textColor = self.workspaceTheme[@"accent"];
+}
+
+@end
+
+@implementation WorkspaceSessionsToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UILabel *_summaryLabel;
+    UIStackView *_quickActionsStack;
+    UIStackView *_sessionButtonsStack;
+    NSMutableArray<UIButton *> *_trackedButtons;
+}
+
+- (UIButton *)sessionButtonWithTitle:(NSString *)title subtitle:(NSString *)subtitle selector:(SEL)selector {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.contentEdgeInsets = UIEdgeInsetsMake(7, 10, 7, 10);
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    button.titleLabel.numberOfLines = 0;
+    button.layer.cornerRadius = 12;
+    button.layer.borderWidth = 1;
+
+    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
+    style.alignment = NSTextAlignmentLeft;
+    NSMutableAttributedString *titleString =
+        [[NSMutableAttributedString alloc] initWithString:title
+                                               attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline)
+                                               weight:UIFontWeightSemibold],
+        NSParagraphStyleAttributeName: style,
+    }];
+    [titleString appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"
+                                                                        attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1)
+                                               weight:UIFontWeightMedium],
+        NSParagraphStyleAttributeName: style,
+    }]];
+    [titleString appendAttributedString:[[NSAttributedString alloc] initWithString:subtitle
+                                                                        attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1)
+                                               weight:UIFontWeightMedium],
+        NSParagraphStyleAttributeName: style,
+    }]];
+    [button setAttributedTitle:titleString forState:UIControlStateNormal];
+    [button addTarget:self action:selector forControlEvents:UIControlEventTouchUpInside];
+    [_trackedButtons addObject:button];
+    return button;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Sessions";
+    _trackedButtons = [NSMutableArray array];
+
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 8;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *summaryCard = [self workspaceThemeCardView];
+    UIStackView *summaryStack = [UIStackView new];
+    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
+    summaryStack.axis = UILayoutConstraintAxisVertical;
+    summaryStack.spacing = 6;
+    [summaryCard addSubview:summaryStack];
+    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    summaryTitle.text = @"ACTIVE SESSIONS";
+    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    _summaryLabel.numberOfLines = 0;
+    [summaryStack addArrangedSubview:summaryTitle];
+    [summaryStack addArrangedSubview:_summaryLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:12],
+        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:12],
+        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-12],
+        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-12],
+    ]];
+
+    UIView *quickActionsCard = [self workspaceThemeCardView];
+    _quickActionsStack = [UIStackView new];
+    _quickActionsStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _quickActionsStack.axis = UILayoutConstraintAxisVertical;
+    _quickActionsStack.spacing = 6;
+    [quickActionsCard addSubview:_quickActionsStack];
+
+    UIStackView *rowOne = [UIStackView new];
+    rowOne.axis = UILayoutConstraintAxisHorizontal;
+    rowOne.spacing = 6;
+    rowOne.distribution = UIStackViewDistributionFillEqually;
+    UIButton *shellButton = [self sessionButtonWithTitle:@"Session Shell"
+                                                subtitle:@"Open or focus the primary shell"
+                                                selector:@selector(openShellShortcut:)];
+    UIButton *consoleButton = [self sessionButtonWithTitle:@"System Console"
+                                                  subtitle:@"Open or focus the console"
+                                                  selector:@selector(openConsoleShortcut:)];
+    [rowOne addArrangedSubview:shellButton];
+    [rowOne addArrangedSubview:consoleButton];
+
+    UIStackView *rowTwo = [UIStackView new];
+    rowTwo.axis = UILayoutConstraintAxisHorizontal;
+    rowTwo.spacing = 6;
+    rowTwo.distribution = UIStackViewDistributionFillEqually;
+    UIButton *dashboardButton = [self sessionButtonWithTitle:@"Dashboard"
+                                                    subtitle:@"Jump back to workspace layout"
+                                                    selector:@selector(openDashboardShortcut:)];
+    UIButton *workspaceButton = [self sessionButtonWithTitle:@"New Workspace"
+                                                    subtitle:@"Open another workspace window"
+                                                    selector:@selector(openWorkspaceShortcut:)];
+    [rowTwo addArrangedSubview:dashboardButton];
+    [rowTwo addArrangedSubview:workspaceButton];
+    [_quickActionsStack addArrangedSubview:rowOne];
+    [_quickActionsStack addArrangedSubview:rowTwo];
+    [NSLayoutConstraint activateConstraints:@[
+        [_quickActionsStack.topAnchor constraintEqualToAnchor:quickActionsCard.topAnchor constant:8],
+        [_quickActionsStack.leadingAnchor constraintEqualToAnchor:quickActionsCard.leadingAnchor constant:8],
+        [_quickActionsStack.trailingAnchor constraintEqualToAnchor:quickActionsCard.trailingAnchor constant:-8],
+        [_quickActionsStack.bottomAnchor constraintEqualToAnchor:quickActionsCard.bottomAnchor constant:-8],
+    ]];
+
+    UIView *sessionsCard = [self workspaceThemeCardView];
+    UIStackView *sessionsStack = [UIStackView new];
+    sessionsStack.translatesAutoresizingMaskIntoConstraints = NO;
+    sessionsStack.axis = UILayoutConstraintAxisVertical;
+    sessionsStack.spacing = 6;
+    [sessionsCard addSubview:sessionsStack];
+    UILabel *sessionsTitle = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    sessionsTitle.text = @"Live terminals";
+    _sessionButtonsStack = [UIStackView new];
+    _sessionButtonsStack.axis = UILayoutConstraintAxisVertical;
+    _sessionButtonsStack.spacing = 6;
+    [sessionsStack addArrangedSubview:sessionsTitle];
+    [sessionsStack addArrangedSubview:_sessionButtonsStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [sessionsStack.topAnchor constraintEqualToAnchor:sessionsCard.topAnchor constant:10],
+        [sessionsStack.leadingAnchor constraintEqualToAnchor:sessionsCard.leadingAnchor constant:10],
+        [sessionsStack.trailingAnchor constraintEqualToAnchor:sessionsCard.trailingAnchor constant:-10],
+        [sessionsStack.bottomAnchor constraintEqualToAnchor:sessionsCard.bottomAnchor constant:-10],
+    ]];
+
+    [_contentStack addArrangedSubview:summaryCard];
+    [_contentStack addArrangedSubview:quickActionsCard];
+    [_contentStack addArrangedSubview:sessionsCard];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
+    ]];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(refreshSessionsNotification:)
+                                               name:TerminalRegistryDidChangeNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(refreshSessionsNotification:)
+                                               name:TerminalDidLoadNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(refreshSessionsNotification:)
+                                               name:TerminalLoadFailedNotification
+                                             object:nil];
+    [self refreshSessions];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:TerminalRegistryDidChangeNotification
+                                                object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:TerminalDidLoadNotification
+                                                object:nil];
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:TerminalLoadFailedNotification
+                                                object:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshSessions];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
+    _quickActionsStack.spacing = ISHWorkspaceDensityValue(4, 6);
+    _sessionButtonsStack.spacing = ISHWorkspaceDensityValue(4, 6);
+}
+
+- (void)refreshSessionsNotification:(__unused NSNotification *)notification {
+    [self refreshSessions];
+}
+
+- (void)refreshSessions {
+    NSUInteger sceneCount = 0;
+    if (@available(iOS 13.0, *)) {
+        sceneCount = UIApplication.sharedApplication.connectedScenes.count;
+    }
+    _summaryLabel.text = [NSString stringWithFormat:@"%lu terminals  •  %lu roots  •  %lu scenes",
+                          (unsigned long) Terminal.activeTerminals.count,
+                          (unsigned long) Roots.instance.roots.count,
+                          (unsigned long) sceneCount];
+
+    NSArray<UIView *> *existingRows = _sessionButtonsStack.arrangedSubviews.copy;
+    for (UIView *view in existingRows) {
+        [_sessionButtonsStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    if (_trackedButtons.count > 4) {
+        [_trackedButtons removeObjectsInRange:NSMakeRange(4, _trackedButtons.count - 4)];
+    }
+
+    if (Terminal.activeTerminals.count == 0) {
+        UILabel *emptyLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+        emptyLabel.text = @"No active terminals. Use the quick actions above to start a shell or console.";
+        [_sessionButtonsStack addArrangedSubview:emptyLabel];
+        return;
+    }
+
+    for (Terminal *terminal in Terminal.activeTerminals) {
+        NSString *uuidString = terminal.uuid.UUIDString ?: @"";
+        ISHWorkspaceContainedWindowView *existingWindow = [self.workspaceHostViewController desktopWindowHostingTerminalUUID:terminal.uuid];
+        NSString *subtitle = existingWindow != nil
+            ? @"Focus current workspace window"
+            : (terminal.webView.superview != nil ? @"Focus another window" : @"Reconnect in this workspace");
+        UIButton *button = [self sessionButtonWithTitle:ISHWorkspaceTerminalDisplayName(terminal)
+                                               subtitle:subtitle
+                                               selector:@selector(openSessionTerminal:)];
+        button.accessibilityIdentifier = uuidString;
+        [_sessionButtonsStack addArrangedSubview:button];
+    }
+    [self workspaceApplyTheme];
+}
+
+- (void)openShellShortcut:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openTerminalHerePreferringConsole:NO];
+}
+
+- (void)openConsoleShortcut:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openTerminalHerePreferringConsole:YES];
+}
+
+- (void)openDashboardShortcut:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openDashboardWindow:nil];
+}
+
+- (void)openWorkspaceShortcut:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openNewWorkspaceWindow:nil];
+}
+
+- (void)openSessionTerminal:(UIButton *)sender {
+    NSString *uuidString = sender.accessibilityIdentifier;
+    if (uuidString.length == 0)
+        return;
+    [self.workspaceHostViewController openExistingTerminalHereWithUUID:[[NSUUID alloc] initWithUUIDString:uuidString]];
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _summaryLabel.textColor = theme[@"accentAlt"];
+    for (UIButton *button in _trackedButtons) {
+        button.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
+        button.layer.borderColor = theme[@"stroke"].CGColor;
+        NSMutableAttributedString *title =
+            [[NSMutableAttributedString alloc] initWithAttributedString:[button attributedTitleForState:UIControlStateNormal]];
+        [title addAttributes:@{
+            NSForegroundColorAttributeName: theme[@"primary"],
+        } range:NSMakeRange(0, title.length)];
+        if (title.length > 0) {
+            NSRange newlineRange = [[title string] rangeOfString:@"\n"];
+            if (newlineRange.location != NSNotFound) {
+                NSUInteger subtitleLocation = newlineRange.location + newlineRange.length;
+                if (subtitleLocation < title.length) {
+                    [title addAttributes:@{
+                        NSForegroundColorAttributeName: theme[@"secondary"],
+                    } range:NSMakeRange(subtitleLocation, title.length - subtitleLocation)];
+                }
+            }
+        }
+        [button setAttributedTitle:title forState:UIControlStateNormal];
+    }
+}
+
+@end
+
+@implementation WorkspaceStorageToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UILabel *_summaryLabel;
+    UITextView *_detailsTextView;
+    UIButton *_refreshButton;
+    NSUInteger _refreshGeneration;
+}
+
+- (UIButton *)storageActionButton {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.layer.cornerRadius = 10;
+    button.layer.borderWidth = 1;
+    button.contentEdgeInsets = UIEdgeInsetsMake(5, 10, 5, 10);
+    button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1)
+                                               weight:UIFontWeightSemibold];
+    [button setTitle:@"Refresh" forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(refreshStorage:) forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Storage";
+
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 8;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *summaryCard = [self workspaceThemeCardView];
+    UIStackView *summaryStack = [UIStackView new];
+    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
+    summaryStack.axis = UILayoutConstraintAxisVertical;
+    summaryStack.spacing = 6;
+    [summaryCard addSubview:summaryStack];
+    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    summaryTitle.text = @"ROOT STORAGE";
+    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    _summaryLabel.numberOfLines = 0;
+    [summaryStack addArrangedSubview:summaryTitle];
+    [summaryStack addArrangedSubview:_summaryLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:12],
+        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:12],
+        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-12],
+        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-12],
+    ]];
+
+    UIView *actionsCard = [self workspaceThemeCardView];
+    UIStackView *actionsStack = [UIStackView new];
+    actionsStack.translatesAutoresizingMaskIntoConstraints = NO;
+    actionsStack.axis = UILayoutConstraintAxisHorizontal;
+    actionsStack.alignment = UIStackViewAlignmentCenter;
+    actionsStack.spacing = 8;
+    [actionsCard addSubview:actionsStack];
+    UILabel *actionsLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    actionsLabel.text = @"Rescan roots and container directories.";
+    _refreshButton = [self storageActionButton];
+    [actionsStack addArrangedSubview:actionsLabel];
+    [actionsStack addArrangedSubview:_refreshButton];
+    [actionsLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [NSLayoutConstraint activateConstraints:@[
+        [actionsStack.topAnchor constraintEqualToAnchor:actionsCard.topAnchor constant:8],
+        [actionsStack.leadingAnchor constraintEqualToAnchor:actionsCard.leadingAnchor constant:10],
+        [actionsStack.trailingAnchor constraintEqualToAnchor:actionsCard.trailingAnchor constant:-10],
+        [actionsStack.bottomAnchor constraintEqualToAnchor:actionsCard.bottomAnchor constant:-8],
+    ]];
+
+    UIView *detailsCard = [self workspaceThemeCardView];
+    _detailsTextView = [self workspaceThemeTextView];
+    [detailsCard addSubview:_detailsTextView];
+    [NSLayoutConstraint activateConstraints:@[
+        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 132.0 : 168.0)],
+        [_detailsTextView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:8],
+        [_detailsTextView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:8],
+        [_detailsTextView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-8],
+        [_detailsTextView.bottomAnchor constraintEqualToAnchor:detailsCard.bottomAnchor constant:-8],
+    ]];
+
+    [_contentStack addArrangedSubview:summaryCard];
+    [_contentStack addArrangedSubview:actionsCard];
+    [_contentStack addArrangedSubview:detailsCard];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
+    ]];
+
+    [self refreshStorage:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshStorage:nil];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
+}
+
+- (void)refreshStorage:(id)sender {
+    (void) sender;
+    NSUInteger generation = ++_refreshGeneration;
+    _detailsTextView.text = @"Scanning roots and container directories…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSArray<NSDictionary<NSString *, id> *> *rootRecords = ISHWorkspaceRootUsageRecords();
+        NSDictionary<NSString *, NSNumber *> *tmpUsage = ISHWorkspaceDirectoryUsage([NSURL fileURLWithPath:NSTemporaryDirectory()]);
+        NSArray<NSURL *> *cacheDirectories =
+            [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask];
+        NSDictionary<NSString *, NSNumber *> *cacheUsage =
+            ISHWorkspaceDirectoryUsage(cacheDirectories.firstObject ?: [NSURL fileURLWithPath:NSHomeDirectory()]);
+        uint64_t totalRootBytes = 0;
+        NSMutableArray<NSString *> *lines = [NSMutableArray array];
+        [lines addObject:@"Workspace roots:"];
+        for (NSDictionary<NSString *, id> *record in rootRecords) {
+            totalRootBytes += [record[@"bytes"] unsignedLongLongValue];
+            NSString *marker = [record[@"isDefault"] boolValue] ? @"default" : @"root";
+            [lines addObject:[NSString stringWithFormat:@"%@  •  %@  •  %@",
+                              record[@"name"],
+                              record[@"abi"],
+                              marker]];
+            [lines addObject:[NSString stringWithFormat:@"  %@  •  %@ files  •  %@ dirs",
+                              ISHWorkspaceByteCountString([record[@"bytes"] unsignedLongLongValue]),
+                              record[@"files"],
+                              record[@"directories"]]];
+        }
+        if (rootRecords.count == 0) {
+            [lines addObject:@"No installed roots."];
+        }
+        [lines addObject:@""];
+        [lines addObject:@"Container directories:"];
+        [lines addObject:[NSString stringWithFormat:@"tmp  •  %@", ISHWorkspaceByteCountString([tmpUsage[@"bytes"] unsignedLongLongValue])]];
+        [lines addObject:[NSString stringWithFormat:@"cache  •  %@", ISHWorkspaceByteCountString([cacheUsage[@"bytes"] unsignedLongLongValue])]];
+
+        NSDictionary<NSFileAttributeKey, id> *attributes =
+            [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:nil];
+        uint64_t freeBytes = [attributes[NSFileSystemFreeSize] unsignedLongLongValue];
+        NSString *summary = [NSString stringWithFormat:@"%@ free  •  %@ across %lu roots",
+                                                       ISHWorkspaceByteCountString(freeBytes),
+                                                       ISHWorkspaceByteCountString(totalRootBytes),
+                                                       (unsigned long) rootRecords.count];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self->_refreshGeneration)
+                return;
+            self->_summaryLabel.text = summary;
+            self->_detailsTextView.text = [lines componentsJoinedByString:@"\n"];
+        });
+    });
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _summaryLabel.textColor = theme[@"accent"];
+    _refreshButton.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.96];
+    _refreshButton.layer.borderColor = theme[@"stroke"].CGColor;
+    [_refreshButton setTitleColor:theme[@"accentAlt"] forState:UIControlStateNormal];
+}
+
+@end
+
+@implementation WorkspaceShortcutsToolViewController {
+    UIStackView *_contentStack;
+    NSMutableArray<UIButton *> *_shortcutButtons;
+}
+
+- (UIButton *)shortcutButtonWithTitle:(NSString *)title subtitle:(NSString *)subtitle identifier:(NSString *)identifier {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.accessibilityIdentifier = identifier;
+    button.contentEdgeInsets = UIEdgeInsetsMake(8, 10, 8, 10);
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    button.titleLabel.numberOfLines = 0;
+    button.layer.cornerRadius = 12;
+    button.layer.borderWidth = 1;
+
+    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
+    style.alignment = NSTextAlignmentLeft;
+    NSMutableAttributedString *label =
+        [[NSMutableAttributedString alloc] initWithString:title
+                                               attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline)
+                                               weight:UIFontWeightSemibold],
+        NSParagraphStyleAttributeName: style,
+    }];
+    [label appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"
+                                                                  attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1)
+                                               weight:UIFontWeightMedium],
+        NSParagraphStyleAttributeName: style,
+    }]];
+    [label appendAttributedString:[[NSAttributedString alloc] initWithString:subtitle
+                                                                  attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1)
+                                               weight:UIFontWeightMedium],
+        NSParagraphStyleAttributeName: style,
+    }]];
+    [button setAttributedTitle:label forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(runShortcut:) forControlEvents:UIControlEventTouchUpInside];
+    [_shortcutButtons addObject:button];
+    return button;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Shortcuts";
+    _shortcutButtons = [NSMutableArray array];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 6;
+    [self.toolContentView addSubview:_contentStack];
+
+    UILabel *header = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    header.text = @"Quick workspace actions";
+    UILabel *detail = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    detail.text = @"Open the most common tools and terminal actions without leaving the workspace.";
+    [_contentStack addArrangedSubview:header];
+    [_contentStack addArrangedSubview:detail];
+
+    NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = @[
+        @[
+            @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
+            @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
+        ],
+        @[
+            @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
+            @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+        ],
+        @[
+            @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
+            @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
+        ],
+        @[
+            @{@"title": @"Filesystems", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+            @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
+        ],
+    ];
+
+    for (NSArray<NSDictionary<NSString *, NSString *> *> *rowDescriptors in rows) {
+        UIStackView *row = [UIStackView new];
+        row.axis = UILayoutConstraintAxisHorizontal;
+        row.spacing = 6;
+        row.distribution = UIStackViewDistributionFillEqually;
+        for (NSDictionary<NSString *, NSString *> *descriptor in rowDescriptors) {
+            [row addArrangedSubview:[self shortcutButtonWithTitle:descriptor[@"title"]
+                                                         subtitle:descriptor[@"subtitle"]
+                                                       identifier:descriptor[@"identifier"]]];
+        }
+        [_contentStack addArrangedSubview:row];
+    }
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_contentStack.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:8],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:8],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-8],
+        [_contentStack.bottomAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.bottomAnchor constant:-8],
+    ]];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _contentStack.spacing = ISHWorkspaceDensityValue(4, 6);
+}
+
+- (void)runShortcut:(UIButton *)sender {
+    NSString *identifier = sender.accessibilityIdentifier;
+    if (identifier.length == 0)
+        return;
+    if ([identifier isEqualToString:@"dashboard"]) {
+        [self.workspaceHostViewController openDashboardWindow:nil];
+    } else if ([identifier isEqualToString:@"shell"]) {
+        [self.workspaceHostViewController openTerminalHerePreferringConsole:NO];
+    } else if ([identifier isEqualToString:@"console"]) {
+        [self.workspaceHostViewController openTerminalHerePreferringConsole:YES];
+    } else if ([identifier isEqualToString:@"new-workspace"]) {
+        [self.workspaceHostViewController openNewWorkspaceWindow:nil];
+    } else {
+        [self.workspaceHostViewController openOrFocusWorkspaceToolIdentifier:identifier];
+    }
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    for (UIButton *button in _shortcutButtons) {
+        button.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
+        button.layer.borderColor = theme[@"stroke"].CGColor;
+        NSMutableAttributedString *title =
+            [[NSMutableAttributedString alloc] initWithAttributedString:[button attributedTitleForState:UIControlStateNormal]];
+        [title addAttributes:@{NSForegroundColorAttributeName: theme[@"primary"]} range:NSMakeRange(0, title.length)];
+        NSRange newlineRange = [[title string] rangeOfString:@"\n"];
+        if (newlineRange.location != NSNotFound) {
+            NSUInteger subtitleLocation = newlineRange.location + newlineRange.length;
+            if (subtitleLocation < title.length) {
+                [title addAttributes:@{NSForegroundColorAttributeName: theme[@"secondary"]}
+                               range:NSMakeRange(subtitleLocation, title.length - subtitleLocation)];
+            }
+        }
+        [button setAttributedTitle:title forState:UIControlStateNormal];
     }
 }
 
