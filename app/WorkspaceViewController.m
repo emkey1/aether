@@ -3231,6 +3231,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     contentRow.axis = UILayoutConstraintAxisHorizontal;
     contentRow.spacing = 8;
     contentRow.alignment = UIStackViewAlignmentCenter;
+    contentRow.userInteractionEnabled = NO;
     [button addSubview:contentRow];
 
     UIImageView *previewView = [[UIImageView alloc] initWithImage:
@@ -3251,6 +3252,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     textStack.axis = UILayoutConstraintAxisVertical;
     textStack.spacing = 2;
     textStack.alignment = UIStackViewAlignmentLeading;
+    textStack.userInteractionEnabled = NO;
     UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
     titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
     titleLabel.numberOfLines = 1;
