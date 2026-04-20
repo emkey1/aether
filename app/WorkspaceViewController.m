@@ -754,19 +754,130 @@ static NSString *ISHWorkspaceSystemStatusText(void) {
     return [lines componentsJoinedByString:@"\n"];
 }
 
-@interface WorkspaceClockToolViewController : UIViewController
+static NSString *const ISHWorkspaceToolThemePreferenceKey = @"ISHWorkspaceToolTheme";
+static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
+static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
+static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
+static NSString *const ISHWorkspaceToolThemeGraphiteIdentifier = @"graphite";
+
+static UIColor *ISHWorkspaceThemeColor(CGFloat red, CGFloat green, CGFloat blue, CGFloat alpha) {
+    return [UIColor colorWithRed:red / 255.0
+                           green:green / 255.0
+                            blue:blue / 255.0
+                           alpha:alpha];
+}
+
+static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceThemeChoices(void) {
+    return @[
+        @{@"identifier": ISHWorkspaceToolThemeAuroraIdentifier, @"title": @"Aurora"},
+        @{@"identifier": ISHWorkspaceToolThemeSolsticeIdentifier, @"title": @"Solstice"},
+        @{@"identifier": ISHWorkspaceToolThemeGraphiteIdentifier, @"title": @"Graphite"},
+    ];
+}
+
+static BOOL ISHWorkspaceThemeIdentifierIsValid(NSString *identifier) {
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
+        if ([choice[@"identifier"] isEqualToString:identifier])
+            return YES;
+    }
+    return NO;
+}
+
+static NSString *ISHWorkspaceCurrentThemeIdentifier(void) {
+    NSString *identifier = [NSUserDefaults.standardUserDefaults stringForKey:ISHWorkspaceToolThemePreferenceKey];
+    if (!ISHWorkspaceThemeIdentifierIsValid(identifier))
+        return ISHWorkspaceToolThemeAuroraIdentifier;
+    return identifier;
+}
+
+static NSString *ISHWorkspaceCurrentThemeTitle(void) {
+    NSString *identifier = ISHWorkspaceCurrentThemeIdentifier();
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
+        if ([choice[@"identifier"] isEqualToString:identifier])
+            return choice[@"title"];
+    }
+    return @"Aurora";
+}
+
+static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptor(void) {
+    NSString *identifier = ISHWorkspaceCurrentThemeIdentifier();
+    if ([identifier isEqualToString:ISHWorkspaceToolThemeSolsticeIdentifier]) {
+        return @{
+            @"backgroundTop": ISHWorkspaceThemeColor(255, 240, 218, 1.0),
+            @"backgroundBottom": ISHWorkspaceThemeColor(255, 174, 111, 1.0),
+            @"card": ISHWorkspaceThemeColor(255, 250, 242, 0.92),
+            @"cardAlt": ISHWorkspaceThemeColor(255, 238, 220, 0.82),
+            @"primary": ISHWorkspaceThemeColor(71, 39, 24, 1.0),
+            @"secondary": ISHWorkspaceThemeColor(122, 85, 63, 1.0),
+            @"accent": ISHWorkspaceThemeColor(214, 97, 42, 1.0),
+            @"accentAlt": ISHWorkspaceThemeColor(196, 133, 18, 1.0),
+            @"stroke": ISHWorkspaceThemeColor(214, 97, 42, 0.18),
+        };
+    }
+    if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
+        return @{
+            @"backgroundTop": ISHWorkspaceThemeColor(21, 29, 43, 1.0),
+            @"backgroundBottom": ISHWorkspaceThemeColor(49, 63, 85, 1.0),
+            @"card": ISHWorkspaceThemeColor(33, 42, 58, 0.9),
+            @"cardAlt": ISHWorkspaceThemeColor(52, 64, 86, 0.74),
+            @"primary": ISHWorkspaceThemeColor(239, 244, 255, 1.0),
+            @"secondary": ISHWorkspaceThemeColor(177, 189, 214, 1.0),
+            @"accent": ISHWorkspaceThemeColor(107, 226, 198, 1.0),
+            @"accentAlt": ISHWorkspaceThemeColor(125, 164, 255, 1.0),
+            @"stroke": ISHWorkspaceThemeColor(255, 255, 255, 0.09),
+        };
+    }
+    return @{
+        @"backgroundTop": ISHWorkspaceThemeColor(13, 34, 70, 1.0),
+        @"backgroundBottom": ISHWorkspaceThemeColor(44, 129, 167, 1.0),
+        @"card": ISHWorkspaceThemeColor(239, 251, 255, 0.9),
+        @"cardAlt": ISHWorkspaceThemeColor(211, 241, 245, 0.84),
+        @"primary": ISHWorkspaceThemeColor(14, 39, 63, 1.0),
+        @"secondary": ISHWorkspaceThemeColor(69, 99, 128, 1.0),
+        @"accent": ISHWorkspaceThemeColor(0, 156, 183, 1.0),
+        @"accentAlt": ISHWorkspaceThemeColor(109, 204, 128, 1.0),
+        @"stroke": ISHWorkspaceThemeColor(255, 255, 255, 0.16),
+    };
+}
+
+static void ISHWorkspaceSetCurrentThemeIdentifier(NSString *identifier) {
+    if (!ISHWorkspaceThemeIdentifierIsValid(identifier))
+        return;
+    NSString *currentIdentifier = ISHWorkspaceCurrentThemeIdentifier();
+    if ([currentIdentifier isEqualToString:identifier])
+        return;
+    [NSUserDefaults.standardUserDefaults setObject:identifier forKey:ISHWorkspaceToolThemePreferenceKey];
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceToolThemeDidChangeNotification object:nil];
+}
+
+@interface WorkspaceThemedToolViewController : UIViewController
+
+@property (nonatomic, strong, readonly) UIView *toolContentView;
+
+- (UIView *)workspaceThemeCardView;
+- (UILabel *)workspaceThemePrimaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
+- (UILabel *)workspaceThemeSecondaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
+- (UILabel *)workspaceThemeAccentLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
+- (UITextView *)workspaceThemeTextView;
+- (UIProgressView *)workspaceThemeProgressView;
+- (NSDictionary<NSString *, UIColor *> *)workspaceTheme;
+- (void)workspaceApplyTheme;
+
 @end
 
-@interface WorkspaceInfoToolViewController : UIViewController
+@interface WorkspaceClockToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceMonitorToolViewController : UIViewController
+@interface WorkspaceInfoToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceNetworksToolViewController : UIViewController
+@interface WorkspaceMonitorToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceStatusToolViewController : UIViewController
+@interface WorkspaceNetworksToolViewController : WorkspaceThemedToolViewController
+@end
+
+@interface WorkspaceStatusToolViewController : WorkspaceThemedToolViewController
 @end
 
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
@@ -2398,9 +2509,242 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @end
 
+@implementation WorkspaceThemedToolViewController {
+    CAGradientLayer *_backgroundGradientLayer;
+    UIView *_themeBadgeView;
+    UIButton *_themeButton;
+    UIView *_toolContentView;
+    NSMutableArray<UIView *> *_trackedCardViews;
+    NSMutableArray<UILabel *> *_trackedPrimaryLabels;
+    NSMutableArray<UILabel *> *_trackedSecondaryLabels;
+    NSMutableArray<UILabel *> *_trackedAccentLabels;
+    NSMutableArray<UITextView *> *_trackedTextViews;
+    NSMutableArray<UIProgressView *> *_trackedProgressViews;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+
+    _trackedCardViews = [NSMutableArray array];
+    _trackedPrimaryLabels = [NSMutableArray array];
+    _trackedSecondaryLabels = [NSMutableArray array];
+    _trackedAccentLabels = [NSMutableArray array];
+    _trackedTextViews = [NSMutableArray array];
+    _trackedProgressViews = [NSMutableArray array];
+
+    self.view.clipsToBounds = YES;
+    self.view.backgroundColor = UIColor.blackColor;
+
+    _backgroundGradientLayer = [CAGradientLayer layer];
+    _backgroundGradientLayer.startPoint = CGPointMake(0.12, 0.0);
+    _backgroundGradientLayer.endPoint = CGPointMake(0.88, 1.0);
+    [self.view.layer insertSublayer:_backgroundGradientLayer atIndex:0];
+
+    _themeBadgeView = [UIView new];
+    _themeBadgeView.translatesAutoresizingMaskIntoConstraints = NO;
+    _themeBadgeView.layer.cornerRadius = 14;
+    _themeBadgeView.layer.borderWidth = 1;
+    [self.view addSubview:_themeBadgeView];
+
+    _themeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _themeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    _themeButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    _themeButton.contentEdgeInsets = UIEdgeInsetsMake(5, 10, 5, 10);
+    [_themeButton addTarget:self action:@selector(presentWorkspaceThemeOptions:) forControlEvents:UIControlEventTouchUpInside];
+    [_themeBadgeView addSubview:_themeButton];
+
+    _toolContentView = [UIView new];
+    _toolContentView.translatesAutoresizingMaskIntoConstraints = NO;
+    _toolContentView.backgroundColor = UIColor.clearColor;
+    [self.view addSubview:_toolContentView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_themeBadgeView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:8],
+        [_themeBadgeView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
+
+        [_themeButton.topAnchor constraintEqualToAnchor:_themeBadgeView.topAnchor],
+        [_themeButton.leadingAnchor constraintEqualToAnchor:_themeBadgeView.leadingAnchor],
+        [_themeButton.trailingAnchor constraintEqualToAnchor:_themeBadgeView.trailingAnchor],
+        [_themeButton.bottomAnchor constraintEqualToAnchor:_themeBadgeView.bottomAnchor],
+
+        [_toolContentView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:42],
+        [_toolContentView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+        [_toolContentView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+        [_toolContentView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+    ]];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(workspaceThemeDidChange:)
+                                               name:ISHWorkspaceToolThemeDidChangeNotification
+                                             object:nil];
+    [self workspaceApplyTheme];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self
+                                                  name:ISHWorkspaceToolThemeDidChangeNotification
+                                                object:nil];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _backgroundGradientLayer.frame = self.view.bounds;
+}
+
+- (UIView *)toolContentView {
+    return _toolContentView;
+}
+
+- (NSDictionary<NSString *, UIColor *> *)workspaceTheme {
+    return ISHWorkspaceThemeDescriptor();
+}
+
+- (UILabel *)workspaceThemeLabelWithTextStyle:(UIFontTextStyle)textStyle
+                                   monospaced:(BOOL)monospaced
+                                      tracker:(NSMutableArray<UILabel *> *)tracker {
+    UILabel *label = [UILabel new];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.numberOfLines = 0;
+    UIFont *font = [UIFont preferredFontForTextStyle:textStyle];
+    if (monospaced) {
+        if (@available(iOS 13.0, *)) {
+            font = [UIFont monospacedSystemFontOfSize:font.pointSize weight:UIFontWeightMedium];
+        } else {
+            font = [UIFont fontWithName:@"Menlo-Regular" size:font.pointSize] ?: font;
+        }
+    }
+    label.font = font;
+    [tracker addObject:label];
+    return label;
+}
+
+- (UILabel *)workspaceThemePrimaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
+    return [self workspaceThemeLabelWithTextStyle:textStyle monospaced:monospaced tracker:_trackedPrimaryLabels];
+}
+
+- (UILabel *)workspaceThemeSecondaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
+    return [self workspaceThemeLabelWithTextStyle:textStyle monospaced:monospaced tracker:_trackedSecondaryLabels];
+}
+
+- (UILabel *)workspaceThemeAccentLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
+    return [self workspaceThemeLabelWithTextStyle:textStyle monospaced:monospaced tracker:_trackedAccentLabels];
+}
+
+- (UIView *)workspaceThemeCardView {
+    UIView *card = [UIView new];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    card.layer.cornerRadius = 22;
+    card.layer.borderWidth = 1;
+    card.layer.shadowColor = UIColor.blackColor.CGColor;
+    card.layer.shadowOpacity = 0.16;
+    card.layer.shadowRadius = 18;
+    card.layer.shadowOffset = CGSizeMake(0, 10);
+    [_trackedCardViews addObject:card];
+    return card;
+}
+
+- (UITextView *)workspaceThemeTextView {
+    UITextView *textView = [UITextView new];
+    textView.translatesAutoresizingMaskIntoConstraints = NO;
+    textView.editable = NO;
+    textView.alwaysBounceVertical = YES;
+    textView.backgroundColor = UIColor.clearColor;
+    if (@available(iOS 13.0, *)) {
+        textView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
+    } else {
+        textView.font = [UIFont fontWithName:@"Menlo-Regular" size:13] ?: [UIFont systemFontOfSize:13];
+    }
+    [_trackedTextViews addObject:textView];
+    return textView;
+}
+
+- (UIProgressView *)workspaceThemeProgressView {
+    UIProgressView *progressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    progressView.translatesAutoresizingMaskIntoConstraints = NO;
+    progressView.transform = CGAffineTransformMakeScale(1.0, 1.45);
+    [_trackedProgressViews addObject:progressView];
+    return progressView;
+}
+
+- (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
+    [self workspaceApplyTheme];
+}
+
+- (void)presentWorkspaceThemeOptions:(id)sender {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Theme"
+                                            message:@"Apply a shared Workspace native app theme."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSString *currentIdentifier = ISHWorkspaceCurrentThemeIdentifier();
+    for (NSDictionary<NSString *, NSString *> *choice in ISHWorkspaceThemeChoices()) {
+        NSString *identifier = choice[@"identifier"];
+        NSString *title = choice[@"title"];
+        NSString *actionTitle = [identifier isEqualToString:currentIdentifier]
+            ? [NSString stringWithFormat:@"✓ %@", title]
+            : title;
+        [sheet addAction:[UIAlertAction actionWithTitle:actionTitle
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceSetCurrentThemeIdentifier(identifier);
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = [sender isKindOfClass:UIView.class] ? sender : _themeBadgeView;
+        popover.sourceRect = [sender isKindOfClass:UIView.class] ? ((UIView *) sender).bounds : _themeBadgeView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)workspaceApplyTheme {
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _backgroundGradientLayer.colors = @[
+        (id) theme[@"backgroundTop"].CGColor,
+        (id) theme[@"backgroundBottom"].CGColor,
+    ];
+    _themeBadgeView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.96];
+    _themeBadgeView.layer.borderColor = theme[@"stroke"].CGColor;
+    [_themeButton setTitle:ISHWorkspaceCurrentThemeTitle() forState:UIControlStateNormal];
+    [_themeButton setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
+
+    for (UIView *card in _trackedCardViews) {
+        card.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.95];
+        card.layer.borderColor = theme[@"stroke"].CGColor;
+    }
+    for (UILabel *label in _trackedPrimaryLabels) {
+        label.textColor = theme[@"primary"];
+    }
+    for (UILabel *label in _trackedSecondaryLabels) {
+        label.textColor = theme[@"secondary"];
+    }
+    for (UILabel *label in _trackedAccentLabels) {
+        label.textColor = theme[@"accent"];
+    }
+    for (UITextView *textView in _trackedTextViews) {
+        textView.textColor = theme[@"primary"];
+        textView.tintColor = theme[@"accent"];
+    }
+    for (NSUInteger index = 0; index < _trackedProgressViews.count; index++) {
+        UIProgressView *progressView = _trackedProgressViews[index];
+        progressView.trackTintColor = [theme[@"accentAlt"] colorWithAlphaComponent:0.18];
+        progressView.progressTintColor = index % 2 == 0 ? theme[@"accent"] : theme[@"accentAlt"];
+    }
+}
+
+@end
+
 @implementation WorkspaceClockToolViewController {
+    UIView *_heroCard;
+    UILabel *_eyebrowLabel;
     UILabel *_timeLabel;
     UILabel *_dateLabel;
+    UILabel *_zoneLabel;
     UIStackView *_stackView;
     NSTimer *_timer;
     NSDateFormatter *_timeFormatter;
@@ -2410,11 +2754,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Clock";
-    if (@available(iOS 13.0, *)) {
-        self.view.backgroundColor = UIColor.systemBackgroundColor;
-    } else {
-        self.view.backgroundColor = UIColor.whiteColor;
-    }
 
     _timeFormatter = [NSDateFormatter new];
     _timeFormatter.timeStyle = NSDateFormatterMediumStyle;
@@ -2423,42 +2762,48 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _dateFormatter.dateStyle = NSDateFormatterFullStyle;
     _dateFormatter.timeStyle = NSDateFormatterNoStyle;
 
+    _heroCard = [self workspaceThemeCardView];
+    [self.toolContentView addSubview:_heroCard];
+
     _stackView = [UIStackView new];
     _stackView.axis = UILayoutConstraintAxisVertical;
-    _stackView.spacing = 18;
+    _stackView.spacing = 14;
     _stackView.translatesAutoresizingMaskIntoConstraints = NO;
     _stackView.alignment = UIStackViewAlignmentCenter;
-    [self.view addSubview:_stackView];
+    [_heroCard addSubview:_stackView];
 
-    _timeLabel = [UILabel new];
+    _eyebrowLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    _eyebrowLabel.text = @"LOCAL ARM CLOCK";
+    _eyebrowLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _eyebrowLabel.textAlignment = NSTextAlignmentCenter;
+
+    _timeLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleLargeTitle monospaced:YES];
     _timeLabel.numberOfLines = 1;
     _timeLabel.adjustsFontSizeToFitWidth = YES;
     _timeLabel.minimumScaleFactor = 0.5;
-    _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:40 weight:UIFontWeightBold];
-    if (@available(iOS 13.0, *)) {
-        _timeLabel.textColor = UIColor.labelColor;
-    } else {
-        _timeLabel.textColor = UIColor.blackColor;
-    }
 
-    _dateLabel = [UILabel new];
+    _dateLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
     _dateLabel.numberOfLines = 0;
     _dateLabel.textAlignment = NSTextAlignmentCenter;
-    _dateLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle3];
-    if (@available(iOS 13.0, *)) {
-        _dateLabel.textColor = UIColor.secondaryLabelColor;
-    } else {
-        _dateLabel.textColor = UIColor.darkGrayColor;
-    }
+    _zoneLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    _zoneLabel.textAlignment = NSTextAlignmentCenter;
 
+    [_stackView addArrangedSubview:_eyebrowLabel];
     [_stackView addArrangedSubview:_timeLabel];
     [_stackView addArrangedSubview:_dateLabel];
+    [_stackView addArrangedSubview:_zoneLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_stackView.centerXAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerXAnchor],
-        [_stackView.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
-        [_stackView.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
-        [_stackView.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
+        [_heroCard.centerXAnchor constraintEqualToAnchor:self.toolContentView.centerXAnchor],
+        [_heroCard.centerYAnchor constraintEqualToAnchor:self.toolContentView.centerYAnchor],
+        [_heroCard.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.toolContentView.leadingAnchor constant:18],
+        [_heroCard.trailingAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.trailingAnchor constant:-18],
+        [_heroCard.widthAnchor constraintLessThanOrEqualToConstant:520],
+
+        [_stackView.topAnchor constraintEqualToAnchor:_heroCard.topAnchor constant:24],
+        [_stackView.leadingAnchor constraintEqualToAnchor:_heroCard.leadingAnchor constant:24],
+        [_stackView.trailingAnchor constraintEqualToAnchor:_heroCard.trailingAnchor constant:-24],
+        [_stackView.bottomAnchor constraintEqualToAnchor:_heroCard.bottomAnchor constant:-24],
     ]];
 
     [self refreshClock:nil];
@@ -2467,17 +2812,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
 
-    CGRect bounds = UIEdgeInsetsInsetRect(self.view.safeAreaLayoutGuide.layoutFrame, UIEdgeInsetsMake(12, 16, 12, 16));
+    CGRect bounds = UIEdgeInsetsInsetRect(self.toolContentView.bounds, UIEdgeInsetsMake(12, 16, 12, 16));
     CGFloat width = MAX(1, CGRectGetWidth(bounds));
     CGFloat height = MAX(1, CGRectGetHeight(bounds));
-    CGFloat timeFontSize = MIN(width * 0.22, height * 0.34);
-    timeFontSize = MIN(MAX(timeFontSize, 24), 56);
+    CGFloat timeFontSize = MIN(width * 0.22, height * 0.30);
+    timeFontSize = MIN(MAX(timeFontSize, 30), 74);
     CGFloat dateFontSize = MIN(width * 0.08, height * 0.13);
     dateFontSize = MIN(MAX(dateFontSize, 12), 24);
 
     _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:timeFontSize weight:UIFontWeightBold];
-    _dateLabel.font = [UIFont systemFontOfSize:dateFontSize weight:UIFontWeightRegular];
-    _stackView.spacing = MAX(10, round(timeFontSize * 0.35));
+    _dateLabel.font = [UIFont systemFontOfSize:dateFontSize weight:UIFontWeightSemibold];
+    _zoneLabel.font = [UIFont systemFontOfSize:MAX(11, round(dateFontSize * 0.68)) weight:UIFontWeightMedium];
+    _stackView.spacing = MAX(8, round(timeFontSize * 0.24));
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -2501,71 +2847,105 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     NSDate *now = NSDate.date;
     _timeLabel.text = [_timeFormatter stringFromDate:now];
     _dateLabel.text = [_dateFormatter stringFromDate:now];
+    NSString *abbreviation = NSTimeZone.localTimeZone.abbreviation ?: @"Local";
+    _zoneLabel.text = [NSString stringWithFormat:@"%@  •  %@", abbreviation, NSTimeZone.localTimeZone.name ?: @"Time Zone"];
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _timeLabel.textColor = theme[@"accent"];
+    _zoneLabel.textColor = theme[@"accentAlt"];
+    _heroCard.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.88];
 }
 
 @end
 
 @implementation WorkspaceInfoToolViewController {
-    UILabel *_batteryLabel;
-    UILabel *_rootLabel;
-    UILabel *_storageLabel;
-    UILabel *_startupLabel;
+    UIStackView *_contentStack;
+    UILabel *_batteryValueLabel;
+    UILabel *_rootValueLabel;
+    UILabel *_storageValueLabel;
+    UILabel *_startupValueLabel;
     NSTimer *_timer;
 }
 
-- (UILabel *)infoLabel {
-    UILabel *label = [UILabel new];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
+- (UIView *)infoMetricCardWithTitle:(NSString *)title valueLabel:(UILabel * __strong *)valueLabel {
+    UIView *card = [self workspaceThemeCardView];
+
+    UIStackView *stack = [UIStackView new];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    [card addSubview:stack];
+
+    UILabel *titleLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    titleLabel.text = [title uppercaseString];
+    titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+
+    UILabel *label = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
+    label.font = [UIFont systemFontOfSize:24 weight:UIFontWeightSemibold];
+    label.textAlignment = NSTextAlignmentCenter;
     label.numberOfLines = 0;
-    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    if (@available(iOS 13.0, *)) {
-        label.textColor = UIColor.labelColor;
-    } else {
-        label.textColor = UIColor.blackColor;
-    }
-    return label;
+
+    [stack addArrangedSubview:titleLabel];
+    [stack addArrangedSubview:label];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:132],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:18],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-18],
+    ]];
+
+    if (valueLabel != NULL)
+        *valueLabel = label;
+    return card;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Info";
-    if (@available(iOS 13.0, *)) {
-        self.view.backgroundColor = UIColor.systemBackgroundColor;
-    } else {
-        self.view.backgroundColor = UIColor.whiteColor;
-    }
 
-    UIStackView *stack = [UIStackView new];
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 14;
-    [self.view addSubview:stack];
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 16;
+    [self.toolContentView addSubview:_contentStack];
 
-    UILabel *titleLabel = [UILabel new];
-    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    titleLabel.text = @"Current workspace info";
-    if (@available(iOS 13.0, *)) {
-        titleLabel.textColor = UIColor.labelColor;
-    } else {
-        titleLabel.textColor = UIColor.blackColor;
-    }
+    UILabel *titleLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    titleLabel.text = @"Workspace Signals";
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    UILabel *subtitleLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    subtitleLabel.text = @"Live native summaries of power, storage, root selection, and startup behavior.";
+    subtitleLabel.textAlignment = NSTextAlignmentCenter;
 
-    _batteryLabel = [self infoLabel];
-    _rootLabel = [self infoLabel];
-    _storageLabel = [self infoLabel];
-    _startupLabel = [self infoLabel];
+    UIStackView *topRow = [UIStackView new];
+    topRow.axis = UILayoutConstraintAxisHorizontal;
+    topRow.spacing = 16;
+    topRow.distribution = UIStackViewDistributionFillEqually;
+    [topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
+    [topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Root" valueLabel:&_rootValueLabel]];
 
-    [stack addArrangedSubview:titleLabel];
-    [stack addArrangedSubview:_batteryLabel];
-    [stack addArrangedSubview:_rootLabel];
-    [stack addArrangedSubview:_storageLabel];
-    [stack addArrangedSubview:_startupLabel];
+    UIStackView *bottomRow = [UIStackView new];
+    bottomRow.axis = UILayoutConstraintAxisHorizontal;
+    bottomRow.spacing = 16;
+    bottomRow.distribution = UIStackViewDistributionFillEqually;
+    [bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Free Storage" valueLabel:&_storageValueLabel]];
+    [bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Startup" valueLabel:&_startupValueLabel]];
+
+    [_contentStack addArrangedSubview:titleLabel];
+    [_contentStack addArrangedSubview:subtitleLabel];
+    [_contentStack addArrangedSubview:topRow];
+    [_contentStack addArrangedSubview:bottomRow];
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:18],
-        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18],
-        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-18],
-        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-18],
+        [_contentStack.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:18],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:18],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-18],
+        [_contentStack.bottomAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.bottomAnchor constant:-18],
     ]];
 
     [self refreshInfo:nil];
@@ -2592,7 +2972,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)refreshInfo:(id)sender {
     if (UIDevice.currentDevice.batteryState == UIDeviceBatteryStateUnknown || UIDevice.currentDevice.batteryLevel < 0) {
-        _batteryLabel.text = @"Battery: unavailable";
+        _batteryValueLabel.text = @"Unavailable";
     } else {
         NSString *stateDescription = @"On battery";
         switch (UIDevice.currentDevice.batteryState) {
@@ -2609,13 +2989,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                 break;
         }
         NSInteger percent = (NSInteger) llround(UIDevice.currentDevice.batteryLevel * 100.0);
-        _batteryLabel.text = [NSString stringWithFormat:@"Battery: %@ (%ld%%)", stateDescription, (long) percent];
+        _batteryValueLabel.text = [NSString stringWithFormat:@"%ld%%\n%@", (long) percent, stateDescription];
     }
 
     NSString *defaultRoot = Roots.instance.defaultRoot;
-    _rootLabel.text = defaultRoot.length > 0
-        ? [NSString stringWithFormat:@"Current root: %@", defaultRoot]
-        : @"Current root: unavailable";
+    _rootValueLabel.text = defaultRoot.length > 0 ? defaultRoot : @"Unavailable";
 
     NSDictionary<NSFileAttributeKey, id> *attributes =
         [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:nil];
@@ -2623,12 +3001,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (freeSize != nil) {
         NSString *formattedSize = [NSByteCountFormatter stringFromByteCount:freeSize.longLongValue
                                                                   countStyle:NSByteCountFormatterCountStyleFile];
-        _storageLabel.text = [NSString stringWithFormat:@"Free storage: %@", formattedSize];
+        _storageValueLabel.text = formattedSize;
     } else {
-        _storageLabel.text = @"Free storage: unavailable";
+        _storageValueLabel.text = @"Unavailable";
     }
 
-    _startupLabel.text = [NSString stringWithFormat:@"Startup screen: %@", ISHInitialWindowTitle()];
+    _startupValueLabel.text = ISHInitialWindowTitle();
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _batteryValueLabel.textColor = theme[@"accent"];
+    _storageValueLabel.textColor = theme[@"accentAlt"];
 }
 
 @end
@@ -2636,6 +3021,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @implementation WorkspaceMonitorToolViewController {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
+    UILabel *_heroSummaryLabel;
     UIProgressView *_cpuProgressView;
     UILabel *_cpuTitleLabel;
     UIProgressView *_memoryProgressView;
@@ -2654,22 +3040,38 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Monitor";
-    if (@available(iOS 13.0, *)) {
-        self.view.backgroundColor = UIColor.systemBackgroundColor;
-    } else {
-        self.view.backgroundColor = UIColor.whiteColor;
-    }
 
     _scrollView = [UIScrollView new];
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     _scrollView.alwaysBounceVertical = YES;
-    [self.view addSubview:_scrollView];
+    [self.toolContentView addSubview:_scrollView];
 
     _contentStack = [UIStackView new];
     _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     _contentStack.axis = UILayoutConstraintAxisVertical;
-    _contentStack.spacing = 8;
+    _contentStack.spacing = 14;
     [_scrollView addSubview:_contentStack];
+
+    UIView *heroCard = [self workspaceThemeCardView];
+    UIStackView *heroStack = [UIStackView new];
+    heroStack.translatesAutoresizingMaskIntoConstraints = NO;
+    heroStack.axis = UILayoutConstraintAxisVertical;
+    heroStack.spacing = 10;
+    [heroCard addSubview:heroStack];
+    UILabel *heroLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    heroLabel.text = @"LIVE RUNTIME";
+    heroLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _heroSummaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle2 monospaced:NO];
+    _heroSummaryLabel.textAlignment = NSTextAlignmentLeft;
+    [heroStack addArrangedSubview:heroLabel];
+    [heroStack addArrangedSubview:_heroSummaryLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [heroStack.topAnchor constraintEqualToAnchor:heroCard.topAnchor constant:18],
+        [heroStack.leadingAnchor constraintEqualToAnchor:heroCard.leadingAnchor constant:18],
+        [heroStack.trailingAnchor constraintEqualToAnchor:heroCard.trailingAnchor constant:-18],
+        [heroStack.bottomAnchor constraintEqualToAnchor:heroCard.bottomAnchor constant:-18],
+    ]];
+    [_contentStack addArrangedSubview:heroCard];
 
     [_contentStack addArrangedSubview:[self monitorBarCardWithTitle:@"CPU"
                                                          titleLabel:&_cpuTitleLabel
@@ -2692,22 +3094,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [_contentStack addArrangedSubview:[self monitorCardWithContent:factsStack]];
 
     [NSLayoutConstraint activateConstraints:@[
-        [_scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [_scrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
-        [_scrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
-        [_scrollView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
 
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:10],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:10],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-10],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-10],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-20],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:14],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:14],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-14],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-14],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-28],
     ]];
 
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
-                                                      target:self
-                                                      action:@selector(refreshMonitor:)];
     [self refreshMonitor:nil];
 }
 
@@ -2731,7 +3129,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (UILabel *)monitorValueLabelWithMonospaced:(BOOL)monospaced {
-    UILabel *label = [UILabel new];
+    UILabel *label = monospaced
+        ? [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:YES]
+        : [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
     label.numberOfLines = 1;
     UIFont *font = nil;
     if (monospaced) {
@@ -2744,31 +3144,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
     }
     label.font = font;
-    if (@available(iOS 13.0, *)) {
-        label.textColor = UIColor.labelColor;
-    } else {
-        label.textColor = UIColor.blackColor;
-    }
     return label;
 }
 
 - (UIView *)monitorCardWithContent:(UIView *)contentView {
-    UIView *card = [UIView new];
-    card.translatesAutoresizingMaskIntoConstraints = NO;
-    if (@available(iOS 13.0, *)) {
-        card.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    } else {
-        card.backgroundColor = [UIColor colorWithWhite:0.96 alpha:1.0];
-    }
-    card.layer.cornerRadius = 10;
+    UIView *card = [self workspaceThemeCardView];
 
     contentView.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:contentView];
     [NSLayoutConstraint activateConstraints:@[
-        [contentView.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
-        [contentView.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:8],
-        [contentView.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-8],
-        [contentView.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
+        [contentView.topAnchor constraintEqualToAnchor:card.topAnchor constant:14],
+        [contentView.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:14],
+        [contentView.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-14],
+        [contentView.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-14],
     ]];
     return card;
 }
@@ -2786,12 +3174,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     headingLabel.text = title;
     [stack addArrangedSubview:headingLabel];
 
-    UIProgressView *bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
-    if (@available(iOS 13.0, *)) {
-        bar.trackTintColor = UIColor.tertiarySystemFillColor;
-        bar.progressTintColor = UIColor.systemGreenColor;
-    }
-    bar.transform = CGAffineTransformMakeScale(1.0, 1.35);
+    UIProgressView *bar = [self workspaceThemeProgressView];
     [stack addArrangedSubview:bar];
 
     if (titleLabel != NULL)
@@ -2812,11 +3195,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UILabel *titleLabel = [self monitorValueLabelWithMonospaced:NO];
     titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     titleLabel.text = title;
-    if (@available(iOS 13.0, *)) {
-        titleLabel.textColor = UIColor.secondaryLabelColor;
-    } else {
-        titleLabel.textColor = UIColor.darkGrayColor;
-    }
+    titleLabel.textColor = self.workspaceTheme[@"secondary"];
 
     UILabel *detail = [self monitorValueLabelWithMonospaced:YES];
     detail.textAlignment = NSTextAlignmentRight;
@@ -2901,12 +3280,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                             (unsigned long) sceneCount,
                             (unsigned long) Roots.instance.roots.count,
                             (unsigned long) terminalCount];
+    _heroSummaryLabel.text = [NSString stringWithFormat:@"%lu scenes  •  %lu roots  •  %lu terminals",
+                              (unsigned long) sceneCount,
+                              (unsigned long) Roots.instance.roots.count,
+                              (unsigned long) terminalCount];
     _networkValueLabel.text = networkLine;
 }
 
 @end
 
 @implementation WorkspaceNetworksToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UILabel *_summaryLabel;
     UITextView *_textView;
     NSTimer *_timer;
 }
@@ -2914,31 +3300,64 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Networks";
-    if (@available(iOS 13.0, *)) {
-        self.view.backgroundColor = UIColor.systemBackgroundColor;
-    } else {
-        self.view.backgroundColor = UIColor.whiteColor;
-    }
 
-    _textView = [[UITextView alloc] initWithFrame:self.view.bounds];
-    _textView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _textView.editable = NO;
-    _textView.alwaysBounceVertical = YES;
-    if (@available(iOS 13.0, *)) {
-        _textView.backgroundColor = UIColor.systemBackgroundColor;
-        _textView.textColor = UIColor.labelColor;
-        _textView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    } else {
-        _textView.backgroundColor = UIColor.whiteColor;
-        _textView.textColor = UIColor.blackColor;
-        _textView.font = [UIFont fontWithName:@"Menlo-Regular" size:13] ?: [UIFont systemFontOfSize:13];
-    }
-    [self.view addSubview:_textView];
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
 
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
-                                                      target:self
-                                                      action:@selector(refreshNetworks:)];
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 14;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *summaryCard = [self workspaceThemeCardView];
+    UIStackView *summaryStack = [UIStackView new];
+    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
+    summaryStack.axis = UILayoutConstraintAxisVertical;
+    summaryStack.spacing = 8;
+    [summaryCard addSubview:summaryStack];
+    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    summaryTitle.text = @"CONNECTIVITY";
+    summaryTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
+    _summaryLabel.numberOfLines = 0;
+    [summaryStack addArrangedSubview:summaryTitle];
+    [summaryStack addArrangedSubview:_summaryLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:18],
+        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:18],
+        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-18],
+        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-18],
+    ]];
+
+    UIView *detailsCard = [self workspaceThemeCardView];
+    _textView = [self workspaceThemeTextView];
+    [detailsCard addSubview:_textView];
+    [NSLayoutConstraint activateConstraints:@[
+        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:220],
+        [_textView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:12],
+        [_textView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:12],
+        [_textView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-12],
+        [_textView.bottomAnchor constraintEqualToAnchor:detailsCard.bottomAnchor constant:-12],
+    ]];
+
+    [_contentStack addArrangedSubview:summaryCard];
+    [_contentStack addArrangedSubview:detailsCard];
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:14],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:14],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-14],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-14],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-28],
+    ]];
+
     [self refreshNetworks:nil];
 }
 
@@ -2960,43 +3379,118 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)refreshNetworks:(id)sender {
-    _textView.text = ISHWorkspaceNetworkSummaryText();
+    NSString *summary = ISHWorkspaceNetworkSummaryText();
+    NSArray<NSString *> *lines = [summary componentsSeparatedByString:@"\n"];
+    _summaryLabel.text = lines.firstObject ?: @"Network unavailable";
+    if (lines.count > 1) {
+        _textView.text = [[lines subarrayWithRange:NSMakeRange(1, lines.count - 1)] componentsJoinedByString:@"\n"];
+    } else {
+        _textView.text = @"No active interfaces to display.";
+    }
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    _summaryLabel.textColor = self.workspaceTheme[@"accentAlt"];
 }
 
 @end
 
 @implementation WorkspaceStatusToolViewController {
-    UITextView *_textView;
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+    UILabel *_heroValueLabel;
+    UITextView *_runtimeTextView;
+    UITextView *_networkTextView;
+    UITextView *_eventsTextView;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"System Status";
-    if (@available(iOS 13.0, *)) {
-        self.view.backgroundColor = UIColor.systemBackgroundColor;
-    } else {
-        self.view.backgroundColor = UIColor.whiteColor;
-    }
 
-    _textView = [[UITextView alloc] initWithFrame:self.view.bounds];
-    _textView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _textView.editable = NO;
-    _textView.alwaysBounceVertical = YES;
-    if (@available(iOS 13.0, *)) {
-        _textView.backgroundColor = UIColor.systemBackgroundColor;
-        _textView.textColor = UIColor.labelColor;
-        _textView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    } else {
-        _textView.backgroundColor = UIColor.whiteColor;
-        _textView.textColor = UIColor.blackColor;
-        _textView.font = [UIFont fontWithName:@"Menlo-Regular" size:13] ?: [UIFont systemFontOfSize:13];
-    }
-    [self.view addSubview:_textView];
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _scrollView.alwaysBounceVertical = YES;
+    [self.toolContentView addSubview:_scrollView];
 
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemRefresh
-                                                      target:self
-                                                      action:@selector(refreshStatus:)];
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 14;
+    [_scrollView addSubview:_contentStack];
+
+    UIView *heroCard = [self workspaceThemeCardView];
+    UIStackView *heroStack = [UIStackView new];
+    heroStack.translatesAutoresizingMaskIntoConstraints = NO;
+    heroStack.axis = UILayoutConstraintAxisVertical;
+    heroStack.spacing = 8;
+    [heroCard addSubview:heroStack];
+    UILabel *heroTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    heroTitle.text = @"SYSTEM STATUS";
+    heroTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _heroValueLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
+    _heroValueLabel.numberOfLines = 0;
+    [heroStack addArrangedSubview:heroTitle];
+    [heroStack addArrangedSubview:_heroValueLabel];
+    [NSLayoutConstraint activateConstraints:@[
+        [heroStack.topAnchor constraintEqualToAnchor:heroCard.topAnchor constant:18],
+        [heroStack.leadingAnchor constraintEqualToAnchor:heroCard.leadingAnchor constant:18],
+        [heroStack.trailingAnchor constraintEqualToAnchor:heroCard.trailingAnchor constant:-18],
+        [heroStack.bottomAnchor constraintEqualToAnchor:heroCard.bottomAnchor constant:-18],
+    ]];
+
+    UIView *runtimeCard = [self workspaceThemeCardView];
+    _runtimeTextView = [self workspaceThemeTextView];
+    [runtimeCard addSubview:_runtimeTextView];
+    [NSLayoutConstraint activateConstraints:@[
+        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:160],
+        [_runtimeTextView.topAnchor constraintEqualToAnchor:runtimeCard.topAnchor constant:12],
+        [_runtimeTextView.leadingAnchor constraintEqualToAnchor:runtimeCard.leadingAnchor constant:12],
+        [_runtimeTextView.trailingAnchor constraintEqualToAnchor:runtimeCard.trailingAnchor constant:-12],
+        [_runtimeTextView.bottomAnchor constraintEqualToAnchor:runtimeCard.bottomAnchor constant:-12],
+    ]];
+
+    UIView *networkCard = [self workspaceThemeCardView];
+    _networkTextView = [self workspaceThemeTextView];
+    [networkCard addSubview:_networkTextView];
+    [NSLayoutConstraint activateConstraints:@[
+        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:130],
+        [_networkTextView.topAnchor constraintEqualToAnchor:networkCard.topAnchor constant:12],
+        [_networkTextView.leadingAnchor constraintEqualToAnchor:networkCard.leadingAnchor constant:12],
+        [_networkTextView.trailingAnchor constraintEqualToAnchor:networkCard.trailingAnchor constant:-12],
+        [_networkTextView.bottomAnchor constraintEqualToAnchor:networkCard.bottomAnchor constant:-12],
+    ]];
+
+    UIView *eventsCard = [self workspaceThemeCardView];
+    _eventsTextView = [self workspaceThemeTextView];
+    [eventsCard addSubview:_eventsTextView];
+    [NSLayoutConstraint activateConstraints:@[
+        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:140],
+        [_eventsTextView.topAnchor constraintEqualToAnchor:eventsCard.topAnchor constant:12],
+        [_eventsTextView.leadingAnchor constraintEqualToAnchor:eventsCard.leadingAnchor constant:12],
+        [_eventsTextView.trailingAnchor constraintEqualToAnchor:eventsCard.trailingAnchor constant:-12],
+        [_eventsTextView.bottomAnchor constraintEqualToAnchor:eventsCard.bottomAnchor constant:-12],
+    ]];
+
+    [_contentStack addArrangedSubview:heroCard];
+    [_contentStack addArrangedSubview:runtimeCard];
+    [_contentStack addArrangedSubview:networkCard];
+    [_contentStack addArrangedSubview:eventsCard];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:14],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:14],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-14],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-14],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-28],
+    ]];
+
     [self refreshStatus:nil];
 }
 
@@ -3006,7 +3500,48 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)refreshStatus:(id)sender {
-    _textView.text = ISHWorkspaceSystemStatusText();
+    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
+    NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"?";
+    _heroValueLabel.text = [NSString stringWithFormat:@"iSH-AOK %@ (%@)\n%@ • iOS %@",
+                            version,
+                            build,
+                            UIDevice.currentDevice.model ?: @"Unknown device",
+                            UIDevice.currentDevice.systemVersion ?: @"?"];
+
+    NSMutableArray<NSString *> *runtimeLines = [NSMutableArray array];
+    NSString *defaultRoot = Roots.instance.defaultRoot;
+    [runtimeLines addObject:[NSString stringWithFormat:@"Root: %@",
+                             defaultRoot.length > 0 ? defaultRoot : @"unavailable"]];
+    [runtimeLines addObject:ISHWorkspaceStorageSummaryText()];
+    [runtimeLines addObject:[NSString stringWithFormat:@"Startup: %@", ISHInitialWindowTitle()]];
+    [runtimeLines addObject:[NSString stringWithFormat:@"Installed roots: %lu",
+                             (unsigned long) Roots.instance.roots.count]];
+    [runtimeLines addObject:[NSString stringWithFormat:@"Active terminals: %lu",
+                             (unsigned long) Terminal.activeTerminals.count]];
+    if (@available(iOS 13.0, *)) {
+        [runtimeLines addObject:[NSString stringWithFormat:@"Open scenes: %lu",
+                                 (unsigned long) UIApplication.sharedApplication.connectedScenes.count]];
+    }
+    _runtimeTextView.text = [runtimeLines componentsJoinedByString:@"\n"];
+    _networkTextView.text = ISHWorkspaceNetworkSummaryText();
+
+    NSArray<NSDictionary<NSString *, id> *> *breadcrumbs = [ISHDiagnosticsStore recentBreadcrumbsWithLimit:5];
+    if (breadcrumbs.count == 0) {
+        _eventsTextView.text = @"Recent events:\nNo recent diagnostics breadcrumbs.";
+        return;
+    }
+    NSMutableArray<NSString *> *eventLines = [NSMutableArray arrayWithObject:@"Recent events:"];
+    for (NSDictionary<NSString *, id> *entry in breadcrumbs) {
+        NSString *event = entry[@"event"] ?: @"event";
+        NSString *timestamp = entry[@"timestamp"] ?: @"";
+        [eventLines addObject:[NSString stringWithFormat:@"%@  %@", timestamp, event]];
+    }
+    _eventsTextView.text = [eventLines componentsJoinedByString:@"\n"];
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    _heroValueLabel.textColor = self.workspaceTheme[@"accentAlt"];
 }
 
 @end
