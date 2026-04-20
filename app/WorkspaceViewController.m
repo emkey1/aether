@@ -22,6 +22,8 @@
 @property (nonatomic) BOOL didOpenInitialTool;
 @property (nonatomic, strong) UIView *desktopSurfaceView;
 @property (nonatomic, strong) UIImageView *desktopWallpaperView;
+@property (nonatomic, copy) NSString *appliedWallpaperThemeIdentifier;
+@property (nonatomic) CGSize appliedWallpaperImageSize;
 @property (nonatomic, strong) NSMutableArray<UIView *> *desktopWindows;
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
@@ -1319,6 +1321,44 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.desktopSurfaceView.layer.contents = nil;
 }
 
+- (CGSize)workspaceWallpaperTargetImageSize {
+    CGSize targetSize = self.desktopSurfaceView.bounds.size;
+    if (targetSize.width <= 1 || targetSize.height <= 1)
+        targetSize = self.view.bounds.size;
+    if (targetSize.width <= 1 || targetSize.height <= 1)
+        targetSize = UIScreen.mainScreen.bounds.size;
+
+    CGFloat scale = MAX(UIScreen.mainScreen.scale, 2.0);
+    return CGSizeMake(MAX(1.0, round(targetSize.width * scale)),
+                      MAX(1.0, round(targetSize.height * scale)));
+}
+
+- (void)applyCurrentThemeWallpaperIfNeededForced:(BOOL)forced {
+    CGSize imageSize = [self workspaceWallpaperTargetImageSize];
+    if (imageSize.width <= 1 || imageSize.height <= 1)
+        return;
+
+    NSString *identifier = ISHWorkspaceCurrentThemeIdentifier();
+    BOOL sizeMatches = CGSizeEqualToSize(self.appliedWallpaperImageSize, imageSize);
+    if (!forced &&
+        self.desktopWallpaperView.image != nil &&
+        sizeMatches &&
+        [self.appliedWallpaperThemeIdentifier isEqualToString:identifier]) {
+        return;
+    }
+
+    UIImage *image = ISHWorkspaceThemeArtworkImage(identifier,
+                                                   ISHWorkspaceThemeEditablePaletteForIdentifier(identifier),
+                                                   imageSize,
+                                                   YES);
+    if (image == nil)
+        return;
+
+    [self applyWorkspaceWallpaperImage:image];
+    self.appliedWallpaperThemeIdentifier = identifier;
+    self.appliedWallpaperImageSize = imageSize;
+}
+
 - (UILabel *)workspaceLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
     UILabel *label = [UILabel new];
     label.numberOfLines = 0;
@@ -2418,6 +2458,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    [self applyCurrentThemeWallpaperIfNeededForced:NO];
     for (UIView *view in self.desktopWindows) {
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
             continue;
@@ -2440,6 +2481,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    [self applyCurrentThemeWallpaperIfNeededForced:NO];
     [self applyCompactSizingToOpenWorkspaceToolWindows];
     if (self.didOpenInitialTool || self.initialToolIdentifier.length == 0)
         return;
@@ -2452,6 +2494,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
+    [self applyCurrentThemeWallpaperIfNeededForced:YES];
     [self applyCompactSizingToOpenWorkspaceToolWindows];
     [self refreshDockButtons];
 }
