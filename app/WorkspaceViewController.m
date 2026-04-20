@@ -989,6 +989,28 @@ static CGFloat ISHWorkspaceDensityValue(CGFloat compact, CGFloat roomy) {
     return compact + ((roomy - compact) * ISHWorkspaceCurrentDensity());
 }
 
+static CGFloat ISHWorkspaceThemeFontSize(UIFontTextStyle textStyle) {
+    if ([textStyle isEqualToString:UIFontTextStyleCaption2])
+        return ISHWorkspaceDensityValue(8, 11);
+    if ([textStyle isEqualToString:UIFontTextStyleCaption1])
+        return ISHWorkspaceDensityValue(9, 12);
+    if ([textStyle isEqualToString:UIFontTextStyleFootnote])
+        return ISHWorkspaceDensityValue(10, 13);
+    if ([textStyle isEqualToString:UIFontTextStyleSubheadline])
+        return ISHWorkspaceDensityValue(11, 15);
+    if ([textStyle isEqualToString:UIFontTextStyleHeadline])
+        return ISHWorkspaceDensityValue(12, 17);
+    if ([textStyle isEqualToString:UIFontTextStyleBody])
+        return ISHWorkspaceDensityValue(12, 16);
+    if ([textStyle isEqualToString:UIFontTextStyleTitle3])
+        return ISHWorkspaceDensityValue(15, 21);
+    if ([textStyle isEqualToString:UIFontTextStyleTitle2])
+        return ISHWorkspaceDensityValue(17, 25);
+    if ([textStyle isEqualToString:UIFontTextStyleLargeTitle])
+        return ISHWorkspaceDensityValue(24, 34);
+    return ISHWorkspaceDensityValue(12, 16);
+}
+
 static void ISHWorkspaceSetCurrentDensity(CGFloat density) {
     CGFloat clamped = MAX(0.0, MIN(1.0, density));
     [NSUserDefaults.standardUserDefaults setDouble:clamped forKey:ISHWorkspaceToolDensityPreferenceKey];
@@ -1039,10 +1061,10 @@ static UIImage *ISHWorkspaceThemeArtworkImage(NSString *identifier,
 
         UIColor *backgroundTop = theme[@"backgroundTop"];
         UIColor *backgroundBottom = theme[@"backgroundBottom"];
-        UIColor *card = [theme[@"card"] colorWithAlphaComponent:wallpaper ? 0.08 : 0.18];
-        UIColor *accent = [theme[@"accent"] colorWithAlphaComponent:wallpaper ? 0.22 : 0.28];
-        UIColor *accentAlt = [theme[@"accentAlt"] colorWithAlphaComponent:wallpaper ? 0.18 : 0.24];
-        UIColor *secondary = [theme[@"secondary"] colorWithAlphaComponent:wallpaper ? 0.12 : 0.18];
+        UIColor *card = [theme[@"card"] colorWithAlphaComponent:wallpaper ? 0.26 : 0.18];
+        UIColor *accent = [theme[@"accent"] colorWithAlphaComponent:wallpaper ? 0.46 : 0.28];
+        UIColor *accentAlt = [theme[@"accentAlt"] colorWithAlphaComponent:wallpaper ? 0.34 : 0.24];
+        UIColor *secondary = [theme[@"secondary"] colorWithAlphaComponent:wallpaper ? 0.22 : 0.18];
 
         ISHWorkspaceThemeDrawLinearGradient(context, rect, backgroundTop, backgroundBottom);
 
@@ -3000,12 +3022,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UILabel *label = [UILabel new];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.numberOfLines = 0;
-    UIFont *font = [UIFont preferredFontForTextStyle:textStyle];
+    CGFloat pointSize = ISHWorkspaceThemeFontSize(textStyle);
+    UIFont *font = [UIFont systemFontOfSize:pointSize];
     if (monospaced) {
         if (@available(iOS 13.0, *)) {
-            font = [UIFont monospacedSystemFontOfSize:font.pointSize weight:UIFontWeightMedium];
+            font = [UIFont monospacedSystemFontOfSize:pointSize weight:UIFontWeightMedium];
         } else {
-            font = [UIFont fontWithName:@"Menlo-Regular" size:font.pointSize] ?: font;
+            font = [UIFont fontWithName:@"Menlo-Regular" size:pointSize] ?: font;
         }
     }
     label.font = font;
@@ -3044,10 +3067,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     textView.editable = NO;
     textView.alwaysBounceVertical = YES;
     textView.backgroundColor = UIColor.clearColor;
+    CGFloat pointSize = ISHWorkspaceDensityValue(9.5, 12.0);
     if (@available(iOS 13.0, *)) {
-        textView.font = [UIFont monospacedSystemFontOfSize:ISHWorkspaceDensityValue(11, 13) weight:UIFontWeightRegular];
+        textView.font = [UIFont monospacedSystemFontOfSize:pointSize weight:UIFontWeightRegular];
     } else {
-        CGFloat pointSize = ISHWorkspaceDensityValue(11, 13);
         textView.font = [UIFont fontWithName:@"Menlo-Regular" size:pointSize] ?: [UIFont systemFontOfSize:pointSize];
     }
     [_trackedTextViews addObject:textView];
@@ -3057,7 +3080,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIProgressView *)workspaceThemeProgressView {
     UIProgressView *progressView = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
     progressView.translatesAutoresizingMaskIntoConstraints = NO;
-    progressView.transform = CGAffineTransformMakeScale(1.0, 1.45);
+    progressView.transform = CGAffineTransformMakeScale(1.0, ISHWorkspaceDensityValue(1.04, 1.28));
     [_trackedProgressViews addObject:progressView];
     return progressView;
 }
@@ -3090,7 +3113,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         label.textColor = theme[@"accent"];
     }
     for (UITextView *textView in _trackedTextViews) {
-        CGFloat pointSize = ISHWorkspaceDensityValue(11, 13);
+        CGFloat pointSize = ISHWorkspaceDensityValue(9.5, 12.0);
         if (@available(iOS 13.0, *)) {
             textView.font = [UIFont monospacedSystemFontOfSize:pointSize weight:UIFontWeightRegular];
         } else {
@@ -3183,10 +3206,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIButton *)themeUtilityButtonWithTitle:(NSString *)title selector:(SEL)selector {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
-    button.layer.cornerRadius = 12;
+    button.layer.cornerRadius = 10;
     button.layer.borderWidth = 1;
-    button.contentEdgeInsets = UIEdgeInsetsMake(10, 14, 10, 14);
-    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    button.contentEdgeInsets = UIEdgeInsetsMake(7, 10, 7, 10);
+    button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) weight:UIFontWeightSemibold];
     [button setTitle:title forState:UIControlStateNormal];
     [button addTarget:self action:selector forControlEvents:UIControlEventTouchUpInside];
     [_editorActionButtons addObject:button];
@@ -3196,40 +3219,40 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (UIButton *)themeSelectionButtonWithTitle:(NSString *)title identifier:(NSString *)identifier {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.translatesAutoresizingMaskIntoConstraints = NO;
-    button.layer.cornerRadius = 14;
+    button.layer.cornerRadius = 12;
     button.layer.borderWidth = 1;
-    button.clipsToBounds = YES;
-    [button.heightAnchor constraintGreaterThanOrEqualToConstant:82].active = YES;
+    button.clipsToBounds = NO;
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:68].active = YES;
     button.accessibilityIdentifier = identifier;
     [button addTarget:self action:@selector(selectThemeFromButton:) forControlEvents:UIControlEventTouchUpInside];
 
     UIStackView *contentRow = [UIStackView new];
     contentRow.translatesAutoresizingMaskIntoConstraints = NO;
     contentRow.axis = UILayoutConstraintAxisHorizontal;
-    contentRow.spacing = 12;
+    contentRow.spacing = 8;
     contentRow.alignment = UIStackViewAlignmentCenter;
     [button addSubview:contentRow];
 
     UIImageView *previewView = [[UIImageView alloc] initWithImage:
         ISHWorkspaceThemeArtworkImage(identifier,
                                       ISHWorkspaceThemeEditablePaletteForIdentifier(identifier),
-                                      CGSizeMake(112, 64),
+                                      CGSizeMake(92, 52),
                                       NO)];
     previewView.translatesAutoresizingMaskIntoConstraints = NO;
     previewView.contentMode = UIViewContentModeScaleAspectFill;
     previewView.clipsToBounds = YES;
-    previewView.layer.cornerRadius = 10;
+    previewView.layer.cornerRadius = 8;
     previewView.layer.borderWidth = 1;
-    [previewView.widthAnchor constraintEqualToConstant:112].active = YES;
-    [previewView.heightAnchor constraintEqualToConstant:64].active = YES;
+    [previewView.widthAnchor constraintEqualToConstant:92].active = YES;
+    [previewView.heightAnchor constraintEqualToConstant:52].active = YES;
     [contentRow addArrangedSubview:previewView];
 
     UIStackView *textStack = [UIStackView new];
     textStack.axis = UILayoutConstraintAxisVertical;
-    textStack.spacing = 4;
+    textStack.spacing = 2;
     textStack.alignment = UIStackViewAlignmentLeading;
     UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
-    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
     titleLabel.numberOfLines = 1;
     titleLabel.text = title;
     UILabel *detailLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
@@ -3239,10 +3262,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [contentRow addArrangedSubview:textStack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [contentRow.topAnchor constraintEqualToAnchor:button.topAnchor constant:9],
-        [contentRow.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:10],
-        [contentRow.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-12],
-        [contentRow.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-9],
+        [contentRow.topAnchor constraintEqualToAnchor:button.topAnchor constant:7],
+        [contentRow.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:8],
+        [contentRow.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-8],
+        [contentRow.bottomAnchor constraintEqualToAnchor:button.bottomAnchor constant:-7],
     ]];
 
     _themePreviewImageViewsByIdentifier[identifier] = previewView;
@@ -3259,23 +3282,23 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIStackView *stack = [UIStackView new];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 10;
+    stack.spacing = 6;
     [card addSubview:stack];
 
     UIStackView *headerRow = [UIStackView new];
     headerRow.axis = UILayoutConstraintAxisHorizontal;
-    headerRow.spacing = 10;
+    headerRow.spacing = 8;
     headerRow.alignment = UIStackViewAlignmentCenter;
 
     UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
     titleLabel.text = title;
     UIView *swatch = [UIView new];
     swatch.translatesAutoresizingMaskIntoConstraints = NO;
-    swatch.layer.cornerRadius = 10;
+    swatch.layer.cornerRadius = 8;
     swatch.layer.borderWidth = 1;
     [_swatchViewsByKey setObject:swatch forKey:key];
-    [swatch.widthAnchor constraintEqualToConstant:44].active = YES;
-    [swatch.heightAnchor constraintEqualToConstant:22].active = YES;
+    [swatch.widthAnchor constraintEqualToConstant:34].active = YES;
+    [swatch.heightAnchor constraintEqualToConstant:18].active = YES;
     [headerRow addArrangedSubview:titleLabel];
     [headerRow addArrangedSubview:swatch];
     [titleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
@@ -3292,13 +3315,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     for (NSDictionary<NSString *, NSString *> *channelDescriptor in channelDescriptors) {
         UIStackView *row = [UIStackView new];
         row.axis = UILayoutConstraintAxisHorizontal;
-        row.spacing = 8;
+        row.spacing = 6;
         row.alignment = UIStackViewAlignmentCenter;
 
         UILabel *channelLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:YES];
         channelLabel.text = channelDescriptor[@"name"];
         channelLabel.textAlignment = NSTextAlignmentCenter;
-        [channelLabel.widthAnchor constraintEqualToConstant:20].active = YES;
+        [channelLabel.widthAnchor constraintEqualToConstant:16].active = YES;
 
         UISlider *slider = [UISlider new];
         slider.minimumValue = 0.0f;
@@ -3308,7 +3331,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
         UILabel *valueLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:YES];
         valueLabel.textAlignment = NSTextAlignmentRight;
-        [valueLabel.widthAnchor constraintEqualToConstant:34].active = YES;
+        [valueLabel.widthAnchor constraintEqualToConstant:28].active = YES;
 
         [row addArrangedSubview:channelLabel];
         [row addArrangedSubview:slider];
@@ -3324,10 +3347,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _channelSlidersByKey[key] = channels;
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16],
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:10],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-10],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
     ]];
     return card;
 }
@@ -3794,13 +3817,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         NSString *identifier = button.accessibilityIdentifier;
         BOOL selected = [identifier isEqualToString:ISHWorkspaceCurrentThemeIdentifier()];
         button.backgroundColor = selected
-            ? [theme[@"accent"] colorWithAlphaComponent:0.18]
+            ? [theme[@"accent"] colorWithAlphaComponent:0.34]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
-        button.layer.borderColor = (selected ? theme[@"accent"] : theme[@"stroke"]).CGColor;
+        button.layer.borderWidth = selected ? 2.0 : 1.0;
+        button.layer.borderColor = (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
+        button.layer.shadowColor = selected ? theme[@"accent"].CGColor : UIColor.clearColor.CGColor;
+        button.layer.shadowOpacity = selected ? 0.35 : 0.0;
+        button.layer.shadowRadius = selected ? 10.0 : 0.0;
+        button.layer.shadowOffset = CGSizeMake(0, 0);
         _themePreviewImageViewsByIdentifier[identifier].layer.borderColor =
             (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
-        _themeTitleLabelsByIdentifier[identifier].textColor = selected ? theme[@"accent"] : theme[@"primary"];
-        _themeDetailLabelsByIdentifier[identifier].textColor = selected ? theme[@"accentAlt"] : theme[@"secondary"];
+        _themeTitleLabelsByIdentifier[identifier].textColor = selected ? theme[@"card"] : theme[@"primary"];
+        _themeDetailLabelsByIdentifier[identifier].textColor = selected ? theme[@"cardAlt"] : theme[@"secondary"];
     }
     BOOL editingCustom = !ISHWorkspaceThemeIdentifierIsBuiltIn(_editingThemeIdentifier);
     for (UIButton *button in _editorActionButtons) {
@@ -3857,7 +3885,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     _eyebrowLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     _eyebrowLabel.text = @"LOCAL ARM CLOCK";
-    _eyebrowLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    _eyebrowLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
     _eyebrowLabel.textAlignment = NSTextAlignmentCenter;
 
     _timeLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleLargeTitle monospaced:YES];
@@ -3881,7 +3909,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_heroCard.centerYAnchor constraintEqualToAnchor:self.toolContentView.centerYAnchor],
         [_heroCard.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.toolContentView.leadingAnchor constant:10],
         [_heroCard.trailingAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.trailingAnchor constant:-10],
-        [_heroCard.widthAnchor constraintLessThanOrEqualToConstant:320],
+        [_heroCard.widthAnchor constraintLessThanOrEqualToConstant:280],
 
         [_stackView.topAnchor constraintEqualToAnchor:_heroCard.topAnchor constant:12],
         [_stackView.leadingAnchor constraintEqualToAnchor:_heroCard.leadingAnchor constant:12],
@@ -3900,10 +3928,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGRect bounds = UIEdgeInsetsInsetRect(self.toolContentView.bounds, UIEdgeInsetsMake(insetY, insetX, insetY, insetX));
     CGFloat width = MAX(1, CGRectGetWidth(bounds));
     CGFloat height = MAX(1, CGRectGetHeight(bounds));
-    CGFloat timeFontSize = MIN(width * 0.24, height * 0.34);
-    timeFontSize = MIN(MAX(timeFontSize, 24), 58);
-    CGFloat dateFontSize = MIN(width * 0.075, height * 0.11);
-    dateFontSize = MIN(MAX(dateFontSize, 10), 18);
+    CGFloat timeFontSize = MIN(width * 0.21, height * 0.28);
+    timeFontSize = MIN(MAX(timeFontSize, 18), 42);
+    CGFloat dateFontSize = MIN(width * 0.062, height * 0.088);
+    dateFontSize = MIN(MAX(dateFontSize, 9), 14);
 
     _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:timeFontSize weight:UIFontWeightBold];
     _dateLabel.font = [UIFont systemFontOfSize:dateFontSize weight:UIFontWeightSemibold];
@@ -3969,11 +3997,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UILabel *titleLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     titleLabel.text = [title uppercaseString];
-    titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    titleLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
     titleLabel.textAlignment = NSTextAlignmentCenter;
 
     UILabel *label = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
-    label.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
+    label.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     label.textAlignment = NSTextAlignmentCenter;
     label.numberOfLines = 0;
     label.adjustsFontSizeToFitWidth = YES;
@@ -4174,7 +4202,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [heroCard addSubview:heroStack];
     UILabel *heroLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     heroLabel.text = @"LIVE RUNTIME";
-    heroLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    heroLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
     _heroSummaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
     _heroSummaryLabel.textAlignment = NSTextAlignmentLeft;
     [heroStack addArrangedSubview:heroLabel];
@@ -4439,7 +4467,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [summaryCard addSubview:summaryStack];
     UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     summaryTitle.text = @"CONNECTIVITY";
-    summaryTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
     _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
     _summaryLabel.numberOfLines = 0;
     [summaryStack addArrangedSubview:summaryTitle];
@@ -4552,7 +4580,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [heroCard addSubview:heroStack];
     UILabel *heroTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     heroTitle.text = @"SYSTEM STATUS";
-    heroTitle.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    heroTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
     _heroValueLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
     _heroValueLabel.numberOfLines = 0;
     [heroStack addArrangedSubview:heroTitle];
