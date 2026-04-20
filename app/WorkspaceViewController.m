@@ -426,7 +426,7 @@ static UIViewController *ISHCreateRootsViewController(void) {
 
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
-        return CGSizeMake(156, 96);
+        return CGSizeMake(156, 76);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
         return CGSizeMake(318, 168);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
@@ -1314,6 +1314,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)applyWorkspaceWallpaperImage:(UIImage *)image {
     self.desktopWallpaperView.image = image;
     self.desktopWallpaperView.hidden = (image == nil);
+    self.desktopSurfaceView.layer.contents = image != nil ? (__bridge id) image.CGImage : nil;
+    self.desktopSurfaceView.layer.contentsGravity = kCAGravityResizeAspectFill;
+    self.desktopSurfaceView.layer.contentsScale = image != nil ? image.scale : UIScreen.mainScreen.scale;
 }
 
 - (UILabel *)workspaceLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
@@ -1890,7 +1893,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     windowView.workspaceToolIdentifier = toolIdentifier;
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier]) {
         windowView.resizable = YES;
-        windowView.minimumSize = CGSizeMake(150, 90);
+        windowView.minimumSize = CGSizeMake(150, 72);
     } else if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier]) {
         windowView.resizable = YES;
         windowView.minimumSize = CGSizeMake(260, 144);
@@ -3552,11 +3555,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (WorkspaceViewController *)workspaceViewController {
-    UIViewController *controller = self.parentViewController;
+    UIViewController *controller = self;
     while (controller != nil && ![controller isKindOfClass:WorkspaceViewController.class]) {
         controller = controller.parentViewController;
     }
-    return (WorkspaceViewController *) controller;
+    if ([controller isKindOfClass:WorkspaceViewController.class])
+        return (WorkspaceViewController *) controller;
+
+    UIResponder *responder = self.view;
+    while ((responder = responder.nextResponder) != nil) {
+        if ([responder isKindOfClass:WorkspaceViewController.class])
+            return (WorkspaceViewController *) responder;
+    }
+    return nil;
 }
 
 - (void)generateThemeBackgroundImage:(id)sender {
@@ -3867,7 +3878,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @implementation WorkspaceClockToolViewController {
     UIView *_heroCard;
-    UILabel *_eyebrowLabel;
     UILabel *_timeLabel;
     UILabel *_dateLabel;
     UILabel *_zoneLabel;
@@ -3898,11 +3908,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _stackView.alignment = UIStackViewAlignmentCenter;
     [_heroCard addSubview:_stackView];
 
-    _eyebrowLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    _eyebrowLabel.text = @"LOCAL ARM CLOCK";
-    _eyebrowLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
-    _eyebrowLabel.textAlignment = NSTextAlignmentCenter;
-
     _timeLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleLargeTitle monospaced:YES];
     _timeLabel.numberOfLines = 1;
     _timeLabel.adjustsFontSizeToFitWidth = YES;
@@ -3914,7 +3919,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _zoneLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
     _zoneLabel.textAlignment = NSTextAlignmentCenter;
 
-    [_stackView addArrangedSubview:_eyebrowLabel];
     [_stackView addArrangedSubview:_timeLabel];
     [_stackView addArrangedSubview:_dateLabel];
     [_stackView addArrangedSubview:_zoneLabel];
@@ -3926,10 +3930,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_heroCard.trailingAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.trailingAnchor constant:-10],
         [_heroCard.widthAnchor constraintLessThanOrEqualToConstant:280],
 
-        [_stackView.topAnchor constraintEqualToAnchor:_heroCard.topAnchor constant:12],
-        [_stackView.leadingAnchor constraintEqualToAnchor:_heroCard.leadingAnchor constant:12],
-        [_stackView.trailingAnchor constraintEqualToAnchor:_heroCard.trailingAnchor constant:-12],
-        [_stackView.bottomAnchor constraintEqualToAnchor:_heroCard.bottomAnchor constant:-12],
+        [_stackView.topAnchor constraintEqualToAnchor:_heroCard.topAnchor constant:8],
+        [_stackView.leadingAnchor constraintEqualToAnchor:_heroCard.leadingAnchor constant:10],
+        [_stackView.trailingAnchor constraintEqualToAnchor:_heroCard.trailingAnchor constant:-10],
+        [_stackView.bottomAnchor constraintEqualToAnchor:_heroCard.bottomAnchor constant:-8],
     ]];
 
     [self refreshClock:nil];
@@ -3943,15 +3947,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGRect bounds = UIEdgeInsetsInsetRect(self.toolContentView.bounds, UIEdgeInsetsMake(insetY, insetX, insetY, insetX));
     CGFloat width = MAX(1, CGRectGetWidth(bounds));
     CGFloat height = MAX(1, CGRectGetHeight(bounds));
-    CGFloat timeFontSize = MIN(width * 0.21, height * 0.28);
+    CGFloat timeFontSize = MIN(width * 0.22, height * 0.42);
     timeFontSize = MIN(MAX(timeFontSize, 18), 42);
-    CGFloat dateFontSize = MIN(width * 0.062, height * 0.088);
+    CGFloat dateFontSize = MIN(width * 0.055, height * 0.14);
     dateFontSize = MIN(MAX(dateFontSize, 9), 14);
 
     _timeLabel.font = [UIFont monospacedDigitSystemFontOfSize:timeFontSize weight:UIFontWeightBold];
     _dateLabel.font = [UIFont systemFontOfSize:dateFontSize weight:UIFontWeightSemibold];
-    _zoneLabel.font = [UIFont systemFontOfSize:MAX(11, round(dateFontSize * 0.68)) weight:UIFontWeightMedium];
-    _stackView.spacing = MAX(4, round(timeFontSize * 0.14));
+    _zoneLabel.font = [UIFont systemFontOfSize:MAX(9, round(dateFontSize * 0.76)) weight:UIFontWeightMedium];
+    _stackView.spacing = MAX(2, round(timeFontSize * 0.08));
 }
 
 - (void)viewWillAppear:(BOOL)animated {
