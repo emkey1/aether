@@ -77,7 +77,8 @@ static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
-static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
+static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
+static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
 static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
@@ -3201,13 +3202,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey {
-    NSString *sceneIdentifier = nil;
-    if (@available(iOS 13.0, *)) {
-        sceneIdentifier = self.view.window.windowScene.session.persistentIdentifier;
-    }
-    if (sceneIdentifier.length == 0)
-        return ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix;
-    return [NSString stringWithFormat:@"%@.%@", ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKeyPrefix, sceneIdentifier];
+    return ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey;
 }
 
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView {
@@ -3215,6 +3210,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     NSDictionary<NSString *, id> *frameDescriptor =
         [NSUserDefaults.standardUserDefaults dictionaryForKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+    if (![frameDescriptor isKindOfClass:NSDictionary.class]) {
+        if (@available(iOS 13.0, *)) {
+            NSString *sceneIdentifier = self.view.window.windowScene.session.persistentIdentifier;
+            if (sceneIdentifier.length > 0) {
+                NSString *legacyKey =
+                    [NSString stringWithFormat:@"%@.%@", ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix, sceneIdentifier];
+                frameDescriptor = [NSUserDefaults.standardUserDefaults dictionaryForKey:legacyKey];
+                if ([frameDescriptor isKindOfClass:NSDictionary.class]) {
+                    [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
+                                                            forKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+                }
+            }
+        }
+    }
     if ([frameDescriptor isKindOfClass:NSDictionary.class]) {
         [self applySavedFrameDescriptor:frameDescriptor
                                toWindow:windowView
