@@ -46,6 +46,8 @@
 - (void)persistDefaultWorkspaceUtilityFrames;
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame;
+- (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)openDashboardWindow:(id)sender;
 - (void)openNewWorkspaceWindow:(id)sender;
 - (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
@@ -2147,6 +2149,32 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self clampDesktopWindowToVisibleBounds:windowView];
 }
 
+- (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame {
+    if (CGRectIsEmpty(frame))
+        return nil;
+    return @{
+        @"originX": @(CGRectGetMinX(frame)),
+        @"originY": @(CGRectGetMinY(frame)),
+        @"width": @(CGRectGetWidth(frame)),
+        @"height": @(CGRectGetHeight(frame)),
+    };
+}
+
+- (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    if (![descriptor isKindOfClass:NSDictionary.class] || windowView == nil)
+        return;
+    CGRect frame = CGRectMake([descriptor[@"originX"] doubleValue],
+                              [descriptor[@"originY"] doubleValue],
+                              [descriptor[@"width"] doubleValue],
+                              [descriptor[@"height"] doubleValue]);
+    if (CGRectGetWidth(frame) <= 0 || CGRectGetHeight(frame) <= 0)
+        return;
+    windowView.frame = frame;
+    windowView.preferredSize = frame.size;
+    windowView.didApplyInitialFrame = YES;
+    [self clampDesktopWindowToVisibleBounds:windowView];
+}
+
 - (void)applyInitialFrameIfNeededToDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView {
     if (windowView.didApplyInitialFrame || self.desktopSurfaceView.bounds.size.width <= 0 || self.desktopSurfaceView.bounds.size.height <= 0)
         return;
@@ -2157,6 +2185,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (ISHWorkspaceContainedWindowView *)createDesktopWindowWithTitle:(NSString *)title
                                                     preferredSize:(CGSize)preferredSize
                                                  showsCloseButton:(BOOL)showsCloseButton {
+    return [self createDesktopWindowWithTitle:title
+                                preferredSize:preferredSize
+                             showsCloseButton:showsCloseButton
+                       appliesInitialPlacement:YES];
+}
+
+- (ISHWorkspaceContainedWindowView *)createDesktopWindowWithTitle:(NSString *)title
+                                                    preferredSize:(CGSize)preferredSize
+                                                 showsCloseButton:(BOOL)showsCloseButton
+                                           appliesInitialPlacement:(BOOL)appliesInitialPlacement {
     ISHWorkspaceContainedWindowView *windowView = [[ISHWorkspaceContainedWindowView alloc] initWithTitle:title
                                                                                          showsCloseButton:showsCloseButton];
     windowView.preferredSize = preferredSize;
@@ -2165,8 +2203,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  MAX(1, preferredSize.height)));
     [self.desktopSurfaceView addSubview:windowView];
     [self.desktopWindows addObject:windowView];
-    [self applyInitialFrameIfNeededToDesktopWindow:windowView];
-    [self.desktopSurfaceView bringSubviewToFront:windowView];
+    if (appliesInitialPlacement) {
+        [self applyInitialFrameIfNeededToDesktopWindow:windowView];
+        [self.desktopSurfaceView bringSubviewToFront:windowView];
+    }
     __weak typeof(self) weakSelf = self;
     windowView.didBecomeFrontmostHandler = ^{
         [weakSelf refreshDockButtons];
@@ -2408,25 +2448,28 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return nil;
     CGSize preferredSize = ISHWorkspacePreferredToolContentSize(toolIdentifier);
     viewController.preferredContentSize = preferredSize;
+    BOOL workspacesTool = [toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier];
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:ISHWorkspaceToolTitle(toolIdentifier)
                              preferredSize:preferredSize
-                          showsCloseButton:YES];
+                          showsCloseButton:YES
+                    appliesInitialPlacement:!workspacesTool];
     windowView.workspaceToolIdentifier = toolIdentifier;
     CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);
     if (!CGSizeEqualToSize(minimumSize, CGSizeZero)) {
         windowView.resizable = YES;
         windowView.minimumSize = minimumSize;
     }
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+    if (workspacesTool) {
         __weak typeof(self) weakSelf = self;
         windowView.frameDidChangeHandler = ^{
             [weakSelf persistDefaultWorkspaceUtilityFrames];
         };
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+    if (workspacesTool) {
         [self applyInitialPlacementToWorkspacesWindow:windowView];
+        [self.desktopSurfaceView bringSubviewToFront:windowView];
     }
     [self refreshDockButtons];
     return windowView;
@@ -3192,7 +3235,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     ISHWorkspaceContainedWindowView *workspacesWindow = [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (workspacesWindow == nil || workspacesWindow.hidden)
         return;
-    NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self normalizedFrameDescriptorForFrame:workspacesWindow.frame];
+    NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self absoluteFrameDescriptorForFrame:workspacesWindow.frame];
     if (frameDescriptor != nil) {
         [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
                                                 forKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
@@ -3208,6 +3251,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     NSDictionary<NSString *, id> *frameDescriptor =
         [NSUserDefaults.standardUserDefaults dictionaryForKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+    if ([frameDescriptor isKindOfClass:NSDictionary.class] &&
+        frameDescriptor[@"originX"] != nil &&
+        frameDescriptor[@"originY"] != nil &&
+        frameDescriptor[@"height"] != nil) {
+        [self applyAbsoluteFrameDescriptor:frameDescriptor toWindow:windowView];
+        return;
+    }
     if (![frameDescriptor isKindOfClass:NSDictionary.class]) {
         if (@available(iOS 13.0, *)) {
             NSString *sceneIdentifier = self.view.window.windowScene.session.persistentIdentifier;
