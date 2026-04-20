@@ -43,6 +43,7 @@
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier;
 - (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
 - (void)ensureDefaultWorkspaceUtilitiesOpen;
+- (void)persistDefaultWorkspaceUtilityFrames;
 - (void)openDashboardWindow:(id)sender;
 - (void)openNewWorkspaceWindow:(id)sender;
 - (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
@@ -74,6 +75,7 @@ static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
+static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
 static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
@@ -2943,6 +2945,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self refreshWorkspaceStatus];
 }
 
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self persistDefaultWorkspaceUtilityFrames];
+}
+
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [self applyCurrentThemeWallpaperIfNeededForced:NO];
@@ -3150,8 +3157,27 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     ISHWorkspaceContainedWindowView *windowView =
         [self openWorkspaceToolWindowWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (windowView != nil) {
-        [self positionDesktopWindowAtTopRight:windowView];
+        NSDictionary<NSString *, id> *frameDescriptor =
+            [NSUserDefaults.standardUserDefaults dictionaryForKey:ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey];
+        if ([frameDescriptor isKindOfClass:NSDictionary.class]) {
+            [self applySavedFrameDescriptor:frameDescriptor
+                                   toWindow:windowView
+                               fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolWorkspacesIdentifier)];
+        } else {
+            [self positionDesktopWindowAtTopRight:windowView];
+        }
         [self refreshDockButtons];
+    }
+}
+
+- (void)persistDefaultWorkspaceUtilityFrames {
+    ISHWorkspaceContainedWindowView *workspacesWindow = [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+    if (workspacesWindow == nil || workspacesWindow.hidden)
+        return;
+    NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self normalizedFrameDescriptorForFrame:workspacesWindow.frame];
+    if (frameDescriptor != nil) {
+        [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
+                                                forKey:ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey];
     }
 }
 
@@ -3462,6 +3488,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else {
         return;
     }
+    [self persistDefaultWorkspaceUtilityFrames];
     if (identifier.length == 0) {
         [self presentSceneActivationError:nil title:@"Unable to focus window"];
         return;

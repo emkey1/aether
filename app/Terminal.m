@@ -70,6 +70,26 @@ NSNotificationName const TerminalRegistryDidChangeNotification = @"TerminalRegis
     }
     return [super canPerformAction:action withSender:sender];
 }
+
+- (UIView *)snapshotViewAfterScreenUpdates:(BOOL)afterUpdates {
+    if (self.window == nil || self.hidden || self.alpha <= 0.0) {
+        return [super snapshotViewAfterScreenUpdates:YES];
+    }
+    return [super snapshotViewAfterScreenUpdates:afterUpdates];
+}
+
+- (UIView *)resizableSnapshotViewFromRect:(CGRect)rect
+                       afterScreenUpdates:(BOOL)afterUpdates
+                            withCapInsets:(UIEdgeInsets)capInsets {
+    if (self.window == nil || self.hidden || self.alpha <= 0.0) {
+        return [super resizableSnapshotViewFromRect:rect
+                                 afterScreenUpdates:YES
+                                      withCapInsets:capInsets];
+    }
+    return [super resizableSnapshotViewFromRect:rect
+                             afterScreenUpdates:afterUpdates
+                                  withCapInsets:capInsets];
+}
 @end
 
 @implementation Terminal
