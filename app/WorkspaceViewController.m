@@ -3007,6 +3007,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self.view.window endEditing:YES];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -3571,6 +3572,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (BOOL)focusSceneSession:(UISceneSession *)sceneSession title:(NSString *)title {
     if (sceneSession == nil)
         return NO;
+    [self.view.window endEditing:YES];
     [UIApplication.sharedApplication requestSceneSessionActivation:sceneSession
                                                      userActivity:nil
                                                           options:nil
@@ -3587,6 +3589,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else {
         return;
     }
+    [self.view.window endEditing:YES];
     if (identifier.length == 0) {
         [self presentSceneActivationError:nil title:@"Unable to focus window"];
         return;
@@ -3665,6 +3668,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                title:(NSString *)title
                             userInfo:(NSDictionary<NSString *, id> *)userInfo {
     if (@available(iOS 13.0, *)) {
+        [self.view.window endEditing:YES];
         NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:activityType];
         if (userInfo.count > 0)
             activity.userInfo = userInfo;
