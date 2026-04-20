@@ -8,6 +8,7 @@
 #include "kernel/init.h"
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
+#include "kernel/task.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <mach/mach.h>
@@ -1047,6 +1048,58 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceVisibleProcessRecord
         if ([left[@"pid"] intValue] > [right[@"pid"] intValue])
             return NSOrderedDescending;
         return NSOrderedSame;
+    }];
+
+    if (limit > 0 && records.count > limit)
+        return [records subarrayWithRange:NSMakeRange(0, limit)];
+    return records;
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceGuestProcessRecords(NSUInteger limit) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
+    complex_lockt(&pids_lock, 0);
+    struct pid *pidEntry;
+    list_for_each_entry(&alive_pids_list, pidEntry, alive) {
+        struct task *task = pidEntry->task;
+        if (task == NULL || !task_is_leader(task))
+            continue;
+
+        lock(&task->general_lock, 0);
+        NSString *name = [NSString stringWithUTF8String:task->comm];
+        unlock(&task->general_lock);
+        if (name.length == 0)
+            name = @"task";
+
+        NSString *state = @"running";
+        if (task->zombie) {
+            state = @"zombie";
+        } else if (task->exiting) {
+            state = @"exiting";
+        } else if (task->group != NULL && task->group->stopped) {
+            state = @"stopped";
+        } else if (task->io_block) {
+            state = @"blocked";
+        }
+
+        [records addObject:@{
+            @"pid": @(task->pid),
+            @"tgid": @(task->tgid),
+            @"name": name,
+            @"state": state,
+            @"abi": @(task->abi),
+        }];
+    }
+    unlock(&pids_lock);
+
+    [records sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *, id> *left,
+                                                     NSDictionary<NSString *, id> *right) {
+        int leftPID = [left[@"pid"] intValue];
+        int rightPID = [right[@"pid"] intValue];
+        if (leftPID < rightPID)
+            return NSOrderedAscending;
+        if (leftPID > rightPID)
+            return NSOrderedDescending;
+        return [left[@"name"] compare:right[@"name"]];
     }];
 
     if (limit > 0 && records.count > limit)
@@ -2559,6 +2612,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         }
     }
 
+    [self ensureDefaultWorkspaceUtilitiesOpen];
     [self refreshWorkspaceStatus];
     [self applyCompactSizingToOpenWorkspaceToolWindows];
 }
@@ -4524,24 +4578,40 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _detailsTextView.text = @"Refreshing process table…";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSArray<NSDictionary<NSString *, id> *> *processes = ISHWorkspaceVisibleProcessRecords(8);
+        BOOL showingGuestProcesses = NO;
+        if (processes.count == 0) {
+            processes = ISHWorkspaceGuestProcessRecords(12);
+            showingGuestProcesses = YES;
+        }
         uint64_t footprint = 0;
         BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, NULL);
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
         for (NSDictionary<NSString *, id> *process in processes) {
-            NSString *marker = [process[@"isCurrent"] boolValue] ? @"current app" : process[@"state"];
-            [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@",
-                              [process[@"pid"] intValue],
-                              process[@"name"],
-                              marker]];
+            if (showingGuestProcesses) {
+                NSString *abiName = [NSString stringWithUTF8String:guest_abi_name([process[@"abi"] intValue])] ?: @"guest";
+                [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@  •  %@",
+                                  [process[@"pid"] intValue],
+                                  process[@"name"],
+                                  process[@"state"],
+                                  abiName]];
+            } else {
+                NSString *marker = [process[@"isCurrent"] boolValue] ? @"current app" : process[@"state"];
+                [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@",
+                                  [process[@"pid"] intValue],
+                                  process[@"name"],
+                                  marker]];
+            }
         }
+        NSString *processLabel = showingGuestProcesses ? @"guest tasks" : @"visible processes";
         NSString *summary = hasMemory
-            ? [NSString stringWithFormat:@"App footprint %@  •  %lu visible processes",
+            ? [NSString stringWithFormat:@"App footprint %@  •  %lu %@",
                                           ISHWorkspaceByteCountString(footprint),
-                                          (unsigned long) processes.count]
-            : [NSString stringWithFormat:@"%lu visible processes", (unsigned long) processes.count];
+                                          (unsigned long) processes.count,
+                                          processLabel]
+            : [NSString stringWithFormat:@"%lu %@", (unsigned long) processes.count, processLabel];
         NSString *details = lines.count > 0
             ? [lines componentsJoinedByString:@"\n\n"]
-            : @"Per-process inspection is unavailable on this device. App memory and terminal activity are still tracked by the other Workspace utilities.";
+            : @"No active guest tasks were found. Start a shell or console, then refresh this view.";
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self->_refreshGeneration)
                 return;
