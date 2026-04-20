@@ -21,6 +21,7 @@
 @property (nonatomic, copy) NSString *initialToolIdentifier;
 @property (nonatomic) BOOL didOpenInitialTool;
 @property (nonatomic, strong) UIView *desktopSurfaceView;
+@property (nonatomic, strong) UIImageView *desktopWallpaperView;
 @property (nonatomic, strong) NSMutableArray<UIView *> *desktopWindows;
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
@@ -1310,6 +1311,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @implementation WorkspaceViewController
 
+- (void)applyWorkspaceWallpaperImage:(UIImage *)image {
+    self.desktopWallpaperView.image = image;
+    self.desktopWallpaperView.hidden = (image == nil);
+}
+
 - (UILabel *)workspaceLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced {
     UILabel *label = [UILabel new];
     label.numberOfLines = 0;
@@ -2271,6 +2277,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self.desktopSurfaceView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.desktopSurfaceView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.desktopSurfaceView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+    ]];
+
+    self.desktopWallpaperView = [UIImageView new];
+    self.desktopWallpaperView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.desktopWallpaperView.contentMode = UIViewContentModeScaleAspectFill;
+    self.desktopWallpaperView.clipsToBounds = YES;
+    self.desktopWallpaperView.hidden = YES;
+    [self.desktopSurfaceView addSubview:self.desktopWallpaperView];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.desktopWallpaperView.topAnchor constraintEqualToAnchor:self.desktopSurfaceView.topAnchor],
+        [self.desktopWallpaperView.leadingAnchor constraintEqualToAnchor:self.desktopSurfaceView.leadingAnchor],
+        [self.desktopWallpaperView.trailingAnchor constraintEqualToAnchor:self.desktopSurfaceView.trailingAnchor],
+        [self.desktopWallpaperView.bottomAnchor constraintEqualToAnchor:self.desktopSurfaceView.bottomAnchor],
     ]];
 
     ISHWorkspaceContainedWindowView *dashboardWindow =
@@ -3532,36 +3551,30 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _densityValueLabel.text = ISHWorkspaceCurrentDensityTitle();
 }
 
+- (WorkspaceViewController *)workspaceViewController {
+    UIViewController *controller = self.parentViewController;
+    while (controller != nil && ![controller isKindOfClass:WorkspaceViewController.class]) {
+        controller = controller.parentViewController;
+    }
+    return (WorkspaceViewController *) controller;
+}
+
 - (void)generateThemeBackgroundImage:(id)sender {
-    UIView *sourceView = [sender isKindOfClass:UIView.class] ? (UIView *) sender : _backgroundPreviewImageView;
-    CGSize screenSize = UIScreen.mainScreen.bounds.size;
+    (void) sender;
+    WorkspaceViewController *workspaceViewController = [self workspaceViewController];
+    CGSize targetSize = workspaceViewController.desktopSurfaceView.bounds.size;
+    if (targetSize.width <= 1 || targetSize.height <= 1)
+        targetSize = UIScreen.mainScreen.bounds.size;
     CGFloat scale = MAX(UIScreen.mainScreen.scale, 2.0);
-    CGSize imageSize = CGSizeMake(MAX(1.0, screenSize.width * scale), MAX(1.0, screenSize.height * scale));
+    CGSize imageSize = CGSizeMake(MAX(1.0, targetSize.width * scale), MAX(1.0, targetSize.height * scale));
     UIImage *image = ISHWorkspaceThemeArtworkImage(_editingThemeIdentifier,
                                                    [self draftPalette],
                                                    imageSize,
                                                    YES);
     if (image == nil)
         return;
-
-    NSData *pngData = UIImagePNGRepresentation(image);
-    if (pngData == nil)
-        return;
-    NSString *identifier = _editingThemeIdentifier.length > 0 ? _editingThemeIdentifier : @"theme";
-    NSString *fileName = [NSString stringWithFormat:@"workspace-background-%@.png", identifier];
-    NSURL *fileURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
-    if (![pngData writeToURL:fileURL atomically:YES])
-        return;
-
-    UIActivityViewController *activityViewController =
-        [[UIActivityViewController alloc] initWithActivityItems:@[image, fileURL] applicationActivities:nil];
-    UIPopoverPresentationController *popover = activityViewController.popoverPresentationController;
-    if (popover != nil) {
-        popover.sourceView = sourceView;
-        popover.sourceRect = sourceView.bounds;
-        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
-    }
-    [self presentViewController:activityViewController animated:YES completion:nil];
+    [workspaceViewController applyWorkspaceWallpaperImage:image];
+    _backgroundPreviewImageView.image = image;
 }
 
 - (void)viewDidLoad {
@@ -3753,7 +3766,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     actionRowBottom.distribution = UIStackViewDistributionFillEqually;
     [actionRowBottom addArrangedSubview:[self themeUtilityButtonWithTitle:@"Delete Selected"
                                                                  selector:@selector(deleteSelectedCustomTheme:)]];
-    [actionRowBottom addArrangedSubview:[self themeUtilityButtonWithTitle:@"Export Background"
+    [actionRowBottom addArrangedSubview:[self themeUtilityButtonWithTitle:@"Apply Wallpaper"
                                                                  selector:@selector(generateThemeBackgroundImage:)]];
 
     [actionStack addArrangedSubview:actionRowTop];
