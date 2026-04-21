@@ -413,7 +413,10 @@ void ptrace_event_stop(int sig, struct siginfo_ *info, int event, qword_t eventm
     current->ptrace.trap_event = event;
     current->ptrace.eventmsg = eventmsg;
     unlock(&current->ptrace.lock);
-    ptrace_stop_common(sig, info, false);
+    struct siginfo_ event_info = *info;
+    event_info.sig = SIGTRAP_;
+    event_info.code = (event << 8) | SIGTRAP_;
+    ptrace_stop_common(sig, &event_info, false);
 }
 
 void ptrace_syscall_stop(struct cpu_state *cpu) {
