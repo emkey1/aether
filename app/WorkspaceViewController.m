@@ -43,7 +43,11 @@
 - (void)persistDefaultWorkspaceUtilityFrames;
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (void)persistDockWindowFrame;
+- (NSString *)persistentDockWindowDescriptorDefaultsKey;
+- (void)applyInitialPlacementToDockWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)workspaceActivationDidChange:(NSNotification *)notification;
+- (void)workspaceDockFrameDidChange:(NSNotification *)notification;
 - (void)workspaceWorkspacesFrameDidChange:(NSNotification *)notification;
 - (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame;
 - (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView;
@@ -82,9 +86,10 @@ static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
+static NSString *const ISHWorkspacePersistentDockWindowDescriptorDefaultsKey = @"ISHWorkspacePersistentDockWindowDescriptor";
+static NSString *const ISHWorkspaceDockFrameDidChangeNotification = @"ISHWorkspaceDockFrameDidChange";
 static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
-static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
 static NSString *const ISHWorkspaceSavedLayoutKindTerminal = @"terminal";
 static NSString *const ISHWorkspaceTerminalRoleSessionShell = @"session-shell";
@@ -2290,15 +2295,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         };
     }
 
-    if (windowView == self.dockWindow) {
-        return @{
-            @"kind": ISHWorkspaceSavedLayoutKindDock,
-            @"frame": frameDescriptor,
-            @"size": ISHWorkspaceSizeDescriptor(windowView.bounds.size),
-            @"pinned": @(windowView.pinnedToBottomCenter),
-        };
-    }
-
     if (windowView.hostedTerminalViewController != nil) {
         NSUUID *sessionTerminalUUID = [self persistentTerminalUUIDForWindow:windowView];
         NSUUID *displayTerminalUUID = [self displayedTerminalUUIDForWindow:windowView];
@@ -2482,7 +2478,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:@"Dock"
                              preferredSize:preferredSize
-                          showsCloseButton:NO];
+                          showsCloseButton:NO
+                    appliesInitialPlacement:NO];
     self.dockWindow = windowView;
     windowView.draggable = YES;
     windowView.resizable = YES;
@@ -2490,6 +2487,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     windowView.minimumSize = ISHWorkspaceMinimumDockContentSize();
     windowView.maximumSize = ISHWorkspaceMaximumDockContentSize();
     windowView.pinnedToBottomCenter = YES;
+    __weak typeof(self) weakSelf = self;
+    windowView.frameDidChangeHandler = ^{
+        [weakSelf persistDockWindowFrame];
+    };
 
     UIStackView *stack = [UIStackView new];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -2528,7 +2529,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [stack.bottomAnchor constraintEqualToAnchor:windowView.contentContainerView.bottomAnchor constant:-stackInsetY],
     ]];
 
-    [self pinDesktopWindowToBottomCenter:windowView];
+    [self applyInitialPlacementToDockWindow:windowView];
     [self refreshDockButtons];
     return windowView;
 }
@@ -2571,14 +2572,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     NSDictionary<NSString *, id> *dashboardDescriptor = nil;
-    NSDictionary<NSString *, id> *dockDescriptor = nil;
     NSMutableArray<NSDictionary<NSString *, id> *> *windowDescriptors = [NSMutableArray array];
     for (NSDictionary<NSString *, id> *descriptor in layout) {
         NSString *kind = descriptor[@"kind"];
         if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindDashboard]) {
             dashboardDescriptor = descriptor;
-        } else if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindDock]) {
-            dockDescriptor = descriptor;
         } else {
             [windowDescriptors addObject:descriptor];
         }
@@ -2587,21 +2585,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self closeAllRestorableDesktopWindows];
     if (dashboardDescriptor != nil)
         [self applySavedDashboardDescriptor:dashboardDescriptor];
-    if (dockDescriptor != nil && self.dockWindow != nil) {
-        CGSize savedDockSize = ISHWorkspaceSizeFromDescriptor(dockDescriptor[@"size"]);
-        if (savedDockSize.width > 0 && savedDockSize.height > 0) {
-            [self resizeDesktopWindow:self.dockWindow toSize:savedDockSize animated:NO];
-        }
-        if ([dockDescriptor[@"pinned"] boolValue]) {
-            self.dockWindow.pinnedToBottomCenter = YES;
-            [self pinDesktopWindowToBottomCenter:self.dockWindow];
-        } else {
-            self.dockWindow.pinnedToBottomCenter = NO;
-            [self applySavedFrameDescriptor:dockDescriptor[@"frame"]
-                                   toWindow:self.dockWindow
-                               fallbackSize:self.dockWindow.bounds.size];
-        }
-    }
 
     NSSet<NSString *> *deduplicatedTerminalRoles =
         [NSSet setWithArray:@[ISHWorkspaceTerminalRoleSessionShell, ISHWorkspaceTerminalRoleSystemConsole]];
@@ -2925,6 +2908,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                name:ISHWorkspaceToolThemeDidChangeNotification
                                              object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(workspaceDockFrameDidChange:)
+                                               name:ISHWorkspaceDockFrameDidChangeNotification
+                                             object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(workspaceWorkspacesFrameDidChange:)
                                                name:ISHWorkspaceWorkspacesFrameDidChangeNotification
                                              object:nil];
@@ -2992,6 +2979,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         self.didEnsureDefaultWorkspaceUtilities = YES;
         [self ensureDefaultWorkspaceUtilitiesOpen];
     }
+    if (self.dockWindow != nil) {
+        [self applyInitialPlacementToDockWindow:self.dockWindow];
+    }
     ISHWorkspaceContainedWindowView *workspacesWindow =
         [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (workspacesWindow != nil) {
@@ -3018,10 +3008,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         }
     }
     [self refreshWorkspaceStatus];
+    if (self.dockWindow != nil) {
+        [self applyInitialPlacementToDockWindow:self.dockWindow];
+    }
     ISHWorkspaceContainedWindowView *workspacesWindow =
         [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (workspacesWindow != nil) {
         [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    }
+}
+
+- (void)workspaceDockFrameDidChange:(NSNotification *)notification {
+    if (notification.object == self)
+        return;
+    if (self.dockWindow != nil) {
+        [self applyInitialPlacementToDockWindow:self.dockWindow];
     }
 }
 
@@ -3176,6 +3177,48 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey {
     return ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey;
+}
+
+- (void)persistDockWindowFrame {
+    if (self.dockWindow == nil || self.dockWindow.hidden)
+        return;
+    NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self absoluteFrameDescriptorForFrame:self.dockWindow.frame];
+    if (frameDescriptor == nil)
+        return;
+    NSDictionary<NSString *, id> *descriptor = @{
+        @"frame": frameDescriptor,
+        @"pinned": @(self.dockWindow.pinnedToBottomCenter),
+    };
+    [NSUserDefaults.standardUserDefaults setObject:descriptor
+                                            forKey:[self persistentDockWindowDescriptorDefaultsKey]];
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceDockFrameDidChangeNotification
+                                                      object:self];
+}
+
+- (NSString *)persistentDockWindowDescriptorDefaultsKey {
+    return ISHWorkspacePersistentDockWindowDescriptorDefaultsKey;
+}
+
+- (void)applyInitialPlacementToDockWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    if (windowView == nil)
+        return;
+    NSDictionary<NSString *, id> *descriptor =
+        [NSUserDefaults.standardUserDefaults dictionaryForKey:[self persistentDockWindowDescriptorDefaultsKey]];
+    NSDictionary<NSString *, id> *frameDescriptor =
+        [descriptor isKindOfClass:NSDictionary.class] ? descriptor[@"frame"] : nil;
+    BOOL pinned = ![descriptor isKindOfClass:NSDictionary.class] || [descriptor[@"pinned"] boolValue];
+    if ([frameDescriptor isKindOfClass:NSDictionary.class] &&
+        frameDescriptor[@"originX"] != nil &&
+        frameDescriptor[@"originY"] != nil &&
+        frameDescriptor[@"height"] != nil) {
+        windowView.pinnedToBottomCenter = pinned;
+        [self applyAbsoluteFrameDescriptor:frameDescriptor toWindow:windowView];
+        if (windowView.pinnedToBottomCenter)
+            [self pinDesktopWindowToBottomCenter:windowView];
+        return;
+    }
+    windowView.pinnedToBottomCenter = YES;
+    [self pinDesktopWindowToBottomCenter:windowView];
 }
 
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView {
