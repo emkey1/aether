@@ -8,6 +8,7 @@
 #include "kernel/init.h"
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
+#import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -79,6 +80,7 @@ static NSString *const ISHWorkspaceToolProcessesIdentifier = @"processes";
 static NSString *const ISHWorkspaceToolSessionsIdentifier = @"sessions";
 static NSString *const ISHWorkspaceToolStorageIdentifier = @"storage";
 static NSString *const ISHWorkspaceToolShortcutsIdentifier = @"shortcuts";
+static NSString *const ISHWorkspaceToolBrowserIdentifier = @"browser";
 static NSString *const ISHWorkspaceToolThemesIdentifier = @"themes";
 static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
@@ -499,6 +501,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(336, 256);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
             return CGSizeMake(312, 184);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+            return CGSizeMake(352, 248);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             return CGSizeMake(360, 620);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -529,6 +533,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(500, 320);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
         return CGSizeMake(400, 220);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+        return CGSizeMake(620, 420);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(820, 760);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -604,6 +610,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(288, 188);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
             return CGSizeMake(260, 148);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+            return CGSizeMake(300, 184);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
             return CGSizeMake(320, 420);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -633,6 +641,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(360, 220);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
         return CGSizeMake(300, 164);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+        return CGSizeMake(360, 240);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(520, 560);
     return CGSizeZero;
@@ -672,6 +682,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Storage";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
         return @"Shortcuts";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+        return @"Browser";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return @"Themes";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
@@ -1704,6 +1716,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceShortcutsToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceBrowserToolViewController : WorkspaceThemedToolViewController <UITextFieldDelegate, WKNavigationDelegate, WKUIDelegate>
+@end
+
 @interface WorkspaceThemesToolViewController : WorkspaceThemedToolViewController
 @end
 
@@ -1728,6 +1743,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceStorageToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
         return [WorkspaceShortcutsToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+        return [WorkspaceBrowserToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return [WorkspaceThemesToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
@@ -1762,6 +1779,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolStorageIdentifier;
     if ([viewController isKindOfClass:WorkspaceShortcutsToolViewController.class])
         return ISHWorkspaceToolShortcutsIdentifier;
+    if ([viewController isKindOfClass:WorkspaceBrowserToolViewController.class])
+        return ISHWorkspaceToolBrowserIdentifier;
     if ([viewController isKindOfClass:WorkspaceThemesToolViewController.class])
         return ISHWorkspaceToolThemesIdentifier;
     if ([viewController isKindOfClass:NSClassFromString(@"DiagnosticsViewController")])
@@ -3303,6 +3322,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     [workspaceItems addObjectsFromArray:@[
         @{@"title": @"Shortcuts", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
+        @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
@@ -5415,6 +5435,39 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @end
 
+static NSString *ISHWorkspaceBrowserDefaultAddress(void) {
+    return @"https://duckduckgo.com/";
+}
+
+static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
+    NSString *trimmed = [[input ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] copy];
+    if (trimmed.length == 0)
+        trimmed = ISHWorkspaceBrowserDefaultAddress();
+
+    NSURLComponents *components = [NSURLComponents componentsWithString:trimmed];
+    if (components.scheme.length > 0 && components.URL != nil)
+        return components.URL;
+
+    if ([trimmed rangeOfCharacterFromSet:NSCharacterSet.whitespaceCharacterSet].location != NSNotFound) {
+        NSString *query = [trimmed stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
+        return [NSURL URLWithString:[NSString stringWithFormat:@"https://duckduckgo.com/?q=%@", query ?: @""]];
+    }
+
+    BOOL localHost = [trimmed hasPrefix:@"localhost"] ||
+        [trimmed hasPrefix:@"127."] ||
+        [trimmed hasPrefix:@"10."] ||
+        [trimmed hasPrefix:@"192.168."] ||
+        [trimmed hasPrefix:@"172.16."] ||
+        [trimmed hasPrefix:@"172.17."] ||
+        [trimmed hasPrefix:@"172.18."] ||
+        [trimmed hasPrefix:@"172.19."] ||
+        [trimmed hasPrefix:@"172.2"] ||
+        [trimmed hasPrefix:@"172.30."] ||
+        [trimmed hasPrefix:@"172.31."];
+    NSString *scheme = localHost ? @"http" : @"https";
+    return [NSURL URLWithString:[NSString stringWithFormat:@"%@://%@", scheme, trimmed]];
+}
+
 @implementation WorkspaceWorkspacesToolViewController {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
@@ -5697,6 +5750,287 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         previewView.layer.borderColor =
             (current ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
     }
+}
+
+@end
+
+@implementation WorkspaceBrowserToolViewController {
+    UIView *_toolbarCard;
+    UIView *_browserCard;
+    UIView *_addressContainerView;
+    UITextField *_addressField;
+    UIButton *_backButton;
+    UIButton *_forwardButton;
+    UIButton *_reloadButton;
+    UIButton *_goButton;
+    NSArray<UIButton *> *_actionButtons;
+    UIProgressView *_progressView;
+    WKWebView *_webView;
+}
+
+- (UIButton *)browserButtonWithTitle:(NSString *)title action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.layer.cornerRadius = 10.0;
+    button.layer.borderWidth = 1.0;
+    button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote)
+                                               weight:UIFontWeightSemibold];
+    [button setTitle:title forState:UIControlStateNormal];
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    CGFloat width = [title isEqualToString:@"Go"] ? (ISHWorkspaceUsesPhoneLayout() ? 42.0 : 48.0)
+                                                  : (ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0);
+    [NSLayoutConstraint activateConstraints:@[
+        [button.widthAnchor constraintEqualToConstant:width],
+        [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
+    ]];
+    return button;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Browser";
+
+    _toolbarCard = [self workspaceThemeCardView];
+    _browserCard = [self workspaceThemeCardView];
+    [self.toolContentView addSubview:_toolbarCard];
+    [self.toolContentView addSubview:_browserCard];
+
+    UIView *controlsRow = [UIView new];
+    controlsRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [_toolbarCard addSubview:controlsRow];
+
+    _backButton = [self browserButtonWithTitle:@"<" action:@selector(goBack:)];
+    _forwardButton = [self browserButtonWithTitle:@">" action:@selector(goForward:)];
+    _reloadButton = [self browserButtonWithTitle:@"R" action:@selector(reloadOrStop:)];
+    _goButton = [self browserButtonWithTitle:@"Go" action:@selector(commitAddress:)];
+    _actionButtons = @[_backButton, _forwardButton, _reloadButton, _goButton];
+    for (UIButton *button in _actionButtons) {
+        [controlsRow addSubview:button];
+    }
+
+    _addressContainerView = [UIView new];
+    _addressContainerView.translatesAutoresizingMaskIntoConstraints = NO;
+    _addressContainerView.layer.cornerRadius = 10.0;
+    _addressContainerView.layer.borderWidth = 1.0;
+    [controlsRow addSubview:_addressContainerView];
+
+    _addressField = [UITextField new];
+    _addressField.translatesAutoresizingMaskIntoConstraints = NO;
+    _addressField.delegate = self;
+    _addressField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    _addressField.returnKeyType = UIReturnKeyGo;
+    _addressField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _addressField.autocorrectionType = UITextAutocorrectionTypeNo;
+    _addressField.spellCheckingType = UITextSpellCheckingTypeNo;
+    if (@available(iOS 11.0, *)) {
+        _addressField.smartDashesType = UITextSmartDashesTypeNo;
+        _addressField.smartQuotesType = UITextSmartQuotesTypeNo;
+        _addressField.smartInsertDeleteType = UITextSmartInsertDeleteTypeNo;
+    }
+    [_addressContainerView addSubview:_addressField];
+
+    _progressView = [self workspaceThemeProgressView];
+    [_toolbarCard addSubview:_progressView];
+
+    WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
+    _webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration];
+    _webView.translatesAutoresizingMaskIntoConstraints = NO;
+    _webView.navigationDelegate = self;
+    _webView.UIDelegate = self;
+    _webView.allowsBackForwardNavigationGestures = YES;
+    _webView.layer.cornerRadius = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 16.0;
+    _webView.layer.masksToBounds = YES;
+    _webView.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    [_webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:nil];
+    [_browserCard addSubview:_webView];
+
+    CGFloat inset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
+    [NSLayoutConstraint activateConstraints:@[
+        [_toolbarCard.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:inset],
+        [_toolbarCard.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
+        [_toolbarCard.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-inset],
+
+        [_browserCard.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:inset],
+        [_browserCard.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
+        [_browserCard.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-inset],
+        [_browserCard.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor constant:-inset],
+
+        [controlsRow.topAnchor constraintEqualToAnchor:_toolbarCard.topAnchor constant:inset],
+        [controlsRow.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:inset],
+        [controlsRow.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-inset],
+
+        [_backButton.leadingAnchor constraintEqualToAnchor:controlsRow.leadingAnchor],
+        [_backButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+        [_forwardButton.leadingAnchor constraintEqualToAnchor:_backButton.trailingAnchor constant:6.0],
+        [_forwardButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+        [_reloadButton.leadingAnchor constraintEqualToAnchor:_forwardButton.trailingAnchor constant:6.0],
+        [_reloadButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+
+        [_goButton.trailingAnchor constraintEqualToAnchor:controlsRow.trailingAnchor],
+        [_goButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+
+        [_addressContainerView.leadingAnchor constraintEqualToAnchor:_reloadButton.trailingAnchor constant:6.0],
+        [_addressContainerView.trailingAnchor constraintEqualToAnchor:_goButton.leadingAnchor constant:-6.0],
+        [_addressContainerView.topAnchor constraintEqualToAnchor:controlsRow.topAnchor],
+        [_addressContainerView.bottomAnchor constraintEqualToAnchor:controlsRow.bottomAnchor],
+        [_addressContainerView.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
+
+        [_addressField.topAnchor constraintEqualToAnchor:_addressContainerView.topAnchor],
+        [_addressField.leadingAnchor constraintEqualToAnchor:_addressContainerView.leadingAnchor constant:8.0],
+        [_addressField.trailingAnchor constraintEqualToAnchor:_addressContainerView.trailingAnchor constant:-8.0],
+        [_addressField.bottomAnchor constraintEqualToAnchor:_addressContainerView.bottomAnchor],
+
+        [_progressView.topAnchor constraintEqualToAnchor:controlsRow.bottomAnchor constant:6.0],
+        [_progressView.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:inset],
+        [_progressView.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-inset],
+        [_progressView.bottomAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:-inset],
+
+        [_webView.topAnchor constraintEqualToAnchor:_browserCard.topAnchor constant:inset],
+        [_webView.leadingAnchor constraintEqualToAnchor:_browserCard.leadingAnchor constant:inset],
+        [_webView.trailingAnchor constraintEqualToAnchor:_browserCard.trailingAnchor constant:-inset],
+        [_webView.bottomAnchor constraintEqualToAnchor:_browserCard.bottomAnchor constant:-inset],
+    ]];
+
+    _addressField.text = ISHWorkspaceBrowserDefaultAddress();
+    [self loadAddressString:_addressField.text];
+}
+
+- (void)dealloc {
+    [_webView removeObserver:self forKeyPath:@"estimatedProgress"];
+    _webView.navigationDelegate = nil;
+    _webView.UIDelegate = nil;
+}
+
+- (void)loadAddressString:(NSString *)addressString {
+    NSURL *URL = ISHWorkspaceBrowserURLFromInput(addressString);
+    if (URL == nil)
+        return;
+    [_webView loadRequest:[NSURLRequest requestWithURL:URL]];
+}
+
+- (void)refreshBrowserChrome {
+    _backButton.enabled = _webView.canGoBack;
+    _forwardButton.enabled = _webView.canGoForward;
+    _backButton.alpha = _backButton.enabled ? 1.0 : 0.42;
+    _forwardButton.alpha = _forwardButton.enabled ? 1.0 : 0.42;
+    _reloadButton.alpha = 1.0;
+    _goButton.alpha = 1.0;
+    [_reloadButton setTitle:(_webView.loading ? @"X" : @"R") forState:UIControlStateNormal];
+    _progressView.hidden = !_webView.loading && _webView.estimatedProgress >= 0.999;
+    _progressView.alpha = _progressView.hidden ? 0.0 : 1.0;
+    if (!_addressField.isFirstResponder) {
+        NSString *address = _webView.URL.absoluteString;
+        _addressField.text = address.length > 0 ? address : ISHWorkspaceBrowserDefaultAddress();
+    }
+}
+
+- (void)goBack:(id)sender {
+    (void) sender;
+    if (_webView.canGoBack)
+        [_webView goBack];
+}
+
+- (void)goForward:(id)sender {
+    (void) sender;
+    if (_webView.canGoForward)
+        [_webView goForward];
+}
+
+- (void)reloadOrStop:(id)sender {
+    (void) sender;
+    if (_webView.loading) {
+        [_webView stopLoading];
+    } else {
+        [_webView reload];
+    }
+    [self refreshBrowserChrome];
+}
+
+- (void)commitAddress:(id)sender {
+    (void) sender;
+    [self loadAddressString:_addressField.text];
+    [_addressField resignFirstResponder];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    [self loadAddressString:textField.text];
+    [textField resignFirstResponder];
+    return YES;
+}
+
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+    (void) webView;
+    (void) navigation;
+    [self refreshBrowserChrome];
+}
+
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    (void) webView;
+    (void) navigation;
+    [self refreshBrowserChrome];
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    (void) webView;
+    (void) navigation;
+    if (error.code != NSURLErrorCancelled)
+        [self refreshBrowserChrome];
+}
+
+- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    (void) webView;
+    (void) navigation;
+    if (error.code != NSURLErrorCancelled)
+        [self refreshBrowserChrome];
+}
+
+- (nullable WKWebView *)webView:(WKWebView *)webView
+    createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
+               forNavigationAction:(WKNavigationAction *)navigationAction
+                    windowFeatures:(WKWindowFeatures *)windowFeatures {
+    (void) webView;
+    (void) configuration;
+    (void) windowFeatures;
+    if (!navigationAction.targetFrame.isMainFrame && navigationAction.request.URL != nil) {
+        [_webView loadRequest:navigationAction.request];
+    }
+    return nil;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey, id> *)change
+                       context:(void *)context {
+    (void) object;
+    (void) change;
+    (void) context;
+    if ([keyPath isEqualToString:@"estimatedProgress"]) {
+        [_progressView setProgress:(float) _webView.estimatedProgress animated:YES];
+        [self refreshBrowserChrome];
+        return;
+    }
+    [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    UIColor *buttonBackground = [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
+    UIColor *buttonBorder = theme[@"stroke"];
+    for (UIButton *button in _actionButtons) {
+        button.backgroundColor = buttonBackground;
+        button.layer.borderColor = buttonBorder.CGColor;
+        [button setTitleColor:(button.enabled ? theme[@"primary"] : theme[@"secondary"]) forState:UIControlStateNormal];
+    }
+    _addressContainerView.backgroundColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.18];
+    _addressContainerView.layer.borderColor = theme[@"stroke"].CGColor;
+    _addressField.textColor = theme[@"primary"];
+    _addressField.tintColor = theme[@"accent"];
+    _addressField.attributedPlaceholder =
+        [[NSAttributedString alloc] initWithString:@"Enter URL or search"
+                                        attributes:@{NSForegroundColorAttributeName: theme[@"secondary"]}];
+    _progressView.trackTintColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.24];
+    _progressView.progressTintColor = theme[@"accent"];
 }
 
 @end
