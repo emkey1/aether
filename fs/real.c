@@ -301,7 +301,14 @@ off_t realfs_lseek(struct fd *fd, off_t offset, int whence) {
 }
 
 int realfs_poll(struct fd *fd) {
-    struct pollfd p = {.fd = fd->real_fd, .events = POLLPRI};
+    struct pollfd p = {.fd = fd->real_fd, .events = 0};
+#if defined(__APPLE__)
+    bool is_fifo = is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode);
+    if (!is_fifo)
+        p.events |= POLLPRI;
+#else
+    p.events |= POLLPRI;
+#endif
     // prevent POLLNVAL
     int flags = fcntl(fd->real_fd, F_GETFL, 0);
     if ((flags & O_ACCMODE) != O_WRONLY)
@@ -317,8 +324,9 @@ int realfs_poll(struct fd *fd) {
     // https://github.com/apple/darwin-xnu/blob/a449c6a3b8014d9406c2ddbdc81795da24aa7443/bsd/kern/sys_generic.c#L1856
     if (p.revents & POLLHUP)
         p.revents |= POLLOUT;
-    // apparently you can sometimes get POLLPRI on a pipe??? please ignore how much of a mess this condition is
-    if (is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode))
+    // Darwin can report spurious POLLPRI on pipes/FIFOs; avoid requesting it
+    // there and scrub any residual bit if the host still returns one.
+    if (is_fifo)
         p.revents &= ~POLLPRI;
 
     if (p.revents & POLLNVAL) {

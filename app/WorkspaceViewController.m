@@ -1198,16 +1198,20 @@ static uint64_t ISHWorkspacePhysicalMemoryBytes(void) {
     return NSProcessInfo.processInfo.physicalMemory;
 }
 
+static NSUInteger ISHWorkspacePhysicalMemoryMarketedGB(void) {
+    const uint64_t oneGB = 1000ull * 1000ull * 1000ull;
+    return (NSUInteger) ((ISHWorkspacePhysicalMemoryBytes() + oneGB - 1) / oneGB);
+}
+
 static BOOL ISHWorkspaceDeviceHasLowMemoryForWorkspace(void) {
-    return ISHWorkspacePhysicalMemoryBytes() < (4ull * 1000ull * 1000ull * 1000ull);
+    return ISHWorkspacePhysicalMemoryMarketedGB() < 4;
 }
 
 static NSUInteger ISHWorkspaceBrowserMaximumTabCount(void) {
-    uint64_t physicalMemory = ISHWorkspacePhysicalMemoryBytes();
-    const uint64_t oneGB = 1000ull * 1000ull * 1000ull;
-    if (physicalMemory < (4ull * oneGB))
+    NSUInteger marketedGB = ISHWorkspacePhysicalMemoryMarketedGB();
+    if (marketedGB < 4)
         return 2;
-    return 3 + (NSUInteger) ((physicalMemory - (4ull * oneGB)) / (2ull * oneGB));
+    return 3 + ((marketedGB - 4) / 2);
 }
 
 static NSString *ISHWorkspaceSystemStatusText(void) {
