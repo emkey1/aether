@@ -149,6 +149,9 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @property (nonatomic, copy) NSString *workspaceTerminalRole;
 @property (nonatomic) BOOL pinnedToBottomCenter;
 @property (nonatomic) BOOL resizeHandleAtTopRight;
+@property (nonatomic) BOOL titleBarDoubleTapZoomEnabled;
+@property (nonatomic) BOOL zoomedToFullscreen;
+@property (nonatomic) CGRect restoreFrameBeforeZoom;
 @property (nonatomic) CGSize minimumSize;
 @property (nonatomic) CGSize maximumSize;
 
@@ -304,11 +307,18 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     UIPanGestureRecognizer *panGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [self.titleBarView addGestureRecognizer:panGestureRecognizer];
 
+    UITapGestureRecognizer *titleBarDoubleTapGestureRecognizer =
+        [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarDoubleTap:)];
+    titleBarDoubleTapGestureRecognizer.numberOfTapsRequired = 2;
+    titleBarDoubleTapGestureRecognizer.cancelsTouchesInView = NO;
+    [self.titleBarView addGestureRecognizer:titleBarDoubleTapGestureRecognizer];
+
     UIPanGestureRecognizer *resizeGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleResizePan:)];
     [self.resizeHandleView addGestureRecognizer:resizeGestureRecognizer];
 
     UITapGestureRecognizer *tapGestureRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(bringWindowToFront)];
     tapGestureRecognizer.cancelsTouchesInView = NO;
+    [tapGestureRecognizer requireGestureRecognizerToFail:titleBarDoubleTapGestureRecognizer];
     [self addGestureRecognizer:tapGestureRecognizer];
 
     return self;
@@ -391,7 +401,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)recognizer {
-    if (!self.draggable || self.superview == nil)
+    if (!self.draggable || self.superview == nil || self.zoomedToFullscreen)
         return;
 
     if (recognizer.state == UIGestureRecognizerStateBegan) {
@@ -422,7 +432,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 }
 
 - (void)handleResizePan:(UIPanGestureRecognizer *)recognizer {
-    if (!self.resizable || self.superview == nil)
+    if (!self.resizable || self.superview == nil || self.zoomedToFullscreen)
         return;
 
     if (recognizer.state == UIGestureRecognizerStateBegan) {
@@ -456,6 +466,37 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     if (self.frameDidChangeHandler != nil)
         self.frameDidChangeHandler();
     [recognizer setTranslation:CGPointZero inView:self.superview];
+}
+
+- (void)handleTitleBarDoubleTap:(UITapGestureRecognizer *)recognizer {
+    if (!self.titleBarDoubleTapZoomEnabled || self.superview == nil || recognizer.state != UIGestureRecognizerStateRecognized)
+        return;
+
+    UIView *touchedView = [self.titleBarView hitTest:[recognizer locationInView:self.titleBarView] withEvent:nil];
+    for (UIView *view = touchedView; view != nil; view = view.superview) {
+        if ([view isKindOfClass:UIControl.class])
+            return;
+        if (view == self.titleBarView)
+            break;
+    }
+
+    [self bringWindowToFront];
+    if (self.zoomedToFullscreen) {
+        CGRect restoreFrame = self.restoreFrameBeforeZoom;
+        if (CGRectIsEmpty(restoreFrame) || CGRectIsNull(restoreFrame))
+            return;
+        self.zoomedToFullscreen = NO;
+        self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(restoreFrame));
+        self.preferredSize = self.frame.size;
+    } else {
+        self.restoreFrameBeforeZoom = self.frame;
+        self.zoomedToFullscreen = YES;
+        CGRect fullscreenFrame = self.superview.bounds;
+        self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(fullscreenFrame));
+    }
+
+    if (self.frameDidChangeHandler != nil)
+        self.frameDidChangeHandler();
 }
 
 @end
@@ -2944,6 +2985,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                           showsCloseButton:YES];
     windowView.hostedTerminalViewController = terminalViewController;
     windowView.resizable = YES;
+    windowView.titleBarDoubleTapZoomEnabled = YES;
     windowView.minimumSize = ISHWorkspaceMinimumTerminalContentSize();
     [self attachViewController:terminalViewController toDesktopWindow:windowView];
     return windowView;
