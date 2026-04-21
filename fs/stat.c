@@ -329,14 +329,6 @@ dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_
     if (at == NULL)
         return _EBADF;
 
-    // Be conservative until the full i386 time64/statx ABI is verified.
-    // The tar extraction path needs empty-path metadata on stdin; broader
-    // statx use in glibc 2.36+ is better served by libc's fstatat64 fallback
-    // than by a half-correct statx payload.
-    bool empty_path = (flags & AT_EMPTY_PATH_) && strcmp(path, "") == 0;
-    if (!(empty_path && at_f == 0))
-        return _ENOSYS;
-
     struct statbuf stat = {};
     int err = generic_statat(at, path, &stat, flags);
     if (err < 0)
