@@ -422,7 +422,7 @@ void ptrace_event_stop(int sig, struct siginfo_ *info, int event, qword_t eventm
 void ptrace_syscall_stop(struct cpu_state *cpu) {
     struct siginfo_ info = {
         .sig = SIGTRAP_,
-        .code = SIGTRAP_,
+        .code = current->ptrace.sysgood ? (SIGTRAP_ | 0x80) : SIGTRAP_,
     };
 
     lock(&current->ptrace.lock, 0);

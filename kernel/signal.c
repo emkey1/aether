@@ -465,11 +465,24 @@ static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo
             out->child.stime = info->child.stime;
             break;
         case SIGILL_:
-        case SIGTRAP_:
         case SIGBUS_:
         case SIGFPE_:
         case SIGSEGV_:
             out->fault.addr = (addr_t) info->fault.addr;
+            break;
+        case SIGTRAP_:
+            if (info->code == SIGTRAP_ || info->code == (SIGTRAP_ | 0x80)) {
+                // Ptrace syscall-stop: Linux reports only si_signo/si_code.
+            } else if ((info->code >> 8) != 0) {
+                // Ptrace event-stop: Linux populates si_pid/si_uid, not si_addr.
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            } else if (info->code <= 0 || info->code == SI_KERNEL_) {
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            } else {
+                out->fault.addr = (addr_t) info->fault.addr;
+            }
             break;
         case SIGSYS_:
             out->sigsys.addr = (addr_t) info->sigsys.addr;
@@ -509,11 +522,23 @@ static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct sigin
             out->child.stime = info->child.stime;
             break;
         case SIGILL_:
-        case SIGTRAP_:
         case SIGBUS_:
         case SIGFPE_:
         case SIGSEGV_:
             out->fault.addr = info->fault.addr;
+            break;
+        case SIGTRAP_:
+            if (info->code == SIGTRAP_ || info->code == (SIGTRAP_ | 0x80)) {
+                // Ptrace syscall-stop: Linux reports only si_signo/si_code.
+            } else if ((info->code >> 8) != 0) {
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            } else if (info->code <= 0 || info->code == SI_KERNEL_) {
+                out->kill.pid = info->kill.pid;
+                out->kill.uid = info->kill.uid;
+            } else {
+                out->fault.addr = info->fault.addr;
+            }
             break;
         case SIGSYS_:
             out->sigsys.call_addr = info->sigsys.addr;

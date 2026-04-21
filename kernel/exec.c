@@ -1005,7 +1005,7 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
         current->cpu.eax = 0;
         struct siginfo_ info = {
             .sig = SIGTRAP_,
-            .code = SI_KERNEL_,
+            .code = SI_USER_,
             .kill.pid = current->pid,
             .kill.uid = current->uid,
         };
