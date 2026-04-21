@@ -362,6 +362,8 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
 
 static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscall_stop) {
     lock(&current->ptrace.lock, 0);
+    if (!syscall_stop)
+        current->ptrace.syscall_stopped = false;
     current->ptrace.stopped = true;
     current->ptrace.signal = sig;
     if (syscall_stop && current->ptrace.sysgood)
