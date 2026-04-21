@@ -6258,6 +6258,8 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     [_homeButton addGestureRecognizer:homeLongPressRecognizer];
     [_actionButtons addObjectsFromArray:@[_backButton, _forwardButton, _reloadButton, _homeButton, _goButton, _addTabButton, _closeTabButton]];
     for (UIButton *button in _actionButtons) {
+        if (button == _addTabButton || button == _closeTabButton)
+            continue;
         [controlsRow addSubview:button];
     }
 
@@ -6297,8 +6299,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _tabsStack = [UIStackView new];
     _tabsStack.translatesAutoresizingMaskIntoConstraints = NO;
     _tabsStack.axis = UILayoutConstraintAxisHorizontal;
+    _tabsStack.alignment = UIStackViewAlignmentCenter;
     _tabsStack.spacing = 6.0;
     [_tabsScrollView addSubview:_tabsStack];
+    [tabsRow addSubview:_addTabButton];
+    [tabsRow addSubview:_closeTabButton];
 
     CGFloat inset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
     [NSLayoutConstraint activateConstraints:@[
