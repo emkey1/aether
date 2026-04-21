@@ -5185,6 +5185,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @end
 
 @implementation WorkspaceShortcutsToolViewController {
+    UIScrollView *_scrollView;
     UIStackView *_contentStack;
     NSMutableArray<UIButton *> *_shortcutButtons;
 }
@@ -5198,6 +5199,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     button.titleLabel.numberOfLines = 0;
     button.layer.cornerRadius = 12;
     button.layer.borderWidth = 1;
+    [button setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+    [button setContentHuggingPriority:UILayoutPriorityDefaultHigh forAxis:UILayoutConstraintAxisVertical];
+    CGFloat minimumHeight = ISHWorkspaceUsesPhoneLayout() ? 52.0 : 58.0;
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:minimumHeight].active = YES;
 
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
     style.alignment = NSTextAlignmentLeft;
@@ -5231,11 +5236,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.title = @"Shortcuts";
     _shortcutButtons = [NSMutableArray array];
 
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.toolContentView addSubview:_scrollView];
+
     _contentStack = [UIStackView new];
     _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     _contentStack.axis = UILayoutConstraintAxisVertical;
     _contentStack.spacing = 6;
-    [self.toolContentView addSubview:_contentStack];
+    [_scrollView addSubview:_contentStack];
 
     UILabel *header = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
     header.text = @"Quick workspace actions";
@@ -5294,6 +5303,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         row.axis = UILayoutConstraintAxisHorizontal;
         row.spacing = 6;
         row.distribution = UIStackViewDistributionFillEqually;
+        [row setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+        [row setContentHuggingPriority:UILayoutPriorityDefaultHigh forAxis:UILayoutConstraintAxisVertical];
         for (NSDictionary<NSString *, NSString *> *descriptor in rowDescriptors) {
             [row addArrangedSubview:[self shortcutButtonWithTitle:descriptor[@"title"]
                                                          subtitle:descriptor[@"subtitle"]
@@ -5303,10 +5314,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     [NSLayoutConstraint activateConstraints:@[
-        [_contentStack.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:8],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:8],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-8],
-        [_contentStack.bottomAnchor constraintLessThanOrEqualToAnchor:self.toolContentView.bottomAnchor constant:-8],
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:8],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:8],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-8],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-8],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-16],
     ]];
 }
 
