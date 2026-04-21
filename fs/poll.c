@@ -1,4 +1,5 @@
 #include "kernel/task.h"
+#include <sys/stat.h>
 #include <string.h>
 #include <poll.h>
 #include <fcntl.h>
@@ -39,6 +40,30 @@ static int real_poll_wait(struct real_poll *real, struct real_poll_event *events
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
 static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd);
 static void poll_fd_free(struct poll_fd *poll_fd);
+
+static bool poll_fd_needs_periodic_host_rescan(struct poll_fd *poll_fd) {
+#if defined(__APPLE__)
+    if (poll_fd == NULL || poll_fd->fd == NULL)
+        return false;
+    if (poll_fd->fd->ops != &realfs_fdops)
+        return false;
+    if (!(poll_fd->types & POLL_WRITE))
+        return false;
+    return is_adhoc_fd(poll_fd->fd) && S_ISFIFO(poll_fd->fd->stat.mode);
+#else
+    (void) poll_fd;
+    return false;
+#endif
+}
+
+static bool poll_needs_periodic_host_rescan(struct poll *poll_) {
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll_->poll_fds, poll_fd, fds) {
+        if (poll_fd_needs_periodic_host_rescan(poll_fd))
+            return true;
+    }
+    return false;
+}
 
 static bool poll_deadline_remaining(const struct timespec *deadline, struct timespec *remaining) {
     if (deadline == NULL || remaining == NULL)
@@ -456,6 +481,10 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                 } else {
                     struct timespec remaining_timeout = {0};
                     struct timespec *wait_timeout = NULL;
+                    struct timespec periodic_rescan_timeout = {
+                        .tv_sec = 0,
+                        .tv_nsec = 100 * 1000 * 1000L,
+                    };
                     if (deadline != NULL) {
                         if (!poll_deadline_remaining(deadline, &remaining_timeout)) {
                             pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
@@ -465,6 +494,14 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                             goto poll_wait_done;
                         }
                         wait_timeout = &remaining_timeout;
+                    }
+                    if (poll_needs_periodic_host_rescan(poll_)) {
+                        if (wait_timeout == NULL ||
+                                wait_timeout->tv_sec > periodic_rescan_timeout.tv_sec ||
+                                (wait_timeout->tv_sec == periodic_rescan_timeout.tv_sec &&
+                                 wait_timeout->tv_nsec > periodic_rescan_timeout.tv_nsec)) {
+                            wait_timeout = &periodic_rescan_timeout;
+                        }
                     }
                     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
                     if (poll_wait_trace_enabled()) {
