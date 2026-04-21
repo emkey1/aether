@@ -1003,11 +1003,16 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     if (current->ptrace.traced) {
         current->ptrace.syscall = current->cpu.eax;
         current->cpu.eax = 0;
-        ptrace_event_stop(SIGTRAP_, &(struct siginfo_) {
-            .code = SI_USER_,
+        struct siginfo_ info = {
+            .sig = SIGTRAP_,
+            .code = SI_KERNEL_,
             .kill.pid = current->pid,
             .kill.uid = current->uid,
-        }, PTRACE_EVENT_EXEC_, current->pid);
+        };
+        if (current->ptrace.options & PTRACE_O_TRACEEXEC_)
+            ptrace_event_stop(SIGTRAP_, &info, PTRACE_EVENT_EXEC_, current->pid);
+        else
+            ptrace_signal_stop(SIGTRAP_, &info);
     }
 
     return 0;
