@@ -1199,16 +1199,15 @@ static uint64_t ISHWorkspacePhysicalMemoryBytes(void) {
 }
 
 static BOOL ISHWorkspaceDeviceHasLowMemoryForWorkspace(void) {
-    const uint64_t oneGiB = 1024ull * 1024ull * 1024ull;
-    return ISHWorkspacePhysicalMemoryBytes() < (4ull * oneGiB);
+    return ISHWorkspacePhysicalMemoryBytes() < (4ull * 1000ull * 1000ull * 1000ull);
 }
 
 static NSUInteger ISHWorkspaceBrowserMaximumTabCount(void) {
-    const uint64_t oneGiB = 1024ull * 1024ull * 1024ull;
     uint64_t physicalMemory = ISHWorkspacePhysicalMemoryBytes();
-    if (physicalMemory < (4ull * oneGiB))
+    const uint64_t oneGB = 1000ull * 1000ull * 1000ull;
+    if (physicalMemory < (4ull * oneGB))
         return 2;
-    return 3 + (NSUInteger) ((physicalMemory - (4ull * oneGiB)) / (2ull * oneGiB));
+    return 3 + (NSUInteger) ((physicalMemory - (4ull * oneGB)) / (2ull * oneGB));
 }
 
 static NSString *ISHWorkspaceSystemStatusText(void) {
@@ -1258,7 +1257,7 @@ static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
 static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
 static NSString *const ISHWorkspaceToolThemeGraphiteIdentifier = @"graphite";
 static BOOL ISHWorkspaceLowMemoryWarningShownThisLaunch = NO;
-static const uint64_t ISHWorkspaceOneGiB = 1024ull * 1024ull * 1024ull;
+static const uint64_t ISHWorkspaceOneGB = 1000ull * 1000ull * 1000ull;
 
 static UIColor *ISHWorkspaceThemeColor(CGFloat red, CGFloat green, CGFloat blue, CGFloat alpha) {
     return [UIColor colorWithRed:red / 255.0
@@ -6214,10 +6213,10 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         message = [NSString stringWithFormat:@"This device is limited to %lu browser tabs in Workspace because it has less than 4 GB of RAM.",
                    (unsigned long) _maximumTabCount];
     } else {
-        CGFloat ramGiB = (CGFloat) ISHWorkspacePhysicalMemoryBytes() / (CGFloat) ISHWorkspaceOneGiB;
+        CGFloat ramGB = (CGFloat) ISHWorkspacePhysicalMemoryBytes() / (CGFloat) ISHWorkspaceOneGB;
         message = [NSString stringWithFormat:@"This device is limited to %lu browser tabs in Workspace based on its available RAM (%.0f GB).",
                    (unsigned long) _maximumTabCount,
-                   floor(ramGiB)];
+                   floor(ramGB)];
     }
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Tab Limit Reached"
