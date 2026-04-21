@@ -487,7 +487,6 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
             return;
         self.zoomedToFullscreen = NO;
         self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(restoreFrame));
-        self.preferredSize = self.frame.size;
     } else {
         self.restoreFrameBeforeZoom = self.frame;
         self.zoomedToFullscreen = YES;
