@@ -1281,6 +1281,144 @@ static NSDictionary<NSString *, NSNumber *> *ISHWorkspaceThemeColorDescriptorFro
     };
 }
 
+static BOOL ISHWorkspaceThemeRGBAComponents(UIColor *color,
+                                            CGFloat *red,
+                                            CGFloat *green,
+                                            CGFloat *blue,
+                                            CGFloat *alpha) {
+    CGFloat localRed = 0;
+    CGFloat localGreen = 0;
+    CGFloat localBlue = 0;
+    CGFloat localAlpha = 0;
+    if ([color getRed:&localRed green:&localGreen blue:&localBlue alpha:&localAlpha]) {
+        if (red != NULL)
+            *red = localRed;
+        if (green != NULL)
+            *green = localGreen;
+        if (blue != NULL)
+            *blue = localBlue;
+        if (alpha != NULL)
+            *alpha = localAlpha;
+        return YES;
+    }
+
+    CGFloat white = 0;
+    if ([color getWhite:&white alpha:&localAlpha]) {
+        if (red != NULL)
+            *red = white;
+        if (green != NULL)
+            *green = white;
+        if (blue != NULL)
+            *blue = white;
+        if (alpha != NULL)
+            *alpha = localAlpha;
+        return YES;
+    }
+    return NO;
+}
+
+static CGFloat ISHWorkspaceThemeLinearizedComponent(CGFloat component) {
+    if (component <= 0.04045)
+        return component / 12.92;
+    return pow((component + 0.055) / 1.055, 2.4);
+}
+
+static CGFloat ISHWorkspaceThemeRelativeLuminance(UIColor *color) {
+    CGFloat red = 0;
+    CGFloat green = 0;
+    CGFloat blue = 0;
+    if (!ISHWorkspaceThemeRGBAComponents(color, &red, &green, &blue, NULL))
+        return 0;
+    return (0.2126 * ISHWorkspaceThemeLinearizedComponent(red)) +
+           (0.7152 * ISHWorkspaceThemeLinearizedComponent(green)) +
+           (0.0722 * ISHWorkspaceThemeLinearizedComponent(blue));
+}
+
+static CGFloat ISHWorkspaceThemeContrastRatio(UIColor *first, UIColor *second) {
+    CGFloat luminanceA = ISHWorkspaceThemeRelativeLuminance(first);
+    CGFloat luminanceB = ISHWorkspaceThemeRelativeLuminance(second);
+    CGFloat lighter = MAX(luminanceA, luminanceB);
+    CGFloat darker = MIN(luminanceA, luminanceB);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+static UIColor *ISHWorkspaceThemeBlendColors(UIColor *foreground, UIColor *background) {
+    CGFloat foreRed = 0;
+    CGFloat foreGreen = 0;
+    CGFloat foreBlue = 0;
+    CGFloat foreAlpha = 0;
+    CGFloat backRed = 0;
+    CGFloat backGreen = 0;
+    CGFloat backBlue = 0;
+    CGFloat backAlpha = 0;
+    if (!ISHWorkspaceThemeRGBAComponents(foreground, &foreRed, &foreGreen, &foreBlue, &foreAlpha))
+        return foreground ?: background ?: UIColor.blackColor;
+    if (!ISHWorkspaceThemeRGBAComponents(background, &backRed, &backGreen, &backBlue, &backAlpha))
+        return foreground;
+
+    CGFloat outputAlpha = foreAlpha + (backAlpha * (1.0 - foreAlpha));
+    if (outputAlpha <= 0.0001)
+        return UIColor.clearColor;
+    CGFloat red = ((foreRed * foreAlpha) + (backRed * backAlpha * (1.0 - foreAlpha))) / outputAlpha;
+    CGFloat green = ((foreGreen * foreAlpha) + (backGreen * backAlpha * (1.0 - foreAlpha))) / outputAlpha;
+    CGFloat blue = ((foreBlue * foreAlpha) + (backBlue * backAlpha * (1.0 - foreAlpha))) / outputAlpha;
+    return [UIColor colorWithRed:red green:green blue:blue alpha:1.0];
+}
+
+static UIColor *ISHWorkspaceThemeAverageColor(UIColor *first, UIColor *second) {
+    CGFloat firstRed = 0;
+    CGFloat firstGreen = 0;
+    CGFloat firstBlue = 0;
+    CGFloat secondRed = 0;
+    CGFloat secondGreen = 0;
+    CGFloat secondBlue = 0;
+    if (!ISHWorkspaceThemeRGBAComponents(first, &firstRed, &firstGreen, &firstBlue, NULL))
+        return second ?: UIColor.blackColor;
+    if (!ISHWorkspaceThemeRGBAComponents(second, &secondRed, &secondGreen, &secondBlue, NULL))
+        return first;
+    return [UIColor colorWithRed:((firstRed + secondRed) * 0.5)
+                           green:((firstGreen + secondGreen) * 0.5)
+                            blue:((firstBlue + secondBlue) * 0.5)
+                           alpha:1.0];
+}
+
+static UIColor *ISHWorkspaceThemeColorAdjustedForContrast(UIColor *color, UIColor *background, CGFloat minimumContrast) {
+    if (ISHWorkspaceThemeContrastRatio(color, background) >= minimumContrast)
+        return color;
+
+    UIColor *darkCandidate = UIColor.blackColor;
+    UIColor *lightCandidate = UIColor.whiteColor;
+    UIColor *target = ISHWorkspaceThemeContrastRatio(darkCandidate, background) >=
+                      ISHWorkspaceThemeContrastRatio(lightCandidate, background)
+        ? darkCandidate
+        : lightCandidate;
+
+    CGFloat colorRed = 0;
+    CGFloat colorGreen = 0;
+    CGFloat colorBlue = 0;
+    CGFloat targetRed = 0;
+    CGFloat targetGreen = 0;
+    CGFloat targetBlue = 0;
+    if (!ISHWorkspaceThemeRGBAComponents(color, &colorRed, &colorGreen, &colorBlue, NULL) ||
+        !ISHWorkspaceThemeRGBAComponents(target, &targetRed, &targetGreen, &targetBlue, NULL)) {
+        return target;
+    }
+
+    UIColor *best = target;
+    for (NSInteger step = 1; step <= 24; step++) {
+        CGFloat amount = (CGFloat) step / 24.0;
+        UIColor *candidate = [UIColor colorWithRed:(colorRed + ((targetRed - colorRed) * amount))
+                                             green:(colorGreen + ((targetGreen - colorGreen) * amount))
+                                              blue:(colorBlue + ((targetBlue - colorBlue) * amount))
+                                             alpha:1.0];
+        if (ISHWorkspaceThemeContrastRatio(candidate, background) >= minimumContrast) {
+            best = candidate;
+            break;
+        }
+    }
+    return best;
+}
+
 static NSArray<NSString *> *ISHWorkspaceThemeEditableColorKeys(void) {
     return @[@"backgroundTop", @"backgroundBottom", @"card", @"primary", @"secondary", @"accent", @"accentAlt"];
 }
@@ -1300,9 +1438,9 @@ static NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *ISHWork
             @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(255, 174, 111),
             @"card": ISHWorkspaceThemeColorDescriptor(255, 250, 242),
             @"primary": ISHWorkspaceThemeColorDescriptor(71, 39, 24),
-            @"secondary": ISHWorkspaceThemeColorDescriptor(122, 85, 63),
-            @"accent": ISHWorkspaceThemeColorDescriptor(214, 97, 42),
-            @"accentAlt": ISHWorkspaceThemeColorDescriptor(196, 133, 18),
+            @"secondary": ISHWorkspaceThemeColorDescriptor(108, 73, 49),
+            @"accent": ISHWorkspaceThemeColorDescriptor(170, 70, 30),
+            @"accentAlt": ISHWorkspaceThemeColorDescriptor(128, 87, 16),
         };
     }
     if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
@@ -1321,9 +1459,9 @@ static NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *ISHWork
         @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(44, 129, 167),
         @"card": ISHWorkspaceThemeColorDescriptor(239, 251, 255),
         @"primary": ISHWorkspaceThemeColorDescriptor(14, 39, 63),
-        @"secondary": ISHWorkspaceThemeColorDescriptor(69, 99, 128),
-        @"accent": ISHWorkspaceThemeColorDescriptor(0, 156, 183),
-        @"accentAlt": ISHWorkspaceThemeColorDescriptor(109, 204, 128),
+        @"secondary": ISHWorkspaceThemeColorDescriptor(55, 82, 112),
+        @"accent": ISHWorkspaceThemeColorDescriptor(0, 111, 147),
+        @"accentAlt": ISHWorkspaceThemeColorDescriptor(39, 122, 77),
     };
 }
 
@@ -1391,20 +1529,28 @@ static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptorFromEdita
     UIColor *backgroundTop = ISHWorkspaceThemeColorFromDescriptor(palette[@"backgroundTop"]);
     UIColor *backgroundBottom = ISHWorkspaceThemeColorFromDescriptor(palette[@"backgroundBottom"]);
     UIColor *cardBase = ISHWorkspaceThemeColorFromDescriptor(palette[@"card"]);
-    UIColor *primary = ISHWorkspaceThemeColorFromDescriptor(palette[@"primary"]);
-    UIColor *secondary = ISHWorkspaceThemeColorFromDescriptor(palette[@"secondary"]);
-    UIColor *accent = ISHWorkspaceThemeColorFromDescriptor(palette[@"accent"]);
-    UIColor *accentAlt = ISHWorkspaceThemeColorFromDescriptor(palette[@"accentAlt"]);
+    UIColor *surfaceBackdrop = ISHWorkspaceThemeAverageColor(backgroundTop, backgroundBottom);
+    UIColor *card = ISHWorkspaceThemeBlendColors([cardBase colorWithAlphaComponent:0.97], surfaceBackdrop);
+    UIColor *cardAlt = ISHWorkspaceThemeBlendColors([cardBase colorWithAlphaComponent:0.94], surfaceBackdrop);
+    UIColor *contrastSurface = ISHWorkspaceThemeAverageColor(card, cardAlt);
+    UIColor *primary = ISHWorkspaceThemeColorAdjustedForContrast(
+        ISHWorkspaceThemeColorFromDescriptor(palette[@"primary"]), contrastSurface, 7.0);
+    UIColor *secondary = ISHWorkspaceThemeColorAdjustedForContrast(
+        ISHWorkspaceThemeColorFromDescriptor(palette[@"secondary"]), contrastSurface, 4.9);
+    UIColor *accent = ISHWorkspaceThemeColorAdjustedForContrast(
+        ISHWorkspaceThemeColorFromDescriptor(palette[@"accent"]), contrastSurface, 4.8);
+    UIColor *accentAlt = ISHWorkspaceThemeColorAdjustedForContrast(
+        ISHWorkspaceThemeColorFromDescriptor(palette[@"accentAlt"]), contrastSurface, 4.8);
     return @{
         @"backgroundTop": backgroundTop,
         @"backgroundBottom": backgroundBottom,
-        @"card": [cardBase colorWithAlphaComponent:0.9],
-        @"cardAlt": [cardBase colorWithAlphaComponent:0.76],
+        @"card": card,
+        @"cardAlt": cardAlt,
         @"primary": primary,
         @"secondary": secondary,
         @"accent": accent,
         @"accentAlt": accentAlt,
-        @"stroke": [accent colorWithAlphaComponent:0.18],
+        @"stroke": [accent colorWithAlphaComponent:0.24],
     };
 }
 
