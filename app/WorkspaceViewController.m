@@ -31,12 +31,9 @@
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dockWindow;
-@property (nonatomic) CGSize dashboardExpandedSize;
-@property (nonatomic) BOOL dashboardIsCompact;
 @property (nonatomic, strong) UILabel *windowSummaryLabel;
 @property (nonatomic, strong) UIButton *dockUtilsButton;
 @property (nonatomic, strong) UIButton *dockTerminalButton;
-@property (nonatomic, strong) UIStackView *sceneWindowsStack;
 @property (nonatomic, strong) UIStackView *bodyStack;
 @property (nonatomic, strong) UIView *windowCard;
 
@@ -544,12 +541,6 @@ static CGSize ISHWorkspacePreferredTerminalContentSize(void) {
     return CGSizeMake(900, 620);
 }
 
-static CGSize ISHWorkspaceCompactDashboardSize(void) {
-    if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(332, 236);
-    return CGSizeMake(440, 320);
-}
-
 static CGSize ISHWorkspacePreferredDockContentSize(void) {
     if (ISHWorkspaceUsesPhoneLayout())
         return CGSizeMake(188, 56);
@@ -558,14 +549,14 @@ static CGSize ISHWorkspacePreferredDockContentSize(void) {
 
 static CGSize ISHWorkspacePreferredDashboardContentSize(void) {
     if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(360, 360);
-    return CGSizeMake(720, 560);
+        return CGSizeMake(336, 214);
+    return CGSizeMake(504, 284);
 }
 
 static CGSize ISHWorkspaceMinimumDashboardContentSize(void) {
     if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(300, 220);
-    return CGSizeMake(420, 220);
+        return CGSizeMake(300, 178);
+    return CGSizeMake(400, 214);
 }
 
 static CGSize ISHWorkspaceMinimumDockContentSize(void) {
@@ -2295,9 +2286,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return @{
             @"kind": ISHWorkspaceSavedLayoutKindDashboard,
             @"frame": frameDescriptor,
-            @"compact": @(self.dashboardIsCompact),
             @"hidden": @(self.dashboardWindow.hidden),
-            @"expandedSize": ISHWorkspaceSizeDescriptor(self.dashboardExpandedSize),
         };
     }
 
@@ -2350,16 +2339,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)applySavedDashboardDescriptor:(NSDictionary<NSString *, id> *)descriptor {
     NSDictionary<NSString *, id> *frameDescriptor = descriptor[@"frame"];
-    CGSize expandedSize = ISHWorkspaceSizeFromDescriptor(descriptor[@"expandedSize"]);
-    if (expandedSize.width > 0 && expandedSize.height > 0) {
-        self.dashboardExpandedSize = expandedSize;
-    } else if (self.dashboardWindow.bounds.size.width > 0 && self.dashboardWindow.bounds.size.height > 0) {
-        self.dashboardExpandedSize = self.dashboardWindow.bounds.size;
-    }
-
-    self.dashboardIsCompact = [descriptor[@"compact"] boolValue];
-    [self.dashboardWindow setUtilityButtonTitle:(self.dashboardIsCompact ? @"Full" : @"Mini")
-                                        handler:self.dashboardWindow.utilityHandler];
     CGSize fallbackSize = self.dashboardWindow.bounds.size.width > 0
         ? self.dashboardWindow.bounds.size
         : self.dashboardWindow.preferredSize;
@@ -2486,39 +2465,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     [self refreshDockButtons];
     return windowView;
-}
-
-- (void)updateDashboardUtilityButton {
-    if (self.dashboardWindow == nil)
-        return;
-
-    __weak typeof(self) weakSelf = self;
-    NSString *title = self.dashboardIsCompact ? @"Full" : @"Mini";
-    [self.dashboardWindow setUtilityButtonTitle:title handler:^{
-        [weakSelf toggleDashboardCompactMode];
-    }];
-}
-
-- (void)toggleDashboardCompactMode {
-    ISHWorkspaceContainedWindowView *dashboardWindow = self.dashboardWindow;
-    if (dashboardWindow == nil)
-        return;
-
-    if (self.dashboardIsCompact) {
-        self.dashboardIsCompact = NO;
-        [self updateDashboardUtilityButton];
-        [self resizeDesktopWindow:dashboardWindow
-                           toSize:self.dashboardExpandedSize
-                         animated:YES];
-        return;
-    }
-
-    self.dashboardExpandedSize = dashboardWindow.bounds.size;
-    self.dashboardIsCompact = YES;
-    [self updateDashboardUtilityButton];
-    [self resizeDesktopWindow:dashboardWindow
-                       toSize:ISHWorkspaceCompactDashboardSize()
-                     animated:YES];
 }
 
 - (void)openDashboardWindow:(id)sender {
@@ -2891,8 +2837,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                              preferredSize:ISHWorkspacePreferredDashboardContentSize()
                           showsCloseButton:YES];
     self.dashboardWindow = dashboardWindow;
-    self.dashboardExpandedSize = dashboardWindow.preferredSize;
-    self.dashboardIsCompact = NO;
     dashboardWindow.draggable = YES;
     dashboardWindow.resizable = YES;
     dashboardWindow.minimumSize = ISHWorkspaceMinimumDashboardContentSize();
@@ -2902,7 +2846,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         weakDashboardWindow.hidden = YES;
         [weakSelf refreshDockButtons];
     };
-    [self updateDashboardUtilityButton];
     [self createDockWindow];
 
     UIScrollView *scrollView = [UIScrollView new];
@@ -2916,10 +2859,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [scrollView addSubview:contentStack];
 
     self.windowSummaryLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
-    self.sceneWindowsStack = [UIStackView new];
-    self.sceneWindowsStack.axis = UILayoutConstraintAxisVertical;
-    self.sceneWindowsStack.spacing = 10;
-    self.sceneWindowsStack.translatesAutoresizingMaskIntoConstraints = NO;
 
     UIStackView *windowCardStack = nil;
     self.windowCard = [self workspaceCardWithContentStack:&windowCardStack];
@@ -3133,78 +3072,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     [self refreshWindowSummary];
-    [self refreshSceneWindows];
     [self refreshDockButtons];
-}
-
-- (void)refreshSceneWindows {
-    for (UIView *subview in self.sceneWindowsStack.arrangedSubviews) {
-        [self.sceneWindowsStack removeArrangedSubview:subview];
-        [subview removeFromSuperview];
-    }
-
-    if (@available(iOS 13.0, *)) {
-        UIWindowScene *currentWindowScene = self.view.window.windowScene;
-        NSArray<UIScene *> *connectedScenes =
-            [UIApplication.sharedApplication.connectedScenes.allObjects sortedArrayUsingComparator:^NSComparisonResult(UIScene *left, UIScene *right) {
-            if (left == currentWindowScene)
-                return NSOrderedAscending;
-            if (right == currentWindowScene)
-                return NSOrderedDescending;
-            return [left.session.persistentIdentifier compare:right.session.persistentIdentifier];
-        }];
-
-        if (connectedScenes.count == 0) {
-            UILabel *emptyLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-            emptyLabel.text = @"No live windows detected.";
-            [self.sceneWindowsStack addArrangedSubview:emptyLabel];
-            return;
-        }
-
-        for (UIScene *scene in connectedScenes) {
-            UIStackView *row = [UIStackView new];
-            row.axis = UILayoutConstraintAxisHorizontal;
-            row.spacing = 10;
-            row.alignment = UIStackViewAlignmentCenter;
-
-            UILabel *label = [self workspaceLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-            NSString *role = ISHWorkspaceSceneRoleDescription(scene.session);
-            NSString *state = ISHWorkspaceSceneActivationDescription(scene);
-            NSString *identifier = scene.session.persistentIdentifier ?: @"";
-            if (identifier.length > 8)
-                identifier = [identifier substringFromIndex:identifier.length - 8];
-
-            NSMutableArray<NSString *> *parts = [NSMutableArray arrayWithObjects:role, state, nil];
-            NSString *terminalUUID = scene.session.stateRestorationActivity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
-            if (terminalUUID.length > 0) {
-                Terminal *terminal = [Terminal terminalWithUUID:[[NSUUID alloc] initWithUUIDString:terminalUUID]];
-                NSString *terminalLabel = terminal != nil ? ISHWorkspaceTerminalDisplayName(terminal) : @"Detached terminal";
-                [parts addObject:terminalLabel];
-            }
-            NSString *currentMarker = scene == currentWindowScene ? @"Current window" : [NSString stringWithFormat:@"Scene %@", identifier];
-            label.text = [NSString stringWithFormat:@"%@\n%@", currentMarker, [parts componentsJoinedByString:@"  |  "]];
-
-            UIButton *focusButton = [UIButton buttonWithType:UIButtonTypeSystem];
-            focusButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
-            focusButton.accessibilityIdentifier = scene.session.persistentIdentifier;
-            [focusButton setTitle:(scene == currentWindowScene ? @"Here" : @"Focus") forState:UIControlStateNormal];
-            focusButton.enabled = scene != currentWindowScene;
-            [focusButton addTarget:self action:@selector(focusExistingSceneFromButton:) forControlEvents:UIControlEventTouchUpInside];
-
-            [row addArrangedSubview:label];
-            [row addArrangedSubview:focusButton];
-            [label setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-            [label setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
-            [focusButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-            [self.sceneWindowsStack addArrangedSubview:row];
-        }
-        return;
-    } else {
-        UILabel *legacyLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-        legacyLabel.text = @"Live window enumeration requires iOS 13 scene APIs.";
-        [self.sceneWindowsStack addArrangedSubview:legacyLabel];
-        return;
-    }
 }
 
 - (void)refreshWindowSummary {
