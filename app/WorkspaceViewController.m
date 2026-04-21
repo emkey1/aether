@@ -47,6 +47,7 @@
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)workspaceActivationDidChange:(NSNotification *)notification;
+- (void)workspaceWorkspacesFrameDidChange:(NSNotification *)notification;
 - (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame;
 - (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView;
 - (void)openDashboardWindow:(id)sender;
@@ -82,6 +83,7 @@ static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
+static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
 static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
@@ -2959,6 +2961,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                            selector:@selector(workspaceThemeDidChange:)
                                                name:ISHWorkspaceToolThemeDidChangeNotification
                                              object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(workspaceWorkspacesFrameDidChange:)
+                                               name:ISHWorkspaceWorkspacesFrameDidChangeNotification
+                                             object:nil];
     if (@available(iOS 13.0, *)) {
         [NSNotificationCenter.defaultCenter addObserver:self
                                                selector:@selector(workspaceActivationDidChange:)
@@ -3049,6 +3055,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         }
     }
     [self refreshWorkspaceStatus];
+    ISHWorkspaceContainedWindowView *workspacesWindow =
+        [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+    if (workspacesWindow != nil) {
+        [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    }
+}
+
+- (void)workspaceWorkspacesFrameDidChange:(NSNotification *)notification {
+    if (notification.object == self)
+        return;
     ISHWorkspaceContainedWindowView *workspacesWindow =
         [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (workspacesWindow != nil) {
@@ -3256,6 +3272,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (frameDescriptor != nil) {
         [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
                                                 forKey:[self persistentWorkspacesWindowFrameDefaultsKey]];
+        [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceWorkspacesFrameDidChangeNotification
+                                                          object:self];
     }
 }
 
