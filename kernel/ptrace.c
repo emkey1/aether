@@ -13,6 +13,36 @@ static struct task *ptrace_tracer(struct task *task) {
     return task->parent;
 }
 
+static int ptrace_resume_signal(guest_addr_t data) {
+    if (data == 0)
+        return 0;
+    if (data >= NUM_SIGS)
+        return _EINVAL;
+    return (int) data;
+}
+
+static void ptrace_resume_child_locked(struct task *child, int resume_sig,
+        bool single_step, bool stop_at_syscall, bool detach) {
+    child->cpu.tf = single_step;
+    child->ptrace.stop_at_syscall = stop_at_syscall;
+    if (!stop_at_syscall)
+        child->ptrace.syscall_stopped = false;
+    child->ptrace.stopped = false;
+    child->ptrace.signal = 0;
+    child->ptrace.trap_event = 0;
+    child->ptrace.eventmsg = 0;
+    if (detach) {
+        child->ptrace.traced = false;
+        child->ptrace.tracer = NULL;
+        child->ptrace.options = 0;
+        child->ptrace.sysgood = false;
+    }
+    notify(&child->ptrace.cond);
+    unlock(&child->ptrace.lock);
+    if (resume_sig != 0)
+        send_signal(child, resume_sig, SIGINFO_NIL);
+}
+
 // Returns stopped tracee with the given pid, locked with the ptrace lock
 static struct task *find_child(pid_t_ pid) {
     struct task *child = NULL;
@@ -551,14 +581,13 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+            int resume_sig = ptrace_resume_signal(data);
+            if (resume_sig < 0) {
+                unlock(&child->ptrace.lock);
+                return resume_sig;
+            }
 
-            child->cpu.tf = false;
-            child->ptrace.stop_at_syscall = false;
-            child->ptrace.syscall_stopped = false;
-            child->ptrace.stopped = false;
-            notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock);
-
+            ptrace_resume_child_locked(child, resume_sig, false, false, false);
             return 0;
         }
 
@@ -580,14 +609,13 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+            int resume_sig = ptrace_resume_signal(data);
+            if (resume_sig < 0) {
+                unlock(&child->ptrace.lock);
+                return resume_sig;
+            }
 
-            child->cpu.tf = true;
-            child->ptrace.stop_at_syscall = false;
-            child->ptrace.syscall_stopped = false;
-            child->ptrace.stopped = false;
-            notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock);
-
+            ptrace_resume_child_locked(child, resume_sig, true, false, false);
             return 0;
         }
 
@@ -703,13 +731,28 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+            int resume_sig = ptrace_resume_signal(data);
+            if (resume_sig < 0) {
+                unlock(&child->ptrace.lock);
+                return resume_sig;
+            }
 
-            child->cpu.tf = false;
-            child->ptrace.stopped = false;
-            child->ptrace.stop_at_syscall = true;
-            notify(&child->ptrace.cond);
-            unlock(&child->ptrace.lock);
+            ptrace_resume_child_locked(child, resume_sig, false, true, false);
+            return 0;
+        }
 
+        case PTRACE_DETACH_: {
+            STRACE("ptrace(PTRACE_DETACH, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
+            struct task *child = find_child(pid);
+            if (!child) return _EPERM;
+            int resume_sig = ptrace_resume_signal(data);
+            if (resume_sig < 0) {
+                unlock(&child->ptrace.lock);
+                return resume_sig;
+            }
+
+            ptrace_resume_child_locked(child, resume_sig, false, false, true);
             return 0;
         }
 
