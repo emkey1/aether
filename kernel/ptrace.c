@@ -61,6 +61,12 @@ static void sync_i386_shadows_from_amd64_ptrace(struct cpu_state *cpu) {
     cpu->eip = (dword_t) cpu->amd64_rip;
 }
 
+static bool ptrace_in_syscall_entry_stop(const struct task *task) {
+    return task->ptrace.stopped &&
+        task->ptrace.stop_at_syscall &&
+        task->ptrace.syscall_stopped;
+}
+
 static void get_user_regs_amd64(struct task *task, struct user_regs_struct_amd64_ *user_regs_) {
     struct cpu_state *cpu = &task->cpu;
     memset(user_regs_, 0, sizeof(*user_regs_));
@@ -86,6 +92,8 @@ static void get_user_regs_amd64(struct task *task, struct user_regs_struct_amd64
     user_regs_->rsp = cpu->amd64_regs[amd64_rsp];
     user_regs_->ss = 0x2b;
     user_regs_->fs_base = cpu->tls_ptr;
+    if (ptrace_in_syscall_entry_stop(task))
+        user_regs_->rax = (qword_t) (sqword_t) _ENOSYS;
 }
 
 static void set_user_regs_amd64(struct cpu_state *cpu, const struct user_regs_struct_amd64_ *user_regs_) {
@@ -262,6 +270,8 @@ static void get_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
 static void get_user_regs_and_syscall(struct task *task, struct user_regs_struct_ *user_regs_) {
     get_user_regs(&task->cpu, user_regs_);
     user_regs_->orig_eax = task->ptrace.syscall;
+    if (ptrace_in_syscall_entry_stop(task))
+        user_regs_->eax = (dword_t) (sdword_t) _ENOSYS;
 }
 
 // Ensure stopped, ptrace locked, etc. before calling this
