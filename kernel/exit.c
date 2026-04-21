@@ -168,6 +168,17 @@ noreturn void do_exit(struct task *task, int status) {
         task->exiting = true;
     }
 
+    if (task == current && task->ptrace.traced &&
+            (task->ptrace.options & PTRACE_O_TRACEEXIT_)) {
+        struct siginfo_ info = {
+            .sig = SIGTRAP_,
+            .code = SI_USER_,
+            .kill.pid = task->pid,
+            .kill.uid = task->uid,
+        };
+        ptrace_event_stop(SIGTRAP_, &info, PTRACE_EVENT_EXIT_, (qword_t) (dword_t) status);
+    }
+
     if (trace_session_exit_task(task)) {
         printk("INFO: exit session pid=%d tgid=%d comm=%s status=%#x did_exec=%d parent=%d\n",
                task->pid, task->tgid, task->comm, status, task->did_exec,
