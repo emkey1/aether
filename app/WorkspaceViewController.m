@@ -32,6 +32,9 @@
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dockWindow;
+@property (nonatomic) BOOL didEvaluateStartupMemoryWarning;
+@property (nonatomic, strong) UIView *startupMemoryWarningOverlayView;
+@property (nonatomic, strong) UISwitch *startupMemoryWarningDisableSwitch;
 @property (nonatomic, strong) UIButton *dockUtilsButton;
 @property (nonatomic, strong) UIButton *dockTerminalButton;
 @property (nonatomic, strong) UIStackView *bodyStack;
@@ -1191,6 +1194,23 @@ static BOOL ISHWorkspaceMemoryUsage(uint64_t *footprint, uint64_t *resident, uin
     return NO;
 }
 
+static uint64_t ISHWorkspacePhysicalMemoryBytes(void) {
+    return NSProcessInfo.processInfo.physicalMemory;
+}
+
+static BOOL ISHWorkspaceDeviceHasLowMemoryForWorkspace(void) {
+    const uint64_t oneGiB = 1024ull * 1024ull * 1024ull;
+    return ISHWorkspacePhysicalMemoryBytes() < (4ull * oneGiB);
+}
+
+static NSUInteger ISHWorkspaceBrowserMaximumTabCount(void) {
+    const uint64_t oneGiB = 1024ull * 1024ull * 1024ull;
+    uint64_t physicalMemory = ISHWorkspacePhysicalMemoryBytes();
+    if (physicalMemory < (4ull * oneGiB))
+        return 2;
+    return 3 + (NSUInteger) ((physicalMemory - (4ull * oneGiB)) / (2ull * oneGiB));
+}
+
 static NSString *ISHWorkspaceSystemStatusText(void) {
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
     NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
@@ -1232,10 +1252,13 @@ static NSString *const ISHWorkspaceToolThemePreferenceKey = @"ISHWorkspaceToolTh
 static NSString *const ISHWorkspaceCustomThemesDefaultsKey = @"ISHWorkspaceCustomThemes";
 static NSString *const ISHWorkspaceToolDensityPreferenceKey = @"ISHWorkspaceToolDensity";
 static NSString *const ISHWorkspaceBrowserHomePreferenceKey = @"ISHWorkspaceBrowserHome";
+static NSString *const ISHWorkspaceStartupLowMemoryWarningDisabledPreferenceKey = @"ISHWorkspaceStartupLowMemoryWarningDisabled";
 static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
 static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
 static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
 static NSString *const ISHWorkspaceToolThemeGraphiteIdentifier = @"graphite";
+static BOOL ISHWorkspaceLowMemoryWarningShownThisLaunch = NO;
+static const uint64_t ISHWorkspaceOneGiB = 1024ull * 1024ull * 1024ull;
 
 static UIColor *ISHWorkspaceThemeColor(CGFloat red, CGFloat green, CGFloat blue, CGFloat alpha) {
     return [UIColor colorWithRed:red / 255.0
@@ -3138,10 +3161,151 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (workspacesWindow != nil) {
         [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
     }
+    [self presentStartupLowMemoryWarningIfNeeded];
 }
 
 - (void)viewDidDisappear:(BOOL)animated {
     [super viewDidDisappear:animated];
+}
+
+- (void)presentStartupLowMemoryWarningIfNeeded {
+    if (self.didEvaluateStartupMemoryWarning)
+        return;
+    self.didEvaluateStartupMemoryWarning = YES;
+    if (ISHWorkspaceLowMemoryWarningShownThisLaunch)
+        return;
+    if (!ISHWorkspaceDeviceHasLowMemoryForWorkspace())
+        return;
+    if ([NSUserDefaults.standardUserDefaults boolForKey:ISHWorkspaceStartupLowMemoryWarningDisabledPreferenceKey])
+        return;
+    if (self.presentedViewController != nil)
+        return;
+
+    ISHWorkspaceLowMemoryWarningShownThisLaunch = YES;
+
+    NSDictionary<NSString *, UIColor *> *theme = ISHWorkspaceThemeDescriptor();
+    UIView *overlay = [UIView new];
+    overlay.translatesAutoresizingMaskIntoConstraints = NO;
+    overlay.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.34];
+
+    UIView *card = [UIView new];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    card.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.98];
+    card.layer.cornerRadius = 18.0;
+    card.layer.borderWidth = 1.0;
+    card.layer.borderColor = [theme[@"stroke"] colorWithAlphaComponent:0.95].CGColor;
+    [overlay addSubview:card];
+
+    UILabel *titleLabel = [UILabel new];
+    titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    titleLabel.textColor = theme[@"primary"];
+    titleLabel.text = @"Limited Memory Device";
+    [card addSubview:titleLabel];
+
+    UILabel *bodyLabel = [UILabel new];
+    bodyLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    bodyLabel.numberOfLines = 0;
+    bodyLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    bodyLabel.textColor = theme[@"secondary"];
+    bodyLabel.text = @"This device has less than 4 GB of RAM. Workspace is more stable with fewer windows and browser tabs open. Browser tabs are limited to 2 on this device.";
+    [card addSubview:bodyLabel];
+
+    UIView *toggleRow = [UIView new];
+    toggleRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:toggleRow];
+
+    UISwitch *disableSwitch = [UISwitch new];
+    disableSwitch.translatesAutoresizingMaskIntoConstraints = NO;
+    disableSwitch.onTintColor = theme[@"accent"];
+    [toggleRow addSubview:disableSwitch];
+    self.startupMemoryWarningDisableSwitch = disableSwitch;
+
+    UILabel *toggleLabel = [UILabel new];
+    toggleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    toggleLabel.numberOfLines = 2;
+    toggleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
+    toggleLabel.textColor = theme[@"primary"];
+    toggleLabel.text = @"Don't show this warning again";
+    [toggleRow addSubview:toggleLabel];
+
+    UIButton *okButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    okButton.translatesAutoresizingMaskIntoConstraints = NO;
+    okButton.layer.cornerRadius = 12.0;
+    okButton.layer.borderWidth = 1.0;
+    okButton.layer.borderColor = theme[@"stroke"].CGColor;
+    okButton.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.96];
+    okButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    [okButton setTitle:@"OK" forState:UIControlStateNormal];
+    [okButton setTitleColor:theme[@"primary"] forState:UIControlStateNormal];
+    [okButton addTarget:self action:@selector(dismissStartupLowMemoryWarning:) forControlEvents:UIControlEventTouchUpInside];
+    [card addSubview:okButton];
+
+    [self.view addSubview:overlay];
+    self.startupMemoryWarningOverlayView = overlay;
+
+    CGFloat horizontalInset = ISHWorkspaceUsesPhoneLayout() ? 18.0 : 28.0;
+    [NSLayoutConstraint activateConstraints:@[
+        [overlay.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [overlay.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [overlay.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [overlay.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+
+        [card.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [card.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor],
+        [card.leadingAnchor constraintGreaterThanOrEqualToAnchor:overlay.leadingAnchor constant:horizontalInset],
+        [card.trailingAnchor constraintLessThanOrEqualToAnchor:overlay.trailingAnchor constant:-horizontalInset],
+        [card.widthAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 280.0 : 360.0)],
+        [card.widthAnchor constraintLessThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 340.0 : 420.0)],
+
+        [titleLabel.topAnchor constraintEqualToAnchor:card.topAnchor constant:18.0],
+        [titleLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18.0],
+        [titleLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18.0],
+
+        [bodyLabel.topAnchor constraintEqualToAnchor:titleLabel.bottomAnchor constant:10.0],
+        [bodyLabel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18.0],
+        [bodyLabel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18.0],
+
+        [toggleRow.topAnchor constraintEqualToAnchor:bodyLabel.bottomAnchor constant:16.0],
+        [toggleRow.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18.0],
+        [toggleRow.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18.0],
+
+        [disableSwitch.leadingAnchor constraintEqualToAnchor:toggleRow.leadingAnchor],
+        [disableSwitch.topAnchor constraintEqualToAnchor:toggleRow.topAnchor],
+        [disableSwitch.bottomAnchor constraintEqualToAnchor:toggleRow.bottomAnchor],
+
+        [toggleLabel.leadingAnchor constraintEqualToAnchor:disableSwitch.trailingAnchor constant:12.0],
+        [toggleLabel.trailingAnchor constraintEqualToAnchor:toggleRow.trailingAnchor],
+        [toggleLabel.centerYAnchor constraintEqualToAnchor:disableSwitch.centerYAnchor],
+
+        [okButton.topAnchor constraintEqualToAnchor:toggleRow.bottomAnchor constant:18.0],
+        [okButton.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18.0],
+        [okButton.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18.0],
+        [okButton.heightAnchor constraintEqualToConstant:44.0],
+        [okButton.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-18.0],
+    ]];
+
+    overlay.alpha = 0.0;
+    card.transform = CGAffineTransformMakeScale(0.96, 0.96);
+    [UIView animateWithDuration:0.18 animations:^{
+        overlay.alpha = 1.0;
+        card.transform = CGAffineTransformIdentity;
+    }];
+}
+
+- (void)dismissStartupLowMemoryWarning:(id)sender {
+    (void) sender;
+    if (self.startupMemoryWarningDisableSwitch.on) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:ISHWorkspaceStartupLowMemoryWarningDisabledPreferenceKey];
+    }
+    UIView *overlay = self.startupMemoryWarningOverlayView;
+    self.startupMemoryWarningOverlayView = nil;
+    self.startupMemoryWarningDisableSwitch = nil;
+    [UIView animateWithDuration:0.16 animations:^{
+        overlay.alpha = 0.0;
+    } completion:^(__unused BOOL finished) {
+        [overlay removeFromSuperview];
+    }];
 }
 
 - (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
@@ -5898,15 +6062,23 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIView *_toolbarCard;
     UIView *_browserCard;
     UIView *_addressContainerView;
+    UIScrollView *_tabsScrollView;
+    UIStackView *_tabsStack;
     UITextField *_addressField;
     UIButton *_backButton;
     UIButton *_forwardButton;
     UIButton *_reloadButton;
     UIButton *_homeButton;
     UIButton *_goButton;
-    NSArray<UIButton *> *_actionButtons;
+    UIButton *_addTabButton;
+    UIButton *_closeTabButton;
+    NSMutableArray<UIButton *> *_actionButtons;
+    NSMutableArray<UIButton *> *_tabButtons;
     UIProgressView *_progressView;
+    NSMutableArray<WKWebView *> *_tabWebViews;
     WKWebView *_webView;
+    NSInteger _selectedTabIndex;
+    NSUInteger _maximumTabCount;
 }
 
 - (UIButton *)browserButtonWithTitle:(NSString *)title action:(SEL)action {
@@ -5923,6 +6095,8 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         width = ISHWorkspaceUsesPhoneLayout() ? 42.0 : 48.0;
     } else if ([title isEqualToString:@"Home"]) {
         width = ISHWorkspaceUsesPhoneLayout() ? 52.0 : 60.0;
+    } else if ([title isEqualToString:@"Tabs"]) {
+        width = ISHWorkspaceUsesPhoneLayout() ? 44.0 : 50.0;
     }
     [NSLayoutConstraint activateConstraints:@[
         [button.widthAnchor constraintEqualToConstant:width],
@@ -5931,9 +6105,136 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     return button;
 }
 
+- (UIButton *)browserTabButtonWithIndex:(NSInteger)index {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.tag = index;
+    button.layer.cornerRadius = 10.0;
+    button.layer.borderWidth = 1.0;
+    button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote)
+                                               weight:UIFontWeightSemibold];
+    [button setTitle:[NSString stringWithFormat:@"%ld", (long) (index + 1)] forState:UIControlStateNormal];
+    [button addTarget:self action:@selector(selectTabFromButton:) forControlEvents:UIControlEventTouchUpInside];
+    [NSLayoutConstraint activateConstraints:@[
+        [button.widthAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
+        [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 26.0 : 30.0],
+    ]];
+    return button;
+}
+
+- (WKWebView *)buildBrowserWebView {
+    WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
+    WKWebView *webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration];
+    webView.translatesAutoresizingMaskIntoConstraints = NO;
+    webView.navigationDelegate = self;
+    webView.UIDelegate = self;
+    webView.allowsBackForwardNavigationGestures = YES;
+    webView.layer.cornerRadius = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 16.0;
+    webView.layer.masksToBounds = YES;
+    webView.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    [webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:nil];
+    return webView;
+}
+
+- (WKWebView *)currentBrowserWebView {
+    if (_selectedTabIndex < 0 || _selectedTabIndex >= (NSInteger) _tabWebViews.count)
+        return nil;
+    return _tabWebViews[_selectedTabIndex];
+}
+
+- (void)loadAddressString:(NSString *)addressString inWebView:(WKWebView *)webView {
+    NSURL *URL = ISHWorkspaceBrowserURLFromInput(addressString);
+    if (URL == nil || webView == nil)
+        return;
+    [webView loadRequest:[NSURLRequest requestWithURL:URL]];
+}
+
+- (void)attachCurrentBrowserWebView {
+    WKWebView *currentWebView = [self currentBrowserWebView];
+    if (currentWebView == nil)
+        return;
+    if (_webView != nil && _webView != currentWebView) {
+        [_webView removeFromSuperview];
+    }
+    _webView = currentWebView;
+    if (_webView.superview != _browserCard) {
+        [_webView removeFromSuperview];
+        [_browserCard addSubview:_webView];
+        CGFloat inset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
+        [NSLayoutConstraint activateConstraints:@[
+            [_webView.topAnchor constraintEqualToAnchor:_browserCard.topAnchor constant:inset],
+            [_webView.leadingAnchor constraintEqualToAnchor:_browserCard.leadingAnchor constant:inset],
+            [_webView.trailingAnchor constraintEqualToAnchor:_browserCard.trailingAnchor constant:-inset],
+            [_webView.bottomAnchor constraintEqualToAnchor:_browserCard.bottomAnchor constant:-inset],
+        ]];
+    }
+}
+
+- (void)rebuildTabButtons {
+    NSArray<UIView *> *arrangedSubviews = _tabsStack.arrangedSubviews.copy;
+    for (UIView *view in arrangedSubviews) {
+        [_tabsStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    [_tabButtons removeAllObjects];
+
+    for (NSInteger index = 0; index < (NSInteger) _tabWebViews.count; index++) {
+        UIButton *button = [self browserTabButtonWithIndex:index];
+        [_tabsStack addArrangedSubview:button];
+        [_tabButtons addObject:button];
+    }
+}
+
+- (void)selectBrowserTabAtIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger) _tabWebViews.count)
+        return;
+    _selectedTabIndex = index;
+    [self attachCurrentBrowserWebView];
+    [self refreshBrowserChrome];
+}
+
+- (void)addBrowserTabLoadingAddress:(NSString *)addressString activate:(BOOL)activate {
+    if (_tabWebViews.count >= _maximumTabCount)
+        return;
+    WKWebView *webView = [self buildBrowserWebView];
+    [_tabWebViews addObject:webView];
+    [self rebuildTabButtons];
+    [self loadAddressString:addressString inWebView:webView];
+    NSInteger newIndex = _tabWebViews.count - 1;
+    if (activate || _tabWebViews.count == 1) {
+        [self selectBrowserTabAtIndex:newIndex];
+    } else {
+        [self refreshBrowserChrome];
+    }
+}
+
+- (void)presentTabLimitAlert {
+    NSString *message;
+    if (ISHWorkspaceDeviceHasLowMemoryForWorkspace()) {
+        message = [NSString stringWithFormat:@"This device is limited to %lu browser tabs in Workspace because it has less than 4 GB of RAM.",
+                   (unsigned long) _maximumTabCount];
+    } else {
+        CGFloat ramGiB = (CGFloat) ISHWorkspacePhysicalMemoryBytes() / (CGFloat) ISHWorkspaceOneGiB;
+        message = [NSString stringWithFormat:@"This device is limited to %lu browser tabs in Workspace based on its available RAM (%.0f GB).",
+                   (unsigned long) _maximumTabCount,
+                   floor(ramGiB)];
+    }
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Tab Limit Reached"
+                                            message:message
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Browser";
+    _selectedTabIndex = NSNotFound;
+    _maximumTabCount = ISHWorkspaceBrowserMaximumTabCount();
+    _actionButtons = [NSMutableArray array];
+    _tabButtons = [NSMutableArray array];
+    _tabWebViews = [NSMutableArray array];
 
     _toolbarCard = [self workspaceThemeCardView];
     _browserCard = [self workspaceThemeCardView];
@@ -5949,11 +6250,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _reloadButton = [self browserButtonWithTitle:@"R" action:@selector(reloadOrStop:)];
     _homeButton = [self browserButtonWithTitle:@"Home" action:@selector(goHome:)];
     _goButton = [self browserButtonWithTitle:@"Go" action:@selector(commitAddress:)];
+    _addTabButton = [self browserButtonWithTitle:@"+" action:@selector(addTab:)];
+    _closeTabButton = [self browserButtonWithTitle:@"×" action:@selector(closeCurrentTab:)];
     UILongPressGestureRecognizer *homeLongPressRecognizer =
         [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleHomeButtonLongPress:)];
     homeLongPressRecognizer.minimumPressDuration = 0.35;
     [_homeButton addGestureRecognizer:homeLongPressRecognizer];
-    _actionButtons = @[_backButton, _forwardButton, _reloadButton, _homeButton, _goButton];
+    [_actionButtons addObjectsFromArray:@[_backButton, _forwardButton, _reloadButton, _homeButton, _goButton, _addTabButton, _closeTabButton]];
     for (UIButton *button in _actionButtons) {
         [controlsRow addSubview:button];
     }
@@ -5982,17 +6285,20 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _progressView = [self workspaceThemeProgressView];
     [_toolbarCard addSubview:_progressView];
 
-    WKWebViewConfiguration *configuration = [WKWebViewConfiguration new];
-    _webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:configuration];
-    _webView.translatesAutoresizingMaskIntoConstraints = NO;
-    _webView.navigationDelegate = self;
-    _webView.UIDelegate = self;
-    _webView.allowsBackForwardNavigationGestures = YES;
-    _webView.layer.cornerRadius = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 16.0;
-    _webView.layer.masksToBounds = YES;
-    _webView.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    [_webView addObserver:self forKeyPath:@"estimatedProgress" options:NSKeyValueObservingOptionNew context:nil];
-    [_browserCard addSubview:_webView];
+    UIView *tabsRow = [UIView new];
+    tabsRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [_toolbarCard addSubview:tabsRow];
+
+    _tabsScrollView = [UIScrollView new];
+    _tabsScrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tabsScrollView.showsHorizontalScrollIndicator = NO;
+    [tabsRow addSubview:_tabsScrollView];
+
+    _tabsStack = [UIStackView new];
+    _tabsStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _tabsStack.axis = UILayoutConstraintAxisHorizontal;
+    _tabsStack.spacing = 6.0;
+    [_tabsScrollView addSubview:_tabsStack];
 
     CGFloat inset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
     [NSLayoutConstraint activateConstraints:@[
@@ -6035,62 +6341,84 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_progressView.topAnchor constraintEqualToAnchor:controlsRow.bottomAnchor constant:6.0],
         [_progressView.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:inset],
         [_progressView.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-inset],
-        [_progressView.bottomAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:-inset],
+        [_progressView.heightAnchor constraintEqualToConstant:2.0],
 
-        [_webView.topAnchor constraintEqualToAnchor:_browserCard.topAnchor constant:inset],
-        [_webView.leadingAnchor constraintEqualToAnchor:_browserCard.leadingAnchor constant:inset],
-        [_webView.trailingAnchor constraintEqualToAnchor:_browserCard.trailingAnchor constant:-inset],
-        [_webView.bottomAnchor constraintEqualToAnchor:_browserCard.bottomAnchor constant:-inset],
+        [tabsRow.topAnchor constraintEqualToAnchor:_progressView.bottomAnchor constant:6.0],
+        [tabsRow.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:inset],
+        [tabsRow.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-inset],
+        [tabsRow.bottomAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:-inset],
+        [tabsRow.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
+
+        [_tabsScrollView.leadingAnchor constraintEqualToAnchor:tabsRow.leadingAnchor],
+        [_tabsScrollView.topAnchor constraintEqualToAnchor:tabsRow.topAnchor],
+        [_tabsScrollView.bottomAnchor constraintEqualToAnchor:tabsRow.bottomAnchor],
+        [_tabsScrollView.trailingAnchor constraintEqualToAnchor:_addTabButton.leadingAnchor constant:-6.0],
+
+        [_tabsStack.topAnchor constraintEqualToAnchor:_tabsScrollView.contentLayoutGuide.topAnchor],
+        [_tabsStack.leadingAnchor constraintEqualToAnchor:_tabsScrollView.contentLayoutGuide.leadingAnchor],
+        [_tabsStack.trailingAnchor constraintEqualToAnchor:_tabsScrollView.contentLayoutGuide.trailingAnchor],
+        [_tabsStack.bottomAnchor constraintEqualToAnchor:_tabsScrollView.contentLayoutGuide.bottomAnchor],
+        [_tabsStack.heightAnchor constraintEqualToAnchor:_tabsScrollView.frameLayoutGuide.heightAnchor],
+
+        [_addTabButton.topAnchor constraintEqualToAnchor:tabsRow.topAnchor],
+        [_addTabButton.bottomAnchor constraintEqualToAnchor:tabsRow.bottomAnchor],
+        [_closeTabButton.topAnchor constraintEqualToAnchor:tabsRow.topAnchor],
+        [_closeTabButton.bottomAnchor constraintEqualToAnchor:tabsRow.bottomAnchor],
+        [_closeTabButton.trailingAnchor constraintEqualToAnchor:tabsRow.trailingAnchor],
+        [_addTabButton.trailingAnchor constraintEqualToAnchor:_closeTabButton.leadingAnchor constant:-6.0],
     ]];
 
-    _addressField.text = ISHWorkspaceBrowserHomeAddress();
-    [self loadAddressString:_addressField.text];
+    [self addBrowserTabLoadingAddress:ISHWorkspaceBrowserHomeAddress() activate:YES];
 }
 
 - (void)dealloc {
-    [_webView removeObserver:self forKeyPath:@"estimatedProgress"];
-    _webView.navigationDelegate = nil;
-    _webView.UIDelegate = nil;
-}
-
-- (void)loadAddressString:(NSString *)addressString {
-    NSURL *URL = ISHWorkspaceBrowserURLFromInput(addressString);
-    if (URL == nil)
-        return;
-    [_webView loadRequest:[NSURLRequest requestWithURL:URL]];
+    for (WKWebView *webView in _tabWebViews.copy) {
+        [webView removeObserver:self forKeyPath:@"estimatedProgress"];
+        webView.navigationDelegate = nil;
+        webView.UIDelegate = nil;
+    }
 }
 
 - (void)refreshBrowserChrome {
-    _backButton.enabled = _webView.canGoBack;
-    _forwardButton.enabled = _webView.canGoForward;
+    WKWebView *currentWebView = [self currentBrowserWebView];
+    _backButton.enabled = currentWebView.canGoBack;
+    _forwardButton.enabled = currentWebView.canGoForward;
     _backButton.alpha = _backButton.enabled ? 1.0 : 0.42;
     _forwardButton.alpha = _forwardButton.enabled ? 1.0 : 0.42;
     _reloadButton.alpha = 1.0;
+    _homeButton.alpha = 1.0;
     _goButton.alpha = 1.0;
-    [_reloadButton setTitle:(_webView.loading ? @"X" : @"R") forState:UIControlStateNormal];
-    _progressView.hidden = !_webView.loading && _webView.estimatedProgress >= 0.999;
+    _addTabButton.enabled = _tabWebViews.count < _maximumTabCount;
+    _addTabButton.alpha = _addTabButton.enabled ? 1.0 : 0.42;
+    _closeTabButton.enabled = _tabWebViews.count > 1;
+    _closeTabButton.alpha = _closeTabButton.enabled ? 1.0 : 0.42;
+    [_reloadButton setTitle:(currentWebView.loading ? @"X" : @"R") forState:UIControlStateNormal];
+    _progressView.hidden = !currentWebView.loading && currentWebView.estimatedProgress >= 0.999;
     _progressView.alpha = _progressView.hidden ? 0.0 : 1.0;
     if (!_addressField.isFirstResponder) {
-        NSString *address = _webView.URL.absoluteString;
+        NSString *address = currentWebView.URL.absoluteString;
         _addressField.text = address.length > 0 ? address : ISHWorkspaceBrowserDefaultAddress();
     }
+    [self workspaceApplyTheme];
 }
 
 - (void)goBack:(id)sender {
     (void) sender;
-    if (_webView.canGoBack)
-        [_webView goBack];
+    WKWebView *currentWebView = [self currentBrowserWebView];
+    if (currentWebView.canGoBack)
+        [currentWebView goBack];
 }
 
 - (void)goForward:(id)sender {
     (void) sender;
-    if (_webView.canGoForward)
-        [_webView goForward];
+    WKWebView *currentWebView = [self currentBrowserWebView];
+    if (currentWebView.canGoForward)
+        [currentWebView goForward];
 }
 
 - (void)goHome:(id)sender {
     (void) sender;
-    [self loadAddressString:ISHWorkspaceBrowserHomeAddress()];
+    [self loadAddressString:ISHWorkspaceBrowserHomeAddress() inWebView:[self currentBrowserWebView]];
 }
 
 - (void)handleHomeButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
@@ -6131,24 +6459,53 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)addTab:(id)sender {
+    (void) sender;
+    if (_tabWebViews.count >= _maximumTabCount) {
+        [self presentTabLimitAlert];
+        return;
+    }
+    [self addBrowserTabLoadingAddress:ISHWorkspaceBrowserHomeAddress() activate:YES];
+}
+
+- (void)closeCurrentTab:(id)sender {
+    (void) sender;
+    if (_tabWebViews.count <= 1 || _selectedTabIndex == NSNotFound)
+        return;
+    WKWebView *webView = [self currentBrowserWebView];
+    [webView removeObserver:self forKeyPath:@"estimatedProgress"];
+    webView.navigationDelegate = nil;
+    webView.UIDelegate = nil;
+    [webView removeFromSuperview];
+    [_tabWebViews removeObjectAtIndex:_selectedTabIndex];
+    NSInteger nextIndex = MIN(_selectedTabIndex, (NSInteger) _tabWebViews.count - 1);
+    [self rebuildTabButtons];
+    [self selectBrowserTabAtIndex:nextIndex];
+}
+
+- (void)selectTabFromButton:(UIButton *)sender {
+    [self selectBrowserTabAtIndex:sender.tag];
+}
+
 - (void)reloadOrStop:(id)sender {
     (void) sender;
-    if (_webView.loading) {
-        [_webView stopLoading];
+    WKWebView *currentWebView = [self currentBrowserWebView];
+    if (currentWebView.loading) {
+        [currentWebView stopLoading];
     } else {
-        [_webView reload];
+        [currentWebView reload];
     }
     [self refreshBrowserChrome];
 }
 
 - (void)commitAddress:(id)sender {
     (void) sender;
-    [self loadAddressString:_addressField.text];
+    [self loadAddressString:_addressField.text inWebView:[self currentBrowserWebView]];
     [_addressField resignFirstResponder];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [self loadAddressString:textField.text];
+    [self loadAddressString:textField.text inWebView:[self currentBrowserWebView]];
     [textField resignFirstResponder];
     return YES;
 }
@@ -6156,26 +6513,28 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 - (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
     (void) webView;
     (void) navigation;
-    [self refreshBrowserChrome];
+    if (webView == [self currentBrowserWebView])
+        [self refreshBrowserChrome];
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     (void) webView;
     (void) navigation;
-    [self refreshBrowserChrome];
+    if (webView == [self currentBrowserWebView])
+        [self refreshBrowserChrome];
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     (void) webView;
     (void) navigation;
-    if (error.code != NSURLErrorCancelled)
+    if (error.code != NSURLErrorCancelled && webView == [self currentBrowserWebView])
         [self refreshBrowserChrome];
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     (void) webView;
     (void) navigation;
-    if (error.code != NSURLErrorCancelled)
+    if (error.code != NSURLErrorCancelled && webView == [self currentBrowserWebView])
         [self refreshBrowserChrome];
 }
 
@@ -6187,7 +6546,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     (void) configuration;
     (void) windowFeatures;
     if (!navigationAction.targetFrame.isMainFrame && navigationAction.request.URL != nil) {
-        [_webView loadRequest:navigationAction.request];
+        [[self currentBrowserWebView] loadRequest:navigationAction.request];
     }
     return nil;
 }
@@ -6196,12 +6555,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
                       ofObject:(id)object
                         change:(NSDictionary<NSKeyValueChangeKey, id> *)change
                        context:(void *)context {
-    (void) object;
     (void) change;
     (void) context;
     if ([keyPath isEqualToString:@"estimatedProgress"]) {
-        [_progressView setProgress:(float) _webView.estimatedProgress animated:YES];
-        [self refreshBrowserChrome];
+        if (object == [self currentBrowserWebView]) {
+            [_progressView setProgress:(float) [self currentBrowserWebView].estimatedProgress animated:YES];
+            [self refreshBrowserChrome];
+        }
         return;
     }
     [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
@@ -6217,8 +6577,19 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         button.layer.borderColor = buttonBorder.CGColor;
         [button setTitleColor:(button.enabled ? theme[@"primary"] : theme[@"secondary"]) forState:UIControlStateNormal];
     }
+    for (UIButton *button in _tabButtons) {
+        BOOL selected = button.tag == _selectedTabIndex;
+        button.backgroundColor = selected
+            ? [theme[@"accent"] colorWithAlphaComponent:0.18]
+            : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
+        button.layer.borderColor = (selected ? theme[@"accentAlt"] : theme[@"stroke"]).CGColor;
+        [button setTitleColor:(selected ? theme[@"accent"] : theme[@"primary"]) forState:UIControlStateNormal];
+    }
     _addressContainerView.backgroundColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.18];
     _addressContainerView.layer.borderColor = theme[@"stroke"].CGColor;
+    _tabsScrollView.indicatorStyle = ISHWorkspaceThemeRelativeLuminance(theme[@"card"]) > 0.5
+        ? UIScrollViewIndicatorStyleBlack
+        : UIScrollViewIndicatorStyleWhite;
     _addressField.textColor = theme[@"primary"];
     _addressField.tintColor = theme[@"accent"];
     _addressField.attributedPlaceholder =
