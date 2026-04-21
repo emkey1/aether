@@ -101,6 +101,14 @@ static BOOL ISHWorkspaceUsesPhoneLayout(void) {
     return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
 }
 
+static BOOL ISHWorkspaceSupportsSceneWindows(void) {
+    if (ISHWorkspaceUsesPhoneLayout())
+        return NO;
+    if (@available(iOS 13.0, *))
+        return UIApplication.sharedApplication.supportsMultipleScenes;
+    return NO;
+}
+
 static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     frame.origin.x = round(frame.origin.x);
     frame.origin.y = round(frame.origin.y);
@@ -2917,8 +2925,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                                    selector:@selector(saveWorkspaceLayout:)]];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Restore Saved Layout"
                                                                    selector:@selector(restoreWorkspaceLayout:)]];
-    [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"New Workspace Window"
-                                                                   selector:@selector(openNewWorkspaceWindow:)]];
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"New Workspace Window"
+                                                                       selector:@selector(openNewWorkspaceWindow:)]];
+    }
 
     self.bodyStack = [UIStackView new];
     self.bodyStack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -3248,6 +3258,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier {
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] && !ISHWorkspaceSupportsSceneWindows())
+        return;
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
         ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
         if (existingWindow != nil) {
@@ -3259,6 +3271,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)ensureDefaultWorkspaceUtilitiesOpen {
+    if (!ISHWorkspaceSupportsSceneWindows())
+        return;
     if ([self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] != nil)
         return;
     [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
@@ -3357,17 +3371,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (NSArray<NSDictionary<NSString *, id> *> *)dockUtilityGroupDescriptors {
+    NSMutableArray<NSDictionary<NSString *, id> *> *workspaceItems = [NSMutableArray arrayWithObject:@{@"title": @"Dashboard", @"identifier": @"dashboard"}];
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        [workspaceItems addObject:@{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
+    }
+    [workspaceItems addObjectsFromArray:@[
+        @{@"title": @"Shortcuts", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
+        @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+        @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
+    ]];
     return @[
         @{
             @"title": @"Workspace",
             @"message": @"Launchers and workspace-wide controls.",
-            @"items": @[
-                @{@"title": @"Dashboard", @"identifier": @"dashboard"},
-                @{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
-                @{@"title": @"Shortcuts", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
-                @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
-                @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
-            ],
+            @"items": workspaceItems,
         },
         @{
             @"title": @"Status",
@@ -3694,6 +3711,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)openNewWorkspaceWindow:(id)sender {
+    if (!ISHWorkspaceSupportsSceneWindows()) {
+        [self presentSceneActivationError:nil title:@"Workspace windows are unavailable on this device"];
+        return;
+    }
     [self requestSceneWithActivityType:ISHSceneActivityTypeWorkspace
                                title:@"Unable to open workspace"
                             userInfo:nil];
@@ -4898,11 +4919,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIButton *dashboardButton = [self sessionButtonWithTitle:@"Dashboard"
                                                     subtitle:@"Jump back to workspace layout"
                                                     selector:@selector(openDashboardShortcut:)];
-    UIButton *workspaceButton = [self sessionButtonWithTitle:@"New Workspace"
-                                                    subtitle:@"Open another workspace window"
-                                                    selector:@selector(openWorkspaceShortcut:)];
     [rowTwo addArrangedSubview:dashboardButton];
-    [rowTwo addArrangedSubview:workspaceButton];
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        UIButton *workspaceButton = [self sessionButtonWithTitle:@"New Workspace"
+                                                        subtitle:@"Open another workspace window"
+                                                        selector:@selector(openWorkspaceShortcut:)];
+        [rowTwo addArrangedSubview:workspaceButton];
+    } else {
+        UIButton *themesButton = [self sessionButtonWithTitle:@"Themes"
+                                                     subtitle:@"Adjust colors and density"
+                                                     selector:@selector(openThemesShortcut:)];
+        [rowTwo addArrangedSubview:themesButton];
+    }
     [_quickActionsStack addArrangedSubview:rowOne];
     [_quickActionsStack addArrangedSubview:rowTwo];
     [NSLayoutConstraint activateConstraints:@[
@@ -5051,6 +5079,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)openWorkspaceShortcut:(id)sender {
     (void) sender;
     [self.workspaceHostViewController openNewWorkspaceWindow:nil];
+}
+
+- (void)openThemesShortcut:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolThemesIdentifier];
 }
 
 - (void)openSessionTerminal:(UIButton *)sender {
@@ -5328,28 +5361,50 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [_contentStack addArrangedSubview:header];
     [_contentStack addArrangedSubview:detail];
 
-    NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = @[
-        @[
-            @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
-            @{@"title": @"Workspaces", @"subtitle": @"Tiny scene switcher", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
-        ],
-        @[
-            @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
-            @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
-        ],
-        @[
-            @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
-            @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
-        ],
-        @[
-            @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
-            @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
-        ],
-        @[
-            @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
-            @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
-        ],
-    ];
+    NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = nil;
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        rows = @[
+            @[
+                @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
+                @{@"title": @"Workspaces", @"subtitle": @"Tiny scene switcher", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
+            ],
+            @[
+                @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
+                @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
+            ],
+            @[
+                @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+                @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
+            ],
+            @[
+                @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
+                @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+            ],
+            @[
+                @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
+                @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
+            ],
+        ];
+    } else {
+        rows = @[
+            @[
+                @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
+                @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
+            ],
+            @[
+                @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
+                @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
+            ],
+            @[
+                @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+                @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
+            ],
+            @[
+                @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+                @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
+            ],
+        ];
+    }
 
     for (NSArray<NSDictionary<NSString *, NSString *> *> *rowDescriptors in rows) {
         UIStackView *row = [UIStackView new];
