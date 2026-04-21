@@ -371,6 +371,13 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
 }
 
 static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscall_stop) {
+    struct task *tracer = NULL;
+    int signal_no = 0;
+
+    // wait4() publishes and consumes ptrace-stop state while holding pids_lock.
+    // Publish the stop and notify child_exit under the same lock so the tracer
+    // can't miss the stop between its wait4 scan and sleep.
+    complex_lockt(&pids_lock, 0);
     lock(&current->ptrace.lock, 0);
     if (!syscall_stop)
         current->ptrace.syscall_stopped = false;
@@ -381,10 +388,18 @@ static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscal
     current->ptrace.info = *info;
     unlock(&current->ptrace.lock);
 
-    struct task *tracer = ptrace_tracer(current);
+    tracer = ptrace_tracer(current);
     if (tracer != NULL) {
+        task_ref_cnt_mod(tracer, 1);
+        signal_no = current->group->leader->exit_signal;
         notify(&tracer->group->child_exit);
-        send_signal(tracer, current->group->leader->exit_signal, SIGINFO_NIL);
+    }
+    unlock(&pids_lock);
+
+    if (tracer != NULL) {
+        if (signal_no != 0)
+            send_signal(tracer, signal_no, SIGINFO_NIL);
+        task_ref_cnt_mod(tracer, -1);
     }
 
     lock(&current->ptrace.lock, 0);
