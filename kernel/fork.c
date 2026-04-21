@@ -201,6 +201,7 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
                current->pid, current->tgid, current->abi, pid, task->tgid, flags);
     }
     bool trace_child = false;
+    int ptrace_event = 0;
     if (current->ptrace.traced && !(flags & CLONE_UNTRACED_)) {
         dword_t trace_option = 0;
         if (flags & CLONE_VFORK_)
@@ -211,13 +212,11 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
             trace_option = PTRACE_O_TRACEFORK_;
 
         if (flags & CLONE_VFORK_)
-            current->ptrace.trap_event = PTRACE_EVENT_VFORK_;
+            ptrace_event = PTRACE_EVENT_VFORK_;
         else if (flags & CLONE_THREAD_)
-            current->ptrace.trap_event = PTRACE_EVENT_CLONE_;
+            ptrace_event = PTRACE_EVENT_CLONE_;
         else
-            current->ptrace.trap_event = PTRACE_EVENT_FORK_;
-        current->ptrace.eventmsg = pid;
-        send_signal(current, SIGTRAP_, SIGINFO_NIL);
+            ptrace_event = PTRACE_EVENT_FORK_;
 
         if (current->ptrace.options & trace_option) {
             ptrace_attach_fork_child(task, current);
@@ -228,6 +227,15 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
     task_start(task);
     if (trace_child)
         send_signal(task, SIGSTOP_, SIGINFO_NIL);
+    if (trace_child) {
+        struct siginfo_ info = {
+            .sig = SIGTRAP_,
+            .code = SI_KERNEL_,
+            .kill.pid = current->pid,
+            .kill.uid = current->uid,
+        };
+        ptrace_event_stop(SIGTRAP_, &info, ptrace_event, pid);
+    }
 
     if (flags & CLONE_VFORK_) {
         lock(&vfork.lock, 0);
