@@ -197,6 +197,7 @@ static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_add
         return PTR_ERR(poll);
     struct fd *files[nfds];
     memset(files, 0, sizeof(files));
+    int add_err = 0;
 
     for (fd_t i = 0; i < nfds; i++) {
         int events = 0;
@@ -221,7 +222,9 @@ static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_add
                 return _EBADF;
             }
             files[i] = fd;
-            poll_add_fd(poll, fd, events, (union poll_fd_info) i);
+            add_err = poll_add_fd(poll, fd, events, (union poll_fd_info) i);
+            if (add_err < 0)
+                goto out;
         }
     }
     STRACE("...\n");
@@ -276,6 +279,7 @@ static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_add
     TASK_MAY_BLOCK {
         err = poll_wait(poll, select_event_callback, &context, timeout_ts_ptr == NULL ? NULL : &timeout_ts);
     }
+out:
     STRACE("%d end select ", current->pid);
     for (fd_t i = 0; i < nfds; i++) {
         if (bit_test(i, readfds) || bit_test(i, writefds) || bit_test(i, exceptfds)) {
@@ -290,6 +294,8 @@ static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_add
         if (files[i] != NULL)
             fd_close(files[i]);
     }
+    if (add_err < 0)
+        return add_err;
     if (err < 0)
         return err;
 

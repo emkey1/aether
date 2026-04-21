@@ -268,6 +268,66 @@ static void test_pselect_mask_unblock(void) {
         failf("signal pselect mask-unblock", rc, err, handler_count, -1, EINTR, 1);
 }
 
+static void test_select_pipe_write_ready(void) {
+    int pipefd[2];
+    fd_set wfds;
+    struct timeval tv = {
+        .tv_sec = 0,
+        .tv_usec = 0,
+    };
+    int rc;
+    int err;
+
+    if (pipe(pipefd) != 0) {
+        perror("pipe");
+        exit(1);
+    }
+
+    FD_ZERO(&wfds);
+    FD_SET(pipefd[1], &wfds);
+    errno = 0;
+    rc = select(pipefd[1] + 1, NULL, &wfds, NULL, &tv);
+    err = errno;
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    test_logf("signal select pipe write-ready: rc=%d errno=%d isset=%d\n",
+              rc, err, FD_ISSET(pipefd[1], &wfds));
+
+    if (rc != 1 || err != 0 || !FD_ISSET(pipefd[1], &wfds))
+        failf("signal select pipe write-ready", rc, err, FD_ISSET(pipefd[1], &wfds), 1, 0, 1);
+}
+
+static void test_pselect_pipe_write_ready(void) {
+    int pipefd[2];
+    fd_set wfds;
+    struct timespec timeout = {
+        .tv_sec = 0,
+        .tv_nsec = 0,
+    };
+    int rc;
+    int err;
+
+    if (pipe(pipefd) != 0) {
+        perror("pipe");
+        exit(1);
+    }
+
+    FD_ZERO(&wfds);
+    FD_SET(pipefd[1], &wfds);
+    errno = 0;
+    rc = pselect(pipefd[1] + 1, NULL, &wfds, NULL, &timeout, NULL);
+    err = errno;
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    test_logf("signal pselect pipe write-ready: rc=%d errno=%d isset=%d\n",
+              rc, err, FD_ISSET(pipefd[1], &wfds));
+
+    if (rc != 1 || err != 0 || !FD_ISSET(pipefd[1], &wfds))
+        failf("signal pselect pipe write-ready", rc, err, FD_ISSET(pipefd[1], &wfds), 1, 0, 1);
+}
+
 #if !defined(__APPLE__)
 static void test_ppoll_mask_unblock(void) {
     int pipefd[2];
@@ -335,6 +395,8 @@ int main(int argc, char **argv) {
     test_poll_waiter_thread_no_restart();
     test_select_waiter_thread_no_restart();
     test_pselect_mask_unblock();
+    test_select_pipe_write_ready();
+    test_pselect_pipe_write_ready();
 #if !defined(__APPLE__)
     test_ppoll_mask_unblock();
 #endif
