@@ -50,6 +50,8 @@
 - (void)workspaceWorkspacesFrameDidChange:(NSNotification *)notification;
 - (NSDictionary<NSString *, NSNumber *> *)absoluteFrameDescriptorForFrame:(CGRect)frame;
 - (void)applyAbsoluteFrameDescriptor:(NSDictionary<NSString *, id> *)descriptor toWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (NSString *)currentWorkspaceLayoutStorageIdentifier;
+- (NSArray<NSDictionary<NSString *, id> *> *)savedWorkspaceLayoutForCurrentScene;
 - (void)openDashboardWindow:(id)sender;
 - (void)openNewWorkspaceWindow:(id)sender;
 - (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
@@ -2595,16 +2597,27 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         if (descriptor != nil)
             [layout addObject:descriptor];
     }
-    [NSUserDefaults.standardUserDefaults setObject:layout forKey:ISHWorkspaceSavedLayoutDefaultsKey];
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        id storedValue = [NSUserDefaults.standardUserDefaults objectForKey:ISHWorkspaceSavedLayoutDefaultsKey];
+        NSMutableDictionary<NSString *, id> *layoutsByScene = [storedValue isKindOfClass:NSDictionary.class]
+            ? [storedValue mutableCopy]
+            : [NSMutableDictionary dictionary];
+        NSString *sceneIdentifier = [self currentWorkspaceLayoutStorageIdentifier];
+        if (sceneIdentifier.length == 0)
+            sceneIdentifier = @"default";
+        layoutsByScene[sceneIdentifier] = layout;
+        [NSUserDefaults.standardUserDefaults setObject:layoutsByScene forKey:ISHWorkspaceSavedLayoutDefaultsKey];
+    } else {
+        [NSUserDefaults.standardUserDefaults setObject:layout forKey:ISHWorkspaceSavedLayoutDefaultsKey];
+    }
 }
 
 - (void)restoreWorkspaceLayout:(id)sender {
-    NSArray<NSDictionary<NSString *, id> *> *layout =
-        [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceSavedLayoutDefaultsKey];
+    NSArray<NSDictionary<NSString *, id> *> *layout = [self savedWorkspaceLayoutForCurrentScene];
     if (![layout isKindOfClass:NSArray.class] || layout.count == 0) {
         UIAlertController *alert =
             [UIAlertController alertControllerWithTitle:@"No Saved Layout"
-                                                message:@"Save a workspace arrangement first, then restore it from here."
+                                                message:@"Save a workspace arrangement for this workspace first, then restore it from here."
                                          preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];
@@ -2917,10 +2930,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else {
         windowSummaryDetailLabel.textColor = UIColor.darkGrayColor;
     }
-    windowSummaryDetailLabel.text = @"Dashboard is limited to workspace layout and scene management. Use the Doc's Utils and Terminal cards for tools, status, and terminal actions.";
+    windowSummaryDetailLabel.text = ISHWorkspaceSupportsSceneWindows()
+        ? @"Dashboard is limited to layout actions. Use Workspaces for scene switching, and use the Doc's Utils and Terminal cards for tools and terminal actions."
+        : @"Dashboard is limited to layout actions. Use the Doc's Utils and Terminal cards for tools and terminal actions.";
     [windowCardStack addArrangedSubview:windowSummaryDetailLabel];
     [windowCardStack addArrangedSubview:self.windowSummaryLabel];
-    [windowCardStack addArrangedSubview:self.sceneWindowsStack];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Save Current Layout"
                                                                    selector:@selector(saveWorkspaceLayout:)]];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Restore Saved Layout"
@@ -3082,6 +3096,34 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 }
 
+- (NSString *)currentWorkspaceLayoutStorageIdentifier {
+    if (@available(iOS 13.0, *)) {
+        NSString *identifier = self.view.window.windowScene.session.persistentIdentifier;
+        if (identifier.length > 0)
+            return identifier;
+    }
+    return @"default";
+}
+
+- (NSArray<NSDictionary<NSString *, id> *> *)savedWorkspaceLayoutForCurrentScene {
+    id storedValue = [NSUserDefaults.standardUserDefaults objectForKey:ISHWorkspaceSavedLayoutDefaultsKey];
+    if ([storedValue isKindOfClass:NSArray.class])
+        return (NSArray<NSDictionary<NSString *, id> *> *) storedValue;
+    if (![storedValue isKindOfClass:NSDictionary.class])
+        return nil;
+
+    NSDictionary<NSString *, id> *layoutsByScene = (NSDictionary<NSString *, id> *) storedValue;
+    NSString *sceneIdentifier = [self currentWorkspaceLayoutStorageIdentifier];
+    id sceneLayout = sceneIdentifier.length > 0 ? layoutsByScene[sceneIdentifier] : nil;
+    if ([sceneLayout isKindOfClass:NSArray.class])
+        return (NSArray<NSDictionary<NSString *, id> *> *) sceneLayout;
+
+    id defaultLayout = layoutsByScene[@"default"];
+    if ([defaultLayout isKindOfClass:NSArray.class])
+        return (NSArray<NSDictionary<NSString *, id> *> *) defaultLayout;
+    return nil;
+}
+
 - (void)refreshWorkspaceStatus {
     if (!NSThread.isMainThread) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -3166,36 +3208,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)refreshWindowSummary {
-    NSMutableArray<NSString *> *lines = [NSMutableArray array];
-    NSUInteger terminalCount = [Terminal activeTerminals].count;
-    [lines addObject:[NSString stringWithFormat:@"Guest terminals: %lu", (unsigned long) terminalCount]];
-
-    if (@available(iOS 13.0, *)) {
-        NSUInteger workspaceSceneCount = 0;
-        NSUInteger terminalSceneCount = 0;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (![scene isKindOfClass:UIScene.class])
-                continue;
-            NSString *role = ISHWorkspaceSceneRoleDescription(scene.session);
-            if ([role isEqualToString:@"Workspace"]) {
-                workspaceSceneCount += 1;
-            } else if ([role isEqualToString:@"Terminal"]) {
-                terminalSceneCount += 1;
-            }
-        }
-        [lines addObject:[NSString stringWithFormat:@"Workspace windows: %lu", (unsigned long) workspaceSceneCount]];
-        [lines addObject:[NSString stringWithFormat:@"Terminal windows: %lu", (unsigned long) terminalSceneCount]];
-        NSString *currentRole = self.view.window.windowScene != nil
-            ? ISHWorkspaceSceneRoleDescription(self.view.window.windowScene.session)
-            : @"Unknown";
-        [lines addObject:[NSString stringWithFormat:@"Current window: %@", currentRole]];
-    } else {
-        [lines addObject:@"Workspace windows: 1"];
-        [lines addObject:@"Terminal windows: 1"];
-        [lines addObject:@"Current window: Workspace"];
-    }
-
-    self.windowSummaryLabel.text = [lines componentsJoinedByString:@"\n"];
+    self.windowSummaryLabel.text = ISHWorkspaceSupportsSceneWindows()
+        ? @"Save and restore the window arrangement for this workspace. Each open workspace keeps its own saved layout."
+        : @"Save and restore the window arrangement for this workspace.";
 }
 
 - (void)refreshDockButtons {
