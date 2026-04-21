@@ -2640,9 +2640,11 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_tracked_proc_trace_exit(syscall_num, raw_args, trace_result);
     amd64_tty2_shell_syscall_trace_exit(syscall_num, trace_result);
     if (syscall_result_should_restart(result)) {
-        prepare_syscall_restart(cpu, dispatch, syscall_num);
-        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall) {
+            dispatch->syscall_result(cpu, result);
             ptrace_syscall_stop(cpu);
+        }
+        prepare_syscall_restart(cpu, dispatch, syscall_num);
         STRACE(" = restart\n");
         return;
     }
