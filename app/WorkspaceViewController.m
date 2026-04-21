@@ -1232,6 +1232,7 @@ static NSString *ISHWorkspaceSystemStatusText(void) {
 static NSString *const ISHWorkspaceToolThemePreferenceKey = @"ISHWorkspaceToolTheme";
 static NSString *const ISHWorkspaceCustomThemesDefaultsKey = @"ISHWorkspaceCustomThemes";
 static NSString *const ISHWorkspaceToolDensityPreferenceKey = @"ISHWorkspaceToolDensity";
+static NSString *const ISHWorkspaceBrowserHomePreferenceKey = @"ISHWorkspaceBrowserHome";
 static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
 static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
 static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
@@ -5585,6 +5586,21 @@ static NSString *ISHWorkspaceBrowserDefaultAddress(void) {
     return @"https://duckduckgo.com/";
 }
 
+static NSString *ISHWorkspaceBrowserHomeAddress(void) {
+    NSString *stored = [NSUserDefaults.standardUserDefaults stringForKey:ISHWorkspaceBrowserHomePreferenceKey];
+    NSString *trimmed = [stored stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return trimmed.length > 0 ? trimmed : ISHWorkspaceBrowserDefaultAddress();
+}
+
+static void ISHWorkspaceSetBrowserHomeAddress(NSString *address) {
+    NSString *trimmed = [[address ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] copy];
+    if (trimmed.length == 0 || [trimmed isEqualToString:ISHWorkspaceBrowserDefaultAddress()]) {
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:ISHWorkspaceBrowserHomePreferenceKey];
+        return;
+    }
+    [NSUserDefaults.standardUserDefaults setObject:trimmed forKey:ISHWorkspaceBrowserHomePreferenceKey];
+}
+
 static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     NSString *trimmed = [[input ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] copy];
     if (trimmed.length == 0)
@@ -5908,6 +5924,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIButton *_backButton;
     UIButton *_forwardButton;
     UIButton *_reloadButton;
+    UIButton *_homeButton;
     UIButton *_goButton;
     NSArray<UIButton *> *_actionButtons;
     UIProgressView *_progressView;
@@ -5923,8 +5940,12 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
                                                weight:UIFontWeightSemibold];
     [button setTitle:title forState:UIControlStateNormal];
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    CGFloat width = [title isEqualToString:@"Go"] ? (ISHWorkspaceUsesPhoneLayout() ? 42.0 : 48.0)
-                                                  : (ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0);
+    CGFloat width = ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0;
+    if ([title isEqualToString:@"Go"]) {
+        width = ISHWorkspaceUsesPhoneLayout() ? 42.0 : 48.0;
+    } else if ([title isEqualToString:@"Home"]) {
+        width = ISHWorkspaceUsesPhoneLayout() ? 52.0 : 60.0;
+    }
     [NSLayoutConstraint activateConstraints:@[
         [button.widthAnchor constraintEqualToConstant:width],
         [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
@@ -5948,8 +5969,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _backButton = [self browserButtonWithTitle:@"<" action:@selector(goBack:)];
     _forwardButton = [self browserButtonWithTitle:@">" action:@selector(goForward:)];
     _reloadButton = [self browserButtonWithTitle:@"R" action:@selector(reloadOrStop:)];
+    _homeButton = [self browserButtonWithTitle:@"Home" action:@selector(goHome:)];
     _goButton = [self browserButtonWithTitle:@"Go" action:@selector(commitAddress:)];
-    _actionButtons = @[_backButton, _forwardButton, _reloadButton, _goButton];
+    UILongPressGestureRecognizer *homeLongPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleHomeButtonLongPress:)];
+    homeLongPressRecognizer.minimumPressDuration = 0.35;
+    [_homeButton addGestureRecognizer:homeLongPressRecognizer];
+    _actionButtons = @[_backButton, _forwardButton, _reloadButton, _homeButton, _goButton];
     for (UIButton *button in _actionButtons) {
         [controlsRow addSubview:button];
     }
@@ -6011,11 +6037,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_forwardButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
         [_reloadButton.leadingAnchor constraintEqualToAnchor:_forwardButton.trailingAnchor constant:6.0],
         [_reloadButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+        [_homeButton.leadingAnchor constraintEqualToAnchor:_reloadButton.trailingAnchor constant:6.0],
+        [_homeButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
 
         [_goButton.trailingAnchor constraintEqualToAnchor:controlsRow.trailingAnchor],
         [_goButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
 
-        [_addressContainerView.leadingAnchor constraintEqualToAnchor:_reloadButton.trailingAnchor constant:6.0],
+        [_addressContainerView.leadingAnchor constraintEqualToAnchor:_homeButton.trailingAnchor constant:6.0],
         [_addressContainerView.trailingAnchor constraintEqualToAnchor:_goButton.leadingAnchor constant:-6.0],
         [_addressContainerView.topAnchor constraintEqualToAnchor:controlsRow.topAnchor],
         [_addressContainerView.bottomAnchor constraintEqualToAnchor:controlsRow.bottomAnchor],
@@ -6037,7 +6065,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_webView.bottomAnchor constraintEqualToAnchor:_browserCard.bottomAnchor constant:-inset],
     ]];
 
-    _addressField.text = ISHWorkspaceBrowserDefaultAddress();
+    _addressField.text = ISHWorkspaceBrowserHomeAddress();
     [self loadAddressString:_addressField.text];
 }
 
@@ -6080,6 +6108,49 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     (void) sender;
     if (_webView.canGoForward)
         [_webView goForward];
+}
+
+- (void)goHome:(id)sender {
+    (void) sender;
+    [self loadAddressString:ISHWorkspaceBrowserHomeAddress()];
+}
+
+- (void)handleHomeButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    [self presentHomePagePrompt];
+}
+
+- (void)presentHomePagePrompt {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Browser Home"
+                                            message:@"Set the page opened by the Home button."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = ISHWorkspaceBrowserHomeAddress();
+        textField.placeholder = ISHWorkspaceBrowserDefaultAddress();
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        textField.spellCheckingType = UITextSpellCheckingTypeNo;
+        if (@available(iOS 11.0, *)) {
+            textField.smartDashesType = UITextSmartDashesTypeNo;
+            textField.smartQuotesType = UITextSmartQuotesTypeNo;
+            textField.smartInsertDeleteType = UITextSmartInsertDeleteTypeNo;
+        }
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Use Default" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        ISHWorkspaceSetBrowserHomeAddress(nil);
+        [weakSelf goHome:nil];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        UITextField *textField = alert.textFields.firstObject;
+        ISHWorkspaceSetBrowserHomeAddress(textField.text);
+        [weakSelf goHome:nil];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)reloadOrStop:(id)sender {
