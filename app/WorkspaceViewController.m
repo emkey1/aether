@@ -6208,6 +6208,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 }
 
 - (void)presentTabLimitAlert {
+    _maximumTabCount = ISHWorkspaceBrowserMaximumTabCount();
     NSString *message;
     if (ISHWorkspaceDeviceHasLowMemoryForWorkspace()) {
         message = [NSString stringWithFormat:@"This device is limited to %lu browser tabs in Workspace because it has less than 4 GB of RAM.",
@@ -6384,6 +6385,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 }
 
 - (void)refreshBrowserChrome {
+    _maximumTabCount = ISHWorkspaceBrowserMaximumTabCount();
     WKWebView *currentWebView = [self currentBrowserWebView];
     _backButton.enabled = currentWebView.canGoBack;
     _forwardButton.enabled = currentWebView.canGoForward;
@@ -6465,6 +6467,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)addTab:(id)sender {
     (void) sender;
+    _maximumTabCount = ISHWorkspaceBrowserMaximumTabCount();
     if (_tabWebViews.count >= _maximumTabCount) {
         [self presentTabLimitAlert];
         return;
