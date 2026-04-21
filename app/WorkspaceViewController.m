@@ -32,7 +32,6 @@
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dockWindow;
-@property (nonatomic, strong) UILabel *windowSummaryLabel;
 @property (nonatomic, strong) UIButton *dockUtilsButton;
 @property (nonatomic, strong) UIButton *dockTerminalButton;
 @property (nonatomic, strong) UIStackView *bodyStack;
@@ -3007,22 +3006,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     contentStack.translatesAutoresizingMaskIntoConstraints = NO;
     [scrollView addSubview:contentStack];
 
-    self.windowSummaryLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleBody monospaced:NO];
-
     UIStackView *windowCardStack = nil;
     self.windowCard = [self workspaceCardWithContentStack:&windowCardStack];
-    [windowCardStack addArrangedSubview:[self workspaceSectionTitle:@"Workspace layout"]];
-    UILabel *windowSummaryDetailLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-    if (@available(iOS 13.0, *)) {
-        windowSummaryDetailLabel.textColor = UIColor.secondaryLabelColor;
-    } else {
-        windowSummaryDetailLabel.textColor = UIColor.darkGrayColor;
-    }
-    windowSummaryDetailLabel.text = ISHWorkspaceSupportsSceneWindows()
-        ? @"Dashboard is limited to layout actions. Use Workspaces for scene switching, and use the Doc's Utils and Terminal cards for tools and terminal actions."
-        : @"Dashboard is limited to layout actions. Use the Doc's Utils and Terminal cards for tools and terminal actions.";
-    [windowCardStack addArrangedSubview:windowSummaryDetailLabel];
-    [windowCardStack addArrangedSubview:self.windowSummaryLabel];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Save Current Layout"
                                                                    selector:@selector(saveWorkspaceLayout:)]];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Restore Saved Layout"
@@ -3238,14 +3223,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
 
-    [self refreshWindowSummary];
     [self refreshDockButtons];
-}
-
-- (void)refreshWindowSummary {
-    self.windowSummaryLabel.text = ISHWorkspaceSupportsSceneWindows()
-        ? @"Save and restore the window arrangement for this workspace. Each open workspace keeps its own saved layout."
-        : @"Save and restore the window arrangement for this workspace.";
 }
 
 - (void)refreshDockButtons {
