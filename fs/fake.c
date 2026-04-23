@@ -70,6 +70,43 @@ static bool fakefs_is_initctl_fd(struct fd *fd) {
     return fd->ops == &initctl_fdops;
 }
 
+static bool fakefs_dpkg_trace_enabled(void) {
+    if (current == NULL)
+        return false;
+    return strcmp(current->comm, "dpkg") == 0 ||
+           strcmp(current->comm, "apt") == 0 ||
+           strcmp(current->comm, "apt-get") == 0;
+}
+
+static void fakefs_trace_symlink_result(struct mount *mount, struct fakefs_db *fs, const char *target, const char *link, int result, int open_errno) {
+    if (!fakefs_dpkg_trace_enabled())
+        return;
+
+    const char *fixed = fix_path(link);
+    struct stat st;
+    int host_err = fstatat(mount->root_fd, fixed, &st, AT_SYMLINK_NOFOLLOW);
+    if (host_err < 0) {
+        printk("ish-dpkg-fakefs:symlink pid=%d comm=%s link=%s fix=%s target=%s result=%d errno=%d host=-1 host_errno=%d\n",
+                current->pid, current->comm, link, fixed, target, result, open_errno, errno);
+    } else {
+        printk("ish-dpkg-fakefs:symlink pid=%d comm=%s link=%s fix=%s target=%s result=%d errno=%d host_mode=%#o host_size=%lld host_ino=%llu\n",
+                current->pid, current->comm, link, fixed, target, result, open_errno,
+                st.st_mode, (long long) st.st_size, (unsigned long long) st.st_ino);
+    }
+
+    struct ish_stat ishstat;
+    inode_t inode;
+    bool found = path_read_stat(fs, link, &ishstat, &inode);
+    if (!found) {
+        printk("ish-dpkg-fakefs:symlink-db pid=%d comm=%s link=%s found=0\n",
+                current->pid, current->comm, link);
+        return;
+    }
+    printk("ish-dpkg-fakefs:symlink-db pid=%d comm=%s link=%s found=1 inode=%llu mode=%#o uid=%u gid=%u rdev=%u\n",
+            current->pid, current->comm, link, (unsigned long long) inode,
+            ishstat.mode, ishstat.uid, ishstat.gid, ishstat.rdev);
+}
+
 static ssize_t initctl_read(struct fd *UNUSED(fd), void *UNUSED(buf), size_t UNUSED(bufsize)) {
     return 0;
 }
@@ -277,9 +314,13 @@ static int fakefs_rename(struct mount *mount, const char *src, const char *dst) 
 static int fakefs_symlink(struct mount *mount, const char *target, const char *link) {
     struct fakefs_db *fs = &mount->fakefs;
     db_begin_write(fs);
-    // create a file containing the target
+    // fakefs historically stores symlinks as regular files containing the
+    // link target, with metadata overridden to present them as S_IFLNK.
+    // Restore that behavior to match the working branch semantics used by the
+    // bundled roots and package-manager flows.
     int fd = openat(mount->root_fd, fix_path(link), O_WRONLY | O_CREAT | O_EXCL, 0666);
     if (fd < 0) {
+        fakefs_trace_symlink_result(mount, fs, target, link, -1, errno);
         db_rollback(fs);
         return errno_map();
     }
@@ -300,6 +341,7 @@ static int fakefs_symlink(struct mount *mount, const char *target, const char *l
     ishstat.gid = current->egid;
     ishstat.rdev = 0;
     path_create(fs, link, &ishstat);
+    fakefs_trace_symlink_result(mount, fs, target, link, 0, 0);
     db_commit(fs);
     return 0;
 }
@@ -508,12 +550,16 @@ retry:
 
     struct fakefs_db *fs = &fd->mount->fakefs;
     db_begin_read(fs);
-    entry->inode = path_get_inode(fs, entry_path);
+    struct ish_stat ishstat;
+    ino_t inode;
+    bool found = path_read_stat(fs, entry_path, &ishstat, &inode);
     db_commit(fs);
     // it's quite possible that due to some mishap there's no metadata for this file
     // so just skip this entry, instead of crashing the program, so there's hope for recovery
-    if (entry->inode == 0)
+    if (!found || inode == 0)
         goto retry;
+    entry->inode = inode;
+    entry->type = dir_entry_type_for_mode(ishstat.mode);
     return res;
 }
 

@@ -673,6 +673,102 @@ static bool sock_trace_comm(const char *comm) {
         strncmp(comm, "update-ca-certi", 15) == 0;
 }
 
+static bool sock_debug_comm(const char *comm) {
+    if (comm == NULL)
+        return false;
+    return strcmp(comm, "apt") == 0 ||
+        strcmp(comm, "apt-get") == 0 ||
+        strncmp(comm, "http", 4) == 0;
+}
+
+static void sock_debug_event(const char *op, struct fd *sock, ssize_t result, int mapped_err) {
+    if (current == NULL || !sock_debug_comm(current->comm))
+        return;
+    fprintf(stderr,
+            "ish-sock:%s pid=%d comm=%s guest_domain=%d guest_type=%d protocol=%d real=%d result=%zd err=%d\n",
+            op, current->pid, current->comm,
+            sock != NULL ? sock->socket.domain : -1,
+            sock != NULL ? sock->socket.type : -1,
+            sock != NULL ? sock->socket.protocol : -1,
+            sock != NULL ? sock->real_fd : -1,
+            result, mapped_err);
+}
+
+static void sock_debug_guest_sockaddr(const char *op, struct fd *sock,
+        guest_addr_t sockaddr_addr, uint_t sockaddr_len) {
+    if (current == NULL || !sock_debug_comm(current->comm))
+        return;
+    if (sockaddr_addr == 0 || sockaddr_len < offsetof(struct sockaddr_, data) ||
+            sockaddr_len > sizeof(struct sockaddr_max_)) {
+        fprintf(stderr,
+                "ish-sock:%s-addr pid=%d comm=%s real=%d guest_domain=%d guest_type=%d addr=%#llx len=%u detail=<none>\n",
+                op, current->pid, current->comm,
+                sock != NULL ? sock->real_fd : -1,
+                sock != NULL ? sock->socket.domain : -1,
+                sock != NULL ? sock->socket.type : -1,
+                (unsigned long long) sockaddr_addr, sockaddr_len);
+        return;
+    }
+
+    struct sockaddr_max_ fake_addr = {};
+    if (user_read(sockaddr_addr, &fake_addr, sockaddr_len)) {
+        fprintf(stderr,
+                "ish-sock:%s-addr pid=%d comm=%s real=%d guest_domain=%d guest_type=%d addr=%#llx len=%u detail=<fault>\n",
+                op, current->pid, current->comm,
+                sock != NULL ? sock->real_fd : -1,
+                sock != NULL ? sock->socket.domain : -1,
+                sock != NULL ? sock->socket.type : -1,
+                (unsigned long long) sockaddr_addr, sockaddr_len);
+        return;
+    }
+
+    char detail[SOCKADDR_DATA_MAX + 32];
+    if (fake_addr.family == AF_LOCAL_) {
+        size_t path_size = sockaddr_len - offsetof(struct sockaddr_, data);
+        if (path_size == 0) {
+            snprintf(detail, sizeof(detail), "unix:<empty>");
+        } else if (fake_addr.data[0] == '\0') {
+            size_t copy = path_size - 1;
+            if (copy > SOCKADDR_DATA_MAX)
+                copy = SOCKADDR_DATA_MAX;
+            char path[SOCKADDR_DATA_MAX + 1];
+            memcpy(path, fake_addr.data + 1, copy);
+            path[copy] = '\0';
+            snprintf(detail, sizeof(detail), "unix-abstract:%s", path);
+        } else {
+            size_t copy = path_size;
+            if (copy > SOCKADDR_DATA_MAX)
+                copy = SOCKADDR_DATA_MAX;
+            char path[SOCKADDR_DATA_MAX + 1];
+            memcpy(path, fake_addr.data, copy);
+            path[copy] = '\0';
+            snprintf(detail, sizeof(detail), "unix:%s", path);
+        }
+    } else if (fake_addr.family == AF_INET_) {
+        struct sockaddr_in_ *addr4 = (struct sockaddr_in_ *) &fake_addr;
+        struct in_addr real_addr = {.s_addr = addr4->sin_addr};
+        char host[INET_ADDRSTRLEN] = "";
+        inet_ntop(AF_INET, &real_addr, host, sizeof(host));
+        snprintf(detail, sizeof(detail), "inet:%s:%u", host, ntohs(addr4->sin_port));
+    } else if (fake_addr.family == AF_INET6_) {
+        snprintf(detail, sizeof(detail), "inet6");
+    } else if (fake_addr.family == AF_NETLINK_) {
+        struct sockaddr_nl_ *addr_nl = (struct sockaddr_nl_ *) &fake_addr;
+        snprintf(detail, sizeof(detail), "netlink:pid=%u groups=%#x",
+                addr_nl->nl_pid, addr_nl->nl_groups);
+    } else {
+        snprintf(detail, sizeof(detail), "family=%u", fake_addr.family);
+    }
+
+    fprintf(stderr,
+            "ish-sock:%s-addr pid=%d comm=%s real=%d guest_domain=%d guest_type=%d addr=%#llx len=%u detail=%s\n",
+            op, current->pid, current->comm,
+            sock != NULL ? sock->real_fd : -1,
+            sock != NULL ? sock->socket.domain : -1,
+            sock != NULL ? sock->socket.type : -1,
+            (unsigned long long) sockaddr_addr, sockaddr_len, detail);
+}
+
 static bool sock_trace_enabled(void) {
     if (current == NULL)
         return false;
@@ -1109,6 +1205,7 @@ static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
         cond_init(&fd->socket.unix_got_peer);
         list_init(&fd->socket.unix_scm);
     }
+    sock_debug_event("fd-create", fd, 0, 0);
     return f_install(fd, type & ~SOCKET_TYPE_MASK);
 }
 
@@ -1171,6 +1268,11 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
 #endif
     if (sock < 0)
         return errno_map();
+    if (sock_debug_comm(current != NULL ? current->comm : NULL))
+        fprintf(stderr, "ish-sock:socket-host pid=%d comm=%s domain=%d type=%d protocol=%d real=%d\n",
+                current != NULL ? current->pid : -1,
+                current != NULL ? current->comm : "?",
+                domain, type, protocol, sock);
 
 #ifdef __APPLE__
     if (domain == AF_INET_ && type == SOCK_DGRAM_) {
@@ -2066,17 +2168,20 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
+    sock_debug_guest_sockaddr("connect", sock, sockaddr_addr, sockaddr_len);
     if (sock->socket.domain == AF_LOCAL_) {
         sock->socket.unix_devlog_sink = false;
         sock->socket.unix_initctl_sink = false;
         if (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len)) {
             sock->socket.unix_devlog_sink = true;
             fill_cred(&sock->socket.unix_cred);
+            sock_debug_event("connect-devlog", sock, 0, 0);
             return 0;
         }
         if (guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)) {
             sock->socket.unix_initctl_sink = true;
             fill_cred(&sock->socket.unix_cred);
+            sock_debug_event("connect-initctl", sock, 0, 0);
             return 0;
         }
     }
@@ -2088,6 +2193,7 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
         if (err == _ENOENT && sock->socket.domain == AF_LOCAL_ &&
                 guest_sockaddr_is_abstract_local(sockaddr_addr, sockaddr_len))
             return _ECONNREFUSED;
+        sock_debug_event("connect-parse-fail", sock, -1, err);
         return err;
     }
 
@@ -2098,6 +2204,7 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
         if (addr->nl_pid != 0)
             return _ECONNREFUSED;
         sock->socket.netlink_groups = addr->nl_groups;
+        sock_debug_event("connect-netlink", sock, 0, 0);
         return 0;
     }
 
@@ -2180,6 +2287,7 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
     sock_trace("connect", sock, err, 0);
     sock_trace_sockaddr("local", sock->real_fd);
     sock_trace_sockaddr("peer", sock->real_fd);
+    sock_debug_event("connect", sock, err, 0);
     return err;
 }
 
@@ -2545,9 +2653,11 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
     if (res < 0) {
         int mapped_err = errno_map();
         sock_trace("sendto", sock, -1, mapped_err);
+        sock_debug_event("sendto", sock, -1, mapped_err);
         return mapped_err;
     }
     sock_trace("sendto", sock, res, 0);
+    sock_debug_event("sendto", sock, res, 0);
     return res;
 
 error:
@@ -2634,6 +2744,7 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         free(buffer);
         int mapped_err = errno_map();
         sock_trace("recvfrom", sock, -1, mapped_err);
+        sock_debug_event("recvfrom", sock, -1, mapped_err);
         return mapped_err;
     }
 
@@ -2651,6 +2762,7 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         if (user_put(sockaddr_len_addr, sockaddr_len))
             return _EFAULT;
     sock_trace("recvfrom", sock, res, 0);
+    sock_debug_event("recvfrom", sock, res, 0);
     return res;
 }
 
@@ -2685,7 +2797,8 @@ static void sock_init_emulation_defaults(struct fd *fd) {
     strcpy(fd->socket.tcp_congestion, DEFAULT_TCP_CONGESTION);
 }
 
-int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, dword_t value_len) {
+static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t option,
+        guest_addr_t value_addr, dword_t value_len, enum guest_abi abi) {
     STRACE("setsockopt(%d, %d, %d, %#llx, %d)", sock_fd, level, option,
             (unsigned long long) value_addr, value_len);
     struct fd *sock = sock_getfd(sock_fd);
@@ -2805,10 +2918,10 @@ int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_ad
         }
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
-        if (value_len < guest_timeval_size(current->abi))
+        if (value_len < guest_timeval_size(abi))
             return _EINVAL;
         struct timeval guest_timeout;
-        if (read_guest_timeval_abi(current->abi, value_addr, &guest_timeout))
+        if (read_guest_timeval_abi(abi, value_addr, &guest_timeout))
             return _EFAULT;
         struct timeval host_timeout = {
             .tv_sec = guest_timeout.tv_sec,
@@ -2847,8 +2960,20 @@ int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_ad
     return 0;
 }
 
+int_t sys_setsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, dword_t value_len) {
+    return sys_setsockopt_guest_abi(sock_fd, level, option, value_addr, value_len, GUEST_ABI_I386);
+}
+
 int_t sys_setsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
     return sys_setsockopt_guest(sock_fd, level, option, value_addr, value_len);
+}
+
+int_t sys_setsockopt_amd64(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t value_len) {
+    return sys_setsockopt_guest_abi(sock_fd, level, option, value_addr, value_len, GUEST_ABI_AMD64);
+}
+
+int_t sys_setsockopt_amd64_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, dword_t value_len) {
+    return sys_setsockopt_guest_abi(sock_fd, level, option, value_addr, value_len, GUEST_ABI_AMD64);
 }
 
 static void sockopt_store_value(void *dst, dword_t dst_len, dword_t *result_len,
@@ -2872,7 +2997,8 @@ static bool sockopt_is_linux_soft_unsupported(dword_t level, dword_t option) {
     return false;
 }
 
-int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, guest_addr_t len_addr) {
+static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t option,
+        guest_addr_t value_addr, guest_addr_t len_addr, enum guest_abi abi) {
     STRACE("getsockopt(%d, %d, %d, %#llx, %#llx)", sock_fd, level, option,
             (unsigned long long) value_addr, (unsigned long long) len_addr);
     struct fd *sock = sock_getfd(sock_fd);
@@ -2965,7 +3091,7 @@ int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_ad
                 &host_timeout, &host_timeout_len);
         if (err < 0)
             return errno_map();
-        if (current->abi == GUEST_ABI_AMD64) {
+        if (abi == GUEST_ABI_AMD64) {
             struct amd64_timeval_ guest_timeout = {
                 .sec = host_timeout.tv_sec,
                 .usec = host_timeout.tv_usec,
@@ -3088,8 +3214,20 @@ int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_ad
     return 0;
 }
 
+int_t sys_getsockopt_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, guest_addr_t len_addr) {
+    return sys_getsockopt_guest_abi(sock_fd, level, option, value_addr, len_addr, GUEST_ABI_I386);
+}
+
 int_t sys_getsockopt(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
     return sys_getsockopt_guest(sock_fd, level, option, value_addr, len_addr);
+}
+
+int_t sys_getsockopt_amd64(fd_t sock_fd, dword_t level, dword_t option, addr_t value_addr, dword_t len_addr) {
+    return sys_getsockopt_guest_abi(sock_fd, level, option, value_addr, len_addr, GUEST_ABI_AMD64);
+}
+
+int_t sys_getsockopt_amd64_guest(fd_t sock_fd, dword_t level, dword_t option, guest_addr_t value_addr, guest_addr_t len_addr) {
+    return sys_getsockopt_guest_abi(sock_fd, level, option, value_addr, len_addr, GUEST_ABI_AMD64);
 }
 
 static void scm_free(struct scm *scm) {
@@ -3287,7 +3425,8 @@ static bool unix_socket_get_peer_cred(struct fd *sock, struct ucred_ *cred) {
     return have_cred;
 }
 
-int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags,
+        enum guest_abi abi) {
     int err;
     STRACE("sendmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
     struct fd *sock = sock_getfd(sock_fd);
@@ -3296,7 +3435,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
 
     struct msghdr msg = {};
     struct guest_msghdr_marshaled msg_fake;
-    err = read_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    err = read_guest_msghdr(msghdr_addr, abi, &msg_fake);
     if (err < 0)
         return err;
 
@@ -3313,7 +3452,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     }
 
     // msg_iovec
-    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, current->abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
+    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
     if (IS_ERR(msg_iov_fake))
         return PTR_ERR(msg_iov_fake);
     struct iovec *msg_iov = NULL;
@@ -3375,7 +3514,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     struct scm *scm = NULL;
     char real_msg_control[CMSG_SPACE(sizeof(int))]; // only used if actually sending an fd
     if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL &&
-            msg_fake.msg_controllen >= guest_cmsg_hdr_size(current->abi)) {
+            msg_fake.msg_controllen >= guest_cmsg_hdr_size(abi)) {
         err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
         if (err < 0)
             goto out_free_iov;
@@ -3388,7 +3527,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
             struct guest_cmsghdr_marshaled cmsg;
             const uint8_t *cmsg_data;
             size_t data_len;
-            if (!guest_cmsg_parse(current->abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
+            if (!guest_cmsg_parse(abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
                 err = _EINVAL;
                 goto out_free_iov;
             }
@@ -3438,7 +3577,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
                 struct guest_cmsghdr_marshaled cmsg;
                 const uint8_t *cmsg_data;
                 size_t data_len;
-                if (!guest_cmsg_parse(current->abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
+                if (!guest_cmsg_parse(abi, msg_control, msg_fake.msg_controllen, &cmsg_off, &cmsg, &cmsg_data, &data_len)) {
                     err = _EINVAL;
                     goto out_free_scm;
                 }
@@ -3491,6 +3630,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     if (send_res < 0) {
         err = errno_map();
         sock_trace("sendmsg", sock, -1, err);
+        sock_debug_event("sendmsg", sock, -1, err);
         if (scm != NULL)
             printk("INFO: scm-send pid=%d real sendmsg FAILED: errno=%d err=%d sock_real=%d\n",
                    current ? current->pid : -1, errno, err, sock->real_fd);
@@ -3498,6 +3638,7 @@ int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     }
     err = send_res;
     sock_trace("sendmsg", sock, err, 0);
+    sock_debug_event("sendmsg", sock, err, 0);
     if (scm != NULL)
         printk("INFO: scm-send pid=%d real sendmsg OK: sent=%d sock_real=%d ctrl_len=%zu\n",
                current ? current->pid : -1, err, sock->real_fd, msg.msg_controllen);
@@ -3530,11 +3671,24 @@ out_free_iov:
     return err;
 }
 
+int_t sys_sendmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+    return sys_sendmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_I386);
+}
+
 int_t sys_sendmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     return sys_sendmsg_guest(sock_fd, msghdr_addr, flags);
 }
 
-int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+int_t sys_sendmsg_amd64(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
+    return sys_sendmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_AMD64);
+}
+
+int_t sys_sendmsg_amd64_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+    return sys_sendmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_AMD64);
+}
+
+static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags,
+        enum guest_abi abi) {
     STRACE("recvmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
@@ -3542,7 +3696,7 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
 
     struct msghdr msg = {};
     struct guest_msghdr_marshaled msg_fake;
-    int err = read_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    int err = read_guest_msghdr(msghdr_addr, abi, &msg_fake);
     if (err < 0)
         return err;
 
@@ -3551,7 +3705,7 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
         return _EINVAL;
 
     // msg_iovec (no initial content)
-    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, current->abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
+    struct guest_iovec_ *msg_iov_fake = user_read_iovecs_abi(current, abi, msg_fake.msg_iov, msg_fake.msg_iovlen);
     if (IS_ERR(msg_iov_fake))
         return PTR_ERR(msg_iov_fake);
     struct iovec *msg_iov = NULL;
@@ -3606,7 +3760,7 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
         free(msg_iov_fake);
         if (msg_name != msg_name_stack)
             free(msg_name);
-        err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+        err = write_guest_msghdr(msghdr_addr, abi, &msg_fake);
         if (err < 0)
             return err;
         return 0;
@@ -3651,7 +3805,7 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
         msg_fake.msg_flags = sock_flags_from_real(msg.msg_flags);
         if (msg_name != msg_name_stack)
             free(msg_name);
-        err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+        err = write_guest_msghdr(msghdr_addr, abi, &msg_fake);
         if (err < 0)
             return err;
         return res;
@@ -3679,8 +3833,10 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
     if (res < 0) {
         err = errno_map();
         sock_trace("recvmsg", sock, -1, err);
+        sock_debug_event("recvmsg", sock, -1, err);
     } else {
         sock_trace("recvmsg", sock, res, 0);
+        sock_debug_event("recvmsg", sock, res, 0);
         if (sock_trace_enabled()) {
             printk("INFO: net recvmsg-flags pid=%d comm=%s real=%d flags=%#x namelen=%u controllen=%zu\n",
                    current->pid, current->comm, sock->real_fd, msg.msg_flags,
@@ -3747,9 +3903,9 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
         bool have_passcred = want_passcred && unix_socket_get_peer_cred(sock, &cred);
 
         if (have_rights)
-            required_msg_control += guest_cmsg_space(current->abi, sizeof(fd_t) * scm->num_fds);
+            required_msg_control += guest_cmsg_space(abi, sizeof(fd_t) * scm->num_fds);
         if (have_passcred)
-            required_msg_control += guest_cmsg_space(current->abi, sizeof(cred));
+            required_msg_control += guest_cmsg_space(abi, sizeof(cred));
 
         if (msg_fake.msg_control == 0 || required_msg_control > guest_controllen_max) {
             msg_fake.msg_flags |= MSG_CTRUNC_;
@@ -3761,12 +3917,12 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
                     fds[i] = f_install(scm->fds[i], 0);
                     STRACE(" receiving fd %d", fds[i]);
                 }
-                bool appended = guest_cmsg_append(current->abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
+                bool appended = guest_cmsg_append(abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
                         SOL_SOCKET_, SCM_RIGHTS_, fds, sizeof(fd_t) * scm->num_fds);
                 assert(appended);
             }
             if (have_passcred) {
-                bool appended = guest_cmsg_append(current->abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
+                bool appended = guest_cmsg_append(abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
                         SOL_SOCKET_, SCM_CREDENTIALS_, &cred, sizeof(cred));
                 assert(appended);
             }
@@ -3803,7 +3959,7 @@ int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
 
     if (msg_name != msg_name_stack)
         free(msg_name);
-    err = write_guest_msghdr(msghdr_addr, current->abi, &msg_fake);
+    err = write_guest_msghdr(msghdr_addr, abi, &msg_fake);
     if (err < 0)
         return err;
     return res;
@@ -3816,18 +3972,31 @@ out_recvmsg_fault:
     return _EFAULT;
 }
 
+int_t sys_recvmsg_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+    return sys_recvmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_I386);
+}
+
 int_t sys_recvmsg(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
     return sys_recvmsg_guest(sock_fd, msghdr_addr, flags);
 }
 
-int_t sys_recvmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags, guest_addr_t UNUSED(timeout_addr)) {
+int_t sys_recvmsg_amd64(fd_t sock_fd, addr_t msghdr_addr, int_t flags) {
+    return sys_recvmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_AMD64);
+}
+
+int_t sys_recvmsg_amd64_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags) {
+    return sys_recvmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_AMD64);
+}
+
+static int_t sys_recvmmsg_guest_abi(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags,
+        guest_addr_t UNUSED(timeout_addr), enum guest_abi abi) {
     int num_received = 0;
     int recv_flags = flags;
-    size_t msg_stride = guest_mmsghdr_size(current->abi);
-    size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
+    size_t msg_stride = guest_mmsghdr_size(abi);
+    size_t msg_len_offset = guest_mmsghdr_len_offset(abi);
     for (unsigned i = 0; i < vec_len; i++) {
         guest_addr_t msghdr = msg_vec + i * msg_stride;
-        int_t res = sys_recvmsg_guest(sock_fd, msghdr, recv_flags);
+        int_t res = sys_recvmsg_guest_abi(sock_fd, msghdr, recv_flags, abi);
         if (res >= 0) {
             guest_addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
@@ -3844,6 +4013,10 @@ int_t sys_recvmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int
     return num_received;
 }
 
+int_t sys_recvmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags, guest_addr_t timeout_addr) {
+    return sys_recvmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, timeout_addr, GUEST_ABI_I386);
+}
+
 int_t sys_recvmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
     return sys_recvmmsg_guest(sock_fd, msg_vec, vec_len, flags, timeout_addr);
 }
@@ -3856,13 +4029,22 @@ int_t sys_recvmmsg_time64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t fl
     return sys_recvmmsg_time64_guest(sock_fd, msg_vec, vec_len, flags, timeout_addr);
 }
 
-int_t sys_sendmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags) {
+int_t sys_recvmmsg_amd64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags, addr_t timeout_addr) {
+    return sys_recvmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, timeout_addr, GUEST_ABI_AMD64);
+}
+
+int_t sys_recvmmsg_amd64_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags, guest_addr_t timeout_addr) {
+    return sys_recvmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, timeout_addr, GUEST_ABI_AMD64);
+}
+
+static int_t sys_sendmmsg_guest_abi(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags,
+        enum guest_abi abi) {
     int num_sent = 0;
-    size_t msg_stride = guest_mmsghdr_size(current->abi);
-    size_t msg_len_offset = guest_mmsghdr_len_offset(current->abi);
+    size_t msg_stride = guest_mmsghdr_size(abi);
+    size_t msg_len_offset = guest_mmsghdr_len_offset(abi);
     for (unsigned i = 0; i < vec_len; i++) {
         guest_addr_t msghdr = msg_vec + i * msg_stride;
-        int_t res = sys_sendmsg_guest(sock_fd, msghdr, flags);
+        int_t res = sys_sendmsg_guest_abi(sock_fd, msghdr, flags, abi);
         if (res >= 0) {
             guest_addr_t msg_len_addr = msghdr + msg_len_offset;
             if (user_put(msg_len_addr, res))
@@ -3886,8 +4068,20 @@ int_t sys_sendmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int
     return num_sent;
 }
 
+int_t sys_sendmmsg_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags) {
+    return sys_sendmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, GUEST_ABI_I386);
+}
+
 int_t sys_sendmmsg(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
     return sys_sendmmsg_guest(sock_fd, msg_vec, vec_len, flags);
+}
+
+int_t sys_sendmmsg_amd64(fd_t sock_fd, addr_t msg_vec, uint_t vec_len, int_t flags) {
+    return sys_sendmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, GUEST_ABI_AMD64);
+}
+
+int_t sys_sendmmsg_amd64_guest(fd_t sock_fd, guest_addr_t msg_vec, uint_t vec_len, int_t flags) {
+    return sys_sendmmsg_guest_abi(sock_fd, msg_vec, vec_len, flags, GUEST_ABI_AMD64);
 }
 
 static void sock_translate_err(struct fd *fd, int *err) {

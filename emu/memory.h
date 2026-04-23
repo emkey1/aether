@@ -12,12 +12,10 @@
 struct jit;
 #endif
 
-struct pt_directory;
+struct pt_directory_chunk;
 
 struct mem {
-    struct pt_directory *pgdirs;
-    size_t pgdir_count;
-    size_t pgdir_capacity;
+    _Atomic(struct pt_directory_chunk *) *pgdir_root;
     page_t page_limit;
     page_t mmap_floor;
     page_t mmap_ceiling;
@@ -39,6 +37,11 @@ struct mem {
 #define MEM_DEFAULT_MMAP_CEILING ((page_t) 0xf7ffe)
 #define MEM_PTDIR_BITS 10
 #define MEM_PTDIR_SIZE (1 << MEM_PTDIR_BITS)
+#define MEM_PGDIR_MID_BITS 13
+#define MEM_PGDIR_MID_SIZE (1 << MEM_PGDIR_MID_BITS)
+#define MEM_PGDIR_ROOT_BITS 12
+#define MEM_PGDIR_ROOT_SIZE (1 << MEM_PGDIR_ROOT_BITS)
+#define MEM_MAX_PAGE_LIMIT ((page_t) 1 << (MEM_PTDIR_BITS + MEM_PGDIR_MID_BITS + MEM_PGDIR_ROOT_BITS))
 
 // Initialize the address space
 void mem_init(struct mem *mem);
@@ -51,6 +54,7 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page);
 // Increment *page, skipping over unallocated page directories. Intended to be
 // used as the incremenent in a for loop to traverse mappings.
 void mem_next_page(struct mem *mem, page_t *page);
+size_t mem_mapped_page_count(struct mem *mem);
 
 #define BYTES_ROUND_DOWN(bytes) (PAGE(bytes) << PAGE_BITS)
 #define BYTES_ROUND_UP(bytes) (PAGE_ROUND_UP(bytes) << PAGE_BITS)
@@ -79,10 +83,6 @@ struct pt_entry {
 #if ENGINE_JIT
     struct list blocks[2];
 #endif
-};
-struct pt_directory {
-    page_t top;
-    struct pt_entry *entries;
 };
 // page flags
 // P_READ and P_EXEC are ignored for now

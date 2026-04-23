@@ -389,7 +389,7 @@ int generic_utime(struct fd *at, const char *path_raw, struct timespec atime, st
         return _ENOENT;
     err = _EPERM;
     if (mount->fs->utime)
-        err = mount->fs->utime(mount, path, atime, mtime);
+        err = mount->fs->utime(mount, path, atime, mtime, follow_links);
     mount_release(mount);
     return err;
 }

@@ -113,17 +113,7 @@ static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsi
 // Intentionally lock-free: the count is only used for /proc reporting, so a
 // slightly stale snapshot is acceptable.
 static size_t proc_mem_count_pages(struct mem *mem) {
-    if (mem == NULL)
-        return 0;
-    size_t count = 0;
-    for (size_t i = 0; i < mem->pgdir_count; i++) {
-        struct pt_entry *entries = mem->pgdirs[i].entries;
-        for (int j = 0; j < MEM_PTDIR_SIZE; j++) {
-            if (entries[j].data != NULL)
-                count++;
-        }
-    }
-    return count;
+    return mem_mapped_page_count(mem);
 }
 
 static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {

@@ -77,6 +77,117 @@ static void amd64_trace_copy_user_path(qword_t guest_path, char *buf, size_t siz
     buf[size - 1] = '\0';
 }
 
+static bool dpkg_overflow_trace_enabled(void) {
+    if (current == NULL)
+        return false;
+    return strncmp(current->comm, "dpkg", 4) == 0 ||
+        strcmp(current->comm, "apt") == 0 ||
+        strcmp(current->comm, "apt-get") == 0;
+}
+
+static void dpkg_overflow_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
+    if (!dpkg_overflow_trace_enabled() || (sqword_t) result != _EOVERFLOW)
+        return;
+
+    char path[128] = "";
+    bool have_path = false;
+    bool have_fd = false;
+    qword_t fd = 0;
+
+    switch (current->abi) {
+    case GUEST_ABI_I386:
+        switch (syscall_num) {
+        case 33:  // access
+        case 106: // stat
+        case 107: // lstat
+        case 195: // stat64
+        case 196: // lstat64
+            amd64_trace_copy_user_path(raw_args[0], path, sizeof(path));
+            have_path = true;
+            break;
+        case 108: // fstat
+        case 197: // fstat64
+            fd = raw_args[0];
+            have_fd = true;
+            break;
+        case 295: // openat
+        case 300: // fstatat64
+        case 307: // faccessat
+        case 383: // statx
+            amd64_trace_copy_user_path(raw_args[1], path, sizeof(path));
+            have_path = true;
+            fd = raw_args[0];
+            have_fd = true;
+            break;
+        default:
+            break;
+        }
+        break;
+    case GUEST_ABI_AMD64:
+        switch (syscall_num) {
+        case 4:   // stat
+        case 6:   // lstat
+        case 21:  // access
+            amd64_trace_copy_user_path(raw_args[0], path, sizeof(path));
+            have_path = true;
+            break;
+        case 5:   // fstat
+            fd = raw_args[0];
+            have_fd = true;
+            break;
+        case 257: // openat
+        case 262: // newfstatat
+        case 269: // faccessat
+        case 332: // statx
+            amd64_trace_copy_user_path(raw_args[1], path, sizeof(path));
+            have_path = true;
+            fd = raw_args[0];
+            have_fd = true;
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+
+    if (have_path && have_fd) {
+        fprintf(stderr,
+                "ish-dpkgsys:eoverflow pid=%d tgid=%d abi=%d comm=%s nr=%llu fd=%#llx path=%s a2=%#llx a3=%#llx\n",
+                current->pid, current->tgid, current->abi, current->comm,
+                (unsigned long long) syscall_num, (unsigned long long) fd,
+                path, (unsigned long long) raw_args[2], (unsigned long long) raw_args[3]);
+        return;
+    }
+    if (have_path) {
+        fprintf(stderr,
+                "ish-dpkgsys:eoverflow pid=%d tgid=%d abi=%d comm=%s nr=%llu path=%s a1=%#llx a2=%#llx a3=%#llx\n",
+                current->pid, current->tgid, current->abi, current->comm,
+                (unsigned long long) syscall_num, path,
+                (unsigned long long) raw_args[1], (unsigned long long) raw_args[2],
+                (unsigned long long) raw_args[3]);
+        return;
+    }
+    if (have_fd) {
+        fprintf(stderr,
+                "ish-dpkgsys:eoverflow pid=%d tgid=%d abi=%d comm=%s nr=%llu fd=%#llx a1=%#llx a2=%#llx a3=%#llx\n",
+                current->pid, current->tgid, current->abi, current->comm,
+                (unsigned long long) syscall_num, (unsigned long long) fd,
+                (unsigned long long) raw_args[1], (unsigned long long) raw_args[2],
+                (unsigned long long) raw_args[3]);
+        return;
+    }
+
+    fprintf(stderr,
+            "ish-dpkgsys:eoverflow pid=%d tgid=%d abi=%d comm=%s nr=%llu a0=%#llx a1=%#llx a2=%#llx a3=%#llx a4=%#llx a5=%#llx\n",
+            current->pid, current->tgid, current->abi, current->comm,
+            (unsigned long long) syscall_num,
+            (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+            (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+            (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
+}
+
 enum { AMD64_TRACE_LINEAGE_MAX = 32 };
 static pid_t_ amd64_traced_exec_pid;
 static pid_t_ amd64_traced_exec_tgid;
@@ -1067,7 +1178,7 @@ static syscall_t amd64_syscall_table[453] = {
     [5] = (syscall_t) sys_fstat_amd64,
     [6] = (syscall_t) sys_lstat_amd64,
     [7] = (syscall_t) sys_poll,
-    [8] = (syscall_t) sys_lseek,
+    [8] = (syscall_t) sys_lseek_amd64,
     [9] = (syscall_t) sys_mmap_amd64,
     [10] = (syscall_t) sys_mprotect,
     [11] = (syscall_t) sys_munmap,
@@ -1078,11 +1189,11 @@ static syscall_t amd64_syscall_table[453] = {
     [17] = (syscall_t) sys_pread_amd64,
     [18] = (syscall_t) sys_pwrite_amd64,
     [16] = (syscall_t) sys_ioctl,
-    [19] = (syscall_t) sys_readv,
-    [20] = (syscall_t) sys_writev,
+    [19] = (syscall_t) sys_readv_amd64,
+    [20] = (syscall_t) sys_writev_amd64,
     [21] = (syscall_t) sys_access,
     [22] = (syscall_t) sys_pipe,
-    [23] = (syscall_t) sys_select,
+    [23] = (syscall_t) sys_select_amd64,
     [24] = (syscall_t) sys_sched_yield,
     [25] = (syscall_t) sys_mremap,
     [26] = (syscall_t) sys_msync,
@@ -1093,9 +1204,9 @@ static syscall_t amd64_syscall_table[453] = {
     [32] = (syscall_t) sys_dup,
     [33] = (syscall_t) sys_dup2,
     [34] = (syscall_t) sys_pause,
-    [35] = (syscall_t) sys_nanosleep,
+    [35] = (syscall_t) sys_nanosleep_amd64,
     [37] = (syscall_t) sys_alarm,
-    [38] = (syscall_t) sys_setitimer,
+    [38] = (syscall_t) sys_setitimer_amd64,
     [39] = (syscall_t) sys_getpid,
     [40] = (syscall_t) sys_sendfile,
     [41] = (syscall_t) sys_socket,
@@ -1103,16 +1214,16 @@ static syscall_t amd64_syscall_table[453] = {
     [43] = (syscall_t) sys_accept,
     [44] = (syscall_t) sys_sendto,
     [45] = (syscall_t) sys_recvfrom,
-    [46] = (syscall_t) sys_sendmsg,
-    [47] = (syscall_t) sys_recvmsg,
+    [46] = (syscall_t) sys_sendmsg_amd64,
+    [47] = (syscall_t) sys_recvmsg_amd64,
     [48] = (syscall_t) sys_shutdown,
     [49] = (syscall_t) sys_bind,
     [50] = (syscall_t) sys_listen,
     [51] = (syscall_t) sys_getsockname,
     [52] = (syscall_t) sys_getpeername,
     [53] = (syscall_t) sys_socketpair,
-    [54] = (syscall_t) sys_setsockopt,
-    [55] = (syscall_t) sys_getsockopt,
+    [54] = (syscall_t) sys_setsockopt_amd64,
+    [55] = (syscall_t) sys_getsockopt_amd64,
     [56] = (syscall_t) sys_clone,
     [57] = (syscall_t) sys_fork,
     [58] = (syscall_t) sys_vfork,
@@ -1122,13 +1233,13 @@ static syscall_t amd64_syscall_table[453] = {
     [62] = (syscall_t) sys_kill,
     [63] = (syscall_t) sys_uname,
     [67] = (syscall_t) sys_shmdt,
-    [72] = (syscall_t) sys_fcntl,
+    [72] = (syscall_t) sys_fcntl_amd64,
     [73] = (syscall_t) sys_flock,
     [74] = (syscall_t) sys_fsync,
     [75] = (syscall_t) sys_fsync, // fdatasync
     [76] = (syscall_t) sys_truncate_amd64,
     [77] = (syscall_t) sys_ftruncate_amd64,
-    [78] = (syscall_t) sys_getdents,
+    [78] = (syscall_t) sys_getdents_amd64,
     [79] = (syscall_t) sys_getcwd,
     [80] = (syscall_t) sys_chdir,
     [81] = (syscall_t) sys_fchdir,
@@ -1142,11 +1253,11 @@ static syscall_t amd64_syscall_table[453] = {
     [89] = (syscall_t) sys_readlink,
     [90] = (syscall_t) sys_chmod,
     [91] = (syscall_t) sys_fchmod,
-    [92] = (syscall_t) sys_chown32,
-    [93] = (syscall_t) sys_fchown32,
-    [94] = (syscall_t) sys_lchown,
+    [92] = (syscall_t) sys_chown_amd64,
+    [93] = (syscall_t) sys_fchown_amd64,
+    [94] = (syscall_t) sys_lchown_amd64,
     [95] = (syscall_t) sys_umask,
-    [96] = (syscall_t) sys_gettimeofday,
+    [96] = (syscall_t) sys_gettimeofday_amd64,
     [97] = (syscall_t) sys_getrlimit64,
     [98] = (syscall_t) sys_getrusage,
     [99] = (syscall_t) sys_sysinfo,
@@ -1182,7 +1293,7 @@ static syscall_t amd64_syscall_table[453] = {
     [129] = (syscall_t) sys_rt_sigqueueinfo,
     [130] = (syscall_t) sys_rt_sigsuspend,
     [131] = (syscall_t) sys_sigaltstack,
-    [132] = (syscall_t) sys_utime,
+    [132] = (syscall_t) sys_utime_amd64,
     [133] = (syscall_t) sys_mknod,
     [135] = (syscall_t) sys_personality,
     [137] = (syscall_t) sys_statfs_amd64,
@@ -1212,27 +1323,27 @@ static syscall_t amd64_syscall_table[453] = {
     [187] = (syscall_t) syscall_success_stub, // readahead
     [188 ... 199] = (syscall_t) sys_xattr_stub,
     [200] = (syscall_t) sys_tkill,
-    [201] = (syscall_t) sys_time,
+    [201] = (syscall_t) sys_time_amd64,
     [202] = (syscall_t) sys_futex,
     [203] = (syscall_t) sys_sched_setaffinity,
     [204] = (syscall_t) sys_sched_getaffinity,
     [213] = (syscall_t) sys_epoll_create0,
     [217] = (syscall_t) sys_getdents64,
     [218] = (syscall_t) sys_set_tid_address,
-    [222] = (syscall_t) sys_timer_create,
+    [222] = (syscall_t) sys_timer_create_amd64,
     [223] = (syscall_t) sys_timer_settime,
     [224] = (syscall_t) sys_timer_gettime,
     [225] = (syscall_t) sys_timer_getoverrun,
     [226] = (syscall_t) sys_timer_delete,
     [227] = (syscall_t) sys_clock_settime,
-    [228] = (syscall_t) sys_clock_gettime,
-    [229] = (syscall_t) sys_clock_getres,
-    [230] = (syscall_t) sys_clock_nanosleep,
+    [228] = (syscall_t) sys_clock_gettime_amd64,
+    [229] = (syscall_t) sys_clock_getres_amd64,
+    [230] = (syscall_t) sys_clock_nanosleep_amd64,
     [231] = (syscall_t) sys_exit_group,
     [232] = (syscall_t) sys_epoll_wait,
     [233] = (syscall_t) sys_epoll_ctl,
     [234] = (syscall_t) sys_tgkill,
-    [235] = (syscall_t) sys_utimes,
+    [235] = (syscall_t) sys_utimes_amd64,
     [237] = (syscall_t) sys_mbind,
     [238] = (syscall_t) sys_set_mempolicy,
     [239] = (syscall_t) sys_get_mempolicy,
@@ -1247,7 +1358,7 @@ static syscall_t amd64_syscall_table[453] = {
     [258] = (syscall_t) sys_mkdirat,
     [259] = (syscall_t) sys_mknodat,
     [260] = (syscall_t) sys_fchownat,
-    [261] = (syscall_t) sys_futimesat,
+    [261] = (syscall_t) sys_futimesat_amd64,
     [262] = (syscall_t) sys_newfstatat_amd64,
     [263] = (syscall_t) sys_unlinkat,
     [264] = (syscall_t) sys_renameat,
@@ -1256,14 +1367,14 @@ static syscall_t amd64_syscall_table[453] = {
     [267] = (syscall_t) sys_readlinkat,
     [268] = (syscall_t) sys_fchmodat,
     [269] = (syscall_t) sys_faccessat,
-    [270] = (syscall_t) sys_pselect,
-    [271] = (syscall_t) sys_ppoll,
+    [270] = (syscall_t) sys_pselect_amd64,
+    [271] = (syscall_t) sys_ppoll_amd64,
     [272] = (syscall_t) sys_unshare,
-    [273] = (syscall_t) sys_set_robust_list,
-    [274] = (syscall_t) sys_get_robust_list,
+    [273] = (syscall_t) sys_set_robust_list_amd64,
+    [274] = (syscall_t) sys_get_robust_list_amd64,
     [275] = (syscall_t) sys_splice,
     [277] = (syscall_t) syscall_stub_silent, // sync_file_range
-    [280] = (syscall_t) sys_utimensat,
+    [280] = (syscall_t) sys_utimensat_amd64,
     [281] = (syscall_t) sys_epoll_pwait,
     [282] = (syscall_t) sys_signalfd,
     [283] = (syscall_t) sys_timerfd_create,
@@ -1278,9 +1389,9 @@ static syscall_t amd64_syscall_table[453] = {
     [292] = (syscall_t) sys_dup3,
     [293] = (syscall_t) sys_pipe2,
     [294] = (syscall_t) sys_inotify_init1,
-    [299] = (syscall_t) sys_recvmmsg,
+    [299] = (syscall_t) sys_recvmmsg_amd64,
     [302] = (syscall_t) sys_prlimit64,
-    [307] = (syscall_t) sys_sendmmsg,
+    [307] = (syscall_t) sys_sendmmsg_amd64,
     [309] = (syscall_t) syscall_success_stub, // getcpu
     [310] = (syscall_t) sys_process_vm_readv,
     [316] = (syscall_t) sys_renameat2,
@@ -1289,7 +1400,7 @@ static syscall_t amd64_syscall_table[453] = {
     [322] = (syscall_t) sys_execveat,
     [324] = (syscall_t) sys_membarrier,
     [326] = (syscall_t) sys_copy_file_range,
-    [332] = (syscall_t) sys_statx,
+    [332] = (syscall_t) sys_statx_amd64,
     [334] = (syscall_t) sys_rseq,
     [403] = (syscall_t) sys_clock_gettime64,
     [404] = (syscall_t) sys_clock_settime64,
@@ -1501,7 +1612,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[4], (dword_t) raw_args[5]));
         return true;
     case 8:
-        amd64_syscall_result_qword(cpu, (qword_t) sys_lseek_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) sys_lseek_amd64_guest(
                 (fd_t) raw_args[0], (off_t_) raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 45:
@@ -1518,11 +1629,11 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (off_t_) raw_args[3]));
         return true;
     case 19:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_readv_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_readv_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 20:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_writev_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_writev_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 21:
@@ -1534,7 +1645,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0]));
         return true;
     case 23:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_select_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_select_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]));
         return true;
     case 293:
@@ -1542,11 +1653,11 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0], (int_t) raw_args[1]));
         return true;
     case 35:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_nanosleep_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_nanosleep_amd64_guest(
                 raw_args[0], raw_args[1]));
         return true;
     case 38:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setitimer_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setitimer_amd64_guest(
                 (int_t) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 49:
@@ -1562,21 +1673,21 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 54:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setsockopt_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setsockopt_amd64_guest(
                 (fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2],
                 raw_args[3], (dword_t) raw_args[4]));
         return true;
     case 55:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getsockopt_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getsockopt_amd64_guest(
                 (fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2],
                 raw_args[3], raw_args[4]));
         return true;
     case 46:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendmsg_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendmsg_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
         return true;
     case 47:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_recvmsg_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_recvmsg_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
         return true;
     case 53:
@@ -1607,7 +1718,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0], (dword_t) raw_args[1], (dword_t) (raw_args[1] >> 32)));
         return true;
     case 78:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getdents_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getdents_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 79:
@@ -1652,15 +1763,19 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0], (dword_t) raw_args[1]));
         return true;
     case 92:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chown32_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_chown_amd64_guest(
                 raw_args[0], (uid_t_) raw_args[1], (uid_t_) raw_args[2]));
         return true;
+    case 93:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fchown_amd64(
+                (fd_t) raw_args[0], (uid_t_) raw_args[1], (uid_t_) raw_args[2]));
+        return true;
     case 94:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_lchown_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_lchown_amd64_guest(
                 raw_args[0], (uid_t_) raw_args[1], (uid_t_) raw_args[2]));
         return true;
     case 96:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_gettimeofday_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_gettimeofday_amd64_guest(
                 raw_args[0], raw_args[1]));
         return true;
     case 97:
@@ -1704,7 +1819,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (dword_t) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
     case 201:
-        amd64_syscall_result_qword(cpu, sys_time_guest(raw_args[0]));
+        amd64_syscall_result_qword(cpu, sys_time_amd64_guest(raw_args[0]));
         return true;
     case 131:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sigaltstack_guest(
@@ -1719,7 +1834,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]));
         return true;
     case 132:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utime_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utime_amd64_guest(
                 raw_args[0], raw_args[1]));
         return true;
     case 133:
@@ -1791,7 +1906,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0]));
         return true;
     case 222:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_create_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_create_amd64_guest(
                 (dword_t) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 223:
@@ -1803,15 +1918,15 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 228:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_gettime_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_gettime_amd64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 229:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_getres_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_getres_amd64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 230:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_nanosleep_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_nanosleep_amd64_guest(
                 (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
     case 217:
@@ -1835,7 +1950,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], (int_t) raw_args[1], (fd_t) raw_args[2], raw_args[3]));
         return true;
     case 235:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimes_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimes_amd64_guest(
                 raw_args[0], raw_args[1]));
         return true;
     case 288:
@@ -1860,7 +1975,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (int) raw_args[4]));
         return true;
     case 261:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_futimesat_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_futimesat_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 262:
@@ -1901,23 +2016,23 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]));
         return true;
     case 270:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5]));
         return true;
     case 271:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_amd64_guest(
                 raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3], (dword_t) raw_args[4]));
         return true;
     case 273:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_set_robust_list_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_set_robust_list_amd64_guest(
                 raw_args[0], (dword_t) raw_args[1]));
         return true;
     case 274:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_get_robust_list_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_get_robust_list_amd64_guest(
                 (pid_t_) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 280:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
         return true;
     case 282:
@@ -1938,7 +2053,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (int_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (int_t) raw_args[3]));
         return true;
     case 299:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_recvmmsg_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_recvmmsg_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3],
                 raw_args[4]));
         return true;
@@ -1983,7 +2098,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1]));
         return true;
     case 307:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendmmsg_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendmmsg_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3]));
         return true;
     case 286:
@@ -1995,7 +2110,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1]));
         return true;
     case 332:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_statx_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_statx_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3],
                 raw_args[4]));
         return true;
@@ -2026,7 +2141,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (dword_t) raw_args[4], (dword_t) raw_args[5]));
         return true;
     case 72:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fcntl_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fcntl_amd64_guest(
                 (fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]));
         return true;
     case 29:
@@ -2111,15 +2226,15 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
     case 412:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat64(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
         return true;
     case 413:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_time64(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5]));
         return true;
     case 414:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_time64(
                 raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3], (dword_t) raw_args[4]));
         return true;
     case 59:
@@ -2556,6 +2671,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         return;
     }
 
+    // The tracer can rewrite the live register file at syscall-entry stops,
+    // so decode the syscall only after the tracee is resumed.
+    if (current->ptrace.traced && current->ptrace.stop_at_syscall) {
+        ptrace_syscall_stop(cpu);
+    }
+
     qword_t raw_args[6];
     dword_t args[6];
     qword_t syscall_num = dispatch->syscall_number(cpu);
@@ -2565,9 +2686,6 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
-
-    if (current->ptrace.traced && current->ptrace.stop_at_syscall)
-        ptrace_syscall_stop(cpu);
 
     syscall_t syscall = dispatch->table[syscall_num];
     if (syscall == NULL) {
@@ -2591,12 +2709,14 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
         amd64_tracked_einval_trace(syscall_num, raw_args, result);
         amd64_tracked_errno_trace(syscall_num, raw_args, result);
+        dpkg_overflow_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_sigabrt_trace(syscall_num, raw_args, result);
         amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
-        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
+                current->ptrace.syscall_stopped)
             ptrace_syscall_stop(cpu);
         return;
     }
@@ -2608,12 +2728,14 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_tracked_enoent_path_trace(syscall_num, raw_args, result);
         amd64_tracked_einval_trace(syscall_num, raw_args, result);
         amd64_tracked_errno_trace(syscall_num, raw_args, result);
+        dpkg_overflow_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_sigabrt_trace(syscall_num, raw_args, result);
         amd64_tracked_write_trace(syscall_num, raw_args, result);
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
-        if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
+                current->ptrace.syscall_stopped)
             ptrace_syscall_stop(cpu);
         return;
     }
@@ -2634,6 +2756,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     amd64_tracked_enoent_path_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_einval_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_errno_trace(syscall_num, raw_args, trace_result);
+    dpkg_overflow_syscall_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_sigabrt_trace(syscall_num, raw_args, trace_result);
     amd64_tracked_write_trace(syscall_num, raw_args, trace_result);
     amd64_enomem_syscall_trace(syscall_num, raw_args, trace_result);
@@ -2642,14 +2765,16 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     if (syscall_result_should_restart(result)) {
         if (current->ptrace.traced && current->ptrace.stop_at_syscall) {
             dispatch->syscall_result(cpu, result);
-            ptrace_syscall_stop(cpu);
+            if (current->ptrace.syscall_stopped)
+                ptrace_syscall_stop(cpu);
         }
         prepare_syscall_restart(cpu, dispatch, syscall_num);
         STRACE(" = restart\n");
         return;
     }
     dispatch->syscall_result(cpu, result);
-    if (current->ptrace.traced && current->ptrace.stop_at_syscall)
+    if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
+            current->ptrace.syscall_stopped)
         ptrace_syscall_stop(cpu);
     STRACE(" = 0x%x\n", result);
 }

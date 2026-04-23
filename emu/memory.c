@@ -31,91 +31,64 @@ extern const char extra_lock_comm;
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
 static _Atomic uint64_t next_mem_change_id = 1;
-#define PGDIR_TOP(page) ((page) >> MEM_PTDIR_BITS)
-#define PGDIR_BOTTOM(page) ((page) & (MEM_PTDIR_SIZE - 1))
+#define PGDIR_ROOT_INDEX(page) ((page) >> (MEM_PTDIR_BITS + MEM_PGDIR_MID_BITS))
+#define PGDIR_MID_INDEX(page) (((page) >> MEM_PTDIR_BITS) & (MEM_PGDIR_MID_SIZE - 1))
+#define PGDIR_LEAF_INDEX(page) ((page) & (MEM_PTDIR_SIZE - 1))
+#define PGDIR_LEAF_BASE(root, mid) ((((page_t) (root) << MEM_PGDIR_MID_BITS) | (page_t) (mid)) << MEM_PTDIR_BITS)
 
-static size_t mem_pgdir_lower_bound(struct mem *mem, page_t top, bool *found) {
-    size_t lo = 0;
-    size_t hi = mem->pgdir_count;
-    while (lo < hi) {
-        size_t mid = lo + (hi - lo) / 2;
-        if (mem->pgdirs[mid].top < top)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    if (found != NULL)
-        *found = lo < mem->pgdir_count && mem->pgdirs[lo].top == top;
-    return lo;
-}
+struct pt_directory_chunk {
+    _Atomic(struct pt_entry *) leaves[MEM_PGDIR_MID_SIZE];
+};
 
-static struct pt_directory *mem_pgdir_get(struct mem *mem, page_t top) {
-    bool found;
-    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
-    if (!found)
+static struct pt_directory_chunk *mem_pgdir_chunk_get(struct mem *mem, page_t page) {
+    if (page >= mem->page_limit)
         return NULL;
-    return &mem->pgdirs[slot];
+    return atomic_load_explicit(&mem->pgdir_root[PGDIR_ROOT_INDEX(page)], memory_order_acquire);
 }
 
-static struct pt_directory *mem_pgdir_insert(struct mem *mem, page_t top) {
-    bool found;
-    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
-    if (found)
-        return &mem->pgdirs[slot];
+static struct pt_directory_chunk *mem_pgdir_chunk_new(struct mem *mem, page_t page) {
+    struct pt_directory_chunk *chunk = mem_pgdir_chunk_get(mem, page);
+    if (chunk != NULL)
+        return chunk;
 
-    struct pt_entry *entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
+    chunk = calloc(1, sizeof(*chunk));
+    if (chunk == NULL)
+        return NULL;
+    atomic_store_explicit(&mem->pgdir_root[PGDIR_ROOT_INDEX(page)], chunk, memory_order_release);
+    return chunk;
+}
+
+static struct pt_entry *mem_pt_leaf_get(struct mem *mem, page_t page) {
+    struct pt_directory_chunk *chunk = mem_pgdir_chunk_get(mem, page);
+    if (chunk == NULL)
+        return NULL;
+    return atomic_load_explicit(&chunk->leaves[PGDIR_MID_INDEX(page)], memory_order_acquire);
+}
+
+static struct pt_entry *mem_pt_leaf_new(struct mem *mem, page_t page) {
+    struct pt_directory_chunk *chunk = mem_pgdir_chunk_new(mem, page);
+    if (chunk == NULL)
+        return NULL;
+
+    _Atomic(struct pt_entry *) *slot = &chunk->leaves[PGDIR_MID_INDEX(page)];
+    struct pt_entry *entries = atomic_load_explicit(slot, memory_order_acquire);
+    if (entries != NULL)
+        return entries;
+
+    entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
     if (entries == NULL)
         return NULL;
-
-    if (mem->pgdir_count == mem->pgdir_capacity) {
-        size_t new_capacity = mem->pgdir_capacity == 0 ? 4 : mem->pgdir_capacity * 2;
-        struct pt_directory *new_pgdirs = realloc(mem->pgdirs, new_capacity * sizeof(*new_pgdirs));
-        if (new_pgdirs == NULL) {
-            free(entries);
-            return NULL;
-        }
-        mem->pgdirs = new_pgdirs;
-        mem->pgdir_capacity = new_capacity;
-    }
-
-    if (slot < mem->pgdir_count) {
-        memmove(&mem->pgdirs[slot + 1], &mem->pgdirs[slot],
-                (mem->pgdir_count - slot) * sizeof(*mem->pgdirs));
-    }
-
-    mem->pgdirs[slot] = (struct pt_directory) {
-        .top = top,
-        .entries = entries,
-    };
-    mem->pgdir_count++;
-    return &mem->pgdirs[slot];
-}
-
-static void mem_pgdir_remove_if_empty(struct mem *mem, page_t top) {
-    struct pt_directory *dir = mem_pgdir_get(mem, top);
-    if (dir == NULL)
-        return;
-    for (int i = 0; i < MEM_PTDIR_SIZE; i++) {
-        if (dir->entries[i].data != NULL)
-            return;
-    }
-
-    size_t slot = dir - mem->pgdirs;
-    free(dir->entries);
-    if (slot + 1 < mem->pgdir_count) {
-        memmove(&mem->pgdirs[slot], &mem->pgdirs[slot + 1],
-                (mem->pgdir_count - slot - 1) * sizeof(*mem->pgdirs));
-    }
-    mem->pgdir_count--;
+    atomic_store_explicit(slot, entries, memory_order_release);
+    return entries;
 }
 
 static struct pt_entry *mem_pt_raw(struct mem *mem, page_t page) {
     if (page >= mem->page_limit)
         return NULL;
-    struct pt_directory *dir = mem_pgdir_get(mem, PGDIR_TOP(page));
-    if (dir == NULL)
+    struct pt_entry *entries = mem_pt_leaf_get(mem, page);
+    if (entries == NULL)
         return NULL;
-    return &dir->entries[PGDIR_BOTTOM(page)];
+    return &entries[PGDIR_LEAF_INDEX(page)];
 }
 
 static bool mem_page_range_valid(struct mem *mem, page_t start, pages_t pages) {
@@ -126,33 +99,84 @@ static bool mem_page_range_valid(struct mem *mem, page_t start, pages_t pages) {
     return pages <= mem->page_limit - start;
 }
 
+static int mem_ensure_host_writable(struct pt_entry *entry) {
+    if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
+        return 0;
+    void *data = (char *) entry->data->data + entry->offset;
+    data = (void *) ((uintptr_t) data & ~(real_page_size - 1));
+    if (mprotect(data, real_page_size, PROT_READ | PROT_WRITE) < 0)
+        return errno_map();
+    return 0;
+}
+
+static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
+    if (page >= mem->page_limit)
+        return BAD_PAGE;
+
+    page_t root = PGDIR_ROOT_INDEX(page);
+    page_t mid = PGDIR_MID_INDEX(page);
+    for (; root < MEM_PGDIR_ROOT_SIZE; root++) {
+        struct pt_directory_chunk *chunk =
+            atomic_load_explicit(&mem->pgdir_root[root], memory_order_acquire);
+        if (chunk == NULL) {
+            mid = 0;
+            continue;
+        }
+        for (; mid < MEM_PGDIR_MID_SIZE; mid++) {
+            struct pt_entry *entries =
+                atomic_load_explicit(&chunk->leaves[mid], memory_order_acquire);
+            if (entries == NULL)
+                continue;
+            page_t base = PGDIR_LEAF_BASE(root, mid);
+            return base < mem->page_limit ? base : BAD_PAGE;
+        }
+        mid = 0;
+    }
+    return BAD_PAGE;
+}
+
 static page_t mem_next_mapped_page(struct mem *mem, page_t page) {
     if (page >= mem->page_limit)
         return BAD_PAGE;
 
-    page_t top = PGDIR_TOP(page);
-    bool found;
-    size_t slot = mem_pgdir_lower_bound(mem, top, &found);
-    for (; slot < mem->pgdir_count; slot++) {
-        struct pt_directory *dir = &mem->pgdirs[slot];
-        page_t dir_start = dir->top << MEM_PTDIR_BITS;
-        int start_index = 0;
-        if (dir->top == top)
-            start_index = (int) PGDIR_BOTTOM(page);
-        for (int i = start_index; i < MEM_PTDIR_SIZE; i++) {
-            if (dir->entries[i].data == NULL)
+    page_t leaf_base = page - PGDIR_LEAF_INDEX(page);
+    while (leaf_base < mem->page_limit) {
+        struct pt_entry *entries = mem_pt_leaf_get(mem, leaf_base);
+        if (entries == NULL) {
+            leaf_base = mem_next_allocated_leaf_base(mem, page);
+            if (leaf_base == BAD_PAGE)
+                return BAD_PAGE;
+            entries = mem_pt_leaf_get(mem, leaf_base);
+            if (entries == NULL) {
+                page = leaf_base + MEM_PTDIR_SIZE;
+                leaf_base = page;
                 continue;
-            page_t mapped = dir_start + (page_t) i;
+            }
+        }
+
+        int start_index = leaf_base == page - PGDIR_LEAF_INDEX(page) ?
+            (int) PGDIR_LEAF_INDEX(page) : 0;
+        for (int i = start_index; i < MEM_PTDIR_SIZE; i++) {
+            if (entries[i].data == NULL)
+                continue;
+            page_t mapped = leaf_base + (page_t) i;
             return mapped < mem->page_limit ? mapped : BAD_PAGE;
         }
+
+        page = leaf_base + MEM_PTDIR_SIZE;
+        if (page >= mem->page_limit)
+            break;
+        leaf_base = mem_next_allocated_leaf_base(mem, page);
+        if (leaf_base == BAD_PAGE)
+            break;
     }
     return BAD_PAGE;
 }
 
 void mem_init(struct mem *mem) {
-    mem->pgdirs = NULL;
-    mem->pgdir_count = 0;
-    mem->pgdir_capacity = 0;
+    mem->pgdir_root = calloc(MEM_PGDIR_ROOT_SIZE, sizeof(*mem->pgdir_root));
+    if (mem->pgdir_root == NULL)
+        die("calloc pgdir_root failed");
     mem->page_limit = MEM_DEFAULT_PAGE_LIMIT;
     mem->mmap_floor = MEM_DEFAULT_MMAP_FLOOR;
     mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
@@ -179,18 +203,27 @@ void mem_destroy(struct mem *mem) {
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
 #endif
-    for (size_t i = 0; i < mem->pgdir_count; i++) {
-        free(mem->pgdirs[i].entries);
+    for (size_t root = 0; root < MEM_PGDIR_ROOT_SIZE; root++) {
+        struct pt_directory_chunk *chunk =
+            atomic_load_explicit(&mem->pgdir_root[root], memory_order_acquire);
+        if (chunk == NULL)
+            continue;
+        for (size_t mid = 0; mid < MEM_PGDIR_MID_SIZE; mid++) {
+            struct pt_entry *entries =
+                atomic_load_explicit(&chunk->leaves[mid], memory_order_acquire);
+            free(entries);
+        }
+        free(chunk);
     }
-    free(mem->pgdirs);
-    mem->pgdirs = NULL;
-    mem->pgdir_count = 0;
-    mem->pgdir_capacity = 0;
+    free(mem->pgdir_root);
+    mem->pgdir_root = NULL;
 
     write_unlock_and_destroy(&mem->lock);
 }
 
 void mem_set_page_limit(struct mem *mem, page_t limit) {
+    if (limit > MEM_MAX_PAGE_LIMIT)
+        limit = MEM_MAX_PAGE_LIMIT;
     mem->page_limit = limit;
 }
 
@@ -202,10 +235,10 @@ void mem_set_mmap_window(struct mem *mem, page_t floor, page_t ceiling) {
 static struct pt_entry *mem_pt_new(struct mem *mem, page_t page) {
     if (page >= mem->page_limit)
         return NULL;
-    struct pt_directory *dir = mem_pgdir_insert(mem, PGDIR_TOP(page));
-    if (dir == NULL)
+    struct pt_entry *entries = mem_pt_leaf_new(mem, page);
+    if (entries == NULL)
         return NULL;
-    return &dir->entries[PGDIR_BOTTOM(page)];
+    return &entries[PGDIR_LEAF_INDEX(page)];
 }
 
 struct pt_entry *mem_pt(struct mem *mem, page_t page) {
@@ -220,7 +253,6 @@ static void mem_pt_del(struct mem *mem, page_t page) {
     if (entry == NULL)
         return;
     entry->data = NULL;
-    mem_pgdir_remove_if_empty(mem, PGDIR_TOP(page));
 }
 
 void mem_next_page(struct mem *mem, page_t *page) {
@@ -229,15 +261,44 @@ void mem_next_page(struct mem *mem, page_t *page) {
         *page = mem->page_limit;
         return;
     }
-    if (mem_pgdir_get(mem, PGDIR_TOP(*page)) != NULL)
+    if (mem_pt_leaf_get(mem, *page) != NULL)
         return;
-    bool found;
-    size_t slot = mem_pgdir_lower_bound(mem, PGDIR_TOP(*page), &found);
-    if (slot >= mem->pgdir_count) {
+    page_t next = mem_next_allocated_leaf_base(mem, *page);
+    if (next == BAD_PAGE) {
         *page = mem->page_limit;
         return;
     }
-    *page = mem->pgdirs[slot].top << MEM_PTDIR_BITS;
+    *page = next;
+}
+
+size_t mem_mapped_page_count(struct mem *mem) {
+    if (mem == NULL)
+        return 0;
+
+    size_t count = 0;
+    for (size_t root = 0; root < MEM_PGDIR_ROOT_SIZE; root++) {
+        struct pt_directory_chunk *chunk =
+            atomic_load_explicit(&mem->pgdir_root[root], memory_order_acquire);
+        if (chunk == NULL)
+            continue;
+        for (size_t mid = 0; mid < MEM_PGDIR_MID_SIZE; mid++) {
+            struct pt_entry *entries =
+                atomic_load_explicit(&chunk->leaves[mid], memory_order_acquire);
+            if (entries == NULL)
+                continue;
+            page_t base = PGDIR_LEAF_BASE(root, mid);
+            if (base >= mem->page_limit)
+                return count;
+            size_t limit = MEM_PTDIR_SIZE;
+            if (base + MEM_PTDIR_SIZE > mem->page_limit)
+                limit = (size_t) (mem->page_limit - base);
+            for (size_t i = 0; i < limit; i++) {
+                if (entries[i].data != NULL)
+                    count++;
+            }
+        }
+    }
+    return count;
 }
 
 page_t pt_find_hole(struct mem *mem, pages_t size) {
@@ -253,17 +314,13 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
         if (page > prev_end && page - prev_end >= size)
             best = page - size;
 
-        page_t region_page = page;
-        while (region_page < mem->mmap_ceiling) {
-            struct pt_entry *pt = mem_pt(mem, region_page);
-            if (pt == NULL)
-                break;
-            mem_next_page(mem, &region_page);
+        page_t region_end = page + 1;
+        while (region_end < mem->mmap_ceiling &&
+               mem_next_mapped_page(mem, region_end) == region_end) {
+            region_end++;
         }
-        if (region_page > mem->mmap_ceiling)
-            region_page = mem->mmap_ceiling;
-        prev_end = region_page;
-        page = mem_next_mapped_page(mem, region_page);
+        prev_end = region_end;
+        page = mem_next_mapped_page(mem, region_end);
     }
     if (mem->mmap_ceiling - prev_end >= size)
         best = mem->mmap_ceiling - size;
@@ -334,7 +391,10 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
 int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     if (!mem_page_range_valid(mem, start, pages))
         return -1;
-    for (page_t page = start; page < start + pages; mem_next_page(mem, &page)) {
+    page_t end = start + pages;
+    for (page_t page = mem_next_mapped_page(mem, start);
+         page != BAD_PAGE && page < end;
+         page = mem_next_mapped_page(mem, page + 1)) {
         struct pt_entry *pt = mem_pt(mem, page);
         if (pt == NULL)
             continue;
@@ -426,7 +486,10 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
         return -1;
     mem_ref_cnt_mod(src, 1);
     mem_ref_cnt_mod(dst, 1);
-    for (page_t page = start; page < start + pages; mem_next_page(src, &page)) {
+    page_t end = start + pages;
+    for (page_t page = mem_next_mapped_page(src, start);
+         page != BAD_PAGE && page < end;
+         page = mem_next_mapped_page(src, page + 1)) {
         struct pt_entry *entry = mem_pt(src, page);
         if (entry == NULL)
             continue;
@@ -558,13 +621,28 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
     }
 
 done_write_fault:
+    if (entry != NULL && type != MEM_WRITE_PTRACE && (entry->flags & P_WRITE)) {
+        int host_err = mem_ensure_host_writable(entry);
+        if (host_err < 0)
+            return NULL;
+    }
     void *ptr = mem_ptr_nofault(mem, addr, type);
     assert(old_ptr == NULL || old_ptr == ptr || type == MEM_WRITE_PTRACE);
     return ptr;
 }
 
 static void *mem_mmu_translate(struct mmu *mmu, guest_addr_t addr, int type) {
-    return mem_ptr_nofault(container_of(mmu, struct mem, mmu), addr, type);
+    struct mem *mem = container_of(mmu, struct mem, mmu);
+    void *ptr = mem_ptr_nofault(mem, addr, type);
+    if (ptr == NULL || type != MEM_WRITE)
+        return ptr;
+
+    struct pt_entry *entry = mem_pt(mem, PAGE(addr));
+    if (entry == NULL)
+        return NULL;
+    if (mem_ensure_host_writable(entry) < 0)
+        return NULL;
+    return ptr;
 }
 
 static struct mmu_ops mem_mmu_ops = {
@@ -595,7 +673,9 @@ void mem_coredump(struct mem *mem, const char *file) {
     }
 
     int pages = 0;
-    for (page_t page = 0; page < mem->page_limit; mem_next_page(mem, &page)) {
+    for (page_t page = mem_next_mapped_page(mem, 0);
+         page != BAD_PAGE && page < mem->page_limit;
+         page = mem_next_mapped_page(mem, page + 1)) {
         struct pt_entry *entry = mem_pt(mem, page);
         if (entry == NULL)
             continue;

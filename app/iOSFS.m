@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include "SceneDelegate.h"
 #include "iOSFS.h"
@@ -229,6 +230,59 @@ static int combine_error(NSError *coordinatorError, int err) {
     return posix_error ? posix_error : err;
 }
 
+static bool iosfs_dpkg_trace_task(void) {
+    return current != NULL &&
+        (strncmp(current->comm, "dpkg", 4) == 0 ||
+         strcmp(current->comm, "tar") == 0);
+}
+
+static void iosfs_trace_link_event(const char *stage, struct mount *mount,
+                                   const char *src, const char *dst,
+                                   NSURL *src_url, NSURL *dst_url,
+                                   NSError *error, int err) {
+    if (!iosfs_dpkg_trace_task())
+        return;
+
+    const char *mapped_src = src_url != nil ? path_for_url_in_mount(mount, src_url, src) : src;
+    const char *mapped_dst = dst_url != nil ? path_for_url_in_mount(mount, dst_url, dst) : dst;
+    int posix_error = posixErrorFromNSError(error);
+
+    fprintf(stderr,
+            "ish-iosfs-link:%s pid=%d comm=%s src=%s dst=%s src_url=%s dst_url=%s mapped_src=%s mapped_dst=%s coord_err=%d err=%d\n",
+            stage,
+            current != NULL ? current->pid : -1,
+            current != NULL ? current->comm : "?",
+            src != NULL ? src : "<null>",
+            dst != NULL ? dst : "<null>",
+            src_url != nil ? src_url.path.UTF8String : "<null>",
+            dst_url != nil ? dst_url.path.UTF8String : "<null>",
+            mapped_src != NULL ? mapped_src : "<null>",
+            mapped_dst != NULL ? mapped_dst : "<null>",
+            posix_error, err);
+}
+
+static void iosfs_trace_symlink_event(const char *stage, struct mount *mount,
+                                      const char *target, const char *link,
+                                      NSURL *dst_url,
+                                      NSError *error, int err) {
+    if (!iosfs_dpkg_trace_task())
+        return;
+
+    const char *mapped_link = dst_url != nil ? path_for_url_in_mount(mount, dst_url, link) : link;
+    int posix_error = posixErrorFromNSError(error);
+
+    fprintf(stderr,
+            "ish-iosfs-symlink:%s pid=%d comm=%s target=%s link=%s dst_url=%s mapped_link=%s coord_err=%d err=%d\n",
+            stage,
+            current != NULL ? current->pid : -1,
+            current != NULL ? current->comm : "?",
+            target != NULL ? target : "<null>",
+            link != NULL ? link : "<null>",
+            dst_url != nil ? dst_url.path.UTF8String : "<null>",
+            mapped_link != NULL ? mapped_link : "<null>",
+            posix_error, err);
+}
+
 static struct fd *iosfs_open(struct mount *mount, const char *path, int flags, int mode) {
     NSURL *url = url_for_path_in_mount(mount, path);
 
@@ -312,13 +366,19 @@ static int iosfs_symlink(struct mount *mount, const char *target, const char *li
     NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     NSURL *dst_url = url_for_path_in_mount(mount, link);
 
-    NSError *error;
-    __block int err;
+    NSError *error = nil;
+    __block int err = 0;
+
+    iosfs_trace_symlink_event("begin", mount, target, link, dst_url, nil, 0);
 
     [coordinator coordinateWritingItemAtURL:dst_url options:NSFileCoordinatorWritingForCreating error:&error byAccessor:^(NSURL *url) {
-        err = realfs.symlink(mount, path_for_url_in_mount(mount, url, target), link);
+        const char *mapped_link = path_for_url_in_mount(mount, url, link);
+        iosfs_trace_symlink_event("accessor", mount, target, link, url, nil, 0);
+        err = realfs.symlink(mount, target, mapped_link);
+        iosfs_trace_symlink_event("realfs", mount, target, link, url, nil, err);
     }];
 
+    iosfs_trace_symlink_event("end", mount, target, link, dst_url, error, err);
     return combine_error(error, err);
 }
 
@@ -375,15 +435,28 @@ static int iosfs_getpath(struct fd *fd, char *buf) {
 
 static int iosfs_link(struct mount *mount, const char *src, const char *dst) {
     NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+    NSURL *src_url = url_for_path_in_mount(mount, src);
     NSURL *dst_url = url_for_path_in_mount(mount, dst);
 
-    NSError *error;
-    __block int err;
+    NSError *error = nil;
+    __block int err = 0;
 
-    [coordinator coordinateWritingItemAtURL:dst_url options:NSFileCoordinatorWritingForCreating error:&error byAccessor:^(NSURL *url) {
-        err = realfs.link(mount, src, path_for_url_in_mount(mount, url, dst));
+    iosfs_trace_link_event("begin", mount, src, dst, src_url, dst_url, nil, 0);
+
+    [coordinator coordinateReadingItemAtURL:src_url
+                                    options:NSFileCoordinatorReadingWithoutChanges
+                             writingItemAtURL:dst_url
+                                    options:NSFileCoordinatorWritingForCreating
+                                      error:&error
+                                 byAccessor:^(NSURL *new_src_url, NSURL *new_dst_url) {
+        iosfs_trace_link_event("accessor", mount, src, dst, new_src_url, new_dst_url, nil, 0);
+        err = realfs.link(mount,
+                          path_for_url_in_mount(mount, new_src_url, src),
+                          path_for_url_in_mount(mount, new_dst_url, dst));
+        iosfs_trace_link_event("realfs", mount, src, dst, new_src_url, new_dst_url, nil, err);
     }];
 
+    iosfs_trace_link_event("end", mount, src, dst, src_url, dst_url, error, err);
     return combine_error(error, err);
 }
 
@@ -434,7 +507,7 @@ static int iosfs_fstat(struct fd *fd, struct statbuf *fake_stat) {
     return err;
 }
 
-static int iosfs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime) {
+static int iosfs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime, bool follow_links) {
     NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
     NSURL *in_url = url_for_path_in_mount(mount, path);
 
@@ -442,7 +515,7 @@ static int iosfs_utime(struct mount *mount, const char *path, struct timespec at
     __block int err;
 
     [coordinator coordinateWritingItemAtURL:in_url options:NSFileCoordinatorWritingContentIndependentMetadataOnly error:&error byAccessor:^(NSURL *url) {
-        err = realfs.utime(mount, path_for_url_in_mount(mount, url, path), atime, mtime);
+        err = realfs.utime(mount, path_for_url_in_mount(mount, url, path), atime, mtime, follow_links);
     }];
 
     return combine_error(error, err);

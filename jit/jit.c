@@ -911,10 +911,15 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     int interrupt;
     if (current != NULL && current->force_single_step) {
         interrupt = INT_NONE;
+        int steps = 0;
         while (interrupt == INT_NONE) {
             interrupt = cpu_single_step_no_debug(cpu, tlb);
             if (interrupt == INT_NONE && cpu_take_poke(cpu))
                 interrupt = INT_TIMER;
+            if (interrupt == INT_NONE && ++steps >= 1024) {
+                steps = 0;
+                interrupt = INT_TIMER;
+            }
         }
     } else {
         interrupt = (cpu->tf ? cpu_single_step : cpu_step_to_interrupt)(cpu, tlb); // Crashed here 26 Jul 2022, 27 Aug 2022. -mke

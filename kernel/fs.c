@@ -30,6 +30,53 @@ static bool fs_trace_elogind(void) {
     return false;
 }
 
+static bool http_resolver_trace_enabled(void) {
+    return current != NULL && strncmp(current->comm, "http", 4) == 0;
+}
+
+static bool ldconfig_trace_enabled(void) {
+    return current != NULL && strcmp(current->comm, "ldconfig") == 0;
+}
+
+static bool ldconfig_trace_path(const char *path) {
+    static const char *prefixes[] = {
+        "/lib/i386-linux-gnu",
+        "/usr/lib/i386-linux-gnu",
+        "/etc/ld.so.conf",
+        "/etc/ld.so.conf.d/",
+        "/usr/local/lib/i386-linux-gnu",
+        "/usr/local/lib/i686-linux-gnu",
+        "/lib/i686-linux-gnu",
+        "/usr/lib/i686-linux-gnu",
+    };
+    if (path == NULL)
+        return false;
+    for (unsigned i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        size_t len = strlen(prefixes[i]);
+        if (strncmp(path, prefixes[i], len) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void http_resolver_trace_path_result(const char *op, fd_t at_f, const char *path, long result, unsigned long arg) {
+    if (!http_resolver_trace_enabled() || path == NULL)
+        return;
+    fprintf(stderr, "ish-httpfs:%s pid=%d comm=%s at=%d path=%s arg=%#lx result=%ld\n",
+            op, current->pid, current->comm, at_f, path, arg, result);
+}
+
+static void ldconfig_trace_path_result(const char *op, fd_t at_f, const char *path, long result,
+        unsigned long arg, const char *extra) {
+    if (!ldconfig_trace_enabled() || !ldconfig_trace_path(path))
+        return;
+    fprintf(stderr,
+            "ish-ldconfig-fs:%s pid=%d at=%d path=%s arg=%#lx result=%ld%s%s\n",
+            op, current->pid, at_f, path, arg, result,
+            extra != NULL ? " " : "",
+            extra != NULL ? extra : "");
+}
+
 static bool fs_trace_interesting_path(const char *path) {
     static const char *prefixes[] = {
         "/sys/fs/cgroup",
@@ -216,6 +263,12 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
         return _EBADF;
     STRACE("faccessat(%d, \"%s\", 0x%x, %d)", at_f, path, mode, flags);
 
+    bool trace_dpkg = current != NULL &&
+        (strncmp(current->comm, "dpkg", 4) == 0 ||
+         strcmp(current->comm, "apt") == 0 ||
+         strcmp(current->comm, "apt-get") == 0) &&
+        strncmp(path, "/var/lib/dpkg/", strlen("/var/lib/dpkg/")) == 0;
+
     if (flags & ~FACCESSAT_ALLOWED_FLAGS_)
         return _EINVAL;
 
@@ -229,11 +282,29 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
         if (stat_flags != 0) {
             struct statbuf stat = {};
             int err = generic_statat(at, path, &stat, stat_flags);
+            if (trace_dpkg) {
+                fprintf(stderr,
+                        "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=stat result=%d\n",
+                        current->pid, current->comm, current->abi, at_f, path, mode, flags, err);
+            }
             if (err < 0)
                 return err;
-            return access_check(&stat, mode);
+            err = access_check(&stat, mode);
+            if (trace_dpkg) {
+                fprintf(stderr,
+                        "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=check result=%d dev=%llu ino=%llu\n",
+                        current->pid, current->comm, current->abi, at_f, path, mode, flags, err,
+                        (unsigned long long) stat.dev, (unsigned long long) stat.inode);
+            }
+            return err;
         }
-        return generic_accessat(at, path, mode);
+        int err = generic_accessat(at, path, mode);
+        if (trace_dpkg) {
+            fprintf(stderr,
+                    "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=generic result=%d\n",
+                    current->pid, current->comm, current->abi, at_f, path, mode, flags, err);
+        }
+        return err;
     }
 
     uid_t_ uid_tmp = current->fsuid;
@@ -244,10 +315,26 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
     if (stat_flags != 0) {
         struct statbuf stat = {};
         err = generic_statat(at, path, &stat, stat_flags);
+        if (trace_dpkg) {
+            fprintf(stderr,
+                    "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=stat result=%d\n",
+                    current->pid, current->comm, current->abi, at_f, path, mode, flags, err);
+        }
         if (err >= 0)
             err = access_check(&stat, mode);
+        if (trace_dpkg) {
+            fprintf(stderr,
+                    "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=check result=%d dev=%llu ino=%llu\n",
+                    current->pid, current->comm, current->abi, at_f, path, mode, flags, err,
+                    (unsigned long long) stat.dev, (unsigned long long) stat.inode);
+        }
     } else {
         err = generic_accessat(at, path, mode);
+        if (trace_dpkg) {
+            fprintf(stderr,
+                    "ish-dpkgstat:faccessat pid=%d comm=%s abi=%d at=%d path=%s mode=%#x flags=%#x phase=generic result=%d\n",
+                    current->pid, current->comm, current->abi, at_f, path, mode, flags, err);
+        }
     }
     current->fsuid = uid_tmp;
     current->fsgid = gid_tmp;
@@ -255,13 +342,23 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
 }
 
 dword_t sys_access_guest(guest_addr_t path_addr, dword_t mode) {
-    return sys_faccessat_common(AT_FDCWD_, path_addr, mode, 0);
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    dword_t err = sys_faccessat_common(AT_FDCWD_, path_addr, mode, 0);
+    http_resolver_trace_path_result("access", AT_FDCWD_, path, err, mode);
+    return err;
 }
 dword_t sys_access(addr_t path_addr, dword_t mode) {
     return sys_access_guest(path_addr, mode);
 }
 dword_t sys_faccessat_guest(fd_t at_f, guest_addr_t path_addr, mode_t_ mode, dword_t flags) {
-    return sys_faccessat_common(at_f, path_addr, mode, flags);
+    char path[MAX_PATH];
+    if (user_read_string(path_addr, path, sizeof(path)))
+        return _EFAULT;
+    dword_t err = sys_faccessat_common(at_f, path_addr, mode, flags);
+    http_resolver_trace_path_result("faccessat", at_f, path, err, ((unsigned long) flags << 16) | mode);
+    return err;
 }
 dword_t sys_faccessat(fd_t at_f, addr_t path_addr, mode_t_ mode, dword_t flags) {
     return sys_faccessat_guest(at_f, path_addr, mode, flags);
@@ -284,10 +381,16 @@ fd_t sys_openat_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, mode_t_ 
         fd = generic_openat(at, path, flags, mode);
     }
     if (IS_ERR(fd))
-        return PTR_ERR(fd);
+        goto out;
     fd_t installed = f_install(fd, flags);
     amd64_as_source_trace_open(installed, path, flags);
+    http_resolver_trace_path_result("openat", at_f, path, installed, flags);
+    ldconfig_trace_path_result("openat", at_f, path, installed, flags, NULL);
     return installed;
+out:
+    http_resolver_trace_path_result("openat", at_f, path, PTR_ERR(fd), flags);
+    ldconfig_trace_path_result("openat", at_f, path, PTR_ERR(fd), flags, NULL);
+    return PTR_ERR(fd);
 }
 
 fd_t sys_openat(fd_t at_f, addr_t path_addr, dword_t flags, mode_t_ mode) {
@@ -372,6 +475,14 @@ static dword_t sys_readlinkat_common(fd_t at_f, guest_addr_t path_addr, guest_ad
         STRACE(" \"%.*s\"", size, buf);
         if (user_write(buf_addr, buf, size))
             return _EFAULT;
+    }
+    http_resolver_trace_path_result("readlinkat", at_f, path, size, bufsize);
+    if (size >= 0) {
+        char target[MAX_PATH + 32];
+        snprintf(target, sizeof(target), "target=\"%.*s\"", (int) size, buf);
+        ldconfig_trace_path_result("readlinkat", at_f, path, size, bufsize, target);
+    } else {
+        ldconfig_trace_path_result("readlinkat", at_f, path, size, bufsize, NULL);
     }
     return (dword_t)size;
 }
@@ -701,9 +812,9 @@ static ssize_t iovec_size(struct guest_iovec_ *iovec, unsigned iovec_count) {
     return size;
 }
 
-static dword_t sys_readv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+static dword_t sys_readv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, enum guest_abi abi) {
     STRACE("readv(%d, %#llx, %d)", fd_no, (unsigned long long) iovec_addr, iovec_count);
-    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, abi, iovec_addr, iovec_count);
     
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
@@ -751,16 +862,24 @@ error:
 }
 
 dword_t sys_readv(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
-    return sys_readv_common(fd_no, iovec_addr, iovec_count);
+    return sys_readv_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_I386);
 }
 
 dword_t sys_readv_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
-    return sys_readv_common(fd_no, iovec_addr, iovec_count);
+    return sys_readv_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_I386);
 }
 
-static dword_t sys_writev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+dword_t sys_readv_amd64(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
+    return sys_readv_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
+}
+
+dword_t sys_readv_amd64_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    return sys_readv_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
+}
+
+static dword_t sys_writev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, enum guest_abi abi) {
     STRACE("writev(%d, %#llx, %d)", fd_no, (unsigned long long) iovec_addr, iovec_count);
-    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, current->abi, iovec_addr, iovec_count);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, abi, iovec_addr, iovec_count);
     if (IS_ERR(iovec))
         return PTR_ERR(iovec);
     size_t io_size = iovec_size(iovec, iovec_count);
@@ -805,11 +924,19 @@ error:
 }
 
 dword_t sys_writev(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
-    return sys_writev_common(fd_no, iovec_addr, iovec_count);
+    return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_I386);
 }
 
 dword_t sys_writev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
-    return sys_writev_common(fd_no, iovec_addr, iovec_count);
+    return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_I386);
+}
+
+dword_t sys_writev_amd64(fd_t fd_no, addr_t iovec_addr, dword_t iovec_count) {
+    return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
+}
+
+dword_t sys_writev_amd64_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count) {
+    return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
 }
 
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence) {
@@ -838,6 +965,13 @@ dword_t sys_lseek(fd_t f, dword_t off, dword_t whence) {
     return (dword_t) res;
 }
 
+dword_t sys_lseek_amd64(fd_t f, dword_t off, dword_t whence) {
+    off_t_ res = sys_lseek_amd64_guest(f, off, whence);
+    if ((dword_t) res != res)
+        return _EOVERFLOW;
+    return (dword_t) res;
+}
+
 off_t_ sys_lseek_guest(fd_t f, off_t_ off, dword_t whence) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
@@ -848,6 +982,10 @@ off_t_ sys_lseek_guest(fd_t f, off_t_ off, dword_t whence) {
     off_t_ res = fd->ops->lseek(fd, off, whence);
     unlock(&fd->lock);
     return res;
+}
+
+off_t_ sys_lseek_amd64_guest(fd_t f, off_t_ off, dword_t whence) {
+    return sys_lseek_guest(f, off, whence);
 }
 
 dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off) {
@@ -1369,15 +1507,33 @@ dword_t sys_utimensat64(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t 
     return sys_utime_common(at_f, path_addr, atime, mtime, flags);
 }
 
+dword_t sys_utimensat_amd64_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t times_addr, dword_t flags) {
+    struct timespec atime;
+    struct timespec mtime;
+    if (times_addr == 0) {
+        atime = mtime = timespec_now(CLOCK_REALTIME);
+    } else {
+        size_t stride = guest_timespec_size(GUEST_ABI_AMD64);
+        if (read_guest_timespec_abi(GUEST_ABI_AMD64, times_addr, &atime) ||
+                read_guest_timespec_abi(GUEST_ABI_AMD64, times_addr + stride, &mtime))
+            return _EFAULT;
+    }
+    return sys_utime_common(at_f, path_addr, atime, mtime, flags);
+}
+
+dword_t sys_utimensat_amd64(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t flags) {
+    return sys_utimensat_amd64_guest(at_f, path_addr, times_addr, flags);
+}
+
 dword_t sys_utimensat_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t times_addr, dword_t flags) {
     struct timespec atime;
     struct timespec mtime;
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        size_t stride = guest_timespec_size(current->abi);
-        if (read_guest_timespec_abi(current->abi, times_addr, &atime) ||
-                read_guest_timespec_abi(current->abi, times_addr + stride, &mtime))
+        size_t stride = guest_timespec_size(GUEST_ABI_I386);
+        if (read_guest_timespec_abi(GUEST_ABI_I386, times_addr, &atime) ||
+                read_guest_timespec_abi(GUEST_ABI_I386, times_addr + stride, &mtime))
             return _EFAULT;
     }
     return sys_utime_common(at_f, path_addr, atime, mtime, flags);
@@ -1386,17 +1542,41 @@ dword_t sys_utimensat(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t fl
     return sys_utimensat_guest(at_f, path_addr, times_addr, flags);
 }
 
+dword_t sys_utimes_amd64_guest(guest_addr_t path_addr, guest_addr_t times_addr) {
+    struct timespec atime;
+    struct timespec mtime;
+    if (times_addr == 0) {
+        atime = mtime = timespec_now(CLOCK_REALTIME);
+    } else {
+        size_t stride = guest_timeval_size(GUEST_ABI_AMD64);
+        struct timeval time_a;
+        struct timeval time_m;
+        if (read_guest_timeval_abi(GUEST_ABI_AMD64, times_addr, &time_a) ||
+                read_guest_timeval_abi(GUEST_ABI_AMD64, times_addr + stride, &time_m))
+            return _EFAULT;
+        atime.tv_sec = time_a.tv_sec;
+        atime.tv_nsec = time_a.tv_usec * 1000;
+        mtime.tv_sec = time_m.tv_sec;
+        mtime.tv_nsec = time_m.tv_usec * 1000;
+    }
+    return sys_utime_common(AT_FDCWD_, path_addr, atime, mtime, 0);
+}
+
+dword_t sys_utimes_amd64(addr_t path_addr, addr_t times_addr) {
+    return sys_utimes_amd64_guest(path_addr, times_addr);
+}
+
 dword_t sys_utimes_guest(guest_addr_t path_addr, guest_addr_t times_addr) {
     struct timespec atime;
     struct timespec mtime;
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        size_t stride = guest_timeval_size(current->abi);
+        size_t stride = guest_timeval_size(GUEST_ABI_I386);
         struct timeval time_a;
         struct timeval time_m;
-        if (read_guest_timeval_abi(current->abi, times_addr, &time_a) ||
-                read_guest_timeval_abi(current->abi, times_addr + stride, &time_m))
+        if (read_guest_timeval_abi(GUEST_ABI_I386, times_addr, &time_a) ||
+                read_guest_timeval_abi(GUEST_ABI_I386, times_addr + stride, &time_m))
             return _EFAULT;
         atime.tv_sec = time_a.tv_sec;
         atime.tv_nsec = time_a.tv_usec * 1000;
@@ -1409,17 +1589,41 @@ dword_t sys_utimes(addr_t path_addr, addr_t times_addr) {
     return sys_utimes_guest(path_addr, times_addr);
 }
 
+dword_t sys_futimesat_amd64_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t times_addr) {
+    struct timespec atime;
+    struct timespec mtime;
+    if (times_addr == 0) {
+        atime = mtime = timespec_now(CLOCK_REALTIME);
+    } else {
+        size_t stride = guest_timeval_size(GUEST_ABI_AMD64);
+        struct timeval time_a;
+        struct timeval time_m;
+        if (read_guest_timeval_abi(GUEST_ABI_AMD64, times_addr, &time_a) ||
+                read_guest_timeval_abi(GUEST_ABI_AMD64, times_addr + stride, &time_m))
+            return _EFAULT;
+        atime.tv_sec = time_a.tv_sec;
+        atime.tv_nsec = time_a.tv_usec * 1000;
+        mtime.tv_sec = time_m.tv_sec;
+        mtime.tv_nsec = time_m.tv_usec * 1000;
+    }
+    return sys_utime_common(at_f, path_addr, atime, mtime, 0);
+}
+
+dword_t sys_futimesat_amd64(fd_t at_f, addr_t path_addr, addr_t times_addr) {
+    return sys_futimesat_amd64_guest(at_f, path_addr, times_addr);
+}
+
 dword_t sys_futimesat_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t times_addr) {
     struct timespec atime;
     struct timespec mtime;
     if (times_addr == 0) {
         atime = mtime = timespec_now(CLOCK_REALTIME);
     } else {
-        size_t stride = guest_timeval_size(current->abi);
+        size_t stride = guest_timeval_size(GUEST_ABI_I386);
         struct timeval time_a;
         struct timeval time_m;
-        if (read_guest_timeval_abi(current->abi, times_addr, &time_a) ||
-                read_guest_timeval_abi(current->abi, times_addr + stride, &time_m))
+        if (read_guest_timeval_abi(GUEST_ABI_I386, times_addr, &time_a) ||
+                read_guest_timeval_abi(GUEST_ABI_I386, times_addr + stride, &time_m))
             return _EFAULT;
         atime.tv_sec = time_a.tv_sec;
         atime.tv_nsec = time_a.tv_usec * 1000;
@@ -1430,6 +1634,30 @@ dword_t sys_futimesat_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t time
 }
 dword_t sys_futimesat(fd_t at_f, addr_t path_addr, addr_t times_addr) {
     return sys_futimesat_guest(at_f, path_addr, times_addr);
+}
+
+dword_t sys_utime_amd64_guest(guest_addr_t path_addr, guest_addr_t times_addr) {
+    struct timespec atime;
+    struct timespec mtime;
+    if (times_addr == 0) {
+        atime = mtime = timespec_now(CLOCK_REALTIME);
+    } else {
+        struct amd64_utimbuf_ {
+            qword_t actime;
+            qword_t modtime;
+        } times;
+        if (user_get(times_addr, times))
+            return _EFAULT;
+        atime.tv_sec = times.actime;
+        atime.tv_nsec = 0;
+        mtime.tv_sec = times.modtime;
+        mtime.tv_nsec = 0;
+    }
+    return sys_utime_common(AT_FDCWD_, path_addr, atime, mtime, 0);
+}
+
+dword_t sys_utime_amd64(addr_t path_addr, addr_t times_addr) {
+    return sys_utime_amd64_guest(path_addr, times_addr);
 }
 
 dword_t sys_utime_guest(guest_addr_t path_addr, guest_addr_t times_addr) {
@@ -1537,7 +1765,7 @@ dword_t sys_chmod_guest(guest_addr_t path_addr, dword_t mode) {
     return sys_fchmodat_guest(AT_FDCWD_, path_addr, mode);
 }
 
-dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {
+static dword_t sys_fchown_common(fd_t f, uid_t_ owner, uid_t_ group) {
     STRACE("fchown(%d, %d, %d)", f, owner, group);
     struct fd *fd = f_get(f);
     if (fd == NULL)
@@ -1554,6 +1782,14 @@ dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {
             return err;
     }
     return 0;
+}
+
+dword_t sys_fchown32(fd_t f, uid_t_ owner, uid_t_ group) {
+    return sys_fchown_common(f, owner, group);
+}
+
+dword_t sys_fchown_amd64(fd_t f, uid_t_ owner, uid_t_ group) {
+    return sys_fchown_common(f, owner, group);
 }
 
 static dword_t sys_fchownat_common(fd_t at_f, guest_addr_t path_addr, dword_t owner, dword_t group, int flags) {
@@ -1592,10 +1828,24 @@ dword_t sys_chown32_guest(guest_addr_t path_addr, uid_t_ owner, uid_t_ group) {
     return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, 0);
 }
 
+dword_t sys_chown_amd64(addr_t path_addr, uid_t_ owner, uid_t_ group) {
+    return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, 0);
+}
+dword_t sys_chown_amd64_guest(guest_addr_t path_addr, uid_t_ owner, uid_t_ group) {
+    return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, 0);
+}
+
 dword_t sys_lchown(addr_t path_addr, uid_t_ owner, uid_t_ group) {
     return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, AT_SYMLINK_NOFOLLOW_);
 }
 dword_t sys_lchown_guest(guest_addr_t path_addr, uid_t_ owner, uid_t_ group) {
+    return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, AT_SYMLINK_NOFOLLOW_);
+}
+
+dword_t sys_lchown_amd64(addr_t path_addr, uid_t_ owner, uid_t_ group) {
+    return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, AT_SYMLINK_NOFOLLOW_);
+}
+dword_t sys_lchown_amd64_guest(guest_addr_t path_addr, uid_t_ owner, uid_t_ group) {
     return sys_fchownat_common(AT_FDCWD_, path_addr, owner, group, AT_SYMLINK_NOFOLLOW_);
 }
 

@@ -47,3 +47,6 @@ extern NSNotificationName const TerminalDidLoadNotification;
 extern NSNotificationName const TerminalRegistryDidChangeNotification;
 
 extern struct tty_driver ios_console_driver;
+
+NSString *Terminal_debugReadRows(int type, int number, int maxRows);
+NSString *Terminal_debugSendInputUTF8(int type, int number, const char *input);

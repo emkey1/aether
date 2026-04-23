@@ -481,51 +481,16 @@ static dword_t robust_list_head_size(enum guest_abi abi) {
     return abi == GUEST_ABI_AMD64 ? 24 : 12;
 }
 
-dword_t sys_futex_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
-        guest_addr_t uaddr2, dword_t val3) {
-    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, false);
-}
-
-dword_t sys_futex_time64_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
-        guest_addr_t uaddr2, dword_t val3) {
-    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, true);
-}
-
-int_t sys_set_robust_list(addr_t robust_list, dword_t len) {
-    STRACE("set_robust_list(%#x, %d)", robust_list, len);
-    if (len != robust_list_head_size(current->abi))
-        return _EINVAL;
-    current->robust_list = robust_list;
-    return 0;
-}
-
-int_t sys_set_robust_list_guest(guest_addr_t robust_list, dword_t len) {
+static int_t sys_set_robust_list_common(guest_addr_t robust_list, dword_t len, enum guest_abi abi) {
     STRACE("set_robust_list(%#llx, %u)", (unsigned long long) robust_list, len);
-    if (len != robust_list_head_size(current->abi))
+    if (len != robust_list_head_size(abi))
         return _EINVAL;
     current->robust_list = robust_list;
     return 0;
 }
 
-int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
-    STRACE("get_robust_list(%d, %#x, %#x)", pid, robust_list_ptr, len_ptr);
-
-    complex_lockt(&pids_lock,0);
-    struct task *task = pid_get_task(pid);
-    unlock(&pids_lock);
-    if (task != current)
-        return _EPERM;
-
-    addr_t robust_list = (addr_t) current->robust_list;
-    dword_t len = robust_list_head_size(current->abi);
-    if (user_put(robust_list_ptr, robust_list))
-        return _EFAULT;
-    if (user_put(len_ptr, len))
-        return _EFAULT;
-    return 0;
-}
-
-int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr) {
+static int_t sys_get_robust_list_common(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr,
+        enum guest_abi abi) {
     STRACE("get_robust_list(%d, %#llx, %#llx)", pid,
             (unsigned long long) robust_list_ptr, (unsigned long long) len_ptr);
 
@@ -537,14 +502,56 @@ int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_
 
     if (user_put(robust_list_ptr, current->robust_list))
         return _EFAULT;
-    if (current->abi == GUEST_ABI_AMD64) {
-        qword_t len = robust_list_head_size(current->abi);
+    if (abi == GUEST_ABI_AMD64) {
+        qword_t len = robust_list_head_size(abi);
         if (user_put(len_ptr, len))
             return _EFAULT;
     } else {
-        dword_t len = robust_list_head_size(current->abi);
+        dword_t len = robust_list_head_size(abi);
         if (user_put(len_ptr, len))
             return _EFAULT;
     }
     return 0;
+}
+
+dword_t sys_futex_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
+        guest_addr_t uaddr2, dword_t val3) {
+    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, false);
+}
+
+dword_t sys_futex_time64_guest(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr_t timeout_or_val2,
+        guest_addr_t uaddr2, dword_t val3) {
+    return sys_futex_common(uaddr, op, val, timeout_or_val2, uaddr2, val3, true);
+}
+
+int_t sys_set_robust_list(addr_t robust_list, dword_t len) {
+    return sys_set_robust_list_common(robust_list, len, GUEST_ABI_I386);
+}
+
+int_t sys_set_robust_list_guest(guest_addr_t robust_list, dword_t len) {
+    return sys_set_robust_list_common(robust_list, len, GUEST_ABI_I386);
+}
+
+int_t sys_set_robust_list_amd64(addr_t robust_list, dword_t len) {
+    return sys_set_robust_list_common(robust_list, len, GUEST_ABI_AMD64);
+}
+
+int_t sys_set_robust_list_amd64_guest(guest_addr_t robust_list, dword_t len) {
+    return sys_set_robust_list_common(robust_list, len, GUEST_ABI_AMD64);
+}
+
+int_t sys_get_robust_list(pid_t_ pid, addr_t robust_list_ptr, addr_t len_ptr) {
+    return sys_get_robust_list_common(pid, robust_list_ptr, len_ptr, GUEST_ABI_I386);
+}
+
+int_t sys_get_robust_list_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr) {
+    return sys_get_robust_list_common(pid, robust_list_ptr, len_ptr, GUEST_ABI_I386);
+}
+
+int_t sys_get_robust_list_amd64(addr_t pid, addr_t robust_list_ptr, addr_t len_ptr) {
+    return sys_get_robust_list_common((pid_t_) pid, robust_list_ptr, len_ptr, GUEST_ABI_AMD64);
+}
+
+int_t sys_get_robust_list_amd64_guest(pid_t_ pid, guest_addr_t robust_list_ptr, guest_addr_t len_ptr) {
+    return sys_get_robust_list_common(pid, robust_list_ptr, len_ptr, GUEST_ABI_AMD64);
 }

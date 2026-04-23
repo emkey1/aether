@@ -125,6 +125,7 @@ struct fd {
     // fs/inode data
     struct mount *mount;
     int real_fd; // seeks on this fd require the lock TODO think about making a special lock just for that
+    bool realfs_fifo_had_data;
     DIR *dir;
     struct inode_data *inode;
     ino_t fake_inode;

@@ -1,5 +1,6 @@
 #include "kernel/task.h"
 #include <sys/stat.h>
+#include <stdio.h>
 #include <string.h>
 #include <poll.h>
 #include <fcntl.h>
@@ -82,6 +83,9 @@ static bool poll_trace_comm(const char *comm) {
     if (comm == NULL)
         return false;
     return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "apt") == 0 ||
+        strcmp(comm, "apt-get") == 0 ||
+        strncmp(comm, "http", 4) == 0 ||
         strcmp(comm, "wget") == 0 ||
         strcmp(comm, "curl") == 0 ||
         strcmp(comm, "ping") == 0 ||
@@ -97,7 +101,7 @@ static bool poll_trace_comm(const char *comm) {
 static bool poll_wait_trace_enabled(void) {
     if (current == NULL)
         return false;
-    return poll_trace_comm(current->comm) && false;
+    return poll_trace_comm(current->comm);
 }
 
 static void poll_wait_trace_fd(struct poll_fd *poll_fd, int host_events, const char *phase) {
@@ -107,7 +111,7 @@ static void poll_wait_trace_fd(struct poll_fd *poll_fd, int host_events, const c
     char path[MAX_PATH];
     path[0] = '\0';
     generic_getpath(poll_fd->fd, path);
-    printk("INFO: net poll_wait %s pid=%d comm=%s real=%d types=%#x host=%#x path=%s\n",
+    fprintf(stderr, "ish-pollwait: %s pid=%d comm=%s real=%d types=%#x host=%#x path=%s\n",
            phase, current->pid, current->comm, poll_fd->fd->real_fd,
            poll_fd->types, host_events, path);
 }
@@ -116,14 +120,14 @@ static void poll_wait_trace_raw_event(struct poll *poll_, struct real_poll_event
     if (!poll_wait_trace_enabled() || event == NULL)
         return;
 #if HAVE_KQUEUE
-    printk("INFO: net poll_wait %s pid=%d comm=%s ident=%llu filter=%d flags=%#x fflags=%#x data=%lld udata=%p notify_fd=%d\n",
+    fprintf(stderr, "ish-pollwait: %s pid=%d comm=%s ident=%llu filter=%d flags=%#x fflags=%#x data=%lld udata=%p notify_fd=%d\n",
            phase, current->pid, current->comm,
            (unsigned long long) event->real.ident, event->real.filter,
            event->real.flags, event->real.fflags,
            (long long) event->real.data, event->real.udata,
            poll_ != NULL ? poll_->notify_pipe[0] : -1);
 #elif HAVE_EPOLL
-    printk("INFO: net poll_wait %s pid=%d comm=%s events=%#x udata=%p notify_fd=%d\n",
+    fprintf(stderr, "ish-pollwait: %s pid=%d comm=%s events=%#x udata=%p notify_fd=%d\n",
            phase, current->pid, current->comm,
            event->real.events, event->real.data.ptr,
            poll_ != NULL ? poll_->notify_pipe[0] : -1);
@@ -139,7 +143,7 @@ static void poll_drop_unknown_event(struct poll *poll_, struct real_poll_event *
         return;
     int err = real_poll_update(&poll_->real, ident, 0, NULL);
     if (poll_wait_trace_enabled()) {
-        printk("INFO: net poll_wait drop-raw pid=%d comm=%s ident=%d err=%d errno=%d\n",
+        fprintf(stderr, "ish-pollwait: drop-raw pid=%d comm=%s ident=%d err=%d errno=%d\n",
                current->pid, current->comm, ident, err, err < 0 ? errno : 0);
     }
 #else
@@ -165,7 +169,7 @@ static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, 
             path[0] = '\0';
             if (fd != NULL)
                 generic_getpath(fd, path);
-            printk("INFO: net poll_wait scan pid=%d comm=%s real=%d raw=%#x masked=%#x types=%#x path=%s\n",
+            fprintf(stderr, "ish-pollwait: scan pid=%d comm=%s real=%d raw=%#x masked=%#x types=%#x path=%s\n",
                    current->pid, current->comm,
                    fd != NULL ? fd->real_fd : -1,
                    raw_poll_types, poll_types,
@@ -176,7 +180,7 @@ static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, 
 
         int handled = callback(context, poll_types, poll_fd->info);
         if (poll_wait_trace_enabled()) {
-            printk("INFO: net poll_wait callback pid=%d comm=%s real=%d events=%#x handled=%d\n",
+            fprintf(stderr, "ish-pollwait: callback pid=%d comm=%s real=%d events=%#x handled=%d\n",
                    current->pid, current->comm,
                    fd != NULL ? fd->real_fd : -1, poll_types, handled);
         }
@@ -505,7 +509,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                     }
                     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
                     if (poll_wait_trace_enabled()) {
-                        printk("INFO: net poll_wait sleep pid=%d comm=%s timeout=%lds.%09ld waiters=%d\n",
+                        fprintf(stderr, "ish-pollwait: sleep pid=%d comm=%s timeout=%lds.%09ld waiters=%d\n",
                                current->pid, current->comm,
                                wait_timeout != NULL ? wait_timeout->tv_sec : -1L,
                                wait_timeout != NULL ? wait_timeout->tv_nsec : -1L,
@@ -519,7 +523,7 @@ poll_wait_done:
             lock(&poll_->lock, 0);
         } while (sockrestart_should_restart_listen_wait(1) && errno == EINTR);
         if (poll_wait_trace_enabled()) {
-            printk("INFO: net poll_wait wake pid=%d comm=%s err=%d errno=%d notify_pending=%d\n",
+            fprintf(stderr, "ish-pollwait: wake pid=%d comm=%s err=%d errno=%d notify_pending=%d\n",
                    current->pid, current->comm, err, err < 0 ? errno : 0, poll_->notify_pending);
             if (err > 0) {
                 for (int i = 0; i < err; i++) {

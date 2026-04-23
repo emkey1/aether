@@ -363,7 +363,7 @@ static void amd64_trace_exec_loader_failure(const char *stage, const char *file,
 
 static bool i386_force_safe_exec_comm(const char *comm) {
     return comm != NULL &&
-        (strcmp(comm, "pkcsslotd") == 0);
+        strcmp(comm, "pkcsslotd") == 0;
 }
 
 static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv, struct exec_args envp) {

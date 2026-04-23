@@ -1,10 +1,12 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <stdio.h>
 
 #include "kernel/calls.h"
 #include "kernel/errno.h"
 #include "kernel/fs.h"
+#include "kernel/task.h"
 #include "fs/dev.h"
 #include "fs/fd.h"
 #include "fs/path.h"
@@ -23,6 +25,113 @@
 #define STATX_BASIC_STATS_ 0x000007ffU
 
 #define AT_STATX_SYNC_TYPE_     0x6000
+
+static bool http_resolver_trace_enabled(void) {
+    return current != NULL && strncmp(current->comm, "http", 4) == 0;
+}
+
+static bool dpkg_stat_trace_enabled(void) {
+    if (current == NULL)
+        return false;
+    return strncmp(current->comm, "dpkg", 4) == 0 ||
+        strcmp(current->comm, "apt") == 0 ||
+        strcmp(current->comm, "apt-get") == 0;
+}
+
+static bool ldconfig_trace_enabled(void) {
+    return current != NULL && strcmp(current->comm, "ldconfig") == 0;
+}
+
+static bool dpkg_stat_trace_path(const char *path) {
+    return path != NULL && strncmp(path, "/var/lib/dpkg/", strlen("/var/lib/dpkg/")) == 0;
+}
+
+static bool ldconfig_trace_path(const char *path) {
+    static const char *prefixes[] = {
+        "/lib/i386-linux-gnu",
+        "/usr/lib/i386-linux-gnu",
+        "/etc/ld.so.conf",
+        "/etc/ld.so.conf.d/",
+        "/usr/local/lib/i386-linux-gnu",
+        "/usr/local/lib/i686-linux-gnu",
+        "/lib/i686-linux-gnu",
+        "/usr/lib/i686-linux-gnu",
+    };
+    if (path == NULL)
+        return false;
+    for (unsigned i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        size_t len = strlen(prefixes[i]);
+        if (strncmp(path, prefixes[i], len) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void dpkg_stat_trace_overflow(const char *op, fd_t at_f, const char *path, const struct statbuf *stat) {
+    if (!dpkg_stat_trace_enabled() || !dpkg_stat_trace_path(path) || stat == NULL)
+        return;
+    fprintf(stderr,
+            "ish-dpkgstat:%s-overflow pid=%d comm=%s at=%d path=%s dev=%llu ino=%llu mode=%#x nlink=%u uid=%u gid=%u rdev=%llu size=%llu blksize=%u blocks=%llu\n",
+            op, current->pid, current->comm, at_f, path,
+            (unsigned long long) stat->dev,
+            (unsigned long long) stat->inode,
+            stat->mode, stat->nlink, stat->uid, stat->gid,
+            (unsigned long long) stat->rdev,
+            (unsigned long long) stat->size,
+            stat->blksize,
+            (unsigned long long) stat->blocks);
+}
+
+static void dpkg_stat_trace_result(const char *op, fd_t at_f, const char *path, long result,
+        const struct statbuf *stat, bool have_stat) {
+    if (!dpkg_stat_trace_enabled() || !dpkg_stat_trace_path(path))
+        return;
+    if (have_stat && stat != NULL) {
+        fprintf(stderr,
+                "ish-dpkgstat:%s pid=%d comm=%s abi=%d at=%d path=%s result=%ld dev=%llu ino=%llu mode=%#x nlink=%u uid=%u gid=%u rdev=%llu size=%llu blksize=%u blocks=%llu\n",
+                op, current->pid, current->comm, current->abi, at_f, path, result,
+                (unsigned long long) stat->dev,
+                (unsigned long long) stat->inode,
+                stat->mode, stat->nlink, stat->uid, stat->gid,
+                (unsigned long long) stat->rdev,
+                (unsigned long long) stat->size,
+                stat->blksize,
+                (unsigned long long) stat->blocks);
+        return;
+    }
+    fprintf(stderr,
+            "ish-dpkgstat:%s pid=%d comm=%s abi=%d at=%d path=%s result=%ld\n",
+            op, current->pid, current->comm, current->abi, at_f, path, result);
+}
+
+static void ldconfig_stat_trace_result(const char *op, fd_t at_f, const char *path, long result,
+        const struct statbuf *stat, bool have_stat) {
+    if (!ldconfig_trace_enabled() || !ldconfig_trace_path(path))
+        return;
+    if (have_stat && stat != NULL) {
+        fprintf(stderr,
+                "ish-ldconfig-stat:%s pid=%d at=%d path=%s result=%ld dev=%llu ino=%llu mode=%#x nlink=%u uid=%u gid=%u rdev=%llu size=%llu blksize=%u blocks=%llu\n",
+                op, current->pid, at_f, path, result,
+                (unsigned long long) stat->dev,
+                (unsigned long long) stat->inode,
+                stat->mode, stat->nlink, stat->uid, stat->gid,
+                (unsigned long long) stat->rdev,
+                (unsigned long long) stat->size,
+                stat->blksize,
+                (unsigned long long) stat->blocks);
+        return;
+    }
+    fprintf(stderr,
+            "ish-ldconfig-stat:%s pid=%d at=%d path=%s result=%ld\n",
+            op, current->pid, at_f, path, result);
+}
+
+static void http_resolver_trace_path_result(const char *op, fd_t at_f, const char *path, long result, unsigned long flags) {
+    if (!http_resolver_trace_enabled() || path == NULL)
+        return;
+    fprintf(stderr, "ish-httpfs:%s pid=%d comm=%s at=%d path=%s flags=%#lx result=%ld\n",
+            op, current->pid, current->comm, at_f, path, flags, result);
+}
 
 struct newstat64 stat_convert_newstat64(struct statbuf stat) {
     struct newstat64 newstat = {};
@@ -69,7 +178,6 @@ static struct amd64_stat_ stat_convert_amd64(struct statbuf stat) {
 
 static int stat_convert_newstat(struct statbuf stat, struct newstat *out) {
     if (stat.dev > UINT32_MAX ||
-            stat.inode > UINT32_MAX ||
             stat.mode > UINT16_MAX ||
             stat.nlink > UINT16_MAX ||
             stat.uid > UINT16_MAX ||
@@ -83,7 +191,10 @@ static int stat_convert_newstat(struct statbuf stat, struct newstat *out) {
 
     struct newstat newstat = {};
     newstat.dev = stat.dev;
-    newstat.ino = stat.inode;
+    // Legacy i386 stat has only a 32-bit inode field. Returning EOVERFLOW
+    // for large host inode numbers breaks common existence checks on filesystems
+    // like APFS, so preserve the low 32 bits instead.
+    newstat.ino = (dword_t) stat.inode;
     newstat.mode = stat.mode;
     newstat.nlink = stat.nlink;
     newstat.uid = stat.uid;
@@ -173,11 +284,18 @@ static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, i
     if (at == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    if ((err = generic_statat(at, path, &stat, flags)) < 0)
+    if ((err = generic_statat(at, path, &stat, flags)) < 0) {
+        dpkg_stat_trace_result("stat64", at_f, path, err, NULL, false);
+        ldconfig_stat_trace_result("stat64", at_f, path, err, NULL, false);
+        http_resolver_trace_path_result("stat", at_f, path, err, flags);
         return err;
+    }
     struct newstat64 newstat = stat_convert_newstat64(stat);
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+    dpkg_stat_trace_result("stat64", at_f, path, 0, &stat, true);
+    ldconfig_stat_trace_result("stat64", at_f, path, 0, &stat, true);
+    http_resolver_trace_path_result("stat", at_f, path, 0, flags);
     return 0;
 }
 
@@ -239,11 +357,19 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
         return _EBADF;
     struct statbuf stat = {};
     int err = fd->mount->fs->fstat(fd, &stat);
-    if (err < 0)
+    char path[MAX_PATH];
+    path[0] = '\0';
+    generic_getpath(fd, path);
+    if (err < 0) {
+        dpkg_stat_trace_result("fstat64", AT_FDCWD_, path, err, NULL, false);
+        ldconfig_stat_trace_result("fstat64", AT_FDCWD_, path, err, NULL, false);
         return err;
+    }
     struct newstat64 newstat = stat_convert_newstat64(stat);
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+    dpkg_stat_trace_result("fstat64", AT_FDCWD_, path, 0, &stat, true);
+    ldconfig_stat_trace_result("fstat64", AT_FDCWD_, path, 0, &stat, true);
     return 0;
 }
 
@@ -276,14 +402,19 @@ static dword_t sys_stat_path_legacy(fd_t at_f, addr_t path_addr, addr_t statbuf_
     if (at == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    if ((err = generic_statat(at, path, &stat, flags)) < 0)
+    if ((err = generic_statat(at, path, &stat, flags)) < 0) {
+        dpkg_stat_trace_result("stat32", at_f, path, err, NULL, false);
         return err;
+    }
     struct newstat newstat;
     err = stat_convert_newstat(stat, &newstat);
-    if (err < 0)
+    if (err < 0) {
+        dpkg_stat_trace_overflow("stat32", at_f, path, &stat);
         return err;
+    }
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+    dpkg_stat_trace_result("stat32", at_f, path, 0, &stat, true);
     return 0;
 }
 
@@ -302,18 +433,27 @@ dword_t sys_fstat(fd_t fd_no, addr_t statbuf_addr) {
         return _EBADF;
     struct statbuf stat = {};
     int err = fd->mount->fs->fstat(fd, &stat);
-    if (err < 0)
+    char path[MAX_PATH];
+    path[0] = '\0';
+    generic_getpath(fd, path);
+    if (err < 0) {
+        dpkg_stat_trace_result("fstat32", AT_FDCWD_, path, err, NULL, false);
         return err;
+    }
     struct newstat newstat;
     err = stat_convert_newstat(stat, &newstat);
-    if (err < 0)
+    if (err < 0) {
+        dpkg_stat_trace_overflow("fstat32", AT_FDCWD_, path, &stat);
         return err;
+    }
     if (user_put(statbuf_addr, newstat))
         return _EFAULT;
+    dpkg_stat_trace_result("fstat32", AT_FDCWD_, path, 0, &stat, true);
     return 0;
 }
 
-dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask, guest_addr_t statxbuf_addr) {
+static dword_t sys_statx_guest_abi(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask,
+        guest_addr_t statxbuf_addr, enum guest_abi abi) {
     char path[MAX_PATH];
     if (user_read_string(path_addr, path, sizeof(path)))
         return _EFAULT;
@@ -329,16 +469,41 @@ dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_
     if (at == NULL)
         return _EBADF;
 
+    // Keep i386 on the old fallback path for now. `working` relied on glibc
+    // seeing ENOSYS here and using fstatat64 instead; enabling broad i386
+    // statx support regressed dpkg existence checks on APFS-backed roots.
+    if (abi == GUEST_ABI_I386) {
+        bool empty_path = (flags & AT_EMPTY_PATH_) && strcmp(path, "") == 0;
+        if (!(empty_path && at_f == 0))
+            return _ENOSYS;
+    }
+
     struct statbuf stat = {};
     int err = generic_statat(at, path, &stat, flags);
-    if (err < 0)
+    if (err < 0) {
+        dpkg_stat_trace_result("statx", at_f, path, err, NULL, false);
         return err;
+    }
 
     struct statx_ statx = stat_convert_statx(stat);
     if (user_write(statxbuf_addr, &statx, sizeof(statx)))
         return _EFAULT;
+    dpkg_stat_trace_result("statx", at_f, path, 0, &stat, true);
     return 0;
 }
+
+dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask, guest_addr_t statxbuf_addr) {
+    return sys_statx_guest_abi(at_f, path_addr, flags, mask, statxbuf_addr, GUEST_ABI_I386);
+}
+
+dword_t sys_statx_amd64(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr) {
+    return sys_statx_guest_abi(at_f, path_addr, flags, mask, statxbuf_addr, GUEST_ABI_AMD64);
+}
+
+dword_t sys_statx_amd64_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask, guest_addr_t statxbuf_addr) {
+    return sys_statx_guest_abi(at_f, path_addr, flags, mask, statxbuf_addr, GUEST_ABI_AMD64);
+}
+
 dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr) {
     return sys_statx_guest(at_f, path_addr, flags, mask, statxbuf_addr);
 }

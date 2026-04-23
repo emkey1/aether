@@ -502,7 +502,15 @@ dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg) {
 }
 
 dword_t sys_fcntl_guest(fd_t f, dword_t cmd, guest_addr_t arg) {
-    return sys_fcntl_common(f, cmd, arg, current->abi == GUEST_ABI_AMD64);
+    return sys_fcntl_common(f, cmd, arg, false);
+}
+
+dword_t sys_fcntl_amd64(fd_t f, dword_t cmd, dword_t arg) {
+    return sys_fcntl_common(f, cmd, arg, true);
+}
+
+dword_t sys_fcntl_amd64_guest(fd_t f, dword_t cmd, guest_addr_t arg) {
+    return sys_fcntl_common(f, cmd, arg, true);
 }
 
 dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg) {

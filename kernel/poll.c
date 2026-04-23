@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #if defined(__APPLE__)
@@ -25,6 +26,9 @@ static bool poll_trace_comm(const char *comm) {
     if (comm == NULL)
         return false;
     return strcmp(comm, "apk") == 0 ||
+        strcmp(comm, "apt") == 0 ||
+        strcmp(comm, "apt-get") == 0 ||
+        strncmp(comm, "http", 4) == 0 ||
         strcmp(comm, "wget") == 0 ||
         strcmp(comm, "curl") == 0 ||
         strcmp(comm, "ping") == 0 ||
@@ -71,7 +75,7 @@ static void poll_trace_short_wait_fd(struct fd *fd, int requested, int ready, in
 static bool poll_trace_net_enabled(void) {
     if (current == NULL)
         return false;
-    return poll_trace_comm(current->comm) && false;
+    return poll_trace_comm(current->comm);
 }
 
 static void poll_trace_net_fd(struct fd *fd, int requested, int ready, int revents, const char *phase) {
@@ -122,7 +126,7 @@ static void select_trace_net_fd(struct fd *fd, int requested, int ready, const c
 
     if (fd->ops == &tty_dev.fd) {
         struct tty *tty = fd->tty;
-        printk("INFO: net select %s pid=%d comm=%s tty=%d:%d requested=%#x ready=%#x\n",
+        fprintf(stderr, "ish-select: %s pid=%d comm=%s tty=%d:%d requested=%#x ready=%#x\n",
                phase, current->pid, current->comm,
                tty != NULL ? tty->driver->major : -1,
                tty != NULL ? tty->num : -1,
@@ -150,11 +154,11 @@ static void select_trace_net_fd(struct fd *fd, int requested, int ready, const c
                                    &tcp_info, &tcp_info_len) == 0;
 #endif
     }
-    printk("INFO: net select %s pid=%d comm=%s real=%d requested=%#x ready=%#x recv_q=%d so_error=%d path=%s\n",
+    fprintf(stderr, "ish-select: %s pid=%d comm=%s real=%d requested=%#x ready=%#x recv_q=%d so_error=%d path=%s\n",
            phase, current->pid, current->comm, fd->real_fd, requested, ready, recv_q, so_error, path);
 #if defined(__APPLE__)
     if (have_tcp_info) {
-        printk("INFO: net select-tcp %s pid=%d comm=%s real=%d state=%u options=%#x flags=%#x snd_sbbytes=%u snd_cwnd=%u snd_wnd=%u rcv_wnd=%u rtt=%u srtt=%u txbytes=%llu rxbytes=%llu retrans=%llu\n",
+        fprintf(stderr, "ish-select-tcp: %s pid=%d comm=%s real=%d state=%u options=%#x flags=%#x snd_sbbytes=%u snd_cwnd=%u snd_wnd=%u rcv_wnd=%u rtt=%u srtt=%u txbytes=%llu rxbytes=%llu retrans=%llu\n",
                phase, current->pid, current->comm, fd->real_fd,
                tcp_info.tcpi_state, tcp_info.tcpi_options, tcp_info.tcpi_flags,
                tcp_info.tcpi_snd_sbbytes, tcp_info.tcpi_snd_cwnd,
@@ -169,6 +173,34 @@ static void select_trace_net_fd(struct fd *fd, int requested, int ready, const c
 
 static bool select_timeout_valid(struct timespec timeout_ts) {
     return timeout_ts.tv_sec >= 0 && timeout_ts.tv_nsec >= 0 && timeout_ts.tv_nsec < 1000000000;
+}
+
+static int read_select_timeout(enum guest_abi abi, guest_addr_t timeout_addr, struct timespec *timeout_ts) {
+    struct timeval timeout_timeval;
+    if (read_guest_timeval_abi(abi, timeout_addr, &timeout_timeval))
+        return _EFAULT;
+    timeout_ts->tv_sec = timeout_timeval.tv_sec;
+    timeout_ts->tv_nsec = timeout_timeval.tv_usec * 1000;
+    *timeout_ts = timespec_normalize(*timeout_ts);
+    return 0;
+}
+
+static int read_pselect_timeout(enum guest_abi abi, guest_addr_t timeout_addr, struct timespec *timeout_ts) {
+    if (read_guest_timespec_abi(abi, timeout_addr, timeout_ts))
+        return _EFAULT;
+    if (!select_timeout_valid(*timeout_ts))
+        return _EINVAL;
+    return 0;
+}
+
+static int read_ppoll_timeout(enum guest_abi abi, guest_addr_t timeout_addr, struct timespec *timeout_ts, int *timeout_ms) {
+    if (read_guest_timespec_abi(abi, timeout_addr, timeout_ts))
+        return _EFAULT;
+    if (!select_timeout_valid(*timeout_ts))
+        return _EINVAL;
+    int64_t timeout_ms64 = timeout_ts->tv_sec * 1000 + timeout_ts->tv_nsec / 1000000;
+    *timeout_ms = timeout_ms64 > INT_MAX ? INT_MAX : (int) timeout_ms64;
+    return 0;
 }
 
 static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writefds_addr,
@@ -349,13 +381,9 @@ dword_t sys_select(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t 
     struct timespec timeout_ts = {};
     const struct timespec *timeout_ts_ptr = NULL;
     if (timeout_addr != 0) {
-        struct timeval timeout_timeval;
-        if (read_guest_timeval_abi(current->abi, timeout_addr, &timeout_timeval))
-            return _EFAULT;
-        timeout_ts.tv_sec = timeout_timeval.tv_sec;
-        timeout_ts.tv_nsec = timeout_timeval.tv_usec * 1000;
-        // Keep historical select() behavior and normalize invalid timeval input.
-        timeout_ts = timespec_normalize(timeout_ts);
+        int err = read_select_timeout(GUEST_ABI_I386, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
         timeout_ts_ptr = &timeout_ts;
     }
     return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
@@ -366,12 +394,34 @@ dword_t sys_select_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writ
     struct timespec timeout_ts = {};
     const struct timespec *timeout_ts_ptr = NULL;
     if (timeout_addr != 0) {
-        struct timeval timeout_timeval;
-        if (read_guest_timeval_abi(current->abi, timeout_addr, &timeout_timeval))
-            return _EFAULT;
-        timeout_ts.tv_sec = timeout_timeval.tv_sec;
-        timeout_ts.tv_nsec = timeout_timeval.tv_usec * 1000;
-        timeout_ts = timespec_normalize(timeout_ts);
+        int err = read_select_timeout(GUEST_ABI_I386, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
+        timeout_ts_ptr = &timeout_ts;
+    }
+    return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
+}
+
+dword_t sys_select_amd64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr) {
+    struct timespec timeout_ts = {};
+    const struct timespec *timeout_ts_ptr = NULL;
+    if (timeout_addr != 0) {
+        int err = read_select_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
+        timeout_ts_ptr = &timeout_ts;
+    }
+    return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
+}
+
+dword_t sys_select_amd64_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writefds_addr,
+        guest_addr_t exceptfds_addr, guest_addr_t timeout_addr) {
+    struct timespec timeout_ts = {};
+    const struct timespec *timeout_ts_ptr = NULL;
+    if (timeout_addr != 0) {
+        int err = read_select_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
         timeout_ts_ptr = &timeout_ts;
     }
     return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
@@ -552,10 +602,9 @@ dword_t sys_pselect(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t
     const struct timespec *timeout_ts_ptr = NULL;
 
     if (timeout_addr != 0) {
-        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_ts))
-            return _EFAULT;
-        if (!select_timeout_valid(timeout_ts))
-            return _EINVAL;
+        int err = read_pselect_timeout(GUEST_ABI_I386, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
         timeout_ts_ptr = &timeout_ts;
     }
 
@@ -588,10 +637,72 @@ dword_t sys_pselect_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t wri
     const struct timespec *timeout_ts_ptr = NULL;
 
     if (timeout_addr != 0) {
-        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_ts))
-            return _EFAULT;
-        if (!select_timeout_valid(timeout_ts))
+        int err = read_pselect_timeout(GUEST_ABI_I386, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
+        timeout_ts_ptr = &timeout_ts;
+    }
+
+    if (sigmask.mask_addr != 0) {
+        if (sigmask.mask_size != sizeof(sigset_t_))
             return _EINVAL;
+        if (user_get(sigmask.mask_addr, mask))
+            return _EFAULT;
+        sigmask_set_temp(mask);
+    }
+
+    return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
+}
+
+dword_t sys_pselect_amd64(fd_t nfds, addr_t readfds_addr, addr_t writefds_addr, addr_t exceptfds_addr, addr_t timeout_addr, addr_t sigmask_addr) {
+    struct {
+        addr_t mask_addr;
+        dword_t mask_size;
+    } sigmask = {};
+    if (sigmask_addr != 0) {
+        if (user_get(sigmask_addr, sigmask))
+            return _EFAULT;
+    }
+    sigset_t_ mask;
+    struct timespec timeout_ts = {};
+    const struct timespec *timeout_ts_ptr = NULL;
+
+    if (timeout_addr != 0) {
+        int err = read_pselect_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
+        timeout_ts_ptr = &timeout_ts;
+    }
+
+    if (sigmask.mask_addr != 0) {
+        if (sigmask.mask_size != sizeof(sigset_t_))
+            return _EINVAL;
+        if (user_get(sigmask.mask_addr, mask))
+            return _EFAULT;
+        sigmask_set_temp(mask);
+    }
+
+    return sys_select_common(nfds, readfds_addr, writefds_addr, exceptfds_addr, timeout_ts_ptr);
+}
+
+dword_t sys_pselect_amd64_guest(fd_t nfds, guest_addr_t readfds_addr, guest_addr_t writefds_addr,
+        guest_addr_t exceptfds_addr, guest_addr_t timeout_addr, guest_addr_t sigmask_addr) {
+    struct {
+        guest_addr_t mask_addr;
+        dword_t mask_size;
+    } sigmask = {};
+    if (sigmask_addr != 0) {
+        if (user_get(sigmask_addr, sigmask))
+            return _EFAULT;
+    }
+    sigset_t_ mask;
+    struct timespec timeout_ts = {};
+    const struct timespec *timeout_ts_ptr = NULL;
+
+    if (timeout_addr != 0) {
+        int err = read_pselect_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_ts);
+        if (err < 0)
+            return err;
         timeout_ts_ptr = &timeout_ts;
     }
 
@@ -649,13 +760,10 @@ dword_t sys_ppoll(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_
     const struct timespec *timeout_ptr = NULL;
     int timeout_ms = -1;
     if (timeout_addr != 0) {
-        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_timespec))
-            return _EFAULT;
-        if (!select_timeout_valid(timeout_timespec))
-            return _EINVAL;
+        int err = read_ppoll_timeout(GUEST_ABI_I386, timeout_addr, &timeout_timespec, &timeout_ms);
+        if (err < 0)
+            return err;
         timeout_ptr = &timeout_timespec;
-        int64_t timeout_ms64 = timeout_timespec.tv_sec * 1000 + timeout_timespec.tv_nsec / 1000000;
-        timeout_ms = timeout_ms64 > INT_MAX ? INT_MAX : (int) timeout_ms64;
     }
 
     sigset_t_ mask;
@@ -678,13 +786,57 @@ dword_t sys_ppoll_guest(guest_addr_t fds, dword_t nfds, guest_addr_t timeout_add
     const struct timespec *timeout_ptr = NULL;
     int timeout_ms = -1;
     if (timeout_addr != 0) {
-        if (read_guest_timespec_abi(current->abi, timeout_addr, &timeout_timespec))
-            return _EFAULT;
-        if (!select_timeout_valid(timeout_timespec))
-            return _EINVAL;
+        int err = read_ppoll_timeout(GUEST_ABI_I386, timeout_addr, &timeout_timespec, &timeout_ms);
+        if (err < 0)
+            return err;
         timeout_ptr = &timeout_timespec;
-        int64_t timeout_ms64 = timeout_timespec.tv_sec * 1000 + timeout_timespec.tv_nsec / 1000000;
-        timeout_ms = timeout_ms64 > INT_MAX ? INT_MAX : (int) timeout_ms64;
+    }
+
+    sigset_t_ mask;
+    if (sigmask_addr != 0) {
+        if (sigsetsize != sizeof(sigset_t_))
+            return _EINVAL;
+        if (user_get(sigmask_addr, mask))
+            return _EFAULT;
+        sigmask_set_temp(mask);
+    }
+
+    return sys_poll_common(fds, nfds, timeout_ptr, timeout_ms);
+}
+
+dword_t sys_ppoll_amd64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
+    struct timespec timeout_timespec = {};
+    const struct timespec *timeout_ptr = NULL;
+    int timeout_ms = -1;
+    if (timeout_addr != 0) {
+        int err = read_ppoll_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_timespec, &timeout_ms);
+        if (err < 0)
+            return err;
+        timeout_ptr = &timeout_timespec;
+    }
+
+    sigset_t_ mask;
+    if (sigmask_addr != 0) {
+        if (sigsetsize != sizeof(sigset_t_))
+            return _EINVAL;
+        if (user_get(sigmask_addr, mask))
+            return _EFAULT;
+        sigmask_set_temp(mask);
+    }
+
+    return sys_poll_common(fds, nfds, timeout_ptr, timeout_ms);
+}
+
+dword_t sys_ppoll_amd64_guest(guest_addr_t fds, dword_t nfds, guest_addr_t timeout_addr,
+        guest_addr_t sigmask_addr, dword_t sigsetsize) {
+    struct timespec timeout_timespec = {};
+    const struct timespec *timeout_ptr = NULL;
+    int timeout_ms = -1;
+    if (timeout_addr != 0) {
+        int err = read_ppoll_timeout(GUEST_ABI_AMD64, timeout_addr, &timeout_timespec, &timeout_ms);
+        if (err < 0)
+            return err;
+        timeout_ptr = &timeout_timespec;
     }
 
     sigset_t_ mask;

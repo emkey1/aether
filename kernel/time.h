@@ -13,6 +13,8 @@ struct timespec64 {
 dword_t sys_ppoll_time64(addr_t fds, dword_t nfds, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize);
 dword_t sys_clock_nanosleep(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr);
 dword_t sys_clock_nanosleep_guest(dword_t clock_id, int_t flags, guest_addr_t req_addr, guest_addr_t rem_addr);
+dword_t sys_clock_nanosleep_amd64(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr);
+dword_t sys_clock_nanosleep_amd64_guest(dword_t clock_id, int_t flags, guest_addr_t req_addr, guest_addr_t rem_addr);
 dword_t sys_clock_nanosleep_time64(dword_t clock_id, int_t flags, addr_t req_addr, addr_t rem_addr);
 dword_t sys_clock_nanosleep_time64_guest(dword_t clock_id, int_t flags, guest_addr_t req_addr, guest_addr_t rem_addr);
 dword_t sys_clock_gettime64(dword_t clock, addr_t tp);
@@ -20,6 +22,8 @@ dword_t sys_clock_gettime64_guest(dword_t clock, guest_addr_t tp);
 dword_t sys_clock_settime64(dword_t clock, addr_t tp);
 dword_t sys_time(addr_t time_out);
 qword_t sys_time_guest(guest_addr_t time_out);
+qword_t sys_time_amd64(addr_t time_out);
+qword_t sys_time_amd64_guest(guest_addr_t time_out);
 dword_t sys_stime(addr_t time);
 #define CLOCK_REALTIME_ 0
 #define CLOCK_MONOTONIC_ 1
@@ -32,9 +36,13 @@ dword_t sys_stime(addr_t time);
 #define CLOCK_TAI_ 11
 dword_t sys_clock_gettime(dword_t clock, addr_t tp);
 dword_t sys_clock_gettime_guest(dword_t clock, guest_addr_t tp);
+dword_t sys_clock_gettime_amd64(dword_t clock, addr_t tp);
+dword_t sys_clock_gettime_amd64_guest(dword_t clock, guest_addr_t tp);
 dword_t sys_clock_settime(dword_t clock, addr_t tp);
 dword_t sys_clock_getres(dword_t clock, addr_t res_addr);
 dword_t sys_clock_getres_guest(dword_t clock, guest_addr_t res_addr);
+dword_t sys_clock_getres_amd64(dword_t clock, addr_t res_addr);
+dword_t sys_clock_getres_amd64_guest(dword_t clock, guest_addr_t res_addr);
 dword_t sys_clock_getres_time64(dword_t clock, addr_t res_addr);
 dword_t sys_clock_getres_time64_guest(dword_t clock, guest_addr_t res_addr);
 
@@ -96,9 +104,13 @@ struct tms_ {
 
 long sys_setitimer(int_t which, addr_t new_val, addr_t old_val);
 long sys_setitimer_guest(int_t which, guest_addr_t new_val, guest_addr_t old_val);
+long sys_setitimer_amd64(int_t which, addr_t new_val, addr_t old_val);
+long sys_setitimer_amd64_guest(int_t which, guest_addr_t new_val, guest_addr_t old_val);
 long sys_alarm(uint_t seconds);
 int_t sys_timer_create(dword_t clock, addr_t sigevent_addr, addr_t timer_addr);
 int_t sys_timer_create_guest(dword_t clock, guest_addr_t sigevent_addr, guest_addr_t timer_addr);
+int_t sys_timer_create_amd64(dword_t clock, addr_t sigevent_addr, addr_t timer_addr);
+int_t sys_timer_create_amd64_guest(dword_t clock, guest_addr_t sigevent_addr, guest_addr_t timer_addr);
 int_t sys_timer_gettime(dword_t timer_id, addr_t curr_value_addr);
 int_t sys_timer_gettime_guest(dword_t timer_id, guest_addr_t curr_value_addr);
 int_t sys_timer_getoverrun(dword_t timer_id);
@@ -123,8 +135,12 @@ dword_t sys_times(addr_t tbuf);
 dword_t sys_times_guest(guest_addr_t tbuf);
 dword_t sys_nanosleep(addr_t req, addr_t rem);
 dword_t sys_nanosleep_guest(guest_addr_t req, guest_addr_t rem);
+dword_t sys_nanosleep_amd64(addr_t req, addr_t rem);
+dword_t sys_nanosleep_amd64_guest(guest_addr_t req, guest_addr_t rem);
 dword_t sys_gettimeofday(addr_t tv, addr_t tz);
 dword_t sys_gettimeofday_guest(guest_addr_t tv, guest_addr_t tz);
+dword_t sys_gettimeofday_amd64(addr_t tv, addr_t tz);
+dword_t sys_gettimeofday_amd64_guest(guest_addr_t tv, guest_addr_t tz);
 dword_t sys_settimeofday(addr_t tv, addr_t tz);
 
 

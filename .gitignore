@@ -27,3 +27,7 @@ diagnostics*
 
 .claude/
 CLAUDE.md
+
+Alpine3.23.3(x86_64).tar.gz
+Alpine3.23.3_strace.tar.gz
+Devuan5(Debian12) 2.tar.gz

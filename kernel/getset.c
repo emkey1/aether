@@ -6,6 +6,8 @@
 #define _LINUX_CAPABILITY_VERSION_1_ 0x19980330
 #define _LINUX_CAPABILITY_VERSION_2_ 0x20071026
 #define _LINUX_CAPABILITY_VERSION_3_ 0x20080522
+#define CAP_SETGID_ 6
+#define CAP_SETUID_ 7
 
 struct cap_user_header_ {
     dword_t version;
@@ -36,6 +38,20 @@ static bool cap_words_subset(const dword_t *subset, const dword_t *superset, int
             return false;
     }
     return true;
+}
+
+static bool current_has_cap(uint_t cap) {
+    if (current == NULL || cap >= 64)
+        return false;
+    return (current->cap_effective[cap / 32] & (1u << (cap % 32))) != 0;
+}
+
+static bool current_can_setuids(void) {
+    return superuser() || current_has_cap(CAP_SETUID_);
+}
+
+static bool current_can_setgids(void) {
+    return superuser() || current_has_cap(CAP_SETGID_);
 }
 
 pid_t_ sys_getpid(void) {
@@ -78,7 +94,7 @@ dword_t sys_geteuid(void) {
 
 int_t sys_setuid(uid_t_ uid) {
     STRACE("setuid(%d)", uid);
-    if (superuser()) {
+    if (current_can_setuids()) {
         current->uid = current->suid = uid;
     } else {
         if (uid != current->uid && uid != current->suid)
@@ -91,7 +107,7 @@ int_t sys_setuid(uid_t_ uid) {
 
 dword_t sys_setresuid(uid_t_ ruid, uid_t_ euid, uid_t_ suid) {
     STRACE("setresuid(%d, %d, %d)", ruid, euid, suid);
-    if (!superuser()) {
+    if (!current_can_setuids()) {
         if (ruid != (uid_t) -1 && ruid != current->uid && ruid != current->euid && ruid != current->suid)
             return _EPERM;
         if (euid != (uid_t) -1 && euid != current->uid && euid != current->euid && euid != current->suid)
@@ -145,7 +161,7 @@ uid_t_ sys_setfsuid(uid_t_ uid) {
     STRACE("setfsuid(%d)", uid);
     if (uid == (uid_t_) -1)
         return old;
-    if (superuser() || uid == current->uid || uid == current->euid || uid == current->suid)
+    if (current_can_setuids() || uid == current->uid || uid == current->euid || uid == current->suid)
         current->fsuid = uid;
     return old;
 }
@@ -170,7 +186,7 @@ dword_t sys_getegid(void) {
 
 int_t sys_setgid(uid_t_ gid) {
     STRACE("setgid(%d)", gid);
-    if (superuser()) {
+    if (current_can_setgids()) {
         current->gid = current->sgid = gid;
     } else {
         if (gid != current->gid && gid != current->sgid)
@@ -183,7 +199,7 @@ int_t sys_setgid(uid_t_ gid) {
 
 dword_t sys_setresgid(uid_t_ rgid, uid_t_ egid, uid_t_ sgid) {
     STRACE("setresgid(%d, %d, %d)", rgid, egid, sgid);
-    if (!superuser()) {
+    if (!current_can_setgids()) {
         if (rgid != (uid_t) -1 && rgid != current->gid && rgid != current->egid && rgid != current->sgid)
             return _EPERM;
         if (egid != (uid_t) -1 && egid != current->gid && egid != current->egid && egid != current->sgid)
@@ -237,7 +253,7 @@ uid_t_ sys_setfsgid(uid_t_ gid) {
     STRACE("setfsgid(%d)", gid);
     if (gid == (uid_t_) -1)
         return old;
-    if (superuser() || gid == current->gid || gid == current->egid || gid == current->sgid)
+    if (current_can_setgids() || gid == current->gid || gid == current->egid || gid == current->sgid)
         current->fsgid = gid;
     return old;
 }
@@ -257,6 +273,8 @@ int_t sys_getgroups(dword_t size, addr_t list) {
 
 int_t sys_setgroups(dword_t size, addr_t list) {
     STRACE("setgroups(%d, %#x)", size, list);
+    if (!current_can_setgids())
+        return _EPERM;
     if (size > MAX_GROUPS)
         return _EINVAL;
     if (user_read(list, current->groups, size * sizeof(uid_t_)))

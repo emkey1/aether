@@ -13,6 +13,11 @@ static struct task *ptrace_tracer(struct task *task) {
     return task->parent;
 }
 
+static bool ptrace_traced_by(const struct task *tracer, const struct task *tracee) {
+    return tracee->ptrace.tracer == tracer ||
+        (tracee->ptrace.traced && tracee->ptrace.tracer == NULL && tracee->parent == tracer);
+}
+
 static int ptrace_resume_signal(guest_addr_t data) {
     if (data == 0)
         return 0;
@@ -43,26 +48,29 @@ static void ptrace_resume_child_locked(struct task *child, int resume_sig,
         send_signal(child, resume_sig, SIGINFO_NIL);
 }
 
+static struct task *find_tracee(pid_t_ pid, bool require_stopped) {
+    complex_lockt(&pids_lock, 0);
+    struct task *tracee = pid_get_task_zombie(pid);
+    if (tracee == NULL) {
+        unlock(&pids_lock);
+        return NULL;
+    }
+
+    lock(&tracee->ptrace.lock, 0);
+    bool visible = ptrace_traced_by(current, tracee);
+    bool stopped_ok = !require_stopped || tracee->ptrace.stopped;
+    unlock(&pids_lock);
+
+    if (!visible || !stopped_ok) {
+        unlock(&tracee->ptrace.lock);
+        return NULL;
+    }
+    return tracee;
+}
+
 // Returns stopped tracee with the given pid, locked with the ptrace lock
 static struct task *find_child(pid_t_ pid) {
-    struct task *child = NULL;
-    list_for_each_entry(&current->children, child, siblings) {
-        if (child->pid != pid)
-            continue;
-        lock(&child->ptrace.lock, 0);
-        if (child->ptrace.stopped)
-            return child;
-        unlock(&child->ptrace.lock);
-    }
-    list_for_each_entry(&current->ptracees, child, ptrace_siblings) {
-        if (child->pid != pid)
-            continue;
-        lock(&child->ptrace.lock, 0);
-        if (child->ptrace.stopped)
-            return child;
-        unlock(&child->ptrace.lock);
-    }
-    return NULL;
+    return find_tracee(pid, true);
 }
 
 void ptrace_attach_fork_child(struct task *child, struct task *tracee) {
@@ -126,7 +134,8 @@ static void get_user_regs_amd64(struct task *task, struct user_regs_struct_amd64
         user_regs_->rax = (qword_t) (sqword_t) _ENOSYS;
 }
 
-static void set_user_regs_amd64(struct cpu_state *cpu, const struct user_regs_struct_amd64_ *user_regs_) {
+static void set_user_regs_amd64(struct task *task, const struct user_regs_struct_amd64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
     cpu->amd64_regs[amd64_r15] = user_regs_->r15;
     cpu->amd64_regs[amd64_r14] = user_regs_->r14;
     cpu->amd64_regs[amd64_r13] = user_regs_->r13;
@@ -148,6 +157,9 @@ static void set_user_regs_amd64(struct cpu_state *cpu, const struct user_regs_st
     cpu->df_offset = cpu->df ? -1 : 1;
     cpu->amd64_regs[amd64_rsp] = user_regs_->rsp;
     cpu->tls_ptr = user_regs_->fs_base;
+    task->ptrace.syscall = (int) user_regs_->orig_rax;
+    if (ptrace_in_syscall_entry_stop(task))
+        cpu->amd64_regs[amd64_rax] = user_regs_->orig_rax;
     sync_i386_shadows_from_amd64_ptrace(cpu);
 }
 
@@ -305,7 +317,8 @@ static void get_user_regs_and_syscall(struct task *task, struct user_regs_struct
 }
 
 // Ensure stopped, ptrace locked, etc. before calling this
-static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_regs_) {
+static void set_user_regs(struct task *task, struct user_regs_struct_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
     cpu->ebx = user_regs_->ebx;
     cpu->ecx = user_regs_->ecx;
     cpu->edx = user_regs_->edx;
@@ -325,6 +338,9 @@ static void set_user_regs(struct cpu_state *cpu, struct user_regs_struct_ *user_
     cpu->df_offset = cpu->df ? -1 : 1;
     cpu->esp = user_regs_->esp;
 //  cpu->xss = user_regs_->xss;
+    task->ptrace.syscall = (int) user_regs_->orig_eax;
+    if (ptrace_in_syscall_entry_stop(task))
+        cpu->eax = user_regs_->orig_eax;
 }
 
 static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_t iov_addr,
@@ -367,13 +383,13 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
                 if (err < 0)
                     return err;
-                set_user_regs_amd64(&child->cpu, &user_regs_amd64);
+                set_user_regs_amd64(child, &user_regs_amd64);
             } else {
                 struct user_regs_struct_ user_regs_;
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_, sizeof(user_regs_));
                 if (err < 0)
                     return err;
-                set_user_regs(&child->cpu, &user_regs_);
+                set_user_regs(child, &user_regs_);
             }
             return 0;
         }
@@ -409,8 +425,6 @@ static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscal
     // can't miss the stop between its wait4 scan and sleep.
     complex_lockt(&pids_lock, 0);
     lock(&current->ptrace.lock, 0);
-    if (!syscall_stop)
-        current->ptrace.syscall_stopped = false;
     current->ptrace.stopped = true;
     current->ptrace.signal = sig;
     if (syscall_stop && current->ptrace.sysgood)
@@ -492,6 +506,45 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             current->ptrace.traced = true;
             current->ptrace.tracer = current->parent;
             return 0;
+
+        case PTRACE_SEIZE_: {
+            STRACE("ptrace(PTRACE_SEIZE, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
+            if (addr != 0)
+                return _EIO;
+
+            complex_lockt(&pids_lock, 0);
+            struct task *child = pid_get_task_zombie(pid);
+            if (child == NULL) {
+                unlock(&pids_lock);
+                return _ESRCH;
+            }
+            if (child == current) {
+                unlock(&pids_lock);
+                return _EPERM;
+            }
+
+            lock(&child->ptrace.lock, 0);
+            if (child->ptrace.traced) {
+                unlock(&child->ptrace.lock);
+                unlock(&pids_lock);
+                return _EPERM;
+            }
+
+            child->ptrace.traced = true;
+            child->ptrace.tracer = current;
+            child->ptrace.options = data;
+            child->ptrace.sysgood = !!(data & PTRACE_O_TRACESYSGOOD_);
+            child->ptrace.stop_at_syscall = false;
+            child->ptrace.syscall_stopped = false;
+            child->ptrace.trap_event = 0;
+            child->ptrace.eventmsg = 0;
+            if (child->parent == NULL || child->parent->group != current->group)
+                list_add(&current->ptracees, &child->ptrace_siblings);
+            unlock(&child->ptrace.lock);
+            unlock(&pids_lock);
+            return 0;
+        }
 
         case PTRACE_PEEKTEXT_:
         case PTRACE_PEEKDATA_: {
@@ -619,6 +672,26 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             return 0;
         }
 
+        case PTRACE_INTERRUPT_: {
+            STRACE("ptrace(PTRACE_INTERRUPT, %d, %#llx, %#llx)", pid,
+                    (unsigned long long) addr, (unsigned long long) data);
+            if (addr != 0 || data != 0)
+                return _EIO;
+
+            struct task *child = find_tracee(pid, false);
+            if (!child)
+                return _EPERM;
+            if (!child->ptrace.stopped) {
+                child->ptrace.trap_event = PTRACE_EVENT_STOP_;
+                child->ptrace.eventmsg = 0;
+                unlock(&child->ptrace.lock);
+                send_signal(child, SIGTRAP_, SIGINFO_NIL);
+            } else {
+                unlock(&child->ptrace.lock);
+            }
+            return 0;
+        }
+
         case PTRACE_GETREGS_: {
             STRACE("ptrace(PTRACE_GETREGS, %d, %#llx, %#llx)", pid,
                     (unsigned long long) addr, (unsigned long long) data);
@@ -658,14 +731,14 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     unlock(&child->ptrace.lock);
                     return _EFAULT;
                 }
-                set_user_regs_amd64(&child->cpu, &user_regs_amd64);
+                set_user_regs_amd64(child, &user_regs_amd64);
             } else {
                 struct user_regs_struct_ user_regs_;
                 if (user_get(data, user_regs_)) {
                     unlock(&child->ptrace.lock);
                     return _EFAULT;
                 }
-                set_user_regs(&child->cpu, &user_regs_);
+                set_user_regs(child, &user_regs_);
             }
             unlock(&child->ptrace.lock);
 
@@ -759,7 +832,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
         case PTRACE_SETOPTIONS_: {
             STRACE("ptrace(PTRACE_SETOPTIONS, %d, %#llx, %#llx)", pid,
                     (unsigned long long) addr, (unsigned long long) data);
-            struct task *child = find_child(pid);
+            struct task *child = find_tracee(pid, false);
             if (!child) return _EPERM;
             // Ideally we would have this condition, but strace annonyingly
             // uses PTRACE_O_SYSGOOD | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT

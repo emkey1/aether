@@ -482,11 +482,12 @@ static int tmpfs_setattr(struct mount *mount, const char *path, struct attr attr
     return err;
 }
 
-static int tmpfs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime) {
+static int tmpfs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime, bool follow_links) {
     struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
     if (IS_ERR(dirent))
         return PTR_ERR(dirent);
     struct tmp_inode *inode = dirent->inode;
+    (void) follow_links;
     lock(&inode->lock, 0);
     inode->stat.atime = atime.tv_sec;
     inode->stat.atime_nsec = atime.tv_nsec;

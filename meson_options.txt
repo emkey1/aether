@@ -5,6 +5,7 @@ option('log_handler', type: 'string', value: 'dprintf')
 option('engine', type: 'combo', choices: ['jit'], value: 'jit')
 option('kernel', type: 'combo', choices: ['ish', 'linux'], value: 'ish')
 option('kconfig', type: 'array', value: [])
+option('jit_cpu_family', type: 'string', value: '')
 
 option('vdso_c_args', type: 'string', value: '')
 

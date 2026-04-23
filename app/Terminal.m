@@ -148,6 +148,67 @@ static NSString *ISHStringFromBOOL(BOOL value) {
     return value ? @"yes" : @"no";
 }
 
+static NSString *TerminalDebugReadRowsForTerminal(Terminal *terminal, int maxRows) {
+    if (terminal == nil)
+        return @"<no-terminal>";
+
+    WKWebView *webView = terminal.webView;
+    if (webView == nil)
+        return @"<no-webview>";
+
+    __block NSString *output = @"<pending>";
+    __block BOOL done = NO;
+    int rows = maxRows > 0 ? maxRows : 0;
+    NSString *script = [NSString stringWithFormat:@"term.getRowsText(Math.max(0,term.getRowCount()-%d), term.getRowCount())", rows];
+    void (^readBlock)(void) = ^{
+        [webView evaluateJavaScript:script completionHandler:^(id result, NSError *error) {
+            if ([result isKindOfClass:NSString.class]) {
+                output = result;
+            } else if (error != nil) {
+                output = error.localizedDescription ?: @"<error>";
+            } else {
+                output = @"<no-output>";
+            }
+            done = YES;
+        }];
+    };
+
+    if (NSThread.isMainThread) {
+        readBlock();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), readBlock);
+    }
+
+    while (!done) {
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    }
+    return output;
+}
+
+NSString *Terminal_debugReadRows(int type, int number, int maxRows) {
+    @autoreleasepool {
+        return TerminalDebugReadRowsForTerminal([Terminal terminalWithType:type number:number], maxRows);
+    }
+}
+
+NSString *Terminal_debugSendInputUTF8(int type, int number, const char *input) {
+    @autoreleasepool {
+        Terminal *terminal = [Terminal terminalWithType:type number:number];
+        if (terminal == nil)
+            return @"<no-terminal>";
+        if (input == NULL)
+            return @"<null-input>";
+
+        NSString *string = [NSString stringWithUTF8String:input];
+        if (string == nil)
+            return @"<invalid-utf8>";
+
+        NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding];
+        [terminal sendInput:data];
+        return @"ok";
+    }
+}
+
 static void NotifyTerminalRegistryChanged(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:TerminalRegistryDidChangeNotification object:nil];

@@ -27,6 +27,8 @@ struct task;
 #define PTRACE_GETSIGINFO_ 0x4202
 #define PTRACE_GETREGSET_ 0x4204
 #define PTRACE_SETREGSET_ 0x4205
+#define PTRACE_SEIZE_ 0x4206
+#define PTRACE_INTERRUPT_ 0x4207
 
 #define NT_PRSTATUS_ 1
 #define NT_PRFPREG_ 2
@@ -37,6 +39,7 @@ struct task;
 #define PTRACE_EVENT_CLONE_ 3
 #define PTRACE_EVENT_EXEC_ 4
 #define PTRACE_EVENT_EXIT_ 6
+#define PTRACE_EVENT_STOP_ 128
 
 #define PTRACE_O_TRACESYSGOOD_ 1
 #define PTRACE_O_TRACEFORK_ 2

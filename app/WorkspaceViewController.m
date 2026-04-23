@@ -486,9 +486,11 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
         if (CGRectIsEmpty(restoreFrame) || CGRectIsNull(restoreFrame))
             return;
         self.zoomedToFullscreen = NO;
-        self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(restoreFrame));
+        restoreFrame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(restoreFrame));
+        self.frame = restoreFrame;
+        self.preferredSize = restoreFrame.size;
     } else {
-        self.restoreFrameBeforeZoom = self.frame;
+        self.restoreFrameBeforeZoom = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(self.frame));
         self.zoomedToFullscreen = YES;
         CGRect fullscreenFrame = self.superview.bounds;
         self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(fullscreenFrame));
@@ -2458,6 +2460,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if ([viewController isKindOfClass:WorkspaceThemedToolViewController.class]) {
         ((WorkspaceThemedToolViewController *) viewController).workspaceHostViewController = self;
     }
+    // Once a controller is embedded inside a workspace window, the contained window's frame is the
+    // authoritative size. Clearing preferredContentSize avoids UIKit reusing the child's standalone
+    // preferred size for the outer app window when the contained window is restored from fullscreen.
+    viewController.preferredContentSize = CGSizeZero;
     [self addChildViewController:viewController];
     viewController.view.translatesAutoresizingMaskIntoConstraints = NO;
     [windowView.contentContainerView addSubview:viewController.view];

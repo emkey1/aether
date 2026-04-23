@@ -54,7 +54,11 @@ emu_src = [
     'jit/gen.c',
     'jit/helpers.c',
 ]
-gadgets = 'jit/gadgets-' + host_machine.cpu_family()
+jit_cpu_family = get_option('jit_cpu_family')
+if jit_cpu_family == ''
+    jit_cpu_family = host_machine.cpu_family()
+endif
+gadgets = 'jit/gadgets-' + jit_cpu_family
 emu_src += [
     gadgets+'/entry.S',
     gadgets+'/memory.S',
@@ -148,10 +152,13 @@ if get_option('kernel') == 'ish'
         'kernel/epoll.c',
 
         'util/timer.c',
+        'util/ro_locks.c',
+        'util/rw_locks.c',
         'util/sync.c',
         'util/fifo.c',
 
         'emu/memory.c',
+        'platform/standalone.c',
 
         'platform/' + host_machine.system() + '.c',
     ]
