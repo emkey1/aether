@@ -89,13 +89,18 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     // Linux procfd opens give regular files a fresh file position, which shell
     // script loaders rely on when they execute /proc/self/fd/N after the
     // parent has already inspected the script FD. Prefer a reopen for normal
-    // file-backed descriptors, but fall back to retaining the original fd when
-    // there is no stable reopen path (for example anonymous or deleted files).
+    // file-backed descriptors.
     struct fd *reopened = procfd_reopen_regular(fd);
     if (reopened != NULL) {
         fd_close(fd);
         return reopened;
     }
+    // Deleted or anonymous regular files may not have a stable path we can
+    // reopen. We cannot cheaply create a distinct open-file description here,
+    // but resetting the retained descriptor keeps shell interpreters from
+    // starting mid-script after apk has read the shebang.
+    if (S_ISREG(fd->type) && fd->ops != NULL && fd->ops->lseek != NULL)
+        fd->ops->lseek(fd, 0, SEEK_SET);
     return fd;
 }
 

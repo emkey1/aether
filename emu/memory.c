@@ -445,6 +445,39 @@ int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags)
     return pt_map(mem, start, pages, memory, 0, flags | P_ANONYMOUS);
 }
 
+int pt_move(struct mem *mem, page_t old_start, page_t new_start, pages_t pages) {
+    if (!mem_page_range_valid(mem, old_start, pages) ||
+            !mem_page_range_valid(mem, new_start, pages))
+        return _ENOMEM;
+    if (!pt_is_hole(mem, new_start, pages))
+        return _ENOMEM;
+    for (page_t page = old_start; page < old_start + pages; page++)
+        if (mem_pt(mem, page) == NULL)
+            return _EFAULT;
+
+    pages_t mapped = 0;
+    for (; mapped < pages; mapped++) {
+        struct pt_entry *src = mem_pt(mem, old_start + mapped);
+        struct pt_entry *dst = mem_pt_new(mem, new_start + mapped);
+        if (dst == NULL) {
+            pt_unmap_always(mem, new_start, mapped);
+            return _ENOMEM;
+        }
+        src->data->refcount++;
+        dst->data = src->data;
+        dst->offset = src->offset;
+        dst->flags = src->flags;
+    }
+
+    int err = pt_unmap(mem, old_start, pages);
+    if (err < 0) {
+        pt_unmap_always(mem, new_start, pages);
+        return err;
+    }
+    mem_changed(mem);
+    return 0;
+}
+
 int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
     if (!mem_page_range_valid(mem, start, pages))
         return _ENOMEM;

@@ -50,3 +50,4 @@ extern struct tty_driver ios_console_driver;
 
 NSString *Terminal_debugReadRows(int type, int number, int maxRows);
 NSString *Terminal_debugSendInputUTF8(int type, int number, const char *input);
+int Terminal_debugSendInputUTF8Sync(int type, int number, const char *input);

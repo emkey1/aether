@@ -152,6 +152,45 @@ static void poll_drop_unknown_event(struct poll *poll_, struct real_poll_event *
 #endif
 }
 
+static int poll_deliver_ready_locked(struct poll *poll_, struct poll_fd *poll_fd,
+                                     int poll_types, poll_callback_t callback,
+                                     void *context, const char *phase) {
+    struct fd *fd = poll_fd->fd;
+
+    if (poll_fd->types & POLL_EDGETRIGGERED)
+        poll_types &= ~poll_fd->triggered_types;
+    if (!poll_types)
+        return 0;
+
+    int handled = callback(context, poll_types, poll_fd->info);
+    if (poll_wait_trace_enabled()) {
+        fprintf(stderr, "ish-pollwait: %s pid=%d comm=%s real=%d events=%#x handled=%d\n",
+               phase, current->pid, current->comm,
+               fd != NULL ? fd->real_fd : -1, poll_types, handled);
+    }
+    int res = handled == 1 ? 1 : 0;
+
+    // The real poll does not actually get the FDs set as oneshot.
+    // But this loop is done while holding the lock, so only one
+    // thread can get each oneshot event. This doesn't solve the
+    // thundering herd problem at all, but at least the semantics
+    // are right. I'll just leave that as a TODO.
+    if (poll_fd->types & POLL_ONESHOT) {
+        list_remove(&poll_fd->polls);
+        list_remove(&poll_fd->fds);
+        if (poll_fd_has_host_wait(poll_fd))
+            real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
+        // Keep poll_fd storage alive on the freelist so stale host
+        // readiness events cannot turn into a use-after-free.
+        poll_fd_free(poll_fd);
+        return res;
+    }
+
+    if (poll_fd->types & POLL_EDGETRIGGERED)
+        poll_fd->triggered_types |= poll_types;
+    return res;
+}
+
 static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, void *context) {
     int res = 0;
     struct poll_fd *poll_fd, *tmp;
@@ -178,32 +217,8 @@ static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, 
         if (!poll_types)
             continue;
 
-        int handled = callback(context, poll_types, poll_fd->info);
-        if (poll_wait_trace_enabled()) {
-            fprintf(stderr, "ish-pollwait: callback pid=%d comm=%s real=%d events=%#x handled=%d\n",
-                   current->pid, current->comm,
-                   fd != NULL ? fd->real_fd : -1, poll_types, handled);
-        }
-        if (handled == 1)
-            res++;
-
-        // The real poll does not actually get the FDs set as oneshot.
-        // But this loop is done while holding the lock, so only one
-        // thread can get each oneshot event. This doesn't solve the
-        // thundering herd problem at all, but at least the semantics
-        // are right. I'll just leave that as a TODO.
-        if (poll_fd->types & POLL_ONESHOT) {
-            list_remove(&poll_fd->polls);
-            list_remove(&poll_fd->fds);
-            if (poll_fd_has_host_wait(poll_fd))
-                real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
-            // Keep poll_fd storage alive on the freelist so stale host
-            // readiness events cannot turn into a use-after-free.
-            poll_fd_free(poll_fd);
-        }
-
-        if (poll_fd->types & POLL_EDGETRIGGERED)
-            poll_fd->triggered_types |= poll_types;
+        res += poll_deliver_ready_locked(poll_, poll_fd, poll_types,
+                                         callback, context, "callback");
     }
     return res;
 }
@@ -558,7 +573,11 @@ poll_wait_done:
             break;
         }
 
-        // dead with any edge-triggered notifications
+        // Deliver host readiness notifications directly. fd->ops->poll() is
+        // still the preferred readiness source, but Darwin can report EOF/HUP
+        // through kqueue when a follow-up zero-time probe returns no bits. If
+        // we only rescan, that host event can wake us forever without ever
+        // reaching the guest.
         for (int i = 0; i < err; i++) {
             struct poll_fd *candidate = rpe_data(&e[i]);
             struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
@@ -566,10 +585,14 @@ poll_wait_done:
             if (triggered_poll_fd == NULL)
                 triggered_poll_fd = poll_find_real_fd(poll_, (int) e[i].real.ident);
 #endif
-            if (triggered_poll_fd != NULL && triggered_poll_fd->poll == poll_ &&
-                    triggered_poll_fd->types & POLL_EDGETRIGGERED) {
-                triggered_poll_fd->triggered_types &= ~rpe_events(&e[i]);
-            }
+            if (triggered_poll_fd == NULL || triggered_poll_fd->poll != poll_)
+                continue;
+            int host_events = rpe_events(&e[i]);
+            if (triggered_poll_fd->types & POLL_EDGETRIGGERED)
+                triggered_poll_fd->triggered_types &= ~host_events;
+            int poll_types = host_events & (triggered_poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL);
+            res += poll_deliver_ready_locked(poll_, triggered_poll_fd, poll_types,
+                                             callback, context, "host-callback");
         }
 
         while (poll_->notify_pipe[0] != -1) {
@@ -585,6 +608,8 @@ poll_wait_done:
             break;
         }
         if (res < 0)
+            break;
+        if (res > 0)
             break;
     }
 

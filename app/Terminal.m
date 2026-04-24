@@ -15,6 +15,8 @@
 #include "fs/tty.h"
 #include "fs/devices.h"
 #include "util/ro_locks.h"
+#include <stdlib.h>
+#include <string.h>
 
 extern struct tty_driver ios_pty_driver;
 
@@ -99,6 +101,43 @@ static const int BUF_SIZE = 1<<14;
 
 static NSMapTable<NSNumber *, Terminal *> *terminals;
 static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
+static NSMutableSet<NSUUID *> *terminalDebugAutorunUUIDs;
+
+static void TerminalMaybeScheduleDebugAutorun(Terminal *terminal) {
+    NSString *command = NSProcessInfo.processInfo.environment[@"ISH_DEBUG_AUTORUN_TTY1_COMMAND"];
+    if (command.length == 0)
+        return;
+    if (terminal.type != 136 || terminal.number != 1)
+        return;
+    if (terminal.uuid == nil)
+        return;
+
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        terminalDebugAutorunUUIDs = [NSMutableSet set];
+    });
+
+    @synchronized (terminalDebugAutorunUUIDs) {
+        if ([terminalDebugAutorunUUIDs containsObject:terminal.uuid])
+            return;
+        [terminalDebugAutorunUUIDs addObject:terminal.uuid];
+    }
+
+    NSString *input = command;
+    if (![input hasSuffix:@"\n"])
+        input = [input stringByAppendingString:@"\n"];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (NSEC_PER_SEC * 1.0)),
+                   dispatch_get_main_queue(), ^{
+        if (terminal.tty == NULL)
+            return;
+        NSData *data = [input dataUsingEncoding:NSUTF8StringEncoding];
+        [terminal recordLifecycleEvent:@"terminal.debugAutorun"
+                               details:@{@"bytes": @(data.length),
+                                         @"command": command}];
+        [terminal sendInput:data];
+    });
+}
 
 static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
     const unsigned char *bytes = data.bytes;
@@ -132,6 +171,24 @@ static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
         }
     }
     return literal;
+}
+
+static BOOL TerminalShouldMirrorDebugOutput(Terminal *terminal) {
+    if (terminal == nil || terminal.type != 136 || terminal.number != 1)
+        return NO;
+    const char *enabled = getenv("ISH_DEBUG_MIRROR_TTY1_OUTPUT");
+    return enabled != NULL && enabled[0] != '\0' && strcmp(enabled, "0") != 0;
+}
+
+static void TerminalDebugMirrorOutput(Terminal *terminal, const void *buf, int len) {
+    if (!TerminalShouldMirrorDebugOutput(terminal) || buf == NULL || len <= 0)
+        return;
+    @autoreleasepool {
+        NSData *data = [NSData dataWithBytes:buf length:(NSUInteger) len];
+        NSString *escaped = ISHJavaScriptLiteralForTerminalData(data);
+        fprintf(stderr, "ish-tty1-output: \"%s\"\n", escaped.UTF8String ?: "");
+        fflush(stderr);
+    }
 }
 
 static NSString *ISHTerminalTypeString(int type) {
@@ -185,12 +242,14 @@ static NSString *TerminalDebugReadRowsForTerminal(Terminal *terminal, int maxRow
     return output;
 }
 
+__attribute__((used))
 NSString *Terminal_debugReadRows(int type, int number, int maxRows) {
     @autoreleasepool {
         return TerminalDebugReadRowsForTerminal([Terminal terminalWithType:type number:number], maxRows);
     }
 }
 
+__attribute__((used))
 NSString *Terminal_debugSendInputUTF8(int type, int number, const char *input) {
     @autoreleasepool {
         Terminal *terminal = [Terminal terminalWithType:type number:number];
@@ -206,6 +265,44 @@ NSString *Terminal_debugSendInputUTF8(int type, int number, const char *input) {
         NSData *data = [string dataUsingEncoding:NSUTF8StringEncoding];
         [terminal sendInput:data];
         return @"ok";
+    }
+}
+
+__attribute__((used))
+int Terminal_debugSendInputUTF8Sync(int type, int number, const char *input) {
+    @autoreleasepool {
+        Terminal *terminal = [Terminal terminalWithType:type number:number];
+        if (terminal == nil)
+            return -1;
+        if (input == NULL)
+            return -2;
+        if (terminal.tty == NULL)
+            return -3;
+
+        size_t length = strlen(input);
+        char *copy = NULL;
+        if (length > 0) {
+            copy = malloc(length);
+            if (copy == NULL)
+                return -4;
+            memcpy(copy, input, length);
+            uint8_t first = (uint8_t) copy[0];
+            [terminal recordLifecycleEvent:@"terminal.debugSendInputSync"
+                                   details:@{@"bytes": @(length),
+                                             @"firstByte": [NSString stringWithFormat:@"%#x", first]}];
+        }
+
+#if !ISH_LINUX
+        tty_input(terminal.tty, copy, length, 0);
+        free(copy);
+#else
+        sync_do_in_workqueue(^(void (^done)(void)) {
+            terminal.tty->ops->send_input(terminal.tty, copy, length);
+            free(copy);
+            done();
+        });
+#endif
+        return 0;
     }
 }
 
@@ -331,6 +428,7 @@ static void NotifyTerminalRegistryChanged(void) {
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
         self.enableVoiceOverAnnounce = self.enableVoiceOverAnnounce;
+        TerminalMaybeScheduleDebugAutorun(self);
     } else if ([message.name isEqualToString:@"sendInput"]) {
         NSData *data = [message.body dataUsingEncoding:NSUTF8StringEncoding];
         [self recordLifecycleEvent:@"terminal.webview.sendInput"
@@ -394,6 +492,7 @@ static void NotifyTerminalRegistryChanged(void) {
 }
 
 - (int)sendOutput:(const void *)buf length:(int)len {
+    TerminalDebugMirrorOutput(self, buf, len);
 #if !ISH_LINUX
     lock(&_dataLock, 0);
     if (!NSThread.isMainThread) {

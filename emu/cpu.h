@@ -23,11 +23,23 @@ int amd64_jit_push_reg(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg, unsigned long next_ip);
 int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg, unsigned long next_ip);
+int amd64_jit_push_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long value, unsigned long next_ip);
+int amd64_jit_xchg_rax_reg(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg_size, unsigned long next_ip);
 int amd64_jit_jmp_abs(struct cpu_state *cpu, struct tlb *tlb, unsigned long target);
 int amd64_jit_call_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long target, unsigned long next_ip);
 int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long cc, unsigned long target, unsigned long next_ip);
+int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip);
+int amd64_jit_mov_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg_size, unsigned long value, unsigned long next_ip);
+int amd64_jit_reg_reg_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long op_regs_size, unsigned long next_ip);
+int amd64_jit_reg_imm_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long op_group_rm_size, unsigned long value, unsigned long next_ip);
 void amd64_jit_bridge_set_tlb(struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
 void dump_amd64_cc1_trace(const struct cpu_state *cpu);

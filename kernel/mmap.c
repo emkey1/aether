@@ -250,8 +250,11 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
         FIXME("missing MREMAP_FIXED");
         return _EINVAL;
     }
-    pages_t old_pages = PAGE(old_len);
-    pages_t new_pages = PAGE(new_len);
+    pages_t old_pages = PAGE_ROUND_UP(old_len);
+    pages_t new_pages = PAGE_ROUND_UP(new_len);
+    guest_addr_t res = _ENOMEM;
+
+    write_lock(&current->mem->lock);
 
     // shrinking always works
     if (new_pages <= old_pages) {
@@ -259,38 +262,66 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
             nanosleep(&lock_pause, NULL);
         }
         int err = pt_unmap(current->mem, PAGE(addr) + new_pages, old_pages - new_pages);
-        if (err < 0)
-            return _EFAULT;
-        return addr;
+        res = err < 0 ? _EFAULT : addr;
+        goto out;
     }
 
     struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
-    if (entry == NULL)
-        return _EFAULT;
+    if (entry == NULL) {
+        res = _EFAULT;
+        goto out;
+    }
     dword_t pt_flags = entry->flags;
     for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
         entry = mem_pt(current->mem, page);
-        if (entry == NULL && entry->flags != pt_flags)
-            return _EFAULT;
+        if (entry == NULL || entry->flags != pt_flags) {
+            res = _EFAULT;
+            goto out;
+        }
     }
     if (!(pt_flags & P_ANONYMOUS)) {
         FIXME("mremap grow on file mappings");
-        return _EFAULT;
+        res = _EFAULT;
+        goto out;
     }
     page_t extra_start = PAGE(addr) + old_pages;
     pages_t extra_pages = new_pages - old_pages;
     bool extra_is_hole = pt_is_hole(current->mem, extra_start, extra_pages);
-    if (!extra_is_hole)
+    if (extra_is_hole) {
+        int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
+        res = err < 0 ? err : addr;
+        goto out;
+    }
+
+    if (!(flags & MREMAP_MAYMOVE_)) {
         amd64_vm_failure_trace("mremap", _ENOMEM, addr, old_len, new_len, flags, 0, 0);
-    if (!extra_is_hole)
-        return _ENOMEM;
-    int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
+        res = _ENOMEM;
+        goto out;
+    }
+
+    page_t new_page = pt_find_hole(current->mem, new_pages);
+    if (new_page == BAD_PAGE) {
+        amd64_vm_failure_trace("mremap", _ENOMEM, addr, old_len, new_len, flags, 0, 0);
+        res = _ENOMEM;
+        goto out;
+    }
+    int err = pt_map_nothing(current->mem, new_page + old_pages, extra_pages, pt_flags);
+    if (err == 0) {
+        err = pt_move(current->mem, PAGE(addr), new_page, old_pages);
+        if (err < 0)
+            pt_unmap_always(current->mem, new_page + old_pages, extra_pages);
+    }
     if (err < 0) {
         if (err == _ENOMEM)
             amd64_vm_failure_trace("mremap", err, addr, old_len, new_len, flags, 0, 0);
-        return err;
+        res = err;
+        goto out;
     }
-    return addr;
+    res = (guest_addr_t) new_page << PAGE_BITS;
+
+out:
+    write_unlock(&current->mem->lock);
+    return res;
 }
 
 int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
