@@ -1,5 +1,7 @@
 #include <limits.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "emu/cpuid.h"
@@ -35,6 +37,8 @@ struct amd64_modrm {
     bool rip_relative;
     int32_t disp;
 };
+
+static struct tlb *volatile amd64_jit_bridge_tlb;
 
 struct fpu_env32 {
     uint32_t control;
@@ -1627,6 +1631,25 @@ static inline bool amd64_guest_addr_ok(qword_t guest_addr, unsigned size, guest_
         return false;
     *addr_out = guest_addr;
     return true;
+}
+
+static int amd64_bad_transfer_target(struct cpu_state *cpu, qword_t from, qword_t target,
+        const char *kind) {
+    printk("[amd64-jit] bad-%s-target from=%#llx target=%#llx rsp=%#llx\n",
+           kind,
+           (unsigned long long) from,
+           (unsigned long long) target,
+           (unsigned long long) cpu->amd64_regs[amd64_rsp]);
+    cpu->amd64_rip = target;
+    return INT_GPF;
+}
+
+static inline int amd64_validate_transfer_target(struct cpu_state *cpu, qword_t from,
+        qword_t target, const char *kind) {
+    guest_addr_t checked_target;
+    if (!amd64_guest_addr_ok(target, 1, &checked_target))
+        return amd64_bad_transfer_target(cpu, from, target, kind);
+    return INT_NONE;
 }
 
 static inline qword_t amd64_mask(unsigned size) {
@@ -4321,8 +4344,13 @@ restart_prefix:
             }
             bool taken = amd64_cond_eval(cpu, op2 & 0xf);
             amd64_trace_cc1_je_probe(cpu, saved_rip, taken, cpu->amd64_rip + rel32);
-            if (taken)
-                cpu->amd64_rip += rel32;
+            if (taken) {
+                qword_t target = cpu->amd64_rip + rel32;
+                int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "jcc");
+                if (target_interrupt != INT_NONE)
+                    return target_interrupt;
+                cpu->amd64_rip = target;
+            }
             break;
         }
         if (op2 >= 0x40 && op2 <= 0x4f) {
@@ -6328,8 +6356,12 @@ restart_prefix:
                    (unsigned long long) (cpu->amd64_rip + rel8));
         }
         if (taken) {
-            amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel8, "jcc");
-            cpu->amd64_rip += rel8;
+            qword_t target = cpu->amd64_rip + rel8;
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "jcc");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+            amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "jcc");
+            cpu->amd64_rip = target;
         }
         break;
     }
@@ -6695,6 +6727,11 @@ restart_prefix:
         amd64_trace_suspicious_rsp_write(cpu, old_rsp, cpu->amd64_regs[amd64_rsp], 64);
         amd64_trace_cc1_xfer_probe(cpu, tlb, saved_rip, target, "ret-imm");
         amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "ret-imm");
+        {
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "ret");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+        }
         cpu->amd64_rip = target;
         break;
     }
@@ -6704,6 +6741,11 @@ restart_prefix:
             goto amd64_gpf_restore;
         amd64_trace_cc1_xfer_probe(cpu, tlb, saved_rip, target, "ret");
         amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "ret");
+        {
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "ret");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+        }
         cpu->amd64_rip = target;
         break;
     }
@@ -6775,10 +6817,16 @@ restart_prefix:
             return INT_GPF;
         }
         qword_t return_rip = cpu->amd64_rip;
+        qword_t target = return_rip + rel32;
+        {
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "call");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+        }
         if (!amd64_push(cpu, tlb, return_rip))
             goto amd64_gpf_restore;
-        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel32, "call-rel32");
-        cpu->amd64_rip += rel32;
+        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "call-rel32");
+        cpu->amd64_rip = target;
         break;
     }
     case 0xe9: {
@@ -6788,9 +6836,15 @@ restart_prefix:
             cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
-        amd64_trace_cc1_va_list_branch_probe(cpu, saved_rip, true, cpu->amd64_rip + rel32, "jmp-rel32");
-        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel32, "jmp-rel32");
-        cpu->amd64_rip += rel32;
+        qword_t target = cpu->amd64_rip + rel32;
+        {
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "jmp");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+        }
+        amd64_trace_cc1_va_list_branch_probe(cpu, saved_rip, true, target, "jmp-rel32");
+        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "jmp-rel32");
+        cpu->amd64_rip = target;
         break;
     }
     case 0xeb: {
@@ -6800,8 +6854,14 @@ restart_prefix:
             cpu->segfault_addr = saved_rip;
             return INT_GPF;
         }
-        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, cpu->amd64_rip + rel8, "jmp-rel8");
-        cpu->amd64_rip += rel8;
+        qword_t target = cpu->amd64_rip + rel8;
+        {
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "jmp");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+        }
+        amd64_trace_cargo_transfer(cpu, tlb, saved_rip, target, "jmp-rel8");
+        cpu->amd64_rip = target;
         break;
     }
     case 0xe3: {
@@ -6815,8 +6875,13 @@ restart_prefix:
         count = cpu->amd64_address_size_prefix
                 ? amd64_reg_get(cpu, amd64_rcx, 32)
                 : amd64_reg_get(cpu, amd64_rcx, 64);
-        if (count == 0)
-            cpu->amd64_rip += rel8;
+        if (count == 0) {
+            qword_t target = cpu->amd64_rip + rel8;
+            int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, target, "jcxz");
+            if (target_interrupt != INT_NONE)
+                return target_interrupt;
+            cpu->amd64_rip = target;
+        }
         break;
     }
     case 0xfe: {
@@ -6880,6 +6945,11 @@ restart_prefix:
             qword_t return_rip = cpu->amd64_rip;
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
                 goto amd64_gpf_restore;
+            {
+                int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, value, "call-rm64");
+                if (target_interrupt != INT_NONE)
+                    return target_interrupt;
+            }
             if (!amd64_push(cpu, tlb, return_rip))
                 goto amd64_gpf_restore;
             amd64_trace_cc1_xfer_probe(cpu, tlb, saved_rip, value, "call-rm64");
@@ -6890,6 +6960,11 @@ restart_prefix:
         case 4:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &value))
                 goto amd64_gpf_restore;
+            {
+                int target_interrupt = amd64_validate_transfer_target(cpu, saved_rip, value, "jmp-rm64");
+                if (target_interrupt != INT_NONE)
+                    return target_interrupt;
+            }
             amd64_trace_cc1_xfer_probe(cpu, tlb, saved_rip, value, "jmp-rm64");
             amd64_trace_cargo_transfer(cpu, tlb, saved_rip, value, "jmp-rm64");
             cpu->amd64_rip = value;
@@ -6918,6 +6993,168 @@ amd64_gpf_restore:
     cpu->amd64_rip = saved_rip;
     amd64_sync_legacy_regs(cpu);
     return INT_PF;
+}
+
+int amd64_step_to_interrupt_jit(struct cpu_state *cpu, struct tlb *tlb) {
+    static int debug_enabled = -1;
+    qword_t before_rip = cpu->amd64_rip;
+    qword_t before_rsp = cpu->amd64_regs[amd64_rsp];
+    guest_addr_t checked_rip;
+    if (debug_enabled == -1)
+        debug_enabled = getenv("ISH_TRACE_AMD64_JIT") != NULL ? 1 : 0;
+    int interrupt = amd64_step_to_interrupt(cpu, tlb);
+    if (debug_enabled == 1) {
+        fprintf(stderr,
+                "[amd64-jit] helper result rip=%llx->%llx rsp=%llx->%llx int=%d\n",
+                (unsigned long long) before_rip,
+                (unsigned long long) cpu->amd64_rip,
+                (unsigned long long) before_rsp,
+                (unsigned long long) cpu->amd64_regs[amd64_rsp],
+                interrupt);
+    }
+    if (interrupt != INT_NONE && !amd64_guest_addr_ok(cpu->amd64_rip, 1, &checked_rip)) {
+        printk("[amd64-jit] helper bad-rip insn=%#llx rip=%#llx rsp=%#llx int=%d\n",
+               (unsigned long long) cpu->amd64_current_insn_rip,
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) cpu->amd64_regs[amd64_rsp],
+               interrupt);
+    }
+    if (interrupt != INT_NONE) {
+        cpu->trapno = interrupt;
+        amd64_sync_legacy_regs(cpu);
+    }
+    return interrupt;
+}
+
+int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb) {
+    qword_t target;
+    guest_addr_t checked_target;
+    qword_t saved_rip = cpu->amd64_rip;
+    if (!amd64_pop(cpu, tlb, &target)) {
+        cpu->amd64_rip = saved_rip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_PF;
+    }
+    if (!amd64_guest_addr_ok(target, 1, &checked_target)) {
+        printk("[amd64-jit] bad-ret-target from=%#llx target=%#llx rsp=%#llx\n",
+               (unsigned long long) saved_rip,
+               (unsigned long long) target,
+               (unsigned long long) cpu->amd64_regs[amd64_rsp]);
+        cpu->amd64_rip = target;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    cpu->amd64_rip = target;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_push_reg(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg, unsigned long next_ip) {
+    if (reg >= amd64_reg_count)
+        return INT_GPF;
+    qword_t saved_rip = cpu->amd64_rip;
+    if (!amd64_push(cpu, tlb, cpu->amd64_regs[reg])) {
+        cpu->amd64_rip = saved_rip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_PF;
+    }
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg, unsigned long next_ip) {
+    qword_t value;
+    qword_t saved_rip = cpu->amd64_rip;
+    if (reg >= amd64_reg_count)
+        return INT_GPF;
+    if (!amd64_pop(cpu, tlb, &value)) {
+        cpu->amd64_rip = saved_rip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_PF;
+    }
+    cpu->amd64_regs[reg] = value;
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_jmp_abs(struct cpu_state *cpu, struct tlb *tlb, unsigned long target) {
+    guest_addr_t checked_target;
+    (void) tlb;
+    if (!amd64_guest_addr_ok((qword_t) target, 1, &checked_target)) {
+        printk("[amd64-jit] bad-jmp-target from=%#llx target=%#llx\n",
+               (unsigned long long) cpu->amd64_rip,
+               (unsigned long long) target);
+        cpu->amd64_rip = (qword_t) target;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    cpu->amd64_rip = (qword_t) target;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_call_abs(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long target, unsigned long next_ip) {
+    guest_addr_t checked_target;
+    guest_addr_t checked_next_ip;
+    qword_t saved_rip = cpu->amd64_rip;
+    if (!amd64_guest_addr_ok((qword_t) target, 1, &checked_target) ||
+            !amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip)) {
+        printk("[amd64-jit] bad-call-target from=%#llx target=%#llx next=%#llx\n",
+               (unsigned long long) saved_rip,
+               (unsigned long long) target,
+               (unsigned long long) next_ip);
+        cpu->amd64_rip = (qword_t) target;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    if (!amd64_push(cpu, tlb, (qword_t) next_ip)) {
+        cpu->amd64_rip = saved_rip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_PF;
+    }
+    cpu->amd64_rip = (qword_t) target;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long cc, unsigned long target, unsigned long next_ip) {
+    guest_addr_t checked_target;
+    guest_addr_t checked_next_ip;
+    (void) tlb;
+    if (cc > 0xf)
+        return INT_GPF;
+    if (!amd64_guest_addr_ok((qword_t) target, 1, &checked_target) ||
+            !amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip)) {
+        printk("[amd64-jit] bad-jcc-target from=%#llx cc=%lu target=%#llx next=%#llx\n",
+               (unsigned long long) cpu->amd64_rip,
+               cc,
+               (unsigned long long) target,
+               (unsigned long long) next_ip);
+        cpu->amd64_rip = (qword_t) target;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    cpu->amd64_rip = amd64_cond_eval(cpu, (unsigned) cc)
+        ? (qword_t) target
+        : (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+void amd64_jit_bridge_set_tlb(struct tlb *tlb) {
+    amd64_jit_bridge_tlb = tlb;
+}
+
+int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu) {
+    if (amd64_jit_bridge_tlb == NULL)
+        return INT_GPF;
+    return amd64_step_to_interrupt_jit(cpu, amd64_jit_bridge_tlb);
 }
 
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb) {

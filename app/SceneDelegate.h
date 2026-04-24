@@ -14,6 +14,7 @@ extern TerminalViewController *currentTerminalViewController;
 extern NSString *const ISHSceneActivityTypeTerminal;
 extern NSString *const ISHSceneActivityTypeWorkspace;
 extern NSString *const ISHSceneTerminalUUIDUserInfoKey;
+extern NSString *const ISHSceneTerminalDisplayModeUserInfoKey;
 extern NSString *const ISHSceneWorkspaceToolUserInfoKey;
 
 API_AVAILABLE(ios(13))

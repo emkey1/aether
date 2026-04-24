@@ -28,7 +28,10 @@ static NSString *const ISHSceneActivityTypeLegacy = @"app.ish.scene";
 NSString *const ISHSceneActivityTypeTerminal = @"app.ish.scene.terminal";
 NSString *const ISHSceneActivityTypeWorkspace = @"app.ish.scene.workspace";
 NSString *const ISHSceneTerminalUUIDUserInfoKey = @"TerminalUUID";
+NSString *const ISHSceneTerminalDisplayModeUserInfoKey = @"TerminalDisplayMode";
 NSString *const ISHSceneWorkspaceToolUserInfoKey = @"WorkspaceTool";
+static NSString *const ISHSceneTerminalDisplayModeSessionShellValue = @"session-shell";
+static NSString *const ISHSceneTerminalDisplayModeSystemConsoleValue = @"system-console";
 
 static BOOL ISHShouldChooseFilesystemAtStartup(void) {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
@@ -104,6 +107,14 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) API_AVAILABLE(ios(13.0));
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) {
     vc.sceneSession = session;
+    NSString *terminalDisplayMode = activity.userInfo[ISHSceneTerminalDisplayModeUserInfoKey];
+    if ([terminalDisplayMode isEqualToString:ISHSceneTerminalDisplayModeSessionShellValue]) {
+        vc.freshSessionTerminalDisplayMode = ISHFreshSessionTerminalDisplayModeSessionShell;
+    } else if ([terminalDisplayMode isEqualToString:ISHSceneTerminalDisplayModeSystemConsoleValue]) {
+        vc.freshSessionTerminalDisplayMode = ISHFreshSessionTerminalDisplayModeSystemConsole;
+    } else {
+        vc.freshSessionTerminalDisplayMode = ISHFreshSessionTerminalDisplayModeAuto;
+    }
     NSString *terminalUUID = activity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
     if (terminalUUID.length == 0) {
         [ISHDiagnosticsStore recordLaunchStage:@"scene.terminal.startNewSession"

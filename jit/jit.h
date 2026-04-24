@@ -54,8 +54,8 @@ struct jit {
 #define JIT_BLOCK_INITIAL_CAPACITY 16
 
 struct jit_block {
-    addr_t addr;
-    addr_t end_addr;
+    guest_addr_t addr;
+    guest_addr_t end_addr;
     size_t used;
     bool amd64_compat_legacy_exec;
     uint16_t amd64_low_reg_write_mask;

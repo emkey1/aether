@@ -725,7 +725,7 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
         return @"Storage";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolShortcutsIdentifier])
-        return @"Shortcuts";
+        return @"Quick Actions";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
         return @"Browser";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
@@ -3660,7 +3660,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [workspaceItems addObject:@{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
     }
     [workspaceItems addObjectsFromArray:@[
-        @{@"title": @"Shortcuts", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
+        @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
@@ -5635,7 +5635,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Shortcuts";
+    self.title = @"Quick Actions";
     _shortcutButtons = [NSMutableArray array];
 
     _scrollView = [UIScrollView new];

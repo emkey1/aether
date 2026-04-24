@@ -233,6 +233,74 @@ do_helper 2
     do_helper write, \size
 .endr
 
+.macro do_helper_tlb_retint type
+    .gadget helper_tlb_\type\()_retint
+        save_regs
+        save_c
+        mov x0, _cpu
+        sub x1, _tlb, TLB_entries
+        .ifc \type,1
+            ldr x2, [_ip, 8]
+        .endif
+        .ifc \type,2
+            ldr x2, [_ip, 8]
+            ldr x3, [_ip, 16]
+        .endif
+        ldr x8, [_ip]
+        blr x8
+        mov x14, x0
+        restore_c
+        load_regs
+        cmn w14, #1
+        b.eq 0f
+        mov x0, x14
+        .ifc \type,0
+            ldr eip, [_ip, 16]
+        .endif
+        .ifc \type,1
+            ldr eip, [_ip, 24]
+        .endif
+        .ifc \type,2
+            ldr eip, [_ip, 32]
+        .endif
+        b jit_exit
+    0:
+        .ifc \type,0
+            gret 1
+        .endif
+        .ifc \type,1
+            gret 2
+        .endif
+        .ifc \type,2
+            gret 3
+        .endif
+.endm
+
+do_helper_tlb_retint 0
+do_helper_tlb_retint 1
+do_helper_tlb_retint 2
+
+.gadget helper_tlb_3_retint
+    save_regs
+    save_c
+    mov x0, _cpu
+    sub x1, _tlb, TLB_entries
+    ldr x2, [_ip, 8]
+    ldr x3, [_ip, 16]
+    ldr x4, [_ip, 24]
+    ldr x8, [_ip]
+    blr x8
+    mov x14, x0
+    restore_c
+    load_regs
+    cmn w14, #1
+    b.eq 0f
+    mov x0, x14
+    ldr eip, [_ip, 40]
+    b jit_exit
+0:
+    gret 4
+
 .macro do_vec_helper rm, _imm, size=
     .gadget vec_helper_\rm\size\_imm
         .ifin(\rm, read,write)

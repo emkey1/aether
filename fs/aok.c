@@ -37,6 +37,7 @@ enum aokfs_node_kind {
     aokfs_tests_futex_core,
     aokfs_tests_process_lifecycle,
     aokfs_tests_pthread_sync,
+    aokfs_tests_amd64_jit_bench,
     aokfs_tests_setup_regressions,
     aokfs_tests_audio_dir,
     aokfs_audio_raw,
@@ -133,6 +134,8 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/tests/process_lifecycle.c";
         case aokfs_tests_pthread_sync:
             return "/tests/pthread_sync.c";
+        case aokfs_tests_amd64_jit_bench:
+            return "/tests/amd64_jit_bench.sh";
         case aokfs_tests_setup_regressions:
             return "/tests/setup-regressions.sh";
         case aokfs_tests_audio_dir:
@@ -179,6 +182,7 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_tests_futex_core,
         aokfs_tests_process_lifecycle,
         aokfs_tests_pthread_sync,
+        aokfs_tests_amd64_jit_bench,
         aokfs_tests_setup_regressions,
         aokfs_tests_audio_dir,
         aokfs_audio_raw,
@@ -333,6 +337,11 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         "Verbose mode:\n"
         "  sh /AOK/tests/setup-regressions.sh --run -v\n"
         "\n"
+        "Simple amd64 JIT timing benchmark inside the guest:\n"
+        "  sh /AOK/tests/amd64_jit_bench.sh\n"
+        "  For short commands, use -n to amplify timing differences, e.g.:\n"
+        "  sh /AOK/tests/amd64_jit_bench.sh -n 5\n"
+        "\n"
         "Focused tests:\n"
         "  atomics32.c          Combined atomic probe with single-case and stress checks\n"
         "  atomic_xadd32.c      lock xaddl coverage\n"
@@ -348,9 +357,127 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         "  futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage\n"
         "  process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage\n"
         "  pthread_sync.c       mutex/condvar/rwlock/timed wait and pthread_once coverage\n"
+        "  amd64_jit_bench.sh   guest-side interp vs JIT timing comparison\n"
         "\n"
         "All focused tests accept -v or --verbose. Without it they print only failures\n"
         "plus the final PASS/FAIL line for each test.\n"
+    ;
+
+    static const char amd64_jit_bench[] =
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "\n"
+        "out_dir=${ISH_AOK_BENCH_OUT:-/tmp/amd64-jit-bench-$(date +%Y%m%d-%H%M%S)}\n"
+        "iterations=1\n"
+        "cases=\n"
+        "\n"
+        "usage() {\n"
+        "    cat <<'EOF'\n"
+        "Usage: amd64_jit_bench.sh [options]\n"
+        "\n"
+        "Run a small guest-side amd64 JIT benchmark from inside iSH.\n"
+        "\n"
+        "Options:\n"
+        "  -n N        Run each case N times. Default: 1\n"
+        "  -o DIR      Output directory. Default: /tmp/amd64-jit-bench-<timestamp>\n"
+        "  -c SPEC     Add a case as name=command\n"
+        "  -h          Show this help\n"
+        "\n"
+        "Examples:\n"
+        "  sh /AOK/tests/amd64_jit_bench.sh\n"
+        "  sh /AOK/tests/amd64_jit_bench.sh -n 3\n"
+        "  sh /AOK/tests/amd64_jit_bench.sh -c 'ssh_v=ssh -V >/dev/null'\n"
+        "EOF\n"
+        "}\n"
+        "\n"
+        "add_case() {\n"
+        "    spec=$1\n"
+        "    name=${spec%%=*}\n"
+        "    command=${spec#*=}\n"
+        "    if [ -z \"$name\" ] || [ \"$name\" = \"$spec\" ] || [ -z \"$command\" ]; then\n"
+        "        echo \"invalid case spec: $spec\" >&2\n"
+        "        exit 2\n"
+        "    fi\n"
+        "    if [ -z \"$cases\" ]; then\n"
+        "        cases=\"${name}|${command}\"\n"
+        "    else\n"
+        "        cases=\"${cases}\n"
+        "${name}|${command}\"\n"
+        "    fi\n"
+        "}\n"
+        "\n"
+        "while [ $# -gt 0 ]; do\n"
+        "    case \"$1\" in\n"
+        "        -n)\n"
+        "            shift\n"
+        "            iterations=$1\n"
+        "            ;;\n"
+        "        -o)\n"
+        "            shift\n"
+        "            out_dir=$1\n"
+        "            ;;\n"
+        "        -c)\n"
+        "            shift\n"
+        "            add_case \"$1\"\n"
+        "            ;;\n"
+        "        -h|--help)\n"
+        "            usage\n"
+        "            exit 0\n"
+        "            ;;\n"
+        "        *)\n"
+        "            echo \"unknown option: $1\" >&2\n"
+        "            usage >&2\n"
+        "            exit 2\n"
+        "            ;;\n"
+        "    esac\n"
+        "    shift\n"
+        "done\n"
+        "\n"
+        "if [ ! -w /proc/ish/amd64_jit ]; then\n"
+        "    echo \"/proc/ish/amd64_jit is not available\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "\n"
+        "if [ -z \"$cases\" ]; then\n"
+        "    cases='true|/bin/true\n"
+        "uname|uname -a >/dev/null\n"
+        "busybox_help|busybox --help >/dev/null\n"
+        "apk_help|apk --help >/dev/null || true'\n"
+        "fi\n"
+        "\n"
+        "mkdir -p \"$out_dir\"\n"
+        "summary=\"$out_dir/summary.tsv\"\n"
+        "printf 'case\\titeration\\tmode\\trc\\twall_s\\n' >\"$summary\"\n"
+        "\n"
+        "run_one() {\n"
+        "    case_name=$1\n"
+        "    iteration=$2\n"
+        "    mode_name=$3\n"
+        "    mode_value=$4\n"
+        "    command=$5\n"
+        "\n"
+        "    echo \"$mode_value\" >/proc/ish/amd64_jit\n"
+        "    start_s=$(date +%s)\n"
+        "    set +e\n"
+        "    sh -lc \"$command\" >/dev/null 2>/dev/null\n"
+        "    rc=$?\n"
+        "    set -e\n"
+        "    end_s=$(date +%s)\n"
+        "    wall_s=$((end_s - start_s))\n"
+        "    printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"$case_name\" \"$iteration\" \"$mode_name\" \"$rc\" \"$wall_s\" >>\"$summary\"\n"
+        "}\n"
+        "\n"
+        "printf '%s\\n' \"$cases\" | while IFS='|' read -r case_name command; do\n"
+        "    i=1\n"
+        "    while [ \"$i\" -le \"$iterations\" ]; do\n"
+        "        run_one \"$case_name\" \"$i\" interp 0 \"$command\"\n"
+        "        run_one \"$case_name\" \"$i\" jit 1 \"$command\"\n"
+        "        i=$((i + 1))\n"
+        "    done\n"
+        "done\n"
+        "\n"
+        "echo \"amd64 JIT guest benchmark results: $out_dir\"\n"
+        "cat \"$summary\"\n"
     ;
 
     static const char atomic_common[] =
@@ -4292,6 +4419,9 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         case aokfs_tests_pthread_sync:
             *size_out = sizeof(pthread_sync) - 1;
             return pthread_sync;
+        case aokfs_tests_amd64_jit_bench:
+            *size_out = sizeof(amd64_jit_bench) - 1;
+            return amd64_jit_bench;
         case aokfs_tests_setup_regressions:
             *size_out = sizeof(setup_regressions) - 1;
             return setup_regressions;
@@ -4498,8 +4628,9 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 case 14: child = aokfs_tests_futex_core; break;
                 case 15: child = aokfs_tests_process_lifecycle; break;
                 case 16: child = aokfs_tests_pthread_sync; break;
-                case 17: child = aokfs_tests_setup_regressions; break;
-                case 18: child = aokfs_tests_audio_dir; break;
+                case 17: child = aokfs_tests_amd64_jit_bench; break;
+                case 18: child = aokfs_tests_setup_regressions; break;
+                case 19: child = aokfs_tests_audio_dir; break;
                 default: return 0;
             }
             break;

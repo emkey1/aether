@@ -27,6 +27,13 @@ extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
 extern const char extra_lock_comm;
 
+static bool amd64_jit_debug_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_TRACE_AMD64_JIT") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
 // increment the change count
 static void mem_changed(struct mem *mem);
 static struct mmu_ops mem_mmu_ops;
@@ -634,6 +641,37 @@ done_write_fault:
 static void *mem_mmu_translate(struct mmu *mmu, guest_addr_t addr, int type) {
     struct mem *mem = container_of(mmu, struct mem, mmu);
     void *ptr = mem_ptr_nofault(mem, addr, type);
+    if (ptr == NULL && type == MEM_READ && current != NULL &&
+            current->abi == GUEST_ABI_AMD64 && amd64_jit_debug_enabled()) {
+        enum { AMD64_JIT_TRANSLATE_TRACE_BUDGET = 64 };
+        static unsigned amd64_jit_translate_trace_count;
+        if (amd64_jit_translate_trace_count < AMD64_JIT_TRANSLATE_TRACE_BUDGET) {
+            amd64_jit_translate_trace_count++;
+            struct pt_entry *entry = mem_pt(mem, PAGE(addr));
+            if (entry == NULL) {
+                fprintf(stderr,
+                        "[amd64-jit] mmu miss addr=%#llx page=%#llx page_limit=%#llx mmap=[%#llx,%#llx) mem=%p current_mem=%p no-entry\n",
+                        (unsigned long long) addr,
+                        (unsigned long long) PAGE(addr),
+                        (unsigned long long) mem->page_limit,
+                        (unsigned long long) mem->mmap_floor,
+                        (unsigned long long) mem->mmap_ceiling,
+                        (void *) mem,
+                        current != NULL ? (void *) current->mem : NULL);
+            } else {
+                fprintf(stderr,
+                        "[amd64-jit] mmu miss addr=%#llx page=%#llx flags=%#x data=%p off=%zu type=%d mem=%p current_mem=%p\n",
+                        (unsigned long long) addr,
+                        (unsigned long long) PAGE(addr),
+                        entry->flags,
+                        entry->data != NULL ? entry->data->data : NULL,
+                        entry->offset,
+                        type,
+                        (void *) mem,
+                        current != NULL ? (void *) current->mem : NULL);
+            }
+        }
+    }
     if (ptr == NULL || type != MEM_WRITE)
         return ptr;
 

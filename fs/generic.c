@@ -21,6 +21,25 @@ static struct fdtable *procfd_task_files_retain(struct task *task) {
     return files;
 }
 
+static struct fd *procfd_reopen_regular(struct fd *fd) {
+    if (fd->mount == NULL || fd->mount->fs == &procfs || !S_ISREG(fd->type))
+        return NULL;
+
+    char path[MAX_PATH];
+    int err = generic_getpath(fd, path);
+    if (err < 0)
+        return NULL;
+
+    int flags = fd_getflags(fd);
+    if (flags < 0)
+        return NULL;
+
+    struct fd *reopened = generic_open(path, flags & ~O_CLOEXEC_, 0);
+    if (IS_ERR(reopened))
+        return NULL;
+    return reopened;
+}
+
 static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
@@ -67,10 +86,16 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     fdtable_release(files);
     task_ref_cnt_mod(task, -1);
 
-    // /proc/<pid>/fd/<n> should behave like dup(2): return another reference to
-    // the same open file description, not a path-based reopen. Reopening by
-    // pathname loses Linux procfd semantics for transient or deleted files and
-    // can substitute the wrong backing object during exec or shell script loads.
+    // Linux procfd opens give regular files a fresh file position, which shell
+    // script loaders rely on when they execute /proc/self/fd/N after the
+    // parent has already inspected the script FD. Prefer a reopen for normal
+    // file-backed descriptors, but fall back to retaining the original fd when
+    // there is no stable reopen path (for example anonymous or deleted files).
+    struct fd *reopened = procfd_reopen_regular(fd);
+    if (reopened != NULL) {
+        fd_close(fd);
+        return reopened;
+    }
     return fd;
 }
 

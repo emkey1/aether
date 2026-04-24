@@ -16,6 +16,19 @@ struct tlb;
 struct task;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
+int amd64_step_to_interrupt_jit(struct cpu_state *cpu, struct tlb *tlb);
+int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu);
+int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb);
+int amd64_jit_push_reg(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg, unsigned long next_ip);
+int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg, unsigned long next_ip);
+int amd64_jit_jmp_abs(struct cpu_state *cpu, struct tlb *tlb, unsigned long target);
+int amd64_jit_call_abs(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long target, unsigned long next_ip);
+int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long cc, unsigned long target, unsigned long next_ip);
+void amd64_jit_bridge_set_tlb(struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
 void dump_amd64_cc1_trace(const struct cpu_state *cpu);
 void dump_amd64_as_trace_task(const struct task *task);

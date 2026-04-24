@@ -140,6 +140,72 @@ do_helper 2
     do_helper write, \size
 .endr
 
+.macro do_helper_tlb_retint type
+    .gadget helper_tlb_\type\()_retint
+        save_regs
+        save_c
+        movq %_cpu, %rdi
+        leaq -TLB_entries(%_tlb), %rsi
+        .ifc \type,1
+            movq 8(%_ip), %rdx
+        .endif
+        .ifc \type,2
+            movq 8(%_ip), %rdx
+            movq 16(%_ip), %rcx
+        .endif
+        callq *(%_ip)
+        movq %rax, %r14
+        restore_c
+        load_regs
+        cmpl $-1, %r14d
+        je 0f
+        movl %r14d, %_tmp
+        .ifc \type,0
+            movl 16(%_ip), %_eip
+        .endif
+        .ifc \type,1
+            movl 24(%_ip), %_eip
+        .endif
+        .ifc \type,2
+            movl 32(%_ip), %_eip
+        .endif
+        jmp jit_exit
+    0:
+        .ifc \type,0
+            gret 1
+        .endif
+        .ifc \type,1
+            gret 2
+        .endif
+        .ifc \type,2
+            gret 3
+        .endif
+.endm
+
+do_helper_tlb_retint 0
+do_helper_tlb_retint 1
+do_helper_tlb_retint 2
+
+.gadget helper_tlb_3_retint
+    save_regs
+    save_c
+    movq %_cpu, %rdi
+    leaq -TLB_entries(%_tlb), %rsi
+    movq 8(%_ip), %rdx
+    movq 16(%_ip), %rcx
+    movq 24(%_ip), %r8
+    callq *(%_ip)
+    movq %rax, %r14
+    restore_c
+    load_regs
+    cmpl $-1, %r14d
+    je 0f
+    movl %r14d, %_tmp
+    movl 40(%_ip), %_eip
+    jmp jit_exit
+0:
+    gret 4
+
 .macro do_vec_helper rm, _imm, size=
     .gadget vec_helper_\rm\size\_imm
         .ifin(\rm, read,write)

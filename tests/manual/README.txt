@@ -11,6 +11,11 @@ If a C toolchain is already present:
 Verbose mode:
   sh /AOK/tests/setup-regressions.sh --run -v
 
+Simple amd64 JIT timing benchmark inside the guest:
+  sh /AOK/tests/amd64_jit_bench.sh
+  For short commands, use -n to amplify timing differences, e.g.:
+  sh /AOK/tests/amd64_jit_bench.sh -n 5
+
 Focused tests:
   atomics32.c          Combined atomic probe with single-case and stress checks
   atomic_xadd32.c      lock xaddl coverage

@@ -8,10 +8,12 @@
 struct gen_state {
     addr_t ip;
     addr_t orig_ip;
+    guest_addr_t amd64_ip;
+    guest_addr_t amd64_orig_ip;
     unsigned long orig_ip_extra;
     bool amd64;
     bool amd64_fallback_to_interp;
-    addr_t amd64_fallback_ip;
+    guest_addr_t amd64_fallback_ip;
     bool amd64_compat_legacy_exec;
     uint16_t amd64_low_reg_write_mask;
     struct jit_block *block;
@@ -24,8 +26,8 @@ struct gen_state {
     jmp_buf oom_recovery;
 };
 
-bool gen_start(addr_t addr, struct gen_state *state); // returns false on OOM
-bool gen_start_amd64(addr_t addr, struct gen_state *state); // returns false on OOM
+bool gen_start(guest_addr_t addr, struct gen_state *state); // returns false on OOM
+bool gen_start_amd64(guest_addr_t addr, struct gen_state *state); // returns false on OOM
 void gen_exit(struct gen_state *state);
 void gen_end(struct gen_state *state);
 

@@ -211,6 +211,7 @@
 		BBC3863F276817AD00CC8C2E /* CurrentRoot.m in Sources */ = {isa = PBXBuildFile; fileRef = BB565EA32734F1FB00C93EAE /* CurrentRoot.m */; };
 		BBD23D5F258DA450003DCB40 /* Screenshots.m in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D5E258DA450003DCB40 /* Screenshots.m */; };
 		BBD23D77258DA4BC003DCB40 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD23D76258DA4BC003DCB40 /* SnapshotHelper.swift */; };
+		C0A100042F2F000100000001 /* ISHAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A100042F2F000100000002 /* ISHAppShortcuts.swift */; };
 		BBECF3AD269132F400DEC937 /* LinuxInterop.c in Sources */ = {isa = PBXBuildFile; fileRef = BBECF39D2691313B00DEC937 /* LinuxInterop.c */; };
 		BBECF3AE2691330F00DEC937 /* libiSH-AOKLinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3A22691314C00DEC937 /* libiSH-AOKLinux.a */; };
 		BBECF3B9269136FB00DEC937 /* liblinux.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BBECF3B8269136E100DEC937 /* liblinux.a */; };
@@ -753,6 +754,7 @@
 		BBC8298624EE5853009D042C /* metal.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = metal.png; sourceTree = "<group>"; };
 		BBCC9D942365430800424C83 /* SceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
 		BBCC9D952365430800424C83 /* SceneDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
+		C0A100042F2F000100000002 /* ISHAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHAppShortcuts.swift; sourceTree = "<group>"; };
 		BBCED895255BB65A00CA0701 /* NSObject+SaneKVO.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSObject+SaneKVO.h"; sourceTree = "<group>"; };
 		BBCED896255BB65A00CA0701 /* NSObject+SaneKVO.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSObject+SaneKVO.m"; sourceTree = "<group>"; };
 		BBD23D5E258DA450003DCB40 /* Screenshots.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Screenshots.m; sourceTree = "<group>"; };
@@ -1111,6 +1113,7 @@
 				BB565EA32734F1FB00C93EAE /* CurrentRoot.m */,
 				BBCC9D942365430800424C83 /* SceneDelegate.h */,
 				BBCC9D952365430800424C83 /* SceneDelegate.m */,
+				C0A100042F2F000100000002 /* ISHAppShortcuts.swift */,
 				C0A000032E00000300000002 /* WorkspaceViewController.h */,
 				C0A000032E00000300000003 /* WorkspaceViewController.m */,
 				BB792B561F96D90D00FFB7A4 /* TerminalViewController.h */,
@@ -2206,6 +2209,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0A100042F2F000100000001 /* ISHAppShortcuts.swift in Sources */,
 				C0A000012E00000100000001 /* AudioDevice.m in Sources */,
 				C0A000012E00000100000002 /* AudioOutput.m in Sources */,
 				5DA0A8342AAE21D000397280 /* BatteryStatus.m in Sources */,
@@ -2756,6 +2760,7 @@
 			buildSettings = {
 				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
+				SWIFT_VERSION = 5.0;
 			};
 			name = DebugLinux;
 		};
@@ -2983,6 +2988,7 @@
 			buildSettings = {
 				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
+				SWIFT_VERSION = 5.0;
 			};
 			name = "Debug-ApplePleaseFixFB19282108";
 		};
@@ -2992,6 +2998,7 @@
 			buildSettings = {
 				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -3085,6 +3092,7 @@
 			buildSettings = {
 				DEAD_CODE_STRIPPING = YES;
 				PRODUCT_NAME = "libiSH-AOKApp";
+				SWIFT_VERSION = 5.0;
 			};
 			name = ReleaseLinux;
 		};
