@@ -457,7 +457,7 @@ static void jit_free_jetsam(struct jit *jit) {
 
 int jit_enter(struct jit_block *block, struct jit_frame *frame, struct tlb *tlb);
 
-static inline size_t jit_cache_hash(addr_t ip) {
+static inline size_t jit_cache_hash(guest_addr_t ip) {
     return (ip ^ (ip >> 12)) % JIT_CACHE_SIZE;
 }
 
@@ -876,6 +876,9 @@ static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
 }
 
 static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
+    struct jit *jit = cpu->mmu->jit;
+    enum { AMD64_FRONTEND_TIMER_BLOCK_QUANTUM = 1 << 16 };
+    struct jit_block *cache[JIT_CACHE_SIZE] = {};
     struct jit_frame frame_storage = {};
     struct jit_frame *frame = &frame_storage;
     struct cpu_state merged_cpu;
@@ -883,6 +886,8 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     bool fallback_to_interp;
     guest_addr_t ip;
     struct jit_block *block;
+    unsigned blocks_executed = 0;
+    int ret;
 
     cpu->poked_ptr = &cpu->_poked;
     tlb_refresh(tlb, cpu->mmu);
@@ -891,21 +896,76 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     if (cpu_take_poke(cpu))
         return INT_TIMER;
 
+    static __thread bool exception_handler_installed = false;
+    if (!exception_handler_installed) {
+        jit_install_thread_exception_handler();
+        exception_handler_installed = true;
+    }
+
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.amd64_rip;
+    if (sigsetjmp(jit_crash_unwind_buf, 1) != 0) {
+        if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
+            *jit_crash_cpu = jit_crash_frame->cpu;
+        cpu->segfault_addr = jit_crash_addr;
+        cpu->segfault_was_write = false;
+        jit_crash_unwind_active = false;
+        jit_crash_frame = NULL;
+        jit_crash_cpu = NULL;
+        return jit_crash_interrupt;
+    }
+    jit_crash_unwind_active = true;
+
+    pthread_rwlock_rdlock(&jit->jetsam_lock.l);
+    jit_crash_lock = &jit->jetsam_lock;
     while (true) {
+        if (tlb->mem_changes != cpu->mmu->changes)
+            tlb_refresh(tlb, cpu->mmu);
+
         fallback_to_interp = false;
         ip = frame->cpu.amd64_rip;
+        size_t cache_index = jit_cache_hash(ip);
+        block = cache[cache_index];
         amd64_jit_debug("frontend enter ip=%llx comm=%s abi=%d",
                 (unsigned long long) ip,
                 current != NULL ? current->comm : "(null)",
                 current != NULL ? current->abi : -1);
-        block = jit_block_compile_amd64(ip, tlb, &fallback_to_interp);
-        if (block == NULL) {
-            amd64_jit_debug("frontend no-block ip=%llx fallback=%d",
-                    (unsigned long long) ip, fallback_to_interp);
-            *cpu = frame->cpu;
-            if (fallback_to_interp)
-                return cpu_run_to_interrupt_amd64(cpu, tlb);
-            return INT_GPF;
+        if (block == NULL || block->addr != ip) {
+            lock(&jit->lock, 0);
+            block = jit_lookup(jit, ip);
+            if (block == NULL) {
+                unlock(&jit->lock);
+                jit_crash_lock = NULL;
+                pthread_rwlock_unlock(&jit->jetsam_lock.l);
+
+                block = jit_block_compile_amd64(ip, tlb, &fallback_to_interp);
+                if (block == NULL) {
+                    amd64_jit_debug("frontend no-block ip=%llx fallback=%d",
+                            (unsigned long long) ip, fallback_to_interp);
+                    *cpu = frame->cpu;
+                    jit_crash_unwind_active = false;
+                    jit_crash_frame = NULL;
+                    jit_crash_cpu = NULL;
+                    if (fallback_to_interp)
+                        return cpu_run_to_interrupt_amd64(cpu, tlb);
+                    return INT_GPF;
+                }
+
+                pthread_rwlock_rdlock(&jit->jetsam_lock.l);
+                jit_crash_lock = &jit->jetsam_lock;
+                lock(&jit->lock, 0);
+                struct jit_block *existing = jit_lookup(jit, ip);
+                if (existing != NULL) {
+                    jit_block_free(NULL, block);
+                    block = existing;
+                } else {
+                    jit_insert(jit, block);
+                }
+            }
+            cache[cache_index] = block;
+            unlock(&jit->lock);
         }
         if (!block->amd64_compat_legacy_exec) {
             amd64_jit_debug("frontend exec block ip=%llx end=%llx",
@@ -927,13 +987,20 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                     interrupt);
             *cpu = frame->cpu;
             cpu->eip = (dword_t) cpu->amd64_rip;
-            jit_block_free(NULL, block);
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
-            if (interrupt != INT_NONE)
-                return interrupt;
-            if (cpu_take_poke(cpu))
-                return INT_TIMER;
+            if (interrupt != INT_NONE) {
+                ret = interrupt;
+                break;
+            }
+            if (cpu_take_poke(cpu)) {
+                ret = INT_TIMER;
+                break;
+            }
+            if (++blocks_executed >= AMD64_FRONTEND_TIMER_BLOCK_QUANTUM) {
+                ret = INT_TIMER;
+                break;
+            }
             frame->cpu = *cpu;
             continue;
         }
@@ -949,16 +1016,29 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
             merged_cpu.eip = (dword_t) merged_cpu.amd64_rip;
         }
         *cpu = merged_cpu;
-        jit_block_free(NULL, block);
         frame->last_block = NULL;
         memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
 
-        if (interrupt != INT_NONE)
-            return interrupt;
-        if (cpu_take_poke(cpu))
-            return INT_TIMER;
+        if (interrupt != INT_NONE) {
+            ret = interrupt;
+            break;
+        }
+        if (cpu_take_poke(cpu)) {
+            ret = INT_TIMER;
+            break;
+        }
+        if (++blocks_executed >= AMD64_FRONTEND_TIMER_BLOCK_QUANTUM) {
+            ret = INT_TIMER;
+            break;
+        }
         frame->cpu = *cpu;
     }
+    jit_crash_lock = NULL;
+    pthread_rwlock_unlock(&jit->jetsam_lock.l);
+    jit_crash_unwind_active = false;
+    jit_crash_frame = NULL;
+    jit_crash_cpu = NULL;
+    return ret;
 }
 
 static int cpu_single_step_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
