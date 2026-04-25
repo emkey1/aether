@@ -131,6 +131,10 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
     case 0xc1:
     case 0xc6:
     case 0xc7:
+    case 0xd0:
+    case 0xd1:
+    case 0xd2:
+    case 0xd3:
     case 0xf6:
     case 0xf7:
     case 0xff:
@@ -806,6 +810,27 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            (insn.opcode == 0xf6 || insn.opcode == 0xf7) &&
+            amd64_modrm_reg(insn.modrm) >= 2) {
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("grp3-op-helper ip=%llx opcode=%02x modrm=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.opcode,
+                insn.modrm,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_grp3_op,
+                (unsigned long) insn.opcode, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             (insn.opcode == 0x80 || insn.opcode == 0x81 ||
              insn.opcode == 0x83 || insn.opcode == 0xc0 ||
              insn.opcode == 0xc1 || insn.opcode == 0xc6 ||
@@ -829,6 +854,26 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 insn.opcode,
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_modrm_imm,
+                (unsigned long) insn.opcode, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            (insn.opcode == 0xd0 || insn.opcode == 0xd1 ||
+             insn.opcode == 0xd2 || insn.opcode == 0xd3)) {
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("shift-helper ip=%llx opcode=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.opcode,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_shift,
                 (unsigned long) insn.opcode, (unsigned long) next_ip);
         gen_exit(state);
         return false;

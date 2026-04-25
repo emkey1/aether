@@ -50,7 +50,11 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip);
 int amd64_jit_grp3_test(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
+int amd64_jit_grp3_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
 int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
+int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
 int amd64_jit_ff_group(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
