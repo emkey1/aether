@@ -81,6 +81,7 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x10:
         case 0x1f:
         case 0x11:
+        case 0x16:
         case 0x28:
         case 0x29:
         case 0x6c:
@@ -877,6 +878,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
             (insn.op2 == 0x10 ||
              insn.op2 == 0x11 ||
+             insn.op2 == 0x16 ||
              insn.op2 == 0x28 ||
              insn.op2 == 0x29 ||
              insn.op2 == 0x6c ||
@@ -1163,6 +1165,19 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_push_imm,
                 value, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+            insn.opcode == 0x9c) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("pushf-helper ip=%llx next=%llx",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_push_flags,
+                64, (unsigned long) next_ip);
         gen_exit(state);
         return false;
     }
