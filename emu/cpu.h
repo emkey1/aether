@@ -56,6 +56,8 @@ int amd64_jit_movx(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip);
 int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip);
+int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long op2, unsigned long next_ip);
 int amd64_jit_grp3_test(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
 int amd64_jit_grp3_op(struct cpu_state *cpu, struct tlb *tlb,

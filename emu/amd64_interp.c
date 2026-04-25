@@ -9269,6 +9269,147 @@ amd64_0f_rm_pf:
     return INT_PF;
 }
 
+int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long op2, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    struct amd64_modrm modrm;
+    bool fs_prefix = false;
+    bool operand_size_prefix = false;
+    enum amd64_rep_mode rep_mode = AMD64_REP_NONE;
+    byte_t byte;
+    union xmm_reg value, src_xmm;
+    qword_t src_scalar;
+
+    if (op2 != 0x11 && op2 != 0x6c && op2 != 0x6e &&
+            op2 != 0x6f && op2 != 0xef)
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_0f_vec_rm_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte == 0xf2) {
+            rep_mode = AMD64_REPNZ;
+            continue;
+        }
+        if (byte == 0xf3) {
+            rep_mode = AMD64_REPZ;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != 0x0f)
+        return INT_UNDEFINED;
+    if (!amd64_fetch_u8(cpu, tlb, &byte))
+        goto amd64_0f_vec_rm_pf;
+    if (byte != op2)
+        return INT_UNDEFINED;
+    if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+        goto amd64_0f_vec_rm_pf;
+
+    if (op2 == 0x6e) {
+        if (operand_size_prefix) {
+            if (modrm.reg >= AMD64_XMM_COUNT)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
+                goto amd64_0f_vec_rm_pf;
+            value.u128 = 0;
+            if (rex.w)
+                value.qw[0] = src_scalar;
+            else
+                value.u32[0] = (uint32_t) src_scalar;
+            cpu->xmm[modrm.reg] = value;
+        } else {
+            if (modrm.reg >= 8)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
+                goto amd64_0f_vec_rm_pf;
+            cpu->mm[modrm.reg].qw = rex.w ? src_scalar : (uint32_t) src_scalar;
+        }
+    } else {
+        if ((modrm.reg >= AMD64_XMM_COUNT) ||
+                (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
+            return INT_UNDEFINED;
+        if (op2 == 0x11) {
+            if (rep_mode == AMD64_REPZ) {
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (modrm.is_reg) {
+                    cpu->xmm[modrm.rm].u32[0] = cpu->xmm[modrm.reg].u32[0];
+                } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 32,
+                            cpu->xmm[modrm.reg].u32[0])) {
+                    goto amd64_0f_vec_rm_pf;
+                }
+            } else if (rep_mode == AMD64_REPNZ) {
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (modrm.is_reg) {
+                    cpu->xmm[modrm.rm].qw[0] = cpu->xmm[modrm.reg].qw[0];
+                } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64,
+                            cpu->xmm[modrm.reg].qw[0])) {
+                    goto amd64_0f_vec_rm_pf;
+                }
+            } else {
+                value = cpu->xmm[modrm.reg];
+                if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_0f_vec_rm_pf;
+            }
+        } else if (op2 == 0x6f) {
+            if (!(operand_size_prefix || rep_mode == AMD64_REPZ))
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                goto amd64_0f_vec_rm_pf;
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x6c) {
+            if (!operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            value.qw[1] = src_xmm.qw[0];
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xef) {
+            if (!operand_size_prefix)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            value.qw[0] ^= src_xmm.qw[0];
+            value.qw[1] ^= src_xmm.qw[1];
+            cpu->xmm[modrm.reg] = value;
+        }
+    }
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_0f_vec_rm_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
+}
+
 int amd64_jit_grp3_test(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip) {
     qword_t saved_rip = cpu->amd64_rip;

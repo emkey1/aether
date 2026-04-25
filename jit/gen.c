@@ -79,6 +79,10 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
     if (insn->two_byte_opcode) {
         switch (insn->op2) {
         case 0x1f:
+        case 0x11:
+        case 0x6c:
+        case 0x6e:
+        case 0x6f:
         case 0x40 ... 0x4f:
         case 0x90 ... 0x9f:
         case 0xa3:
@@ -91,6 +95,7 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0xbf:
         case 0xc0:
         case 0xc1:
+        case 0xef:
             return true;
         default:
             return false;
@@ -854,6 +859,28 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 insn.op2,
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_0f_rm,
+                (unsigned long) insn.op2, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            (insn.op2 == 0x11 ||
+             insn.op2 == 0x6c ||
+             insn.op2 == 0x6e ||
+             insn.op2 == 0x6f ||
+             insn.op2 == 0xef)) {
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("0f-vec-rm-helper ip=%llx op2=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.op2,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_0f_vec_rm,
                 (unsigned long) insn.op2, (unsigned long) next_ip);
         gen_exit(state);
         return false;
