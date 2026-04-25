@@ -66,6 +66,8 @@ int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
 int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
+int amd64_jit_fe_group(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip);
 int amd64_jit_ff_group(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
 void amd64_jit_bridge_set_tlb(struct tlb *tlb);
