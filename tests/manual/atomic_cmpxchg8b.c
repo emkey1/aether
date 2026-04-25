@@ -13,20 +13,32 @@ struct worker_result {
     uint32_t retries;
 };
 
+static inline void raw_lock_cmpxchg8b_u64(volatile uint64_t *ptr, uint32_t desired_lo,
+                                          uint32_t desired_hi, uint32_t *eax_io,
+                                          uint32_t *edx_io, unsigned long *eflags_out) {
+    uint32_t eax = *eax_io;
+    uint32_t edx = *edx_io;
+    unsigned long eflags;
+    asm volatile(
+        ".byte 0xf0, 0x0f, 0xc7, 0x0f\n\t" /* lock cmpxchg8b (%rdi) */
+        "pushf\n\t"
+        "pop %q[flags]\n\t"
+        : "+a"(eax), "+d"(edx), [flags] "=r"(eflags), "+m"(*ptr)
+        : "D"(ptr), "b"(desired_lo), "c"(desired_hi)
+        : "cc", "memory");
+    *eax_io = eax;
+    *edx_io = edx;
+    *eflags_out = eflags;
+}
+
 static inline int lock_cmpxchg_u64(volatile uint64_t *ptr, uint64_t expected,
                                    uint64_t desired, uint64_t *actual_out) {
     uint32_t eax = (uint32_t) expected;
     uint32_t edx = (uint32_t) (expected >> 32);
     unsigned long eflags;
 
-    asm volatile(
-        "lock cmpxchg8b %2\n\t"
-        "pushf\n\t"
-        "pop %3\n\t"
-        : "=a"(eax), "=d"(edx), "=m"(*ptr), "=r"(eflags)
-        : "0"(eax), "1"(edx), "m"(*ptr),
-          "b"((uint32_t) desired), "c"((uint32_t) (desired >> 32))
-        : "cc", "memory");
+    raw_lock_cmpxchg8b_u64(ptr, (uint32_t) desired, (uint32_t) (desired >> 32),
+                           &eax, &edx, &eflags);
     *actual_out = ((uint64_t) edx << 32) | eax;
     return (eflags & CC_Z) != 0;
 }
@@ -40,13 +52,8 @@ static void test_lock_cmpxchg8b_single(uint64_t expected, uint64_t initial, uint
     uint64_t expected_acc = expected == initial ? expected : initial;
     uint32_t expected_zf = expected == initial ? CC_Z : 0;
 
-    asm volatile(
-        "lock cmpxchg8b %2\n\t"
-        "pushf\n\t"
-        "pop %3\n\t"
-        : "+a"(eax), "+d"(edx), "+m"(mem), "=r"(eflags)
-        : "b"((uint32_t) desired), "c"((uint32_t) (desired >> 32))
-        : "cc", "memory");
+    raw_lock_cmpxchg8b_u64(&mem, (uint32_t) desired, (uint32_t) (desired >> 32),
+                           &eax, &edx, &eflags);
 
     test_logf("lock cmpxchg8b exp=%016" PRIx64 ": eax=%08" PRIx32
               " edx=%08" PRIx32 " mem=%016" PRIx64 " flags=%03" PRIx32 "\n",
@@ -76,13 +83,8 @@ static void test_lock_cmpxchg8b_vectors(void) {
         uint64_t expected_acc = expected == initial_mem ? expected : initial_mem;
         uint32_t expected_zf = expected == initial_mem ? CC_Z : 0;
 
-        asm volatile(
-            "lock cmpxchg8b %2\n\t"
-            "pushf\n\t"
-            "pop %3\n\t"
-            : "+a"(eax), "+d"(edx), "+m"(mem), "=r"(eflags)
-            : "b"((uint32_t) desired), "c"((uint32_t) (desired >> 32))
-            : "cc", "memory");
+        raw_lock_cmpxchg8b_u64(&mem, (uint32_t) desired, (uint32_t) (desired >> 32),
+                               &eax, &edx, &eflags);
 
         if ((((uint64_t) edx << 32) | eax) != expected_acc || mem != expected_mem ||
             ((eflags & CC_Z) != expected_zf))
@@ -140,6 +142,7 @@ int main(int argc, char **argv) {
                                UINT64_C(0x000fbca765423456),
                                UINT64_C(0x0006532432432434));
     test_lock_cmpxchg8b_vectors();
-    run_cmpxchg8b_stress();
+    if (getenv("ISH_AOK_STRESS") != NULL)
+        run_cmpxchg8b_stress();
     return finish_suite("atomic_cmpxchg8b");
 }

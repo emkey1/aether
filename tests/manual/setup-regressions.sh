@@ -254,8 +254,34 @@ function rewrite_imm_reg(line,    tmp, parts, op, imm, reg, suffix, size, group,
     return 1
 }
 
+function rewrite_mov_imm_reg(line,    tmp, parts, op, imm, reg, regnum, rex) {
+    tmp = line
+    sub(/^[ \t]+/, "", tmp)
+    split(tmp, parts, /[ \t,]+/)
+    op = parts[1]
+    imm = parts[2]
+    reg = parts[3]
+    if (op != "movl" || imm !~ /^\$/ || reg !~ /^%/)
+        return 0
+    sub(/^\$/, "", imm)
+    imm += 0
+    regnum = reg_number(reg)
+    if (regnum < 0)
+        return 0
+
+    rex = regnum >= 8 ? 1 : 0
+    printf "\t.byte "
+    sep = ""
+    if (rex != 0)
+        emit_byte(0x40 + rex)
+    emit_byte(0xb8 + (regnum % 8))
+    emit_imm(imm, 4)
+    printf "\n"
+    return 1
+}
+
 {
-    if (!rewrite_imm_reg($0))
+    if (!rewrite_imm_reg($0) && !rewrite_mov_imm_reg($0))
         print
 }
 EOF

@@ -6195,6 +6195,50 @@ restart_prefix:
                 unlock(&atomic_l_lock);
             break;
         }
+        if (op2 == 0xc7) {
+            struct amd64_modrm modrm;
+            qword_t dst, expected, desired;
+            bool atomic_locked = false;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg != 1 || modrm.is_reg)
+                return INT_UNDEFINED;
+
+            atomic_locked = lock_prefix;
+            if (atomic_locked)
+                lock(&atomic_l_lock, 0);
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &dst)) {
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
+                goto amd64_gpf_restore;
+            }
+
+            expected = ((qword_t) (dword_t) amd64_reg_get(cpu, amd64_rdx, 32) << 32) |
+                    (dword_t) amd64_reg_get(cpu, amd64_rax, 32);
+            desired = ((qword_t) (dword_t) amd64_reg_get(cpu, amd64_rcx, 32) << 32) |
+                    (dword_t) amd64_reg_get(cpu, amd64_rbx, 32);
+            collapse_flags(cpu);
+            cpu->zf = expected == dst;
+            cpu->zf_res = 0;
+            if (expected == dst) {
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, desired)) {
+                    if (atomic_locked)
+                        unlock(&atomic_l_lock);
+                    goto amd64_gpf_restore;
+                }
+                amd64_trace_qword_store(cpu, saved_rip, 0x0f,
+                        amd64_effective_addr(cpu, &modrm, fs_prefix), desired);
+            } else {
+                amd64_reg_set(cpu, amd64_rax, 32, (dword_t) dst);
+                amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (dst >> 32));
+            }
+            if (atomic_locked)
+                unlock(&atomic_l_lock);
+            break;
+        }
         if (op2 >= 0xc8 && op2 <= 0xcf) {
             unsigned reg = (op2 - 0xc8) | (rex.b ? 8 : 0);
             if (rex.w) {
