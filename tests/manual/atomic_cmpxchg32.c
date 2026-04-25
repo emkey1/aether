@@ -13,16 +13,39 @@ struct worker_result {
     uint32_t retries;
 };
 
+static inline void raw_lock_cmpxchg_u32(volatile uint32_t *ptr, uint32_t desired,
+                                        uint32_t *eax_io, unsigned long *eflags_out) {
+    uint32_t eax = *eax_io;
+    unsigned long eflags;
+    asm volatile(
+        ".byte 0xf0, 0x0f, 0xb1, 0x0f\n\t" /* lock cmpxchgl %ecx, (%rdi) */
+        "pushf\n\t"
+        "pop %q[flags]\n\t"
+        : "+a"(eax), [flags] "=r"(eflags), "+m"(*ptr)
+        : "D"(ptr), "c"(desired)
+        : "cc", "memory");
+    *eax_io = eax;
+    *eflags_out = eflags;
+}
+
+static inline uint32_t raw_lock_cmpxchg_jcc_u32(volatile uint32_t *ptr, uint32_t desired,
+                                                uint32_t *eax_io) {
+    uint32_t eax = *eax_io;
+    unsigned char branch;
+    asm volatile(
+        ".byte 0xf0, 0x0f, 0xb1, 0x0f\n\t" /* lock cmpxchgl %ecx, (%rdi) */
+        "setz %[branch]\n\t"
+        : [branch] "=qm"(branch), "+a"(eax), "+m"(*ptr)
+        : "D"(ptr), "c"(desired)
+        : "cc", "memory");
+    *eax_io = eax;
+    return branch;
+}
+
 static inline int lock_cmpxchg_u32(volatile uint32_t *ptr, uint32_t expected,
                                    uint32_t desired, uint32_t *actual_out) {
     unsigned long eflags;
-    asm volatile(
-        "lock cmpxchgl %4, %1\n\t"
-        "pushf\n\t"
-        "pop %2\n\t"
-        : "=a"(expected), "+m"(*ptr), "=r"(eflags)
-        : "0"(expected), "r"(desired)
-        : "cc", "memory");
+    raw_lock_cmpxchg_u32(ptr, desired, &expected, &eflags);
     *actual_out = expected;
     return (eflags & CC_Z) != 0;
 }
@@ -37,13 +60,7 @@ static void test_lock_cmpxchgl_single(uint32_t eax_init) {
     uint32_t expected_mem = eax_init == mem ? src : mem;
     uint32_t expected_eax = eax_init == mem ? eax_init : mem;
 
-    asm volatile(
-        "lock cmpxchgl %4, %1\n\t"
-        "pushf\n\t"
-        "pop %2\n\t"
-        : "=a"(eax), "+m"(mem), "=r"(eflags)
-        : "0"(eax), "r"(src)
-        : "cc", "memory");
+    raw_lock_cmpxchg_u32(&mem, src, &eax, &eflags);
 
     test_logf("lock cmpxchgl eax=%08" PRIx32 ": eax=%08" PRIx32 " mem=%08" PRIx32 " flags=%03" PRIx32 "\n",
               eax_init, eax, mem, (uint32_t) (eflags & CC_MASK));
@@ -58,17 +75,7 @@ static void test_cmpxchg_jcc_single(uint32_t eax_init, uint32_t initial, uint32_
     uint32_t eax = eax_init;
     uint32_t branch = 0;
 
-    asm volatile(
-        "lock cmpxchgl %3, %2\n\t"
-        "jnz 1f\n\t"
-        "movl $1, %0\n\t"
-        "jmp 2f\n"
-        "1:\n\t"
-        "movl $0, %0\n"
-        "2:\n\t"
-        : "=r"(branch), "+a"(eax), "+m"(mem)
-        : "r"(desired)
-        : "cc", "memory");
+    branch = raw_lock_cmpxchg_jcc_u32(&mem, desired, &eax);
 
     test_logf("lock cmpxchgl jz eax=%08" PRIx32 " mem0=%08" PRIx32
               " -> branch=%" PRIu32 " eax=%08" PRIx32 " mem=%08" PRIx32 "\n",
@@ -97,13 +104,7 @@ static void test_lock_cmpxchgl_vectors(void) {
         uint32_t expected_mem = initial_eax == initial_mem ? src : initial_mem;
         uint32_t expected_eax = initial_eax == initial_mem ? initial_eax : initial_mem;
 
-        asm volatile(
-            "lock cmpxchgl %4, %1\n\t"
-            "pushf\n\t"
-            "pop %2\n\t"
-            : "=a"(eax), "+m"(mem), "=r"(eflags)
-            : "0"(eax), "r"(src)
-            : "cc", "memory");
+        raw_lock_cmpxchg_u32(&mem, src, &eax, &eflags);
 
         if (eax != expected_eax || mem != expected_mem || (eflags & CC_MASK) != expected_flags)
             failures++;
