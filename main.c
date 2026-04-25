@@ -61,6 +61,26 @@ static void configure_standalone_i386_safety(int argc, char *const argv[]) {
 #endif
 }
 
+static void configure_standalone_amd64_jit(void) {
+    const char *force_jit = getenv("ISH_HOST_AMD64_JIT");
+    if (force_jit == NULL) {
+        amd64_jit_set_enabled(false);
+        return;
+    }
+
+    if (strcmp(force_jit, "1") == 0 || strcasecmp(force_jit, "true") == 0 ||
+            strcasecmp(force_jit, "yes") == 0 || strcasecmp(force_jit, "on") == 0) {
+        amd64_jit_set_enabled(true);
+        return;
+    }
+
+    if (strcmp(force_jit, "0") == 0 || strcasecmp(force_jit, "false") == 0 ||
+            strcasecmp(force_jit, "no") == 0 || strcasecmp(force_jit, "off") == 0) {
+        amd64_jit_set_enabled(false);
+        return;
+    }
+}
+
 static char *build_envp_from_term(void) {
     const char *term = getenv("TERM");
     if (term == NULL) {
@@ -105,6 +125,7 @@ static void setup_host_mounts(void) {
 int main(int argc, char *const argv[]) {
     run_at_boot();
     configure_standalone_i386_safety(argc, argv);
+    configure_standalone_amd64_jit();
 
     char *envp = build_envp_from_term();
     if (envp == NULL) {

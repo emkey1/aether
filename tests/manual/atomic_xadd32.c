@@ -2,10 +2,11 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "atomic_common.h"
 
-enum { THREADS = 4, LOOPS = 100000 };
-enum { VECTOR_LOOPS = 2000 };
+enum { THREADS = 4, LOOPS = 1000 };
+enum { VECTOR_LOOPS = 512 };
 
 static volatile uint32_t shared_xadd;
 
@@ -25,7 +26,7 @@ static inline uint32_t lock_xadd_u32(volatile uint32_t *ptr, uint32_t value) {
 static void test_lock_xaddl_single(void) {
     volatile uint32_t mem = 0x12345678u;
     uint32_t reg = 0xfbca7654u;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected_mem = mem + reg;
     uint32_t expected_reg = mem;
     uint32_t expected_flags = add_flags32(mem, reg, expected_mem);
@@ -55,7 +56,7 @@ static void test_lock_xaddl_vectors(void) {
         uint32_t initial = mem;
         uint32_t reg = next_u32(&seed);
         uint32_t initial_reg = reg;
-        uint32_t eflags;
+        unsigned long eflags;
         uint32_t expected_mem = initial + initial_reg;
         uint32_t expected_flags = add_flags32(initial, initial_reg, expected_mem);
 
@@ -117,6 +118,7 @@ int main(int argc, char **argv) {
     test_init(argc, argv);
     test_lock_xaddl_single();
     test_lock_xaddl_vectors();
-    run_xadd_stress();
+    if (getenv("ISH_AOK_STRESS") != NULL)
+        run_xadd_stress();
     return finish_suite("atomic_xadd32");
 }

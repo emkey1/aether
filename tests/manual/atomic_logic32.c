@@ -7,7 +7,7 @@ enum { VECTOR_LOOPS = 2000 };
 
 static void test_lock_orl_single(uint32_t initial, uint32_t rhs) {
     volatile uint32_t mem = initial;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected = initial | rhs;
     uint32_t expected_flags = logic_flags32(expected);
 
@@ -30,7 +30,7 @@ static void test_lock_orl_single(uint32_t initial, uint32_t rhs) {
 
 static void test_lock_andl_single(uint32_t initial, uint32_t rhs) {
     volatile uint32_t mem = initial;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected = initial & rhs;
     uint32_t expected_flags = logic_flags32(expected);
 
@@ -53,7 +53,7 @@ static void test_lock_andl_single(uint32_t initial, uint32_t rhs) {
 
 static void test_lock_xorl_single(uint32_t initial, uint32_t rhs) {
     volatile uint32_t mem = initial;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected = initial ^ rhs;
     uint32_t expected_flags = logic_flags32(expected);
 

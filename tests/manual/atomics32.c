@@ -5,7 +5,7 @@ static void test_lock_cmpxchg8b_single(uint64_t expected, uint64_t initial, uint
     volatile uint64_t mem = initial;
     uint32_t eax = (uint32_t) expected;
     uint32_t edx = (uint32_t) (expected >> 32);
-    uint32_t eflags;
+    unsigned long eflags;
     uint64_t expected_mem = expected == initial ? desired : initial;
     uint64_t expected_acc = expected == initial ? expected : initial;
     uint32_t expected_zf = expected == initial ? CC_Z : 0;
@@ -33,7 +33,7 @@ static void test_lock_cmpxchg8b_single(uint64_t expected, uint64_t initial, uint
 static void test_lock_xaddl_single(void) {
     volatile uint32_t mem = 0x12345678u;
     uint32_t reg = 0xfbca7654u;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected_mem = mem + reg;
     uint32_t expected_reg = mem;
     uint32_t expected_flags = add_flags32(mem, reg, expected_mem);
@@ -58,7 +58,7 @@ static void test_lock_cmpxchgl_single(uint32_t eax_init) {
     volatile uint32_t mem = 0xfbca7654u;
     uint32_t eax = eax_init;
     uint32_t src = 0x12345678u;
-    uint32_t eflags;
+    unsigned long eflags;
     uint32_t expected_result = eax_init - mem;
     uint32_t expected_flags = sub_flags32(eax_init, mem, expected_result);
     uint32_t expected_mem = eax_init == mem ? src : mem;
@@ -90,7 +90,7 @@ static inline uint32_t lock_xadd_u32(volatile uint32_t *ptr, uint32_t value) {
 
 static inline int lock_cmpxchg_u32(volatile uint32_t *ptr, uint32_t expected,
                                    uint32_t desired, uint32_t *actual_out) {
-    uint32_t eflags;
+    unsigned long eflags;
     asm volatile(
         "lock cmpxchgl %4, %1\n\t"
         "pushf\n\t"
@@ -106,7 +106,7 @@ static inline int lock_cmpxchg_u64(volatile uint64_t *ptr, uint64_t expected,
                                    uint64_t desired, uint64_t *actual_out) {
     uint32_t eax = (uint32_t) expected;
     uint32_t edx = (uint32_t) (expected >> 32);
-    uint32_t eflags;
+    unsigned long eflags;
 
     asm volatile(
         "lock cmpxchg8b %2\n\t"
@@ -272,7 +272,7 @@ static void test_lock_xaddl_vectors(void) {
         uint32_t initial = mem;
         uint32_t reg = next_u32(&seed);
         uint32_t initial_reg = reg;
-        uint32_t eflags;
+        unsigned long eflags;
         uint32_t expected_mem = initial + initial_reg;
         uint32_t expected_flags = add_flags32(initial, initial_reg, expected_mem);
 
@@ -302,7 +302,7 @@ static void test_lock_cmpxchgl_vectors(void) {
         uint32_t eax = next_u32(&seed);
         uint32_t initial_eax = eax;
         uint32_t src = next_u32(&seed);
-        uint32_t eflags;
+        unsigned long eflags;
         uint32_t result = initial_eax - initial_mem;
         uint32_t expected_flags = sub_flags32(initial_eax, initial_mem, result);
         uint32_t expected_mem = initial_eax == initial_mem ? src : initial_mem;
@@ -335,7 +335,7 @@ static void test_lock_cmpxchg8b_vectors(void) {
         uint64_t desired = ((uint64_t) next_u32(&seed) << 32) | next_u32(&seed);
         uint32_t eax = (uint32_t) expected;
         uint32_t edx = (uint32_t) (expected >> 32);
-        uint32_t eflags;
+        unsigned long eflags;
         uint64_t expected_mem = expected == initial_mem ? desired : initial_mem;
         uint64_t expected_acc = expected == initial_mem ? expected : initial_mem;
         uint32_t expected_zf = expected == initial_mem ? CC_Z : 0;

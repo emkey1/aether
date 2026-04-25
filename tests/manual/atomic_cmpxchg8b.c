@@ -17,7 +17,7 @@ static inline int lock_cmpxchg_u64(volatile uint64_t *ptr, uint64_t expected,
                                    uint64_t desired, uint64_t *actual_out) {
     uint32_t eax = (uint32_t) expected;
     uint32_t edx = (uint32_t) (expected >> 32);
-    uint32_t eflags;
+    unsigned long eflags;
 
     asm volatile(
         "lock cmpxchg8b %2\n\t"
@@ -35,7 +35,7 @@ static void test_lock_cmpxchg8b_single(uint64_t expected, uint64_t initial, uint
     volatile uint64_t mem = initial;
     uint32_t eax = (uint32_t) expected;
     uint32_t edx = (uint32_t) (expected >> 32);
-    uint32_t eflags;
+    unsigned long eflags;
     uint64_t expected_mem = expected == initial ? desired : initial;
     uint64_t expected_acc = expected == initial ? expected : initial;
     uint32_t expected_zf = expected == initial ? CC_Z : 0;
@@ -71,7 +71,7 @@ static void test_lock_cmpxchg8b_vectors(void) {
         uint64_t desired = ((uint64_t) next_u32(&seed) << 32) | next_u32(&seed);
         uint32_t eax = (uint32_t) expected;
         uint32_t edx = (uint32_t) (expected >> 32);
-        uint32_t eflags;
+        unsigned long eflags;
         uint64_t expected_mem = expected == initial_mem ? desired : initial_mem;
         uint64_t expected_acc = expected == initial_mem ? expected : initial_mem;
         uint32_t expected_zf = expected == initial_mem ? CC_Z : 0;

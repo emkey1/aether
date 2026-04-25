@@ -40,10 +40,20 @@ int amd64_jit_reg_reg_op(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op_regs_size, unsigned long next_ip);
 int amd64_jit_reg_imm_op(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op_group_rm_size, unsigned long value, unsigned long next_ip);
+int amd64_jit_accum_imm_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
 int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long meta, unsigned long disp, unsigned long next_ip);
 int amd64_jit_movx(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip);
+int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long op2, unsigned long next_ip);
+int amd64_jit_grp3_test(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
+int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
+int amd64_jit_ff_group(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip);
 void amd64_jit_bridge_set_tlb(struct tlb *tlb);
 void cpu_poke(struct cpu_state *cpu);
 void dump_amd64_cc1_trace(const struct cpu_state *cpu);
