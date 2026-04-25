@@ -101,43 +101,6 @@ static const int BUF_SIZE = 1<<14;
 
 static NSMapTable<NSNumber *, Terminal *> *terminals;
 static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
-static NSMutableSet<NSUUID *> *terminalDebugAutorunUUIDs;
-
-static void TerminalMaybeScheduleDebugAutorun(Terminal *terminal) {
-    NSString *command = NSProcessInfo.processInfo.environment[@"ISH_DEBUG_AUTORUN_TTY1_COMMAND"];
-    if (command.length == 0)
-        return;
-    if (terminal.type != 136 || terminal.number != 1)
-        return;
-    if (terminal.uuid == nil)
-        return;
-
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        terminalDebugAutorunUUIDs = [NSMutableSet set];
-    });
-
-    @synchronized (terminalDebugAutorunUUIDs) {
-        if ([terminalDebugAutorunUUIDs containsObject:terminal.uuid])
-            return;
-        [terminalDebugAutorunUUIDs addObject:terminal.uuid];
-    }
-
-    NSString *input = command;
-    if (![input hasSuffix:@"\n"])
-        input = [input stringByAppendingString:@"\n"];
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (NSEC_PER_SEC * 1.0)),
-                   dispatch_get_main_queue(), ^{
-        if (terminal.tty == NULL)
-            return;
-        NSData *data = [input dataUsingEncoding:NSUTF8StringEncoding];
-        [terminal recordLifecycleEvent:@"terminal.debugAutorun"
-                               details:@{@"bytes": @(data.length),
-                                         @"command": command}];
-        [terminal sendInput:data];
-    });
-}
 
 static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
     const unsigned char *bytes = data.bytes;
@@ -428,7 +391,6 @@ static void NotifyTerminalRegistryChanged(void) {
         [self.refreshTask schedule];
         // make sure this setting works if it's set before loading
         self.enableVoiceOverAnnounce = self.enableVoiceOverAnnounce;
-        TerminalMaybeScheduleDebugAutorun(self);
     } else if ([message.name isEqualToString:@"sendInput"]) {
         NSData *data = [message.body dataUsingEncoding:NSUTF8StringEncoding];
         [self recordLifecycleEvent:@"terminal.webview.sendInput"
