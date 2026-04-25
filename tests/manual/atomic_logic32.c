@@ -14,7 +14,7 @@ static void test_lock_orl_single(uint32_t initial, uint32_t rhs) {
     asm volatile(
         "lock orl %2, %1\n\t"
         "pushf\n\t"
-        "pop %0\n\t"
+        "pop %q0\n\t"
         : "=r"(eflags), "+m"(mem)
         : "r"(rhs)
         : "cc", "memory");
@@ -37,7 +37,7 @@ static void test_lock_andl_single(uint32_t initial, uint32_t rhs) {
     asm volatile(
         "lock andl %2, %1\n\t"
         "pushf\n\t"
-        "pop %0\n\t"
+        "pop %q0\n\t"
         : "=r"(eflags), "+m"(mem)
         : "r"(rhs)
         : "cc", "memory");
@@ -60,7 +60,7 @@ static void test_lock_xorl_single(uint32_t initial, uint32_t rhs) {
     asm volatile(
         "lock xorl %2, %1\n\t"
         "pushf\n\t"
-        "pop %0\n\t"
+        "pop %q0\n\t"
         : "=r"(eflags), "+m"(mem)
         : "r"(rhs)
         : "cc", "memory");
@@ -112,9 +112,9 @@ static void test_lock_logic_vectors(void) {
         volatile uint32_t mem_or = lhs;
         volatile uint32_t mem_and = lhs;
         volatile uint32_t mem_xor = lhs;
-        uint32_t flags_or;
-        uint32_t flags_and;
-        uint32_t flags_xor;
+        unsigned long flags_or;
+        unsigned long flags_and;
+        unsigned long flags_xor;
         uint32_t expected_or = lhs | rhs;
         uint32_t expected_and = lhs & rhs;
         uint32_t expected_xor = lhs ^ rhs;
@@ -122,21 +122,21 @@ static void test_lock_logic_vectors(void) {
         asm volatile(
             "lock orl %2, %1\n\t"
             "pushf\n\t"
-            "pop %0\n\t"
+            "pop %q0\n\t"
             : "=r"(flags_or), "+m"(mem_or)
             : "r"(rhs)
             : "cc", "memory");
         asm volatile(
             "lock andl %2, %1\n\t"
             "pushf\n\t"
-            "pop %0\n\t"
+            "pop %q0\n\t"
             : "=r"(flags_and), "+m"(mem_and)
             : "r"(rhs)
             : "cc", "memory");
         asm volatile(
             "lock xorl %2, %1\n\t"
             "pushf\n\t"
-            "pop %0\n\t"
+            "pop %q0\n\t"
             : "=r"(flags_xor), "+m"(mem_xor)
             : "r"(rhs)
             : "cc", "memory");
