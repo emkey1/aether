@@ -1232,7 +1232,8 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         }
     }
 
-    if (!insn.two_byte_opcode && !insn.operand_size_prefix &&
+    if (!insn.two_byte_opcode &&
+            (!insn.operand_size_prefix || insn.opcode == 0x89) &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             amd64_modrm_mod(insn.modrm) != 3 &&

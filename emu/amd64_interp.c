@@ -8706,7 +8706,7 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
     qword_t addr = (qword_t) disp;
     qword_t value;
 
-    if (reg >= amd64_reg_count || (size != 8 && size != 32 && size != 64))
+    if (reg >= amd64_reg_count || (size != 8 && size != 16 && size != 32 && size != 64))
         return INT_GPF;
     if (opcode != 0x01 && opcode != 0x03 && opcode != 0x09 &&
             opcode != 0x0b && opcode != 0x11 && opcode != 0x13 &&
