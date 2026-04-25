@@ -34,6 +34,10 @@ int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long cc, unsigned long target, unsigned long next_ip);
 int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
+int amd64_jit_sign_extend(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
+int amd64_jit_string_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
 int amd64_jit_mov_imm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg_size, unsigned long value, unsigned long next_ip);
 int amd64_jit_reg_reg_op(struct cpu_state *cpu, struct tlb *tlb,

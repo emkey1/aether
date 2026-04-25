@@ -709,6 +709,38 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     }
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            (insn.opcode == 0x98 || insn.opcode == 0x99)) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("sign-extend-helper ip=%llx opcode=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.opcode,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_sign_extend,
+                (unsigned long) insn.opcode, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.fs_prefix &&
+            !insn.lock_prefix &&
+            ((insn.opcode >= 0xa4 && insn.opcode <= 0xa7) ||
+             (insn.opcode >= 0xaa && insn.opcode <= 0xaf))) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("string-helper ip=%llx opcode=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.opcode,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_string_op,
+                (unsigned long) insn.opcode, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.lock_prefix && insn.rep_mode == amd64_jit_rep_none &&
             (insn.opcode == 0x04 || insn.opcode == 0x05 ||
              insn.opcode == 0x0c || insn.opcode == 0x0d ||

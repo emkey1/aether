@@ -7850,6 +7850,143 @@ int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
     return INT_AMD64_SYSCALL;
 }
 
+int amd64_jit_sign_extend(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    bool operand_size_prefix = false;
+    byte_t byte;
+
+    if (opcode != 0x98 && opcode != 0x99)
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_sign_extend_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != opcode)
+        return INT_UNDEFINED;
+
+    if (opcode == 0x98) {
+        if (rex.w) {
+            amd64_reg_set(cpu, amd64_rax, 64,
+                    (qword_t) (sqword_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32));
+        } else if (operand_size_prefix) {
+            amd64_reg_set(cpu, amd64_rax, 16,
+                    (word_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 8));
+        } else {
+            amd64_reg_set(cpu, amd64_rax, 32,
+                    (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
+        }
+    } else {
+        if (rex.w) {
+            amd64_reg_set(cpu, amd64_rdx, 64,
+                    ((sqword_t) amd64_reg_get(cpu, amd64_rax, 64) < 0) ? ~0ull : 0);
+        } else if (operand_size_prefix) {
+            amd64_reg_set(cpu, amd64_rdx, 16,
+                    ((int16_t) amd64_reg_get(cpu, amd64_rax, 16) < 0) ? 0xffff : 0);
+        } else {
+            amd64_reg_set(cpu, amd64_rdx, 32,
+                    ((int32_t) amd64_reg_get(cpu, amd64_rax, 32) < 0) ? 0xffffffffu : 0);
+        }
+    }
+
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_sign_extend_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
+}
+
+int amd64_jit_string_op(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    bool operand_size_prefix = false;
+    enum amd64_rep_mode rep_mode = AMD64_REP_NONE;
+    byte_t byte;
+    unsigned size;
+    int interrupt;
+
+    if (!((opcode >= 0xa4 && opcode <= 0xa7) ||
+          (opcode >= 0xaa && opcode <= 0xaf)))
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    cpu->amd64_address_size_prefix = false;
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_string_op_jit_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte == 0x67) {
+            cpu->amd64_address_size_prefix = true;
+            continue;
+        }
+        if (byte == 0xf3) {
+            rep_mode = AMD64_REPZ;
+            continue;
+        }
+        if (byte == 0xf2) {
+            rep_mode = AMD64_REPNZ;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != opcode)
+        return INT_UNDEFINED;
+
+    size = (opcode & 1) == 0 ? 8 : (rex.w ? 64 : (operand_size_prefix ? 16 : 32));
+    interrupt = amd64_string_op(cpu, tlb, saved_rip, (byte_t) opcode, size, rep_mode);
+    if (interrupt != INT_NONE) {
+        amd64_sync_legacy_regs(cpu);
+        return interrupt;
+    }
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_string_op_jit_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
+}
+
 int amd64_jit_mov_imm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg_size, unsigned long value, unsigned long next_ip) {
     guest_addr_t checked_next_ip;
