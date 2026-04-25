@@ -280,8 +280,32 @@ function rewrite_mov_imm_reg(line,    tmp, parts, op, imm, reg, regnum, rex) {
     return 1
 }
 
+function rewrite_push_imm(line,    tmp, parts, op, imm) {
+    tmp = line
+    sub(/^[ \t]+/, "", tmp)
+    split(tmp, parts, /[ \t,]+/)
+    op = parts[1]
+    imm = parts[2]
+    if (op != "pushq" || imm !~ /^\$/)
+        return 0
+    sub(/^\$/, "", imm)
+    imm += 0
+
+    printf "\t.byte "
+    sep = ""
+    if (imm >= -128 && imm <= 127) {
+        emit_byte(0x6a)
+        emit_imm(imm, 1)
+    } else {
+        emit_byte(0x68)
+        emit_imm(imm, 4)
+    }
+    printf "\n"
+    return 1
+}
+
 {
-    if (!rewrite_imm_reg($0) && !rewrite_mov_imm_reg($0))
+    if (!rewrite_imm_reg($0) && !rewrite_mov_imm_reg($0) && !rewrite_push_imm($0))
         print
 }
 EOF
