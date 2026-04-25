@@ -7767,6 +7767,86 @@ int amd64_jit_xchg_rax_reg(struct cpu_state *cpu, struct tlb *tlb,
     return INT_NONE;
 }
 
+int amd64_jit_xchg_rm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    struct amd64_modrm modrm;
+    bool fs_prefix = false;
+    bool operand_size_prefix = false;
+    byte_t byte;
+    unsigned size;
+    qword_t lhs, rhs;
+    bool atomic_locked;
+
+    if (opcode != 0x86 && opcode != 0x87)
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_xchg_rm_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != opcode)
+        return INT_UNDEFINED;
+    if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+        goto amd64_xchg_rm_pf;
+
+    size = opcode == 0x86 ? 8 : (operand_size_prefix ? 16 : (rex.w ? 64 : 32));
+    atomic_locked = !modrm.is_reg;
+    if (atomic_locked)
+        lock(&atomic_l_lock, 0);
+    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &lhs)) {
+        if (atomic_locked)
+            unlock(&atomic_l_lock);
+        goto amd64_xchg_rm_pf;
+    }
+    rhs = opcode == 0x86
+        ? amd64_reg_get_encoded8(cpu, modrm.reg, modrm.rex_present)
+        : amd64_reg_get(cpu, modrm.reg, size);
+    if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, size, rhs)) {
+        if (atomic_locked)
+            unlock(&atomic_l_lock);
+        goto amd64_xchg_rm_pf;
+    }
+    if (atomic_locked)
+        unlock(&atomic_l_lock);
+    if (opcode == 0x86)
+        amd64_reg_set_encoded8(cpu, modrm.reg, modrm.rex_present, lhs);
+    else
+        amd64_reg_set(cpu, modrm.reg, size, lhs);
+
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_xchg_rm_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
+}
+
 int amd64_jit_jmp_abs(struct cpu_state *cpu, struct tlb *tlb, unsigned long target) {
     guest_addr_t checked_target;
     (void) tlb;
@@ -8505,6 +8585,98 @@ int amd64_jit_reg_imm_op(struct cpu_state *cpu, struct tlb *tlb,
     cpu->amd64_rip = (qword_t) next_ip;
     amd64_sync_legacy_regs(cpu);
     return INT_NONE;
+}
+
+int amd64_jit_imul_imm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    struct amd64_modrm modrm;
+    bool fs_prefix = false;
+    bool operand_size_prefix = false;
+    byte_t byte;
+    unsigned size;
+    qword_t rhs, result;
+    sqword_t src_signed;
+    sqword_t imm_signed;
+
+    if (opcode != 0x69 && opcode != 0x6b)
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_imul_imm_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != opcode)
+        return INT_UNDEFINED;
+    if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+        goto amd64_imul_imm_pf;
+
+    size = operand_size_prefix ? 16 : (rex.w ? 64 : 32);
+    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &rhs))
+        goto amd64_imul_imm_pf;
+    if (opcode == 0x69) {
+        if (size == 16) {
+            int16_t imm16;
+            if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16)))
+                goto amd64_imul_imm_pf;
+            imm_signed = imm16;
+        } else {
+            int32_t imm32;
+            if (!amd64_fetch(cpu, tlb, &imm32, sizeof(imm32)))
+                goto amd64_imul_imm_pf;
+            imm_signed = imm32;
+        }
+    } else {
+        int8_t imm8;
+        if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
+            goto amd64_imul_imm_pf;
+        imm_signed = imm8;
+    }
+
+    src_signed = amd64_sign_extend(rhs, size);
+    if (size == 64) {
+        __int128_t full = (__int128_t) src_signed * (__int128_t) imm_signed;
+        result = (qword_t) full;
+        amd64_reg_set(cpu, modrm.reg, size, result);
+        amd64_set_mul_flags(cpu, full != (__int128_t) (sqword_t) (uint64_t) result);
+    } else {
+        int64_t full = (int64_t) src_signed * (int64_t) imm_signed;
+        result = amd64_trunc((qword_t) full, size);
+        amd64_reg_set(cpu, modrm.reg, size, result);
+        amd64_set_mul_flags(cpu, full != (int64_t) amd64_sign_extend(result, size));
+    }
+
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_imul_imm_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
 }
 
 enum amd64_jit_mem_meta {
