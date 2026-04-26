@@ -40,6 +40,7 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - Added and refined grouped workspace utilities, workspace switcher placement, dashboard sizing, dock behavior, and phone layout handling.
 - Improved workspace scene activation, switcher persistence, and terminal/window placement behavior.
 - Removed the debug terminal SSH autorun path.
+- Deferred the Swift/App Shortcuts integration from this release after it changed the archive shape by embedding Swift runtime support and triggered Xcode Organizer's `Copy failed` export path.
 
 ## Testing and Developer Support
 
@@ -48,6 +49,7 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - Gated noisy amd64 compiler, assembler, tty, htop, bash, apt/dpkg filesystem, poll/select, and socket probes behind explicit `ISH_TRACE_*` environment variables for release builds.
 - Restored release packaging to the same compact Alpine i386 and x86_64 minirootfs archives used by `builds/iSH-AOK_524`.
 - Restored standard release dSYM generation so Organizer receives a real symbol bundle instead of an empty archive `dSYMs` directory.
+- Restored the app archive to the Objective-C-only shape used by `builds/iSH-AOK_524`; release archives no longer contain `SwiftSupport` or embedded `libswift*.dylib` files.
 
 ## Known Notes
 
@@ -55,6 +57,7 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - The Alpine binutils assembler workaround remains a compatibility shim for the current test root and should be revisited once the underlying GAS issue is no longer relevant.
 - Re-archive after this change before exporting; older archives may still contain the oversized Devuan/full x86_64 test roots.
 - Re-archive after the dSYM setting restoration before using Organizer; archives built with empty `dSYMs` can still hit Xcode's `Copy failed` path.
+- Re-archive after the App Shortcuts rollback before using Organizer; archives containing `SwiftSupport` can still hit Xcode's `rsync -E` symbol-copy failure during validation/upload.
 
 ## Maintainer Notes
 

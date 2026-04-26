@@ -265,7 +265,6 @@
 		C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
 		C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
 		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
-		C0A100042F2F000100000001 /* ISHAppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A100042F2F000100000002 /* ISHAppShortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -792,7 +791,6 @@
 		C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
 		C0A000032E00000300000002 /* WorkspaceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkspaceViewController.h; sourceTree = "<group>"; };
 		C0A000032E00000300000003 /* WorkspaceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorkspaceViewController.m; sourceTree = "<group>"; };
-		C0A100042F2F000100000002 /* ISHAppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISHAppShortcuts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1113,7 +1111,6 @@
 				BB565EA32734F1FB00C93EAE /* CurrentRoot.m */,
 				BBCC9D942365430800424C83 /* SceneDelegate.h */,
 				BBCC9D952365430800424C83 /* SceneDelegate.m */,
-				C0A100042F2F000100000002 /* ISHAppShortcuts.swift */,
 				C0A000032E00000300000002 /* WorkspaceViewController.h */,
 				C0A000032E00000300000003 /* WorkspaceViewController.m */,
 				BB792B561F96D90D00FFB7A4 /* TerminalViewController.h */,
@@ -2209,7 +2206,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C0A100042F2F000100000001 /* ISHAppShortcuts.swift in Sources */,
 				C0A000012E00000100000001 /* AudioDevice.m in Sources */,
 				C0A000012E00000100000002 /* AudioOutput.m in Sources */,
 				5DA0A8342AAE21D000397280 /* BatteryStatus.m in Sources */,

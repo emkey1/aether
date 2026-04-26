@@ -30,9 +30,6 @@
 #import "UserPreferences.h"
 #import "UIApplication+OpenURL.h"
 #import "WorkspaceViewController.h"
-#if __has_include("iSH_AOK-Swift.h")
-#import "iSH_AOK-Swift.h"
-#endif
 #include "kernel/init.h"
 #include "kernel/calls.h"
 #include "fs/dyndev.h"
@@ -1562,9 +1559,6 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
                                    details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
     [ISHDiagnosticsStore recordBreadcrumb:@"application.didFinishLaunching"
                                   details:launchOptions.count != 0 ? @{@"launchOptions": launchOptions.description} : nil];
-#if __has_include("iSH_AOK-Swift.h")
-    [ISHAppShortcutsBridge refreshAppShortcuts];
-#endif
     // get the network permissions popup to appear on chinese devices
     [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:@"http://captive.apple.com"]] resume];
 
