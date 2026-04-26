@@ -1,6 +1,8 @@
 #include "XcodeDefault.xcconfig"
 
-DEBUG_INFORMATION_FORMAT = dwarf-with-dsym;
+// Xcode 26.4's distribution pipeline currently fails while rsyncing archive
+// dSYMs into the IPA staging root because openrsync rejects Apple's -E mode.
+DEBUG_INFORMATION_FORMAT = dwarf;
 ENABLE_NS_ASSERTIONS = NO;
 MTL_ENABLE_DEBUG_INFO = NO;
 VALIDATE_PRODUCT = YES;
