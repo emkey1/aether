@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/eventfd.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -18,7 +19,7 @@ static volatile sig_atomic_t handler_count;
 static volatile sig_atomic_t last_sig;
 
 struct helper_args {
-    pthread_t target_thread;
+    pid_t target_tid;
     int event_fd;
     int delay_sig_ms;
     int delay_write_ms;
@@ -30,6 +31,7 @@ struct helper_args {
 struct waiter_result {
     int rc;
     int err;
+    pid_t tid;
     int ready;
 };
 
@@ -43,6 +45,17 @@ static void sleep_ms(int ms) {
 static void signal_handler(int sig) {
     handler_count++;
     last_sig = sig;
+}
+
+static pid_t gettid_linux(void) {
+    return (pid_t) syscall(SYS_gettid);
+}
+
+static void send_thread_signal(pid_t tid, int sig) {
+    if (syscall(SYS_tgkill, getpid(), tid, sig) != 0) {
+        perror("tgkill");
+        exit(1);
+    }
 }
 
 static void reset_state(void) {
@@ -66,10 +79,7 @@ static void *signal_and_optional_write(void *arg) {
     struct helper_args *args = arg;
     sleep_ms(args->delay_sig_ms);
     if (args->do_signal) {
-        if (pthread_kill(args->target_thread, SIGUSR1) != 0) {
-            perror("pthread_kill");
-            exit(1);
-        }
+        send_thread_signal(args->target_tid, SIGUSR1);
     }
     if (args->do_write) {
         sleep_ms(args->delay_write_ms);
@@ -93,6 +103,7 @@ static void *eventfd_waiter_thread(void *arg) {
     int efd = (int) (intptr_t) result->err;
     uint64_t value = 0;
 
+    result->tid = gettid_linux();
     __atomic_store_n(&result->ready, 1, __ATOMIC_RELEASE);
     errno = 0;
     result->rc = (int) read(efd, &value, sizeof(value));
@@ -109,6 +120,7 @@ static void *eventfd_poll_waiter_thread(void *arg) {
         .revents = 0,
     };
 
+    result->tid = gettid_linux();
     __atomic_store_n(&result->ready, 1, __ATOMIC_RELEASE);
     errno = 0;
     result->rc = poll(&pfd, 1, 200);
@@ -133,7 +145,7 @@ static void test_eventfd_no_restart(void) {
     reset_state();
     install_handler(0);
     args = (struct helper_args) {
-        .target_thread = pthread_self(),
+        .target_tid = gettid_linux(),
         .event_fd = efd,
         .delay_sig_ms = 20,
         .delay_write_ms = 0,
@@ -177,7 +189,7 @@ static void test_eventfd_restart(void) {
     reset_state();
     install_handler(SA_RESTART);
     args = (struct helper_args) {
-        .target_thread = pthread_self(),
+        .target_tid = gettid_linux(),
         .event_fd = efd,
         .delay_sig_ms = 20,
         .delay_write_ms = 20,
@@ -223,7 +235,7 @@ static void test_eventfd_poll_no_restart(void) {
     reset_state();
     install_handler(0);
     args = (struct helper_args) {
-        .target_thread = pthread_self(),
+        .target_tid = gettid_linux(),
         .event_fd = efd,
         .delay_sig_ms = 20,
         .delay_write_ms = 0,
@@ -274,10 +286,7 @@ static void test_eventfd_waiter_thread_no_restart(void) {
     }
     wait_until_ready(&result);
 
-    if (pthread_kill(thread, SIGUSR1) != 0) {
-        perror("pthread_kill");
-        exit(1);
-    }
+    send_thread_signal(result.tid, SIGUSR1);
     pthread_join(thread, NULL);
     close(efd);
 
@@ -309,10 +318,7 @@ static void test_eventfd_poll_waiter_thread_no_restart(void) {
     }
     wait_until_ready(&result);
 
-    if (pthread_kill(thread, SIGUSR1) != 0) {
-        perror("pthread_kill");
-        exit(1);
-    }
+    send_thread_signal(result.tid, SIGUSR1);
     pthread_join(thread, NULL);
     close(efd);
 

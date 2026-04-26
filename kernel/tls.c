@@ -42,5 +42,5 @@ int sys_set_tid_address(addr_t tid) {
 
 int sys_set_tid_address_guest(guest_addr_t tid) {
     current->clear_tid = tid;
-    return sys_getpid();
+    return sys_gettid();
 }

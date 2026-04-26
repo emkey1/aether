@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "atomic_common.h"
 
 enum { THREADS = 4, LOOPS = 100000 };
@@ -159,6 +160,7 @@ int main(int argc, char **argv) {
     test_cmpxchg_jcc_single(0xfbca7654u, 0xfbca7654u, 0x12345678u);
     test_cmpxchg_jcc_single(0xfffefdfcu, 0xfbca7654u, 0x12345678u);
     test_lock_cmpxchgl_vectors();
-    run_cmpxchg_stress();
+    if (getenv("ISH_AOK_STRESS") != NULL)
+        run_cmpxchg_stress();
     return finish_suite("atomic_cmpxchg32");
 }

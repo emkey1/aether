@@ -611,6 +611,11 @@ static void amd64_tracked_sigabrt_trace(qword_t syscall_num, const qword_t raw_a
         target = (pid_t_) raw_args[1];
         sig = (dword_t) raw_args[2];
         break;
+    case 297: // rt_tgsigqueueinfo (amd64)
+        target_tgid = (pid_t_) raw_args[0];
+        target = (pid_t_) raw_args[1];
+        sig = (dword_t) raw_args[2];
+        break;
     default:
         return;
     }
@@ -1389,6 +1394,7 @@ static syscall_t amd64_syscall_table[453] = {
     [292] = (syscall_t) sys_dup3,
     [293] = (syscall_t) sys_pipe2,
     [294] = (syscall_t) sys_inotify_init1,
+    [297] = (syscall_t) sys_rt_tgsigqueueinfo,
     [299] = (syscall_t) sys_recvmmsg_amd64,
     [302] = (syscall_t) sys_prlimit64,
     [307] = (syscall_t) sys_sendmmsg_amd64,
@@ -2163,14 +2169,27 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_shmctl_guest(
                 (int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]));
         return true;
+    case 297:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_rt_tgsigqueueinfo_guest(
+                (pid_t_) raw_args[0], (pid_t_) raw_args[1], (dword_t) raw_args[2], raw_args[3]));
+        return true;
     case 56:
+        // x86_64 clone syscall order is flags, stack, parent_tid, child_tid, tls.
+        // sys_clone_guest uses the legacy internal order flags, stack, parent_tid, tls, child_tid.
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clone_guest(
-                raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]));
+                raw_args[0], raw_args[1], raw_args[2], raw_args[4], raw_args[3]));
         return true;
     case 61:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_wait4_guest(
-                (pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3]));
+    {
+        dword_t result = sys_wait4_guest(
+                (pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3]);
+        if (syscall_result_should_restart(result)) {
+            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, 61);
+        } else {
+            amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) result);
+        }
         return true;
+    }
     case 203:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sched_setaffinity_guest(
                 (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]));
@@ -2429,6 +2448,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 234: // tgkill
     case 129: // rt_sigqueueinfo
     case 178: // rt_sigqueueinfo
+    case 297: // rt_tgsigqueueinfo
     case 251: // ioprio_set
     case 254: // inotify_add_watch
     case 258: // mkdirat

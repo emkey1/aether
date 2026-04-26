@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/select.h>
 #include <time.h>
 #include <unistd.h>
@@ -19,7 +20,7 @@ static volatile sig_atomic_t handler_count;
 static volatile sig_atomic_t last_sig;
 
 struct signal_args {
-    pthread_t target_thread;
+    pid_t target_tid;
     int delay_ms;
     int sig;
 };
@@ -29,6 +30,7 @@ struct waiter_result {
     int rc;
     int err;
     int aux;
+    pid_t tid;
     int ready;
 };
 
@@ -42,6 +44,17 @@ static void sleep_ms(int ms) {
 static void signal_handler(int sig) {
     handler_count++;
     last_sig = sig;
+}
+
+static pid_t gettid_linux(void) {
+    return (pid_t) syscall(SYS_gettid);
+}
+
+static void send_thread_signal(pid_t tid, int sig) {
+    if (syscall(SYS_tgkill, getpid(), tid, sig) != 0) {
+        perror("tgkill");
+        exit(1);
+    }
 }
 
 static void reset_state(void) {
@@ -64,10 +77,7 @@ static void install_handler(int flags) {
 static void *send_signal_after_delay(void *arg) {
     struct signal_args *args = arg;
     sleep_ms(args->delay_ms);
-    if (pthread_kill(args->target_thread, args->sig) != 0) {
-        perror("pthread_kill");
-        exit(1);
-    }
+    send_thread_signal(args->target_tid, args->sig);
     return NULL;
 }
 
@@ -85,6 +95,7 @@ static void *poll_waiter_thread(void *arg) {
         .revents = 0,
     };
 
+    result->tid = gettid_linux();
     __atomic_store_n(&result->ready, 1, __ATOMIC_RELEASE);
     errno = 0;
     result->rc = poll(&pfd, 1, 1000);
@@ -103,6 +114,7 @@ static void *select_waiter_thread(void *arg) {
 
     FD_ZERO(&rfds);
     FD_SET(result->fd, &rfds);
+    result->tid = gettid_linux();
     __atomic_store_n(&result->ready, 1, __ATOMIC_RELEASE);
     errno = 0;
     result->rc = select(result->fd + 1, &rfds, NULL, NULL, &tv);
@@ -139,7 +151,7 @@ static void test_poll_waiter_thread_no_restart(void) {
     wait_until_ready(&result);
 
     args = (struct signal_args) {
-        .target_thread = waiter,
+        .target_tid = result.tid,
         .delay_ms = 20,
         .sig = SIGUSR1,
     };
@@ -189,7 +201,7 @@ static void test_select_waiter_thread_no_restart(void) {
     wait_until_ready(&result);
 
     args = (struct signal_args) {
-        .target_thread = waiter,
+        .target_tid = result.tid,
         .delay_ms = 20,
         .sig = SIGUSR1,
     };
@@ -242,7 +254,7 @@ static void test_pselect_mask_unblock(void) {
     reset_state();
     install_handler(0);
     args = (struct signal_args) {
-        .target_thread = pthread_self(),
+        .target_tid = gettid_linux(),
         .delay_ms = 20,
         .sig = SIGUSR1,
     };
@@ -360,7 +372,7 @@ static void test_ppoll_mask_unblock(void) {
     reset_state();
     install_handler(0);
     args = (struct signal_args) {
-        .target_thread = pthread_self(),
+        .target_tid = gettid_linux(),
         .delay_ms = 20,
         .sig = SIGUSR1,
     };

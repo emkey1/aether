@@ -1957,3 +1957,35 @@ dword_t sys_rt_sigqueueinfo_guest(pid_t_ pid, dword_t sig, guest_addr_t uinfo_ad
     unlock(&pids_lock);
     return err;
 }
+
+dword_t sys_rt_tgsigqueueinfo_guest(pid_t_ tgid, pid_t_ tid, dword_t sig, guest_addr_t uinfo_addr) {
+    if (tgid <= 0 || tid <= 0 || sig <= 0 || sig >= NUM_SIGS)
+        return _EINVAL;
+
+    struct siginfo_ info;
+    int err = siginfo_from_user(current, uinfo_addr, &info);
+    if (err < 0)
+        return err;
+
+    info.sig = sig;
+    info.sig_errno = 0;
+
+    complex_lockt(&pids_lock, 0);
+    struct task *task = pid_get_task(tid);
+    if (task == NULL) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+    if (task->tgid != tgid) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+
+    err = queue_signal_task(task, sig, info);
+    unlock(&pids_lock);
+    return err;
+}
+
+dword_t sys_rt_tgsigqueueinfo(pid_t_ tgid, pid_t_ tid, dword_t sig, addr_t uinfo_addr) {
+    return sys_rt_tgsigqueueinfo_guest(tgid, tid, sig, uinfo_addr);
+}

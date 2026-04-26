@@ -26,6 +26,13 @@ static pid_t gettid_linux(void) {
     return (pid_t) syscall(SYS_gettid);
 }
 
+static void send_thread_signal(pid_t tid, int sig) {
+    if (syscall(SYS_tgkill, getpid(), tid, sig) != 0) {
+        perror("tgkill");
+        exit(1);
+    }
+}
+
 static void record_handler(int sig, siginfo_t *info, void *ucontext) {
     (void) ucontext;
     handler_count++;
@@ -229,7 +236,7 @@ static void *thread_signal_target(void *unused) {
     return NULL;
 }
 
-static void test_pthread_kill_targeted_delivery(void) {
+static void test_tgkill_targeted_delivery(void) {
     sigset_t set;
     sigset_t oldset;
     pthread_t thread;
@@ -256,25 +263,22 @@ static void test_pthread_kill_targeted_delivery(void) {
         nanosleep(&ts, NULL);
     }
     if (!worker_ready) {
-        failf("signal pthread_kill ready", 0, 0, 0, 1, 0, 0);
+        failf("signal tgkill ready", 0, 0, 0, 1, 0, 0);
         worker_done = 1;
         pthread_join(thread, NULL);
         pthread_sigmask(SIG_SETMASK, &oldset, NULL);
         return;
     }
 
-    if (pthread_kill(thread, SIGUSR1) != 0) {
-        perror("pthread_kill");
-        exit(1);
-    }
+    send_thread_signal(worker_tid, SIGUSR1);
     if (wait_for_handler_count(1, 1000) != 0)
-        failf("signal pthread_kill timeout", handler_count, 0, 0, 1, 0, 0);
+        failf("signal tgkill timeout", handler_count, 0, 0, 1, 0, 0);
 
-    test_logf("signal pthread_kill: count=%d sig=%d handler_tid=%d target_tid=%d\n",
+    test_logf("signal tgkill: count=%d sig=%d handler_tid=%d target_tid=%d\n",
               handler_count, last_sig, last_tid, worker_tid);
 
     if (handler_count != 1 || last_sig != SIGUSR1 || last_tid != worker_tid)
-        failf("signal pthread_kill", handler_count, last_sig, last_tid, 1, SIGUSR1, worker_tid);
+        failf("signal tgkill", handler_count, last_sig, last_tid, 1, SIGUSR1, worker_tid);
 
     worker_done = 1;
     pthread_join(thread, NULL);
@@ -290,6 +294,6 @@ int main(int argc, char **argv) {
     test_sigpending_sigtimedwait();
     test_signalfd_self_signal();
     test_sigsuspend_resume();
-    test_pthread_kill_targeted_delivery();
+    test_tgkill_targeted_delivery();
     return finish_suite("signal_core");
 }

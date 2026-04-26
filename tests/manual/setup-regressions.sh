@@ -363,10 +363,20 @@ set -eu
 status=0
 for test in$selected_tests; do
     echo "==> \$test"
-    if "$work_dir/bin/\$test" "\$@"; then
-        :
+    output="$work_dir/\$test.out"
+    if "$work_dir/bin/\$test" "\$@" >"\$output" 2>&1; then
+        rc=0
     else
-        status=\$?
+        rc=\$?
+    fi
+    cat "\$output"
+    if [ "\$rc" -ne 0 ]; then
+        status=\$rc
+        continue
+    fi
+    if ! grep -q "^\$test: PASS\$" "\$output"; then
+        echo "\$test: FAIL missing PASS marker" >&2
+        status=1
     fi
 done
 exit \$status
