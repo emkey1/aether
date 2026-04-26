@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 #include "kernel/calls.h"
 
@@ -19,6 +20,11 @@ static inline bool htop_watch_intersects(guest_addr_t addr, size_t count) {
 
 static inline void trace_htop_user_write(struct task *task, struct mem *mem,
         guest_addr_t addr, const void *buf, size_t count, bool ptrace) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_HTOP_USER_WRITE") != NULL ? 1 : 0;
+    if (!enabled)
+        return;
     if (task == NULL || strcmp(task->comm, "htop") != 0)
         return;
     if (!htop_watch_intersects(addr, count))
@@ -107,15 +113,6 @@ static int __user_write_task_mem(struct task *task, struct mem *mem, guest_addr_
             return 1;
         trace_htop_user_write(task, mem, p, &cbuf[p - addr], chunk_end - p, ptrace);
         memcpy(ptr, &cbuf[p - addr], chunk_end - p);
-     /*   if(!strcmp(task->comm, "ls")) {  // This mostly dealt with shared-library writes for ls during debugging.
-            char foo[500] = {};
-            memcpy(foo, &cbuf[p - addr], 50);
-            int a = 0;
-            printk("INFO: FOO: %s\n", foo);
-            memcpy(ptr, &cbuf[p - addr], chunk_end - p);
-        } else {
-            memcpy(ptr, &cbuf[p - addr], chunk_end - p);
-        } */
         p = (guest_addr_t) chunk_end;
     }
     return 0;

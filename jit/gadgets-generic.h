@@ -47,6 +47,7 @@
 # an array of gadgets
 .macro _gadget_array_start name
     .pushsection_rodata
+    .p2align 3
     .type_compat \name\()_gadgets,@object
     .global.name \name\()_gadgets
 .endm

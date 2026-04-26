@@ -71,6 +71,11 @@ static bool fakefs_is_initctl_fd(struct fd *fd) {
 }
 
 static bool fakefs_dpkg_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_DPKG_FAKEFS") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (current == NULL)
         return false;
     return strcmp(current->comm, "dpkg") == 0 ||

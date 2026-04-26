@@ -8,6 +8,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -674,6 +675,11 @@ static bool sock_trace_comm(const char *comm) {
 }
 
 static bool sock_debug_comm(const char *comm) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_SOCK_DEBUG") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (comm == NULL)
         return false;
     return strcmp(comm, "apt") == 0 ||

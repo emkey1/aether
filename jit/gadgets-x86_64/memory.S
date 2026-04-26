@@ -43,6 +43,7 @@
 .purgem x
 
 .pushsection_rodata
+.p2align 3
 .global.name si_gadgets
 .irp reg, REG_LIST
     .irp times, 1,2,4,8

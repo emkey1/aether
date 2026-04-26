@@ -78,6 +78,11 @@ static void amd64_trace_copy_user_path(qword_t guest_path, char *buf, size_t siz
 }
 
 static bool dpkg_overflow_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_DPKG_SYSCALL") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (current == NULL)
         return false;
     return strncmp(current->comm, "dpkg", 4) == 0 ||
@@ -1036,7 +1041,7 @@ static syscall_t i386_syscall_table[] = {
     [311] = (syscall_t) sys_set_robust_list,
     [312] = (syscall_t) sys_get_robust_list,
     [313] = (syscall_t) sys_splice,
-    [314] = (syscall_t) syscall_stub_silent, // sync_file_range
+    [314] = (syscall_t) syscall_success_stub, // sync_file_range
     [318] = (syscall_t) syscall_success_stub, // getcpu
     [319] = (syscall_t) sys_epoll_pwait,
     [320] = (syscall_t) sys_utimensat,
@@ -1061,7 +1066,7 @@ static syscall_t i386_syscall_table[] = {
     [347] = (syscall_t) sys_process_vm_readv,
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
-    [354] = (syscall_t) syscall_stub, //seccomp
+    [354] = (syscall_t) syscall_eopnotsupp_stub, // seccomp
     [355] = (syscall_t) sys_getrandom,
     [356] = (syscall_t) sys_memfd_create,
     [358] = (syscall_t) sys_execveat,
@@ -1378,7 +1383,8 @@ static syscall_t amd64_syscall_table[453] = {
     [273] = (syscall_t) sys_set_robust_list_amd64,
     [274] = (syscall_t) sys_get_robust_list_amd64,
     [275] = (syscall_t) sys_splice,
-    [277] = (syscall_t) syscall_stub_silent, // sync_file_range
+    [277] = (syscall_t) syscall_success_stub, // sync_file_range
+    [317] = (syscall_t) syscall_eopnotsupp_stub, // seccomp
     [280] = (syscall_t) sys_utimensat_amd64,
     [281] = (syscall_t) sys_epoll_pwait,
     [282] = (syscall_t) sys_signalfd,

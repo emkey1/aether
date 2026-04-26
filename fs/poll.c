@@ -1,6 +1,7 @@
 #include "kernel/task.h"
 #include <sys/stat.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <poll.h>
 #include <fcntl.h>
@@ -99,6 +100,11 @@ static bool poll_trace_comm(const char *comm) {
 }
 
 static bool poll_wait_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_POLL_WAIT") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (current == NULL)
         return false;
     return poll_trace_comm(current->comm);

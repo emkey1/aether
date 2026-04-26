@@ -12,6 +12,7 @@
 #include <sys/statvfs.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "debug.h"
 #include "kernel/errno.h"
@@ -30,6 +31,11 @@ static bool realfs_guest_signal_pending(void) {
 }
 
 static bool realfs_trace_comm(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_REALFS_IO") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL &&
         (strcmp(current->comm, "apt") == 0 ||
          strcmp(current->comm, "apt-get") == 0 ||
@@ -37,6 +43,11 @@ static bool realfs_trace_comm(void) {
 }
 
 static bool realfs_dpkg_trace_task(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_DPKG_REALFS") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL &&
         (strncmp(current->comm, "dpkg", 4) == 0 ||
          strcmp(current->comm, "tar") == 0);
@@ -210,7 +221,12 @@ static ssize_t realfs_write_host(int real_fd, const void *buf, size_t size) {
 }
 
 static void realfs_maybe_dump_apt_http_request(struct fd *fd, const void *buf, size_t size) {
+    static int enabled = -1;
     static bool dumped = false;
+    if (enabled < 0)
+        enabled = getenv("ISH_DUMP_APT_HTTP_REQUEST") != NULL ? 1 : 0;
+    if (!enabled)
+        return;
     if (dumped || current == NULL || fd == NULL || buf == NULL)
         return;
     if (strcmp(current->comm, "apt-get") != 0)
@@ -220,7 +236,7 @@ static void realfs_maybe_dump_apt_http_request(struct fd *fd, const void *buf, s
     const char *text = buf;
     if (memmem(text, size, "600 URI Acquire", strlen("600 URI Acquire")) == NULL)
         return;
-    FILE *f = fopen("/Users/mke/git/ish-AOK/.tmp-apt-http-request.bin", "wb");
+    FILE *f = fopen("/tmp/ish-apt-http-request.bin", "wb");
     if (f == NULL)
         return;
     if (fwrite(buf, 1, size, f) == size)

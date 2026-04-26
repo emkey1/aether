@@ -1,5 +1,6 @@
 #include "debug.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "kernel/calls.h"
@@ -31,10 +32,20 @@ static bool fs_trace_elogind(void) {
 }
 
 static bool http_resolver_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_HTTPFS") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL && strncmp(current->comm, "http", 4) == 0;
 }
 
 static bool ldconfig_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_LDCONFIG_FS") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL && strcmp(current->comm, "ldconfig") == 0;
 }
 
@@ -96,6 +107,11 @@ static bool fs_trace_interesting_path(const char *path) {
 }
 
 static struct tty *amd64_tty_stdio_trace_tty(fd_t fd_no) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_TTY_STDIO") != NULL ? 1 : 0;
+    if (!enabled)
+        return NULL;
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || fd_no > 2)
         return NULL;
     if (strcmp(current->comm, "sh") != 0)
@@ -133,6 +149,11 @@ static void amd64_tty_stdio_trace(const char *op, fd_t fd_no, guest_addr_t addr,
 }
 
 static bool amd64_as_source_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_AS_SOURCE") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL &&
         current->abi == GUEST_ABI_AMD64 &&
         strcmp(current->comm, "as") == 0;
@@ -263,7 +284,8 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
         return _EBADF;
     STRACE("faccessat(%d, \"%s\", 0x%x, %d)", at_f, path, mode, flags);
 
-    bool trace_dpkg = current != NULL &&
+    bool trace_dpkg = getenv("ISH_TRACE_DPKG_STAT") != NULL &&
+        current != NULL &&
         (strncmp(current->comm, "dpkg", 4) == 0 ||
          strcmp(current->comm, "apt") == 0 ||
          strcmp(current->comm, "apt-get") == 0) &&

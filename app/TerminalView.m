@@ -11,6 +11,8 @@
 #import "UIApplication+OpenURL.h"
 #import "NSObject+SaneKVO.h"
 #import "Diagnostics.h"
+#include <stdlib.h>
+#include <string.h>
 
 struct rowcol {
     int row;
@@ -103,14 +105,21 @@ struct rowcol {
 
 static NSString *const HANDLERS[] = {@"syncFocus", @"focus", @"newScrollHeight", @"newScrollTop", @"openLink"};
 
+static BOOL ISHTerminalViewEventLogEnabled(void) {
+    const char *enabled = getenv("ISH_TRACE_TERMINAL_LIFECYCLE");
+    return enabled != NULL && enabled[0] != '\0' && strcmp(enabled, "0") != 0;
+}
+
 static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDictionary<NSString *, id> *details) {
     NSMutableDictionary<NSString *, id> *payload = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
     payload[@"terminalUUID"] = terminal.uuid.UUIDString ?: @"";
     payload[@"type"] = @(terminal.type);
     payload[@"number"] = @(terminal.number);
     [ISHDiagnosticsStore recordBreadcrumb:event details:payload];
-    NSLog(@"%@ terminal=%@ type=%d num=%d details=%@",
-          event, terminal.uuid.UUIDString ?: @"", terminal.type, terminal.number, payload);
+    if (ISHTerminalViewEventLogEnabled()) {
+        NSLog(@"%@ terminal=%@ type=%d num=%d details=%@",
+              event, terminal.uuid.UUIDString ?: @"", terminal.type, terminal.number, payload);
+    }
 }
 
 - (void)setTerminal:(Terminal *)terminal {

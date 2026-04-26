@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #if defined(__APPLE__)
@@ -42,6 +43,11 @@ static bool poll_trace_comm(const char *comm) {
 }
 
 static bool poll_trace_short_timeout(const struct timespec *timeout_ts_ptr, int timeout_trace) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_POLL_WAIT") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (timeout_ts_ptr != NULL) {
         if (timeout_ts_ptr->tv_sec < 0 || timeout_ts_ptr->tv_sec > 2)
             return false;
@@ -73,6 +79,11 @@ static void poll_trace_short_wait_fd(struct fd *fd, int requested, int ready, in
 }
 
 static bool poll_trace_net_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_POLL_NET") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (current == NULL)
         return false;
     return poll_trace_comm(current->comm);
@@ -521,8 +532,14 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
         }
     }
     int res = 0;
+    struct timespec mutable_timeout;
+    struct timespec *poll_timeout = NULL;
+    if (timeout_ts_ptr != NULL) {
+        mutable_timeout = *timeout_ts_ptr;
+        poll_timeout = &mutable_timeout;
+    }
     TASK_MAY_BLOCK {
-        res = poll_wait(poll, poll_event_callback, &context, timeout_ts_ptr);
+        res = poll_wait(poll, poll_event_callback, &context, poll_timeout);
     }
 out:
     poll_destroy(poll);

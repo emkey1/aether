@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "kernel/calls.h"
 #include "kernel/errno.h"
@@ -27,10 +28,20 @@
 #define AT_STATX_SYNC_TYPE_     0x6000
 
 static bool http_resolver_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_HTTPFS") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL && strncmp(current->comm, "http", 4) == 0;
 }
 
 static bool dpkg_stat_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_DPKG_STAT") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (current == NULL)
         return false;
     return strncmp(current->comm, "dpkg", 4) == 0 ||
@@ -39,6 +50,11 @@ static bool dpkg_stat_trace_enabled(void) {
 }
 
 static bool ldconfig_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_LDCONFIG_STAT") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL && strcmp(current->comm, "ldconfig") == 0;
 }
 

@@ -164,6 +164,11 @@ static NSString *ISHTerminalTypeString(int type) {
     return [NSString stringWithFormat:@"%d", type];
 }
 
+static BOOL ISHTerminalLifecycleLogEnabled(void) {
+    const char *enabled = getenv("ISH_TRACE_TERMINAL_LIFECYCLE");
+    return enabled != NULL && enabled[0] != '\0' && strcmp(enabled, "0") != 0;
+}
+
 static NSString *ISHStringFromBOOL(BOOL value) {
     return value ? @"yes" : @"no";
 }
@@ -324,9 +329,11 @@ static void NotifyTerminalRegistryChanged(void) {
     payload[@"number"] = @(self.number);
     payload[@"loaded"] = ISHStringFromBOOL(self.loaded);
     [ISHDiagnosticsStore recordBreadcrumb:event details:payload];
-    NSLog(@"%@ %@ type=%@ num=%d loaded=%@ details=%@",
-          event, self.uuid.UUIDString ?: @"", ISHTerminalTypeString(self.type), self.number,
-          ISHStringFromBOOL(self.loaded), payload);
+    if (ISHTerminalLifecycleLogEnabled()) {
+        NSLog(@"%@ %@ type=%@ num=%d loaded=%@ details=%@",
+              event, self.uuid.UUIDString ?: @"", ISHTerminalTypeString(self.type), self.number,
+              ISHStringFromBOOL(self.loaded), payload);
+    }
 }
 
 - (WKWebView *)webView {
@@ -382,7 +389,9 @@ static void NotifyTerminalRegistryChanged(void) {
         self.didReportLoadFailure = NO;
         [self recordLifecycleEvent:@"terminal.webview.load"
                            details:@{@"script": @"load"}];
-        NSLog(@"Terminal %@ finished loading terminal UI", self.uuid.UUIDString ?: @"(unknown)");
+        if (ISHTerminalLifecycleLogEnabled()) {
+            NSLog(@"Terminal %@ finished loading terminal UI", self.uuid.UUIDString ?: @"(unknown)");
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             [NSNotificationCenter.defaultCenter postNotificationName:TerminalDidLoadNotification
                                                               object:self];

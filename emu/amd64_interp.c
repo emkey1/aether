@@ -339,12 +339,22 @@ static inline bool amd64_as_alu_stderr_enabled(void) {
 }
 
 static inline bool amd64_suspect_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_SUSPECT") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     if (amd64_as_trace_enabled())
         return true;
-    return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "ssh") == 0;
+    return current != NULL && current->abi == GUEST_ABI_AMD64;
 }
 
 static inline bool amd64_bash_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_BASH") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL && current->abi == GUEST_ABI_AMD64 && strcmp(current->comm, "bash") == 0;
 }
 
@@ -944,6 +954,7 @@ static inline void amd64_trace_bash_cond_probe(struct cpu_state *cpu) {
 }
 
 static inline void amd64_trace_cc1_slot_probe(struct cpu_state *cpu, qword_t rip, qword_t addr, qword_t value) {
+    (void) cpu;
     if (!amd64_cc1_trace_enabled() || rip != 0x1288c6dull || amd64_cc1_slot_probe_count >= 4)
         return;
 
@@ -1060,7 +1071,7 @@ static inline void amd64_trace_cc1_xfer_probe(struct cpu_state *cpu, struct tlb 
         qword_t saved_rip, qword_t target, const char *kind) {
     uint8_t bytes[16] = {};
     bool have_bytes = false;
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
 
     if (!amd64_cc1_trace_enabled() || amd64_cc1_xfer_probe_count >= 32)
         return;
@@ -1474,6 +1485,7 @@ static void amd64_trace_as_state_write(struct cpu_state *cpu, qword_t guest_addr
 }
 
 void dump_amd64_cc1_trace(const struct cpu_state *cpu) {
+    (void) cpu;
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || strcmp(current->comm, "cc1") != 0)
         return;
     if (amd64_cc1_trace_pid != current->pid)
@@ -2184,7 +2196,7 @@ static inline void amd64_trace_suspicious_rsp_write(struct cpu_state *cpu,
 
 static inline void amd64_trace_cargo_r12_write(struct cpu_state *cpu,
         qword_t old_value, qword_t new_value, unsigned size, qword_t value) {
-    addr_t guest_addr;
+    guest_addr_t guest_addr;
     bool current_ip_in_window;
     uint8_t insn_bytes[16] = {};
     bool have_bytes = false;
@@ -2237,7 +2249,7 @@ static inline void amd64_trace_cargo_r12_write(struct cpu_state *cpu,
 
 static inline void amd64_trace_cargo_rdx_write(struct cpu_state *cpu,
         qword_t old_value, qword_t new_value, unsigned size, qword_t value) {
-    addr_t guest_addr;
+    guest_addr_t guest_addr;
     bool current_ip_in_window;
     uint8_t insn_bytes[16] = {};
     bool have_bytes = false;
@@ -2290,7 +2302,7 @@ static inline void amd64_trace_cargo_rdx_write(struct cpu_state *cpu,
 
 static inline void amd64_trace_cargo_rdi_write(struct cpu_state *cpu,
         qword_t old_value, qword_t new_value, unsigned size, qword_t value) {
-    addr_t guest_addr;
+    guest_addr_t guest_addr;
     bool current_ip_in_window;
     uint8_t insn_bytes[16] = {};
     bool have_bytes = false;
@@ -2452,7 +2464,7 @@ static inline void amd64_trace_htop_window(struct cpu_state *cpu, struct tlb *tl
 
     uint8_t bytes[16] = {};
     bool have_bytes = false;
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
     if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(bytes), &insn_addr) &&
             tlb_read(tlb, insn_addr, bytes, sizeof(bytes))) {
         have_bytes = true;
@@ -2482,7 +2494,7 @@ static inline bool amd64_trace_in_cargo_pf_window(qword_t rip) {
 static inline void amd64_trace_cargo_pf_window(struct cpu_state *cpu, struct tlb *tlb) {
     uint8_t bytes[16] = {};
     bool have_bytes = false;
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
 
     if (current == NULL)
         return;
@@ -2522,7 +2534,7 @@ static inline void amd64_trace_cargo_transfer(struct cpu_state *cpu, struct tlb 
         qword_t saved_rip, qword_t target, const char *kind) {
     uint8_t bytes[16] = {};
     bool have_bytes = false;
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
 
     if (amd64_cargo_xfer_trace_count >= 32)
         return;
@@ -2561,7 +2573,7 @@ static inline void amd64_trace_cargo_predecessor(struct cpu_state *cpu, struct t
         qword_t saved_rip) {
     uint8_t bytes[16] = {};
     bool have_bytes = false;
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
 
     if (amd64_cargo_xfer_trace_count >= 1)
         return;
@@ -2596,8 +2608,8 @@ static inline void amd64_trace_cargo_predecessor(struct cpu_state *cpu, struct t
 }
 
 static inline void amd64_trace_cargo_start_call(struct cpu_state *cpu) {
-    addr_t stack_addr;
-    addr_t bytes_addr;
+    guest_addr_t stack_addr;
+    guest_addr_t bytes_addr;
     uint8_t bytes[16] = {};
     bool have_bytes = false;
     qword_t popped = 0;
@@ -2836,7 +2848,7 @@ static inline void amd64_trace_htop_field_write(struct cpu_state *cpu, struct tl
     if (cpu->amd64_current_insn_rip == AMD64_HTOP_FIELD_FILL_RIP) {
         uint8_t insn[16] = {};
         bool have_insn = false;
-        addr_t insn_addr;
+        guest_addr_t insn_addr;
         if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn), &insn_addr) &&
                 tlb_read(tlb, insn_addr, insn, sizeof(insn))) {
             have_insn = true;
@@ -2895,7 +2907,7 @@ static inline void amd64_trace_htop_r13_block_write(struct cpu_state *cpu, struc
     bool have_block = false;
     memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
 
-    addr_t insn_addr;
+    guest_addr_t insn_addr;
     if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn_bytes), &insn_addr) &&
             tlb_read(tlb, insn_addr, insn_bytes, sizeof(insn_bytes))) {
         have_insn = true;
@@ -3295,7 +3307,7 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         uint8_t insn_bytes[8] = {};
         bool have_bytes = false;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
-        addr_t insn_addr;
+        guest_addr_t insn_addr;
         if (amd64_guest_addr_ok(cpu->amd64_current_insn_rip, sizeof(insn_bytes), &insn_addr) &&
                 tlb_read(tlb, insn_addr, insn_bytes, sizeof(insn_bytes))) {
             have_bytes = true;
