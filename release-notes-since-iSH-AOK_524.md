@@ -48,6 +48,7 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - Gated noisy amd64 compiler, assembler, tty, htop, bash, apt/dpkg filesystem, poll/select, and socket probes behind explicit `ISH_TRACE_*` environment variables for release builds.
 - Added an App Store export options plist with symbol upload disabled to avoid Xcode 26.4's broken `Symbols` rsync path during IPA export.
 - Restored release packaging to the same compact Alpine i386 and x86_64 minirootfs archives used by `builds/iSH-AOK_524`.
+- Removed empty archive `dSYMs` directories after Archive so Xcode Organizer does not enter the broken empty-symbol upload/copy path.
 
 ## Known Notes
 
@@ -55,6 +56,7 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - The Alpine binutils assembler workaround remains a compatibility shim for the current test root and should be revisited once the underlying GAS issue is no longer relevant.
 - For App Store/TestFlight export, use `AppStoreExportOptions.plist` or disable symbol upload in Organizer. Xcode 26.4 can fail with `Copy failed` while copying an empty `Symbols` directory through `/usr/bin/rsync -E`.
 - Re-archive after this change before exporting; older archives may still contain the oversized Devuan/full x86_64 test roots.
+- Fresh Xcode archives should no longer contain an empty top-level `dSYMs` directory.
 
 ## Maintainer Notes
 
