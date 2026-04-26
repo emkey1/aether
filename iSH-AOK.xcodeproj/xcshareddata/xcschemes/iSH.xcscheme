@@ -110,7 +110,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Remove Empty dSYMs Directory"
-               scriptText = "if [ -n &quot;${ARCHIVE_PATH:-}&quot; ] &amp;&amp; [ -d &quot;$ARCHIVE_PATH/dSYMs&quot; ] &amp;&amp; ! find &quot;$ARCHIVE_PATH/dSYMs&quot; -mindepth 1 -print -quit | grep -q .; then&#10;    rmdir &quot;$ARCHIVE_PATH/dSYMs&quot;&#10;fi">
+               scriptText = "archive_path=${ARCHIVE_PATH:-}&#10;if [ -z &quot;$archive_path&quot; ]; then&#10;    archive_path=$(find &quot;$HOME/Library/Developer/Xcode/Archives&quot; -name 'iSH*.xcarchive' -print0 | xargs -0 ls -td 2&gt;/dev/null | head -n 1)&#10;fi&#10;if [ -n &quot;$archive_path&quot; ] &amp;&amp; [ -d &quot;$archive_path/dSYMs&quot; ] &amp;&amp; ! find &quot;$archive_path/dSYMs&quot; -mindepth 1 -print -quit | grep -q .; then&#10;    rmdir &quot;$archive_path/dSYMs&quot;&#10;fi">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"
