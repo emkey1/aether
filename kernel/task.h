@@ -138,6 +138,7 @@ struct task {
     bool *waiting_interrupt_flag;
     lock_t waiting_cond_lock;
     bool wait_interrupted;
+    bool restart_interrupted_syscall;
 };
 
 // current will always give the process that is currently executing

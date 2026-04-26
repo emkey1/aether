@@ -416,6 +416,9 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         interrupted_wait = wake_waiting_task(task);
     }
     if (interrupted_wait) {
+        bool restart = signal_action(task->sighand, sig) == SIGNAL_CALL_HANDLER &&
+            !!(task->sighand->action[sig].flags & SA_RESTART_);
+        __atomic_store_n(&task->restart_interrupted_syscall, restart, __ATOMIC_RELEASE);
         __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
     }
 }
@@ -828,6 +831,9 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
 bool signal_should_restart_syscall(void) {
     if (current == NULL)
         return false;
+
+    if (__atomic_exchange_n(&current->restart_interrupted_syscall, false, __ATOMIC_ACQ_REL))
+        return true;
 
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
