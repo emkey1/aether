@@ -46,21 +46,27 @@ These notes summarize changes from `builds/iSH-AOK_524` intended for `builds/iSH
 - Extended guest regression coverage for amd64 atomics, JIT helper fallbacks, signals, eventfd/futex restart paths, process lifecycle, and pthread synchronization.
 - Added an Alpine 3.23.3 x86_64 root image with GCC for local amd64 regression testing.
 - Gated noisy amd64 compiler, assembler, tty, htop, bash, apt/dpkg filesystem, poll/select, and socket probes behind explicit `ISH_TRACE_*` environment variables for release builds.
+- Added an App Store export options plist with symbol upload disabled to avoid Xcode 26.4's broken `Symbols` rsync path during IPA export.
 
 ## Known Notes
 
 - amd64/x86_64 guest support remains experimental.
 - The Alpine binutils assembler workaround remains a compatibility shim for the current test root and should be revisited once the underlying GAS issue is no longer relevant.
+- For App Store/TestFlight export, use `AppStoreExportOptions.plist` or disable symbol upload in Organizer. Xcode 26.4 can fail with `Copy failed` while copying an empty `Symbols` directory through `/usr/bin/rsync -E`.
 
 ## Maintainer Notes
 
 - `builds/iSH-AOK_524` points to commit `eaf1a830`.
 - `builds/iSH-AOK_525` tags the release sanity cleanup after the range below.
 - These notes cover committed history after `builds/iSH-AOK_524` plus the release sanity cleanup in the current worktree.
+- CLI export command: `tools/export-ios-archive.sh /path/to/iSH.xcarchive /tmp/iSH-AOK-export`.
 
 ## Commit Range
 
 - `0c3e0697` Fix interrupted syscall restart handling
+- `7f8af2f5` Work around Xcode IPA symbol copy failure
+- `2cc33a5f` Fix release archive root bundle
+- `5778c072` Prepare iSH-AOK 525 release
 - `eea40e4f` Fix amd64 thread signal regressions
 - `2c8ec6c5` Remove debug terminal autorun
 - `6af16115` Rewrite immediate push in GAS workaround
