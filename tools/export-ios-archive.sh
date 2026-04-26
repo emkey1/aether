@@ -2,7 +2,8 @@
 set -eu
 
 usage() {
-    echo "usage: $0 ARCHIVE_PATH EXPORT_PATH [EXPORT_OPTIONS_PLIST]" >&2
+    echo "usage: $0 ARCHIVE_PATH|latest EXPORT_PATH [EXPORT_OPTIONS_PLIST]" >&2
+    echo "example: $0 latest /tmp/iSH-AOK-export" >&2
     exit 2
 }
 
@@ -19,6 +20,22 @@ case "$export_options" in
     /*) ;;
     *) export_options="$repo_root/$export_options" ;;
 esac
+
+if [ "$archive_path" = latest ]; then
+    archive_path=$(find "$HOME/Library/Developer/Xcode/Archives" -name 'iSH*.xcarchive' -print0 | xargs -0 ls -td 2>/dev/null | head -n 1)
+    if [ -z "$archive_path" ]; then
+        echo "error: no iSH .xcarchive found under ~/Library/Developer/Xcode/Archives" >&2
+        exit 1
+    fi
+fi
+
+if [ ! -d "$archive_path" ]; then
+    echo "error: archive not found at path '$archive_path'" >&2
+    echo "hint: pass an actual .xcarchive path, or use: $0 latest $export_path" >&2
+    exit 1
+fi
+
+echo "Exporting archive: $archive_path"
 
 xcodebuild \
     -exportArchive \
