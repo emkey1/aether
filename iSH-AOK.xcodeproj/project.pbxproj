@@ -1998,13 +1998,17 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
 			);
 			name = "Copy Alternate Icon Sizes";
+			outputFileListPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
+			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nresources_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$resources_dir\"\nwhile IFS= read -r source_path; do\n  [ -n \"$source_path\" ] || continue\n  source_path=$(printf '%s\\n' \"$source_path\" | sed \"s#^\\$(SRCROOT)#$SRCROOT#\")\n  install -m 0644 \"$source_path\" \"$resources_dir/\"\ndone < \"$SRCROOT/app/Icons/AlternateIconSizes.xcfilelist\"\n";
+			shellScript = "set -eu\nresources_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$resources_dir\"\nwhile IFS= read -r source_path; do\n  [ -n \"$source_path\" ] || continue\n  source_path=$(printf '%s\\n' \"$source_path\" | sed \"s#^\\$(SRCROOT)#$SRCROOT#\")\n  cp -f \"$source_path\" \"$resources_dir/$(basename \"$source_path\")\"\ndone < \"$SRCROOT/app/Icons/AlternateIconSizes.xcfilelist\"\n";
 		};
 		BBECF3B2269136E100DEC937 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;

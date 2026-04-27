@@ -41,6 +41,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--icons-plist", required=True, type=Path)
     parser.add_argument("--info-header", type=Path)
+    parser.add_argument("--icons-dir", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--resources-dir", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     icon_names = load_icon_names(args.icons_plist)
