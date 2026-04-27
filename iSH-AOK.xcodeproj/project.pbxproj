@@ -1559,6 +1559,7 @@
 				BB034E8C263643C10000A498 /* Generate APK Repositories File */,
 				BB4A53AC1FAA49CA00A72ACE /* Compile JavaScript */,
 				BB792B4E1F96D90D00FFB7A4 /* Resources */,
+				C0A200012F2F100100000001 /* Copy Alternate Icon Sizes */,
 				BB88F4A32154760800A341FD /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -1974,6 +1975,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/app/Icons/Icons.plist",
+				"$(SRCROOT)/tools/generate-ios-alt-icons.py",
 			);
 			name = "Add icons to Info.plist";
 			outputFileListPaths = (
@@ -1983,7 +1985,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "python3 - \"${SRCROOT}/app/Icons/Icons.plist\" \"${BUILT_PRODUCTS_DIR}/infoplisticons.h\" <<END\nimport plistlib\nimport sys\nwith open(sys.argv[1], 'rb') as plist:\n    icons = plistlib.load(plist)\nalt_icons = '<key>CFBundleAlternateIcons</key><dict>'\nfor icon in icons.keys():\n    if icon == '': continue\n    alt_icons += '''<key>{0}</key>\n<dict>\n<key>CFBundleIconFiles</key>\n<array><string>{0}</string></array>\n</dict>'''.format(icon)\nalt_icons += '</dict>'\nicon_stuff = '''</string>\n<key>CFBundleIcons</key><dict>{0}</dict>\n<key>CFBundleIcons~ipad</key><dict>{0}</dict>\n<key>kxcode</key><string>'''.format(alt_icons)\nicon_define = '#define ICON_STUFF ' + icon_stuff.replace('\\n', '')\nwith open(sys.argv[2], 'w') as output:\n    output.write(icon_define)\nEND\n";
+			shellScript = "python3 \"$SRCROOT/tools/generate-ios-alt-icons.py\" \\\n  --icons-plist \"$SRCROOT/app/Icons/Icons.plist\" \\\n  --info-header \"$BUILT_PRODUCTS_DIR/infoplisticons.h\"\n";
+		};
+		C0A200012F2F100100000001 /* Copy Alternate Icon Sizes */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
+			);
+			inputPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
+			);
+			name = "Copy Alternate Icon Sizes";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nresources_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$resources_dir\"\nwhile IFS= read -r source_path; do\n  [ -n \"$source_path\" ] || continue\n  source_path=$(printf '%s\\n' \"$source_path\" | sed \"s#^\\$(SRCROOT)#$SRCROOT#\")\n  install -m 0644 \"$source_path\" \"$resources_dir/\"\ndone < \"$SRCROOT/app/Icons/AlternateIconSizes.xcfilelist\"\n";
 		};
 		BBECF3B2269136E100DEC937 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
