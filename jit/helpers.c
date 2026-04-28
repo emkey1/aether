@@ -13,6 +13,8 @@ void helper_rdtsc(struct cpu_state *cpu) {
     uint64_t tsc = now.tv_sec * 1000000000l + now.tv_nsec;
     cpu->eax = tsc & 0xffffffff;
     cpu->edx = tsc >> 32;
+    cpu->amd64_regs[amd64_rax] = cpu->eax;
+    cpu->amd64_regs[amd64_rdx] = cpu->edx;
 }
 
 void helper_expand_flags(struct cpu_state *cpu) {

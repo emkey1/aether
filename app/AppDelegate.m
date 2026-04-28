@@ -137,6 +137,11 @@ void ReportPanic(const char *message) {
 #endif
 
 static intptr_t bootError;
+static NSString *bootFailureTitle;
+static NSString *bootFailureMessage;
+static NSString *bootFailureOverlayText;
+static NSDictionary<NSString *, id> *bootFailureDetails;
+static BOOL bootUsesConsoleSessionFallback;
 static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 static NSString *const kMetricKitDiagnosticsDirectory = @"MetricKitDiagnostics";
 NSString *const ISHDiagnosticsStoreDidUpdateNotification = @"ISHDiagnosticsStoreDidUpdateNotification";
@@ -145,6 +150,358 @@ static NSString *const kDiagnosticsBreadcrumbsFile = @"breadcrumbs.json";
 static NSString *const kDiagnosticsLaunchJournalFile = @"launch-journal.json";
 static NSString *const kDiagnosticsGuestFatalFile = @"guest-fatal-event.json";
 static NSString *const kDiagnosticsGuestExitsFile = @"guest-exits.json";
+
+typedef struct {
+    intptr_t code;
+    const char *name;
+    const char *description;
+} ISHErrnoInfo;
+
+static const ISHErrnoInfo kISHErrnoInfos[] = {
+    {_EPERM, "EPERM", "Operation not permitted"},
+    {_ENOENT, "ENOENT", "No such file or directory"},
+    {_ESRCH, "ESRCH", "No such process"},
+    {_EINTR, "EINTR", "Interrupted system call"},
+    {_EIO, "EIO", "I/O error"},
+    {_ENXIO, "ENXIO", "No such device or address"},
+    {_E2BIG, "E2BIG", "Argument list too long"},
+    {_ENOEXEC, "ENOEXEC", "Exec format error"},
+    {_EBADF, "EBADF", "Bad file descriptor"},
+    {_ECHILD, "ECHILD", "No child processes"},
+    {_EAGAIN, "EAGAIN", "Resource temporarily unavailable"},
+    {_ENOMEM, "ENOMEM", "Out of memory"},
+    {_EACCES, "EACCES", "Permission denied"},
+    {_EFAULT, "EFAULT", "Bad address"},
+    {_ENOTBLK, "ENOTBLK", "Block device required"},
+    {_EBUSY, "EBUSY", "Device or resource busy"},
+    {_EEXIST, "EEXIST", "File exists"},
+    {_EXDEV, "EXDEV", "Cross-device link"},
+    {_ENODEV, "ENODEV", "No such device"},
+    {_ENOTDIR, "ENOTDIR", "Not a directory"},
+    {_EISDIR, "EISDIR", "Is a directory"},
+    {_EINVAL, "EINVAL", "Invalid argument"},
+    {_ENFILE, "ENFILE", "File table overflow"},
+    {_EMFILE, "EMFILE", "Too many open files"},
+    {_ENOTTY, "ENOTTY", "Inappropriate ioctl for device"},
+    {_ETXTBSY, "ETXTBSY", "Text file busy"},
+    {_EFBIG, "EFBIG", "File too large"},
+    {_ENOSPC, "ENOSPC", "No space left on device"},
+    {_ESPIPE, "ESPIPE", "Illegal seek"},
+    {_EROFS, "EROFS", "Read-only file system"},
+    {_EMLINK, "EMLINK", "Too many links"},
+    {_EPIPE, "EPIPE", "Broken pipe"},
+    {_EDOM, "EDOM", "Numerical argument out of domain"},
+    {_ERANGE, "ERANGE", "Numerical result out of range"},
+    {_EDEADLK, "EDEADLK", "Resource deadlock would occur"},
+    {_ENAMETOOLONG, "ENAMETOOLONG", "File name too long"},
+    {_ENOLCK, "ENOLCK", "No record locks available"},
+    {_ENOSYS, "ENOSYS", "Function not implemented"},
+    {_ENOTEMPTY, "ENOTEMPTY", "Directory not empty"},
+    {_ELOOP, "ELOOP", "Too many levels of symbolic links"},
+    {_EBFONT, "EBFONT", "Bad font file format"},
+    {_ENOSTR, "ENOSTR", "Device is not a stream"},
+    {_ENODATA, "ENODATA", "No data available"},
+    {_ETIME, "ETIME", "Timer expired"},
+    {_ENOSR, "ENOSR", "Out of stream resources"},
+    {_ENONET, "ENONET", "Machine is not on the network"},
+    {_ENOPKG, "ENOPKG", "Package not installed"},
+    {_EREMOTE, "EREMOTE", "Object is remote"},
+    {_ENOLINK, "ENOLINK", "Link has been severed"},
+    {_EADV, "EADV", "Advertise error"},
+    {_ESRMNT, "ESRMNT", "Srmount error"},
+    {_ECOMM, "ECOMM", "Communication error on send"},
+    {_EPROTO, "EPROTO", "Protocol error"},
+    {_EMULTIHOP, "EMULTIHOP", "Multihop attempted"},
+    {_EDOTDOT, "EDOTDOT", "RFS-specific error"},
+    {_EBADMSG, "EBADMSG", "Bad message"},
+    {_EOVERFLOW, "EOVERFLOW", "Value too large for defined data type"},
+    {_ENOTUNIQ, "ENOTUNIQ", "Name not unique on network"},
+    {_EBADFD, "EBADFD", "File descriptor in bad state"},
+    {_EREMCHG, "EREMCHG", "Remote address changed"},
+    {_ELIBACC, "ELIBACC", "Cannot access a needed shared library"},
+    {_ELIBBAD, "ELIBBAD", "Accessing a corrupted shared library"},
+    {_ELIBSCN, "ELIBSCN", "Library section is corrupted"},
+    {_ELIBMAX, "ELIBMAX", "Too many shared libraries"},
+    {_ELIBEXEC, "ELIBEXEC", "Cannot execute a shared library directly"},
+    {_EILSEQ, "EILSEQ", "Illegal byte sequence"},
+    {_ERESTART, "ERESTART", "Interrupted system call should be restarted"},
+    {_ESTRPIPE, "ESTRPIPE", "Streams pipe error"},
+    {_EUSERS, "EUSERS", "Too many users"},
+    {_ENOTSOCK, "ENOTSOCK", "Socket operation on non-socket"},
+    {_EDESTADDRREQ, "EDESTADDRREQ", "Destination address required"},
+    {_EMSGSIZE, "EMSGSIZE", "Message too long"},
+    {_EPROTOTYPE, "EPROTOTYPE", "Protocol wrong type for socket"},
+    {_ENOPROTOOPT, "ENOPROTOOPT", "Protocol not available"},
+    {_EPROTONOSUPPORT, "EPROTONOSUPPORT", "Protocol not supported"},
+    {_ESOCKTNOSUPPORT, "ESOCKTNOSUPPORT", "Socket type not supported"},
+    {_EOPNOTSUPP, "EOPNOTSUPP", "Operation not supported"},
+    {_EPFNOSUPPORT, "EPFNOSUPPORT", "Protocol family not supported"},
+    {_EAFNOSUPPORT, "EAFNOSUPPORT", "Address family not supported by protocol"},
+    {_EADDRINUSE, "EADDRINUSE", "Address already in use"},
+    {_EADDRNOTAVAIL, "EADDRNOTAVAIL", "Cannot assign requested address"},
+    {_ENETDOWN, "ENETDOWN", "Network is down"},
+    {_ENETUNREACH, "ENETUNREACH", "Network is unreachable"},
+    {_ENETRESET, "ENETRESET", "Network dropped connection on reset"},
+    {_ECONNABORTED, "ECONNABORTED", "Software caused connection abort"},
+    {_ECONNRESET, "ECONNRESET", "Connection reset by peer"},
+    {_ENOBUFS, "ENOBUFS", "No buffer space available"},
+    {_EISCONN, "EISCONN", "Transport endpoint is already connected"},
+    {_ENOTCONN, "ENOTCONN", "Transport endpoint is not connected"},
+    {_ESHUTDOWN, "ESHUTDOWN", "Cannot send after transport endpoint shutdown"},
+    {_ETOOMANYREFS, "ETOOMANYREFS", "Too many references"},
+    {_ETIMEDOUT, "ETIMEDOUT", "Connection timed out"},
+    {_ECONNREFUSED, "ECONNREFUSED", "Connection refused"},
+    {_EHOSTDOWN, "EHOSTDOWN", "Host is down"},
+    {_EHOSTUNREACH, "EHOSTUNREACH", "No route to host"},
+    {_EALREADY, "EALREADY", "Operation already in progress"},
+    {_EINPROGRESS, "EINPROGRESS", "Operation now in progress"},
+    {_ESTALE, "ESTALE", "Stale file handle"},
+    {_EUCLEAN, "EUCLEAN", "Structure needs cleaning"},
+    {_ENOTNAM, "ENOTNAM", "Not a named type file"},
+    {_ENAVAIL, "ENAVAIL", "No semaphores available"},
+    {_EISNAM, "EISNAM", "Is a named type file"},
+    {_EREMOTEIO, "EREMOTEIO", "Remote I/O error"},
+    {_EDQUOT, "EDQUOT", "Quota exceeded"},
+    {_ECANCELED, "ECANCELED", "Operation canceled"},
+};
+
+static const ISHErrnoInfo *ISHInfoForErrno(intptr_t err) {
+    for (size_t i = 0; i < sizeof(kISHErrnoInfos) / sizeof(kISHErrnoInfos[0]); i++) {
+        if (kISHErrnoInfos[i].code == err)
+            return &kISHErrnoInfos[i];
+    }
+    return NULL;
+}
+
+static NSString *ISHDescriptionForErrno(intptr_t err) {
+    const ISHErrnoInfo *info = ISHInfoForErrno(err);
+    if (info != NULL) {
+        return [NSString stringWithFormat:@"%s (%ld): %s",
+                info->name, (long) err, info->description];
+    }
+
+    NSInteger posixCode = err < 0 ? (NSInteger) -err : (NSInteger) err;
+    NSError *posixError = [NSError errorWithDomain:NSPOSIXErrorDomain code:posixCode userInfo:nil];
+    return [NSString stringWithFormat:@"errno %ld: %@",
+            (long) err, posixError.localizedDescription ?: @"unknown error"];
+}
+
+static NSString *BootFailureSentence(NSString *text) {
+    if (text.length == 0)
+        return @"Boot failed.";
+    unichar last = [text characterAtIndex:text.length - 1];
+    if (last == '.' || last == '!' || last == '?')
+        return text;
+    return [text stringByAppendingString:@"."];
+}
+
+static NSString *BootFailureMessage(NSString *reason, intptr_t err, NSDictionary<NSString *, id> *details, NSString *recovery) {
+    NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    if (reason.length != 0) {
+        [lines addObject:reason];
+        [lines addObject:@""];
+    }
+
+    NSString *root = details[@"root"];
+    NSString *guestABI = details[@"guestABI"];
+    NSString *path = details[@"path"];
+    NSString *command = details[@"command"];
+    if (root.length != 0)
+        [lines addObject:[NSString stringWithFormat:@"Root: %@", root]];
+    if (guestABI.length != 0)
+        [lines addObject:[NSString stringWithFormat:@"Guest ABI: %@", guestABI]];
+    if (path.length != 0)
+        [lines addObject:[NSString stringWithFormat:@"Path: %@", path]];
+    if (command.length != 0)
+        [lines addObject:[NSString stringWithFormat:@"Command: %@", command]];
+    [lines addObject:[NSString stringWithFormat:@"Error: %@", ISHDescriptionForErrno(err)]];
+
+    if (recovery.length != 0) {
+        [lines addObject:@""];
+        [lines addObject:recovery];
+    }
+    return [lines componentsJoinedByString:@"\n"];
+}
+
+static NSMutableDictionary<NSString *, id> *BootFailureDetails(NSString *stage,
+                                                               intptr_t err,
+                                                               NSString *title,
+                                                               NSString *reason,
+                                                               NSString *recovery,
+                                                               NSDictionary<NSString *, id> *details) {
+    NSMutableDictionary<NSString *, id> *result = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
+    if (stage.length != 0)
+        result[@"stage"] = stage;
+    result[@"error"] = @(err);
+    result[@"errorDescription"] = ISHDescriptionForErrno(err);
+    if (title.length != 0)
+        result[@"title"] = title;
+    if (reason.length != 0)
+        result[@"reason"] = reason;
+    if (recovery.length != 0)
+        result[@"recovery"] = recovery;
+    return result;
+}
+
+static intptr_t RecordBootFailure(intptr_t err,
+                                  NSString *stage,
+                                  NSString *title,
+                                  NSString *reason,
+                                  NSString *recovery,
+                                  NSDictionary<NSString *, id> *details) {
+    if (err > 0)
+        err = -err;
+    NSString *safeStage = stage.length != 0 ? stage : @"boot.failed";
+    NSString *safeTitle = title.length != 0 ? title : @"Boot failed";
+    NSDictionary<NSString *, id> *safeDetails = BootFailureDetails(safeStage, err, safeTitle, reason, recovery, details);
+    bootFailureTitle = safeTitle;
+    bootFailureMessage = BootFailureMessage(reason, err, safeDetails, recovery);
+    bootFailureOverlayText = BootFailureSentence(safeTitle);
+    bootFailureDetails = safeDetails;
+    [ISHDiagnosticsStore recordLaunchStage:safeStage details:safeDetails];
+    NSLog(@"boot failed at %@: %@", safeStage, bootFailureMessage);
+    return err;
+}
+
+static NSString *BootMountRecovery(intptr_t err) {
+    if (err == _EINVAL) {
+        return @"The filesystem metadata database may be incompatible or corrupt. Choose another filesystem or reimport this one.";
+    }
+    if (err == _EACCES || err == _EPERM) {
+        return @"iOS denied access to the filesystem files. Restart the app; if it still fails, choose another filesystem or reimport this one.";
+    }
+    if (err == _ENOSPC) {
+        return @"Free storage space on the device, then restart iSH-AOK.";
+    }
+    return @"Choose another filesystem or reimport this one.";
+}
+
+static NSString *BootExecRecovery(intptr_t err, NSString *guestABI) {
+    if (err == _ENOENT) {
+        return @"The configured boot command is missing inside the root. Check Settings -> Boot Command or reimport the filesystem.";
+    }
+    if (err == _EACCES || err == _EPERM) {
+        return @"The configured boot command exists but is not executable. Fix its permissions or choose a different boot command.";
+    }
+    if (err == _ENOEXEC) {
+        if ([guestABI isEqualToString:@"amd64"]) {
+            return @"This root is marked x86_64/amd64. amd64 support is still experimental, so early exec or decode failures are expected with some binaries.";
+        }
+        return @"The configured boot command is not a supported Linux executable or script. Check Settings -> Boot Command.";
+    }
+    if (err == _ENOMEM) {
+        return @"The device did not have enough memory to start init. Close other apps and restart iSH-AOK.";
+    }
+    return @"Check Settings -> Boot Command, or choose/reimport the filesystem.";
+}
+
+static BOOL BootCommandIsDefaultInit(NSArray<NSString *> *command) {
+    return command.count > 0 && [command[0] isEqualToString:@"/sbin/init"];
+}
+
+static BOOL BootExecutableExists(NSString *path, intptr_t *errOut) {
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path.UTF8String, &stat, 0);
+    if (err < 0) {
+        if (errOut != NULL)
+            *errOut = err;
+        return NO;
+    }
+    if (!S_ISREG(stat.mode)) {
+        if (errOut != NULL)
+            *errOut = _EACCES;
+        return NO;
+    }
+    if (!(stat.mode & 0111)) {
+        if (errOut != NULL)
+            *errOut = _EACCES;
+        return NO;
+    }
+    if (errOut != NULL)
+        *errOut = 0;
+    return YES;
+}
+
+static NSArray<NSString *> *BootCommandFallbackCandidatesDescription(NSArray<NSArray<NSString *> *> *candidates) {
+    NSMutableArray<NSString *> *descriptions = [NSMutableArray arrayWithCapacity:candidates.count];
+    for (NSArray<NSString *> *candidate in candidates) {
+        [descriptions addObject:[candidate componentsJoinedByString:@" "]];
+    }
+    return descriptions;
+}
+
+static NSArray<NSString *> *BootCommandWithInitFallback(NSArray<NSString *> *command,
+                                                        NSDictionary<NSString *, id> *details) {
+    if (!BootCommandIsDefaultInit(command))
+        return command;
+
+	    intptr_t configuredErr = 0;
+	    if (BootExecutableExists(command[0], &configuredErr)) {
+	        bootUsesConsoleSessionFallback = NO;
+	        return command;
+	    }
+
+	    NSArray<NSArray<NSString *> *> *candidates = @[
+	        @[@"/init"],
+	        @[@"/etc/init"],
+	        @[@"/bin/init"],
+	        @[@"/usr/bin/login", @"-f", @"root"],
+	        @[@"/bin/login", @"-f", @"root"],
+	        @[@"/usr/bin/sh", @"-l"],
+	        @[@"/bin/sh", @"-l"],
+	        @[@"/usr/bin/bash", @"-l"],
+	        @[@"/bin/bash", @"-l"],
+	        @[@"/usr/bin/ash", @"-l"],
+	        @[@"/bin/ash", @"-l"],
+	        @[@"/bin/busybox", @"init"],
+	        @[@"/usr/bin/busybox", @"init"],
+	        @[@"/bin/busybox", @"sh"],
+	        @[@"/usr/bin/busybox", @"sh"],
+	    ];
+    NSMutableArray<NSDictionary<NSString *, id> *> *attempts = [NSMutableArray arrayWithCapacity:candidates.count + 1];
+    [attempts addObject:@{@"command": [command componentsJoinedByString:@" "],
+                          @"path": command[0],
+                          @"error": @(configuredErr),
+                          @"errorDescription": ISHDescriptionForErrno(configuredErr)}];
+
+    for (NSArray<NSString *> *candidate in candidates) {
+        NSString *path = candidate.firstObject;
+        intptr_t err = 0;
+        if (BootExecutableExists(path, &err)) {
+            NSMutableDictionary<NSString *, id> *fallbackDetails = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
+            fallbackDetails[@"configuredCommand"] = [command componentsJoinedByString:@" "];
+            fallbackDetails[@"fallbackCommand"] = [candidate componentsJoinedByString:@" "];
+	            fallbackDetails[@"fallbackPath"] = path ?: @"";
+	            fallbackDetails[@"mode"] = @"console-session";
+	            fallbackDetails[@"missingInitError"] = @(configuredErr);
+	            fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
+	            fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
+	            fallbackDetails[@"attempts"] = attempts;
+	            bootUsesConsoleSessionFallback = YES;
+	            [ISHDiagnosticsStore recordLaunchStage:@"boot.init.fallback.selected"
+	                                           details:fallbackDetails];
+            NSLog(@"boot init fallback selected: %@ -> %@",
+                  [command componentsJoinedByString:@" "],
+                  [candidate componentsJoinedByString:@" "]);
+            return candidate;
+        }
+        [attempts addObject:@{@"command": [candidate componentsJoinedByString:@" "],
+                              @"path": path ?: @"",
+                              @"error": @(err),
+                              @"errorDescription": ISHDescriptionForErrno(err)}];
+    }
+
+    NSMutableDictionary<NSString *, id> *fallbackDetails = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
+    fallbackDetails[@"configuredCommand"] = [command componentsJoinedByString:@" "];
+	    fallbackDetails[@"missingInitError"] = @(configuredErr);
+	    fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
+	    fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
+	    fallbackDetails[@"attempts"] = attempts;
+	    bootUsesConsoleSessionFallback = NO;
+    [ISHDiagnosticsStore recordLaunchStage:@"boot.init.fallback.none"
+                                   details:fallbackDetails];
+    return command;
+}
 
 static NSString *MetricKitISO8601StringFromDate(NSDate *date) {
     if (date == nil)
@@ -1104,15 +1461,26 @@ static TerminalViewController *CreateTerminalViewController(void) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.begin"];
+	        bootFailureTitle = nil;
+	        bootFailureMessage = nil;
+	        bootFailureOverlayText = nil;
+	        bootFailureDetails = nil;
+	        bootUsesConsoleSessionFallback = NO;
         AppDelegate *delegate = (AppDelegate *) UIApplication.sharedApplication.delegate;
         if ([delegate isKindOfClass:AppDelegate.class]) {
             bootError = [delegate boot];
         } else {
-            bootError = _ESRCH;
+            bootError = RecordBootFailure(_ESRCH,
+                                          @"boot.delegate.missing",
+                                          @"Boot failed before app setup",
+                                          @"The application delegate was not available when boot was requested.",
+                                          @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                          nil);
         }
         if (bootError < 0) {
             [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.failed"
-                                           details:@{@"error": @(bootError)}];
+                                           details:bootFailureDetails ?: @{@"error": @(bootError),
+                                                                           @"errorDescription": ISHDescriptionForErrno(bootError)}];
         } else {
             [ISHDiagnosticsStore recordLaunchStage:@"boot.ensure.end"];
         }
@@ -1124,8 +1492,14 @@ static TerminalViewController *CreateTerminalViewController(void) {
 #if !ISH_LINUX
     [ISHDiagnosticsStore recordLaunchStage:@"boot.begin"];
     NSString *defaultRoot = Roots.instance.defaultRoot;
-    if (defaultRoot == nil)
-        return _ENOENT;
+    if (defaultRoot == nil) {
+        return RecordBootFailure(_ENOENT,
+                                 @"boot.root.none",
+                                 @"No boot filesystem is selected",
+                                 @"iSH-AOK cannot boot because no active filesystem is configured.",
+                                 @"Open Filesystems and choose or import a root filesystem.",
+                                 @{@"rootCount": @(Roots.instance.roots.count)});
+    }
     NSError *rootLockError = nil;
     int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", defaultRoot, YES, &rootLockError);
     if (rootLockFd < 0) {
@@ -1147,10 +1521,53 @@ static TerminalViewController *CreateTerminalViewController(void) {
     }
 
     NSURL *root = [Roots.instance rootUrl:defaultRoot];
+    NSURL *rootData = [root URLByAppendingPathComponent:@"data" isDirectory:YES];
+    NSURL *rootMetadata = [root URLByAppendingPathComponent:@"meta.db" isDirectory:NO];
+    BOOL isDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:root.path isDirectory:&isDirectory] || !isDirectory) {
+        return RecordBootFailure(_ENOENT,
+                                 @"boot.root.directory.missing",
+                                 @"Selected filesystem is missing",
+                                 @"The active filesystem points to a root directory that is not present on disk.",
+                                 @"Choose another filesystem or reimport this one.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": root.path ?: @""});
+    }
+    isDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:rootData.path isDirectory:&isDirectory] || !isDirectory) {
+        return RecordBootFailure(_ENOENT,
+                                 @"boot.root.data.missing",
+                                 @"Selected filesystem is incomplete",
+                                 @"The active filesystem directory exists, but its data directory is missing.",
+                                 @"Choose another filesystem or reimport this one.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": rootData.path ?: @""});
+    }
+    isDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:rootMetadata.path isDirectory:&isDirectory] || isDirectory) {
+        return RecordBootFailure(_ENOENT,
+                                 @"boot.root.metadata.missing",
+                                 @"Selected filesystem metadata is missing",
+                                 @"The active filesystem data exists, but its fakefs metadata database is missing.",
+                                 @"Choose another filesystem or reimport this one.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": rootMetadata.path ?: @""});
+    }
 
-    intptr_t err = mount_root(&fakefs, [root URLByAppendingPathComponent:@"data"].fileSystemRepresentation);
-    if (err < 0)
-        return err;
+    intptr_t err = mount_root(&fakefs, rootData.fileSystemRepresentation);
+    if (err < 0) {
+        return RecordBootFailure(err,
+                                 @"boot.root.mount.failed",
+                                 @"Boot failed while mounting the filesystem",
+                                 @"iSH-AOK found the selected filesystem, but fakefs could not mount it.",
+                                 BootMountRecovery(err),
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": rootData.path ?: @""});
+    }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.root.mounted"
                                    details:@{@"root": defaultRoot}];
 
@@ -1159,8 +1576,17 @@ static TerminalViewController *CreateTerminalViewController(void) {
 
     // need to do this first so that we can have a valid current for the generic_mknod calls
     err = become_first_process();
-    if (err < 0)
-        return err;
+    if (err < 0) {
+        return RecordBootFailure(err,
+                                 @"boot.first_process.failed",
+                                 @"Boot failed while creating init",
+                                 @"The filesystem was mounted, but the emulator could not create the first guest process.",
+                                 err == _ENOMEM
+                                     ? @"Close other apps and restart iSH-AOK."
+                                     : @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @""});
+    }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.first_process.ready"];
 
     FsInitialize();
@@ -1211,24 +1637,55 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // Register clipboard device driver and create device node for it
     err = dyn_dev_register(&clipboard_dev, DEV_CHAR, DYN_DEV_MAJOR, DEV_CLIPBOARD_MINOR);
     if (err != 0) {
-        return err;
+        return RecordBootFailure(err,
+                                 @"boot.device.clipboard.failed",
+                                 @"Boot failed while registering clipboard device",
+                                 @"The filesystem was mounted, but iSH-AOK could not register /dev/clipboard.",
+                                 @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": @"/dev/clipboard"});
     }
     EnsureCharacterDevice("/dev/clipboard", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_CLIPBOARD_MINOR));
     
     err = dyn_dev_register(&location_dev, DEV_CHAR, DYN_DEV_MAJOR, DEV_LOCATION_MINOR);
-    if (err != 0)
-        return err;
+    if (err != 0) {
+        return RecordBootFailure(err,
+                                 @"boot.device.location.failed",
+                                 @"Boot failed while registering location device",
+                                 @"The filesystem was mounted, but iSH-AOK could not register /dev/location.",
+                                 @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": @"/dev/location"});
+    }
     EnsureCharacterDevice("/dev/location", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_LOCATION_MINOR));
 
     err = dyn_dev_register((struct dev_ops *) &audio_dev, DEV_CHAR, DYN_DEV_MAJOR, DEV_DSP_MINOR);
-    if (err != 0)
-        return err;
+    if (err != 0) {
+        return RecordBootFailure(err,
+                                 @"boot.device.audio.failed",
+                                 @"Boot failed while registering audio device",
+                                 @"The filesystem was mounted, but iSH-AOK could not register /dev/dsp.",
+                                 @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": @"/dev/dsp"});
+    }
     EnsureCharacterDevice("/dev/dsp", S_IFCHR|0666, dev_make(DYN_DEV_MAJOR, DEV_DSP_MINOR));
     
     // Emulate a RTC, read time only
     err = dyn_dev_register(&rtc_dev, DEV_CHAR, DEV_RTC_MAJOR, DEV_RTC_MINOR);
-    if (err != 0)
-        return err;
+    if (err != 0) {
+        return RecordBootFailure(err,
+                                 @"boot.device.rtc.failed",
+                                 @"Boot failed while registering clock device",
+                                 @"The filesystem was mounted, but iSH-AOK could not register /dev/rtc0.",
+                                 @"Restart iSH-AOK. If this repeats, open Diagnostics from recovery mode.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": @"/dev/rtc0"});
+    }
     EnsureCharacterDevice("/dev/rtc0", S_IFCHR|0666, dev_make(DEV_RTC_MAJOR, DEV_RTC_MINOR));
     EnsureSymlink("/dev/rtc", "/dev/rtc0");
 
@@ -1250,17 +1707,46 @@ static TerminalViewController *CreateTerminalViewController(void) {
     tty_drivers[TTY_CONSOLE_MAJOR] = &ios_console_driver;
     set_console_device(TTY_CONSOLE_MAJOR, 1);
     err = create_stdio("/dev/console", TTY_CONSOLE_MAJOR, 1);
-    if (err < 0)
-        return err;
+    if (err < 0) {
+        return RecordBootFailure(err,
+                                 @"boot.stdio.failed",
+                                 @"Boot failed while opening console",
+                                 @"The filesystem was mounted, but iSH-AOK could not attach init to /dev/console.",
+                                 @"The root's /dev entries may be damaged. Choose another filesystem or reimport this one.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"path": @"/dev/console"});
+    }
     
-    NSArray<NSString *> *command;
-    command = UserPreferences.shared.bootCommand;
-    char argv[4096];
-    [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
+	    NSArray<NSString *> *command;
+	    command = UserPreferences.shared.bootCommand;
+	    if (command.count == 0 || command[0].length == 0) {
+	        return RecordBootFailure(_EINVAL,
+	                                 @"boot.command.empty",
+                                 @"Boot command is empty",
+                                 @"iSH-AOK cannot start init because the configured boot command is empty.",
+                                 @"Set a boot command in Settings. The default is /sbin/init.",
+	                                 @{@"root": defaultRoot,
+	                                   @"guestABI": guestABI ?: @""});
+	    }
+	    command = BootCommandWithInitFallback(command,
+	                                          @{@"root": defaultRoot,
+	                                            @"guestABI": guestABI ?: @""});
+	    NSString *commandString = [command componentsJoinedByString:@" "];
+	    char argv[4096];
+	    [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
     const char *envp = "TERM=xterm-256color\0";
     err = do_execve(command[0].UTF8String, command.count, argv, envp);
-    if (err < 0)
-        return err;
+    if (err < 0) {
+        return RecordBootFailure(err,
+                                 @"boot.init.exec.failed",
+                                 @"Boot failed while starting init",
+                                 @"The filesystem was mounted, but the configured boot command could not be executed.",
+                                 BootExecRecovery(err, guestABI),
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"command": commandString ?: @""});
+    }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.exec"];
     task_start(current);
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.started"];
@@ -1501,6 +1987,26 @@ void SyncHostname(void) {
     return bootError;
 }
 
++ (NSString *)descriptionForISHErrno:(intptr_t)err {
+    return ISHDescriptionForErrno(err);
+}
+
++ (NSString *)bootFailureTitle {
+    return bootFailureTitle;
+}
+
++ (NSString *)bootFailureMessage {
+    return bootFailureMessage;
+}
+
++ (NSString *)bootFailureOverlayText {
+    return bootFailureOverlayText;
+}
+
++ (BOOL)bootUsesConsoleSessionFallback {
+    return bootUsesConsoleSessionFallback;
+}
+
 + (void)maybePresentStartupMessageOnViewController:(UIViewController *)vc {
     if ([NSUserDefaults.standardUserDefaults integerForKey:kSkipStartupMessage] >= 1)
         return;
@@ -1527,8 +2033,12 @@ void SyncHostname(void) {
                                              @"defaultRoot": Roots.instance.defaultRoot ?: @""}];
     if (!Roots.instance.needsInitialRootSelection) {
         bootError = [AppDelegate ensureBooted];
+        NSMutableDictionary<NSString *, id> *bootCheckDetails = [NSMutableDictionary dictionaryWithObject:@(bootError)
+                                                                                                    forKey:@"bootError"];
+        if (bootFailureDetails.count != 0)
+            bootCheckDetails[@"failure"] = bootFailureDetails;
         [ISHDiagnosticsStore recordLaunchStage:@"application.boot.checked"
-                                       details:@{@"bootError": @(bootError)}];
+                                       details:bootCheckDetails];
     }
 
 #if ISH_LINUX

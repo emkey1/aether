@@ -24,8 +24,11 @@ static inline dword_t cpuid_leaf1_ecx_features(void) {
 
 static inline dword_t cpuid_leaf1_edx_features(void) {
     return (1 << 0)   // fpu
+        | (1 << 4)    // tsc
+        | (1 << 8)    // cx8
         | (1 << 15)   // cmov
         | (1 << 23)   // mmx
+        | (1 << 24)   // fxsr
         | (1 << 25)   // sse
         | (1 << 26);  // sse2
 }

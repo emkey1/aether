@@ -16,6 +16,11 @@ FOUNDATION_EXPORT void ISHScheduleLaunchJournalCompletion(NSDictionary<NSString 
 
 #if !ISH_LINUX
 + (intptr_t)bootError;
++ (NSString * _Nonnull)descriptionForISHErrno:(intptr_t)err;
++ (NSString * _Nullable)bootFailureTitle;
++ (NSString * _Nullable)bootFailureMessage;
++ (NSString * _Nullable)bootFailureOverlayText;
++ (BOOL)bootUsesConsoleSessionFallback;
 + (intptr_t)ensureBooted;
 #endif
 

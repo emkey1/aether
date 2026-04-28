@@ -23,7 +23,9 @@
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
+#include "kernel/fs.h"
 #include "fs/devices.h"
+#include "fs/path.h"
 
 static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) API_AVAILABLE(ios(13.0));
 static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) {
@@ -42,6 +44,115 @@ static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excl
     }
     return bestSession;
 }
+
+#if !ISH_LINUX
+static BOOL ISHCommandIsDefaultLogin(NSArray<NSString *> *command) {
+    return command.count == 3 &&
+            [command[0] isEqualToString:@"/bin/login"] &&
+            [command[1] isEqualToString:@"-f"] &&
+            [command[2] isEqualToString:@"root"];
+}
+
+static BOOL ISHGuestExecutableExists(NSString *path, intptr_t *errOut) {
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path.UTF8String, &stat, 0);
+    if (err < 0) {
+        if (errOut != NULL)
+            *errOut = err;
+        return NO;
+    }
+    if (!S_ISREG(stat.mode)) {
+        if (errOut != NULL)
+            *errOut = _EACCES;
+        return NO;
+    }
+    if (!(stat.mode & 0111)) {
+        if (errOut != NULL)
+            *errOut = _EACCES;
+        return NO;
+    }
+    if (errOut != NULL)
+        *errOut = 0;
+    return YES;
+}
+
+static NSArray<NSString *> *ISHCommandDescriptions(NSArray<NSArray<NSString *> *> *commands) {
+    NSMutableArray<NSString *> *descriptions = [NSMutableArray arrayWithCapacity:commands.count];
+    for (NSArray<NSString *> *command in commands) {
+        [descriptions addObject:[command componentsJoinedByString:@" "]];
+    }
+    return descriptions;
+}
+
+static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *command,
+                                                          NSString **failureTitleOut,
+                                                          NSString **failureMessageOut,
+                                                          NSString **failureOverlayOut) {
+    if (!ISHCommandIsDefaultLogin(command))
+        return command;
+
+    intptr_t configuredErr = 0;
+    if (ISHGuestExecutableExists(command[0], &configuredErr))
+        return command;
+
+    NSArray<NSArray<NSString *> *> *candidates = @[
+        @[@"/usr/bin/login", @"-f", @"root"],
+        @[@"/bin/sh", @"-l"],
+        @[@"/usr/bin/sh", @"-l"],
+        @[@"/bin/ash", @"-l"],
+        @[@"/usr/bin/ash", @"-l"],
+        @[@"/bin/bash", @"-l"],
+        @[@"/usr/bin/bash", @"-l"],
+        @[@"/bin/busybox", @"sh"],
+        @[@"/usr/bin/busybox", @"sh"],
+    ];
+    NSMutableArray<NSDictionary<NSString *, id> *> *attempts = [NSMutableArray arrayWithCapacity:candidates.count + 1];
+    [attempts addObject:@{@"command": [command componentsJoinedByString:@" "],
+                          @"path": command[0],
+                          @"error": @(configuredErr),
+                          @"errorDescription": [AppDelegate descriptionForISHErrno:configuredErr]}];
+
+    for (NSArray<NSString *> *candidate in candidates) {
+        NSString *path = candidate.firstObject;
+        intptr_t err = 0;
+        if (ISHGuestExecutableExists(path, &err)) {
+            [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.fallback.selected"
+                                          details:@{@"configuredCommand": [command componentsJoinedByString:@" "],
+                                                    @"fallbackCommand": [candidate componentsJoinedByString:@" "],
+                                                    @"fallbackPath": path ?: @"",
+                                                    @"missingLoginError": @(configuredErr),
+                                                    @"missingLoginErrorDescription": [AppDelegate descriptionForISHErrno:configuredErr],
+                                                    @"candidates": ISHCommandDescriptions(candidates),
+                                                    @"attempts": attempts}];
+            return candidate;
+        }
+        [attempts addObject:@{@"command": [candidate componentsJoinedByString:@" "],
+                              @"path": path ?: @"",
+                              @"error": @(err),
+                              @"errorDescription": [AppDelegate descriptionForISHErrno:err]}];
+    }
+
+    NSString *configuredCommand = [command componentsJoinedByString:@" "];
+    if (failureTitleOut != NULL)
+        *failureTitleOut = @"No usable login shell found";
+    if (failureMessageOut != NULL) {
+        *failureMessageOut = [NSString stringWithFormat:
+                              @"The root filesystem does not contain the default session command, and no fallback shell was found.\n\nCommand: %@\nError: %@\nFallbacks checked: %@\n\nInstall login or a shell such as /bin/sh, or change Settings -> Launch Command.",
+                              configuredCommand,
+                              [AppDelegate descriptionForISHErrno:configuredErr],
+                              [ISHCommandDescriptions(candidates) componentsJoinedByString:@", "]];
+    }
+    if (failureOverlayOut != NULL)
+        *failureOverlayOut = @"No usable login shell found.";
+    [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.fallback.none"
+                                  details:@{@"configuredCommand": configuredCommand ?: @"",
+                                            @"missingLoginError": @(configuredErr),
+                                            @"missingLoginErrorDescription": [AppDelegate descriptionForISHErrno:configuredErr],
+                                            @"candidates": ISHCommandDescriptions(candidates),
+                                            @"attempts": attempts}];
+    return command;
+}
+#endif
 
 @interface TerminalViewController () <UIGestureRecognizerDelegate>
 
@@ -78,6 +189,9 @@ static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excl
 @property (strong, nonatomic) UIView *terminalStartupOverlay;
 @property (strong, nonatomic) UIActivityIndicatorView *terminalStartupSpinner;
 @property (strong, nonatomic) UILabel *terminalStartupLabel;
+@property (copy, nonatomic) NSString *sessionFailureTitle;
+@property (copy, nonatomic) NSString *sessionFailureMessage;
+@property (copy, nonatomic) NSString *sessionFailureOverlayText;
 
 @property int sessionPid;
 @property (nonatomic) Terminal *sessionTerminal;
@@ -190,19 +304,12 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     if (!Roots.instance.needsInitialRootSelection) {
         intptr_t bootError = [AppDelegate ensureBooted];
         if (bootError < 0) {
-            NSString *message = [NSString stringWithFormat:@"could not boot"];
-            NSString *subtitle = [NSString stringWithFormat:@"error code %ld", bootError];
-            NSString *defaultRoot = Roots.instance.defaultRoot;
-            NSString *rootGuestABI = defaultRoot != nil ? [Roots.instance guestABIForRootNamed:defaultRoot] : nil;
-            if (bootError == _EINVAL)
-                subtitle = [subtitle stringByAppendingString:@"\n(try reinstalling the app, see release notes for details)"];
-            if (bootError == _ENOEXEC && [rootGuestABI isEqualToString:@"amd64"]) {
-                subtitle = [subtitle stringByAppendingString:
-                            @"\n(this x86_64 rootfs is still in experimental amd64 bring-up and may fail during early exec or decode)"];
-            }
-            [self _showTerminalStartupFailureOverlayWithText:@"Could not boot iSH-AOK."];
+            NSString *message = [AppDelegate bootFailureTitle] ?: @"Could not boot iSH-AOK";
+            NSString *subtitle = [AppDelegate bootFailureMessage] ?: [AppDelegate descriptionForISHErrno:bootError];
+            NSString *overlayText = [AppDelegate bootFailureOverlayText] ?: @"Could not boot iSH-AOK.";
+            [self _showTerminalStartupFailureOverlayWithText:overlayText];
             [self showMessage:message subtitle:subtitle];
-            NSLog(@"boot failed with code %ld", bootError);
+            NSLog(@"boot failed: %@", subtitle);
         }
     }
 #endif
@@ -616,14 +723,21 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [self _showTerminalStartupOverlayWithText:@"Starting terminal..."];
     intptr_t err = [self startSession];
     self.sessionStartInProgress = NO;
-    if (err < 0) {
-        Terminal *failedTerminal = self.sessionTerminal;
-        self.sessionTerminal = nil;
-        self.sessionPid = 0;
-        [failedTerminal destroy];
-        [self _showTerminalStartupFailureOverlayWithText:@"Could not start session."];
-        [self showMessage:@"could not start session"
-                 subtitle:[NSString stringWithFormat:@"error code %ld", err]];
+	    if (err < 0) {
+	        Terminal *failedTerminal = self.sessionTerminal;
+	        self.sessionTerminal = nil;
+	        self.sessionPid = 0;
+	        [failedTerminal destroy];
+	        NSString *message = self.sessionFailureTitle ?: @"Could not start session";
+	        NSString *subtitle = self.sessionFailureMessage ?: [AppDelegate descriptionForISHErrno:err];
+	        NSString *overlayText = self.sessionFailureOverlayText ?: @"Could not start session.";
+	        if (err == [AppDelegate bootError] && [AppDelegate bootFailureMessage] != nil) {
+	            message = [AppDelegate bootFailureTitle] ?: message;
+	            subtitle = [AppDelegate bootFailureMessage];
+            overlayText = [AppDelegate bootFailureOverlayText] ?: overlayText;
+        }
+        [self _showTerminalStartupFailureOverlayWithText:overlayText];
+        [self showMessage:message subtitle:subtitle];
         return;
     }
     self.terminal = [self preferredTerminalForFreshSession];
@@ -679,21 +793,48 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (intptr_t)startSession {
-    NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
-    NSString *commandString = [command componentsJoinedByString:@" "];
+	    NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
+	    NSString *commandString = [command componentsJoinedByString:@" "];
+	    self.sessionFailureTitle = nil;
+	    self.sessionFailureMessage = nil;
+	    self.sessionFailureOverlayText = nil;
 
 #if !ISH_LINUX
-    intptr_t err = [AppDelegate ensureBooted];
-    if (err < 0) {
-        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
-                                      details:@{@"stage": @"ensureBooted",
-                                                @"error": @(err),
-                                                @"command": commandString ?: @""}];
-        return err;
-    }
-    err = become_new_init_child();
-    if (err < 0) {
-        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+	    intptr_t err = [AppDelegate ensureBooted];
+	    if (err < 0) {
+	        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+	                                      details:@{@"stage": @"ensureBooted",
+	                                                @"error": @(err),
+	                                                @"command": commandString ?: @""}];
+	        return err;
+	    }
+	    if ([AppDelegate bootUsesConsoleSessionFallback]) {
+	        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.consoleFallback"
+	                                      details:@{@"reason": @"boot-init-fallback",
+	                                                @"command": commandString ?: @""}];
+	        return 0;
+	    }
+	    NSString *sessionFailureTitle = nil;
+	    NSString *sessionFailureMessage = nil;
+	    NSString *sessionFailureOverlayText = nil;
+	    command = ISHSessionCommandWithFallback(command,
+	                                            &sessionFailureTitle,
+	                                            &sessionFailureMessage,
+	                                            &sessionFailureOverlayText);
+	    commandString = [command componentsJoinedByString:@" "];
+	    if (sessionFailureMessage.length != 0) {
+	        self.sessionFailureTitle = sessionFailureTitle;
+	        self.sessionFailureMessage = sessionFailureMessage;
+	        self.sessionFailureOverlayText = sessionFailureOverlayText;
+	        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+	                                      details:@{@"stage": @"launchCommandFallback",
+	                                                @"error": @(_ENOENT),
+	                                                @"command": commandString ?: @""}];
+	        return _ENOENT;
+	    }
+	    err = become_new_init_child();
+	    if (err < 0) {
+	        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
                                       details:@{@"stage": @"become_new_init_child",
                                                 @"error": @(err),
                                                 @"command": commandString ?: @""}];
@@ -726,14 +867,24 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
     const char *envp = "TERM=xterm-256color\0";
-    err = do_execve(command[0].UTF8String, command.count, argv, envp);
-    if (err < 0) {
-        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
-                                      details:@{@"stage": @"do_execve",
-                                                @"error": @(err),
-                                                @"command": commandString ?: @"",
-                                                @"path": command.firstObject ?: @""}];
-        return err;
+	    err = do_execve(command[0].UTF8String, command.count, argv, envp);
+	    if (err < 0) {
+	        NSString *failureTitle = @"Could not start session command";
+	        NSString *failureMessage = [NSString stringWithFormat:
+	                                    @"The root filesystem was mounted, but the session command could not be executed.\n\nCommand: %@\nPath: %@\nError: %@\n\nInstall the missing program, choose a root filesystem with a shell, or change Settings -> Launch Command.",
+	                                    commandString ?: @"",
+	                                    command.firstObject ?: @"",
+	                                    [AppDelegate descriptionForISHErrno:err]];
+	        self.sessionFailureTitle = failureTitle;
+	        self.sessionFailureMessage = failureMessage;
+	        self.sessionFailureOverlayText = @"Could not start session command.";
+	        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.failed"
+	                                      details:@{@"stage": @"do_execve",
+	                                                @"error": @(err),
+	                                                @"errorDescription": [AppDelegate descriptionForISHErrno:err],
+	                                                @"command": commandString ?: @"",
+	                                                @"path": command.firstObject ?: @""}];
+	        return err;
     }
     self.sessionPid = current->pid;
     [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.execed"
@@ -796,7 +947,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 #if ISH_LINUX
 - (void)kernelPanicked:(NSNotification *)notif {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"panik" message:notif.userInfo[@"message"] preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"k" style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 #endif
@@ -806,7 +957,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         if (self.presentedViewController != nil)
             return;
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:message message:subtitle preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"k"
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK"
                                                   style:UIAlertActionStyleDefault
                                                 handler:nil]];
         [self presentViewController:alert animated:YES completion:nil];

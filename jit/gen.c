@@ -851,6 +851,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              (insn.op2 >= 0x40 && insn.op2 <= 0x4f) ||
              (insn.op2 >= 0x90 && insn.op2 <= 0x9f) ||
              insn.op2 == 0xa3 ||
+             insn.op2 == 0xae ||
              insn.op2 == 0xaf ||
              insn.op2 == 0xba ||
              insn.op2 == 0xb0 ||

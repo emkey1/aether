@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "emu/cpuid.h"
 #include "emu/cpu.h"
@@ -58,6 +59,33 @@ struct fpu_state32 {
     struct fpu_env32 env;
     uint8_t regs[8][10];
 };
+
+struct amd64_fxsave_fpxreg {
+    word_t significand[4];
+    word_t exponent;
+    word_t padding[3];
+};
+
+struct amd64_fxsave_xmmreg {
+    dword_t element[4];
+};
+
+struct amd64_fxsave_area {
+    word_t fcw;
+    word_t fsw;
+    byte_t ftw;
+    byte_t reserved0;
+    word_t fop;
+    qword_t rip;
+    qword_t rdp;
+    dword_t mxcsr;
+    dword_t mxcsr_mask;
+    struct amd64_fxsave_fpxreg st[8];
+    struct amd64_fxsave_xmmreg xmm[16];
+    byte_t reserved1[96];
+};
+
+static_assert(sizeof(struct amd64_fxsave_area) == 512, "amd64 fxsave area size");
 
 #define AMD64_BUSYBOX_INIT_SLOT 0x5661a6d8ull
 #define AMD64_BUSYBOX_INIT_SLOT_SIZE 8
@@ -2164,6 +2192,13 @@ static inline qword_t amd64_trunc(qword_t value, unsigned size) {
     return value & amd64_mask(size);
 }
 
+static inline qword_t amd64_rdtsc_value(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    return (qword_t) now.tv_sec * 1000000000ull + (qword_t) now.tv_nsec;
+}
+
 static inline sqword_t amd64_sign_extend(qword_t value, unsigned size) {
     qword_t masked = amd64_trunc(value, size);
     if ((masked & amd64_sign_bit(size)) == 0)
@@ -3933,6 +3968,77 @@ static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
+static void amd64_fill_fxsave_area(struct cpu_state *cpu, struct amd64_fxsave_area *area) {
+    memset(area, 0, sizeof(*area));
+    area->fcw = cpu->fcw;
+    area->fsw = cpu->fsw;
+    area->mxcsr = 0x1f80;
+    area->mxcsr_mask = 0xffff;
+
+    for (int i = 0; i < 8; i++) {
+        const float80 value = cpu->fp[i];
+        for (int j = 0; j < 4; j++)
+            area->st[i].significand[j] = (word_t) (value.signif >> (j * 16));
+        area->st[i].exponent = value.signExp;
+        if (value.signif != 0 || value.signExp != 0)
+            area->ftw |= (byte_t) (1u << i);
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            area->xmm[i].element[j] = cpu->xmm[i].u32[j];
+}
+
+static void amd64_restore_fxsave_area(struct cpu_state *cpu, const struct amd64_fxsave_area *area) {
+    word_t fcw = area->fcw;
+    fpu_ldcw16(cpu, &fcw);
+    cpu->fsw = area->fsw;
+
+    for (int i = 0; i < 8; i++) {
+        float80 value = {0};
+        for (int j = 0; j < 4; j++)
+            value.signif |= (uint64_t) area->st[i].significand[j] << (j * 16);
+        value.signExp = area->st[i].exponent;
+        cpu->fp[i] = value;
+    }
+
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 4; j++)
+            cpu->xmm[i].u32[j] = area->xmm[i].element[j];
+}
+
+static inline int amd64_fxsave_op(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, qword_t saved_rip) {
+    struct amd64_fxsave_area area;
+    qword_t addr;
+
+    if (modrm->is_reg || (modrm->reg != 0 && modrm->reg != 1))
+        return INT_UNDEFINED;
+
+    addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+    if ((addr & 0xf) != 0) {
+        cpu->amd64_rip = saved_rip;
+        cpu->segfault_addr = addr;
+        return INT_GPF;
+    }
+
+    if (modrm->reg == 0) {
+        amd64_fill_fxsave_area(cpu, &area);
+        if (!amd64_mem_write(cpu, tlb, addr, &area, sizeof(area))) {
+            cpu->amd64_rip = saved_rip;
+            return INT_PF;
+        }
+    } else {
+        if (!amd64_mem_read(cpu, tlb, addr, &area, sizeof(area))) {
+            cpu->amd64_rip = saved_rip;
+            return INT_PF;
+        }
+        amd64_restore_fxsave_area(cpu, &area);
+    }
+
+    return INT_NONE;
+}
+
 static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
         qword_t saved_rip, struct amd64_rex_prefix rex, bool fs_prefix, byte_t opcode) {
     struct amd64_modrm modrm;
@@ -4794,6 +4900,12 @@ restart_prefix:
         }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
+        if (op2 == 0x31) {
+            qword_t tsc = amd64_rdtsc_value();
+            amd64_reg_set(cpu, amd64_rax, 32, (dword_t) tsc);
+            amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (tsc >> 32));
+            break;
+        }
         if (op2 == 0xa2) {
             dword_t eax = (dword_t) cpu->amd64_regs[amd64_rax];
             dword_t ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
@@ -4819,6 +4931,19 @@ restart_prefix:
             }
             if (modrm.reg > 3)
                 return INT_UNDEFINED;
+            break;
+        }
+        if (op2 == 0xae) {
+            struct amd64_modrm modrm;
+            int interrupt;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            interrupt = amd64_fxsave_op(cpu, tlb, &modrm, fs_prefix, saved_rip);
+            if (interrupt != INT_NONE)
+                return interrupt;
             break;
         }
         if (op2 == 0x1e && rep_mode == AMD64_REPZ) {
@@ -5259,7 +5384,9 @@ restart_prefix:
                         goto amd64_gpf_restore;
                 }
             } else if (op2 == 0x12) {
-                if (operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                if (rep_mode != AMD64_REP_NONE)
+                    return INT_UNDEFINED;
+                if (operand_size_prefix && modrm.is_reg)
                     return INT_UNDEFINED;
                 value = cpu->xmm[modrm.reg];
                 if (modrm.is_reg) {
@@ -5491,7 +5618,7 @@ restart_prefix:
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x16) {
-                if (operand_size_prefix)
+                if (operand_size_prefix && modrm.is_reg)
                     return INT_UNDEFINED;
                 value = cpu->xmm[modrm.reg];
                 if (modrm.is_reg) {
@@ -9197,6 +9324,7 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
     unsigned op_size;
 
     if ((op2 != 0x1f && op2 != 0xa3 && op2 != 0xaf &&
+                op2 != 0xae &&
                 op2 != 0xb0 && op2 != 0xb1 &&
                 op2 != 0xba && op2 != 0xc0 && op2 != 0xc1) &&
             !(op2 >= 0x40 && op2 <= 0x4f) &&
@@ -9243,6 +9371,16 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
 
     op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
     if (op2 == 0x1f) {
+        cpu->amd64_rip = (qword_t) next_ip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_NONE;
+    }
+    if (op2 == 0xae) {
+        int interrupt = amd64_fxsave_op(cpu, tlb, &modrm, fs_prefix, saved_rip);
+        if (interrupt != INT_NONE) {
+            amd64_sync_legacy_regs(cpu);
+            return interrupt;
+        }
         cpu->amd64_rip = (qword_t) next_ip;
         amd64_sync_legacy_regs(cpu);
         return INT_NONE;
@@ -9422,7 +9560,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
     union xmm_reg value, src_xmm;
     qword_t src_scalar;
 
-    if (op2 != 0x10 && op2 != 0x11 && op2 != 0x16 && op2 != 0x28 &&
+    if (op2 != 0x10 && op2 != 0x11 && op2 != 0x12 && op2 != 0x16 && op2 != 0x28 &&
             op2 != 0x29 && op2 != 0x6c && op2 != 0x6e &&
             op2 != 0x6f && op2 != 0xef)
         return INT_UNDEFINED;
@@ -9524,8 +9662,22 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     goto amd64_0f_vec_rm_pf;
                 cpu->xmm[modrm.reg] = value;
             }
+        } else if (op2 == 0x12) {
+            if (rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (operand_size_prefix && modrm.is_reg)
+                return INT_UNDEFINED;
+            value = cpu->xmm[modrm.reg];
+            if (modrm.is_reg) {
+                value.qw[0] = cpu->xmm[modrm.rm].qw[1];
+            } else {
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                    goto amd64_0f_vec_rm_pf;
+                value.qw[0] = src_scalar;
+            }
+            cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x16) {
-            if (operand_size_prefix)
+            if (operand_size_prefix && modrm.is_reg)
                 return INT_UNDEFINED;
             value = cpu->xmm[modrm.reg];
             if (modrm.is_reg) {
