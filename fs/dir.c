@@ -44,33 +44,30 @@ struct linux_dirent64_ {
     char name[];
 } __attribute__((packed));
 
-size_t fill_dirent_32(void *dirent_data, ino_t inode, off_t_ offset, const char *name, int type) {
+size_t fill_dirent_32(void *dirent_data, ino_t inode, off_t_ offset, const char *name, size_t namelen, int type) {
     struct linux_dirent_ *dirent = dirent_data;
     dirent->inode = inode;
     dirent->offset = offset;
-    const size_t namelen = strlen(name) + 1; // Include null terminator
     dirent->reclen = offsetof(struct linux_dirent_, name) + namelen + 1; // name, null terminator, type
     memcpy(dirent->name, name, namelen);
     *((char *) dirent + dirent->reclen - 1) = type;
     return dirent->reclen;
 }
 
-size_t fill_dirent_amd64(void *dirent_data, ino_t inode, off_t_ offset, const char *name, int type) {
+size_t fill_dirent_amd64(void *dirent_data, ino_t inode, off_t_ offset, const char *name, size_t namelen, int type) {
     struct linux_dirent_amd64_ *dirent = dirent_data;
     dirent->inode = inode;
     dirent->offset = offset;
-    const size_t namelen = strlen(name) + 1; // Include null terminator
     dirent->reclen = offsetof(struct linux_dirent_amd64_, name) + namelen + 1; // name, null terminator, type
     memcpy(dirent->name, name, namelen);
     *((char *) dirent + dirent->reclen - 1) = type;
     return dirent->reclen;
 }
 
-size_t fill_dirent_64(void *dirent_data, ino_t inode, off_t_ offset, const char *name, int type) {
+size_t fill_dirent_64(void *dirent_data, ino_t inode, off_t_ offset, const char *name, size_t namelen, int type) {
     struct linux_dirent64_ *dirent = dirent_data;
     dirent->inode = inode;
     dirent->offset = offset;
-    const size_t namelen = strlen(name) + 1; // Include null terminator
     dirent->reclen = offsetof(struct linux_dirent64_, name) + namelen; // name, null terminator
     dirent->type = type;
     memcpy(dirent->name, name, namelen);
@@ -106,7 +103,7 @@ static void ldconfig_trace_dirent(struct fd *fd, const struct dir_entry *entry, 
 }
 
 int_t sys_getdents_common(fd_t f, guest_addr_t dirents, dword_t count,
-        size_t (*fill_dirent)(void *, ino_t, off_t_, const char *, int)) {
+        size_t (*fill_dirent)(void *, ino_t, off_t_, const char *, size_t, int)) {
     STRACE("getdents(%d, %#llx, %#x)", f, (unsigned long long) dirents, count);
     struct fd *fd = f_get(f);
     if (fd == NULL)
@@ -133,14 +130,15 @@ int_t sys_getdents_common(fd_t f, guest_addr_t dirents, dword_t count,
         if (err == 0)
             break;
 
-        size_t max_reclen = sizeof(struct linux_dirent64_) + strlen(entry.name) + 4;
+        size_t name_len = strlen(entry.name);
+        size_t max_reclen = sizeof(struct linux_dirent64_) + name_len + 4;
         char dirent_data[max_reclen];
         dirent_data[0] = 0;
         ino_t inode = entry.inode;
         off_t_ offset = fd_telldir(fd);
         const char *name = entry.name;
         int type = entry.type;
-        size_t reclen = fill_dirent(dirent_data, inode, offset, name, type);
+        size_t reclen = fill_dirent(dirent_data, inode, offset, name, name_len + 1, type);
         ldconfig_trace_dirent(fd, &entry, offset, reclen);
         if (printed < 20) {
             STRACE(" {inode=%d, offset=%d, name=%s, type=%d, reclen=%d}",
