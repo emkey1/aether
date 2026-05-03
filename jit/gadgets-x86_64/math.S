@@ -12,6 +12,31 @@
     movw %r10w, CPU_gs(%_cpu)
     gret
 
+.macro mov32_reg_reg dst_name, dst, src_name, src
+    .gadget mov32_reg_reg_\dst_name\()_\src_name
+        movl %\src, %\dst
+        gret
+.endm
+
+.macro mov32_reg_reg_row dst_name, dst
+    .macro mov32_reg_reg_col src_name, src
+        mov32_reg_reg \dst_name, \dst, \src_name, \src
+    .endm
+    .each_reg mov32_reg_reg_col
+    .purgem mov32_reg_reg_col
+.endm
+
+.each_reg mov32_reg_reg_row
+
+.pushsection_rodata
+.global.name mov32_reg_reg_gadgets
+.irp dst, REG_LIST
+    .irp src, REG_LIST
+        .quad NAME(gadget_mov32_reg_reg_\dst\()_\src)
+    .endr
+.endr
+.popsection
+
 # this would have been just a few nice compact nested loops, but gas said "nuh uh"
 
 .macro _do_op op, arg, size, s, ss
