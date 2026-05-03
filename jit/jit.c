@@ -1070,6 +1070,8 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     if (current != NULL && current->abi == GUEST_ABI_AMD64) {
         if (!amd64_jit_is_enabled())
             return cpu_run_to_interrupt_amd64(cpu, tlb);
+        if (strcmp(current->comm, "as") == 0)
+            return cpu_run_to_interrupt_amd64(cpu, tlb);
         return cpu->tf ? cpu_single_step_amd64_frontend(cpu, tlb)
                        : cpu_step_to_interrupt_amd64_frontend(cpu, tlb);
     }

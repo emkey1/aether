@@ -12,9 +12,13 @@
 #include "kernel/errno.h"
 
 void ISHDiagnosticsRecordGuestFatalSync(const char *kind, const char *summary, const char *detail) {
-    (void) kind;
-    (void) summary;
-    (void) detail;
+    if (getenv("ISH_TRACE_GUEST_FATAL") == NULL)
+        return;
+    fprintf(stderr, "[guest-fatal] kind=%s\n", kind != NULL ? kind : "?");
+    if (summary != NULL)
+        fprintf(stderr, "[guest-fatal] %s\n", summary);
+    if (detail != NULL)
+        fprintf(stderr, "[guest-fatal] %s\n", detail);
 }
 
 bool amd64_jit_preference_get(void) {

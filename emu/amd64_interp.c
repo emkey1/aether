@@ -2237,6 +2237,14 @@ static int amd64_bad_transfer_target(struct cpu_state *cpu, struct tlb *tlb,
            (unsigned long long) from,
            (unsigned long long) target,
            (unsigned long long) rsp);
+    if (getenv("ISH_TRACE_GUEST_FATAL") != NULL ||
+            getenv("ISH_TRACE_AMD64_AS_STDERR") != NULL) {
+        fprintf(stderr, "[amd64-jit] bad-%s-target from=%#llx target=%#llx rsp=%#llx\n",
+                kind,
+                (unsigned long long) from,
+                (unsigned long long) target,
+                (unsigned long long) rsp);
+    }
     if (strcmp(kind, "ret") == 0 && rsp >= 8) {
         qword_t slot_addr = rsp - 8;
         uint8_t slot_bytes[8] = {};
@@ -3505,6 +3513,42 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         }
     }
     return true;
+}
+
+static inline bool amd64_mem_read_value(struct cpu_state *cpu, struct tlb *tlb,
+        qword_t guest_addr, unsigned size, qword_t *value) {
+    switch (size) {
+    case 8: {
+        uint8_t tmp;
+        if (!amd64_mem_read(cpu, tlb, guest_addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 16: {
+        uint16_t tmp;
+        if (!amd64_mem_read(cpu, tlb, guest_addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 32: {
+        uint32_t tmp;
+        if (!amd64_mem_read(cpu, tlb, guest_addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    case 64: {
+        uint64_t tmp;
+        if (!amd64_mem_read(cpu, tlb, guest_addr, &tmp, sizeof(tmp)))
+            return false;
+        *value = tmp;
+        return true;
+    }
+    default:
+        return false;
+    }
 }
 
 static inline bool amd64_push(struct cpu_state *cpu, struct tlb *tlb, qword_t value) {
@@ -8014,6 +8058,15 @@ int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb) {
         return INT_PF;
     }
     if (!amd64_guest_addr_ok(target, 1, &checked_target)) {
+        if (getenv("ISH_TRACE_GUEST_FATAL") != NULL ||
+                getenv("ISH_TRACE_AMD64_AS_STDERR") != NULL) {
+            fprintf(stderr,
+                    "[amd64-jit] bad-ret-target from=%#llx target=%#llx old-rsp=%#llx new-rsp=%#llx\n",
+                    (unsigned long long) saved_rip,
+                    (unsigned long long) target,
+                    (unsigned long long) old_rsp,
+                    (unsigned long long) cpu->amd64_regs[amd64_rsp]);
+        }
         uint8_t slot_bytes[8] = {};
         uint8_t direct_slot_bytes[8] = {};
         bool have_slot = amd64_mem_read(cpu, tlb, old_rsp, slot_bytes, sizeof(slot_bytes));
@@ -9308,14 +9361,17 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
     case 0x31: {
         uint64_t tmp64;
         uint32_t tmp32;
+        uint16_t tmp16;
         uint8_t tmp8;
         void *dst = size == 64 ? (void *) &tmp64 :
-            (size == 8 ? (void *) &tmp8 : (void *) &tmp32);
+            (size == 32 ? (void *) &tmp32 :
+             (size == 16 ? (void *) &tmp16 : (void *) &tmp8));
         if (!amd64_mem_read(cpu, tlb, addr, dst, size / 8)) {
             amd64_sync_legacy_regs(cpu);
             return INT_PF;
         }
-        qword_t lhs = size == 64 ? tmp64 : (size == 8 ? tmp8 : tmp32);
+        qword_t lhs = size == 64 ? tmp64 :
+            (size == 32 ? tmp32 : (size == 16 ? tmp16 : tmp8));
         qword_t rhs = size == 8
             ? amd64_reg_get_encoded8(cpu, reg, rex_present)
             : amd64_reg_get(cpu, reg, size);
@@ -9360,6 +9416,7 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         }
         tmp64 = result;
         tmp32 = result;
+        tmp16 = result;
         tmp8 = result;
         if (!amd64_mem_write(cpu, tlb, addr, dst, size / 8)) {
             amd64_sync_legacy_regs(cpu);
@@ -9376,15 +9433,12 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
     case 0x23:
     case 0x2b:
     case 0x33: {
-        uint64_t tmp64;
-        uint32_t tmp32;
-        void *src = size == 64 ? (void *) &tmp64 : (void *) &tmp32;
-        if (!amd64_mem_read(cpu, tlb, addr, src, size / 8)) {
+        if (!amd64_mem_read_value(cpu, tlb, addr, size, &value)) {
             amd64_sync_legacy_regs(cpu);
             return INT_PF;
         }
         qword_t lhs = amd64_reg_get(cpu, reg, size);
-        qword_t rhs = size == 64 ? tmp64 : tmp32;
+        qword_t rhs = value;
         qword_t result;
         switch (opcode) {
         case 0x03:
@@ -9437,20 +9491,9 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         break;
     }
     case 0x39:
-        if (size == 64) {
-            uint64_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
-        } else {
-            uint32_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
+        if (!amd64_mem_read_value(cpu, tlb, addr, size, &value)) {
+            amd64_sync_legacy_regs(cpu);
+            return INT_PF;
         }
         {
             qword_t rhs = amd64_reg_get(cpu, reg, size);
@@ -9471,20 +9514,9 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         break;
     }
     case 0x3b:
-        if (size == 64) {
-            uint64_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
-        } else {
-            uint32_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
+        if (!amd64_mem_read_value(cpu, tlb, addr, size, &value)) {
+            amd64_sync_legacy_regs(cpu);
+            return INT_PF;
         }
         {
             qword_t lhs = amd64_reg_get(cpu, reg, size);
@@ -9501,20 +9533,9 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         break;
     }
     case 0x85:
-        if (size == 64) {
-            uint64_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
-        } else {
-            uint32_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
+        if (!amd64_mem_read_value(cpu, tlb, addr, size, &value)) {
+            amd64_sync_legacy_regs(cpu);
+            return INT_PF;
         }
         amd64_set_logic_flags(cpu, value & amd64_reg_get(cpu, reg, size), size);
         break;
@@ -9549,20 +9570,9 @@ int amd64_jit_mem_op(struct cpu_state *cpu, struct tlb *tlb,
         break;
     }
     case 0x8b:
-        if (size == 64) {
-            uint64_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
-        } else {
-            uint32_t tmp;
-            if (!amd64_mem_read(cpu, tlb, addr, &tmp, sizeof(tmp))) {
-                amd64_sync_legacy_regs(cpu);
-                return INT_PF;
-            }
-            value = tmp;
+        if (!amd64_mem_read_value(cpu, tlb, addr, size, &value)) {
+            amd64_sync_legacy_regs(cpu);
+            return INT_PF;
         }
         if (size == 64)
             amd64_trace_cc1_slot_probe(cpu, cpu->amd64_rip, addr, value);
