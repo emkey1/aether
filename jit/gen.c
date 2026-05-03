@@ -640,6 +640,18 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.opcode == 0xc9) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("leave-helper ip=%llx next=%llx",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_leave,
+                64, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
     if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.opcode == 0xe9) {
         if (!tlb_read(tlb, state->amd64_ip, &rel32, sizeof(rel32))) {
             state->amd64_ip = state->amd64_orig_ip;

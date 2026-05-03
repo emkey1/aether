@@ -21,6 +21,8 @@ int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu);
 int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_jit_ret_imm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long imm16);
+int amd64_jit_leave(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long pop_size, unsigned long next_ip);
 int amd64_jit_push_reg(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg, unsigned long next_ip);
 int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,

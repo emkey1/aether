@@ -8072,6 +8072,28 @@ int amd64_jit_ret_imm(struct cpu_state *cpu, struct tlb *tlb,
     return INT_NONE;
 }
 
+int amd64_jit_leave(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long pop_size, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    qword_t old_rsp;
+    qword_t value;
+    if (pop_size != 16 && pop_size != 64)
+        return INT_GPF;
+    old_rsp = cpu->amd64_regs[amd64_rsp];
+    cpu->amd64_regs[amd64_rsp] = cpu->amd64_regs[amd64_rbp];
+    amd64_trace_as_stack(amd64_as_stack_leave, pop_size, old_rsp, cpu->amd64_regs[amd64_rsp],
+                         cpu->amd64_regs[amd64_rbp]);
+    if (!amd64_pop_size(cpu, tlb, pop_size, &value)) {
+        cpu->amd64_rip = saved_rip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_PF;
+    }
+    amd64_reg_set(cpu, amd64_rbp, pop_size, value);
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
 int amd64_jit_push_reg(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg, unsigned long next_ip) {
     if (reg >= amd64_reg_count)
