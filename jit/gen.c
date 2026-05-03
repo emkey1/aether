@@ -622,6 +622,24 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.opcode == 0xc2) {
+        uint16_t imm16;
+        if (!tlb_read(tlb, state->amd64_ip, &imm16, sizeof(imm16))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        next_ip = state->amd64_ip + sizeof(imm16);
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("ret-imm-helper ip=%llx imm=%u",
+                (unsigned long long) insn.start_ip,
+                (unsigned) imm16);
+        gen_amd64_helper_tlb_1_retint(state, amd64_jit_ret_imm,
+                (unsigned long) imm16);
+        gen_exit(state);
+        return false;
+    }
+
     if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.opcode == 0xe9) {
         if (!tlb_read(tlb, state->amd64_ip, &rel32, sizeof(rel32))) {
             state->amd64_ip = state->amd64_orig_ip;
@@ -1237,6 +1255,19 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_push_flags,
+                64, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+            insn.opcode == 0x9d) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("popf-helper ip=%llx next=%llx",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_pop_flags,
                 64, (unsigned long) next_ip);
         gen_exit(state);
         return false;
