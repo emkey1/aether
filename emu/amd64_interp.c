@@ -8195,6 +8195,7 @@ int amd64_jit_pop_rm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_pop_rm_pf;
@@ -8374,6 +8375,7 @@ int amd64_jit_xchg_rm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_xchg_rm_pf;
@@ -9625,6 +9627,7 @@ int amd64_jit_movx(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_movx_pf;
@@ -9696,6 +9699,7 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_0f_rm_pf;
@@ -10041,6 +10045,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_0f_vec_rm_pf;
@@ -10080,6 +10085,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
         return INT_UNDEFINED;
     if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
         goto amd64_0f_vec_rm_pf;
+    cpu->amd64_rip = (qword_t) next_ip;
 
     if (op2 == 0x6e) {
         if (operand_size_prefix) {
@@ -10238,6 +10244,7 @@ int amd64_jit_grp3_test(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_grp3_test_pf;
@@ -10316,6 +10323,7 @@ int amd64_jit_grp3_op(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_grp3_op_pf;
@@ -10383,6 +10391,7 @@ int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_modrm_imm_pf;
@@ -10620,6 +10629,7 @@ int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_shift_pf;
@@ -10710,6 +10720,7 @@ int amd64_jit_fe_group(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_fe_group_pf;
@@ -10787,6 +10798,7 @@ int amd64_jit_ff_group(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
 
+    cpu->amd64_address_size_prefix = false;
     for (;;) {
         if (!amd64_fetch_u8(cpu, tlb, &byte))
             goto amd64_ff_group_pf;

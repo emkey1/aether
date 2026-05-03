@@ -605,13 +605,20 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
-    if (gen_amd64_can_lower_to_legacy(&insn) && insn.start_ip <= UINT32_MAX) {
+    bool can_lower_to_legacy =
+        gen_amd64_can_lower_to_legacy(&insn) && insn.start_ip <= UINT32_MAX;
+    if (can_lower_to_legacy) {
         state->amd64_compat_legacy_exec = true;
         state->amd64_low_reg_write_mask |= gen_amd64_legacy_write_mask(&insn);
         state->ip = (addr_t) insn.start_ip;
         int ret = gen_step32(state, tlb);
         state->amd64_ip = state->ip;
         return ret;
+    }
+    if (state->amd64_compat_legacy_exec) {
+        state->amd64_ip = insn.start_ip;
+        gen_exit(state);
+        return false;
     }
 
     if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.opcode == 0xc3) {
