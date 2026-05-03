@@ -735,6 +735,25 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    if (!insn.address_size_prefix && !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
+            insn.op2 >= 0xc8 && insn.op2 <= 0xcf) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        reg = (unsigned long) (insn.op2 - 0xc8);
+        if (insn.rex.b)
+            reg |= 8;
+        next_ip = insn.end_ip;
+        amd64_jit_debug("bswap-helper ip=%llx reg=%lu size=%u next=%llx",
+                (unsigned long long) insn.start_ip,
+                reg,
+                size,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_bswap,
+                reg | ((unsigned long) size << 8), (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.fs_prefix && !insn.lock_prefix &&
             insn.rep_mode == amd64_jit_rep_none &&

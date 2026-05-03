@@ -8144,6 +8144,31 @@ amd64_pop_rm_pf:
     return INT_PF;
 }
 
+int amd64_jit_bswap(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg_size, unsigned long next_ip) {
+    guest_addr_t checked_next_ip;
+    unsigned reg = reg_size & 0xf;
+    unsigned size = (reg_size >> 8) & 0xff;
+    (void) tlb;
+    if (reg >= amd64_reg_count || (size != 32 && size != 64))
+        return INT_GPF;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip)) {
+        cpu->amd64_rip = (qword_t) next_ip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    if (size == 64) {
+        qword_t value = amd64_reg_get(cpu, reg, 64);
+        amd64_reg_set(cpu, reg, 64, __builtin_bswap64(value));
+    } else {
+        dword_t value = (dword_t) amd64_reg_get(cpu, reg, 32);
+        amd64_reg_set(cpu, reg, 32, __builtin_bswap32(value));
+    }
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
 int amd64_jit_push_flags(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long push_size, unsigned long next_ip) {
     qword_t saved_rip = cpu->amd64_rip;

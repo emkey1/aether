@@ -25,6 +25,8 @@ int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long reg, unsigned long next_ip);
 int amd64_jit_pop_rm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
+int amd64_jit_bswap(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long reg_size, unsigned long next_ip);
 int amd64_jit_push_flags(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long push_size, unsigned long next_ip);
 int amd64_jit_push_imm(struct cpu_state *cpu, struct tlb *tlb,
