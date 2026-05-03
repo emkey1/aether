@@ -90,7 +90,11 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x40 ... 0x4f:
         case 0x90 ... 0x9f:
         case 0xa3:
+        case 0xa4:
+        case 0xa5:
         case 0xab:
+        case 0xac:
+        case 0xad:
         case 0xaf:
         case 0xb0:
         case 0xb1:
@@ -100,6 +104,8 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0xb7:
         case 0xbe:
         case 0xbf:
+        case 0xbc:
+        case 0xbd:
         case 0xbb:
         case 0xc0:
         case 0xc1:
@@ -849,19 +855,28 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     }
 
     if (!insn.address_size_prefix &&
-            insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
+            (insn.rep_mode == amd64_jit_rep_none ||
+             ((insn.op2 == 0xbc || insn.op2 == 0xbd) &&
+              insn.rep_mode == amd64_jit_repz)) &&
+            insn.two_byte_opcode &&
             insn.has_modrm &&
             (insn.op2 == 0x1f ||
              (insn.op2 >= 0x40 && insn.op2 <= 0x4f) ||
              (insn.op2 >= 0x90 && insn.op2 <= 0x9f) ||
              insn.op2 == 0xa3 ||
+             insn.op2 == 0xa4 ||
+             insn.op2 == 0xa5 ||
              insn.op2 == 0xab ||
+             insn.op2 == 0xac ||
+             insn.op2 == 0xad ||
              insn.op2 == 0xae ||
              insn.op2 == 0xaf ||
              insn.op2 == 0xba ||
              insn.op2 == 0xb3 ||
              insn.op2 == 0xb0 ||
              insn.op2 == 0xb1 ||
+             insn.op2 == 0xbc ||
+             insn.op2 == 0xbd ||
              insn.op2 == 0xbb ||
              insn.op2 == 0xc0 ||
              insn.op2 == 0xc1)) {
@@ -870,7 +885,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             state->amd64_fallback_to_interp = true;
             return false;
         }
-        if (insn.op2 == 0xba)
+        if (insn.op2 == 0xa4 || insn.op2 == 0xac || insn.op2 == 0xba)
             next_ip += sizeof(uint8_t);
         state->amd64_ip = next_ip;
         amd64_jit_debug("0f-rm-helper ip=%llx op2=%02x next=%llx",
