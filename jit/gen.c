@@ -90,14 +90,17 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x40 ... 0x4f:
         case 0x90 ... 0x9f:
         case 0xa3:
+        case 0xab:
         case 0xaf:
         case 0xb0:
         case 0xb1:
+        case 0xb3:
         case 0xba:
         case 0xb6:
         case 0xb7:
         case 0xbe:
         case 0xbf:
+        case 0xbb:
         case 0xc0:
         case 0xc1:
         case 0xef:
@@ -143,6 +146,7 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
     case 0x8a:
     case 0x8b:
     case 0x8d:
+    case 0x8f:
     case 0xc0:
     case 0xc1:
     case 0xc6:
@@ -851,11 +855,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              (insn.op2 >= 0x40 && insn.op2 <= 0x4f) ||
              (insn.op2 >= 0x90 && insn.op2 <= 0x9f) ||
              insn.op2 == 0xa3 ||
+             insn.op2 == 0xab ||
              insn.op2 == 0xae ||
              insn.op2 == 0xaf ||
              insn.op2 == 0xba ||
+             insn.op2 == 0xb3 ||
              insn.op2 == 0xb0 ||
              insn.op2 == 0xb1 ||
+             insn.op2 == 0xbb ||
              insn.op2 == 0xc0 ||
              insn.op2 == 0xc1)) {
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
@@ -1133,6 +1140,24 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_pop_reg,
                 reg, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            insn.opcode == 0x8f) {
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("pop-rm-helper ip=%llx next=%llx",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_1_retint(state, amd64_jit_pop_rm,
+                (unsigned long) next_ip);
         gen_exit(state);
         return false;
     }

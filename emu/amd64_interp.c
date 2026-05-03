@@ -3321,6 +3321,47 @@ static inline void amd64_set_rotate_flags(struct cpu_state *cpu, qword_t result,
     cpu->of_bit = cpu->of;
 }
 
+static inline unsigned amd64_rotate_carry_count(unsigned size, unsigned count) {
+    if (size == 8 || size == 16)
+        return count % (size + 1);
+    return count;
+}
+
+static inline qword_t amd64_rotate_carry_value(struct cpu_state *cpu, qword_t value,
+        unsigned size, unsigned count, unsigned subop) {
+    qword_t result = amd64_trunc(value, size);
+    qword_t sign = amd64_sign_bit(size);
+    qword_t mask = size == 64 ? ~(qword_t) 0 : (((qword_t) 1 << size) - 1);
+    unsigned effective = amd64_rotate_carry_count(size, count);
+    bool old_cf = cpu->cf != 0;
+
+    for (unsigned i = 0; i < effective; i++) {
+        bool new_cf;
+        if (subop == 2) {
+            new_cf = (result & sign) != 0;
+            result = ((result << 1) & mask) | (old_cf ? 1 : 0);
+        } else {
+            new_cf = (result & 1) != 0;
+            result = (result >> 1) | (old_cf ? sign : 0);
+        }
+        old_cf = new_cf;
+    }
+
+    if (effective != 0) {
+        cpu->cf = old_cf ? 1 : 0;
+        cpu->cf_bit = cpu->cf;
+        if (effective == 1) {
+            if (subop == 2)
+                cpu->of = (((result & sign) != 0) ^ (cpu->cf != 0)) ? 1 : 0;
+            else
+                cpu->of = (((result & sign) != 0) ^
+                        ((result & (sign >> 1)) != 0)) ? 1 : 0;
+            cpu->of_bit = cpu->of;
+        }
+    }
+    return result;
+}
+
 static inline bool amd64_fetch(struct cpu_state *cpu, struct tlb *tlb, void *out, unsigned size) {
     guest_addr_t addr;
     if (!amd64_guest_addr_ok(cpu->amd64_rip, size, &addr)) {
@@ -7232,7 +7273,8 @@ restart_prefix:
                 return INT_GPF;
             }
             count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
-            effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) : count;
+            effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+                ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
             if (effective_count == 0)
                 break;
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
@@ -7241,6 +7283,10 @@ restart_prefix:
             case 0:
             case 1:
                 result = amd64_rotate_value(lhs, rm_size, count, modrm.reg);
+                break;
+            case 2:
+            case 3:
+                result = amd64_rotate_carry_value(cpu, lhs, rm_size, count, modrm.reg);
                 break;
             case 4:
                 result = amd64_trunc(lhs << count, rm_size);
@@ -7258,7 +7304,7 @@ restart_prefix:
                 goto amd64_gpf_restore;
             if (modrm.reg == 0 || modrm.reg == 1)
                 amd64_set_rotate_flags(cpu, result, rm_size, count, modrm.reg);
-            else
+            else if (modrm.reg != 2 && modrm.reg != 3)
                 amd64_set_shift_flags(cpu, lhs, result, rm_size, count, modrm.reg);
             break;
         }
@@ -7671,7 +7717,8 @@ restart_prefix:
             goto amd64_gpf_restore;
         count = (opcode == 0xd0 || opcode == 0xd1) ? 1 :
             (amd64_reg_get(cpu, amd64_rcx, 8) & (rm_size == 64 ? 0x3f : 0x1f));
-        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) : count;
+        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+            ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
         bool trace_as_shift = amd64_as_alu_stderr_enabled() &&
             current != NULL &&
             current->abi == GUEST_ABI_AMD64 &&
@@ -7705,6 +7752,10 @@ restart_prefix:
         case 1:
             result = amd64_rotate_value(lhs, rm_size, count, modrm.reg);
             break;
+        case 2:
+        case 3:
+            result = amd64_rotate_carry_value(cpu, lhs, rm_size, count, modrm.reg);
+            break;
         case 4:
             result = amd64_trunc(lhs << count, rm_size);
             break;
@@ -7721,7 +7772,7 @@ restart_prefix:
             goto amd64_gpf_restore;
         if (modrm.reg == 0 || modrm.reg == 1)
             amd64_set_rotate_flags(cpu, result, rm_size, count, modrm.reg);
-        else
+        else if (modrm.reg != 2 && modrm.reg != 3)
             amd64_set_shift_flags(cpu, lhs, result, rm_size, count, modrm.reg);
         if (trace_as_shift) {
             fprintf(stderr,
@@ -8026,6 +8077,71 @@ int amd64_jit_pop_reg(struct cpu_state *cpu, struct tlb *tlb,
     cpu->amd64_rip = (qword_t) next_ip;
     amd64_sync_legacy_regs(cpu);
     return INT_NONE;
+}
+
+int amd64_jit_pop_rm(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    struct amd64_modrm modrm;
+    bool fs_prefix = false;
+    bool operand_size_prefix = false;
+    bool lock_prefix = false;
+    byte_t byte;
+    qword_t value;
+    unsigned pop_size;
+
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_pop_rm_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (byte == 0xf0) {
+            lock_prefix = true;
+            continue;
+        }
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != 0x8f || lock_prefix)
+        return INT_UNDEFINED;
+    if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+        goto amd64_pop_rm_pf;
+    if (modrm.reg != 0)
+        return INT_UNDEFINED;
+
+    pop_size = operand_size_prefix ? 16 : 64;
+    if (!amd64_pop_size(cpu, tlb, pop_size, &value))
+        goto amd64_pop_rm_pf;
+    if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value))
+        goto amd64_pop_rm_pf;
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_pop_rm_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
 }
 
 int amd64_jit_push_flags(struct cpu_state *cpu, struct tlb *tlb,
@@ -9466,10 +9582,11 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
     byte_t byte;
     unsigned op_size;
 
-    if ((op2 != 0x1f && op2 != 0xa3 && op2 != 0xaf &&
+    if ((op2 != 0x1f && op2 != 0xa3 && op2 != 0xab && op2 != 0xaf &&
                 op2 != 0xae &&
                 op2 != 0xb0 && op2 != 0xb1 &&
-                op2 != 0xba && op2 != 0xc0 && op2 != 0xc1) &&
+                op2 != 0xb3 && op2 != 0xba && op2 != 0xbb &&
+                op2 != 0xc0 && op2 != 0xc1) &&
             !(op2 >= 0x40 && op2 <= 0x4f) &&
             !(op2 >= 0x90 && op2 <= 0x9f))
         return INT_UNDEFINED;
@@ -9557,6 +9674,35 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
         (void) addr;
         collapse_flags(cpu);
         cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
+        cpu->cf_bit = cpu->cf;
+        cpu->amd64_rip = (qword_t) next_ip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_NONE;
+    }
+    if (op2 == 0xab || op2 == 0xb3 || op2 == 0xbb) {
+        qword_t addr;
+        qword_t lhs, result;
+        qword_t bit;
+        qword_t bit_index = amd64_reg_get(cpu, modrm.reg, op_size);
+        if (!amd64_read_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size,
+                bit_index, true, true, &lhs, &addr, &bit))
+            goto amd64_0f_rm_pf;
+        collapse_flags(cpu);
+        cpu->cf = (amd64_trunc(lhs, op_size) >> bit) & 1;
+        result = lhs;
+        switch (op2) {
+        case 0xab:
+            result = amd64_trunc(lhs | (1ull << bit), op_size);
+            break;
+        case 0xb3:
+            result = amd64_trunc(lhs & ~(1ull << bit), op_size);
+            break;
+        case 0xbb:
+            result = amd64_trunc(lhs ^ (1ull << bit), op_size);
+            break;
+        }
+        if (!amd64_write_bt_operand(cpu, tlb, &modrm, fs_prefix, op_size, addr, result))
+            goto amd64_0f_rm_pf;
         cpu->cf_bit = cpu->cf;
         cpu->amd64_rip = (qword_t) next_ip;
         amd64_sync_legacy_regs(cpu);
@@ -10129,7 +10275,8 @@ int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
             goto amd64_modrm_imm_pf;
         count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
-        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) : count;
+        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+            ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
         if (effective_count != 0) {
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
                 goto amd64_modrm_imm_pf;
@@ -10138,6 +10285,10 @@ int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
             case 1:
                 result = amd64_rotate_value(lhs, rm_size, count, modrm.reg);
                 amd64_set_rotate_flags(cpu, result, rm_size, count, modrm.reg);
+                break;
+            case 2:
+            case 3:
+                result = amd64_rotate_carry_value(cpu, lhs, rm_size, count, modrm.reg);
                 break;
             case 4:
                 result = amd64_trunc(lhs << count, rm_size);
@@ -10316,7 +10467,8 @@ int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
         (operand_size_prefix ? 16 : (rex.w ? 64 : 32));
     count = (opcode == 0xd0 || opcode == 0xd1) ? 1 :
         ((unsigned) amd64_reg_get(cpu, amd64_rcx, 8) & (rm_size == 64 ? 0x3f : 0x1f));
-    effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) : count;
+    effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+        ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
     if (effective_count != 0) {
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
             goto amd64_shift_pf;
@@ -10325,6 +10477,10 @@ int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
         case 1:
             result = amd64_rotate_value(lhs, rm_size, count, modrm.reg);
             amd64_set_rotate_flags(cpu, result, rm_size, count, modrm.reg);
+            break;
+        case 2:
+        case 3:
+            result = amd64_rotate_carry_value(cpu, lhs, rm_size, count, modrm.reg);
             break;
         case 4:
             result = amd64_trunc(lhs << count, rm_size);
