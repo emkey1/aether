@@ -212,6 +212,7 @@ static void amd64_trace_clear_lineage(void) {
 }
 
 bool amd64_trace_is_lineage_tgid(pid_t_ tgid) {
+    (void) tgid;
     return false;
 }
 
@@ -233,7 +234,10 @@ void amd64_trace_track_exec(pid_t_ pid, pid_t_ tgid, const char *file) {
 }
 
 static bool amd64_tracked_exec_trace_enabled(void) {
-    return false;
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_WRITES") != NULL ? 1 : 0;
+    return enabled != 0;
 }
 
 static void amd64_tty2_shell_syscall_trace_enter(qword_t syscall_num, const qword_t raw_args[6]) {
@@ -772,7 +776,8 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
     raw[to_copy] = '\0';
     if (current != NULL && current->abi == GUEST_ABI_AMD64 &&
             strcmp(current->comm, "as") == 0 &&
-            strstr(raw, "Internal error in ") != NULL) {
+            (strstr(raw, "Internal error") != NULL ||
+             strstr(raw, "build_modrm_byte") != NULL)) {
         dump_amd64_as_trace_task(current);
         dump_amd64_as_state_task(current);
         dump_amd64_as_stack_task(current);
@@ -2036,6 +2041,9 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 269:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_faccessat_guest(
+                (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], 0));
+        return true;
     case 439:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_faccessat_guest(
                 (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]));
@@ -2298,6 +2306,18 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clone3_guest(
                 raw_args[0], (dword_t) raw_args[1]));
         return true;
+    case 436:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_close_range(
+                (dword_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 115:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getgroups_guest(
+                (dword_t) raw_args[0], raw_args[1]));
+        return true;
+    case 116:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setgroups_guest(
+                (dword_t) raw_args[0], raw_args[1]));
+        return true;
     case 441:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_epoll_pwait2_guest(
                 (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2], raw_args[3], raw_args[4],
@@ -2493,6 +2513,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 282: // signalfd
     case 334: // rseq
     case 222: // timer_create
+    case 436: // close_range
         return 3;
     case 13:  // rt_sigaction
     case 14:  // rt_sigprocmask
@@ -2793,7 +2814,9 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     }
 
     STRACE("%d(%s) %d:%d %s call %-3llu ", current->pid, current->comm,
-           current->reference.count, current->locks_held.count, dispatch->name, syscall_num);
+           current->reference.count,
+           __atomic_load_n(&current->locks_held.count, __ATOMIC_RELAXED),
+           dispatch->name, syscall_num);
     dword_t result = syscall(args[0], args[1], args[2], args[3], args[4], args[5]);
     qword_t trace_result = syscall_result_is_errno(result) ?
         (qword_t) (sqword_t) syscall_result_errno(result) : (qword_t) result;
@@ -3302,7 +3325,7 @@ static bool handle_i386_stack_store_gpf(struct cpu_state *cpu) {
     return true;
 }
 
-static int amd64_nop_instruction_len(addr_t ip) {
+static int amd64_nop_instruction_len(guest_addr_t ip) {
     byte_t bytes[16];
     for (size_t i = 0; i < sizeof(bytes); i++) {
         if (user_get(ip + i, bytes[i]))
@@ -3737,6 +3760,86 @@ static bool amd64_trap_write_rm(struct cpu_state *cpu, const struct amd64_trap_m
     return amd64_trap_mem_write(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), size, value);
 }
 
+static bool amd64_trap_read_xmm_rm(struct cpu_state *cpu, const struct amd64_trap_modrm *modrm, bool fs_prefix,
+        guest_addr_t rip_after_modrm, union xmm_reg *value) {
+    if (modrm->is_reg) {
+        *value = cpu->xmm[modrm->rm & 0xf];
+        return true;
+    }
+
+    guest_addr_t addr;
+    if (!amd64_trap_guest_addr_ok(amd64_trap_effective_addr(cpu, modrm, fs_prefix, rip_after_modrm), sizeof(*value), &addr))
+        return false;
+    return user_read(addr, value, sizeof(*value)) == 0;
+}
+
+static bool amd64_try_emulate_sse2_packed_integer(guest_addr_t ip, struct cpu_state *cpu) {
+    struct amd64_trap_rex_prefix rex = {};
+    bool operand_size_prefix = false;
+    bool fs_prefix = false;
+    byte_t opcode;
+    guest_addr_t decode_ip = ip;
+
+    while (true) {
+        if (!amd64_trap_fetch_u8(&decode_ip, &opcode))
+            return false;
+        if (opcode == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (opcode == 0x2e || opcode == 0x3e) {
+            continue;
+        }
+        if (opcode == 0x67) {
+            continue;
+        }
+        if (opcode == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (opcode >= 0x40 && opcode <= 0x4f) {
+            rex.present = true;
+            rex.w = (opcode & 0x8) != 0;
+            rex.r = (opcode & 0x4) != 0;
+            rex.x = (opcode & 0x2) != 0;
+            rex.b = (opcode & 0x1) != 0;
+            continue;
+        }
+        break;
+    }
+
+    if (!operand_size_prefix || opcode != 0x0f)
+        return false;
+    if (!amd64_trap_fetch_u8(&decode_ip, &opcode))
+        return false;
+    if (opcode != 0xd4 && opcode != 0xf4)
+        return false;
+
+    struct amd64_trap_modrm modrm;
+    if (!amd64_trap_decode_modrm(&decode_ip, rex, &modrm))
+        return false;
+
+    union xmm_reg src;
+    if (!amd64_trap_read_xmm_rm(cpu, &modrm, fs_prefix, decode_ip, &src))
+        return false;
+    union xmm_reg *dst = &cpu->xmm[modrm.reg & 0xf];
+
+    switch (opcode) {
+    case 0xd4: // PADDQ xmm, xmm/m128
+        dst->qw[0] += src.qw[0];
+        dst->qw[1] += src.qw[1];
+        break;
+    case 0xf4: // PMULUDQ xmm, xmm/m128
+        dst->qw[0] = (uint64_t) dst->u32[0] * src.u32[0];
+        dst->qw[1] = (uint64_t) dst->u32[2] * src.u32[2];
+        break;
+    }
+
+    cpu->amd64_rip = decode_ip;
+    amd64_trap_sync_legacy_regs(cpu);
+    return true;
+}
+
 static bool amd64_try_emulate_add(guest_addr_t ip, struct cpu_state *cpu) {
     struct amd64_trap_rex_prefix rex = {};
     bool operand_size_prefix = false;
@@ -3797,13 +3900,15 @@ static bool amd64_try_emulate_add(guest_addr_t ip, struct cpu_state *cpu) {
 void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     guest_addr_t ip = current_fault_ip(cpu);
     if (current->abi == GUEST_ABI_AMD64) {
-        int nop_len = amd64_nop_instruction_len(cpu->eip);
+        int nop_len = amd64_nop_instruction_len(ip);
         if (nop_len > 0) {
-            cpu->eip += nop_len;
-            cpu->amd64_rip = cpu->eip;
+            cpu->amd64_rip = ip + nop_len;
+            amd64_trap_sync_legacy_regs(cpu);
             return;
         }
-        if (amd64_try_emulate_add(cpu->eip, cpu))
+        if (amd64_try_emulate_add(ip, cpu))
+            return;
+        if (amd64_try_emulate_sse2_packed_integer(ip, cpu))
             return;
     }
 

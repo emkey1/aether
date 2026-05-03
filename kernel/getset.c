@@ -259,6 +259,10 @@ uid_t_ sys_setfsgid(uid_t_ gid) {
 }
 
 int_t sys_getgroups(dword_t size, addr_t list) {
+    return sys_getgroups_guest(size, list);
+}
+
+int_t sys_getgroups_guest(dword_t size, guest_addr_t list) {
     STRACE("getgroups(%d, %#x)", size, list);
     if (size == 0)
         return current->ngroups;
@@ -272,6 +276,10 @@ int_t sys_getgroups(dword_t size, addr_t list) {
 }
 
 int_t sys_setgroups(dword_t size, addr_t list) {
+    return sys_setgroups_guest(size, list);
+}
+
+int_t sys_setgroups_guest(dword_t size, guest_addr_t list) {
     STRACE("setgroups(%d, %#x)", size, list);
     if (!current_can_setgids())
         return _EPERM;

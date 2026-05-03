@@ -39,6 +39,9 @@ enum aokfs_node_kind {
     aokfs_tests_pthread_sync,
     aokfs_tests_amd64_jit_bench,
     aokfs_tests_setup_regressions,
+    aokfs_tools_dir,
+    aokfs_tools_ish_benchmark,
+    aokfs_tools_setup_ish_benchmark,
     aokfs_tests_audio_dir,
     aokfs_audio_raw,
     aokfs_audio_wav,
@@ -56,6 +59,7 @@ static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
     return node == aokfs_root ||
         node == aokfs_fixes_dir ||
         node == aokfs_fixes_devuan_dir ||
+        node == aokfs_tools_dir ||
         node == aokfs_tests_dir ||
         node == aokfs_tests_audio_dir;
 }
@@ -65,7 +69,9 @@ static bool aokfs_node_is_symlink(enum aokfs_node_kind node) {
 }
 
 static bool aokfs_node_is_bundled_file(enum aokfs_node_kind node) {
-    return node == aokfs_audio_raw || node == aokfs_audio_wav;
+    return node == aokfs_audio_raw ||
+        node == aokfs_audio_wav ||
+        node == aokfs_tools_ish_benchmark;
 }
 
 static mode_t_ aokfs_node_mode(enum aokfs_node_kind node) {
@@ -73,6 +79,8 @@ static mode_t_ aokfs_node_mode(enum aokfs_node_kind node) {
         return S_IFDIR | 0555;
     if (aokfs_node_is_symlink(node))
         return S_IFLNK | 0777;
+    if (node == aokfs_tools_setup_ish_benchmark)
+        return S_IFREG | 0555;
     return S_IFREG | 0444;
 }
 
@@ -138,6 +146,12 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/tests/amd64_jit_bench.sh";
         case aokfs_tests_setup_regressions:
             return "/tests/setup-regressions.sh";
+        case aokfs_tools_dir:
+            return "/tools";
+        case aokfs_tools_ish_benchmark:
+            return "/tools/iSH_benchmark.tgz";
+        case aokfs_tools_setup_ish_benchmark:
+            return "/tools/setup-ish-benchmark.sh";
         case aokfs_tests_audio_dir:
             return "/tests/audio";
         case aokfs_audio_raw:
@@ -184,6 +198,9 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_tests_pthread_sync,
         aokfs_tests_amd64_jit_bench,
         aokfs_tests_setup_regressions,
+        aokfs_tools_dir,
+        aokfs_tools_ish_benchmark,
+        aokfs_tools_setup_ish_benchmark,
         aokfs_tests_audio_dir,
         aokfs_audio_raw,
         aokfs_audio_wav,
@@ -4676,6 +4693,71 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         "    exec \"$work_dir/run-regressions.sh\" $run_args\n"
         "fi\n"
     ;
+    static const char setup_ish_benchmark[] =
+        "#!/bin/sh\n"
+        "set -eu\n"
+        "\n"
+        "archive=${ISH_AOK_BENCHMARK_ARCHIVE:-/AOK/tools/iSH_benchmark.tgz}\n"
+        "work_dir=${ISH_AOK_BENCHMARK_DIR:-/tmp/iSH_benchmark}\n"
+        "cc=${CC:-gcc}\n"
+        "\n"
+        "usage() {\n"
+        "    cat <<'EOF'\n"
+        "Usage: setup-ish-benchmark.sh [make-target]\n"
+        "\n"
+        "Extract /AOK/tools/iSH_benchmark.tgz into /tmp and compile its benchmarks.\n"
+        "\n"
+        "Environment:\n"
+        "  ISH_AOK_BENCHMARK_ARCHIVE  Archive path. Default: /AOK/tools/iSH_benchmark.tgz\n"
+        "  ISH_AOK_BENCHMARK_DIR      Work directory. Default: /tmp/iSH_benchmark\n"
+        "  CC                         Compiler passed to make. Default: gcc\n"
+        "EOF\n"
+        "}\n"
+        "\n"
+        "case \"${1:-}\" in\n"
+        "    -h|--help)\n"
+        "        usage\n"
+        "        exit 0\n"
+        "        ;;\n"
+        "esac\n"
+        "\n"
+        "if [ ! -r \"$archive\" ]; then\n"
+        "    echo \"Archive not found: $archive\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "if ! command -v tar >/dev/null 2>&1; then\n"
+        "    echo \"tar is required\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "if ! command -v \"$cc\" >/dev/null 2>&1; then\n"
+        "    echo \"Compiler not found: $cc\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "\n"
+        "rm -rf \"$work_dir\"\n"
+        "mkdir -p \"$work_dir\"\n"
+        "tar -xzf \"$archive\" -C \"$work_dir\"\n"
+        "\n"
+        "src_dir=$work_dir/benchmark\n"
+        "if [ ! -d \"$src_dir\" ]; then\n"
+        "    echo \"Archive did not contain benchmark/\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "\n"
+        "make_target=${1:-all}\n"
+        "if command -v make >/dev/null 2>&1 && [ -f \"$src_dir/Makefile\" ]; then\n"
+        "    make -C \"$src_dir\" CC=\"$cc\" \"$make_target\"\n"
+        "elif [ \"$make_target\" = all ]; then\n"
+        "    (cd \"$src_dir\" && \"$cc\" -Wall -lpthread -o bmm bmm.c)\n"
+        "    (cd \"$src_dir\" && \"$cc\" -Wall -lpthread -o bmt bmt.c)\n"
+        "else\n"
+        "    echo \"make is required for target: $make_target\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "\n"
+        "echo \"Benchmarks extracted and compiled in $src_dir\"\n"
+        "echo \"Run $src_dir/bmm or $src_dir/bmt\"\n"
+    ;
     switch (node) {
         case aokfs_readme:
             *size_out = sizeof(readme) - 1;
@@ -4746,6 +4828,9 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         case aokfs_tests_setup_regressions:
             *size_out = sizeof(setup_regressions) - 1;
             return setup_regressions;
+        case aokfs_tools_setup_ish_benchmark:
+            *size_out = sizeof(setup_ish_benchmark) - 1;
+            return setup_ish_benchmark;
         default:
             *size_out = 0;
             return "";
@@ -4756,8 +4841,30 @@ static int aokfs_open_backing_file(struct mount *mount, enum aokfs_node_kind nod
     if (!aokfs_node_is_bundled_file(node))
         return -1;
 
+    const char *backing_path;
+    switch (node) {
+        case aokfs_audio_raw:
+        case aokfs_audio_wav:
+            backing_path = aokfs_node_path(node) + 1;
+            break;
+        case aokfs_tools_ish_benchmark:
+            backing_path = "tools/iSH_benchmark.tgz";
+            break;
+        default:
+            backing_path = aokfs_node_basename(node);
+            break;
+    }
+
     char path[MAX_PATH + 1];
-    int err = snprintf(path, sizeof(path), "%s/%s", mount->source, aokfs_node_basename(node));
+    int err = snprintf(path, sizeof(path), "%s/%s", mount->source, backing_path);
+    if (err < 0 || err >= (int) sizeof(path))
+        return -1;
+
+    int fd = open(path, O_RDONLY);
+    if (fd >= 0)
+        return fd;
+
+    err = snprintf(path, sizeof(path), "%s/%s", mount->source, aokfs_node_basename(node));
     if (err < 0 || err >= (int) sizeof(path))
         return -1;
 
@@ -4814,7 +4921,7 @@ static int aokfs_statfs(struct mount *UNUSED(mount), struct statfsbuf *stat) {
     memset(stat, 0, sizeof(*stat));
     stat->type = AOKFS_MAGIC;
     stat->bsize = 4096;
-    stat->files = 30;
+    stat->files = 34;
     stat->ffree = 0;
     stat->namelen = NAME_MAX;
     stat->flags = MS_READONLY_;
@@ -4913,6 +5020,7 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 case 1: child = aokfs_version; break;
                 case 2: child = aokfs_fixes_dir; break;
                 case 3: child = aokfs_tests_dir; break;
+                case 4: child = aokfs_tools_dir; break;
                 default: return 0;
             }
             break;
@@ -4927,6 +5035,13 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
             switch (fd->offset++) {
                 case 0: child = aokfs_fixes_devuan_readme; break;
                 case 1: child = aokfs_fixes_devuan_pkcsslotd_init; break;
+                default: return 0;
+            }
+            break;
+        case aokfs_tools_dir:
+            switch (fd->offset++) {
+                case 0: child = aokfs_tools_ish_benchmark; break;
+                case 1: child = aokfs_tools_setup_ish_benchmark; break;
                 default: return 0;
             }
             break;

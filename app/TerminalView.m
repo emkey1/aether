@@ -173,6 +173,7 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
 
     self.scrollbarView.contentView = webView;
     [self.scrollbarView addSubview:webView];
+    [self syncTerminalFocus];
     ISHRecordTerminalViewEvent(@"terminalView.install.end", _terminal, nil);
 }
 
@@ -246,9 +247,13 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
 
 - (void)setTerminalFocused:(BOOL)terminalFocused {
     _terminalFocused = terminalFocused;
+    [self syncTerminalFocus];
+}
+
+- (void)syncTerminalFocus {
     if (!self.terminal.loaded)
         return;
-    NSString *script = terminalFocused ? @"exports.setFocused(true)" : @"exports.setFocused(false)";
+    NSString *script = _terminalFocused ? @"exports.setFocused(true)" : @"exports.setFocused(false)";
     [self.terminal.webView evaluateJavaScript:script completionHandler:nil];
 }
 

@@ -45,42 +45,42 @@ static inline int trylockw(wrlock_t *lock);
 extern void _lock_destroy(wrlock_t *lock);
 
 static inline void _read_unlock(wrlock_t *lock) {
-    if(lock->val <= 0) {
+    int old_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
+    if(old_val <= 0) {
         //printk("ERROR: read_unlock(%x) error(PID: %d Process: %s count %d) (%s:%d)\n",lock, current_pid(current), current_comm(current), lock->val);
-        printk("ERROR: read_unlock(%x) error(val: %d)\n",lock, lock->val);
-        lock->val = 0;
+        printk("ERROR: read_unlock(%x) error(val: %d)\n", lock, old_val);
+        atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
         lock->pid = -1;
         lock->comm[0] = 0;
         //modify_locks_held_count(current, -1);
         //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
-    assert(lock->val > 0);
     if (pthread_rwlock_unlock(&lock->l) != 0)
 //        printk("URGENT: read_unlock(%x) error(PID: %d Process: %s)\n", lock, current_pid(current), current_comm(current));
         printk("URGENT: read_unlock(%x) failed\n", lock);
-    lock->val--;
+    atomic_fetch_sub_explicit(&lock->val, 1, memory_order_relaxed);
     //modify_locks_held_count(current, -1);
     //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
 static inline void read_unlock(wrlock_t *lock) {
-    atomic_l_lockf("r_unlock\0", 0);
     _read_unlock(lock);
-    atomic_l_unlockf();
     return;
 }
 
 static inline void _write_unlock(wrlock_t *lock) {
     if(pthread_rwlock_unlock(&lock->l) != 0)
       //  printk("URGENT: write_unlock(%x:%d) error(PID: %d Process: %s) \n", lock, lock->val, current_pid(current), current_comm(current));
-        printk("URGENT: write_unlock(%x:%d) error on unlock\n", lock, lock->val);
-    if(lock->val != -1) {
+        printk("URGENT: write_unlock(%x:%d) error on unlock\n", lock,
+               atomic_load_explicit(&lock->val, memory_order_relaxed));
+    if(atomic_load_explicit(&lock->val, memory_order_relaxed) != -1) {
         //printk("ERROR: write_unlock(%x) on lock with val of %d (PID: %d Process: %s )\n", lock, lock->val, current_pid(current), current_comm(current));
         // printk("ERROR: write_unlock(%x) on lock with val of %d\n", lock, lock->val);  // Comment out for now.  Much noise, little impact (So far as I can tell)
     }
     //assert(lock->val == -1);
-    lock->val = lock->line = lock->pid = 0;
+    atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
+    lock->line = lock->pid = 0;
     lock->pid = -1;
     lock->comm[0] = 0;
     //STRACE("write_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
@@ -89,38 +89,27 @@ static inline void _write_unlock(wrlock_t *lock) {
 }
 
 static inline void write_unlock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
-    atomic_l_lockf("w_unlock\0", 0);
     _write_unlock(lock);
-    atomic_l_unlockf();
     return;
 }
 
 static inline void loop_lock_generic(wrlock_t *lock, int is_write) {
-    int random_wait = is_write ? WAIT_SLEEP + rand() % 100 : WAIT_SLEEP + rand() % WAIT_SLEEP/4;
-    struct timespec lock_pause = {0, random_wait};
-
-    while((is_write ? pthread_rwlock_trywrlock(&lock->l) : pthread_rwlock_tryrdlock(&lock->l))) {
-        atomic_l_unlockf();
-        nanosleep(&lock_pause, NULL);
-        atomic_l_lockf(is_write ? "llw\0" : "ll_read\0", 0);
-    }
-
+    if (is_write)
+        pthread_rwlock_wrlock(&lock->l);
+    else
+        pthread_rwlock_rdlock(&lock->l);
 }
 
 static inline void _read_lock(wrlock_t *lock) {
     loop_lock_read(lock);
     //pthread_rwlock_rdlock(&lock->l);
     // assert(lock->val >= 0);  // If it is negative, a writer is recorded here.
-    if(lock->val) {
-        lock->val++;
-    } else if (lock->val > -1){
-        lock->val++;
-    } else {
-        printk("ERROR: _read_lock() val is %d\n", lock->val);
-        lock->val++;
-    }
+    int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
+    int new_val = old_val + 1;
+    if(old_val < 0)
+        printk("ERROR: _read_lock() val is %d\n", old_val);
     
-    if(lock->val > 1000) { // We likely have a problem.
+    if(new_val > 1000) { // We likely have a problem.
         printk("WARNING: _read_lock(%x) has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock, lock->file, lock->line,lock->pid, lock->comm);
         read_unlock_and_destroy(lock);
         //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
@@ -134,67 +123,49 @@ static inline void _read_lock(wrlock_t *lock) {
 }
 
 static inline void read_lock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
-    atomic_l_lockf("r_lock\0", 0);
     _read_lock(lock);
-    atomic_l_unlockf();
 }
 
 
 static inline void _write_lock(wrlock_t *lock) { // Write lock
-    // Release atomic_l_lock before blocking so we don't hold the global
-    // meta-lock while waiting for readers to drain.  pthread_rwlock_wrlock
-    // (unlike trywrlock) registers writer intent on macOS, which prevents
-    // new readers from acquiring once a writer is pending — fixing write
-    // starvation under heavy reader load (e.g. many goroutine OS threads).
-    atomic_l_unlockf();
+    // pthread_rwlock_wrlock (unlike a retry loop around trywrlock) registers
+    // writer intent on macOS, which prevents new readers from acquiring once a
+    // writer is pending.
     pthread_rwlock_wrlock(&lock->l);
-    atomic_l_lockf("_w_lock\0", 0);
 
     // assert(lock->val == 0);
-    lock->val = -1;
+    atomic_store_explicit(&lock->val, -1, memory_order_relaxed);
 }
 
 static inline void write_lock(wrlock_t *lock) {
-    atomic_l_lockf("_w_lock", 0);
     _write_lock(lock);
-    atomic_l_unlockf();
 }
 
 
 static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a read lock to a write lock.
-    atomic_l_lockf("rtw_lock\0", 0);
     _read_unlock(lock);
     _write_lock(lock);
-    atomic_l_unlockf();
 }
 
 static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a write lock to a read lock.
-    atomic_l_lockf("wtr_lock\0", 0);
     _write_unlock(lock);
     _read_lock(lock);
-    atomic_l_unlockf();
 }
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
-    atomic_l_lockf("wuad_lock\0", 0);
     _write_unlock(lock);
     _lock_destroy(lock);
-    atomic_l_unlockf();
 }
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
-    atomic_l_lockf("ruad_lock", 0);
     if(trylockw(lock)) // Expected to already be held; only fall back to read unlock if it is still active.
         _read_unlock(lock);
     
     _lock_destroy(lock);
-    atomic_l_unlockf();
 }
 
 static inline int trylockw(wrlock_t *lock) {
-    atomic_l_lockf("trylockw\0", 0);
     int status = pthread_rwlock_trywrlock(&lock->l);
-    atomic_l_unlockf();
 #if LOCK_DEBUG
     if (!status) {
         lock->debug.file = file;
@@ -213,15 +184,12 @@ static inline int trylockw(wrlock_t *lock) {
 }
 
 static inline int trylockr(wrlock_t *lock) {
-    atomic_l_lockf("trylockr\0", 0);
     int status = pthread_rwlock_tryrdlock(&lock->l);
     if (status == 0) {
-        if (lock->val < 0) {
-            printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, lock->val);
-        }
-        lock->val++;
+        int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
+        if (old_val < 0)
+            printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, old_val);
     }
-    atomic_l_unlockf();
     return status;
 }
 

@@ -7,6 +7,8 @@
 #define MFD_CLOEXEC_ O_CLOEXEC_
 #define MFD_ALLOW_SEALING_ 0x0002
 #define MFD_HUGETLB_ 0x0004
+#define MFD_NOEXEC_SEAL_ 0x0008
+#define MFD_EXEC_ 0x0010
 #define MEMFD_MAX_NAME 249
 
 struct memfd_state {
@@ -206,7 +208,9 @@ int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags) {
 
     if (flags & MFD_HUGETLB_)
         return _ENOSYS;
-    if (flags & ~(MFD_CLOEXEC_ | MFD_ALLOW_SEALING_ | MFD_HUGETLB_))
+    if (flags & ~(MFD_CLOEXEC_ | MFD_ALLOW_SEALING_ | MFD_HUGETLB_ | MFD_NOEXEC_SEAL_ | MFD_EXEC_))
+        return _EINVAL;
+    if ((flags & MFD_NOEXEC_SEAL_) && (flags & MFD_EXEC_))
         return _EINVAL;
 
     struct memfd_state *state = malloc(sizeof(struct memfd_state));
@@ -233,7 +237,7 @@ int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags) {
     fd->type = S_IFREG;
     fd->stat = (struct statbuf) {};
     fd->stat.inode = next_inode++;
-    fd->stat.mode = S_IFREG | 0777;
+    fd->stat.mode = S_IFREG | ((flags & MFD_NOEXEC_SEAL_) ? 0666 : 0777);
     fd->stat.uid = current->euid;
     fd->stat.gid = current->egid;
     fd->fs_data = state;

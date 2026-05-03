@@ -411,15 +411,23 @@ inline void modify_locks_held_count(struct task *task, int value) { // value sho
                value, task->comm, task->pid);
         return;
     }
-    
-    pthread_mutex_lock(&task->locks_held.lock);
-    if((task->locks_held.count + value < 0) && task->pid > 9) {
-        pthread_mutex_unlock(&task->locks_held.lock); // release before printk to avoid self-deadlock
+
+    int old_count;
+    int new_count;
+    do {
+        old_count = __atomic_load_n(&task->locks_held.count, __ATOMIC_RELAXED);
+        new_count = old_count + value;
+        if (new_count < 0 && task->pid > 9) {
+            printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
+            return;
+        }
+    } while (!__atomic_compare_exchange_n(&task->locks_held.count, &old_count, new_count,
+                                          true, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+
+    if (new_count < 0) {
+        __atomic_store_n(&task->locks_held.count, 0, __ATOMIC_RELAXED);
         printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
-        return;
     }
-    task->locks_held.count = task->locks_held.count + value;
-    pthread_mutex_unlock(&task->locks_held.lock);
 }
 
 bool current_is_valid(void) {

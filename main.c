@@ -114,7 +114,7 @@ static void setup_host_mounts(void) {
 
     if (access("tests/audio", R_OK) == 0) {
         ignore_eexist(generic_mkdirat(AT_PWD, "/AOK", 0555));
-        ignore_eexist(do_mount(&aokfs, "tests/audio", "/AOK", "", MS_READONLY_));
+        ignore_eexist(do_mount(&aokfs, ".", "/AOK", "", MS_READONLY_));
     }
 
     ignore_eexist(do_mount(&procfs, "proc", "/proc", "", 0));

@@ -152,6 +152,9 @@ static int u128_clz(uint128_t x) {
 }
 
 static float80 u128_normalize_round(uint128_t signif, int exp, int sign) {
+    if (signif == 0)
+        return (float80) {.sign = sign};
+
     int shift = u128_clz(signif);
     // now shift left
     if (exp - shift < unbias(EXP_MIN)) {
@@ -221,45 +224,49 @@ int64_t f80_to_int(float80 f) {
     return !f.sign ? f.signif : -f.signif;
 }
 
-struct double_bits {
-    unsigned long signif:52;
-    unsigned exp:11;
-    unsigned sign:1;
-};
 #define EXP64_MAX 0x7fe
 #define EXP64_MIN 0x001
 #define EXP64_SPECIAL 0x7ff
 #define EXP64_DENORMAL 0x000
+#define SIGNIF64_MASK ((UINT64_C(1) << 52) - 1)
 
 // unsupported?
 float80 f80_from_double(double d) {
-    struct double_bits db;
-    memcpy(&db, &d, sizeof(db));
+    uint64_t bits;
+    memcpy(&bits, &d, sizeof(bits));
+    unsigned sign = bits >> 63;
+    unsigned exp = (bits >> 52) & 0x7ff;
+    uint64_t signif = bits & SIGNIF64_MASK;
     float80 f;
 
-    if (db.exp == EXP64_SPECIAL)
+    if (exp == EXP64_SPECIAL)
         f.exp = EXP_SPECIAL;
-    else if (db.exp == EXP64_DENORMAL)
+    else if (exp == EXP64_DENORMAL)
         // denormals actually have an exponent of EXP_MIN, the special exponent
         // is needed to indicate the integer bit is 0
         // zeroes have the same exponent as denormals but need to be handled
         // differently
-        f.exp = db.signif == 0 ? 0 : bias(1 - 0x3ff);
+        f.exp = signif == 0 ? 0 : bias(1 - 0x3ff);
     else
-        f.exp = bias((int) db.exp - 0x3ff);
+        f.exp = bias((int) exp - 0x3ff);
 
-    f.signif = (uint64_t) db.signif << 11;
-    if (db.exp != EXP64_DENORMAL)
+    f.signif = signif << 11;
+    if (exp != EXP64_DENORMAL)
         f.signif |= CURSED_BIT;
-    f.sign = db.sign;
+    f.sign = sign;
     return f80_normalize(f);
 }
 
 double f80_to_double(float80 f) {
     if (!f80_is_supported(f))
         return NAN;
-    struct double_bits db;
-    db.sign = f.sign;
+    uint64_t sign = (uint64_t) f.sign << 63;
+    if (f80_iszero(f)) {
+        uint64_t bits = sign;
+        double d;
+        memcpy(&d, &bits, sizeof(d));
+        return d;
+    }
     int new_exp = unbias(f.exp) + 0x3ff;
     if (f.exp == EXP_SPECIAL)
         new_exp = EXP64_SPECIAL;
@@ -274,17 +281,16 @@ double f80_to_double(float80 f) {
         f = f80_shift_right(f, -new_exp);
         new_exp = unbias(f.exp) + 0x3ff;
     }
-    db.exp = new_exp;
     uint64_t db_signif = u128_shift_right_round(f.signif, 11, f.sign);
     // handle the case when f.signif becomes 0x1fffffffffffff after shifting
     // and then is rounded up
     if (db_signif & (1ul << 53)) {
         db_signif >>= 1;
-        db.exp++;
+        new_exp++;
     }
-    db.signif = db_signif;
+    uint64_t bits = sign | ((uint64_t) new_exp << 52) | (db_signif & SIGNIF64_MASK);
     double d;
-    memcpy(&d, &db, sizeof(db));
+    memcpy(&d, &bits, sizeof(d));
     return d;
 }
 

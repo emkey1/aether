@@ -71,22 +71,6 @@ static inline void unlock(lock_t *lock) {
     return;
 }
 
-static inline void atomic_l_lockf(char lname[16], int skiplog) {
-    if(!doEnableExtraLocking)
-        return;
-
-    int res = pthread_mutex_lock(&atomic_l_lock.m);
-    if(!res) {
-        strlcpy(atomic_l_lock.lname, lname, sizeof(atomic_l_lock.lname));
-        // Track owner so jit_crash_fn can release the mutex if the JIT thread
-        // faults while holding it (e.g. inside read_lock/read_unlock).
-        atomic_l_lock.owner = pthread_self();
-        modify_locks_held_count(current, 1);
-    } else if (!skiplog) {
-        printk("Error on locking lock (%s)\n", lname);
-    }
-}
-
 static inline void mylock(lock_t *lock, int log_lock) {
     pthread_mutex_lock(&lock->m);
     if(!log_lock) {
@@ -129,22 +113,6 @@ static inline int mylock_with_timeout(lock_t *lock, int UNUSED(log_lock)) {
     return 0; // Success
 }
 
-static inline void atomic_l_unlockf(void) {
-    if(!doEnableExtraLocking)
-        return;
-    int res = 0;
-    atomic_l_lock.lname[0] = '\0';
-    atomic_l_lock.owner = zero_init(pthread_t);  // Clear owner before unlock
-    res = pthread_mutex_unlock(&atomic_l_lock.m);
-    if(res) {
-        printk("ERROR: unlocking locking lock\n");
-    } else {
-        atomic_l_lock.pid = -1; // Reset
-    }
-
-    modify_locks_held_count(current, -1);
-}
-
 static inline void complex_lockt(lock_t *lock, int log_lock) {
     //if (lock->pid == pid)
     //    return;
@@ -184,9 +152,7 @@ static inline void complex_lockt(lock_t *lock, int log_lock) {
 }
 
 static inline int trylock(lock_t *lock) {
-    atomic_l_lockf("trylock\0", 0);
     int status = pthread_mutex_trylock(&lock->m);
-    atomic_l_unlockf();
 #if LOCK_DEBUG
     if (!status) {
         lock->debug.file = file;

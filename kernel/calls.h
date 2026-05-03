@@ -378,6 +378,8 @@ int_t sys_getresuid_guest(guest_addr_t ruid_addr, guest_addr_t euid_addr, guest_
 int_t sys_getresgid_guest(guest_addr_t rgid_addr, guest_addr_t egid_addr, guest_addr_t sgid_addr);
 int_t sys_getgroups(dword_t size, addr_t list);
 int_t sys_setgroups(dword_t size, addr_t list);
+int_t sys_getgroups_guest(dword_t size, guest_addr_t list);
+int_t sys_setgroups_guest(dword_t size, guest_addr_t list);
 int_t sys_capget(addr_t header_addr, addr_t data_addr);
 int_t sys_capset(addr_t header_addr, addr_t data_addr);
 int_t sys_capget_guest(guest_addr_t header_addr, guest_addr_t data_addr);

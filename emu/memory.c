@@ -106,14 +106,37 @@ static bool mem_page_range_valid(struct mem *mem, page_t start, pages_t pages) {
     return pages <= mem->page_limit - start;
 }
 
-static int mem_ensure_host_writable(struct pt_entry *entry) {
+static bool mem_can_mirror_host_page_protections(void) {
+    // mprotect() works at host-page granularity. Guest page flags can only be
+    // mirrored into host page protections when one guest page maps exactly one
+    // host page. On iOS, host pages are commonly 16K while guest pages are 4K,
+    // so the emulator must rely on guest page-table checks instead.
+    return real_page_size == PAGE_SIZE;
+}
+
+static void *mem_host_page_addr(struct pt_entry *entry) {
     if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
-        return 0;
+        return NULL;
     void *data = (char *) entry->data->data + entry->offset;
-    data = (void *) ((uintptr_t) data & ~(real_page_size - 1));
-    if (mprotect(data, real_page_size, PROT_READ | PROT_WRITE) < 0)
+    return (void *) ((uintptr_t) data & ~(real_page_size - 1));
+}
+
+static int mem_mirror_host_page_protection(struct pt_entry *entry, int flags) {
+    if (!mem_can_mirror_host_page_protections())
+        return 0;
+    void *data = mem_host_page_addr(entry);
+    if (data == NULL)
+        return 0;
+    int prot = PROT_READ;
+    if (flags & P_WRITE)
+        prot |= PROT_WRITE;
+    if (mprotect(data, real_page_size, prot) < 0)
         return errno_map();
     return 0;
+}
+
+static int mem_ensure_host_writable(struct pt_entry *entry) {
+    return mem_mirror_host_page_protection(entry, P_READ | P_WRITE);
 }
 
 static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
@@ -502,19 +525,10 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
         }
 
         entry->flags = new_flags;
-        // Host page protections are only a faithful mirror of guest page
-        // protections when the host and guest page sizes match. On Darwin/iOS
-        // the host page size is often 16K while the guest ABI still uses 4K
-        // pages, so mprotecting the host mapping can incorrectly change
-        // adjacent guest pages and turn a guest fault into a host crash.
-        if (real_page_size == PAGE_SIZE && ((new_flags ^ old_flags) & (P_READ | P_WRITE))) {
-            void *data = (char *) entry->data->data + entry->offset;
-            // force to be page aligned
-            data = (void *) ((uintptr_t) data & ~(real_page_size - 1));
-            int prot = PROT_READ;
-            if (new_flags & P_WRITE) prot |= PROT_WRITE;
-            if (mprotect(data, real_page_size, prot) < 0)
-                return errno_map();
+        if (((new_flags ^ old_flags) & (P_READ | P_WRITE))) {
+            int err = mem_mirror_host_page_protection(entry, new_flags);
+            if (err < 0)
+                return err;
         }
     }
     mem_changed(mem);

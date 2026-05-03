@@ -32,7 +32,8 @@ void wrlock_init(wrlock_t *lock) {
 #else
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
 #endif
-    lock->val = lock->line = 0;
+    atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
+    lock->line = 0;
     lock->pid = -1;
     lock->file = NULL;
     lock->comm[0] = 0;
@@ -54,9 +55,7 @@ void lock_destroy(wrlock_t *lock) {
         nanosleep(&lock_pause, NULL);
     }
     
-    atomic_l_lockf("l_destroy\0", 0);
     _lock_destroy(lock);
-    atomic_l_unlockf();
 }
 
 //#define trylockw(lock) trylockw(lock, __FILE__, __LINE__)

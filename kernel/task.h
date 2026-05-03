@@ -295,10 +295,7 @@ static inline unsigned task_ref_cnt_get(struct task *task, unsigned UNUSED(lock_
 static inline unsigned locks_held_count(struct task *task) {
     if(task->pid < 10)  // Bootstrap tasks are exempt from this accounting path.
         return 0;
-    unsigned tmp = 0;
-    pthread_mutex_lock(&task->locks_held.lock);
-    tmp = task->locks_held.count;
-    pthread_mutex_unlock(&task->locks_held.lock);
+    unsigned tmp = __atomic_load_n(&task->locks_held.count, __ATOMIC_RELAXED);
 
     // Exit/reap paths intentionally hold one bookkeeping lock while asking
     // whether any other locks are still outstanding.  Discount that slot here.

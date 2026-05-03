@@ -149,12 +149,24 @@ extern void jit_install_thread_exception_handler(void);
 // while the read lock is held).  Cleared before returning.  Accessed by
 // jit_crash_fn() which runs on the same thread after a Mach exception redirect.
 __thread wrlock_t *jit_crash_lock = NULL;
+__thread lock_t *jit_crash_mutex_lock = NULL;
 __thread sigjmp_buf jit_crash_unwind_buf;
 __thread bool jit_crash_unwind_active = false;
 __thread struct jit_frame *jit_crash_frame = NULL;
 __thread struct cpu_state *jit_crash_cpu = NULL;
 __thread int jit_crash_interrupt = INT_GPF;
 __thread addr_t jit_crash_addr = 0;
+
+static inline void jit_crash_track_mutex_lock(lock_t *mutex) {
+    jit_crash_mutex_lock = mutex;
+    lock(mutex, 0);
+}
+
+static inline void jit_crash_track_mutex_unlock(lock_t *mutex) {
+    unlock(mutex);
+    if (jit_crash_mutex_lock == mutex)
+        jit_crash_mutex_lock = NULL;
+}
 
 static void jit_block_disconnect(struct jit *jit, struct jit_block *block);
 static void jit_block_free(struct jit *jit, struct jit_block *block);
@@ -171,15 +183,20 @@ static void jit_resize_hash(struct jit *jit, size_t new_size);
 // would hang any guest program that spawns many OS threads (e.g. Go programs).
 __attribute__((__noreturn__))
 void jit_crash_fn(void) {
-    // If this thread holds atomic_l_lock (possible when the crash occurs inside
-    // read_lock/read_unlock, in the narrow window where both that mutex and the
-    // jetsam read lock are held), release it first so other threads aren't
-    // permanently blocked on it.
+    // If this thread faults while holding the guest-atomic mutex, release it so
+    // other guest threads are not permanently blocked behind a failed JIT entry.
     extern lock_t atomic_l_lock;
-    extern bool doEnableExtraLocking;
-    if (doEnableExtraLocking && pthread_equal(atomic_l_lock.owner, pthread_self())) {
+    if (pthread_equal(atomic_l_lock.owner, pthread_self())) {
         atomic_l_lock.owner = zero_init(pthread_t);
+        modify_locks_held_count(current, -1);
         pthread_mutex_unlock(&atomic_l_lock.m);
+    }
+
+    if (jit_crash_mutex_lock != NULL && pthread_equal(jit_crash_mutex_lock->owner, pthread_self())) {
+        printk("JIT: crash recovery (pid %d) - releasing jit mutex after bad-access fault\n",
+               current ? current->pid : -1);
+        unlock(jit_crash_mutex_lock);
+        jit_crash_mutex_lock = NULL;
     }
 
     if (jit_crash_lock != NULL) {
@@ -553,6 +570,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         cpu->segfault_addr = jit_crash_addr;
         cpu->segfault_was_write = false;
         jit_crash_unwind_active = false;
+        jit_crash_mutex_lock = NULL;
         jit_crash_frame = NULL;
         jit_crash_cpu = NULL;
         return jit_crash_interrupt;
@@ -933,10 +951,10 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                 current != NULL ? current->comm : "(null)",
                 current != NULL ? current->abi : -1);
         if (block == NULL || block->addr != ip) {
-            lock(&jit->lock, 0);
+            jit_crash_track_mutex_lock(&jit->lock);
             block = jit_lookup(jit, ip);
             if (block == NULL) {
-                unlock(&jit->lock);
+                jit_crash_track_mutex_unlock(&jit->lock);
                 jit_crash_lock = NULL;
                 pthread_rwlock_unlock(&jit->jetsam_lock.l);
 
@@ -955,7 +973,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
 
                 pthread_rwlock_rdlock(&jit->jetsam_lock.l);
                 jit_crash_lock = &jit->jetsam_lock;
-                lock(&jit->lock, 0);
+                jit_crash_track_mutex_lock(&jit->lock);
                 struct jit_block *existing = jit_lookup(jit, ip);
                 if (existing != NULL) {
                     jit_block_free(NULL, block);
@@ -965,7 +983,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                 }
             }
             cache[cache_index] = block;
-            unlock(&jit->lock);
+            jit_crash_track_mutex_unlock(&jit->lock);
         }
         if (!block->amd64_compat_legacy_exec) {
             amd64_jit_debug("frontend exec block ip=%llx end=%llx",
@@ -1034,6 +1052,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
         frame->cpu = *cpu;
     }
     jit_crash_lock = NULL;
+    jit_crash_mutex_lock = NULL;
     pthread_rwlock_unlock(&jit->jetsam_lock.l);
     jit_crash_unwind_active = false;
     jit_crash_frame = NULL;

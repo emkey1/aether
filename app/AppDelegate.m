@@ -9,8 +9,10 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ctype.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 #import <MetricKit/MetricKit.h>
 #import "AboutViewController.h"
@@ -32,9 +34,11 @@
 #import "WorkspaceViewController.h"
 #include "kernel/init.h"
 #include "kernel/calls.h"
+#include "kernel/task.h"
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
+#include "fs/tty.h"
 #include "app/RTCDevice.h"
 #include "util/sync.h"
 
@@ -142,6 +146,7 @@ static NSString *bootFailureMessage;
 static NSString *bootFailureOverlayText;
 static NSDictionary<NSString *, id> *bootFailureDetails;
 static BOOL bootUsesConsoleSessionFallback;
+static BOOL bootUsesNativeFakeInit;
 static NSString *const kSkipStartupMessage = @"Skip Startup Message";
 static NSString *const kMetricKitDiagnosticsDirectory = @"MetricKitDiagnostics";
 NSString *const ISHDiagnosticsStoreDidUpdateNotification = @"ISHDiagnosticsStoreDidUpdateNotification";
@@ -399,6 +404,23 @@ static BOOL BootCommandIsDefaultInit(NSArray<NSString *> *command) {
     return command.count > 0 && [command[0] isEqualToString:@"/sbin/init"];
 }
 
+static BOOL BootCommandIsInteractiveConsoleShellFallback(NSArray<NSString *> *command) {
+    if (command.count == 0)
+        return NO;
+
+    NSString *name = command.firstObject.lastPathComponent;
+    NSSet<NSString *> *shells = [NSSet setWithObjects:@"ash", @"bash", @"dash", @"ksh", @"sh", @"zsh", nil];
+    if ([shells containsObject:name])
+        return YES;
+
+    if ([name isEqualToString:@"busybox"] && command.count > 1) {
+        NSString *applet = command[1].lastPathComponent;
+        return [shells containsObject:applet];
+    }
+
+    return NO;
+}
+
 static BOOL BootExecutableExists(NSString *path, intptr_t *errOut) {
     struct statbuf stat;
     int err = generic_statat(AT_PWD, path.UTF8String, &stat, 0);
@@ -430,34 +452,213 @@ static NSArray<NSString *> *BootCommandFallbackCandidatesDescription(NSArray<NSA
     return descriptions;
 }
 
+static int EnsureDirectory(const char *path, mode_t_ mode);
+static int EnsureRegularFileIfMissing(const char *path, const char *contents, mode_t_ mode);
+static int EnsureSymlink(const char *path, const char *target);
+
+static NSData *BootEnvironmentForCommand(NSString *commandPath) {
+    NSString *shell = commandPath.length != 0 ? commandPath : @"/bin/sh";
+    NSArray<NSString *> *entries = @[
+        @"TERM=xterm-256color",
+        @"HOME=/root",
+        @"USER=root",
+        @"LOGNAME=root",
+        [NSString stringWithFormat:@"SHELL=%@", shell],
+        @"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        @"PS1=# ",
+        @"COLUMNS=80",
+        @"LINES=24",
+    ];
+
+    NSMutableData *env = [NSMutableData data];
+    for (NSString *entry in entries) {
+        NSData *bytes = [entry dataUsingEncoding:NSUTF8StringEncoding];
+        if (bytes.length != 0)
+            [env appendData:bytes];
+        uint8_t nul = 0;
+        [env appendBytes:&nul length:1];
+    }
+    uint8_t terminator = 0;
+    [env appendBytes:&terminator length:1];
+    return env;
+}
+
+static NSArray<NSString *> *FakeInitLoginShellArgvForCommand(NSArray<NSString *> *command) {
+    if (command.count == 0)
+        return @[];
+
+    NSString *name = command.firstObject.lastPathComponent;
+    if ([name isEqualToString:@"busybox"]) {
+        NSString *applet = command.count > 1 ? command[1].lastPathComponent : @"sh";
+        return @[applet.length != 0 ? applet : @"sh", @"-l", @"-i"];
+    }
+
+    if ([name isEqualToString:@"sh"] || [name isEqualToString:@"ash"] || [name isEqualToString:@"bash"] ||
+        [name isEqualToString:@"dash"] || [name isEqualToString:@"ksh"] || [name isEqualToString:@"zsh"]) {
+        return @[[@"-" stringByAppendingString:name], @"-i"];
+    }
+
+    return command;
+}
+
+static void FakeInitPrepareGuestRoot(void) {
+    EnsureDirectory("/dev", 0755);
+    EnsureDirectory("/dev/pts", 0755);
+    EnsureDirectory("/etc", 0755);
+    EnsureDirectory("/proc", 0555);
+    EnsureDirectory("/root", 0700);
+    EnsureDirectory("/tmp", 01777);
+    EnsureDirectory("/run", 0755);
+    EnsureDirectory("/run/lock", 0755);
+    EnsureDirectory("/var", 0755);
+
+    EnsureSymlink("/dev/fd", "/proc/self/fd");
+    EnsureSymlink("/dev/stdin", "/proc/self/fd/0");
+    EnsureSymlink("/dev/stdout", "/proc/self/fd/1");
+    EnsureSymlink("/dev/stderr", "/proc/self/fd/2");
+    EnsureSymlink("/etc/mtab", "/proc/mounts");
+
+    EnsureRegularFileIfMissing("/etc/hostname", "localhost\n", 0644);
+    EnsureRegularFileIfMissing("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
+}
+
+typedef struct {
+    struct task *init;
+    char *file;
+    size_t argc;
+    char *argv;
+    char *envp;
+} ISHFallbackInitConfig;
+
+static ISHFallbackInitConfig *CreateFallbackInitConfig(struct task *init,
+                                                       NSString *filePath,
+                                                       NSArray<NSString *> *argvCommand,
+                                                       const char *argv,
+                                                       size_t argvSize,
+                                                       NSData *envpData) {
+    ISHFallbackInitConfig *config = calloc(1, sizeof(*config));
+    if (config == NULL)
+        return NULL;
+
+    config->init = init;
+    config->argc = argvCommand.count;
+    config->file = strdup(filePath.UTF8String);
+    config->argv = malloc(argvSize);
+    config->envp = malloc(envpData.length);
+    if (config->file == NULL || config->argv == NULL || config->envp == NULL) {
+        free(config->file);
+        free(config->argv);
+        free(config->envp);
+        free(config);
+        return NULL;
+    }
+
+    memcpy(config->argv, argv, argvSize);
+    memcpy(config->envp, envpData.bytes, envpData.length);
+    return config;
+}
+
+static void *FallbackConsoleInitThread(void *context) {
+    ISHFallbackInitConfig *config = context;
+    current = config->init;
+
+    while (true) {
+        intptr_t err = become_new_init_child();
+        if (err < 0) {
+            printk("ERROR: fallback init could not create console shell child: %ld\n", (long) err);
+            sleep(1);
+            current = config->init;
+            continue;
+        }
+
+        struct task *child = current;
+        pid_t childPid = child->pid;
+        if (child->group == NULL || child->group->sid != childPid || child->group->pgid != childPid) {
+            intptr_t session = (intptr_t) (int32_t) sys_setsid();
+            if (session < 0)
+                printk("fake init could not start a new session for pid %d: %ld\n", childPid, (long) session);
+        }
+        err = create_stdio("/dev/console", TTY_CONSOLE_MAJOR, 1);
+        if (err == 0) {
+            intptr_t cttyErr = (intptr_t) (int32_t) sys_ioctl(0, TIOCSCTTY_, 1);
+            if (cttyErr < 0)
+                printk("fake init could not set controlling tty for pid %d: %ld\n", childPid, (long) cttyErr);
+        }
+        if (err == 0)
+            err = do_execve(config->file, config->argc, config->argv, config->envp);
+
+        if (err < 0) {
+            printk("ERROR: fake init could not exec %s as console shell: %ld\n", config->file, (long) err);
+            current = config->init;
+            return NULL;
+        }
+
+        printk("fake init started console shell pid=%d command=%s\n", childPid, config->file);
+        task_start(child);
+        current = config->init;
+
+        while (true) {
+            dword_t waited = sys_wait4_guest(-1, 0, 0, 0);
+            printk("fake init reaped child wait_result=%#x console_shell_pid=%d\n", waited, childPid);
+            if (waited == (dword_t) childPid)
+                break;
+            if ((int32_t) waited == _ECHILD)
+                break;
+        }
+        sleep(1);
+    }
+}
+
+static intptr_t StartFallbackConsoleSupervisor(NSArray<NSString *> *command,
+                                               NSArray<NSString *> *argvCommand,
+                                               const char *argv,
+                                               size_t argvSize,
+                                               NSData *envpData) {
+    ISHFallbackInitConfig *config = CreateFallbackInitConfig(current, command.firstObject, argvCommand, argv, argvSize, envpData);
+    if (config == NULL)
+        return _ENOMEM;
+
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, FallbackConsoleInitThread, config) != 0) {
+        free(config->file);
+        free(config->argv);
+        free(config->envp);
+        free(config);
+        return _EAGAIN;
+    }
+    pthread_detach(thread);
+    return 0;
+}
+
 static NSArray<NSString *> *BootCommandWithInitFallback(NSArray<NSString *> *command,
                                                         NSDictionary<NSString *, id> *details) {
     if (!BootCommandIsDefaultInit(command))
         return command;
 
-	    intptr_t configuredErr = 0;
-	    if (BootExecutableExists(command[0], &configuredErr)) {
-	        bootUsesConsoleSessionFallback = NO;
-	        return command;
-	    }
+    intptr_t configuredErr = 0;
+    if (BootExecutableExists(command[0], &configuredErr)) {
+        bootUsesConsoleSessionFallback = NO;
+        bootUsesNativeFakeInit = NO;
+        return command;
+    }
 
-	    NSArray<NSArray<NSString *> *> *candidates = @[
-	        @[@"/init"],
-	        @[@"/etc/init"],
-	        @[@"/bin/init"],
-	        @[@"/usr/bin/login", @"-f", @"root"],
-	        @[@"/bin/login", @"-f", @"root"],
-	        @[@"/usr/bin/sh", @"-l"],
-	        @[@"/bin/sh", @"-l"],
-	        @[@"/usr/bin/bash", @"-l"],
-	        @[@"/bin/bash", @"-l"],
-	        @[@"/usr/bin/ash", @"-l"],
-	        @[@"/bin/ash", @"-l"],
-	        @[@"/bin/busybox", @"init"],
-	        @[@"/usr/bin/busybox", @"init"],
-	        @[@"/bin/busybox", @"sh"],
-	        @[@"/usr/bin/busybox", @"sh"],
-	    ];
+    NSArray<NSArray<NSString *> *> *candidates = @[
+        @[@"/init"],
+        @[@"/etc/init"],
+        @[@"/bin/init"],
+        @[@"/bin/busybox", @"init"],
+        @[@"/usr/bin/busybox", @"init"],
+        @[@"/usr/bin/bash", @"-i"],
+        @[@"/bin/bash", @"-i"],
+        @[@"/usr/bin/sh", @"-i"],
+        @[@"/bin/sh", @"-i"],
+        @[@"/usr/bin/ash", @"-i"],
+        @[@"/bin/ash", @"-i"],
+        @[@"/bin/busybox", @"sh", @"-i"],
+        @[@"/usr/bin/busybox", @"sh", @"-i"],
+        @[@"/usr/bin/login", @"-f", @"root"],
+        @[@"/bin/login", @"-f", @"root"],
+    ];
     NSMutableArray<NSDictionary<NSString *, id> *> *attempts = [NSMutableArray arrayWithCapacity:candidates.count + 1];
     [attempts addObject:@{@"command": [command componentsJoinedByString:@" "],
                           @"path": command[0],
@@ -471,18 +672,26 @@ static NSArray<NSString *> *BootCommandWithInitFallback(NSArray<NSString *> *com
             NSMutableDictionary<NSString *, id> *fallbackDetails = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
             fallbackDetails[@"configuredCommand"] = [command componentsJoinedByString:@" "];
             fallbackDetails[@"fallbackCommand"] = [candidate componentsJoinedByString:@" "];
-	            fallbackDetails[@"fallbackPath"] = path ?: @"";
-	            fallbackDetails[@"mode"] = @"console-session";
-	            fallbackDetails[@"missingInitError"] = @(configuredErr);
-	            fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
-	            fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
-	            fallbackDetails[@"attempts"] = attempts;
-	            bootUsesConsoleSessionFallback = YES;
-	            [ISHDiagnosticsStore recordLaunchStage:@"boot.init.fallback.selected"
-	                                           details:fallbackDetails];
-            NSLog(@"boot init fallback selected: %@ -> %@",
-                  [command componentsJoinedByString:@" "],
-                  [candidate componentsJoinedByString:@" "]);
+            fallbackDetails[@"fallbackPath"] = path ?: @"";
+            BOOL nativeFakeInit = BootCommandIsInteractiveConsoleShellFallback(candidate);
+            fallbackDetails[@"mode"] = nativeFakeInit ? @"native-fake-init" : @"console-session";
+            fallbackDetails[@"missingInitError"] = @(configuredErr);
+            fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
+            fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
+            fallbackDetails[@"attempts"] = attempts;
+            bootUsesConsoleSessionFallback = YES;
+            bootUsesNativeFakeInit = nativeFakeInit;
+            [ISHDiagnosticsStore recordLaunchStage:nativeFakeInit ? @"boot.init.fake.selected" : @"boot.init.fallback.selected"
+                                           details:fallbackDetails];
+            if (nativeFakeInit) {
+                NSLog(@"boot native fake init selected: %@ missing; supervisor will launch console command %@",
+                      [command componentsJoinedByString:@" "],
+                      [candidate componentsJoinedByString:@" "]);
+            } else {
+                NSLog(@"boot init fallback selected: %@ -> %@",
+                      [command componentsJoinedByString:@" "],
+                      [candidate componentsJoinedByString:@" "]);
+            }
             return candidate;
         }
         [attempts addObject:@{@"command": [candidate componentsJoinedByString:@" "],
@@ -493,11 +702,12 @@ static NSArray<NSString *> *BootCommandWithInitFallback(NSArray<NSString *> *com
 
     NSMutableDictionary<NSString *, id> *fallbackDetails = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
     fallbackDetails[@"configuredCommand"] = [command componentsJoinedByString:@" "];
-	    fallbackDetails[@"missingInitError"] = @(configuredErr);
-	    fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
-	    fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
-	    fallbackDetails[@"attempts"] = attempts;
-	    bootUsesConsoleSessionFallback = NO;
+    fallbackDetails[@"missingInitError"] = @(configuredErr);
+    fallbackDetails[@"missingInitErrorDescription"] = ISHDescriptionForErrno(configuredErr);
+    fallbackDetails[@"candidates"] = BootCommandFallbackCandidatesDescription(candidates);
+    fallbackDetails[@"attempts"] = attempts;
+    bootUsesConsoleSessionFallback = NO;
+    bootUsesNativeFakeInit = NO;
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.fallback.none"
                                    details:fallbackDetails];
     return command;
@@ -690,6 +900,26 @@ static int EnsurePathRemoved(const char *path, const struct statbuf *stat) {
     return generic_unlinkat(AT_PWD, path);
 }
 
+static int EnsureDirectory(const char *path, mode_t_ mode) {
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
+    if (err == _ENOENT)
+        return generic_mkdirat(AT_PWD, path, mode & 07777);
+    if (err < 0)
+        return err;
+
+    if (!S_ISDIR(stat.mode)) {
+        err = EnsurePathRemoved(path, &stat);
+        if (err < 0)
+            return err;
+        return generic_mkdirat(AT_PWD, path, mode & 07777);
+    }
+
+    if ((stat.mode & 07777) != (mode & 07777))
+        return generic_setattrat(AT_PWD, path, make_attr(mode, mode & 07777), false);
+    return 0;
+}
+
 static int EnsureCharacterDevice(const char *path, mode_t_ mode, dev_t_ device) {
     struct statbuf stat;
     int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
@@ -710,6 +940,28 @@ static int EnsureCharacterDevice(const char *path, mode_t_ mode, dev_t_ device) 
 
     if ((stat.mode & 07777) != permissions)
         return generic_setattrat(AT_PWD, path, make_attr(mode, permissions), false);
+    return 0;
+}
+
+static int EnsureRegularFileIfMissing(const char *path, const char *contents, mode_t_ mode) {
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
+    if (err >= 0)
+        return S_ISREG(stat.mode) ? 0 : _EEXIST;
+    if (err != _ENOENT)
+        return err;
+
+    struct fd *fd = generic_open(path, O_WRONLY_ | O_CREAT_ | O_TRUNC_, mode & 07777);
+    if (IS_ERR(fd))
+        return (int) PTR_ERR(fd);
+    if (contents != NULL && contents[0] != '\0') {
+        ssize_t written = fd->ops->write(fd, contents, strlen(contents));
+        if (written < 0) {
+            fd_close(fd);
+            return (int) written;
+        }
+    }
+    fd_close(fd);
     return 0;
 }
 
@@ -1466,6 +1718,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
 	        bootFailureOverlayText = nil;
 	        bootFailureDetails = nil;
 	        bootUsesConsoleSessionFallback = NO;
+	        bootUsesNativeFakeInit = NO;
         AppDelegate *delegate = (AppDelegate *) UIApplication.sharedApplication.delegate;
         if ([delegate isKindOfClass:AppDelegate.class]) {
             bootError = [delegate boot];
@@ -1613,8 +1866,8 @@ static TerminalViewController *CreateTerminalViewController(void) {
     
     generic_mkdirat(AT_PWD, "/dev/pts", 0755);
     
-    // Permissions on / have been broken for a while, let's fix them
-    generic_setattrat(AT_PWD, "/", (struct attr) {.type = attr_mode, .mode = 0755}, false);
+    // Permissions and type metadata on / have been broken for a while, let's fix them.
+    generic_setattrat(AT_PWD, "/", (struct attr) {.type = attr_mode, .mode = S_IFDIR|0755}, false);
     
     // mv current /run to /tmp/run-old/[timestamp], create new /run and link to /var/run
     generic_mkdirat(AT_PWD, "/tmp/old-run", 0755);
@@ -1718,25 +1971,46 @@ static TerminalViewController *CreateTerminalViewController(void) {
                                    @"path": @"/dev/console"});
     }
     
-	    NSArray<NSString *> *command;
-	    command = UserPreferences.shared.bootCommand;
-	    if (command.count == 0 || command[0].length == 0) {
-	        return RecordBootFailure(_EINVAL,
-	                                 @"boot.command.empty",
+    NSArray<NSString *> *command;
+    command = UserPreferences.shared.bootCommand;
+    if (command.count == 0 || command[0].length == 0) {
+        return RecordBootFailure(_EINVAL,
+                                 @"boot.command.empty",
                                  @"Boot command is empty",
                                  @"iSH-AOK cannot start init because the configured boot command is empty.",
                                  @"Set a boot command in Settings. The default is /sbin/init.",
-	                                 @{@"root": defaultRoot,
-	                                   @"guestABI": guestABI ?: @""});
-	    }
-	    command = BootCommandWithInitFallback(command,
-	                                          @{@"root": defaultRoot,
-	                                            @"guestABI": guestABI ?: @""});
-	    NSString *commandString = [command componentsJoinedByString:@" "];
-	    char argv[4096];
-	    [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
-    const char *envp = "TERM=xterm-256color\0";
-    err = do_execve(command[0].UTF8String, command.count, argv, envp);
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @""});
+    }
+    command = BootCommandWithInitFallback(command,
+                                          @{@"root": defaultRoot,
+                                            @"guestABI": guestABI ?: @""});
+    NSString *commandString = [command componentsJoinedByString:@" "];
+    NSArray<NSString *> *argvCommand = bootUsesNativeFakeInit ? FakeInitLoginShellArgvForCommand(command) : command;
+    char argv[4096];
+    [Terminal convertCommand:argvCommand toArgs:argv limitSize:sizeof(argv)];
+    NSData *envpData = BootEnvironmentForCommand(command.firstObject);
+    if (bootUsesNativeFakeInit) {
+        FakeInitPrepareGuestRoot();
+        err = StartFallbackConsoleSupervisor(command, argvCommand, argv, sizeof(argv), envpData);
+        if (err < 0) {
+            return RecordBootFailure(err,
+                                     @"boot.init.supervisor.failed",
+                                     @"Boot failed while starting fallback console",
+                                     @"The filesystem was mounted, but iSH-AOK could not start its fallback console supervisor.",
+                                     @"Restart iSH-AOK. If this repeats, choose another filesystem or reimport this one.",
+                                     @{@"root": defaultRoot,
+                                       @"guestABI": guestABI ?: @"",
+                                       @"command": commandString ?: @""});
+        }
+        [ISHDiagnosticsStore recordLaunchStage:@"boot.init.fake.started"
+                                       details:@{@"root": defaultRoot,
+                                                 @"guestABI": guestABI ?: @"",
+                                                 @"command": commandString ?: @"",
+                                                 @"argv": [argvCommand componentsJoinedByString:@" "] ?: @""}];
+        return 0;
+    }
+    err = do_execve(command[0].UTF8String, command.count, argv, envpData.bytes);
     if (err < 0) {
         return RecordBootFailure(err,
                                  @"boot.init.exec.failed",

@@ -438,7 +438,8 @@ static void fake_stat_setattr(struct ish_stat *ishstat, struct attr attr) {
             ishstat->gid = attr.gid;
             break;
         case attr_mode:
-            ishstat->mode = (ishstat->mode & S_IFMT) | (attr.mode & ~S_IFMT);
+            ishstat->mode = (attr.mode & S_IFMT ? attr.mode & S_IFMT : ishstat->mode & S_IFMT) |
+                (attr.mode & ~S_IFMT);
             break;
     }
 }

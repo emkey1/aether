@@ -167,6 +167,14 @@ void get_console_device(int *major, int *minor) {
 
 int create_stdio(const char *file, int major, int minor) {
     struct fd *fd = generic_open(file, O_RDWR_, 0);
+    if (!IS_ERR(fd)) {
+        struct statbuf stat = {};
+        int stat_err = fd->mount->fs->fstat(fd, &stat);
+        if (stat_err < 0 || !S_ISCHR(stat.mode) || stat.rdev != dev_make(major, minor)) {
+            fd_close(fd);
+            fd = ERR_PTR(stat_err < 0 ? stat_err : _ENODEV);
+        }
+    }
     if (IS_ERR(fd)) {
         // fallback to adhoc files for stdio
         fd = adhoc_fd_create(NULL);
