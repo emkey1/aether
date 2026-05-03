@@ -7631,6 +7631,29 @@ restart_prefix:
     }
     case 0xf4:
         return INT_PRIV;
+    case 0xf5:
+        cpu->cf = !cpu->cf;
+        cpu->cf_bit = cpu->cf;
+        break;
+    case 0xf8:
+        cpu->cf = 0;
+        cpu->cf_bit = 0;
+        break;
+    case 0xf9:
+        cpu->cf = 1;
+        cpu->cf_bit = 1;
+        break;
+    case 0xfa:
+    case 0xfb:
+        return INT_PRIV;
+    case 0xfc:
+        cpu->df = 0;
+        cpu->df_offset = 1;
+        break;
+    case 0xfd:
+        cpu->df = 1;
+        cpu->df_offset = -1;
+        break;
     case 0xd0:
     case 0xd1:
     case 0xd2:

@@ -1437,6 +1437,13 @@ restart:
 
 #undef GRP3
 
+        case 0xf5: TRACEI("cmc"); CMC; break;
+        case 0xf8: TRACEI("clc"); CLC; break;
+        case 0xf9: TRACEI("stc"); STC; break;
+        case 0xfa: TRACEI("cli");
+                   return INT_PRIV;
+        case 0xfb: TRACEI("sti");
+                   return INT_PRIV;
         case 0xfc: TRACEI("cld"); CLD; break;
         case 0xfd: TRACEI("std"); STD; break;
 

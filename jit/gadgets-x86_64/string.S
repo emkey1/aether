@@ -2,12 +2,31 @@
 
 #define REP_LIST once,rep,repnz
 
+.gadget cmc
+    xorb $1, CPU_cf(%_cpu)
+    andl $~1, CPU_eflags(%_cpu)
+    movzbl CPU_cf(%_cpu), %_tmp
+    orl %_tmp, CPU_eflags(%_cpu)
+    gret
+
+.gadget clc
+    movb $0, CPU_cf(%_cpu)
+    andl $~1, CPU_eflags(%_cpu)
+    gret
+
+.gadget stc
+    movb $1, CPU_cf(%_cpu)
+    orl $1, CPU_eflags(%_cpu)
+    gret
+
 .gadget cld
     andl $~DF_FLAG, CPU_eflags(%_cpu)
+    movl $1, CPU_df_offset(%_cpu)
     gret
 
 .gadget std
     orl $DF_FLAG, CPU_eflags(%_cpu)
+    movl $-1, CPU_df_offset(%_cpu)
     gret
 
 .macro do_strop op, size, rep, s, ss, a
