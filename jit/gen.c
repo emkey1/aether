@@ -1381,7 +1381,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
-    if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.has_modrm &&
+    if (!insn.two_byte_opcode &&
+            !insn.address_size_prefix &&
+            !insn.fs_prefix &&
+            !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            insn.has_modrm &&
             amd64_modrm_mod(insn.modrm) == 3 &&
             !insn.rex.r &&
             (insn.opcode == 0x80 || insn.opcode == 0x81 ||
@@ -1391,7 +1396,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         unsigned size = (insn.opcode == 0x80 || insn.opcode == 0xc0 ||
                 insn.opcode == 0xc6)
             ? 8
-            : (insn.rex.w ? 64 : 32);
+            : (insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32));
         unsigned group = amd64_modrm_reg(insn.modrm);
         unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
         unsigned long value;
@@ -1420,6 +1425,15 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             }
             value = (unsigned long) (qword_t) (sqword_t) imm8;
             next_ip = imm_ip + sizeof(imm8);
+        } else if (size == 16) {
+            uint16_t imm16;
+            if (!tlb_read(tlb, imm_ip, &imm16, sizeof(imm16))) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            value = (unsigned long) imm16;
+            next_ip = imm_ip + sizeof(imm16);
         } else {
             int32_t imm32;
             if (!tlb_read(tlb, imm_ip, &imm32, sizeof(imm32))) {

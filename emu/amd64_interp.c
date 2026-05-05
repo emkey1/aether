@@ -9225,7 +9225,7 @@ int amd64_jit_reg_imm_op(struct cpu_state *cpu, struct tlb *tlb,
 
     (void) tlb;
     if (rm >= amd64_reg_count || group > 7 ||
-            (size != 8 && size != 32 && size != 64))
+            (size != 8 && size != 16 && size != 32 && size != 64))
         return INT_GPF;
     if (opcode != 0x80 && opcode != 0x81 && opcode != 0x83 &&
             opcode != 0xc0 && opcode != 0xc1 &&
