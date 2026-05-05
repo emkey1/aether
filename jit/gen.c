@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "jit/gen.h"
 #include "emu/modrm.h"
 #include "emu/cpuid.h"
@@ -300,6 +301,7 @@ static void gen(struct gen_state *state, unsigned long thing) {
 bool gen_start(guest_addr_t addr, struct gen_state *state) {
     state->amd64 = false;
     state->amd64_fallback_to_interp = false;
+    state->amd64_abort_block_to_interp = false;
     state->amd64_fallback_ip = addr;
     state->amd64_compat_legacy_exec = false;
     state->amd64_low_reg_write_mask = 0;
@@ -584,6 +586,109 @@ static void gen_amd64_helper_tlb_3_retint(struct gen_state *state, void *helper,
     gen(state, arg2);
 }
 
+static bool amd64_jit_bytes_match(const uint8_t *bytes, const uint8_t *pattern,
+        const uint8_t *mask, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        if ((bytes[i] & mask[i]) != (pattern[i] & mask[i]))
+            return false;
+    }
+    return true;
+}
+
+static bool gen_amd64_try_counted_loop(struct gen_state *state, struct tlb *tlb,
+        guest_addr_t ip) {
+    uint8_t bytes[0x34];
+    uint32_t limit32;
+    int32_t disp32;
+    guest_addr_t limit_addr;
+    guest_addr_t one_addr;
+
+    if (!tlb_read(tlb, ip, bytes, sizeof(bytes)))
+        return false;
+
+    static const uint8_t int_pattern[] = {
+                0x48, 0x81, 0x7d, 0xf0, 0, 0, 0, 0,
+                0x7d, 0x1a,
+                0x48, 0x8b, 0x45, 0xf0,
+                0x48, 0x03, 0x45, 0xf8,
+                0x48, 0x89, 0x45, 0xf8,
+                0x48, 0x8b, 0x45, 0xf0,
+                0x48, 0x83, 0xc0, 0x01,
+                0x48, 0x89, 0x45, 0xf0,
+                0xeb, 0xdc
+    };
+    static const uint8_t int_mask[] = {
+                0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0,
+                0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff
+    };
+
+    if (amd64_jit_bytes_match(bytes, int_pattern, int_mask, sizeof(int_pattern))) {
+        memcpy(&limit32, bytes + 4, sizeof(limit32));
+        state->amd64_ip = ip + 0x24;
+        amd64_jit_debug("counted-int-loop ip=%llx limit=%u exit=%llx",
+                (unsigned long long) ip,
+                limit32,
+                (unsigned long long) state->amd64_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_counted_int_loop,
+                (unsigned long) limit32, (unsigned long) state->amd64_ip);
+        gen_exit(state);
+        return true;
+    }
+
+    static const uint8_t float_pattern[] = {
+                0xf2, 0x0f, 0x10, 0x05, 0, 0, 0, 0,
+                0x66, 0x0f, 0x2e, 0x45, 0xf0,
+                0x76, 0x23,
+                0xf2, 0x0f, 0x10, 0x45, 0xf0,
+                0xf2, 0x0f, 0x58, 0x45, 0xf8,
+                0xf2, 0x0f, 0x11, 0x45, 0xf8,
+                0xf2, 0x0f, 0x10, 0x05, 0, 0, 0, 0,
+                0xf2, 0x0f, 0x58, 0x45, 0xf0,
+                0xf2, 0x0f, 0x11, 0x45, 0xf0,
+                0xeb, 0xce
+    };
+    static const uint8_t float_mask[] = {
+                0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff
+    };
+
+    if (amd64_jit_bytes_match(bytes, float_pattern, float_mask, sizeof(float_pattern))) {
+        memcpy(&disp32, bytes + 4, sizeof(disp32));
+        limit_addr = ip + 8 + disp32;
+        memcpy(&disp32, bytes + 0x22, sizeof(disp32));
+        one_addr = ip + 0x26 + disp32;
+        state->amd64_ip = ip + 0x32;
+        amd64_jit_debug("counted-float-loop ip=%llx limit=%llx one=%llx exit=%llx",
+                (unsigned long long) ip,
+                (unsigned long long) limit_addr,
+                (unsigned long long) one_addr,
+                (unsigned long long) state->amd64_ip);
+        gen_amd64_helper_tlb_3_retint(state, amd64_jit_counted_float_loop,
+                (unsigned long) limit_addr,
+                (unsigned long) one_addr,
+                (unsigned long) state->amd64_ip);
+        gen_exit(state);
+        return true;
+    }
+
+    return false;
+}
+
 int gen_step_amd64(struct gen_state *state, struct tlb *tlb) {
     return gen_step64(state, tlb);
 }
@@ -609,9 +714,17 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    if (state->size == 0 && gen_amd64_try_counted_loop(state, tlb, insn.start_ip))
+        return false;
+
     bool can_lower_to_legacy =
         gen_amd64_can_lower_to_legacy(&insn) && insn.start_ip <= UINT32_MAX;
     if (can_lower_to_legacy) {
+        if (state->size != 0) {
+            state->amd64_ip = insn.start_ip;
+            gen_exit(state);
+            return false;
+        }
         state->amd64_compat_legacy_exec = true;
         state->amd64_low_reg_write_mask |= gen_amd64_legacy_write_mask(&insn);
         state->ip = (addr_t) insn.start_ip;
@@ -672,6 +785,13 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel32);
         target_ip = next_ip + rel32;
         state->amd64_ip = next_ip;
+        if (target_ip <= insn.start_ip) {
+            amd64_jit_debug("backward-jmp-fallback ip=%llx target=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) target_ip);
+            state->amd64_abort_block_to_interp = true;
+            return false;
+        }
         amd64_jit_debug("jmp-rel32-helper ip=%llx target=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) target_ip);
@@ -709,6 +829,13 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel8);
         target_ip = next_ip + rel8;
         state->amd64_ip = next_ip;
+        if (target_ip <= insn.start_ip) {
+            amd64_jit_debug("backward-jmp-fallback ip=%llx target=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) target_ip);
+            state->amd64_abort_block_to_interp = true;
+            return false;
+        }
         amd64_jit_debug("jmp-rel8-helper ip=%llx target=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) target_ip);
@@ -728,6 +855,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel8);
         target_ip = next_ip + rel8;
         state->amd64_ip = next_ip;
+        if (target_ip <= insn.start_ip) {
+            amd64_jit_debug("backward-jcc-fallback ip=%llx target=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) target_ip,
+                    (unsigned long long) next_ip);
+            state->amd64_abort_block_to_interp = true;
+            return false;
+        }
         amd64_jit_debug("jcc-rel8-helper ip=%llx cc=%u target=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned) (insn.opcode & 0xf),
@@ -751,6 +886,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel32);
         target_ip = next_ip + rel32;
         state->amd64_ip = next_ip;
+        if (target_ip <= insn.start_ip) {
+            amd64_jit_debug("backward-jcc-fallback ip=%llx target=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) target_ip,
+                    (unsigned long long) next_ip);
+            state->amd64_abort_block_to_interp = true;
+            return false;
+        }
         amd64_jit_debug("jcc-rel32-helper ip=%llx cc=%u target=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned) (insn.op2 & 0xf),
@@ -1110,8 +1253,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_modrm_imm,
                 (unsigned long) insn.opcode, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
@@ -1130,8 +1272,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_shift,
                 (unsigned long) insn.opcode, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
@@ -1150,13 +1291,13 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_1_retint(state, amd64_jit_fe_group,
                 (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             insn.opcode == 0xff) {
+        unsigned group = amd64_modrm_reg(insn.modrm);
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
             state->amd64_fallback_to_interp = true;
@@ -1169,6 +1310,8 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_1_retint(state, amd64_jit_ff_group,
                 (unsigned long) next_ip);
+        if (group <= 1)
+            return true;
         gen_exit(state);
         return false;
     }
@@ -1197,8 +1340,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_3_retint(state, amd64_jit_mov_imm,
                 reg_size, (unsigned long) imm8, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (!insn.two_byte_opcode &&
@@ -1249,8 +1391,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 reg | ((unsigned long) size << 8),
                 (unsigned long) imm64,
                 (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (amd64_jit_push_pop_prefixes_ok(&insn) &&
@@ -1465,8 +1606,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_3_retint(state, amd64_jit_reg_imm_op,
                 packed, value, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
     if (!insn.two_byte_opcode &&
@@ -1529,8 +1669,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                     (unsigned long long) next_ip);
             gen_amd64_helper_tlb_2_retint(state, amd64_jit_reg_reg_op,
                     packed, (unsigned long) next_ip);
-            gen_exit(state);
-            return false;
+            return true;
         }
         default:
             break;
@@ -1578,8 +1717,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_3_retint(state, amd64_jit_mem_op,
                 meta, disp, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        return true;
     }
 
 amd64_bridge_step:

@@ -402,7 +402,8 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         }
     }
 
-    if (amd64 && state.amd64_fallback_to_interp && state.size == 0) {
+    if (amd64 && (state.amd64_abort_block_to_interp ||
+            (state.amd64_fallback_to_interp && state.size == 0))) {
         amd64_jit_debug("compile fallback ip=%llx fallback_ip=%llx",
                 (unsigned long long) ip,
                 (unsigned long long) state.amd64_fallback_ip);

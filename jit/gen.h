@@ -13,6 +13,7 @@ struct gen_state {
     unsigned long orig_ip_extra;
     bool amd64;
     bool amd64_fallback_to_interp;
+    bool amd64_abort_block_to_interp;
     guest_addr_t amd64_fallback_ip;
     bool amd64_compat_legacy_exec;
     uint16_t amd64_low_reg_write_mask;

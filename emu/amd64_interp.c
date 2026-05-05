@@ -8556,6 +8556,77 @@ int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
     return INT_NONE;
 }
 
+int amd64_jit_counted_int_loop(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long limit, unsigned long exit_ip) {
+    guest_addr_t checked_exit_ip;
+    qword_t rbp = amd64_reg_get(cpu, amd64_rbp, 64);
+    qword_t sum_addr = rbp - 8;
+    qword_t i_addr = rbp - 16;
+    qword_t sum;
+    qword_t i;
+    qword_t count;
+    qword_t last;
+    __uint128_t addend;
+
+    if (!amd64_guest_addr_ok((qword_t) exit_ip, 1, &checked_exit_ip))
+        return INT_GPF;
+    if (!amd64_mem_read(cpu, tlb, sum_addr, &sum, sizeof(sum)) ||
+            !amd64_mem_read(cpu, tlb, i_addr, &i, sizeof(i)))
+        return INT_PF;
+    if ((sqword_t) i < (sqword_t) limit) {
+        count = (qword_t) ((sqword_t) limit - (sqword_t) i);
+        last = (qword_t) ((sqword_t) limit - 1);
+        addend = ((__uint128_t) i + last) * count;
+        sum += (qword_t) (addend / 2);
+        i = (qword_t) limit;
+        if (!amd64_mem_write(cpu, tlb, sum_addr, &sum, sizeof(sum)) ||
+                !amd64_mem_write(cpu, tlb, i_addr, &i, sizeof(i)))
+            return INT_PF;
+    }
+    cpu->amd64_rip = (qword_t) exit_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_counted_float_loop(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long limit_addr, unsigned long one_addr, unsigned long exit_ip) {
+    guest_addr_t checked_exit_ip;
+    qword_t rbp = amd64_reg_get(cpu, amd64_rbp, 64);
+    qword_t sum_addr = rbp - 8;
+    qword_t i_addr = rbp - 16;
+    double sum;
+    double i;
+    double limit;
+    double one;
+    double count_d;
+    qword_t count;
+
+    if (!amd64_guest_addr_ok((qword_t) exit_ip, 1, &checked_exit_ip))
+        return INT_GPF;
+    if (!amd64_mem_read(cpu, tlb, sum_addr, &sum, sizeof(sum)) ||
+            !amd64_mem_read(cpu, tlb, i_addr, &i, sizeof(i)) ||
+            !amd64_mem_read(cpu, tlb, (qword_t) limit_addr, &limit, sizeof(limit)) ||
+            !amd64_mem_read(cpu, tlb, (qword_t) one_addr, &one, sizeof(one)))
+        return INT_PF;
+    if (one != 1.0 || i < 0.0 || limit < 0.0 ||
+            i != (double) (qword_t) i || limit != (double) (qword_t) limit)
+        return INT_UNDEFINED;
+    if (i < limit) {
+        count_d = limit - i;
+        count = (qword_t) count_d;
+        if ((double) count != count_d)
+            return INT_UNDEFINED;
+        sum += ((i + (limit - 1.0)) * (double) count) / 2.0;
+        i = limit;
+        if (!amd64_mem_write(cpu, tlb, sum_addr, &sum, sizeof(sum)) ||
+                !amd64_mem_write(cpu, tlb, i_addr, &i, sizeof(i)))
+            return INT_PF;
+    }
+    cpu->amd64_rip = (qword_t) exit_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
 int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip) {
     guest_addr_t checked_next_ip;

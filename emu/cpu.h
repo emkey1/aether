@@ -46,6 +46,10 @@ int amd64_jit_call_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long target, unsigned long next_ip);
 int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long cc, unsigned long target, unsigned long next_ip);
+int amd64_jit_counted_int_loop(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long limit, unsigned long exit_ip);
+int amd64_jit_counted_float_loop(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long limit_addr, unsigned long one_addr, unsigned long exit_ip);
 int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
 int amd64_jit_rdtsc(struct cpu_state *cpu, struct tlb *tlb,
