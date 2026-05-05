@@ -526,6 +526,15 @@ static void amd64_merge_legacy_exec_result(struct cpu_state *dst, const struct c
     dst->esi = src->esi;
     dst->edi = src->edi;
     dst->eip = src->eip;
+
+    dst->eflags = src->eflags;
+    dst->df_offset = src->df_offset;
+    dst->cf = src->cf;
+    dst->of = src->of;
+    dst->res = src->res;
+    dst->op1 = src->op1;
+    dst->op2 = src->op2;
+    dst->flags_res = src->flags_res;
 }
 
 static inline bool cpu_take_poke(struct cpu_state *cpu) {

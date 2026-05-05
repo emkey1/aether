@@ -84,6 +84,10 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x16:
         case 0x28:
         case 0x29:
+        case 0x54:
+        case 0x55:
+        case 0x56:
+        case 0x57:
         case 0x6c:
         case 0x6e:
         case 0x6f:
@@ -772,6 +776,39 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    if (amd64_jit_plain_prefixes(&insn) && insn.two_byte_opcode &&
+            (insn.op2 == 0x31 || insn.op2 == 0xa2)) {
+        next_ip = insn.end_ip;
+        amd64_jit_debug("%s-helper ip=%llx next=%llx",
+                insn.op2 == 0x31 ? "rdtsc" : "cpuid",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_1_retint(state,
+                insn.op2 == 0x31 ? amd64_jit_rdtsc : amd64_jit_cpuid,
+                (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.address_size_prefix && !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_repz && insn.two_byte_opcode &&
+            insn.op2 == 0x1e) {
+        byte_t op3;
+        if (!tlb_read(tlb, state->amd64_ip, &op3, sizeof(op3))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        if (op3 == 0xfa || op3 == 0xfb) {
+            next_ip = state->amd64_ip + sizeof(op3);
+            state->amd64_ip = next_ip;
+            amd64_jit_debug("endbr-nop ip=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) next_ip);
+            return true;
+        }
+    }
+
     if (!insn.address_size_prefix && !insn.fs_prefix && !insn.lock_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
             insn.op2 >= 0xc8 && insn.op2 <= 0xcf) {
@@ -824,6 +861,22 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 insn.opcode,
                 (unsigned long long) next_ip);
         gen_amd64_helper_tlb_2_retint(state, amd64_jit_imul_imm,
+                (unsigned long) insn.opcode, (unsigned long) next_ip);
+        gen_exit(state);
+        return false;
+    }
+
+    if (!insn.two_byte_opcode && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            insn.opcode >= 0xa0 && insn.opcode <= 0xa3) {
+        next_ip = state->amd64_ip +
+            (insn.address_size_prefix ? sizeof(uint32_t) : sizeof(uint64_t));
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("moffs-helper ip=%llx opcode=%02x next=%llx",
+                (unsigned long long) insn.start_ip,
+                insn.opcode,
+                (unsigned long long) next_ip);
+        gen_amd64_helper_tlb_2_retint(state, amd64_jit_moffs_accum,
                 (unsigned long) insn.opcode, (unsigned long) next_ip);
         gen_exit(state);
         return false;
@@ -960,6 +1013,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.op2 == 0x16 ||
              insn.op2 == 0x28 ||
              insn.op2 == 0x29 ||
+             insn.op2 == 0x54 ||
+             insn.op2 == 0x55 ||
+             insn.op2 == 0x56 ||
+             insn.op2 == 0x57 ||
              insn.op2 == 0x6c ||
              insn.op2 == 0x6e ||
              insn.op2 == 0x6f ||
@@ -1144,11 +1201,16 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
-    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+    if (!insn.two_byte_opcode &&
+            !insn.address_size_prefix &&
+            !insn.fs_prefix &&
+            !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none &&
             insn.opcode >= 0xb8 && insn.opcode <= 0xbf) {
         uint64_t imm64;
         uint32_t imm32;
-        unsigned size = insn.rex.w ? 64 : 32;
+        uint16_t imm16;
+        unsigned size = insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32);
         reg = (unsigned long) (insn.opcode - 0xb8);
         if (insn.rex.b)
             reg |= 8;
@@ -1159,6 +1221,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 return false;
             }
             next_ip = state->amd64_ip + sizeof(imm64);
+        } else if (size == 16) {
+            if (!tlb_read(tlb, state->amd64_ip, &imm16, sizeof(imm16))) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            imm64 = imm16;
+            next_ip = state->amd64_ip + sizeof(imm16);
         } else {
             if (!tlb_read(tlb, state->amd64_ip, &imm32, sizeof(imm32))) {
                 state->amd64_ip = state->amd64_orig_ip;
@@ -1385,7 +1455,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
-    if (amd64_jit_one_byte_plain_prefixes(&insn) && insn.has_modrm &&
+    if (!insn.two_byte_opcode &&
+            !insn.address_size_prefix &&
+            !insn.fs_prefix &&
+            !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            insn.has_modrm &&
             amd64_modrm_mod(insn.modrm) == 3) {
         switch (insn.opcode) {
         case 0x01:
@@ -1420,7 +1495,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                     insn.opcode == 0x8a ||
                     insn.opcode == 0x08 || insn.opcode == 0x20)
                 ? 8
-                : (insn.rex.w ? 64 : 32);
+                : (insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32));
             unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
             unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
             unsigned long packed = (unsigned long) insn.opcode |
@@ -1449,7 +1524,6 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     }
 
     if (!insn.two_byte_opcode &&
-            (!insn.operand_size_prefix || insn.opcode == 0x89) &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             amd64_modrm_mod(insn.modrm) != 3 &&

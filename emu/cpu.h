@@ -48,6 +48,12 @@ int amd64_jit_jcc_abs(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long cc, unsigned long target, unsigned long next_ip);
 int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip);
+int amd64_jit_rdtsc(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip);
+int amd64_jit_cpuid(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip);
+int amd64_jit_moffs_accum(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip);
 int amd64_jit_sign_extend(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip);
 int amd64_jit_string_op(struct cpu_state *cpu, struct tlb *tlb,

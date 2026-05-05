@@ -3247,17 +3247,20 @@ static inline void amd64_set_shift_flags(struct cpu_state *cpu, qword_t lhs, qwo
     if (count != 0) {
         switch (subop) {
         case 4:
-            cpu->cf = (lhs_masked >> (size - count)) & 1;
+            if (count <= size)
+                cpu->cf = (lhs_masked >> (size - count)) & 1;
             if (count == 1)
                 cpu->of = ((res_masked & sign) != 0) ^ cpu->cf;
             break;
         case 5:
-            cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            if (count <= size)
+                cpu->cf = (lhs_masked >> (count - 1)) & 1;
             if (count == 1)
                 cpu->of = (lhs_masked & sign) != 0;
             break;
         case 7:
-            cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            if (count <= size)
+                cpu->cf = (lhs_masked >> (count - 1)) & 1;
             if (count == 1)
                 cpu->of = 0;
             break;
@@ -3396,6 +3399,21 @@ static inline bool amd64_fetch_u32(struct cpu_state *cpu, struct tlb *tlb, uint3
 
 static inline bool amd64_fetch_u64(struct cpu_state *cpu, struct tlb *tlb, uint64_t *out) {
     return amd64_fetch(cpu, tlb, out, sizeof(*out));
+}
+
+static inline bool amd64_fetch_moffs_addr(struct cpu_state *cpu, struct tlb *tlb, qword_t *addr_out) {
+    if (cpu->amd64_address_size_prefix) {
+        uint32_t addr32;
+        if (!amd64_fetch_u32(cpu, tlb, &addr32))
+            return false;
+        *addr_out = addr32;
+    } else {
+        uint64_t addr64;
+        if (!amd64_fetch_u64(cpu, tlb, &addr64))
+            return false;
+        *addr_out = addr64;
+    }
+    return true;
 }
 
 static inline bool amd64_fetch_accum_imm(struct cpu_state *cpu, struct tlb *tlb,
@@ -3741,8 +3759,8 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
             int16_t dividend = (int16_t) amd64_reg_get(cpu, amd64_rax, 16);
             if (divisor == 0)
                 return INT_DIV;
-            int16_t quotient = dividend / divisor;
-            int16_t remainder = dividend % divisor;
+            int quotient = (int) dividend / (int) divisor;
+            int remainder = (int) dividend % (int) divisor;
             if (quotient < INT8_MIN || quotient > INT8_MAX)
                 return INT_DIV;
             amd64_reg_set_encoded8(cpu, 0, true, (uint8_t) quotient);
@@ -3755,8 +3773,8 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
                     (uint16_t) amd64_reg_get(cpu, amd64_rax, 16);
             if (divisor == 0)
                 return INT_DIV;
-            int32_t quotient = dividend / divisor;
-            int32_t remainder = dividend % divisor;
+            int64_t quotient = (int64_t) dividend / (int64_t) divisor;
+            int64_t remainder = (int64_t) dividend % (int64_t) divisor;
             if (quotient < INT16_MIN || quotient > INT16_MAX)
                 return INT_DIV;
             amd64_reg_set(cpu, amd64_rax, 16, (uint16_t) quotient);
@@ -3769,8 +3787,8 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
                     (uint32_t) amd64_reg_get(cpu, amd64_rax, 32);
             if (divisor == 0)
                 return INT_DIV;
-            int64_t quotient = dividend / divisor;
-            int64_t remainder = dividend % divisor;
+            __int128_t quotient = (__int128_t) dividend / (__int128_t) divisor;
+            __int128_t remainder = (__int128_t) dividend % (__int128_t) divisor;
             if (quotient < INT32_MIN || quotient > INT32_MAX)
                 return INT_DIV;
             amd64_reg_set(cpu, amd64_rax, 32, (uint32_t) quotient);
@@ -3782,6 +3800,8 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
             __int128_t dividend = ((__int128_t) (int64_t) amd64_reg_get(cpu, amd64_rdx, 64) << 64) |
                     (__uint128_t) amd64_reg_get(cpu, amd64_rax, 64);
             if (divisor == 0)
+                return INT_DIV;
+            if (divisor == -1 && (__uint128_t) dividend == ((__uint128_t) 1 << 127))
                 return INT_DIV;
             __int128_t quotient = dividend / divisor;
             __int128_t remainder = dividend % divisor;
@@ -5054,6 +5074,28 @@ restart_prefix:
     unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);
     (void) lock_prefix;
     switch (opcode) {
+    case 0xa0:
+    case 0xa1:
+    case 0xa2:
+    case 0xa3: {
+        qword_t addr;
+        qword_t value;
+        unsigned size = (opcode == 0xa0 || opcode == 0xa2) ? 8 : op_size;
+        if (!amd64_fetch_moffs_addr(cpu, tlb, &addr))
+            goto amd64_gpf_restore;
+        if (fs_prefix)
+            addr += cpu->tls_ptr;
+        if (opcode == 0xa0 || opcode == 0xa1) {
+            if (!amd64_mem_read(cpu, tlb, addr, &value, size / 8))
+                goto amd64_gpf_restore;
+            amd64_reg_set(cpu, amd64_rax, size, value);
+        } else {
+            value = amd64_reg_get(cpu, amd64_rax, size);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, size / 8))
+                goto amd64_gpf_restore;
+        }
+        break;
+    }
     case 0xa4:
         return amd64_string_op(cpu, tlb, saved_rip, opcode, 8, rep_mode);
     case 0xa5:
@@ -5221,7 +5263,9 @@ restart_prefix:
             if (count == 0)
                 break;
             if (count > op_size)
-                return INT_UNDEFINED;
+                count %= op_size;
+            if (count == 0)
+                break;
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
                 goto amd64_gpf_restore;
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
@@ -7658,6 +7702,14 @@ restart_prefix:
                 return INT_GPF;
             }
             amd64_reg_set(cpu, reg, 64, imm64);
+        } else if (operand_size_prefix) {
+            uint16_t imm16;
+            if (!amd64_fetch(cpu, tlb, &imm16, sizeof(imm16))) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            amd64_reg_set(cpu, reg, 16, imm16);
         } else {
             uint32_t imm32;
             if (!amd64_fetch_u32(cpu, tlb, &imm32)) {
@@ -8521,6 +8573,123 @@ int amd64_jit_syscall(struct cpu_state *cpu, struct tlb *tlb,
     return INT_AMD64_SYSCALL;
 }
 
+int amd64_jit_rdtsc(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip) {
+    guest_addr_t checked_next_ip;
+    qword_t tsc;
+    (void) tlb;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+    tsc = amd64_rdtsc_value();
+    amd64_reg_set(cpu, amd64_rax, 32, (dword_t) tsc);
+    amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (tsc >> 32));
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_cpuid(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip) {
+    guest_addr_t checked_next_ip;
+    dword_t eax;
+    dword_t ebx;
+    dword_t ecx;
+    dword_t edx;
+    (void) tlb;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+    eax = (dword_t) cpu->amd64_regs[amd64_rax];
+    ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
+    ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
+    edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+    do_cpuid(&eax, &ebx, &ecx, &edx);
+    cpu->amd64_regs[amd64_rax] = eax;
+    cpu->amd64_regs[amd64_rbx] = ebx;
+    cpu->amd64_regs[amd64_rcx] = ecx;
+    cpu->amd64_regs[amd64_rdx] = edx;
+    cpu->eax = eax;
+    cpu->ebx = ebx;
+    cpu->ecx = ecx;
+    cpu->edx = edx;
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+int amd64_jit_moffs_accum(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long opcode, unsigned long next_ip) {
+    qword_t saved_rip = cpu->amd64_rip;
+    guest_addr_t checked_next_ip;
+    struct amd64_rex_prefix rex = {0};
+    bool operand_size_prefix = false;
+    bool fs_prefix = false;
+    byte_t byte;
+    qword_t addr;
+    qword_t value;
+    unsigned size;
+
+    if (opcode < 0xa0 || opcode > 0xa3)
+        return INT_UNDEFINED;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+
+    cpu->amd64_address_size_prefix = false;
+    for (;;) {
+        if (!amd64_fetch_u8(cpu, tlb, &byte))
+            goto amd64_moffs_accum_pf;
+        if (amd64_ignored_segment_prefix(byte))
+            continue;
+        if (byte == 0x64) {
+            fs_prefix = true;
+            continue;
+        }
+        if (byte == 0x66) {
+            operand_size_prefix = true;
+            continue;
+        }
+        if (byte == 0x67) {
+            cpu->amd64_address_size_prefix = true;
+            continue;
+        }
+        if (byte >= 0x40 && byte <= 0x4f) {
+            rex.present = true;
+            rex.w = (byte & 8) != 0;
+            rex.r = (byte & 4) != 0;
+            rex.x = (byte & 2) != 0;
+            rex.b = (byte & 1) != 0;
+            continue;
+        }
+        break;
+    }
+    if (byte != opcode)
+        return INT_UNDEFINED;
+    if (!amd64_fetch_moffs_addr(cpu, tlb, &addr))
+        goto amd64_moffs_accum_pf;
+    if (fs_prefix)
+        addr += cpu->tls_ptr;
+
+    size = (opcode == 0xa0 || opcode == 0xa2) ? 8 :
+        (rex.w ? 64 : (operand_size_prefix ? 16 : 32));
+    if (opcode == 0xa0 || opcode == 0xa1) {
+        if (!amd64_mem_read(cpu, tlb, addr, &value, size / 8))
+            goto amd64_moffs_accum_pf;
+        amd64_reg_set(cpu, amd64_rax, size, value);
+    } else {
+        value = amd64_reg_get(cpu, amd64_rax, size);
+        if (!amd64_mem_write(cpu, tlb, addr, &value, size / 8))
+            goto amd64_moffs_accum_pf;
+    }
+
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_moffs_accum_pf:
+    cpu->amd64_rip = saved_rip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PF;
+}
+
 int amd64_jit_sign_extend(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long opcode, unsigned long next_ip) {
     qword_t saved_rip = cpu->amd64_rip;
@@ -8665,7 +8834,7 @@ int amd64_jit_mov_imm(struct cpu_state *cpu, struct tlb *tlb,
     unsigned size = (reg_size >> 8) & 0xff;
     bool rex_present = (reg_size & (1ul << 16)) != 0;
     (void) tlb;
-    if (reg >= amd64_reg_count || (size != 8 && size != 32 && size != 64))
+    if (reg >= amd64_reg_count || (size != 8 && size != 16 && size != 32 && size != 64))
         return INT_GPF;
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip)) {
         printk("[amd64-jit] bad-mov-imm-next from=%#llx reg=%u size=%u next=%#llx\n",
@@ -8838,7 +9007,7 @@ int amd64_jit_reg_reg_op(struct cpu_state *cpu, struct tlb *tlb,
 
     (void) tlb;
     if (reg >= amd64_reg_count || rm >= amd64_reg_count ||
-            (size != 8 && size != 32 && size != 64))
+            (size != 8 && size != 16 && size != 32 && size != 64))
         return INT_GPF;
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip)) {
         printk("[amd64-jit] bad-reg-reg-next from=%#llx opcode=%#x reg=%u rm=%u size=%u next=%#llx\n",
@@ -9791,7 +9960,9 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
         }
         if (count != 0) {
             if (count > op_size)
-                return INT_UNDEFINED;
+                count %= op_size;
+            if (count == 0)
+                goto amd64_0f_rm_done;
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &lhs))
                 goto amd64_0f_rm_pf;
             rhs = amd64_reg_get(cpu, modrm.reg, op_size);
@@ -9808,6 +9979,7 @@ int amd64_jit_0f_rm(struct cpu_state *cpu, struct tlb *tlb,
                 amd64_set_double_shift_flags(cpu, lhs, result, op_size, count, false);
             }
         }
+amd64_0f_rm_done:
         cpu->amd64_rip = (qword_t) next_ip;
         amd64_sync_legacy_regs(cpu);
         return INT_NONE;
@@ -10039,7 +10211,8 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
     qword_t src_scalar;
 
     if (op2 != 0x10 && op2 != 0x11 && op2 != 0x12 && op2 != 0x16 && op2 != 0x28 &&
-            op2 != 0x29 && op2 != 0x6c && op2 != 0x6e &&
+            op2 != 0x29 && !(op2 >= 0x54 && op2 <= 0x57) &&
+            op2 != 0x6c && op2 != 0x6e &&
             op2 != 0x6f && op2 != 0xef)
         return INT_UNDEFINED;
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
@@ -10205,6 +10378,31 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 goto amd64_0f_vec_rm_pf;
             value = cpu->xmm[modrm.reg];
             value.qw[1] = src_xmm.qw[0];
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 >= 0x54 && op2 <= 0x57) {
+            if (rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            switch (op2) {
+            case 0x54:
+                value.qw[0] &= src_xmm.qw[0];
+                value.qw[1] &= src_xmm.qw[1];
+                break;
+            case 0x55:
+                value.qw[0] = ~value.qw[0] & src_xmm.qw[0];
+                value.qw[1] = ~value.qw[1] & src_xmm.qw[1];
+                break;
+            case 0x56:
+                value.qw[0] |= src_xmm.qw[0];
+                value.qw[1] |= src_xmm.qw[1];
+                break;
+            case 0x57:
+                value.qw[0] ^= src_xmm.qw[0];
+                value.qw[1] ^= src_xmm.qw[1];
+                break;
+            }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0xef) {
             if (!operand_size_prefix)
