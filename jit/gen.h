@@ -15,8 +15,9 @@ struct gen_state {
     bool amd64_fallback_to_interp;
     bool amd64_abort_block_to_interp;
     guest_addr_t amd64_fallback_ip;
-    bool amd64_compat_legacy_exec;
-    uint16_t amd64_low_reg_write_mask;
+    uint8_t amd64_fallback_opcode;
+    uint8_t amd64_fallback_op2;
+    uint8_t amd64_fallback_flags;
     struct jit_block *block;
     unsigned size;
     unsigned capacity;

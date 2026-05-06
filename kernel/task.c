@@ -327,7 +327,19 @@ void task_run_current(void) {
     while (true) {
         read_lock(&save->mem->lock);
 
+        qword_t amd64_rip_before = cpu->amd64_rip;
         int interrupt = cpu_run_to_interrupt(cpu, &tlb);
+        if (save->abi == GUEST_ABI_AMD64 && strcmp(save->comm, "apk") == 0 &&
+                (amd64_rip_before == 0 || cpu->amd64_rip == 0)) {
+            printk("[amd64-jit] task loop apk int=%d rip=%#llx->%#llx eip=%#x rsp=%#llx rax=%#llx rcx=%#llx\n",
+                   interrupt,
+                   (unsigned long long) amd64_rip_before,
+                   (unsigned long long) cpu->amd64_rip,
+                   cpu->eip,
+                   (unsigned long long) cpu->amd64_regs[amd64_rsp],
+                   (unsigned long long) cpu->amd64_regs[amd64_rax],
+                   (unsigned long long) cpu->amd64_regs[amd64_rcx]);
+        }
 
         read_unlock(&save->mem->lock);
  

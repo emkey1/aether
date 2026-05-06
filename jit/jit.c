@@ -18,6 +18,10 @@
 
 extern int current_pid(struct task *task);
 static atomic_bool amd64_jit_enabled = false;
+static atomic_ulong amd64_jit_compile_attempts;
+static atomic_ulong amd64_jit_compile_successes;
+static atomic_ulong amd64_jit_compile_fallbacks;
+static atomic_ulong amd64_jit_compile_fallback_by_key[512];
 static pthread_mutex_t i386_single_step_comm_lock = PTHREAD_MUTEX_INITIALIZER;
 static char i386_single_step_comm[16] = "";
 static pthread_mutex_t i386_no_cache_comm_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -44,6 +48,38 @@ static void amd64_jit_debug(const char *fmt, ...) {
     vfprintf(stderr, fmt, args);
     fputc('\n', stderr);
     va_end(args);
+}
+
+static void amd64_jit_note_compile_attempt(void) {
+    atomic_fetch_add_explicit(&amd64_jit_compile_attempts, 1, memory_order_relaxed);
+}
+
+static void amd64_jit_note_compile_success(void) {
+    atomic_fetch_add_explicit(&amd64_jit_compile_successes, 1, memory_order_relaxed);
+}
+
+static void amd64_jit_note_compile_fallback(const struct gen_state *state, guest_addr_t ip) {
+    unsigned key = (state->amd64_fallback_flags & 0x01)
+        ? 0x100u | state->amd64_fallback_op2
+        : state->amd64_fallback_opcode;
+    unsigned long total = atomic_fetch_add_explicit(&amd64_jit_compile_fallbacks, 1,
+            memory_order_relaxed) + 1;
+    unsigned long key_total = atomic_fetch_add_explicit(&amd64_jit_compile_fallback_by_key[key], 1,
+            memory_order_relaxed) + 1;
+
+    if (total <= 32 || (total & (total - 1)) == 0) {
+        printk("[amd64-jit] fallback total=%lu op=%s%02x flags=%#x count=%lu ip=%#llx fallback_ip=%#llx attempts=%lu success=%lu comm=%s\n",
+               total,
+               (state->amd64_fallback_flags & 0x01) ? "0f" : "",
+               (state->amd64_fallback_flags & 0x01) ? state->amd64_fallback_op2 : state->amd64_fallback_opcode,
+               state->amd64_fallback_flags,
+               key_total,
+               (unsigned long long) ip,
+               (unsigned long long) state->amd64_fallback_ip,
+               atomic_load_explicit(&amd64_jit_compile_attempts, memory_order_relaxed),
+               atomic_load_explicit(&amd64_jit_compile_successes, memory_order_relaxed),
+               current != NULL ? current->comm : "?");
+    }
 }
 
 bool amd64_jit_is_enabled(void) {
@@ -376,6 +412,8 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         amd64_jit_debug("compile ip=%llx comm=%s abi=%d", (unsigned long long) ip,
                 current != NULL ? current->comm : "(null)",
                 current != NULL ? current->abi : -1);
+    if (amd64)
+        amd64_jit_note_compile_attempt();
 
     if (fallback_to_interp != NULL)
         *fallback_to_interp = false;
@@ -402,11 +440,11 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         }
     }
 
-    if (amd64 && (state.amd64_abort_block_to_interp ||
-            (state.amd64_fallback_to_interp && state.size == 0))) {
+    if (amd64 && (state.amd64_abort_block_to_interp || state.amd64_fallback_to_interp)) {
         amd64_jit_debug("compile fallback ip=%llx fallback_ip=%llx",
                 (unsigned long long) ip,
                 (unsigned long long) state.amd64_fallback_ip);
+        amd64_jit_note_compile_fallback(&state, ip);
         free(state.block);
         if (fallback_to_interp != NULL)
             *fallback_to_interp = true;
@@ -415,10 +453,10 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
 
     gen_end(&state);
     if (amd64) {
-        amd64_jit_debug("compile block ip=%llx end=%llx compat=%d size=%zu",
+        amd64_jit_note_compile_success();
+        amd64_jit_debug("compile block ip=%llx end=%llx size=%zu",
                 (unsigned long long) ip,
                 (unsigned long long) state.block->end_addr,
-                state.block->amd64_compat_legacy_exec,
                 state.size);
     }
     if (amd64)
@@ -477,65 +515,6 @@ int jit_enter(struct jit_block *block, struct jit_frame *frame, struct tlb *tlb)
 
 static inline size_t jit_cache_hash(guest_addr_t ip) {
     return (ip ^ (ip >> 12)) % JIT_CACHE_SIZE;
-}
-
-static void amd64_seed_legacy_exec_state(struct cpu_state *cpu) {
-    cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
-    cpu->ecx = (dword_t) cpu->amd64_regs[amd64_rcx];
-    cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
-    cpu->ebx = (dword_t) cpu->amd64_regs[amd64_rbx];
-    cpu->esp = (dword_t) cpu->amd64_regs[amd64_rsp];
-    cpu->ebp = (dword_t) cpu->amd64_regs[amd64_rbp];
-    cpu->esi = (dword_t) cpu->amd64_regs[amd64_rsi];
-    cpu->edi = (dword_t) cpu->amd64_regs[amd64_rdi];
-    cpu->eip = (dword_t) cpu->amd64_rip;
-}
-
-static void amd64_commit_legacy_exec_state(struct cpu_state *cpu, uint16_t reg_write_mask) {
-    if (reg_write_mask & (1u << amd64_rax))
-        cpu->amd64_regs[amd64_rax] = cpu->eax;
-    if (reg_write_mask & (1u << amd64_rcx))
-        cpu->amd64_regs[amd64_rcx] = cpu->ecx;
-    if (reg_write_mask & (1u << amd64_rdx))
-        cpu->amd64_regs[amd64_rdx] = cpu->edx;
-    if (reg_write_mask & (1u << amd64_rbx))
-        cpu->amd64_regs[amd64_rbx] = cpu->ebx;
-    if (reg_write_mask & (1u << amd64_rsp))
-        cpu->amd64_regs[amd64_rsp] = cpu->esp;
-    if (reg_write_mask & (1u << amd64_rbp))
-        cpu->amd64_regs[amd64_rbp] = cpu->ebp;
-    if (reg_write_mask & (1u << amd64_rsi))
-        cpu->amd64_regs[amd64_rsi] = cpu->esi;
-    if (reg_write_mask & (1u << amd64_rdi))
-        cpu->amd64_regs[amd64_rdi] = cpu->edi;
-    cpu->amd64_rip = cpu->eip;
-}
-
-static void amd64_merge_legacy_exec_result(struct cpu_state *dst, const struct cpu_state *src) {
-    dst->cycle = src->cycle;
-    dst->segfault_addr = src->segfault_addr;
-    dst->segfault_was_write = src->segfault_was_write;
-    dst->trapno = src->trapno;
-    dst->_poked = src->_poked;
-
-    dst->eax = src->eax;
-    dst->ecx = src->ecx;
-    dst->edx = src->edx;
-    dst->ebx = src->ebx;
-    dst->esp = src->esp;
-    dst->ebp = src->ebp;
-    dst->esi = src->esi;
-    dst->edi = src->edi;
-    dst->eip = src->eip;
-
-    dst->eflags = src->eflags;
-    dst->df_offset = src->df_offset;
-    dst->cf = src->cf;
-    dst->of = src->of;
-    dst->res = src->res;
-    dst->op1 = src->op1;
-    dst->op2 = src->op2;
-    dst->flags_res = src->flags_res;
 }
 
 static inline bool cpu_take_poke(struct cpu_state *cpu) {
@@ -905,11 +884,10 @@ static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
 
 static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
-    enum { AMD64_FRONTEND_TIMER_BLOCK_QUANTUM = 1 << 16 };
+    enum { AMD64_FRONTEND_TIMER_BLOCK_QUANTUM = 16 };
     struct jit_block *cache[JIT_CACHE_SIZE] = {};
     struct jit_frame frame_storage = {};
     struct jit_frame *frame = &frame_storage;
-    struct cpu_state merged_cpu;
     int interrupt;
     bool fallback_to_interp;
     guest_addr_t ip;
@@ -937,6 +915,15 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     if (sigsetjmp(jit_crash_unwind_buf, 1) != 0) {
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
+        if (current != NULL && strcmp(current->comm, "apk") == 0) {
+            printk("[amd64-jit] crash unwind apk crash_addr=%#llx frame-rip=%#llx cpu-rip=%#llx eip=%#x rsp=%#llx int=%d\n",
+                   (unsigned long long) jit_crash_addr,
+                   jit_crash_frame != NULL ? (unsigned long long) jit_crash_frame->cpu.amd64_rip : 0,
+                   jit_crash_cpu != NULL ? (unsigned long long) jit_crash_cpu->amd64_rip : 0,
+                   jit_crash_cpu != NULL ? jit_crash_cpu->eip : 0,
+                   jit_crash_cpu != NULL ? (unsigned long long) jit_crash_cpu->amd64_regs[amd64_rsp] : 0,
+                   jit_crash_interrupt);
+        }
         cpu->segfault_addr = jit_crash_addr;
         cpu->segfault_was_write = false;
         jit_crash_unwind_active = false;
@@ -966,6 +953,8 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
             if (block == NULL) {
                 jit_crash_track_mutex_unlock(&jit->lock);
                 jit_crash_lock = NULL;
+                frame->last_block = NULL;
+                memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
                 pthread_rwlock_unlock(&jit->jetsam_lock.l);
 
                 block = jit_block_compile_amd64(ip, tlb, &fallback_to_interp);
@@ -995,71 +984,74 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
             cache[cache_index] = block;
             jit_crash_track_mutex_unlock(&jit->lock);
         }
-        if (!block->amd64_compat_legacy_exec) {
-            amd64_jit_debug("frontend exec block ip=%llx end=%llx",
-                    (unsigned long long) ip,
-                    (unsigned long long) block->end_addr);
-            amd64_jit_debug("frontend block slots 0=%lx 1=%lx 2=%lx 3=%lx helper=%lx",
-                    block->used > 0 ? block->code[0] : 0,
-                    block->used > 1 ? block->code[1] : 0,
-                    block->used > 2 ? block->code[2] : 0,
-                    block->used > 3 ? block->code[3] : 0,
-                    (unsigned long) amd64_step_to_interrupt_jit);
-            amd64_jit_bridge_set_tlb(tlb);
-            interrupt = jit_enter(block, frame, tlb);
-            amd64_jit_bridge_set_tlb(NULL);
-            amd64_jit_debug("frontend post block rip=%llx rsp=%llx trap=%x int=%d",
-                    (unsigned long long) frame->cpu.amd64_rip,
-                    (unsigned long long) frame->cpu.amd64_regs[amd64_rsp],
-                    frame->cpu.trapno,
-                    interrupt);
-            *cpu = frame->cpu;
-            cpu->eip = (dword_t) cpu->amd64_rip;
+        if (block->used == 0 || __atomic_load_n(&block->code[0], __ATOMIC_RELAXED) == 0) {
+            printk("[amd64-jit] frontend null-code comm=%s pid=%d block=%#llx end=%#llx used=%zu\n",
+                   current != NULL ? current->comm : "?",
+                   current != NULL ? current->pid : -1,
+                   (unsigned long long) block->addr,
+                   (unsigned long long) block->end_addr,
+                   block->used);
+            jit_crash_track_mutex_lock(&jit->lock);
+            if (!block->is_jetsam) {
+                jit_block_disconnect(jit, block);
+                block->is_jetsam = true;
+                list_add(&jit->jetsam, &block->jetsam);
+            }
+            cache[cache_index] = NULL;
+            jit_crash_track_mutex_unlock(&jit->lock);
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
-            if (interrupt != INT_NONE) {
-                ret = interrupt;
-                break;
-            }
-            if (cpu_take_poke(cpu)) {
-                ret = INT_TIMER;
-                break;
-            }
-            if (++blocks_executed >= AMD64_FRONTEND_TIMER_BLOCK_QUANTUM) {
-                ret = INT_TIMER;
-                break;
-            }
-            frame->cpu = *cpu;
-            continue;
+            *cpu = frame->cpu;
+            ret = cpu_run_to_interrupt_amd64(cpu, tlb);
+            break;
         }
-
-        frame->last_block = block;
-        amd64_seed_legacy_exec_state(&frame->cpu);
+        amd64_jit_debug("frontend exec block ip=%llx end=%llx",
+                (unsigned long long) ip,
+                (unsigned long long) block->end_addr);
+        amd64_jit_debug("frontend block slots 0=%lx 1=%lx 2=%lx 3=%lx helper=%lx",
+                block->used > 0 ? block->code[0] : 0,
+                block->used > 1 ? block->code[1] : 0,
+                block->used > 2 ? block->code[2] : 0,
+                block->used > 3 ? block->code[3] : 0,
+                (unsigned long) amd64_step_to_interrupt_jit);
+        amd64_jit_bridge_set_tlb(tlb);
         interrupt = jit_enter(block, frame, tlb);
-        merged_cpu = *cpu;
-        amd64_merge_legacy_exec_result(&merged_cpu, &frame->cpu);
-        amd64_commit_legacy_exec_state(&merged_cpu, block->amd64_low_reg_write_mask);
-        if (interrupt == INT_NONE) {
-            merged_cpu.amd64_rip = block->end_addr + 1;
-            merged_cpu.eip = (dword_t) merged_cpu.amd64_rip;
+        amd64_jit_bridge_set_tlb(NULL);
+        if (ip != 0 && frame->cpu.amd64_rip == 0) {
+            printk("[amd64-jit] frontend zero-rip comm=%s pid=%d block=%#llx end=%#llx rsp=%#llx int=%d slots=%lx %lx %lx %lx\n",
+                   current != NULL ? current->comm : "?",
+                   current != NULL ? current->pid : -1,
+                   (unsigned long long) block->addr,
+                   (unsigned long long) block->end_addr,
+                   (unsigned long long) frame->cpu.amd64_regs[amd64_rsp],
+                   interrupt,
+                   block->used > 0 ? block->code[0] : 0,
+                   block->used > 1 ? block->code[1] : 0,
+                   block->used > 2 ? block->code[2] : 0,
+                   block->used > 3 ? block->code[3] : 0);
         }
-        *cpu = merged_cpu;
+        amd64_jit_debug("frontend post block rip=%llx rsp=%llx trap=%x int=%d",
+                (unsigned long long) frame->cpu.amd64_rip,
+                (unsigned long long) frame->cpu.amd64_regs[amd64_rsp],
+                frame->cpu.trapno,
+                interrupt);
+        frame->cpu.eip = (dword_t) frame->cpu.amd64_rip;
         frame->last_block = NULL;
-        memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
-
         if (interrupt != INT_NONE) {
+            *cpu = frame->cpu;
             ret = interrupt;
             break;
         }
         if (cpu_take_poke(cpu)) {
+            *cpu = frame->cpu;
             ret = INT_TIMER;
             break;
         }
         if (++blocks_executed >= AMD64_FRONTEND_TIMER_BLOCK_QUANTUM) {
+            *cpu = frame->cpu;
             ret = INT_TIMER;
             break;
         }
-        frame->cpu = *cpu;
     }
     jit_crash_lock = NULL;
     jit_crash_mutex_lock = NULL;
@@ -1078,6 +1070,13 @@ static int cpu_single_step_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     if (current != NULL && current->abi == GUEST_ABI_AMD64) {
+        if (cpu->amd64_rip == 0 && strcmp(current->comm, "apk") == 0) {
+            printk("[amd64-jit] run entry apk rip=0 eip=%#x rsp=%#llx rax=%#llx rcx=%#llx\n",
+                   cpu->eip,
+                   (unsigned long long) cpu->amd64_regs[amd64_rsp],
+                   (unsigned long long) cpu->amd64_regs[amd64_rax],
+                   (unsigned long long) cpu->amd64_regs[amd64_rcx]);
+        }
         if (!amd64_jit_is_enabled())
             return cpu_run_to_interrupt_amd64(cpu, tlb);
         if (strcmp(current->comm, "as") == 0)

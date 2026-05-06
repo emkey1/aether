@@ -2714,6 +2714,7 @@ static void amd64_syscall_seed_legacy_regs(struct cpu_state *cpu) {
 }
 
 static void handle_amd64_syscall_interrupt(struct cpu_state *cpu) {
+    qword_t rip_before = cpu->amd64_rip;
     if (current->abi != GUEST_ABI_AMD64) {
         printk("ERROR: %d(%s) amd64 syscall instruction in non-amd64 task at 0x%x\n",
                current->pid, current->comm, cpu->eip);
@@ -2727,6 +2728,15 @@ static void handle_amd64_syscall_interrupt(struct cpu_state *cpu) {
 
     amd64_syscall_seed_legacy_regs(cpu);
     handle_syscall_interrupt(cpu);
+    if (rip_before != 0 && cpu->amd64_rip == 0) {
+        printk("[amd64-jit] syscall zero-rip comm=%s pid=%d before=%#llx nr=%#llx rax=%#llx rsp=%#llx\n",
+               current != NULL ? current->comm : "?",
+               current != NULL ? current->pid : -1,
+               (unsigned long long) rip_before,
+               (unsigned long long) cpu->amd64_syscall.rax,
+               (unsigned long long) cpu->amd64_regs[amd64_rax],
+               (unsigned long long) cpu->amd64_regs[amd64_rsp]);
+    }
 }
 
 void handle_syscall_interrupt(struct cpu_state *cpu) {

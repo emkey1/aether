@@ -57,8 +57,6 @@ struct jit_block {
     guest_addr_t addr;
     guest_addr_t end_addr;
     size_t used;
-    bool amd64_compat_legacy_exec;
-    uint16_t amd64_low_reg_write_mask;
 
     // pointers to the ip values in the last gadget
     unsigned long *jump_ip[2];
