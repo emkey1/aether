@@ -41,6 +41,7 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 @property (weak, nonatomic) IBOutlet UITableViewCell *initialWindowCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *diagnosticsCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
+@property (weak, nonatomic) IBOutlet UISwitch *enableExperimentalAmd64JitSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
 @property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
@@ -233,6 +234,7 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 - (void)_updateUI {
     NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
+    self.enableExperimentalAmd64JitSwitch.on = UserPreferences.shared.shouldEnableExperimentalAmd64Jit;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
     self.initialWindowCell.textLabel.text = @"Startup Mode";
@@ -373,6 +375,10 @@ UIViewController *ISHCreateDiagnosticsViewController(void) {
 
 - (IBAction)disableDimmingChanged:(id)sender {
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
+}
+
+- (IBAction)enableExperimentalAmd64JitChanged:(id)sender {
+    UserPreferences.shared.shouldEnableExperimentalAmd64Jit = self.enableExperimentalAmd64JitSwitch.on;
 }
 
 - (IBAction)enableMulticoreChanged:(id)sender {

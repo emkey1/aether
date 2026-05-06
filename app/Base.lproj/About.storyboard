@@ -26,7 +26,7 @@
                             <nil key="highlightedColor"/>
                         </label>
                         <sections>
-                            <tableViewSection footerTitle="When this option is enabled, the screen will not dim when iSH-AOK is in the foreground." id="tuR-Og-SE8">
+                            <tableViewSection footerTitle="Keep Screen Turned On prevents dimming while iSH-AOK is foregrounded. amd64 JIT is experimental and can be toggled here before starting x86_64 workloads." id="tuR-Og-SE8">
                                 <cells>
                                     <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" accessoryType="disclosureIndicator" indentationWidth="10" textLabel="1Co-nG-Sij" style="IBUITableViewCellStyleDefault" id="dqn-Cd-cNm" userLabel="Theme">
                                         <rect key="frame" x="0.0" y="18" width="320" height="43.5"/>
@@ -138,6 +138,35 @@
                                                 <constraint firstItem="cPj-sQ-qsh" firstAttribute="centerY" secondItem="6Sy-Y9-UdH" secondAttribute="centerY" id="eCa-AP-AqQ"/>
                                                 <constraint firstAttribute="trailingMargin" secondItem="cPj-sQ-qsh" secondAttribute="trailing" id="jaj-Bb-Tg1"/>
                                                 <constraint firstItem="Iov-xn-a0L" firstAttribute="centerY" secondItem="6Sy-Y9-UdH" secondAttribute="centerY" id="sI8-H8-9M6"/>
+                                            </constraints>
+                                        </tableViewCellContentView>
+                                    </tableViewCell>
+                                    <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="none" indentationWidth="10" id="A64-JI-TCe" userLabel="amd64 JIT">
+                                        <rect key="frame" x="0.0" y="235.5" width="320" height="43.5"/>
+                                        <autoresizingMask key="autoresizingMask"/>
+                                        <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="A64-JI-TCe" id="A64-JI-Con">
+                                            <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <label opaque="NO" multipleTouchEnabled="YES" contentMode="left" insetsLayoutMarginsFromSafeArea="NO" text="amd64 JIT" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="A64-JI-Lab">
+                                                    <rect key="frame" x="16" y="11.5" width="75" height="21"/>
+                                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                    <nil key="textColor"/>
+                                                    <nil key="highlightedColor"/>
+                                                </label>
+                                                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="A64-JI-Swi">
+                                                    <rect key="frame" x="255" y="6.5" width="51" height="31"/>
+                                                    <connections>
+                                                        <action selector="enableExperimentalAmd64JitChanged:" destination="yJz-O7-jlW" eventType="valueChanged" id="A64-JI-Act"/>
+                                                    </connections>
+                                                </switch>
+                                            </subviews>
+                                            <constraints>
+                                                <constraint firstItem="A64-JI-Swi" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="A64-JI-Lab" secondAttribute="trailing" constant="8" symbolic="YES" id="A64-JI-C1"/>
+                                                <constraint firstItem="A64-JI-Lab" firstAttribute="leading" secondItem="A64-JI-Con" secondAttribute="leadingMargin" id="A64-JI-C2"/>
+                                                <constraint firstItem="A64-JI-Swi" firstAttribute="centerY" secondItem="A64-JI-Con" secondAttribute="centerY" id="A64-JI-C3"/>
+                                                <constraint firstAttribute="trailingMargin" secondItem="A64-JI-Swi" secondAttribute="trailing" id="A64-JI-C4"/>
+                                                <constraint firstItem="A64-JI-Lab" firstAttribute="centerY" secondItem="A64-JI-Con" secondAttribute="centerY" id="A64-JI-C5"/>
                                             </constraints>
                                         </tableViewCellContentView>
                                     </tableViewCell>
@@ -397,6 +426,7 @@
                             <outlet property="capsLockMappingCell" destination="31N-0g-RhF" id="UjF-21-3df"/>
                             <outlet property="diagnosticsCell" destination="QYd-Ux-B9j" id="R7m-cB-CVC"/>
                             <outlet property="disableDimmingSwitch" destination="cPj-sQ-qsh" id="Kjp-xA-A0Y"/>
+                            <outlet property="enableExperimentalAmd64JitSwitch" destination="A64-JI-Swi" id="A64-JI-Out"/>
                             <outlet property="exportContainerCell" destination="OIE-9g-Btx" id="qxo-l5-0Mq"/>
                             <outlet property="initialWindowCell" destination="Qz7-Xf-6fk" id="ef3-px-VI0"/>
                             <outlet property="launchCommandField" destination="gDx-hv-hhV" id="RQn-gk-Dx8"/>

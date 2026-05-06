@@ -82,18 +82,55 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x10:
         case 0x1f:
         case 0x11:
+        case 0x12:
+        case 0x13:
+        case 0x14:
+        case 0x15:
         case 0x16:
+        case 0x17:
+        case 0x2a:
+        case 0x2c:
+        case 0x2e:
+        case 0x2f:
         case 0x28:
         case 0x29:
+        case 0x50:
         case 0x54:
         case 0x55:
         case 0x56:
         case 0x57:
+        case 0x58:
+        case 0x59:
+        case 0x5a:
+        case 0x5c:
+        case 0x5d:
+        case 0x5e:
+        case 0x5f:
+        case 0x60:
+        case 0x61:
+        case 0x62:
+        case 0x63:
+        case 0x64:
+        case 0x65:
+        case 0x66:
+        case 0x67:
+        case 0x68:
+        case 0x69:
+        case 0x6a:
+        case 0x6b:
         case 0x6c:
+        case 0x6d:
         case 0x6e:
         case 0x6f:
         case 0x70:
+        case 0x71:
+        case 0x72:
+        case 0x73:
+        case 0x74:
+        case 0x75:
+        case 0x76:
         case 0x7e:
+        case 0x7f:
         case 0x40 ... 0x4f:
         case 0x90 ... 0x9f:
         case 0xa3:
@@ -116,7 +153,52 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0xbb:
         case 0xc0:
         case 0xc1:
+        case 0xc2:
+        case 0xc4:
+        case 0xc5:
+        case 0xc6:
+        case 0xd1:
+        case 0xd2:
+        case 0xd3:
+        case 0xd4:
+        case 0xd5:
+        case 0xd6:
+        case 0xd7:
+        case 0xd8:
+        case 0xd9:
+        case 0xda:
+        case 0xdb:
+        case 0xdc:
+        case 0xdd:
+        case 0xde:
+        case 0xdf:
+        case 0xe0:
+        case 0xe1:
+        case 0xe2:
+        case 0xe3:
+        case 0xe4:
+        case 0xe5:
+        case 0xe7:
+        case 0xe8:
+        case 0xe9:
+        case 0xea:
+        case 0xeb:
+        case 0xec:
+        case 0xed:
+        case 0xee:
         case 0xef:
+        case 0xf1:
+        case 0xf2:
+        case 0xf3:
+        case 0xf4:
+        case 0xf6:
+        case 0xf8:
+        case 0xf9:
+        case 0xfa:
+        case 0xfb:
+        case 0xfc:
+        case 0xfd:
+        case 0xfe:
             return true;
         default:
             return false;
@@ -958,26 +1040,109 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
 
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
             (insn.op2 == 0x10 ||
+             insn.op2 == 0x2a ||
+             insn.op2 == 0x2c ||
+             insn.op2 == 0x2e ||
+             insn.op2 == 0x2f ||
              insn.op2 == 0x11 ||
+             insn.op2 == 0x12 ||
+             insn.op2 == 0x13 ||
+             insn.op2 == 0x14 ||
+             insn.op2 == 0x15 ||
              insn.op2 == 0x16 ||
+             insn.op2 == 0x17 ||
              insn.op2 == 0x28 ||
              insn.op2 == 0x29 ||
+             insn.op2 == 0x50 ||
              insn.op2 == 0x54 ||
              insn.op2 == 0x55 ||
              insn.op2 == 0x56 ||
              insn.op2 == 0x57 ||
+             insn.op2 == 0x58 ||
+             insn.op2 == 0x59 ||
+             insn.op2 == 0x5a ||
+             insn.op2 == 0x5c ||
+             insn.op2 == 0x5d ||
+             insn.op2 == 0x5e ||
+             insn.op2 == 0x5f ||
+             insn.op2 == 0x60 ||
+             insn.op2 == 0x61 ||
+             insn.op2 == 0x62 ||
+             insn.op2 == 0x63 ||
+             insn.op2 == 0x64 ||
+             insn.op2 == 0x65 ||
+             insn.op2 == 0x66 ||
+             insn.op2 == 0x67 ||
+             insn.op2 == 0x68 ||
+             insn.op2 == 0x69 ||
+             insn.op2 == 0x6a ||
+             insn.op2 == 0x6b ||
              insn.op2 == 0x6c ||
+             insn.op2 == 0x6d ||
              insn.op2 == 0x6e ||
              insn.op2 == 0x6f ||
              insn.op2 == 0x70 ||
+             ((insn.op2 == 0x71 || insn.op2 == 0x72 || insn.op2 == 0x73) &&
+              insn.operand_size_prefix) ||
+             insn.op2 == 0x74 ||
+             insn.op2 == 0x75 ||
+             insn.op2 == 0x76 ||
              insn.op2 == 0x7e ||
+             insn.op2 == 0x7f ||
+             insn.op2 == 0xc2 ||
+             insn.op2 == 0xc4 ||
+             insn.op2 == 0xc5 ||
+             insn.op2 == 0xc6 ||
+             insn.op2 == 0xd1 ||
+             insn.op2 == 0xd2 ||
+             insn.op2 == 0xd3 ||
+             insn.op2 == 0xd4 ||
+             insn.op2 == 0xd5 ||
+             insn.op2 == 0xd6 ||
+             insn.op2 == 0xd7 ||
+             insn.op2 == 0xd8 ||
+             insn.op2 == 0xd9 ||
+             insn.op2 == 0xda ||
+             insn.op2 == 0xdb ||
+             insn.op2 == 0xdc ||
+             insn.op2 == 0xdd ||
+             insn.op2 == 0xde ||
+             insn.op2 == 0xdf ||
+             insn.op2 == 0xe0 ||
+             insn.op2 == 0xe1 ||
+             insn.op2 == 0xe2 ||
+             insn.op2 == 0xe3 ||
+             insn.op2 == 0xe4 ||
+             insn.op2 == 0xe5 ||
+             insn.op2 == 0xe7 ||
+             insn.op2 == 0xe8 ||
+             insn.op2 == 0xe9 ||
+             insn.op2 == 0xea ||
+             insn.op2 == 0xeb ||
+             insn.op2 == 0xec ||
+             insn.op2 == 0xed ||
+             insn.op2 == 0xee ||
+             insn.op2 == 0xf1 ||
+             insn.op2 == 0xf2 ||
+             insn.op2 == 0xf3 ||
+             insn.op2 == 0xf4 ||
+             insn.op2 == 0xf6 ||
+             insn.op2 == 0xf8 ||
+             insn.op2 == 0xf9 ||
+             insn.op2 == 0xfa ||
+             insn.op2 == 0xfb ||
+             insn.op2 == 0xfc ||
+             insn.op2 == 0xfd ||
+             insn.op2 == 0xfe ||
              insn.op2 == 0xef)) {
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
             state->amd64_fallback_to_interp = true;
             return false;
         }
-        if (insn.op2 == 0x70)
+        if (insn.op2 == 0x70 || insn.op2 == 0x71 || insn.op2 == 0x72 ||
+                insn.op2 == 0x73 || insn.op2 == 0xc2 || insn.op2 == 0xc4 ||
+                insn.op2 == 0xc5 || insn.op2 == 0xc6)
             next_ip += sizeof(uint8_t);
         state->amd64_ip = next_ip;
         amd64_jit_debug("0f-vec-rm-helper ip=%llx op2=%02x next=%llx",
@@ -1035,54 +1200,6 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long) insn.opcode, (unsigned long) next_ip);
         gen_exit(state);
         return false;
-    }
-
-    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
-            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
-            (insn.opcode == 0x80 || insn.opcode == 0x81 ||
-             insn.opcode == 0x83 || insn.opcode == 0xc0 ||
-             insn.opcode == 0xc1 || insn.opcode == 0xc6 ||
-             insn.opcode == 0xc7)) {
-        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
-            state->amd64_ip = state->amd64_orig_ip;
-            state->amd64_fallback_to_interp = true;
-            return false;
-        }
-        if (insn.opcode == 0x80 || insn.opcode == 0x83 ||
-                insn.opcode == 0xc0 || insn.opcode == 0xc6) {
-            next_ip += sizeof(int8_t);
-        } else if (insn.opcode == 0x81 || insn.opcode == 0xc7) {
-            next_ip += insn.operand_size_prefix ? sizeof(int16_t) : sizeof(int32_t);
-        } else if (insn.opcode == 0xc1) {
-            next_ip += sizeof(int8_t);
-        }
-        state->amd64_ip = next_ip;
-        amd64_jit_debug("modrm-imm-helper ip=%llx opcode=%02x next=%llx",
-                (unsigned long long) insn.start_ip,
-                insn.opcode,
-                (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_modrm_imm,
-                (unsigned long) insn.opcode, (unsigned long) next_ip);
-        return true;
-    }
-
-    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
-            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
-            (insn.opcode == 0xd0 || insn.opcode == 0xd1 ||
-             insn.opcode == 0xd2 || insn.opcode == 0xd3)) {
-        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
-            state->amd64_ip = state->amd64_orig_ip;
-            state->amd64_fallback_to_interp = true;
-            return false;
-        }
-        state->amd64_ip = next_ip;
-        amd64_jit_debug("shift-helper ip=%llx opcode=%02x next=%llx",
-                (unsigned long long) insn.start_ip,
-                insn.opcode,
-                (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_shift,
-                (unsigned long) insn.opcode, (unsigned long) next_ip);
-        return true;
     }
 
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&

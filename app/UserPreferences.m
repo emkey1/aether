@@ -214,6 +214,7 @@ bool (*remove_user_default)(const char *name);
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
+            @"enable_experimental_amd64_jit": kPreferenceEnableExperimentalAmd64JitKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"cursor_style": kPreferenceCursorStyleKey,
@@ -240,6 +241,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
+            kPreferenceEnableExperimentalAmd64JitKey: property(shouldEnableExperimentalAmd64Jit),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceCursorStyleKey: property(cursorStyle),
@@ -446,6 +448,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldDisableDimming:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: shouldEnableExperimentalAmd64Jit
+- (BOOL)shouldEnableExperimentalAmd64Jit {
+    return [_defaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey];
+}
+
+- (void)setShouldEnableExperimentalAmd64Jit:(BOOL)enabled {
+    amd64_jit_preference_set(enabled);
+}
+
+- (BOOL)validateShouldEnableExperimentalAmd64Jit:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

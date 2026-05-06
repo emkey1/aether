@@ -57,6 +57,7 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL shouldDisableDimming;
 @property BOOL shouldEnableMulticore;
 @property BOOL shouldEnableExtraLocking;
+@property BOOL shouldEnableExperimentalAmd64Jit;
 @property (null_resettable) NSString *fontFamily;
 @property (readonly) NSString *fontFamilyUserFacingName;
 @property (readonly) UIFont *approximateFont;

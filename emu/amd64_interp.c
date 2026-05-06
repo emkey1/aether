@@ -10343,13 +10343,42 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
     enum amd64_rep_mode rep_mode = AMD64_REP_NONE;
     byte_t byte;
     union xmm_reg value, src_xmm;
+    union mm_reg value_mm, src_mm;
     qword_t src_scalar;
     uint8_t imm8;
 
-    if (op2 != 0x10 && op2 != 0x11 && op2 != 0x12 && op2 != 0x16 && op2 != 0x28 &&
-            op2 != 0x29 && !(op2 >= 0x54 && op2 <= 0x57) &&
-            op2 != 0x6c && op2 != 0x6e &&
-            op2 != 0x6f && op2 != 0x70 && op2 != 0x7e && op2 != 0xef)
+    if (op2 != 0x10 && op2 != 0x11 && op2 != 0x12 && op2 != 0x13 &&
+            op2 != 0x14 && op2 != 0x15 && op2 != 0x16 && op2 != 0x17 &&
+            op2 != 0x2a && op2 != 0x2c && op2 != 0x2e && op2 != 0x2f &&
+            op2 != 0x28 &&
+            op2 != 0x29 && op2 != 0x50 && !(op2 >= 0x54 && op2 <= 0x5a) &&
+            !(op2 >= 0x5c && op2 <= 0x5f) &&
+            !(op2 >= 0x60 && op2 <= 0x62) &&
+            op2 != 0x63 &&
+            !(op2 >= 0x64 && op2 <= 0x66) &&
+            op2 != 0x67 &&
+            !(op2 >= 0x68 && op2 <= 0x6a) &&
+            op2 != 0x6b &&
+            op2 != 0x6c && op2 != 0x6d && op2 != 0x6e &&
+            op2 != 0x6f && op2 != 0x70 && !(op2 >= 0x71 && op2 <= 0x73) &&
+            !(op2 >= 0x74 && op2 <= 0x76) &&
+            op2 != 0x7e && op2 != 0x7f &&
+            op2 != 0xc2 &&
+            op2 != 0xc4 && op2 != 0xc5 &&
+            op2 != 0xc6 &&
+            !(op2 >= 0xd1 && op2 <= 0xd3) &&
+            op2 != 0xd4 && op2 != 0xd5 && op2 != 0xd6 && op2 != 0xd7 &&
+            !(op2 >= 0xd8 && op2 <= 0xe0) &&
+            op2 != 0xe1 && op2 != 0xe2 &&
+            !(op2 >= 0xe3 && op2 <= 0xe5) &&
+            op2 != 0xe7 &&
+            !(op2 >= 0xe8 && op2 <= 0xee) &&
+            op2 != 0xdb && op2 != 0xeb &&
+            !(op2 >= 0xf1 && op2 <= 0xf3) &&
+            op2 != 0xf4 &&
+            op2 != 0xf6 &&
+            !(op2 >= 0xf8 && op2 <= 0xfe) &&
+            op2 != 0xef)
         return INT_UNDEFINED;
     if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
         return INT_GPF;
@@ -10394,7 +10423,9 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
         return INT_UNDEFINED;
     if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
         goto amd64_0f_vec_rm_pf;
-    if (op2 == 0x70 && !amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
+    if ((op2 == 0x70 || (op2 >= 0x71 && op2 <= 0x73) || op2 == 0xc2 ||
+                op2 == 0xc4 || op2 == 0xc5 || op2 == 0xc6) &&
+            !amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
         goto amd64_0f_vec_rm_pf;
     cpu->amd64_rip = (qword_t) next_ip;
 
@@ -10418,7 +10449,34 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             cpu->mm[modrm.reg].qw = rex.w ? src_scalar : (uint32_t) src_scalar;
         }
     } else {
-        if ((modrm.reg >= AMD64_XMM_COUNT) ||
+        bool pshufw = op2 == 0x70 && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool movq_mm_load = op2 == 0x6f && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool movq_mm_store = op2 == 0x7f && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool movnt_mm_store = op2 == 0xe7 && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool pmovmskb_mm = op2 == 0xd7 && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool pcmpeq_mm = op2 >= 0x74 && op2 <= 0x76 && !operand_size_prefix &&
+            rep_mode == AMD64_REP_NONE;
+        bool pcmpgt_mm = op2 >= 0x64 && op2 <= 0x66 && !operand_size_prefix &&
+            rep_mode == AMD64_REP_NONE;
+        bool punpckldq_mm = op2 == 0x62 && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool logic_mm = (op2 == 0xdb || op2 == 0xeb || op2 == 0xef) &&
+            !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool packed_int = op2 == 0xd4 || (op2 >= 0xf8 && op2 <= 0xfe);
+        bool packed_int_mm = packed_int && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool packed_shift = (op2 >= 0xd1 && op2 <= 0xd3) || op2 == 0xe1 || op2 == 0xe2 ||
+            (op2 >= 0xf1 && op2 <= 0xf3);
+        bool packed_shift_mm = packed_shift && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool packed_imm_shift = op2 >= 0x71 && op2 <= 0x73;
+        bool packed_mul = op2 == 0xd5 || op2 == 0xf4;
+        bool packed_mul_mm = packed_mul && !operand_size_prefix && rep_mode == AMD64_REP_NONE;
+        bool packed_xmm_misc = (op2 >= 0xd8 && op2 <= 0xe0) ||
+            (op2 >= 0xe3 && op2 <= 0xe5) || (op2 >= 0xe8 && op2 <= 0xee);
+        bool pack_xmm = op2 == 0x63 || op2 == 0x67 || op2 == 0x6b;
+        if (pshufw || movq_mm_load || movq_mm_store || movnt_mm_store || pcmpeq_mm || pcmpgt_mm ||
+                punpckldq_mm || logic_mm || packed_int_mm || packed_shift_mm || packed_mul_mm) {
+            if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                return INT_UNDEFINED;
+        } else if ((modrm.reg >= AMD64_XMM_COUNT) ||
                 (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT &&
                  !(op2 == 0x7e && !operand_size_prefix && rep_mode == AMD64_REP_NONE)))
             return INT_UNDEFINED;
@@ -10454,6 +10512,245 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     goto amd64_0f_vec_rm_pf;
                 cpu->xmm[modrm.reg] = value;
             }
+        } else if (op2 == 0x2a) {
+            if (operand_size_prefix ||
+                    (rep_mode != AMD64_REPZ && rep_mode != AMD64_REPNZ))
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, &src_scalar))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPNZ) {
+                value.f64[0] = rex.w ? (double) (sqword_t) src_scalar
+                                     : (double) (int32_t) src_scalar;
+            } else {
+                value.f32[0] = rex.w ? (float) (sqword_t) src_scalar
+                                     : (float) (int32_t) src_scalar;
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x2c) {
+            qword_t result;
+            if (operand_size_prefix ||
+                    (rep_mode != AMD64_REPZ && rep_mode != AMD64_REPNZ))
+                return INT_UNDEFINED;
+            if (rep_mode == AMD64_REPNZ) {
+                double src_double;
+                if (modrm.is_reg) {
+                    src_double = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_double = *(double *) &src_scalar;
+                }
+                result = amd64_cvtt_scalar_to_int(src_double, rex.w);
+            } else {
+                float src_float;
+                uint32_t src_word;
+                if (modrm.is_reg) {
+                    src_float = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_word = (uint32_t) src_scalar;
+                    src_float = *(float *) &src_word;
+                }
+                result = amd64_cvtt_scalar_to_int((double) src_float, rex.w);
+            }
+            amd64_reg_set(cpu, modrm.reg, rex.w ? 64 : 32, result);
+        } else if (op2 == 0x2e || op2 == 0x2f) {
+            if (rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (operand_size_prefix) {
+                double lhs = cpu->xmm[modrm.reg].f64[0];
+                double rhs;
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    rhs = *(double *) &src_scalar;
+                }
+                amd64_set_fp_compare_flags(cpu, lhs < rhs ? -1 : (lhs > rhs ? 1 : 0),
+                        isnan(lhs) || isnan(rhs));
+            } else {
+                float lhs = cpu->xmm[modrm.reg].f32[0];
+                float rhs;
+                uint32_t src_word;
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_word = (uint32_t) src_scalar;
+                    rhs = *(float *) &src_word;
+                }
+                amd64_set_fp_compare_flags(cpu, lhs < rhs ? -1 : (lhs > rhs ? 1 : 0),
+                        isnan(lhs) || isnan(rhs));
+            }
+        } else if (op2 == 0x50) {
+            uint32_t mask = 0;
+            if (rep_mode != AMD64_REP_NONE || !modrm.is_reg || modrm.rm >= AMD64_XMM_COUNT)
+                return INT_UNDEFINED;
+            src_xmm = cpu->xmm[modrm.rm];
+            if (operand_size_prefix) {
+                mask = ((src_xmm.qw[0] >> 63) & 1u) |
+                    (((src_xmm.qw[1] >> 63) & 1u) << 1);
+            } else {
+                for (int i = 0; i < 4; i++)
+                    mask |= ((src_xmm.u32[i] >> 31) & 1u) << i;
+            }
+            amd64_reg_set(cpu, modrm.reg, 32, mask);
+        } else if (op2 == 0x5a) {
+            if (operand_size_prefix ||
+                    (rep_mode != AMD64_REPZ && rep_mode != AMD64_REPNZ))
+                return INT_UNDEFINED;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPNZ) {
+                double src_double;
+                if (modrm.is_reg) {
+                    src_double = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_double = *(double *) &src_scalar;
+                }
+                value.f32[0] = (float) src_double;
+            } else {
+                float src_float;
+                uint32_t src_word;
+                if (modrm.is_reg) {
+                    src_float = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_word = (uint32_t) src_scalar;
+                    src_float = *(float *) &src_word;
+                }
+                value.f64[0] = (double) src_float;
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d ||
+                op2 == 0x5e || op2 == 0x5f) {
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ) {
+                float lhs, rhs;
+                uint32_t src_word;
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                lhs = value.f32[0];
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_word = (uint32_t) src_scalar;
+                    rhs = *(float *) &src_word;
+                }
+                switch (op2) {
+                case 0x58:
+                    value.f32[0] = lhs + rhs;
+                    break;
+                case 0x59:
+                    value.f32[0] = lhs * rhs;
+                    break;
+                case 0x5c:
+                    value.f32[0] = lhs - rhs;
+                    break;
+                case 0x5d:
+                    value.f32[0] = lhs < rhs ? lhs : rhs;
+                    break;
+                case 0x5e:
+                    value.f32[0] = lhs / rhs;
+                    break;
+                case 0x5f:
+                    value.f32[0] = lhs > rhs ? lhs : rhs;
+                    break;
+                }
+            } else if (rep_mode == AMD64_REPNZ) {
+                double lhs, rhs;
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                lhs = value.f64[0];
+                if (modrm.is_reg) {
+                    rhs = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    rhs = *(double *) &src_scalar;
+                }
+                switch (op2) {
+                case 0x58:
+                    value.f64[0] = lhs + rhs;
+                    break;
+                case 0x59:
+                    value.f64[0] = lhs * rhs;
+                    break;
+                case 0x5c:
+                    value.f64[0] = lhs - rhs;
+                    break;
+                case 0x5d:
+                    value.f64[0] = lhs < rhs ? lhs : rhs;
+                    break;
+                case 0x5e:
+                    value.f64[0] = lhs / rhs;
+                    break;
+                case 0x5f:
+                    value.f64[0] = lhs > rhs ? lhs : rhs;
+                    break;
+                }
+            } else {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                if (operand_size_prefix) {
+                    switch (op2) {
+                    case 0x58:
+                        vec_add_p64(NULL, &src_xmm, &value);
+                        break;
+                    case 0x59:
+                        vec_mul_p64(NULL, &src_xmm, &value);
+                        break;
+                    case 0x5c:
+                        vec_sub_p64(NULL, &src_xmm, &value);
+                        break;
+                    case 0x5d:
+                        value.f64[0] = value.f64[0] < src_xmm.f64[0] ? value.f64[0] : src_xmm.f64[0];
+                        value.f64[1] = value.f64[1] < src_xmm.f64[1] ? value.f64[1] : src_xmm.f64[1];
+                        break;
+                    case 0x5e:
+                        value.f64[0] /= src_xmm.f64[0];
+                        value.f64[1] /= src_xmm.f64[1];
+                        break;
+                    case 0x5f:
+                        value.f64[0] = value.f64[0] > src_xmm.f64[0] ? value.f64[0] : src_xmm.f64[0];
+                        value.f64[1] = value.f64[1] > src_xmm.f64[1] ? value.f64[1] : src_xmm.f64[1];
+                        break;
+                    }
+                } else {
+                    switch (op2) {
+                    case 0x58:
+                        vec_add_p32(NULL, &src_xmm, &value);
+                        break;
+                    case 0x59:
+                        vec_mul_p32(NULL, &src_xmm, &value);
+                        break;
+                    case 0x5c:
+                        vec_sub_p32(NULL, &src_xmm, &value);
+                        break;
+                    case 0x5d:
+                        for (int i = 0; i < 4; i++)
+                            value.f32[i] = value.f32[i] < src_xmm.f32[i] ? value.f32[i] : src_xmm.f32[i];
+                        break;
+                    case 0x5e:
+                        for (int i = 0; i < 4; i++)
+                            value.f32[i] /= src_xmm.f32[i];
+                        break;
+                    case 0x5f:
+                        for (int i = 0; i < 4; i++)
+                            value.f32[i] = value.f32[i] > src_xmm.f32[i] ? value.f32[i] : src_xmm.f32[i];
+                        break;
+                    }
+                }
+            }
+            cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x12) {
             if (rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
@@ -10468,6 +10765,24 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 value.qw[0] = src_scalar;
             }
             cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x13) {
+            if (operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
+                return INT_UNDEFINED;
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
+                goto amd64_0f_vec_rm_pf;
+        } else if (op2 == 0x14 || op2 == 0x15) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            if (op2 == 0x14) {
+                value.qw[1] = src_xmm.qw[0];
+            } else {
+                value.qw[0] = value.qw[1];
+                value.qw[1] = src_xmm.qw[1];
+            }
+            cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x16) {
             if (operand_size_prefix && modrm.is_reg)
                 return INT_UNDEFINED;
@@ -10480,6 +10795,11 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 value.qw[1] = src_scalar;
             }
             cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x17) {
+            if (operand_size_prefix || modrm.is_reg)
+                return INT_UNDEFINED;
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[1]))
+                goto amd64_0f_vec_rm_pf;
         } else if (op2 == 0x11 || op2 == 0x29) {
             if (op2 == 0x11 && rep_mode == AMD64_REPZ) {
                 if (operand_size_prefix)
@@ -10505,19 +10825,627 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     goto amd64_0f_vec_rm_pf;
             }
         } else if (op2 == 0x6f) {
-            if (!(operand_size_prefix || rep_mode == AMD64_REPZ))
+            if (operand_size_prefix || rep_mode == AMD64_REPZ) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_0f_vec_rm_pf;
+                cpu->xmm[modrm.reg] = value;
+            } else if (movq_mm_load) {
+                if (modrm.is_reg) {
+                    cpu->mm[modrm.reg] = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    cpu->mm[modrm.reg].qw = src_scalar;
+                }
+            } else {
                 return INT_UNDEFINED;
-            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
-                goto amd64_0f_vec_rm_pf;
-            cpu->xmm[modrm.reg] = value;
+            }
         } else if (op2 == 0x70) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = src_xmm;
+                vec_shuffle_d128(NULL, &src_xmm, &value, imm8);
+                cpu->xmm[modrm.reg] = value;
+            } else if (!operand_size_prefix && rep_mode == AMD64_REPNZ) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = src_xmm;
+                vec_shuffle_lw128(NULL, &src_xmm, &value, imm8);
+                cpu->xmm[modrm.reg] = value;
+            } else if (!operand_size_prefix && rep_mode == AMD64_REPZ) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = src_xmm;
+                vec_shuffle_hw128(NULL, &src_xmm, &value, imm8);
+                cpu->xmm[modrm.reg] = value;
+            } else if (pshufw) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = src_mm;
+                vec_shuffle_w64(NULL, &src_mm, &value_mm, imm8);
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (pack_xmm) {
             if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                 goto amd64_0f_vec_rm_pf;
-            value = src_xmm;
-            vec_shuffle_d128(NULL, &src_xmm, &value, imm8);
+            value = cpu->xmm[modrm.reg];
+            if (op2 == 0x63)
+                vec_packss_w128(NULL, &src_xmm, &value);
+            else if (op2 == 0x67)
+                vec_packsu_w128(NULL, &src_xmm, &value);
+            else
+                vec_packss_d128(NULL, &src_xmm, &value);
             cpu->xmm[modrm.reg] = value;
+        } else if (op2 >= 0x74 && op2 <= 0x76) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0x74:
+                    vec_compare_eqb128(NULL, &src_xmm, &value);
+                    break;
+                case 0x75:
+                    vec_compare_eqw128(NULL, &src_xmm, &value);
+                    break;
+                case 0x76:
+                    vec_compare_eqd128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (pcmpeq_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                switch (op2) {
+                case 0x74:
+                    vec_compare_eqb64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0x75:
+                    vec_compare_eqw64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0x76:
+                    vec_compare_eqd64(NULL, &src_mm, &value_mm);
+                    break;
+                }
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (op2 >= 0x64 && op2 <= 0x66) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0x64:
+                    vec_compares_gtb128(NULL, &src_xmm, &value);
+                    break;
+                case 0x65:
+                    vec_compares_gtw128(NULL, &src_xmm, &value);
+                    break;
+                case 0x66:
+                    vec_compares_gtd128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (pcmpgt_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                switch (op2) {
+                case 0x64:
+                    vec_compares_gtb64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0x65:
+                    vec_compares_gtw64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0x66:
+                    vec_compares_gtd64(NULL, &src_mm, &value_mm);
+                    break;
+                }
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if ((op2 >= 0x60 && op2 <= 0x62) || (op2 >= 0x68 && op2 <= 0x6a)) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0x60:
+                    vec_unpackl_bw128(NULL, &src_xmm, &value);
+                    break;
+                case 0x61:
+                    vec_unpackl_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0x62:
+                    vec_unpackl_dq128(NULL, &src_xmm, &value);
+                    break;
+                case 0x68:
+                    vec_unpackh_bw128(NULL, &src_xmm, &value);
+                    break;
+                case 0x69:
+                    vec_unpackh_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0x6a:
+                    vec_unpackh_d128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (punpckldq_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                vec_unpackl_dq64(NULL, &src_mm, &value_mm);
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (packed_int) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0xd4:
+                    vec_add_q128(NULL, &src_xmm, &value);
+                    break;
+                case 0xf8:
+                    vec_sub_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xf9:
+                    vec_sub_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xfa:
+                    vec_sub_d128(NULL, &src_xmm, &value);
+                    break;
+                case 0xfb:
+                    vec_sub_q128(NULL, &src_xmm, &value);
+                    break;
+                case 0xfc:
+                    vec_add_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xfd:
+                    vec_add_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xfe:
+                    vec_add_d128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (packed_int_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                switch (op2) {
+                case 0xd4:
+                    vec_add_q64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xf8:
+                    vec_sub_b64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xf9:
+                    vec_sub_w64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xfa:
+                    vec_sub_d64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xfb:
+                    vec_sub_q64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xfc:
+                    vec_add_b64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xfd:
+                    vec_add_w64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xfe:
+                    vec_add_d64(NULL, &src_mm, &value_mm);
+                    break;
+                }
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (packed_imm_shift) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE || !modrm.is_reg ||
+                    modrm.rm >= AMD64_XMM_COUNT)
+                return INT_UNDEFINED;
+            value = cpu->xmm[modrm.rm];
+            if (op2 == 0x71) {
+                switch (modrm.reg) {
+                case 2:
+                    vec_imm_shiftr_w128(NULL, imm8, &value);
+                    break;
+                case 4:
+                    vec_imm_shiftrs_w128(NULL, imm8, &value);
+                    break;
+                case 6:
+                    vec_imm_shiftl_w128(NULL, imm8, &value);
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
+            } else if (op2 == 0x72) {
+                switch (modrm.reg) {
+                case 2:
+                    vec_imm_shiftr_d128(NULL, imm8, &value);
+                    break;
+                case 4:
+                    vec_imm_shiftrs_d128(NULL, imm8, &value);
+                    break;
+                case 6:
+                    vec_imm_shiftl_d128(NULL, imm8, &value);
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
+            } else {
+                switch (modrm.reg) {
+                case 2:
+                    vec_imm_shiftr_q128(NULL, imm8, &value);
+                    break;
+                case 3:
+                    vec_imm_shiftr_dq128(NULL, imm8, &value);
+                    break;
+                case 6:
+                    vec_imm_shiftl_q128(NULL, imm8, &value);
+                    break;
+                case 7:
+                    vec_imm_shiftl_dq128(NULL, imm8, &value);
+                    break;
+                default:
+                    return INT_UNDEFINED;
+                }
+            }
+            cpu->xmm[modrm.rm] = value;
+        } else if (packed_shift) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0xd1:
+                    vec_shiftr_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xd2:
+                    vec_shiftr_d128(NULL, &src_xmm, &value);
+                    break;
+                case 0xd3:
+                    vec_shiftr_q128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe1:
+                    vec_shiftrs_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe2:
+                    vec_shiftrs_d128(NULL, &src_xmm, &value);
+                    break;
+                case 0xf1:
+                    vec_shiftl_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xf2:
+                    vec_shiftl_d128(NULL, &src_xmm, &value);
+                    break;
+                case 0xf3:
+                    vec_shiftl_q128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            } else if (packed_shift_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                switch (op2) {
+                case 0xd1:
+                    vec_shiftr_w64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xd2:
+                    vec_shiftr_d64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xd3:
+                    vec_shiftr_q64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xe1:
+                    vec_shiftrs_w64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xe2:
+                    vec_shiftrs_d64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xf1:
+                    vec_shiftl_w64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xf2:
+                    vec_shiftl_d64(NULL, &src_mm, &value_mm);
+                    break;
+                case 0xf3:
+                    vec_shiftl_q64(NULL, &src_mm, &value_mm);
+                    break;
+                }
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (packed_mul) {
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                if (op2 == 0xd5)
+                    vec_mull128(NULL, &src_xmm, &value);
+                else
+                    vec_mulu_dq128(NULL, &src_xmm, &value);
+                cpu->xmm[modrm.reg] = value;
+            } else if (packed_mul_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                if (op2 == 0xd5)
+                    vec_mull64(NULL, &src_mm, &value_mm);
+                else
+                    vec_mulu_dq64(NULL, &src_mm, &value_mm);
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (op2 == 0xf6) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            vec_sumabs_w128(NULL, &src_xmm, &value);
+            cpu->xmm[modrm.reg] = value;
+        } else if (packed_xmm_misc) {
+            if (!operand_size_prefix && rep_mode == AMD64_REP_NONE &&
+                    (op2 == 0xdb || op2 == 0xe5 || op2 == 0xeb)) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                value_mm = cpu->mm[modrm.reg];
+                if (op2 == 0xdb)
+                    vec_and_q64(NULL, &src_mm, &value_mm);
+                else if (op2 == 0xe5)
+                    vec_mulu64(NULL, &src_mm, &value_mm);
+                else
+                    vec_or_q64(NULL, &src_mm, &value_mm);
+                cpu->mm[modrm.reg] = value_mm;
+            } else {
+                if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                switch (op2) {
+                case 0xd8:
+                    vec_subus_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xd9:
+                    vec_subus_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xda:
+                    vec_min_ub128(NULL, &src_xmm, &value);
+                    break;
+                case 0xdb:
+                    vec_and_dq128(NULL, &src_xmm, &value);
+                    break;
+                case 0xdc:
+                    vec_addus_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xdd:
+                    vec_addus_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xde:
+                    vec_max_ub128(NULL, &src_xmm, &value);
+                    break;
+                case 0xdf:
+                    vec_andn128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe0:
+                    vec_avg_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe3:
+                    vec_avg_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe4:
+                    vec_muluu128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe5:
+                    vec_mulu128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe8:
+                    vec_subss_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xe9:
+                    vec_subss_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xea:
+                    vec_mins_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xeb:
+                    vec_or_dq128(NULL, &src_xmm, &value);
+                    break;
+                case 0xec:
+                    vec_addss_b128(NULL, &src_xmm, &value);
+                    break;
+                case 0xed:
+                    vec_addss_w128(NULL, &src_xmm, &value);
+                    break;
+                case 0xee:
+                    vec_maxs_w128(NULL, &src_xmm, &value);
+                    break;
+                }
+                cpu->xmm[modrm.reg] = value;
+            }
+        } else if (op2 == 0xc2) {
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            imm8 &= 7;
+            if (rep_mode == AMD64_REPNZ) {
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                vec_single_fcmp64(NULL, &src_xmm.f64[0], &value, imm8);
+            } else if (rep_mode == AMD64_REPZ) {
+                if (operand_size_prefix)
+                    return INT_UNDEFINED;
+                vec_single_fcmp32(NULL, &src_xmm.f32[0], &value, imm8);
+            } else if (operand_size_prefix) {
+                vec_fcmp_p64(NULL, &src_xmm, &value, imm8);
+            } else {
+                for (int i = 0; i < 4; i++) {
+                    float lhs = value.f32[i];
+                    float rhs = src_xmm.f32[i];
+                    switch (imm8) {
+                    case 0:
+                        value.u32[i] = lhs == rhs ? 0xffffffffu : 0;
+                        break;
+                    case 1:
+                        value.u32[i] = lhs < rhs ? 0xffffffffu : 0;
+                        break;
+                    case 2:
+                        value.u32[i] = lhs <= rhs ? 0xffffffffu : 0;
+                        break;
+                    case 3:
+                        value.u32[i] = isnan(lhs) || isnan(rhs) ? 0xffffffffu : 0;
+                        break;
+                    case 4:
+                        value.u32[i] = lhs != rhs ? 0xffffffffu : 0;
+                        break;
+                    case 5:
+                        value.u32[i] = !(lhs < rhs) ? 0xffffffffu : 0;
+                        break;
+                    case 6:
+                        value.u32[i] = !(lhs <= rhs) ? 0xffffffffu : 0;
+                        break;
+                    case 7:
+                        value.u32[i] = !(isnan(lhs) || isnan(rhs)) ? 0xffffffffu : 0;
+                        break;
+                    }
+                }
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xc4) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 16, &src_scalar))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            value.u16[imm8 & 7] = (uint16_t) src_scalar;
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xc5) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            amd64_reg_set(cpu, modrm.reg, 32, src_xmm.u16[imm8 & 7]);
+        } else if (op2 == 0xd7) {
+            uint32_t mask = 0;
+            if (rep_mode != AMD64_REP_NONE || !modrm.is_reg)
+                return INT_UNDEFINED;
+            if (operand_size_prefix) {
+                if (modrm.rm >= AMD64_XMM_COUNT)
+                    return INT_UNDEFINED;
+                src_xmm = cpu->xmm[modrm.rm];
+                for (int i = 0; i < 16; i++)
+                    mask |= ((src_xmm.u8[i] >> 7) & 1u) << i;
+            } else if (pmovmskb_mm) {
+                src_mm = cpu->mm[modrm.rm];
+                for (int i = 0; i < 8; i++)
+                    mask |= ((src_mm.qw >> (i * 8 + 7)) & 1u) << i;
+            } else {
+                return INT_UNDEFINED;
+            }
+            amd64_reg_set(cpu, modrm.reg, 32, mask);
+        } else if (op2 == 0xc6) {
+            if (rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            if (operand_size_prefix)
+                vec_shuffle_pd128(NULL, &src_xmm, &value, imm8);
+            else
+                vec_shuffle_ps128(NULL, &src_xmm, &value, imm8);
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xd6) {
+            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
+                return INT_UNDEFINED;
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
+                goto amd64_0f_vec_rm_pf;
+        } else if (op2 == 0xe7) {
+            if (rep_mode != AMD64_REP_NONE || modrm.is_reg)
+                return INT_UNDEFINED;
+            if (operand_size_prefix) {
+                value = cpu->xmm[modrm.reg];
+                if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_0f_vec_rm_pf;
+            } else if (movnt_mm_store) {
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->mm[modrm.reg].qw))
+                    goto amd64_0f_vec_rm_pf;
+            } else {
+                return INT_UNDEFINED;
+            }
+        } else if (op2 == 0x7f) {
+            if (operand_size_prefix || rep_mode == AMD64_REPZ) {
+                value = cpu->xmm[modrm.reg];
+                if (!amd64_write_xmm_rm(cpu, tlb, &modrm, fs_prefix, &value))
+                    goto amd64_0f_vec_rm_pf;
+            } else if (movq_mm_store) {
+                if (modrm.is_reg) {
+                    cpu->mm[modrm.rm] = cpu->mm[modrm.reg];
+                } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64,
+                            cpu->mm[modrm.reg].qw)) {
+                    goto amd64_0f_vec_rm_pf;
+                }
+            } else {
+                return INT_UNDEFINED;
+            }
         } else if (op2 == 0x7e) {
             if (rep_mode == AMD64_REPZ && !operand_size_prefix) {
                 value.u128 = 0;
@@ -10542,14 +11470,33 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             } else {
                 return INT_UNDEFINED;
             }
-        } else if (op2 == 0x6c) {
+        } else if (op2 == 0x6c || op2 == 0x6d) {
             if (!operand_size_prefix)
                 return INT_UNDEFINED;
             if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                 goto amd64_0f_vec_rm_pf;
             value = cpu->xmm[modrm.reg];
-            value.qw[1] = src_xmm.qw[0];
+            if (op2 == 0x6c) {
+                value.qw[1] = src_xmm.qw[0];
+            } else {
+                value.qw[0] = value.qw[1];
+                value.qw[1] = src_xmm.qw[1];
+            }
             cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xdb || op2 == 0xeb) {
+            if (!logic_mm)
+                return INT_UNDEFINED;
+            if (modrm.is_reg) {
+                src_mm = cpu->mm[modrm.rm];
+            } else {
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                    goto amd64_0f_vec_rm_pf;
+                src_mm.qw = src_scalar;
+            }
+            if (op2 == 0xdb)
+                cpu->mm[modrm.reg].qw &= src_mm.qw;
+            else
+                cpu->mm[modrm.reg].qw |= src_mm.qw;
         } else if (op2 >= 0x54 && op2 <= 0x57) {
             if (rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
@@ -10576,14 +11523,25 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0xef) {
-            if (!operand_size_prefix)
+            if (operand_size_prefix) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                value = cpu->xmm[modrm.reg];
+                value.qw[0] ^= src_xmm.qw[0];
+                value.qw[1] ^= src_xmm.qw[1];
+                cpu->xmm[modrm.reg] = value;
+            } else if (logic_mm) {
+                if (modrm.is_reg) {
+                    src_mm = cpu->mm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_mm.qw = src_scalar;
+                }
+                cpu->mm[modrm.reg].qw ^= src_mm.qw;
+            } else {
                 return INT_UNDEFINED;
-            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
-                goto amd64_0f_vec_rm_pf;
-            value = cpu->xmm[modrm.reg];
-            value.qw[0] ^= src_xmm.qw[0];
-            value.qw[1] ^= src_xmm.qw[1];
-            cpu->xmm[modrm.reg] = value;
+            }
         }
     }
     cpu->amd64_rip = (qword_t) next_ip;
