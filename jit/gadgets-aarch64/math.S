@@ -13,6 +13,378 @@
     strh _tmp, [_cpu, #CPU_gs]
     gret
 
+.gadget amd64_set_rip
+    ldr x8, [_ip]
+    str x8, [_cpu, CPU_amd64_rip]
+    str w8, [_cpu, CPU_eip]
+    gret 1
+
+.gadget amd64_mov64_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_amd64_regs
+    ldr x12, [x11, x9, lsl 3]
+    str x12, [x11, x10, lsl 3]
+    gret 1
+
+.gadget amd64_mov32_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_amd64_regs
+    add x13, x11, x9, lsl 3
+    ldr w12, [x13]
+    str x12, [x11, x10, lsl 3]
+    gret 1
+
+.gadget amd64_mov16_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_amd64_regs
+    add x13, x11, x9, lsl 3
+    ldrh w12, [x13]
+    add x13, x11, x10, lsl 3
+    strh w12, [x13]
+    gret 1
+
+.gadget amd64_mov8_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_amd64_regs
+    add x13, x11, x9, lsl 3
+    ldrb w12, [x13]
+    add x13, x11, x10, lsl 3
+    strb w12, [x13]
+    gret 1
+
+.gadget amd64_mov_imm_reg
+    ldr x8, [_ip]
+    ldr x9, [_ip, 8]
+    and x10, x8, 0xf
+    ubfx x11, x8, 4, 7
+    add x12, _cpu, CPU_amd64_regs
+    add x12, x12, x10, lsl 3
+    cmp x11, 64
+    b.eq 1f
+    cmp x11, 32
+    b.eq 2f
+    ldr x13, [x12]
+    bfi x13, x9, 0, 16
+    str x13, [x12]
+    gret 2
+1:
+    str x9, [x12]
+    gret 2
+2:
+    str x9, [x12]
+    gret 2
+
+.gadget amd64_mov_imm8_reg
+    ldr x8, [_ip]
+    ldr x9, [_ip, 8]
+    and x10, x8, 0xf
+    add x11, _cpu, CPU_amd64_regs
+    add x11, x11, x10, lsl 3
+    strb w9, [x11]
+    gret 2
+
+.gadget amd64_xchg_rax_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 7
+    add x11, _cpu, CPU_amd64_regs
+    ldr x12, [x11]
+    ldr x13, [x11, x9, lsl 3]
+    cmp x10, 64
+    b.eq 1f
+    cmp x10, 32
+    b.eq 2f
+    strh w13, [x11]
+    add x14, x11, x9, lsl 3
+    strh w12, [x14]
+    gret 1
+1:
+    str x13, [x11]
+    str x12, [x11, x9, lsl 3]
+    gret 1
+2:
+    mov w12, w12
+    mov w13, w13
+    str x13, [x11]
+    str x12, [x11, x9, lsl 3]
+    gret 1
+
+.gadget amd64_xchg_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    ubfx x11, x8, 8, 7
+    add x12, _cpu, CPU_amd64_regs
+    add x13, x12, x9, lsl 3
+    add x14, x12, x10, lsl 3
+    cmp x11, 64
+    b.eq 1f
+    cmp x11, 32
+    b.eq 2f
+    cmp x11, 16
+    b.eq 3f
+    ldrb w15, [x13]
+    ldrb w16, [x14]
+    strb w16, [x13]
+    strb w15, [x14]
+    gret 1
+1:
+    ldr x15, [x13]
+    ldr x16, [x14]
+    str x16, [x13]
+    str x15, [x14]
+    gret 1
+2:
+    ldr w15, [x13]
+    ldr w16, [x14]
+    str x16, [x13]
+    str x15, [x14]
+    gret 1
+3:
+    ldrh w15, [x13]
+    ldrh w16, [x14]
+    strh w16, [x13]
+    strh w15, [x14]
+    gret 1
+
+.gadget amd64_sign_extend
+    ldr x8, [_ip]
+    and x9, x8, 0xff
+    ubfx x10, x8, 8, 7
+    add x11, _cpu, CPU_amd64_regs
+    ldr x12, [x11]
+    cmp x9, 0x99
+    b.eq 3f
+    cmp x10, 64
+    b.eq 1f
+    cmp x10, 32
+    b.eq 2f
+    sxtb w13, w12
+    strh w13, [x11]
+    gret 1
+1:
+    sxtw x12, w12
+    str x12, [x11]
+    gret 1
+2:
+    sxth w12, w12
+    str x12, [x11]
+    gret 1
+3:
+    cmp x10, 64
+    b.eq 4f
+    cmp x10, 32
+    b.eq 5f
+    sxth w13, w12
+    asr w13, w13, 15
+    strh w13, [x11, 16]
+    gret 1
+4:
+    asr x12, x12, 63
+    str x12, [x11, 16]
+    gret 1
+5:
+    asr w12, w12, 31
+    str x12, [x11, 16]
+    gret 1
+
+.gadget amd64_movx_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xff
+    ubfx x10, x8, 8, 4
+    ubfx x11, x8, 12, 4
+    ubfx x12, x8, 16, 7
+    add x13, _cpu, CPU_amd64_regs
+    add x14, x13, x10, lsl 3
+    cmp x9, 0xb7
+    b.eq 2f
+    cmp x9, 0xbf
+    b.eq 3f
+    ldrb w15, [x14]
+    cmp x9, 0xbe
+    b.ne 4f
+    sxtb x15, w15
+    b 4f
+2:
+    ldrh w15, [x14]
+    b 4f
+3:
+    ldrsh x15, [x14]
+4:
+    cmp x12, 64
+    b.eq 5f
+    mov w15, w15
+5:
+    str x15, [x13, x11, lsl 3]
+    gret 1
+
+.gadget amd64_movsxd_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    ubfx x11, x8, 8, 7
+    add x12, _cpu, CPU_amd64_regs
+    add x13, x12, x9, lsl 3
+    cmp x11, 64
+    b.eq 1f
+    ldrsh w14, [x13]
+    str x14, [x12, x10, lsl 3]
+    gret 1
+1:
+    ldrsw x14, [x13]
+    str x14, [x12, x10, lsl 3]
+    gret 1
+
+.gadget amd64_lea_reg_mem
+    ldr x8, [_ip]
+    ldr x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    ubfx x11, x8, 12, 8
+    ubfx x12, x8, 20, 4
+    add x13, _cpu, CPU_amd64_regs
+    tbz x8, 30, 1f
+    ldr x14, [x13, x12, lsl 3]
+    add x9, x9, x14
+1:
+    tbz x8, 31, 2f
+    ubfx x12, x8, 24, 4
+    ubfx x15, x8, 28, 2
+    ldr x14, [x13, x12, lsl 3]
+    lsl x14, x14, x15
+    add x9, x9, x14
+2:
+    tbz x8, 32, 3f
+    ldr x14, [_ip, 24]
+    add x9, x9, x14
+3:
+    cmp x11, 64
+    b.eq 4f
+    cmp x11, 32
+    b.eq 5f
+    add x12, x13, x10, lsl 3
+    strh w9, [x12]
+    gret 2
+4:
+    str x9, [x13, x10, lsl 3]
+    gret 2
+5:
+    add x12, x13, x10, lsl 3
+    mov w9, w9
+    str x9, [x12]
+    gret 2
+
+.gadget amd64_bswap_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 7
+    add x11, _cpu, CPU_amd64_regs
+    ldr x12, [x11, x9, lsl 3]
+    cmp x10, 64
+    b.eq 1f
+    rev w12, w12
+    str x12, [x11, x9, lsl 3]
+    gret 1
+1:
+    rev x12, x12
+    str x12, [x11, x9, lsl 3]
+    gret 1
+
+.gadget amd64_test_reg_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    ubfx x11, x8, 8, 7
+    add x12, _cpu, CPU_amd64_regs
+    ldr x13, [x12, x9, lsl 3]
+    ldr x14, [x12, x10, lsl 3]
+    and x15, x13, x14
+    cmp x11, 64
+    b.eq 1f
+    cmp x11, 32
+    b.eq 2f
+    uxth w15, w15
+    b 3f
+2:
+    mov w15, w15
+3:
+1:
+    ldr w16, [_cpu, CPU_eflags]
+    mov w17, (1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11))
+    bic w16, w16, w17
+    strb wzr, [_cpu, CPU_cf]
+    strb wzr, [_cpu, CPU_of]
+    ldrb w17, [_cpu, CPU_flags_res]
+    bic w17, w17, (ZF_RES | SF_RES | PF_RES | AF_OPS)
+    strb w17, [_cpu, CPU_flags_res]
+    cmp x15, 0
+    cset w17, eq
+    orr w16, w16, w17, lsl 6
+    and w17, w15, 0xff
+    eor w17, w17, w17, lsr 4
+    eor w17, w17, w17, lsr 2
+    eor w17, w17, w17, lsr 1
+    mvn w17, w17
+    and w17, w17, 1
+    orr w16, w16, w17, lsl 2
+    cmp x11, 64
+    b.eq 4f
+    cmp x11, 32
+    b.eq 5f
+    tst w15, 0x8000
+    b.eq 6f
+    orr w16, w16, SF_FLAG
+    b 6f
+5:
+    tbnz w15, 31, 7f
+    b 6f
+4:
+    tbnz x15, 63, 7f
+    b 6f
+7:
+    orr w16, w16, SF_FLAG
+6:
+    str w16, [_cpu, CPU_eflags]
+    gret 1
+
+.gadget amd64_xor_zero_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 7
+    add x11, _cpu, CPU_amd64_regs
+    add x11, x11, x9, lsl 3
+    cmp x10, 64
+    b.eq 1f
+    cmp x10, 32
+    b.eq 2f
+    strh wzr, [x11]
+    b 3f
+1:
+    str xzr, [x11]
+    b 3f
+2:
+    str xzr, [x11]
+3:
+    ldr w12, [_cpu, CPU_eflags]
+    mov w13, (1 | PF_FLAG | AF_FLAG | SF_FLAG | (1 << 11))
+    bic w12, w12, w13
+    orr w12, w12, PF_FLAG
+    orr w12, w12, ZF_FLAG
+    strb wzr, [_cpu, CPU_cf]
+    strb wzr, [_cpu, CPU_of]
+    ldrb w13, [_cpu, CPU_flags_res]
+    bic w13, w13, (ZF_RES | SF_RES | PF_RES | AF_OPS)
+    strb w13, [_cpu, CPU_flags_res]
+    str w12, [_cpu, CPU_eflags]
+    gret 1
+
 .macro mov32_reg_reg dst_name, dst, src_name, src
     .gadget mov32_reg_reg_\dst_name\()_\src_name
         mov \dst, \src

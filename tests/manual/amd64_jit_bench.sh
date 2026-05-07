@@ -8,6 +8,8 @@ ROOTFS=.tmp-root-amd64-alpine
 OUT_DIR=
 TOP_N=8
 TRACE_JIT=0
+INCLUDE_ISH_BENCH=0
+ISH_BENCH_ARCHIVE=tools/iSH_benchmark.tgz
 
 declare -a CASE_NAMES=()
 declare -a CASE_COMMANDS=()
@@ -26,6 +28,8 @@ Options:
   -o DIR      Output directory. Default: ./e2e_out/amd64-jit-bench-<timestamp>
   -k N        Number of top helper-step opcodes/helpers to report. Default: 8
   -c SPEC     Add a benchmark case as name=command
+  -B          Build and include tools/iSH_benchmark.tgz bmm case
+  -A PATH     Benchmark archive for -B. Default: tools/iSH_benchmark.tgz
   -t          Enable expensive ISH_TRACE_AMD64_JIT tracing for JIT runs
   -h          Show this help
 
@@ -47,13 +51,15 @@ add_case() {
     CASE_COMMANDS+=("$command")
 }
 
-while getopts ":b:r:o:k:c:th" opt; do
+while getopts ":b:r:o:k:c:A:Bth" opt; do
     case "$opt" in
         b) ISH_BIN=$OPTARG ;;
         r) ROOTFS=$OPTARG ;;
         o) OUT_DIR=$OPTARG ;;
         k) TOP_N=$OPTARG ;;
         c) add_case "$OPTARG" ;;
+        A) ISH_BENCH_ARCHIVE=$OPTARG ;;
+        B) INCLUDE_ISH_BENCH=1 ;;
         t) TRACE_JIT=1 ;;
         h)
             usage
@@ -93,6 +99,44 @@ if [[ -z ${OUT_DIR:-} ]]; then
     OUT_DIR=./e2e_out/amd64-jit-bench-$(date +%Y%m%d-%H%M%S)
 fi
 mkdir -p "$OUT_DIR"
+
+prepare_ish_benchmark() {
+    local work_dir=$OUT_DIR/ish_benchmark_src
+    local src=$work_dir/benchmark/bmm.c
+    local dst_dir=$ROOTFS/root/benchmark
+
+    if [[ ! -f $ISH_BENCH_ARCHIVE ]]; then
+        echo "benchmark archive not found: $ISH_BENCH_ARCHIVE" >&2
+        exit 1
+    fi
+    if ! command -v zig >/dev/null 2>&1; then
+        echo "zig is required to cross-compile $ISH_BENCH_ARCHIVE" >&2
+        exit 1
+    fi
+
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir" "$dst_dir"
+    tar -xzf "$ISH_BENCH_ARCHIVE" -C "$work_dir"
+
+    # Keep the smoke run short and avoid libc long-double formatting paths that
+    # currently hit unsupported amd64 interpreter instructions.
+    perl -0pi -e '
+        s/#include <time\.h>\n//;
+        s/#define ITERATIONS\s+1000000000/#define ITERATIONS 10000000/;
+        s/long long sum = 0;/volatile long long sum = 0;/;
+        s/double sum = 0\.0;/volatile double sum = 0.0;/;
+        s/    printf\("Floating point sum: %f\\n", sum\);\n/    printf("Floating point benchmark completed\\n");\n/;
+        s/\nint main\(\) \{.*?    return 0;\n\}/\nint main() {\n    benchmark_integer();\n    benchmark_float();\n    return 0;\n}/s;
+    ' "$src"
+
+    zig cc -target x86_64-linux-musl -mcpu=x86_64 -static -O2 \
+        -o "$dst_dir/bmm" "$src"
+    add_case 'ish_bmm=cd /root/benchmark && ./bmm'
+}
+
+if [[ $INCLUDE_ISH_BENCH -eq 1 ]]; then
+    prepare_ish_benchmark
+fi
 
 top_helper_steps() {
     local log=$1

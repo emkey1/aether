@@ -12,6 +12,394 @@
     movw %r10w, CPU_gs(%_cpu)
     gret
 
+.gadget amd64_set_rip
+    movq (%_ip), %r10
+    movq %r10, CPU_amd64_rip(%_cpu)
+    movl %r10d, CPU_eip(%_cpu)
+    gret 1
+
+.gadget amd64_mov64_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_mov32_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    movl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_mov16_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    movw CPU_amd64_regs(%_cpu,%r10,8), %r14w
+    movw %r14w, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_mov8_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    movb CPU_amd64_regs(%_cpu,%r10,8), %r14b
+    movb %r14b, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_mov_imm_reg
+    movq (%_ip), %r10
+    movq 8(%_ip), %r11
+    movq %r10, %r14
+    andq $0xf, %r10
+    shrq $4, %r14
+    andq $0x7f, %r14
+    cmpq $64, %r14
+    je 1f
+    cmpq $32, %r14
+    je 2f
+    movw %r11w, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 2
+1:
+    movq %r11, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 2
+2:
+    movl %r11d, %r11d
+    movq %r11, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 2
+
+.gadget amd64_mov_imm8_reg
+    movq (%_ip), %r10
+    movq 8(%_ip), %r11
+    andq $0xf, %r10
+    movb %r11b, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 2
+
+.gadget amd64_xchg_rax_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0x7f, %r11
+    movq CPU_amd64_regs(%_cpu), %r14
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r15
+    cmpq $64, %r11
+    je 1f
+    cmpq $32, %r11
+    je 2f
+    movw %r15w, CPU_amd64_regs(%_cpu)
+    movw %r14w, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 1
+1:
+    movq %r15, CPU_amd64_regs(%_cpu)
+    movq %r14, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 1
+2:
+    movl %r15d, %r15d
+    movl %r14d, %r14d
+    movq %r15, CPU_amd64_regs(%_cpu)
+    movq %r14, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 1
+
+.gadget amd64_xchg_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    movq %r10, %r14
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    shrq $8, %r14
+    andq $0x7f, %r14
+    cmpq $64, %r14
+    je 1f
+    cmpq $32, %r14
+    je 2f
+    cmpq $16, %r14
+    je 3f
+    movb CPU_amd64_regs(%_cpu,%r10,8), %r14b
+    movb CPU_amd64_regs(%_cpu,%r11,8), %r15b
+    movb %r15b, CPU_amd64_regs(%_cpu,%r10,8)
+    movb %r14b, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+1:
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    movq CPU_amd64_regs(%_cpu,%r11,8), %r15
+    movq %r15, CPU_amd64_regs(%_cpu,%r10,8)
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+2:
+    movl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    movl CPU_amd64_regs(%_cpu,%r11,8), %r15d
+    movq %r15, CPU_amd64_regs(%_cpu,%r10,8)
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+3:
+    movw CPU_amd64_regs(%_cpu,%r10,8), %r14w
+    movw CPU_amd64_regs(%_cpu,%r11,8), %r15w
+    movw %r15w, CPU_amd64_regs(%_cpu,%r10,8)
+    movw %r14w, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_sign_extend
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xff, %r10
+    shrq $8, %r11
+    andq $0x7f, %r11
+    movq CPU_amd64_regs(%_cpu), %r14
+    cmpq $0x99, %r10
+    je 3f
+    cmpq $64, %r11
+    je 1f
+    cmpq $32, %r11
+    je 2f
+    movsbl %r14b, %r15d
+    movw %r15w, CPU_amd64_regs(%_cpu)
+    gret 1
+1:
+    movslq %r14d, %r14
+    movq %r14, CPU_amd64_regs(%_cpu)
+    gret 1
+2:
+    movswl %r14w, %r14d
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu)
+    gret 1
+3:
+    cmpq $64, %r11
+    je 4f
+    cmpq $32, %r11
+    je 5f
+    movswl %r14w, %r14d
+    sarl $15, %r14d
+    movw %r14w, CPU_amd64_regs+16(%_cpu)
+    gret 1
+4:
+    sarq $63, %r14
+    movq %r14, CPU_amd64_regs+16(%_cpu)
+    gret 1
+5:
+    sarl $31, %r14d
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs+16(%_cpu)
+    gret 1
+
+.gadget amd64_movx_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    movq %r10, %r12
+    movq %r10, %r13
+    andq $0xff, %r10
+    shrq $8, %r11
+    andq $0xf, %r11
+    shrq $12, %r12
+    andq $0xf, %r12
+    shrq $16, %r13
+    andq $0x7f, %r13
+    cmpq $0xb7, %r10
+    je 2f
+    cmpq $0xbf, %r10
+    je 3f
+    movzbl CPU_amd64_regs(%_cpu,%r11,8), %r14d
+    cmpq $0xbe, %r10
+    jne 4f
+    movsbq %r14b, %r14
+    jmp 4f
+2:
+    movzwl CPU_amd64_regs(%_cpu,%r11,8), %r14d
+    jmp 4f
+3:
+    movswq CPU_amd64_regs(%_cpu,%r11,8), %r14
+4:
+    cmpq $64, %r13
+    je 5f
+    movl %r14d, %r14d
+5:
+    movq %r14, CPU_amd64_regs(%_cpu,%r12,8)
+    gret 1
+
+.gadget amd64_movsxd_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    movq %r10, %r12
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    shrq $8, %r12
+    andq $0x7f, %r12
+    cmpq $64, %r12
+    je 1f
+    movswl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+1:
+    movslq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    gret 1
+
+.gadget amd64_lea_reg_mem
+    movq (%_ip), %r10
+    movq 8(%_ip), %r14
+    movq %r10, %r15
+    shrq $20, %r15
+    andq $0xf, %r15
+    btq $30, %r10
+    jnc 1f
+    addq CPU_amd64_regs(%_cpu,%r15,8), %r14
+1:
+    btq $31, %r10
+    jnc 2f
+    movq %r10, %r15
+    shrq $24, %r15
+    andq $0xf, %r15
+    movq CPU_amd64_regs(%_cpu,%r15,8), %r15
+    testq $(1 << 28), %r10
+    jz 11f
+    shlq $1, %r15
+11:
+    testq $(1 << 29), %r10
+    jz 12f
+    shlq $2, %r15
+12:
+    addq %r15, %r14
+2:
+    btq $32, %r10
+    jnc 3f
+    addq 24(%_ip), %r14
+3:
+    movq %r10, %r15
+    shrq $8, %r15
+    andq $0xf, %r15
+    shrq $12, %r10
+    andq $0xff, %r10
+    cmpq $64, %r10
+    je 4f
+    cmpq $32, %r10
+    je 5f
+    movw %r14w, CPU_amd64_regs(%_cpu,%r15,8)
+    gret 2
+4:
+    movq %r14, CPU_amd64_regs(%_cpu,%r15,8)
+    gret 2
+5:
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r15,8)
+    gret 2
+
+.gadget amd64_bswap_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0x7f, %r11
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    cmpq $64, %r11
+    je 1f
+    bswapl %r14d
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 1
+1:
+    bswapq %r14
+    movq %r14, CPU_amd64_regs(%_cpu,%r10,8)
+    gret 1
+
+.gadget amd64_test_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    movq %r10, %r12
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0xf, %r11
+    shrq $8, %r12
+    andq $0x7f, %r12
+    cmpq $64, %r12
+    je 1f
+    cmpq $32, %r12
+    je 2f
+    movzwl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andw CPU_amd64_regs(%_cpu,%r11,8), %r14w
+    jmp 3f
+1:
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    andq CPU_amd64_regs(%_cpu,%r11,8), %r14
+    jmp 3f
+2:
+    movl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andl CPU_amd64_regs(%_cpu,%r11,8), %r14d
+3:
+    movl CPU_eflags(%_cpu), %r15d
+    andl $~(1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11)), %r15d
+    movl $0, CPU_cf(%_cpu)
+    movl $0, CPU_of(%_cpu)
+    andb $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    testq %r14, %r14
+    setz %r13b
+    shlb $6, %r13b
+    orb %r13b, %r15b
+    setp %r13b
+    shlb $2, %r13b
+    orb %r13b, %r15b
+    cmpq $64, %r12
+    je 4f
+    cmpq $32, %r12
+    je 5f
+    testw %r14w, %r14w
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+5:
+    testl %r14d, %r14d
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+4:
+    testq %r14, %r14
+    jns 6f
+    orb $SF_FLAG, %r15b
+6:
+    movl %r15d, CPU_eflags(%_cpu)
+    gret 1
+
+.gadget amd64_xor_zero_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    andq $0xf, %r10
+    shrq $4, %r11
+    andq $0x7f, %r11
+    cmpq $64, %r11
+    je 1f
+    cmpq $32, %r11
+    je 2f
+    movw $0, CPU_amd64_regs(%_cpu,%r10,8)
+    jmp 3f
+1:
+    movq $0, CPU_amd64_regs(%_cpu,%r10,8)
+    jmp 3f
+2:
+    movq $0, CPU_amd64_regs(%_cpu,%r10,8)
+3:
+    movl CPU_eflags(%_cpu), %r15d
+    andl $~(1 | PF_FLAG | AF_FLAG | SF_FLAG | (1 << 11)), %r15d
+    orl $(PF_FLAG | ZF_FLAG), %r15d
+    movl $0, CPU_cf(%_cpu)
+    movl $0, CPU_of(%_cpu)
+    andb $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    movl %r15d, CPU_eflags(%_cpu)
+    gret 1
+
 .macro mov32_reg_reg dst_name, dst, src_name, src
     .gadget mov32_reg_reg_\dst_name\()_\src_name
         movl %\src, %\dst

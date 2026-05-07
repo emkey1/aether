@@ -23,6 +23,8 @@ void cpu() {
     OFFSET(CPU, cpu_state, bp);
     OFFSET(CPU, cpu_state, sp);
     OFFSET(CPU, cpu_state, eip);
+    OFFSET(CPU, cpu_state, amd64_regs);
+    OFFSET(CPU, cpu_state, amd64_rip);
     OFFSET(CPU, cpu_state, gs);
     OFFSET(CPU, cpu_state, tls_ptr);
 
