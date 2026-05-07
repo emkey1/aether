@@ -38,6 +38,7 @@
 #include "fs/dyndev.h"
 #include "fs/devices.h"
 #include "fs/path.h"
+#include "fs/real.h"
 #include "fs/tty.h"
 #include "app/RTCDevice.h"
 #include "util/sync.h"
@@ -997,6 +998,14 @@ static int EnsureSymlink(const char *path, const char *target) {
     return (int) len;
 }
 
+static NSURL *AOKPersistDirectoryURL(void) {
+    NSURL *containerURL = ContainerURL();
+    if (containerURL == nil)
+        return nil;
+    return [[containerURL URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+            URLByAppendingPathComponent:@"persist" isDirectory:YES];
+}
+
 @implementation ISHDiagnosticsStore
 
 + (dispatch_queue_t)queue {
@@ -1943,6 +1952,20 @@ static TerminalViewController *CreateTerminalViewController(void) {
     EnsureSymlink("/dev/rtc", "/dev/rtc0");
 
     do_mount(&aokfs, NSBundle.mainBundle.resourcePath.UTF8String, "/AOK", "", MS_READONLY_);
+    NSURL *aokPersistURL = AOKPersistDirectoryURL();
+    if (aokPersistURL != nil) {
+        NSError *persistError = nil;
+        if ([NSFileManager.defaultManager createDirectoryAtURL:aokPersistURL
+                                   withIntermediateDirectories:YES
+                                                    attributes:nil
+                                                         error:&persistError]) {
+            int persistMountErr = do_mount(&realfs, aokPersistURL.fileSystemRepresentation, "/AOK/persist", "", 0);
+            if (persistMountErr < 0)
+                NSLog(@"Could not mount /AOK/persist: %d", persistMountErr);
+        } else {
+            NSLog(@"Could not create /AOK/persist backing directory: %@", persistError);
+        }
+    }
     do_mount(&procfs, "proc", "/proc", "", 0);
     do_mount(&devptsfs, "devpts", "/dev/pts", "", 0);
 

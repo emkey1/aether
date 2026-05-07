@@ -329,6 +329,12 @@
     je 1f
     cmpq $32, %r12
     je 2f
+    cmpq $16, %r12
+    je 7f
+    movzbl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andb CPU_amd64_regs(%_cpu,%r11,8), %r14b
+    jmp 3f
+7:
     movzwl CPU_amd64_regs(%_cpu,%r10,8), %r14d
     andw CPU_amd64_regs(%_cpu,%r11,8), %r14w
     jmp 3f
@@ -356,6 +362,13 @@
     je 4f
     cmpq $32, %r12
     je 5f
+    cmpq $16, %r12
+    je 7f
+    testb %r14b, %r14b
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+7:
     testw %r14w, %r14w
     jns 6f
     orb $SF_FLAG, %r15b

@@ -703,11 +703,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel32);
         target_ip = next_ip + rel32;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("jmp-rel32-helper ip=%llx target=%llx",
+        amd64_jit_debug("jmp-rel32-direct ip=%llx target=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) target_ip);
-        gen_amd64_helper_tlb_1_retint(state, amd64_jit_jmp_abs,
-                (unsigned long) target_ip);
+        extern void gadget_amd64_set_rip(void);
+        gen(state, (unsigned long) gadget_amd64_set_rip);
+        gen(state, (unsigned long) target_ip);
         gen_exit(state);
         return false;
     }
@@ -740,11 +741,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel8);
         target_ip = next_ip + rel8;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("jmp-rel8-helper ip=%llx target=%llx",
+        amd64_jit_debug("jmp-rel8-direct ip=%llx target=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) target_ip);
-        gen_amd64_helper_tlb_1_retint(state, amd64_jit_jmp_abs,
-                (unsigned long) target_ip);
+        extern void gadget_amd64_set_rip(void);
+        gen(state, (unsigned long) gadget_amd64_set_rip);
+        gen(state, (unsigned long) target_ip);
         gen_exit(state);
         return false;
     }
@@ -1894,7 +1896,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 packed |= 1ul << 24;
             next_ip = state->amd64_ip + 1;
             state->amd64_ip = next_ip;
-            if (insn.opcode == 0x85) {
+            if ((insn.opcode == 0x85) ||
+                    (insn.opcode == 0x84 &&
+                     (insn.rex.present ||
+                      (amd64_modrm_reg(insn.modrm) < 4 && amd64_modrm_rm(insn.modrm) < 4)))) {
                 amd64_jit_debug("test-reg-reg-direct ip=%llx reg=%u rm=%u size=%u next=%llx",
                         (unsigned long long) insn.start_ip,
                         reg_id,

@@ -310,6 +310,11 @@
     b.eq 1f
     cmp x11, 32
     b.eq 2f
+    cmp x11, 16
+    b.eq 4f
+    and w15, w15, 0xff
+    b 3f
+4:
     uxth w15, w15
     b 3f
 2:
@@ -338,6 +343,13 @@
     b.eq 4f
     cmp x11, 32
     b.eq 5f
+    cmp x11, 16
+    b.eq 8f
+    tst w15, 0x80
+    b.eq 6f
+    orr w16, w16, SF_FLAG
+    b 6f
+8:
     tst w15, 0x8000
     b.eq 6f
     orr w16, w16, SF_FLAG
