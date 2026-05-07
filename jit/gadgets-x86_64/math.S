@@ -386,6 +386,74 @@
     movl %r15d, CPU_eflags(%_cpu)
     gret 1
 
+.gadget amd64_test_reg_imm
+    movq (%_ip), %r10
+    movq 8(%_ip), %r11
+    movq %r10, %r12
+    andq $0xf, %r10
+    shrq $4, %r12
+    andq $0x7f, %r12
+    cmpq $64, %r12
+    je 1f
+    cmpq $32, %r12
+    je 2f
+    cmpq $16, %r12
+    je 7f
+    movzbl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andb %r11b, %r14b
+    jmp 3f
+7:
+    movzwl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andw %r11w, %r14w
+    jmp 3f
+1:
+    movq CPU_amd64_regs(%_cpu,%r10,8), %r14
+    andq %r11, %r14
+    jmp 3f
+2:
+    movl CPU_amd64_regs(%_cpu,%r10,8), %r14d
+    andl %r11d, %r14d
+3:
+    movl CPU_eflags(%_cpu), %r15d
+    andl $~(1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11)), %r15d
+    movl $0, CPU_cf(%_cpu)
+    movl $0, CPU_of(%_cpu)
+    andb $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    testq %r14, %r14
+    setz %r13b
+    shlb $6, %r13b
+    orb %r13b, %r15b
+    setp %r13b
+    shlb $2, %r13b
+    orb %r13b, %r15b
+    cmpq $64, %r12
+    je 4f
+    cmpq $32, %r12
+    je 5f
+    cmpq $16, %r12
+    je 7f
+    testb %r14b, %r14b
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+7:
+    testw %r14w, %r14w
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+5:
+    testl %r14d, %r14d
+    jns 6f
+    orb $SF_FLAG, %r15b
+    jmp 6f
+4:
+    testq %r14, %r14
+    jns 6f
+    orb $SF_FLAG, %r15b
+6:
+    movl %r15d, CPU_eflags(%_cpu)
+    gret 2
+
 .gadget amd64_xor_zero_reg
     movq (%_ip), %r10
     movq %r10, %r11

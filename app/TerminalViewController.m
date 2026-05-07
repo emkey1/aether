@@ -29,16 +29,31 @@
 
 static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) API_AVAILABLE(ios(13.0));
 static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) {
+    NSArray<NSString *> *forgottenHiddenSessions = [NSUserDefaults.standardUserDefaults arrayForKey:@"ISHWorkspaceForgottenHiddenSessions"];
     UISceneSession *bestSession = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        UISceneSession *session = scene.session;
+    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
         if (session == nil || session == excludedSession)
             continue;
         if (![session.stateRestorationActivity.activityType isEqualToString:ISHSceneActivityTypeWorkspace])
             continue;
-        if (scene.activationState == UISceneActivationStateForegroundActive)
+        UIScene *connectedScene = nil;
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (scene.session == session) {
+                connectedScene = scene;
+                break;
+            }
+        }
+        if (connectedScene == nil && [forgottenHiddenSessions containsObject:session.persistentIdentifier])
+            continue;
+        if (connectedScene == nil && bestSession == nil) {
+            bestSession = session;
+            continue;
+        }
+        if (connectedScene == nil)
+            continue;
+        if (connectedScene.activationState == UISceneActivationStateForegroundActive)
             return session;
-        if (bestSession == nil || scene.activationState == UISceneActivationStateForegroundInactive) {
+        if (bestSession == nil || connectedScene.activationState == UISceneActivationStateForegroundInactive) {
             bestSession = session;
         }
     }
@@ -453,8 +468,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.hidden = YES;
-    button.accessibilityLabel = @"Dashboard";
-    button.accessibilityHint = @"Opens the workspace dashboard.";
+    button.accessibilityLabel = @"Layout Manager";
+    button.accessibilityHint = @"Opens the workspace layout manager.";
     button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
     button.layer.cornerRadius = 22;
     button.layer.masksToBounds = NO;
@@ -519,8 +534,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)_installWorkspaceButton {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
-    button.accessibilityLabel = @"Dashboard";
-    button.accessibilityHint = @"Opens the workspace dashboard.";
+    button.accessibilityLabel = @"Layout Manager";
+    button.accessibilityHint = @"Opens the workspace layout manager.";
     if (@available(iOS 13, *)) {
         [button setImage:[UIImage systemImageNamed:@"square.grid.2x2"] forState:UIControlStateNormal];
     } else {
@@ -1281,6 +1296,30 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
             self.terminal = console;
+        }]];
+    }
+
+    if (ISHLLMClientEnabled()) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"LLM Chat"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:ISHCreateLLMClientViewController()];
+            [self presentViewController:navigationController animated:YES completion:nil];
+        }]];
+        NSString *terminalContext = Terminal_debugReadRows(self.terminal.type, self.terminal.number, 80) ?: @"";
+        [alert addAction:[UIAlertAction actionWithTitle:@"LLM: Explain Current Terminal"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            NSString *prompt = [NSString stringWithFormat:@"Explain the important details in this terminal output. If there is an error, identify the likely cause.\n\nTerminal output:\n```text\n%@\n```", terminalContext];
+            UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:ISHCreateLLMClientViewControllerWithInitialPrompt(prompt)];
+            [self presentViewController:navigationController animated:YES completion:nil];
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"LLM: Suggest Fix"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            NSString *prompt = [NSString stringWithFormat:@"Find the most likely error in this terminal output and suggest concrete commands or edits to fix it.\n\nTerminal output:\n```text\n%@\n```", terminalContext];
+            UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:ISHCreateLLMClientViewControllerWithInitialPrompt(prompt)];
+            [self presentViewController:navigationController animated:YES completion:nil];
         }]];
     }
 

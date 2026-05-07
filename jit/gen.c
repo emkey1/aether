@@ -1252,6 +1252,9 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             (insn.opcode == 0xf6 || insn.opcode == 0xf7) &&
             amd64_modrm_reg(insn.modrm) == 0) {
         size_t imm_size;
+        unsigned size = insn.opcode == 0xf6
+            ? 8
+            : (insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32));
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
             state->amd64_fallback_to_interp = true;
@@ -1261,6 +1264,57 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             ? sizeof(uint8_t)
             : (insn.operand_size_prefix ? sizeof(uint16_t) : sizeof(uint32_t));
         next_ip += imm_size;
+        if (!insn.fs_prefix && !insn.lock_prefix &&
+                amd64_modrm_mod(insn.modrm) == 3) {
+            unsigned rm_raw = amd64_modrm_rm(insn.modrm);
+            unsigned rm_id = rm_raw | (insn.rex.b ? 8 : 0);
+            unsigned long value;
+            guest_addr_t imm_ip = state->amd64_ip + 1;
+            if (size == 8) {
+                uint8_t imm8;
+                if (!tlb_read(tlb, imm_ip, &imm8, sizeof(imm8))) {
+                    state->amd64_ip = state->amd64_orig_ip;
+                    state->amd64_fallback_to_interp = true;
+                    return false;
+                }
+                value = imm8;
+            } else if (size == 16) {
+                uint16_t imm16;
+                if (!tlb_read(tlb, imm_ip, &imm16, sizeof(imm16))) {
+                    state->amd64_ip = state->amd64_orig_ip;
+                    state->amd64_fallback_to_interp = true;
+                    return false;
+                }
+                value = imm16;
+            } else {
+                int32_t imm32;
+                if (!tlb_read(tlb, imm_ip, &imm32, sizeof(imm32))) {
+                    state->amd64_ip = state->amd64_orig_ip;
+                    state->amd64_fallback_to_interp = true;
+                    return false;
+                }
+                value = insn.rex.w
+                    ? (unsigned long) (qword_t) (sqword_t) imm32
+                    : (unsigned long) (uint32_t) imm32;
+            }
+            if (size == 8 && !insn.rex.present && rm_raw >= 4)
+                goto amd64_bridge_step;
+            state->amd64_ip = next_ip;
+            amd64_jit_debug("grp3-test-reg-imm-direct ip=%llx rm=%u size=%u value=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    rm_id,
+                    size,
+                    (unsigned long long) value,
+                    (unsigned long long) next_ip);
+            extern void gadget_amd64_test_reg_imm(void);
+            extern void gadget_amd64_set_rip(void);
+            gen(state, (unsigned long) gadget_amd64_test_reg_imm);
+            gen(state, rm_id | ((unsigned long) size << 4));
+            gen(state, value);
+            gen(state, (unsigned long) gadget_amd64_set_rip);
+            gen(state, (unsigned long) next_ip);
+            return true;
+        }
         state->amd64_ip = next_ip;
         amd64_jit_debug("grp3-test-helper ip=%llx opcode=%02x modrm=%02x next=%llx",
                 (unsigned long long) insn.start_ip,

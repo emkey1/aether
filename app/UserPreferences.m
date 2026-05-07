@@ -30,6 +30,11 @@ static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
 static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
+static NSString *const kPreferenceEnableLLMClientKey = @"Enable LLM Client";
+static NSString *const kPreferenceLLMProviderKey = @"LLM Provider";
+static NSString *const kPreferenceLLMServerURLKey = @"LLM Server URL";
+static NSString *const kPreferenceLLMModelKey = @"LLM Model";
+static NSString *const kPreferenceLLMAPIKeyKey = @"LLM API Key";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -170,8 +175,13 @@ bool (*remove_user_default)(const char *name);
         _defaults = [NSUserDefaults standardUserDefaults];
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
-	    kPreferenceEnableExtraLockingKey: @(YES),
+            kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceEnableExperimentalAmd64JitKey: @(NO),
+            kPreferenceEnableLLMClientKey: @(NO),
+            kPreferenceLLMProviderKey: @"OpenRouter Free",
+            kPreferenceLLMServerURLKey: @"https://openrouter.ai/api/v1",
+            kPreferenceLLMModelKey: @"openrouter/free",
+            kPreferenceLLMAPIKeyKey: @"",
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -215,6 +225,11 @@ bool (*remove_user_default)(const char *name);
             @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
             @"enable_experimental_amd64_jit": kPreferenceEnableExperimentalAmd64JitKey,
+            @"enable_llm_client": kPreferenceEnableLLMClientKey,
+            @"llm_provider": kPreferenceLLMProviderKey,
+            @"llm_server_url": kPreferenceLLMServerURLKey,
+            @"llm_model": kPreferenceLLMModelKey,
+            @"llm_api_key": kPreferenceLLMAPIKeyKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"cursor_style": kPreferenceCursorStyleKey,
@@ -242,6 +257,11 @@ bool (*remove_user_default)(const char *name);
             kPreferenceFontSizeKey: property(fontSize),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
             kPreferenceEnableExperimentalAmd64JitKey: property(shouldEnableExperimentalAmd64Jit),
+            kPreferenceEnableLLMClientKey: property(shouldEnableLLMClient),
+            kPreferenceLLMProviderKey: property(llmProvider),
+            kPreferenceLLMServerURLKey: property(llmServerURL),
+            kPreferenceLLMModelKey: property(llmModel),
+            kPreferenceLLMAPIKeyKey: property(llmAPIKey),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceCursorStyleKey: property(cursorStyle),
@@ -462,6 +482,71 @@ bool (*remove_user_default)(const char *name);
 
 - (BOOL)validateShouldEnableExperimentalAmd64Jit:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: shouldEnableLLMClient
+- (BOOL)shouldEnableLLMClient {
+    return [_defaults boolForKey:kPreferenceEnableLLMClientKey];
+}
+
+- (void)setShouldEnableLLMClient:(BOOL)enabled {
+    [_defaults setBool:enabled forKey:kPreferenceEnableLLMClientKey];
+}
+
+- (BOOL)validateShouldEnableLLMClient:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: llmProvider
+- (NSString *)llmProvider {
+    return [_defaults stringForKey:kPreferenceLLMProviderKey] ?: @"Custom";
+}
+
+- (void)setLlmProvider:(NSString *)llmProvider {
+    [_defaults setObject:llmProvider ?: @"Custom" forKey:kPreferenceLLMProviderKey];
+}
+
+- (BOOL)validateLlmProvider:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSString.class];
+}
+
+// MARK: llmServerURL
+- (NSString *)llmServerURL {
+    return [_defaults stringForKey:kPreferenceLLMServerURLKey] ?: @"";
+}
+
+- (void)setLlmServerURL:(NSString *)llmServerURL {
+    [_defaults setObject:llmServerURL ?: @"" forKey:kPreferenceLLMServerURLKey];
+}
+
+- (BOOL)validateLlmServerURL:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSString.class];
+}
+
+// MARK: llmModel
+- (NSString *)llmModel {
+    return [_defaults stringForKey:kPreferenceLLMModelKey] ?: @"";
+}
+
+- (void)setLlmModel:(NSString *)llmModel {
+    [_defaults setObject:llmModel ?: @"" forKey:kPreferenceLLMModelKey];
+}
+
+- (BOOL)validateLlmModel:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSString.class];
+}
+
+// MARK: llmAPIKey
+- (NSString *)llmAPIKey {
+    return [_defaults stringForKey:kPreferenceLLMAPIKeyKey] ?: @"";
+}
+
+- (void)setLlmAPIKey:(NSString *)llmAPIKey {
+    [_defaults setObject:llmAPIKey ?: @"" forKey:kPreferenceLLMAPIKeyKey];
+}
+
+- (BOOL)validateLlmAPIKey:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSString.class];
 }
 
 // MARK: ShouldEnablemulticore

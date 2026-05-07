@@ -366,6 +366,74 @@
     str w16, [_cpu, CPU_eflags]
     gret 1
 
+.gadget amd64_test_reg_imm
+    ldr x8, [_ip]
+    ldr x10, [_ip, 8]
+    and x9, x8, 0xf
+    ubfx x11, x8, 4, 7
+    add x12, _cpu, CPU_amd64_regs
+    ldr x13, [x12, x9, lsl 3]
+    and x15, x13, x10
+    cmp x11, 64
+    b.eq 1f
+    cmp x11, 32
+    b.eq 2f
+    cmp x11, 16
+    b.eq 4f
+    and w15, w15, 0xff
+    b 3f
+4:
+    uxth w15, w15
+    b 3f
+2:
+    mov w15, w15
+3:
+1:
+    ldr w16, [_cpu, CPU_eflags]
+    mov w17, (1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11))
+    bic w16, w16, w17
+    strb wzr, [_cpu, CPU_cf]
+    strb wzr, [_cpu, CPU_of]
+    ldrb w17, [_cpu, CPU_flags_res]
+    bic w17, w17, (ZF_RES | SF_RES | PF_RES | AF_OPS)
+    strb w17, [_cpu, CPU_flags_res]
+    cmp x15, 0
+    cset w17, eq
+    orr w16, w16, w17, lsl 6
+    and w17, w15, 0xff
+    eor w17, w17, w17, lsr 4
+    eor w17, w17, w17, lsr 2
+    eor w17, w17, w17, lsr 1
+    mvn w17, w17
+    and w17, w17, 1
+    orr w16, w16, w17, lsl 2
+    cmp x11, 64
+    b.eq 4f
+    cmp x11, 32
+    b.eq 5f
+    cmp x11, 16
+    b.eq 8f
+    tst w15, 0x80
+    b.eq 6f
+    orr w16, w16, SF_FLAG
+    b 6f
+8:
+    tst w15, 0x8000
+    b.eq 6f
+    orr w16, w16, SF_FLAG
+    b 6f
+5:
+    tbnz w15, 31, 7f
+    b 6f
+4:
+    tbnz x15, 63, 7f
+    b 6f
+7:
+    orr w16, w16, SF_FLAG
+6:
+    str w16, [_cpu, CPU_eflags]
+    gret 2
+
 .gadget amd64_xor_zero_reg
     ldr x8, [_ip]
     and x9, x8, 0xf

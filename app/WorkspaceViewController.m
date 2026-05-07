@@ -39,6 +39,7 @@
 @property (nonatomic, strong) UIButton *dockTerminalButton;
 @property (nonatomic, strong) UIStackView *bodyStack;
 @property (nonatomic, strong) UIView *windowCard;
+@property (nonatomic, strong) UILabel *layoutManagerWorkspaceLabel;
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier;
 - (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
@@ -58,9 +59,12 @@
 - (NSArray<NSDictionary<NSString *, id> *> *)savedWorkspaceLayoutForCurrentScene;
 - (void)openDashboardWindow:(id)sender;
 - (void)openNewWorkspaceWindow:(id)sender;
+- (void)closeHiddenWorkspaceWindows:(id)sender;
+- (NSArray<UISceneSession *> *)hiddenWorkspaceSceneSessions API_AVAILABLE(ios(13.0));
 - (void)openTerminalHerePreferringConsole:(BOOL)preferConsole;
 - (void)openExistingTerminalHereWithUUID:(NSUUID *)terminalUUID;
 - (void)focusSceneWithPersistentIdentifier:(NSString *)identifier;
+- (void)closeSceneWithPersistentIdentifier:(NSString *)identifier title:(NSString *)title;
 - (ISHWorkspaceContainedWindowView *)desktopWindowForToolIdentifier:(NSString *)toolIdentifier;
 - (ISHWorkspaceContainedWindowView *)desktopWindowHostingTerminalUUID:(NSUUID *)terminalUUID;
 - (void)focusDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView;
@@ -87,10 +91,12 @@ static NSString *const ISHWorkspaceToolThemesIdentifier = @"themes";
 static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
+static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspacePersistentDockWindowDescriptorDefaultsKey = @"ISHWorkspacePersistentDockWindowDescriptor";
+static NSString *const ISHWorkspaceForgottenHiddenSessionsDefaultsKey = @"ISHWorkspaceForgottenHiddenSessions";
 static NSString *const ISHWorkspaceDockFrameDidChangeNotification = @"ISHWorkspaceDockFrameDidChange";
 static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
@@ -555,6 +561,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(352, 620);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
             return CGSizeMake(352, 620);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+            return CGSizeMake(352, 560);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -587,6 +595,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(760, 720);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
         return CGSizeMake(760, 760);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+        return CGSizeMake(560, 620);
     return CGSizeMake(720, 640);
 }
 
@@ -604,14 +614,14 @@ static CGSize ISHWorkspacePreferredDockContentSize(void) {
 
 static CGSize ISHWorkspacePreferredDashboardContentSize(void) {
     if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(336, 214);
-    return CGSizeMake(504, 284);
+        return CGSizeMake(312, 176);
+    return CGSizeMake(360, 214);
 }
 
 static CGSize ISHWorkspaceMinimumDashboardContentSize(void) {
     if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(300, 178);
-    return CGSizeMake(400, 214);
+        return CGSizeMake(284, 154);
+    return CGSizeMake(324, 184);
 }
 
 static CGSize ISHWorkspaceMinimumDockContentSize(void) {
@@ -664,6 +674,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(320, 420);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
             return CGSizeMake(320, 420);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+            return CGSizeMake(300, 360);
         return CGSizeMake(300, 220);
     }
 
@@ -689,6 +701,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(360, 240);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolThemesIdentifier])
         return CGSizeMake(520, 560);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+        return CGSizeMake(420, 420);
     return CGSizeZero;
 }
 
@@ -736,6 +750,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Boot Images";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier])
         return @"Settings";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+        return @"LLM Chat";
     return @"Window";
 }
 
@@ -822,6 +838,65 @@ static NSString *ISHWorkspaceSceneRoleDescription(UISceneSession *session) {
     return @"Unknown";
 }
 
+static NSString *ISHWorkspaceOrdinalName(NSUInteger index) {
+    static NSArray<NSString *> *names;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        names = @[@"One", @"Two", @"Three", @"Four", @"Five", @"Six", @"Seven", @"Eight", @"Nine", @"Ten"];
+    });
+    if (index < names.count)
+        return names[index];
+    return [NSString stringWithFormat:@"%lu", (unsigned long) index + 1];
+}
+
+static NSArray<UISceneSession *> *ISHWorkspaceSortedSceneSessions(void) API_AVAILABLE(ios(13.0));
+static NSArray<UISceneSession *> *ISHWorkspaceSortedSceneSessions(void) {
+    return [UIApplication.sharedApplication.openSessions.allObjects sortedArrayUsingComparator:^NSComparisonResult(UISceneSession *left, UISceneSession *right) {
+        NSString *leftIdentifier = left.persistentIdentifier ?: @"";
+        NSString *rightIdentifier = right.persistentIdentifier ?: @"";
+        return [leftIdentifier compare:rightIdentifier];
+    }];
+}
+
+static NSString *ISHWorkspaceNameForSession(UISceneSession *session) API_AVAILABLE(ios(13.0));
+static NSString *ISHWorkspaceNameForSession(UISceneSession *session) {
+    NSArray<UISceneSession *> *sessions = ISHWorkspaceSortedSceneSessions();
+    NSUInteger index = [sessions indexOfObject:session];
+    if (index == NSNotFound)
+        index = 0;
+    return ISHWorkspaceOrdinalName(index);
+}
+
+static UIScene *ISHWorkspaceConnectedSceneForSession(UISceneSession *session) API_AVAILABLE(ios(13.0));
+static UIScene *ISHWorkspaceConnectedSceneForSession(UISceneSession *session) {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (scene.session == session)
+            return scene;
+    }
+    return nil;
+}
+
+static NSMutableSet<NSString *> *ISHWorkspaceForgottenHiddenSessionIdentifiers(void) {
+    NSArray<NSString *> *stored = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceForgottenHiddenSessionsDefaultsKey];
+    return stored != nil ? [NSMutableSet setWithArray:stored] : [NSMutableSet set];
+}
+
+static BOOL ISHWorkspaceHiddenSessionIsForgotten(UISceneSession *session) API_AVAILABLE(ios(13.0));
+static BOOL ISHWorkspaceHiddenSessionIsForgotten(UISceneSession *session) {
+    NSString *identifier = session.persistentIdentifier;
+    return identifier.length > 0 && [ISHWorkspaceForgottenHiddenSessionIdentifiers() containsObject:identifier];
+}
+
+static void ISHWorkspaceForgetHiddenSession(UISceneSession *session) API_AVAILABLE(ios(13.0));
+static void ISHWorkspaceForgetHiddenSession(UISceneSession *session) {
+    NSString *identifier = session.persistentIdentifier;
+    if (identifier.length == 0)
+        return;
+    NSMutableSet<NSString *> *identifiers = ISHWorkspaceForgottenHiddenSessionIdentifiers();
+    [identifiers addObject:identifier];
+    [NSUserDefaults.standardUserDefaults setObject:identifiers.allObjects forKey:ISHWorkspaceForgottenHiddenSessionsDefaultsKey];
+}
+
 static NSString *ISHWorkspaceSceneActivationDescription(UIScene *scene) API_AVAILABLE(ios(13.0));
 static NSString *ISHWorkspaceSceneActivationDescription(UIScene *scene) {
     switch (scene.activationState) {
@@ -838,36 +913,32 @@ static NSString *ISHWorkspaceSceneActivationDescription(UIScene *scene) {
 
 static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceSceneDescriptors(UIWindowScene *currentWindowScene) API_AVAILABLE(ios(13.0));
 static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceSceneDescriptors(UIWindowScene *currentWindowScene) {
-    NSArray<UIScene *> *connectedScenes =
-        [UIApplication.sharedApplication.connectedScenes.allObjects sortedArrayUsingComparator:^NSComparisonResult(UIScene *left, UIScene *right) {
-        NSString *leftIdentifier = left.session.persistentIdentifier ?: @"";
-        NSString *rightIdentifier = right.session.persistentIdentifier ?: @"";
-        return [leftIdentifier compare:rightIdentifier];
-    }];
+    NSArray<UISceneSession *> *sessions = ISHWorkspaceSortedSceneSessions();
 
     NSMutableArray<NSDictionary<NSString *, id> *> *descriptors = [NSMutableArray array];
-    for (UIScene *scene in connectedScenes) {
-        NSString *role = ISHWorkspaceSceneRoleDescription(scene.session);
-        NSString *state = ISHWorkspaceSceneActivationDescription(scene);
-        NSString *identifier = scene.session.persistentIdentifier ?: @"";
-        NSString *shortIdentifier = identifier;
-        if (shortIdentifier.length > 8)
-            shortIdentifier = [shortIdentifier substringFromIndex:shortIdentifier.length - 8];
-        NSString *terminalUUID = scene.session.stateRestorationActivity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
+    for (UISceneSession *session in sessions) {
+        UIScene *scene = ISHWorkspaceConnectedSceneForSession(session);
+        if (scene == nil && ISHWorkspaceHiddenSessionIsForgotten(session))
+            continue;
+        NSString *role = ISHWorkspaceSceneRoleDescription(session);
+        NSString *state = scene != nil ? ISHWorkspaceSceneActivationDescription(scene) : @"Hidden";
+        NSString *identifier = session.persistentIdentifier ?: @"";
+        NSString *terminalUUID = session.stateRestorationActivity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
         Terminal *terminal = terminalUUID.length > 0
             ? [Terminal terminalWithUUID:[[NSUUID alloc] initWithUUIDString:terminalUUID]]
             : nil;
-        NSString *title = scene == currentWindowScene
-            ? @"This Window"
-            : [NSString stringWithFormat:@"%@ %@", role, shortIdentifier];
-        NSString *detail = terminal != nil ? ISHWorkspaceTerminalDisplayName(terminal) : state;
+        NSString *title = [NSString stringWithFormat:@"Workspace %@", ISHWorkspaceNameForSession(session)];
+        NSString *detail = terminal != nil
+            ? [NSString stringWithFormat:@"%@: %@", role, ISHWorkspaceTerminalDisplayName(terminal)]
+            : [NSString stringWithFormat:@"%@: %@", role, state];
         [descriptors addObject:@{
             @"identifier": identifier,
             @"title": title,
             @"detail": detail ?: @"Unknown",
             @"role": role ?: @"Unknown",
             @"state": state ?: @"Unknown",
-            @"isCurrent": @(scene == currentWindowScene),
+            @"isCurrent": @(session == currentWindowScene.session),
+            @"isHidden": @(scene == nil),
         }];
     }
     return descriptors;
@@ -1937,6 +2008,8 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @end
 
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
+        return ISHCreateLLMClientViewController();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
         return [WorkspaceClockToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
@@ -1973,6 +2046,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
 }
 
 NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewController) {
+    if ([viewController isKindOfClass:NSClassFromString(@"LLMClientViewController")])
+        return ISHWorkspaceToolLLMIdentifier;
     if ([viewController isKindOfClass:WorkspaceClockToolViewController.class])
         return ISHWorkspaceToolClockIdentifier;
     if ([viewController isKindOfClass:WorkspaceInfoToolViewController.class])
@@ -3054,7 +3129,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     ]];
 
     ISHWorkspaceContainedWindowView *dashboardWindow =
-        [self createDesktopWindowWithTitle:@"Dashboard"
+        [self createDesktopWindowWithTitle:@"Layout Manager"
                              preferredSize:ISHWorkspacePreferredDashboardContentSize()
                           showsCloseButton:YES];
     self.dashboardWindow = dashboardWindow;
@@ -3081,8 +3156,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIStackView *windowCardStack = nil;
     self.windowCard = [self workspaceCardWithContentStack:&windowCardStack];
+    self.layoutManagerWorkspaceLabel = [self workspaceLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    self.layoutManagerWorkspaceLabel.numberOfLines = 2;
+    [windowCardStack addArrangedSubview:self.layoutManagerWorkspaceLabel];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Save Current Layout"
-                                                                   selector:@selector(saveWorkspaceLayout:)]];
+                                                                    selector:@selector(saveWorkspaceLayout:)]];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Restore Saved Layout"
                                                                    selector:@selector(restoreWorkspaceLayout:)]];
     if (ISHWorkspaceSupportsSceneWindows()) {
@@ -3429,6 +3507,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     return nil;
 }
 
+- (NSString *)currentWorkspaceDisplayName {
+    if (@available(iOS 13.0, *)) {
+        UIScene *scene = self.view.window.windowScene;
+        if (scene != nil)
+            return [NSString stringWithFormat:@"Workspace %@", ISHWorkspaceNameForSession(scene.session)];
+    }
+    return @"Workspace One";
+}
+
 - (void)refreshWorkspaceStatus {
     if (!NSThread.isMainThread) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -3437,6 +3524,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
 
+    self.layoutManagerWorkspaceLabel.text = [NSString stringWithFormat:@"%@ layout. Save and restore only affects this workspace.", [self currentWorkspaceDisplayName]];
     [self refreshDockButtons];
 }
 
@@ -3655,7 +3743,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (NSArray<NSDictionary<NSString *, id> *> *)dockUtilityGroupDescriptors {
-    NSMutableArray<NSDictionary<NSString *, id> *> *workspaceItems = [NSMutableArray arrayWithObject:@{@"title": @"Dashboard", @"identifier": @"dashboard"}];
+    NSMutableArray<NSDictionary<NSString *, id> *> *workspaceItems = [NSMutableArray arrayWithObject:@{@"title": @"Layout Manager", @"identifier": @"dashboard"}];
     if (ISHWorkspaceSupportsSceneWindows()) {
         [workspaceItems addObject:@{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
     }
@@ -3665,6 +3753,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
+    if (ISHLLMClientEnabled())
+        [workspaceItems addObject:@{@"title": @"LLM Chat", @"identifier": ISHWorkspaceToolLLMIdentifier}];
     return @[
         @{
             @"title": @"Workspace",
@@ -3932,9 +4022,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
     UISceneSession *targetSession = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if ([scene.session.persistentIdentifier isEqualToString:identifier]) {
-            targetSession = scene.session;
+    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+        if ([session.persistentIdentifier isEqualToString:identifier]) {
+            targetSession = session;
             break;
         }
     }
@@ -3950,6 +4040,70 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             [self presentSceneActivationError:error title:@"Unable to focus window"];
         });
     }];
+}
+
+- (void)closeSceneWithPersistentIdentifier:(NSString *)identifier title:(NSString *)title {
+    if (@available(iOS 13.0, *)) {
+    } else {
+        [self presentSceneActivationError:nil title:@"Unable to close workspace"];
+        return;
+    }
+    UISceneSession *targetSession = nil;
+    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+        if ([session.persistentIdentifier isEqualToString:identifier]) {
+            targetSession = session;
+            break;
+        }
+    }
+    if (targetSession == nil) {
+        [self presentSceneActivationError:nil title:@"Unable to close workspace"];
+        return;
+    }
+    if (ISHWorkspaceConnectedSceneForSession(targetSession) == nil) {
+        ISHWorkspaceForgetHiddenSession(targetSession);
+        return;
+    }
+    [UIApplication.sharedApplication requestSceneSessionDestruction:targetSession
+                                                            options:nil
+                                                       errorHandler:^(NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentSceneActivationError:error title:title ?: @"Unable to close workspace"];
+        });
+    }];
+}
+
+- (NSArray<UISceneSession *> *)hiddenWorkspaceSceneSessions {
+    if (@available(iOS 13.0, *)) {
+    } else {
+        return @[];
+    }
+    NSMutableArray<UISceneSession *> *sessions = [NSMutableArray array];
+    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+        if (![ISHWorkspaceSceneRoleDescription(session) isEqualToString:@"Workspace"])
+            continue;
+        if (ISHWorkspaceConnectedSceneForSession(session) != nil)
+            continue;
+        if (ISHWorkspaceHiddenSessionIsForgotten(session))
+            continue;
+        [sessions addObject:session];
+    }
+    return sessions;
+}
+
+- (void)closeHiddenWorkspaceWindows:(id)sender {
+    (void) sender;
+    NSArray<UISceneSession *> *sessions = [self hiddenWorkspaceSceneSessions];
+    if (sessions.count == 0) {
+        [self presentSceneActivationError:nil title:@"No hidden workspace windows"];
+        return;
+    }
+    for (UISceneSession *session in sessions) {
+        ISHWorkspaceForgetHiddenSession(session);
+        [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                                options:nil
+                                                           errorHandler:^(__unused NSError *error) {
+        }];
+    }
 }
 
 - (void)focusExistingSceneFromButton:(UIButton *)sender {
@@ -5201,8 +5355,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     rowTwo.axis = UILayoutConstraintAxisHorizontal;
     rowTwo.spacing = 6;
     rowTwo.distribution = UIStackViewDistributionFillEqually;
-    UIButton *dashboardButton = [self sessionButtonWithTitle:@"Dashboard"
-                                                    subtitle:@"Jump back to workspace layout"
+    UIButton *dashboardButton = [self sessionButtonWithTitle:@"Layout Manager"
+                                                    subtitle:@"Save or restore this workspace"
                                                     selector:@selector(openDashboardShortcut:)];
     [rowTwo addArrangedSubview:dashboardButton];
     if (ISHWorkspaceSupportsSceneWindows()) {
@@ -5659,7 +5813,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (ISHWorkspaceSupportsSceneWindows()) {
         rows = @[
             @[
-                @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
+                @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
                 @{@"title": @"Workspaces", @"subtitle": @"Tiny scene switcher", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
             ],
             @[
@@ -5682,7 +5836,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     } else {
         rows = @[
             @[
-                @{@"title": @"Dashboard", @"subtitle": @"Layout and scene overview", @"identifier": @"dashboard"},
+                @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
                 @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
             ],
             @[
@@ -5826,9 +5980,32 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
     UIStackView *_rowsStack;
+    UIButton *_newWorkspaceButton;
+    UIButton *_closeHiddenButton;
     NSMutableArray<UIButton *> *_trackedButtons;
     NSMutableDictionary<NSString *, UIImageView *> *_previewImageViewsByIdentifier;
     NSArray<NSDictionary<NSString *, id> *> *_sceneDescriptors;
+}
+
+- (NSDictionary<NSString *, id> *)sceneDescriptorWithIdentifier:(NSString *)identifier {
+    for (NSDictionary<NSString *, id> *descriptor in _sceneDescriptors) {
+        if ([descriptor[@"identifier"] isEqualToString:identifier])
+            return descriptor;
+    }
+    return nil;
+}
+
+- (UIButton *)workspacesActionButtonWithTitle:(NSString *)title action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+    button.layer.cornerRadius = 12;
+    button.layer.borderWidth = 1;
+    [button setTitle:title forState:UIControlStateNormal];
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 36.0 : 40.0].active = YES;
+    return button;
 }
 
 - (UIImage *)scenePreviewImageForDescriptor:(NSDictionary<NSString *, id> *)descriptor size:(CGSize)size {
@@ -5997,6 +6174,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _rowsStack.axis = UILayoutConstraintAxisVertical;
     _rowsStack.spacing = 6;
     [listCard addSubview:_rowsStack];
+
+    _newWorkspaceButton = [self workspacesActionButtonWithTitle:@"New Workspace" action:@selector(openNewWorkspaceFromApplet:)];
+    [_contentStack addArrangedSubview:_newWorkspaceButton];
+    _closeHiddenButton = [self workspacesActionButtonWithTitle:@"Close Hidden Windows" action:@selector(confirmCloseHiddenWindows:)];
+    [_contentStack addArrangedSubview:_closeHiddenButton];
     [NSLayoutConstraint activateConstraints:@[
         [_rowsStack.topAnchor constraintEqualToAnchor:listCard.topAnchor constant:8],
         [_rowsStack.leadingAnchor constraintEqualToAnchor:listCard.leadingAnchor constant:8],
@@ -6073,12 +6255,76 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     } else {
         return;
     }
-    [self.workspaceHostViewController focusSceneWithPersistentIdentifier:sender.accessibilityIdentifier];
+    NSDictionary<NSString *, id> *descriptor = [self sceneDescriptorWithIdentifier:sender.accessibilityIdentifier];
+    NSString *title = descriptor[@"title"] ?: @"Workspace";
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title
+                                                                   message:descriptor[@"detail"]
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Focus Workspace" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self.workspaceHostViewController focusSceneWithPersistentIdentifier:sender.accessibilityIdentifier];
+    }]];
+    UIAlertAction *closeAction = [UIAlertAction actionWithTitle:@"Close Workspace" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [self confirmCloseWorkspaceWithIdentifier:sender.accessibilityIdentifier title:title];
+    }];
+    closeAction.enabled = ![title isEqualToString:@"Workspace One"];
+    [sheet addAction:closeAction];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sender;
+        popover.sourceRect = sender.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)openNewWorkspaceFromApplet:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController openNewWorkspaceWindow:nil];
+}
+
+- (void)confirmCloseHiddenWindows:(id)sender {
+    (void) sender;
+    NSArray<UISceneSession *> *sessions = [self.workspaceHostViewController hiddenWorkspaceSceneSessions];
+    if (sessions.count == 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Hidden Windows"
+                                                                       message:@"There are no hidden Workspace windows to close."
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Close Hidden Windows?"
+                                                                   message:[NSString stringWithFormat:@"This will close %lu hidden Workspace window%@.", (unsigned long) sessions.count, sessions.count == 1 ? @"" : @"s"]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Close Hidden" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self.workspaceHostViewController closeHiddenWorkspaceWindows:nil];
+        [self refreshWorkspaceScenes];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)confirmCloseWorkspaceWithIdentifier:(NSString *)identifier title:(NSString *)title {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Close %@?", title ?: @"Workspace"]
+                                                                   message:@"This closes that Workspace window. Running terminals in that Workspace may be detached or closed with the scene."
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Close Workspace" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [self.workspaceHostViewController closeSceneWithPersistentIdentifier:identifier title:@"Unable to close workspace"];
+        [self refreshWorkspaceScenes];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    _newWorkspaceButton.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
+    _newWorkspaceButton.layer.borderColor = theme[@"stroke"].CGColor;
+    [_newWorkspaceButton setTitleColor:theme[@"primary"] forState:UIControlStateNormal];
+    _closeHiddenButton.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
+    _closeHiddenButton.layer.borderColor = theme[@"stroke"].CGColor;
+    [_closeHiddenButton setTitleColor:theme[@"primary"] forState:UIControlStateNormal];
     for (NSDictionary<NSString *, id> *descriptor in _sceneDescriptors) {
         NSString *identifier = descriptor[@"identifier"];
         UIButton *button = nil;
