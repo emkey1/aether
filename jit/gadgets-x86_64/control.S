@@ -74,6 +74,15 @@
 .gadget jmp
     movq (%_ip), %_ip
     jmp jit_ret_chain
+.gadget amd64_jmp
+    movq (%_ip), %_ip
+    btq $63, %_ip
+    jnc jit_ret_chain
+    movq %_ip, %r10
+    btrq $63, %r10
+    movq %r10, CPU_amd64_rip(%_cpu)
+    movl %r10d, CPU_eip(%_cpu)
+    jmp jit_ret_chain
 .gadget jcxz
     cmpl $0, %ecx
     jne 1f

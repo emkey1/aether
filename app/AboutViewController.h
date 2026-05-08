@@ -17,6 +17,12 @@ extern UIViewController *ISHCreateLLMClientViewControllerWithInitialPrompt(NSStr
 extern UIViewController *ISHCreateLLMSettingsViewController(void);
 extern BOOL ISHLLMClientEnabled(void);
 
+typedef NS_ENUM(NSInteger, AOKLLMBackend) {
+    AOKLLMBackendAppleFoundationModels,
+    AOKLLMBackendBundledQwenTiny,
+    AOKLLMBackendOpenAICompatibleEndpoint,
+};
+
 @interface AboutViewController : UITableViewController
 
 @property BOOL includeDebugPanel;

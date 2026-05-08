@@ -82,6 +82,17 @@
 .gadget jmp
     ldr _ip, [_ip]
     b jit_ret_chain
+.gadget amd64_jmp
+    ldr _ip, [_ip]
+    cmp _ip, 0
+    b.lt 1f
+    b jit_ret_chain
+1:
+    lsl x8, _ip, 1
+    lsr x8, x8, 1
+    str x8, [_cpu, CPU_amd64_rip]
+    str w8, [_cpu, CPU_eip]
+    b jit_ret_chain
 .gadget jcxz
     cbnz ecx, 1f
     ldr _ip, [_ip]

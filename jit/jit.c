@@ -833,6 +833,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             }
         }
 no_jit_retry:
+        ;
     }
 
     // Release jetsam_lock before freeing: with debug malloc scribbling, free()
@@ -884,7 +885,7 @@ static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
 
 static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb) {
     struct jit *jit = cpu->mmu->jit;
-    enum { AMD64_FRONTEND_TIMER_BLOCK_QUANTUM = 16 };
+    enum { AMD64_FRONTEND_TIMER_BLOCK_QUANTUM = 1024 };
     struct jit_block *cache[JIT_CACHE_SIZE] = {};
     struct jit_frame frame_storage = {};
     struct jit_frame *frame = &frame_storage;

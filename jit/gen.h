@@ -14,6 +14,10 @@ struct gen_state {
     bool amd64;
     bool amd64_fallback_to_interp;
     bool amd64_abort_block_to_interp;
+    bool amd64_deferred_rip_valid;
+    bool amd64_reg_cache_valid;
+    bool amd64_reg_cache_dirty;
+    guest_addr_t amd64_deferred_rip;
     guest_addr_t amd64_fallback_ip;
     uint8_t amd64_fallback_opcode;
     uint8_t amd64_fallback_op2;

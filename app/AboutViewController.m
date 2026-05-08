@@ -268,7 +268,23 @@ static NSString *ISHLLMChatEndpoint(void) {
     return [base stringByAppendingString:@"/chat/completions"];
 }
 
+static BOOL ISHLLMUsesAppleFoundationModels(void) {
+    return [UserPreferences.shared.llmProvider.lowercaseString containsString:@"foundation models"];
+}
+
+static AOKLLMBackend ISHLLMCurrentBackend(void) {
+    return ISHLLMUsesAppleFoundationModels()
+        ? AOKLLMBackendAppleFoundationModels
+        : AOKLLMBackendOpenAICompatibleEndpoint;
+}
+
+static NSString *ISHLLMAppleFoundationModelsUnavailableMessage(void) {
+    return @"Apple Foundation Models is selected, but this build cannot call it yet. The current SDK does not expose FoundationModels.framework, and the app still targets older iOS/iPadOS. When built with the iOS 26 SDK, this provider should use Apple's on-device Foundation Models backend with no server URL or API key.";
+}
+
 static BOOL ISHLLMUsesGeminiAPI(void) {
+    if (ISHLLMUsesAppleFoundationModels())
+        return NO;
     NSString *provider = UserPreferences.shared.llmProvider.lowercaseString;
     NSString *host = [NSURL URLWithString:UserPreferences.shared.llmServerURL].host.lowercaseString ?: @"";
     return [provider containsString:@"gemini"] || [host containsString:@"generativelanguage.googleapis.com"];
@@ -322,6 +338,7 @@ static void ISHConfigureLLMSettingsNavigationController(UINavigationController *
 
 static NSArray<NSDictionary<NSString *, NSString *> *> *ISHLLMProviderPresets(void) {
     return @[
+        @{@"name": @"Apple Foundation Models", @"url": @"", @"model": @"system-language-model", @"format": @"Apple on-device Foundation Models"},
         @{@"name": @"OpenRouter Free", @"url": @"https://openrouter.ai/api/v1", @"model": @"openrouter/free", @"format": @"OpenAI-compatible chat completions"},
         @{@"name": @"Groq Llama", @"url": @"https://api.groq.com/openai/v1", @"model": @"llama-3.1-8b-instant", @"format": @"OpenAI-compatible chat completions"},
         @{@"name": @"Gemini Flash", @"url": @"https://generativelanguage.googleapis.com/v1beta", @"model": @"gemini-2.5-flash", @"format": @"Google Gemini generateContent"},
@@ -333,12 +350,16 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *ISHLLMProviderPresets(vo
 }
 
 static NSString *ISHLLMCurrentAPIFormat(void) {
+    if (ISHLLMUsesAppleFoundationModels())
+        return @"Apple on-device Foundation Models";
     if (ISHLLMUsesGeminiAPI())
         return @"Google Gemini generateContent";
     return @"OpenAI-compatible chat completions";
 }
 
 static BOOL ISHLLMProviderRequiresAPIKey(void) {
+    if (ISHLLMUsesAppleFoundationModels())
+        return NO;
     NSString *provider = UserPreferences.shared.llmProvider.lowercaseString;
     NSString *host = [NSURL URLWithString:UserPreferences.shared.llmServerURL].host.lowercaseString ?: @"";
     return [provider containsString:@"openrouter"] || [provider containsString:@"openai"] ||
@@ -1200,6 +1221,10 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
 }
 
 - (void)queryModelsInTranscript {
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
+        [self appendLocalRole:@"assistant" content:[NSString stringWithFormat:@"Current on-device model: %@\n%@", UserPreferences.shared.llmModel.length > 0 ? UserPreferences.shared.llmModel : @"system-language-model", ISHLLMAppleFoundationModelsUnavailableMessage()]];
+        return;
+    }
     NSURL *url = [NSURL URLWithString:ISHLLMModelsEndpoint()];
     if (url == nil) {
         [self appendLocalRole:@"assistant" content:@"Invalid models URL."];
@@ -1267,6 +1292,10 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         return;
     }
     UserPreferences.shared.llmModel = model;
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
+        [self appendLocalRole:@"assistant" content:[NSString stringWithFormat:@"Model set to %@. Apple Foundation Models uses the system on-device model when available. %@", model, ISHLLMAppleFoundationModelsUnavailableMessage()]];
+        return;
+    }
     NSString *apiKey = UserPreferences.shared.llmAPIKey;
     if (ISHLLMProviderRequiresAPIKey() && apiKey.length == 0) {
         [self appendLocalRole:@"assistant" content:[NSString stringWithFormat:@"Model set to %@. %@", model, ISHLLMMissingAPIKeyMessage()]];
@@ -1336,6 +1365,12 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         _promptField.text = @"";
         [self appendLocalRole:@"user" content:prompt];
         [self setAndLoadModelFromCommand:prompt];
+        return;
+    }
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
+        _promptField.text = @"";
+        [self appendLocalRole:@"user" content:prompt];
+        [self appendLocalRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
         return;
     }
     NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -1518,6 +1553,8 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     (void) tableView;
     if (section == 0)
         return nil;
+    if (ISHLLMUsesAppleFoundationModels())
+        return @"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend. This build exposes the provider setting, but runtime calls require building with an SDK that includes FoundationModels.framework. Chat history is saved in /AOK/persist/llm-chat.json.";
     return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 
@@ -1535,7 +1572,9 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         cell.detailTextLabel.text = UserPreferences.shared.llmProvider;
     } else if (indexPath.row == 1) {
         cell.textLabel.text = @"Server URL";
-        cell.detailTextLabel.text = UserPreferences.shared.llmServerURL;
+        cell.detailTextLabel.text = ISHLLMUsesAppleFoundationModels() ? @"On-device" : UserPreferences.shared.llmServerURL;
+        if (ISHLLMUsesAppleFoundationModels())
+            cell.accessoryType = UITableViewCellAccessoryNone;
     } else if (indexPath.row == 2) {
         cell.textLabel.text = @"Model";
         cell.detailTextLabel.text = UserPreferences.shared.llmModel;
@@ -1545,7 +1584,9 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         cell.accessoryType = UITableViewCellAccessoryNone;
     } else if (indexPath.row == 4) {
         cell.textLabel.text = @"API Key";
-        cell.detailTextLabel.text = UserPreferences.shared.llmAPIKey.length > 0 ? @"Set" : (ISHLLMProviderRequiresAPIKey() ? @"Required" : @"Optional");
+        cell.detailTextLabel.text = ISHLLMUsesAppleFoundationModels() ? @"Not used" : (UserPreferences.shared.llmAPIKey.length > 0 ? @"Set" : (ISHLLMProviderRequiresAPIKey() ? @"Required" : @"Optional"));
+        if (ISHLLMUsesAppleFoundationModels())
+            cell.accessoryType = UITableViewCellAccessoryNone;
     } else if (indexPath.row == 5) {
         cell.textLabel.text = @"Query Models";
         cell.detailTextLabel.text = @"/models";
@@ -1569,6 +1610,8 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         return;
     }
     if (indexPath.row == 3)
+        return;
+    if (ISHLLMUsesAppleFoundationModels() && (indexPath.row == 1 || indexPath.row == 4))
         return;
     if (indexPath.row == 5) {
         [self queryAvailableModels];
@@ -1615,8 +1658,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
             : name;
         [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             UserPreferences.shared.llmProvider = name;
-            if (preset[@"url"].length > 0)
-                UserPreferences.shared.llmServerURL = preset[@"url"];
+            UserPreferences.shared.llmServerURL = preset[@"url"] ?: @"";
             if (preset[@"model"].length > 0)
                 UserPreferences.shared.llmModel = preset[@"model"];
             [self.tableView reloadData];
@@ -1662,6 +1704,10 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
 }
 
 - (void)queryAvailableModels {
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
+        [self showConnectionResult:[NSString stringWithFormat:@"Current on-device model: %@\n%@", UserPreferences.shared.llmModel.length > 0 ? UserPreferences.shared.llmModel : @"system-language-model", ISHLLMAppleFoundationModelsUnavailableMessage()] title:@"Apple Foundation Models"];
+        return;
+    }
     NSURL *url = [NSURL URLWithString:ISHLLMModelsEndpoint()];
     if (url == nil) {
         [self showConnectionResult:@"Invalid models URL." title:@"Model Query Failed"];
@@ -1694,6 +1740,10 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
 }
 
 - (void)testConnection {
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
+        [self showConnectionResult:ISHLLMAppleFoundationModelsUnavailableMessage() title:@"Apple Foundation Models"];
+        return;
+    }
     NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSURL *url = [NSURL URLWithString:ISHLLMUsesGeminiAPI() ? ISHLLMGeminiGenerateEndpoint() : ISHLLMChatEndpoint()];
     if (model.length == 0 || url == nil) {

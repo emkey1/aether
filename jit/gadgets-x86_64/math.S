@@ -277,7 +277,7 @@
 2:
     btq $32, %r10
     jnc 3f
-    addq 24(%_ip), %r14
+    addq 16(%_ip), %r14
 3:
     movq %r10, %r15
     shrq $8, %r15
@@ -289,14 +289,14 @@
     cmpq $32, %r10
     je 5f
     movw %r14w, CPU_amd64_regs(%_cpu,%r15,8)
-    gret 2
+    gret 3
 4:
     movq %r14, CPU_amd64_regs(%_cpu,%r15,8)
-    gret 2
+    gret 3
 5:
     movl %r14d, %r14d
     movq %r14, CPU_amd64_regs(%_cpu,%r15,8)
-    gret 2
+    gret 3
 
 .gadget amd64_bswap_reg
     movq (%_ip), %r10
@@ -451,6 +451,181 @@
     jns 6f
     orb $SF_FLAG, %r15b
 6:
+    movl %r15d, CPU_eflags(%_cpu)
+    gret 2
+
+.gadget amd64_logic_reg_reg
+    movq (%_ip), %r10
+    movq %r10, %r11
+    movq %r10, %r12
+    movq %r10, %r13
+    andq $0xff, %r10
+    shrq $8, %r11
+    andq $0xf, %r11
+    shrq $12, %r12
+    andq $0xf, %r12
+    shrq $16, %r13
+    andq $0x7f, %r13
+    testq $2, %r10
+    jnz 9f
+    xchgq %r11, %r12
+9:
+    movq CPU_amd64_regs(%_cpu,%r11,8), %r14
+    cmpq $0x20, %r10
+    jae 8f
+    orq CPU_amd64_regs(%_cpu,%r12,8), %r14
+    jmp 3f
+8:
+    cmpq $0x30, %r10
+    jae 9f
+    andq CPU_amd64_regs(%_cpu,%r12,8), %r14
+    jmp 3f
+9:
+    xorq CPU_amd64_regs(%_cpu,%r12,8), %r14
+3:
+    cmpq $64, %r13
+    je 1f
+    cmpq $32, %r13
+    je 2f
+    cmpq $16, %r13
+    je 7f
+    movb %r14b, CPU_amd64_regs(%_cpu,%r11,8)
+    movzbl %r14b, %r14d
+    jmp 4f
+7:
+    movw %r14w, CPU_amd64_regs(%_cpu,%r11,8)
+    movzwl %r14w, %r14d
+    jmp 4f
+1:
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+    jmp 4f
+2:
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r11,8)
+4:
+    movq %r13, %r12
+    movl CPU_eflags(%_cpu), %r15d
+    andl $~(1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11)), %r15d
+    movl $0, CPU_cf(%_cpu)
+    movl $0, CPU_of(%_cpu)
+    andb $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    testq %r14, %r14
+    setz %r13b
+    shlb $6, %r13b
+    orb %r13b, %r15b
+    setp %r13b
+    shlb $2, %r13b
+    orb %r13b, %r15b
+    cmpq $64, %r12
+    je 5f
+    cmpq $32, %r12
+    je 6f
+    cmpq $16, %r12
+    je 7f
+    testb %r14b, %r14b
+    jns 10f
+    orb $SF_FLAG, %r15b
+    jmp 10f
+7:
+    testw %r14w, %r14w
+    jns 10f
+    orb $SF_FLAG, %r15b
+    jmp 10f
+6:
+    testl %r14d, %r14d
+    jns 10f
+    orb $SF_FLAG, %r15b
+    jmp 10f
+5:
+    testq %r14, %r14
+    jns 10f
+    orb $SF_FLAG, %r15b
+10:
+    movl %r15d, CPU_eflags(%_cpu)
+    gret 1
+
+.gadget amd64_logic_reg_imm
+    movq (%_ip), %r10
+    movq 8(%_ip), %r11
+    movq %r10, %r12
+    movq %r10, %r13
+    shrq $8, %r12
+    andq $0xf, %r12
+    shrq $12, %r13
+    andq $0xf, %r13
+    shrq $16, %r10
+    andq $0x7f, %r10
+    movq CPU_amd64_regs(%_cpu,%r13,8), %r14
+    cmpq $4, %r12
+    je 1f
+    cmpq $6, %r12
+    je 2f
+    orq %r11, %r14
+    jmp 3f
+1:
+    andq %r11, %r14
+    jmp 3f
+2:
+    xorq %r11, %r14
+3:
+    cmpq $64, %r10
+    je 4f
+    cmpq $32, %r10
+    je 5f
+    cmpq $16, %r10
+    je 6f
+    movb %r14b, CPU_amd64_regs(%_cpu,%r13,8)
+    movzbl %r14b, %r14d
+    jmp 7f
+6:
+    movw %r14w, CPU_amd64_regs(%_cpu,%r13,8)
+    movzwl %r14w, %r14d
+    jmp 7f
+4:
+    movq %r14, CPU_amd64_regs(%_cpu,%r13,8)
+    jmp 7f
+5:
+    movl %r14d, %r14d
+    movq %r14, CPU_amd64_regs(%_cpu,%r13,8)
+7:
+    movq %r10, %r12
+    movl CPU_eflags(%_cpu), %r15d
+    andl $~(1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG | (1 << 11)), %r15d
+    movl $0, CPU_cf(%_cpu)
+    movl $0, CPU_of(%_cpu)
+    andb $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    testq %r14, %r14
+    setz %r13b
+    shlb $6, %r13b
+    orb %r13b, %r15b
+    setp %r13b
+    shlb $2, %r13b
+    orb %r13b, %r15b
+    cmpq $64, %r12
+    je 8f
+    cmpq $32, %r12
+    je 9f
+    cmpq $16, %r12
+    je 10f
+    testb %r14b, %r14b
+    jns 11f
+    orb $SF_FLAG, %r15b
+    jmp 11f
+10:
+    testw %r14w, %r14w
+    jns 11f
+    orb $SF_FLAG, %r15b
+    jmp 11f
+9:
+    testl %r14d, %r14d
+    jns 11f
+    orb $SF_FLAG, %r15b
+    jmp 11f
+8:
+    testq %r14, %r14
+    jns 11f
+    orb $SF_FLAG, %r15b
+11:
     movl %r15d, CPU_eflags(%_cpu)
     gret 2
 

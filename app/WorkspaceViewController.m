@@ -100,6 +100,7 @@ static NSString *const ISHWorkspaceForgottenHiddenSessionsDefaultsKey = @"ISHWor
 static NSString *const ISHWorkspaceDockFrameDidChangeNotification = @"ISHWorkspaceDockFrameDidChange";
 static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
+static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
 static NSString *const ISHWorkspaceSavedLayoutKindTerminal = @"terminal";
 static NSString *const ISHWorkspaceTerminalRoleSessionShell = @"session-shell";
@@ -2607,6 +2608,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         };
     }
 
+    if (windowView == self.dockWindow) {
+        return @{
+            @"kind": ISHWorkspaceSavedLayoutKindDock,
+            @"frame": frameDescriptor,
+            @"hidden": @(self.dockWindow.hidden),
+            @"pinned": @(self.dockWindow.pinnedToBottomCenter),
+        };
+    }
+
     if (windowView.hostedTerminalViewController != nil) {
         NSUUID *sessionTerminalUUID = [self persistentTerminalUUIDForWindow:windowView];
         NSUUID *displayTerminalUUID = [self displayedTerminalUUIDForWindow:windowView];
@@ -2652,6 +2662,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         : self.dashboardWindow.preferredSize;
     [self applySavedFrameDescriptor:frameDescriptor toWindow:self.dashboardWindow fallbackSize:fallbackSize];
     self.dashboardWindow.hidden = [descriptor[@"hidden"] boolValue];
+}
+
+- (void)applySavedDockDescriptor:(NSDictionary<NSString *, id> *)descriptor {
+    if (self.dockWindow == nil)
+        return;
+    NSDictionary<NSString *, id> *frameDescriptor = descriptor[@"frame"];
+    CGSize fallbackSize = self.dockWindow.bounds.size.width > 0
+        ? self.dockWindow.bounds.size
+        : self.dockWindow.preferredSize;
+    self.dockWindow.pinnedToBottomCenter = [descriptor[@"pinned"] boolValue];
+    [self applySavedFrameDescriptor:frameDescriptor toWindow:self.dockWindow fallbackSize:fallbackSize];
+    self.dockWindow.hidden = [descriptor[@"hidden"] boolValue];
 }
 
 - (NSString *)terminalRoleFromSavedDescriptor:(NSDictionary<NSString *, id> *)descriptor
@@ -2884,11 +2906,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 
     NSDictionary<NSString *, id> *dashboardDescriptor = nil;
+    NSDictionary<NSString *, id> *dockDescriptor = nil;
     NSMutableArray<NSDictionary<NSString *, id> *> *windowDescriptors = [NSMutableArray array];
     for (NSDictionary<NSString *, id> *descriptor in layout) {
         NSString *kind = descriptor[@"kind"];
         if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindDashboard]) {
             dashboardDescriptor = descriptor;
+        } else if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindDock]) {
+            dockDescriptor = descriptor;
         } else {
             [windowDescriptors addObject:descriptor];
         }
@@ -2897,6 +2922,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self closeAllRestorableDesktopWindows];
     if (dashboardDescriptor != nil)
         [self applySavedDashboardDescriptor:dashboardDescriptor];
+    if (dockDescriptor != nil)
+        [self applySavedDockDescriptor:dockDescriptor];
 
     NSSet<NSString *> *deduplicatedTerminalRoles =
         [NSSet setWithArray:@[ISHWorkspaceTerminalRoleSessionShell, ISHWorkspaceTerminalRoleSystemConsole]];
@@ -6089,6 +6116,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     button.layer.borderWidth = 1;
     [button.heightAnchor constraintEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 54.0 : 62.0)].active = YES;
     [button addTarget:self action:@selector(focusWorkspaceSceneButton:) forControlEvents:UIControlEventTouchUpInside];
+    UILongPressGestureRecognizer *longPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleWorkspaceSceneButtonLongPress:)];
+    longPressRecognizer.minimumPressDuration = 0.35;
+    longPressRecognizer.cancelsTouchesInView = YES;
+    [button addGestureRecognizer:longPressRecognizer];
 
     UIImageView *previewView = [UIImageView new];
     previewView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -6251,6 +6283,20 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 }
 
 - (void)focusWorkspaceSceneButton:(UIButton *)sender {
+    if (@available(iOS 13.0, *)) {
+    } else {
+        return;
+    }
+    [self.workspaceHostViewController focusSceneWithPersistentIdentifier:sender.accessibilityIdentifier];
+}
+
+- (void)handleWorkspaceSceneButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan || ![recognizer.view isKindOfClass:UIButton.class])
+        return;
+    [self presentWorkspaceSceneMenuForButton:(UIButton *) recognizer.view];
+}
+
+- (void)presentWorkspaceSceneMenuForButton:(UIButton *)sender {
     if (@available(iOS 13.0, *)) {
     } else {
         return;
