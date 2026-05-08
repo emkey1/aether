@@ -434,7 +434,7 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         // guarantee that by stopping as soon as there's less space left than
         // the maximum length of an x86 instruction
         // TODO refuse to decode instructions longer than 15 bytes
-        if (state.ip - ip >= PAGE_SIZE - 15) {
+        if ((amd64 ? state.amd64_ip - ip : state.ip - ip) >= PAGE_SIZE - 15) {
             gen_exit(&state);
             break;
         }
