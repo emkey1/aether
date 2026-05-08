@@ -839,6 +839,39 @@ static NSString *ISHWorkspaceSceneRoleDescription(UISceneSession *session) {
     return @"Unknown";
 }
 
+static UIViewController *ISHWorkspaceRootViewControllerForScene(UIScene *scene) API_AVAILABLE(ios(13.0));
+static UIViewController *ISHWorkspaceRootViewControllerForScene(UIScene *scene) {
+    if (![scene isKindOfClass:UIWindowScene.class])
+        return nil;
+    for (UIWindow *window in ((UIWindowScene *) scene).windows) {
+        if (window.rootViewController != nil)
+            return window.rootViewController;
+    }
+    return nil;
+}
+
+static UIViewController *ISHWorkspaceTopViewController(UIViewController *viewController) {
+    if ([viewController isKindOfClass:UINavigationController.class])
+        return ((UINavigationController *) viewController).topViewController;
+    return viewController;
+}
+
+static NSString *ISHWorkspaceSceneRoleDescriptionForScene(UISceneSession *session, UIScene *scene) API_AVAILABLE(ios(13.0));
+static NSString *ISHWorkspaceSceneRoleDescriptionForScene(UISceneSession *session, UIScene *scene) {
+    NSString *role = ISHWorkspaceSceneRoleDescription(session);
+    if (![role isEqualToString:@"Unknown"] || scene == nil)
+        return role;
+
+    UIViewController *rootViewController = ISHWorkspaceRootViewControllerForScene(scene);
+    UIViewController *topViewController = ISHWorkspaceTopViewController(rootViewController);
+    if ([topViewController isKindOfClass:WorkspaceViewController.class])
+        return @"Workspace";
+    if ([rootViewController isKindOfClass:TerminalViewController.class] ||
+            [topViewController isKindOfClass:TerminalViewController.class])
+        return @"Terminal";
+    return role;
+}
+
 static NSString *ISHWorkspaceOrdinalName(NSUInteger index) {
     static NSArray<NSString *> *names;
     static dispatch_once_t onceToken;
@@ -852,11 +885,34 @@ static NSString *ISHWorkspaceOrdinalName(NSUInteger index) {
 
 static NSArray<UISceneSession *> *ISHWorkspaceSortedSceneSessions(void) API_AVAILABLE(ios(13.0));
 static NSArray<UISceneSession *> *ISHWorkspaceSortedSceneSessions(void) {
-    return [UIApplication.sharedApplication.openSessions.allObjects sortedArrayUsingComparator:^NSComparisonResult(UISceneSession *left, UISceneSession *right) {
+    NSMutableDictionary<NSString *, UISceneSession *> *sessionsByIdentifier = [NSMutableDictionary dictionary];
+    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+        NSString *identifier = session.persistentIdentifier ?: @"";
+        if (identifier.length > 0)
+            sessionsByIdentifier[identifier] = session;
+    }
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        UISceneSession *session = scene.session;
+        NSString *identifier = session.persistentIdentifier ?: @"";
+        if (identifier.length > 0)
+            sessionsByIdentifier[identifier] = session;
+    }
+    return [sessionsByIdentifier.allValues sortedArrayUsingComparator:^NSComparisonResult(UISceneSession *left, UISceneSession *right) {
         NSString *leftIdentifier = left.persistentIdentifier ?: @"";
         NSString *rightIdentifier = right.persistentIdentifier ?: @"";
         return [leftIdentifier compare:rightIdentifier];
     }];
+}
+
+static UISceneSession *ISHWorkspaceSceneSessionWithPersistentIdentifier(NSString *identifier) API_AVAILABLE(ios(13.0));
+static UISceneSession *ISHWorkspaceSceneSessionWithPersistentIdentifier(NSString *identifier) {
+    if (identifier.length == 0)
+        return nil;
+    for (UISceneSession *session in ISHWorkspaceSortedSceneSessions()) {
+        if ([session.persistentIdentifier isEqualToString:identifier])
+            return session;
+    }
+    return nil;
 }
 
 static NSString *ISHWorkspaceNameForSession(UISceneSession *session) API_AVAILABLE(ios(13.0));
@@ -921,7 +977,7 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceSceneDescriptors(UIW
         UIScene *scene = ISHWorkspaceConnectedSceneForSession(session);
         if (scene == nil && ISHWorkspaceHiddenSessionIsForgotten(session))
             continue;
-        NSString *role = ISHWorkspaceSceneRoleDescription(session);
+        NSString *role = ISHWorkspaceSceneRoleDescriptionForScene(session, scene);
         NSString *state = scene != nil ? ISHWorkspaceSceneActivationDescription(scene) : @"Hidden";
         NSString *identifier = session.persistentIdentifier ?: @"";
         NSString *terminalUUID = session.stateRestorationActivity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
@@ -4040,96 +4096,88 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)focusSceneWithPersistentIdentifier:(NSString *)identifier {
     if (@available(iOS 13.0, *)) {
+        [self.view.window endEditing:YES];
+        if (identifier.length == 0) {
+            [self presentSceneActivationError:nil title:@"Unable to focus window"];
+            return;
+        }
+        UISceneSession *targetSession = ISHWorkspaceSceneSessionWithPersistentIdentifier(identifier);
+        if (targetSession == nil) {
+            [self presentSceneActivationError:nil title:@"Unable to focus window"];
+            return;
+        }
+        [UIApplication.sharedApplication requestSceneSessionActivation:targetSession
+                                                         userActivity:nil
+                                                              options:nil
+                                                         errorHandler:^(NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentSceneActivationError:error title:@"Unable to focus window"];
+            });
+        }];
     } else {
         return;
     }
-    [self.view.window endEditing:YES];
-    if (identifier.length == 0) {
-        [self presentSceneActivationError:nil title:@"Unable to focus window"];
-        return;
-    }
-    UISceneSession *targetSession = nil;
-    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
-        if ([session.persistentIdentifier isEqualToString:identifier]) {
-            targetSession = session;
-            break;
-        }
-    }
-    if (targetSession == nil) {
-        [self presentSceneActivationError:nil title:@"Unable to focus window"];
-        return;
-    }
-    [UIApplication.sharedApplication requestSceneSessionActivation:targetSession
-                                                     userActivity:nil
-                                                          options:nil
-                                                     errorHandler:^(NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentSceneActivationError:error title:@"Unable to focus window"];
-        });
-    }];
 }
 
 - (void)closeSceneWithPersistentIdentifier:(NSString *)identifier title:(NSString *)title {
     if (@available(iOS 13.0, *)) {
+        UISceneSession *targetSession = ISHWorkspaceSceneSessionWithPersistentIdentifier(identifier);
+        if (targetSession == nil) {
+            [self presentSceneActivationError:nil title:@"Unable to close workspace"];
+            return;
+        }
+        if (ISHWorkspaceConnectedSceneForSession(targetSession) == nil) {
+            ISHWorkspaceForgetHiddenSession(targetSession);
+            return;
+        }
+        [UIApplication.sharedApplication requestSceneSessionDestruction:targetSession
+                                                                options:nil
+                                                           errorHandler:^(NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentSceneActivationError:error title:title ?: @"Unable to close workspace"];
+            });
+        }];
     } else {
         [self presentSceneActivationError:nil title:@"Unable to close workspace"];
         return;
     }
-    UISceneSession *targetSession = nil;
-    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
-        if ([session.persistentIdentifier isEqualToString:identifier]) {
-            targetSession = session;
-            break;
-        }
-    }
-    if (targetSession == nil) {
-        [self presentSceneActivationError:nil title:@"Unable to close workspace"];
-        return;
-    }
-    if (ISHWorkspaceConnectedSceneForSession(targetSession) == nil) {
-        ISHWorkspaceForgetHiddenSession(targetSession);
-        return;
-    }
-    [UIApplication.sharedApplication requestSceneSessionDestruction:targetSession
-                                                            options:nil
-                                                       errorHandler:^(NSError *error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentSceneActivationError:error title:title ?: @"Unable to close workspace"];
-        });
-    }];
 }
 
 - (NSArray<UISceneSession *> *)hiddenWorkspaceSceneSessions {
     if (@available(iOS 13.0, *)) {
+        NSMutableArray<UISceneSession *> *sessions = [NSMutableArray array];
+        for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+            if (![ISHWorkspaceSceneRoleDescription(session) isEqualToString:@"Workspace"])
+                continue;
+            if (ISHWorkspaceConnectedSceneForSession(session) != nil)
+                continue;
+            if (ISHWorkspaceHiddenSessionIsForgotten(session))
+                continue;
+            [sessions addObject:session];
+        }
+        return sessions;
     } else {
         return @[];
     }
-    NSMutableArray<UISceneSession *> *sessions = [NSMutableArray array];
-    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
-        if (![ISHWorkspaceSceneRoleDescription(session) isEqualToString:@"Workspace"])
-            continue;
-        if (ISHWorkspaceConnectedSceneForSession(session) != nil)
-            continue;
-        if (ISHWorkspaceHiddenSessionIsForgotten(session))
-            continue;
-        [sessions addObject:session];
-    }
-    return sessions;
 }
 
 - (void)closeHiddenWorkspaceWindows:(id)sender {
     (void) sender;
-    NSArray<UISceneSession *> *sessions = [self hiddenWorkspaceSceneSessions];
-    if (sessions.count == 0) {
-        [self presentSceneActivationError:nil title:@"No hidden workspace windows"];
-        return;
-    }
-    for (UISceneSession *session in sessions) {
-        ISHWorkspaceForgetHiddenSession(session);
-        [UIApplication.sharedApplication requestSceneSessionDestruction:session
-                                                                options:nil
-                                                           errorHandler:^(__unused NSError *error) {
-        }];
+    if (@available(iOS 13.0, *)) {
+        NSArray<UISceneSession *> *sessions = [self hiddenWorkspaceSceneSessions];
+        if (sessions.count == 0) {
+            [self presentSceneActivationError:nil title:@"No hidden workspace windows"];
+            return;
+        }
+        for (UISceneSession *session in sessions) {
+            ISHWorkspaceForgetHiddenSession(session);
+            [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                                    options:nil
+                                                               errorHandler:^(__unused NSError *error) {
+            }];
+        }
+    } else {
+        [self presentSceneActivationError:nil title:@"Unable to close workspace"];
     }
 }
 
@@ -6330,24 +6378,27 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)confirmCloseHiddenWindows:(id)sender {
     (void) sender;
-    NSArray<UISceneSession *> *sessions = [self.workspaceHostViewController hiddenWorkspaceSceneSessions];
-    if (sessions.count == 0) {
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Hidden Windows"
-                                                                       message:@"There are no hidden Workspace windows to close."
+    if (@available(iOS 13.0, *)) {
+        NSArray<UISceneSession *> *sessions = [self.workspaceHostViewController hiddenWorkspaceSceneSessions];
+        if (sessions.count == 0) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Hidden Windows"
+                                                                           message:@"There are no hidden Workspace windows to close."
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+            return;
+        }
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Close Hidden Windows?"
+                                                                       message:[NSString stringWithFormat:@"This will close %lu hidden Workspace window%@.", (unsigned long) sessions.count, sessions.count == 1 ? @"" : @"s"]
                                                                 preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Close Hidden" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [self.workspaceHostViewController closeHiddenWorkspaceWindows:nil];
+            [self refreshWorkspaceScenes];
+        }]];
         [self presentViewController:alert animated:YES completion:nil];
         return;
     }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Close Hidden Windows?"
-                                                                   message:[NSString stringWithFormat:@"This will close %lu hidden Workspace window%@.", (unsigned long) sessions.count, sessions.count == 1 ? @"" : @"s"]
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Close Hidden" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        [self.workspaceHostViewController closeHiddenWorkspaceWindows:nil];
-        [self refreshWorkspaceScenes];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)confirmCloseWorkspaceWithIdentifier:(NSString *)identifier title:(NSString *)title {
