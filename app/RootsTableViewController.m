@@ -324,15 +324,22 @@
         cell.textLabel.text = choice[@"displayName"];
         cell.detailTextLabel.text = [self _bundledChoiceSubtitle:choice];
         cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         return cell;
     }
 
     NSString *ident = @"Root";
-    if ([Roots.instance.roots[indexPath.row] isEqual:Roots.instance.defaultRoot])
+    BOOL isDefaultRoot = [Roots.instance.roots[indexPath.row] isEqual:Roots.instance.defaultRoot];
+    if (isDefaultRoot)
         ident = @"Default Root";
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:ident forIndexPath:indexPath];
     cell.textLabel.text = Roots.instance.roots[indexPath.row];
+    if (isDefaultRoot) {
+        cell.accessibilityTraits |= UIAccessibilityTraitSelected;
+    } else {
+        cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+    }
     return cell;
 }
 

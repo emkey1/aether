@@ -2317,6 +2317,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     button.backgroundColor = fillColor;
     button.layer.borderColor = borderColor.CGColor;
     button.accessibilityValue = state;
+    if (frontmost) {
+        button.accessibilityTraits |= UIAccessibilityTraitSelected;
+    } else {
+        button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+    }
 }
 
 - (UIView *)workspaceCardWithContentStack:(UIStackView **)contentStackOut {
