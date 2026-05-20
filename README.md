@@ -107,6 +107,30 @@ The iOS build scripts copy these archives into the app bundle if they are presen
 
 If one of those files is missing, the corresponding bundled root will not work.
 
+## Release Automation (Incremental)
+
+This repo now includes a simple helper script:
+
+- [`tools/release-aok.sh`](/Users/mke/git/ish-AOK/tools/release-aok.sh)
+
+Start with the safe parts first:
+
+```bash
+./tools/release-aok.sh preflight
+./tools/release-aok.sh archive
+./tools/release-aok.sh export latest /tmp/iSH-AOK-export
+```
+
+That gives you a repeatable archive + IPA export flow while you keep uploading manually.
+
+When you are ready for full TestFlight automation, use:
+
+```bash
+./tools/release-aok.sh upload-fastlane
+```
+
+`upload-fastlane` uses the existing `fastlane upload_build` lane and requires your Ruby/Bundler/Fastlane setup plus signing/auth secrets.
+
 ## Build the Native CLI / Emulator
 
 For emulator-side work, the Meson build is usually faster than full Xcode runs.
