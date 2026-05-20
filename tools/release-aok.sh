@@ -6,6 +6,16 @@ project="$repo_root/iSH-AOK.xcodeproj"
 scheme="iSH"
 configuration="Release"
 export_options="$repo_root/AppStoreExportOptions.plist"
+brew_ruby_bin="/opt/homebrew/opt/ruby/bin"
+
+ruby_cmd="${RUBY_CMD:-ruby}"
+bundle_cmd="${BUNDLE_CMD:-bundle}"
+if [ -x "$brew_ruby_bin/ruby" ]; then
+    ruby_cmd="$brew_ruby_bin/ruby"
+fi
+if [ -x "$brew_ruby_bin/bundle" ]; then
+    bundle_cmd="$brew_ruby_bin/bundle"
+fi
 
 usage() {
     cat >&2 <<EOF
@@ -48,7 +58,7 @@ require_cmd() {
 }
 
 ruby_version_ge_3_2() {
-    ruby -e 'exit((RUBY_VERSION.split(".").map(&:to_i) <=> [3,2,0]) >= 0 ? 0 : 1)' >/dev/null 2>&1
+    "$ruby_cmd" -e 'exit((RUBY_VERSION.split(".").map(&:to_i) <=> [3,2,0]) >= 0 ? 0 : 1)' >/dev/null 2>&1
 }
 
 is_clean_tree() {
@@ -80,23 +90,22 @@ preflight() {
 
     note "[ok] Xcode: $(xcodebuild -version | tr '\n' ' ' | sed 's/  */ /g')"
 
-    if command -v ruby >/dev/null 2>&1; then
+    if [ -x "$ruby_cmd" ] || command -v "$ruby_cmd" >/dev/null 2>&1; then
         if ruby_version_ge_3_2; then
             note "[ok] Ruby version is compatible for current fastlane lockfile"
         else
             note "[warn] Ruby is too old for current fastlane dependencies"
-            note "       Current: $(ruby -v | awk '{print $2}') ; Needed: >= 3.2"
+            note "       Current: $("$ruby_cmd" -v | awk '{print $2}') ; Needed: >= 3.2"
             note "       Suggested fix:"
             note "         brew install ruby"
-            note "         echo 'export PATH=\"/opt/homebrew/opt/ruby/bin:\$PATH\"' >> ~/.zshrc"
-            note "         source ~/.zshrc"
+            note "         Script will auto-use /opt/homebrew/opt/ruby/bin when present."
         fi
     else
         note "[warn] ruby command not found"
     fi
 
-    if command -v bundle >/dev/null 2>&1; then
-        if (cd "$repo_root" && bundle exec fastlane --version >/dev/null 2>&1); then
+    if [ -x "$bundle_cmd" ] || command -v "$bundle_cmd" >/dev/null 2>&1; then
+        if (cd "$repo_root" && "$bundle_cmd" exec fastlane --version >/dev/null 2>&1); then
             note "[ok] fastlane available through bundle exec"
         else
             note "[warn] bundle exists, but fastlane is not runnable via bundle exec"
@@ -136,8 +145,10 @@ export_ipa() {
 }
 
 upload_fastlane() {
-    require_cmd bundle
-    (cd "$repo_root" && bundle exec fastlane upload_build)
+    if ! ([ -x "$bundle_cmd" ] || command -v "$bundle_cmd" >/dev/null 2>&1); then
+        fail "missing bundle command: $bundle_cmd"
+    fi
+    (cd "$repo_root" && "$bundle_cmd" exec fastlane upload_build)
 }
 
 [ $# -ge 1 ] || usage
