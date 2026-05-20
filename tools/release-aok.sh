@@ -6,14 +6,19 @@ project="$repo_root/iSH-AOK.xcodeproj"
 scheme="iSH"
 configuration="Release"
 export_options="$repo_root/AppStoreExportOptions.plist"
+brew_ruby33_bin="/opt/homebrew/opt/ruby@3.3/bin"
 brew_ruby_bin="/opt/homebrew/opt/ruby/bin"
 
 ruby_cmd="${RUBY_CMD:-ruby}"
 bundle_cmd="${BUNDLE_CMD:-bundle}"
-if [ -x "$brew_ruby_bin/ruby" ]; then
+if [ -x "$brew_ruby33_bin/ruby" ]; then
+    ruby_cmd="$brew_ruby33_bin/ruby"
+elif [ -x "$brew_ruby_bin/ruby" ]; then
     ruby_cmd="$brew_ruby_bin/ruby"
 fi
-if [ -x "$brew_ruby_bin/bundle" ]; then
+if [ -x "$brew_ruby33_bin/bundle" ]; then
+    bundle_cmd="$brew_ruby33_bin/bundle"
+elif [ -x "$brew_ruby_bin/bundle" ]; then
     bundle_cmd="$brew_ruby_bin/bundle"
 fi
 
@@ -98,7 +103,7 @@ preflight() {
             note "       Current: $("$ruby_cmd" -v | awk '{print $2}') ; Needed: >= 3.2"
             note "       Suggested fix:"
             note "         brew install ruby"
-            note "         Script will auto-use /opt/homebrew/opt/ruby/bin when present."
+            note "         Script auto-prefers /opt/homebrew/opt/ruby@3.3/bin when present."
         fi
     else
         note "[warn] ruby command not found"
