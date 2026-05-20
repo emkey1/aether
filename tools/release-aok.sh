@@ -47,6 +47,10 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
 }
 
+ruby_version_ge_3_2() {
+    ruby -e 'exit((RUBY_VERSION.split(".").map(&:to_i) <=> [3,2,0]) >= 0 ? 0 : 1)' >/dev/null 2>&1
+}
+
 is_clean_tree() {
     [ -z "$(git -C "$repo_root" status --porcelain=v1)" ]
 }
@@ -75,6 +79,21 @@ preflight() {
     fi
 
     note "[ok] Xcode: $(xcodebuild -version | tr '\n' ' ' | sed 's/  */ /g')"
+
+    if command -v ruby >/dev/null 2>&1; then
+        if ruby_version_ge_3_2; then
+            note "[ok] Ruby version is compatible for current fastlane lockfile"
+        else
+            note "[warn] Ruby is too old for current fastlane dependencies"
+            note "       Current: $(ruby -v | awk '{print $2}') ; Needed: >= 3.2"
+            note "       Suggested fix:"
+            note "         brew install ruby"
+            note "         echo 'export PATH=\"/opt/homebrew/opt/ruby/bin:\$PATH\"' >> ~/.zshrc"
+            note "         source ~/.zshrc"
+        fi
+    else
+        note "[warn] ruby command not found"
+    fi
 
     if command -v bundle >/dev/null 2>&1; then
         if (cd "$repo_root" && bundle exec fastlane --version >/dev/null 2>&1); then

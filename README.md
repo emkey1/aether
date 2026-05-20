@@ -131,6 +131,15 @@ When you are ready for full TestFlight automation, use:
 
 `upload-fastlane` uses the existing `fastlane upload_build` lane and requires your Ruby/Bundler/Fastlane setup plus signing/auth secrets.
 
+If `preflight` says Ruby is too old, run:
+
+```bash
+brew install ruby
+echo 'export PATH="/opt/homebrew/opt/ruby/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+bundle install
+```
+
 ## Build the Native CLI / Emulator
 
 For emulator-side work, the Meson build is usually faster than full Xcode runs.
