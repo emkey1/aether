@@ -37,6 +37,9 @@ Commands:
   export <archive_path|latest> <export_path>
       Export IPA using tools/export-ios-archive.sh and AppStoreExportOptions.plist.
 
+  export-debug <archive_path|latest> <export_path>
+      Export a development/debugging IPA using automatic signing.
+
   upload-fastlane
       Run Fastlane lane upload_build (requires Ruby/Bundler/Fastlane setup).
 
@@ -149,6 +152,28 @@ export_ipa() {
     note "Export complete: $export_path"
 }
 
+export_debug_ipa() {
+    [ $# -eq 2 ] || usage
+    archive_path=$1
+    export_path=$2
+    dev_opts="${TMPDIR:-/tmp}/iSH-AOK-DevExportOptions.plist"
+    cat > "$dev_opts" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>destination</key><string>export</string>
+  <key>method</key><string>debugging</string>
+  <key>signingStyle</key><string>automatic</string>
+  <key>stripSwiftSymbols</key><true/>
+  <key>teamID</key><string>UYU5FM4LQ4</string>
+</dict>
+</plist>
+EOF
+    "$repo_root/tools/export-ios-archive.sh" "$archive_path" "$export_path" "$dev_opts"
+    note "Debug/development export complete: $export_path"
+}
+
 upload_fastlane() {
     if ! ([ -x "$bundle_cmd" ] || command -v "$bundle_cmd" >/dev/null 2>&1); then
         fail "missing bundle command: $bundle_cmd"
@@ -164,6 +189,7 @@ case "$cmd" in
     preflight) preflight "$@" ;;
     archive) archive_build "$@" ;;
     export) export_ipa "$@" ;;
+    export-debug) export_debug_ipa "$@" ;;
     upload-fastlane) upload_fastlane "$@" ;;
     *) usage ;;
 esac
