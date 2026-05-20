@@ -43,6 +43,11 @@ _xaddr .req x3
 .irp type, read,write
 
 .macro \type\()_prep size, id
+    ldr x10, [_tlb, (-TLB_entries+TLB_mmu)]
+    ldr x11, [_tlb, (-TLB_entries+TLB_mem_changes)]
+    ldr x12, [x10, MMU_changes]
+    cmp x11, x12
+    b.ne handle_miss_\id
     and w8, _addr, 0xfff
     cmp x8, (0x1000-(\size/8))
     b.hi crosspage_load_\id

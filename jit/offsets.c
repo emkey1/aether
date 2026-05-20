@@ -2,6 +2,7 @@
 #include "jit/frame.h"
 #include "emu/cpu.h"
 #include "emu/tlb.h"
+#include "emu/mmu.h"
 
 #define TLB_ENTRY_SIZE sizeof(struct tlb_entry)
 
@@ -63,8 +64,11 @@ void cpu() {
     OFFSET(JIT_BLOCK, jit_block, code);
 
     OFFSET(TLB, tlb, entries);
+    OFFSET(TLB, tlb, mmu);
+    OFFSET(TLB, tlb, mem_changes);
     OFFSET(TLB, tlb, dirty_page);
     OFFSET(TLB, tlb, segfault_addr);
+    OFFSET(MMU, mmu, changes);
     OFFSET(TLB_ENTRY, tlb_entry, page);
     OFFSET(TLB_ENTRY, tlb_entry, page_if_writable);
     OFFSET(TLB_ENTRY, tlb_entry, data_minus_addr);

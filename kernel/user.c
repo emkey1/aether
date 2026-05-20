@@ -195,6 +195,8 @@ int user_write(guest_addr_t addr, const void *buf, size_t count) {
 int user_read_string(guest_addr_t addr, char *buf, size_t max) {
     if (addr == 0)
         return 1;
+    if (max == 0)
+        return 1;
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
     struct mem *mem = task_mem_read_lock(current);
@@ -215,6 +217,8 @@ int user_read_string(guest_addr_t addr, char *buf, size_t max) {
         i++;
     }
     read_unlock(&mem->lock);
+    if (i == max || buf[i] != '\0')
+        return 1;
     return 0;
 }
 

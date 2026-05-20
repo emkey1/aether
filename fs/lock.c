@@ -154,6 +154,8 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
             offset = 0;
             break;
         case LSEEK_CUR:
+            if (fd->ops->lseek == NULL)
+                return _ESPIPE;
             mylock(&fd->lock, 0);
             offset = fd->ops->lseek(fd, 0, LSEEK_CUR);
             unlock(&fd->lock);
