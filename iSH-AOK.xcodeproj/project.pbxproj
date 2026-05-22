@@ -264,9 +264,9 @@
 		C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
 		C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
 		C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
+		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
 		C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
 		C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
-		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -791,9 +791,9 @@
 		C0A000022E00000200000002 /* aok.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = aok.c; sourceTree = "<group>"; };
 		C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
 		C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
-		C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = "tools/iSH_benchmark.tgz"; sourceTree = SOURCE_ROOT; };
 		C0A000032E00000300000002 /* WorkspaceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkspaceViewController.h; sourceTree = "<group>"; };
 		C0A000032E00000300000003 /* WorkspaceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorkspaceViewController.m; sourceTree = "<group>"; };
+		C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1993,29 +1993,6 @@
 			shellPath = /bin/sh;
 			shellScript = "python3 \"$SRCROOT/tools/generate-ios-alt-icons.py\" \\\n  --icons-plist \"$SRCROOT/app/Icons/Icons.plist\" \\\n  --info-header \"$BUILT_PRODUCTS_DIR/infoplisticons.h\"\n";
 		};
-		C0A200012F2F100100000001 /* Copy Alternate Icon Sizes */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
-			);
-			inputPaths = (
-				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
-				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
-			);
-			name = "Copy Alternate Icon Sizes";
-			outputFileListPaths = (
-				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -eu\nresources_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$resources_dir\"\nwhile IFS= read -r source_path; do\n  [ -n \"$source_path\" ] || continue\n  source_path=$(printf '%s\\n' \"$source_path\" | sed \"s#^\\$(SRCROOT)#$SRCROOT#\")\n  cp -f \"$source_path\" \"$resources_dir/$(basename \"$source_path\")\"\ndone < \"$SRCROOT/app/Icons/AlternateIconSizes.xcfilelist\"\n";
-		};
 		BBECF3B2269136E100DEC937 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -2126,6 +2103,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "mkdir -p \"$CONFIGURATION_BUILD_DIR\"\nln -sf \"$MESON_BUILD_DIR/$PRODUCT_NAME.a\" \"$CONFIGURATION_BUILD_DIR/$PRODUCT_NAME.a\"\n";
+		};
+		C0A200012F2F100100000001 /* Copy Alternate Icon Sizes */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
+			);
+			inputPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.xcfilelist",
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
+			);
+			name = "Copy Alternate Icon Sizes";
+			outputFileListPaths = (
+				"$(SRCROOT)/app/Icons/AlternateIconSizes.outputs.xcfilelist",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nresources_dir=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$resources_dir\"\nwhile IFS= read -r source_path; do\n  [ -n \"$source_path\" ] || continue\n  source_path=$(printf '%s\\n' \"$source_path\" | sed \"s#^\\$(SRCROOT)#$SRCROOT#\")\n  cp -f \"$source_path\" \"$resources_dir/$(basename \"$source_path\")\"\ndone < \"$SRCROOT/app/Icons/AlternateIconSizes.xcfilelist\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -2678,7 +2678,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 525;
+				CURRENT_PROJECT_VERSION = 528;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -2706,7 +2706,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 525;
+				CURRENT_PROJECT_VERSION = 528;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -2747,7 +2747,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 525;
+				CURRENT_PROJECT_VERSION = 528;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -3080,7 +3080,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 525;
+				CURRENT_PROJECT_VERSION = 528;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
