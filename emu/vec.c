@@ -345,26 +345,30 @@ void vec_single_fmin32(NO_CPU, const float *src, float *dst) {
     if (*src < *dst || isnan(*src) || isnan(*dst)) *dst = *src;
 }
 
-void vec_single_ucomi32(struct cpu_state *cpu, const float *src, const float *dst) {
-    cpu->zf_res = cpu->pf_res = 0;
-    cpu->zf = *src == *dst;
-    cpu->cf = *src > *dst;
-    cpu->pf = 0;
-    if (isnan(*src) || isnan(*dst))
-        cpu->zf = cpu->cf = cpu->pf = 1;
-    cpu->of = cpu->sf = cpu->af = 0;
+static void vec_set_ucomi_flags(struct cpu_state *cpu, bool unordered, bool equal, bool less) {
+    cpu->zf_res = 0;
+    cpu->pf_res = 0;
     cpu->sf_res = 0;
+    cpu->af_ops = 0;
+
+    cpu->zf = unordered || equal;
+    cpu->pf = unordered;
+    cpu->cf = unordered || less;
+    cpu->sf = 0;
+    cpu->af = 0;
+    cpu->of = 0;
+    cpu->cf_bit = cpu->cf;
+    cpu->of_bit = 0;
+}
+
+void vec_single_ucomi32(struct cpu_state *cpu, const float *src, const float *dst) {
+    bool unordered = isnan(*src) || isnan(*dst);
+    vec_set_ucomi_flags(cpu, unordered, *src == *dst, *dst < *src);
 }
 
 void vec_single_ucomi64(struct cpu_state *cpu, const double *src, const double *dst) {
-    cpu->zf_res = cpu->pf_res = 0;
-    cpu->zf = *src == *dst;
-    cpu->cf = *src > *dst;
-    cpu->pf = 0;
-    if (isnan(*src) || isnan(*dst))
-        cpu->zf = cpu->cf = cpu->pf = 1;
-    cpu->of = cpu->sf = cpu->af = 0;
-    cpu->sf_res = 0;
+    bool unordered = isnan(*src) || isnan(*dst);
+    vec_set_ucomi_flags(cpu, unordered, *src == *dst, *dst < *src);
 }
 
 #define VEC_PACKED_OP(name, op, field, size, n) \

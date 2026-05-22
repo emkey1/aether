@@ -2372,6 +2372,8 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
     if (sock->socket.domain == AF_LOCAL_) {
         struct fd *client_fd = f_get(client_f);
         fill_cred(&client_fd->socket.unix_cred);
+        client_fd->socket.unix_name_len = sock->socket.unix_name_len;
+        memcpy(client_fd->socket.unix_name, sock->socket.unix_name, sock->socket.unix_name_len);
         client_fd->socket.unix_peer_pending = true;
         client_fd->socket.unix_peer_off = 0;
         int peer_err = unix_socket_finish_peer(client_fd, !(fd_getflags(client_fd) & O_NONBLOCK_));

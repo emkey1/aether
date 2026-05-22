@@ -661,6 +661,8 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
 
+            if (copy == MAP_FAILED)
+                return NULL;
             // copy/paste from above
             mem_ref_cnt_mod(mem, 1);
             memcpy(copy, data, PAGE_SIZE);

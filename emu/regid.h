@@ -2,10 +2,16 @@
 #define EMU_REGID_H
 #include "emu/cpu.h"
 
-typedef uint8_t reg_id_t;
+// cpu_state grew to carry amd64/XMM state, so register offsets no longer fit
+// in 8 bits. Keep this wide enough for any offsetof(cpu_state, field) used by
+// the legacy i386 decoder.
+typedef uint16_t reg_id_t;
 #define REG_ID(reg) offsetof(struct cpu_state, reg)
 #define REG_VAL(cpu, reg_id, size) (*((uint(size) *) (((char *) (cpu)) + reg_id)))
-static inline const char *regid8_name(uint8_t reg_id) {
+
+static_assert(CPU_OFFSET(xmm[15]) <= UINT16_MAX, "reg_id_t must fit cpu_state register offsets");
+
+static inline const char *regid8_name(reg_id_t reg_id) {
     switch (reg_id) {
         case REG_ID(al): return "al";
         case REG_ID(bl): return "bl";
@@ -18,7 +24,7 @@ static inline const char *regid8_name(uint8_t reg_id) {
     }
     return "??";
 }
-static inline const char *regid16_name(uint8_t reg_id) {
+static inline const char *regid16_name(reg_id_t reg_id) {
     switch (reg_id) {
         case REG_ID(ax): return "ax";
         case REG_ID(bx): return "bx";
@@ -31,7 +37,7 @@ static inline const char *regid16_name(uint8_t reg_id) {
     }
     return "??";
 }
-static inline const char *regid32_name(uint8_t reg_id) {
+static inline const char *regid32_name(reg_id_t reg_id) {
     switch (reg_id) {
         case REG_ID(eax): return "eax";
         case REG_ID(ebx): return "ebx";

@@ -17,10 +17,10 @@ while getopts "hvyf:e:" OPTION; do
             VERBOSE=true
             ;;
         f)
-            if [ -d "$OPTARG" ]; then
+            if [ -d "$OPTARG" ] || [ ! -e "$OPTARG" ]; then
                 FS="$OPTARG"
             else
-                echo "No such directory $OPTARG"
+                echo "Not a directory: $OPTARG"
             fi
             ;;
         e)
@@ -71,7 +71,7 @@ if [ ! -d "$FS" ]; then
             ./build/tools/fakefsify e2e_out/alpine.tar.gz "$FS"
             echo "###### Configuring iSH and installing base libraries"
             grep -E "^nameserver" /etc/resolv.conf | head -1 | $ISH /bin/sed -n "w /etc/resolv.conf"
-            $ISH /bin/sh -c "apk update && apk add build-base python2 python3"
+            $ISH /bin/sh -c "apk update && apk add build-base linux-headers python2 python3"
             ;;
         No) exit 1;;
     esac
