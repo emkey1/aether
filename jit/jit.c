@@ -65,9 +65,23 @@ static inline bool amd64_cc1_jit_trace_enabled(void) {
         strcmp(current->comm, "cc1") == 0;
 }
 
+static bool amd64_cc1_force_interp_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *value = getenv("ISH_AMD64_CC1_FORCE_INTERP");
+        enabled = value == NULL ||
+                (strcmp(value, "0") != 0 &&
+                 strcmp(value, "false") != 0 &&
+                 strcmp(value, "off") != 0 &&
+                 strcmp(value, "no") != 0);
+    }
+    return enabled == 1;
+}
+
 static bool amd64_cc1_force_interp_block(guest_addr_t ip) {
     (void) ip;
-    return amd64_cc1_jit_trace_enabled();
+    return amd64_cc1_jit_trace_enabled() &&
+        amd64_cc1_force_interp_enabled();
 }
 
 static void amd64_cc1_jit_trace_record(guest_addr_t block_addr,
