@@ -349,6 +349,12 @@ static inline bool amd64_cc1_trace_enabled(void) {
         strcmp(current->comm, "cc1") == 0;
 }
 
+static inline bool amd64_cc1_trace_record_enabled(void) {
+    return current != NULL &&
+        current->abi == GUEST_ABI_AMD64 &&
+        strcmp(current->comm, "cc1") == 0;
+}
+
 static inline bool amd64_as_trace_enabled(void) {
     static int enabled = -1;
     if (enabled == -1)
@@ -5016,7 +5022,7 @@ static inline int amd64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb
     cpu->amd64_current_insn_rip = saved_rip;
     if (amd64_bash_trace_enabled())
         amd64_trace_bash_cond_probe(cpu);
-    if (amd64_cc1_trace_enabled())
+    if (amd64_cc1_trace_record_enabled())
         amd64_trace_cc1_step(cpu);
     if (amd64_as_trace_enabled())
         amd64_trace_as_step(cpu);

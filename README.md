@@ -184,6 +184,7 @@ The most relevant reduced atomic/JIT regression probe is:
 - [tests/manual/signal_realtime.c](/Users/mke/git/ish-AOK/tests/manual/signal_realtime.c)
 - [tests/manual/signal_altstack.c](/Users/mke/git/ish-AOK/tests/manual/signal_altstack.c)
 - [tests/manual/eventfd_interrupt.c](/Users/mke/git/ish-AOK/tests/manual/eventfd_interrupt.c)
+- [tests/manual/amd64_regress.c](/Users/mke/git/ish-AOK/tests/manual/amd64_regress.c)
 - [tests/manual/test_common.h](/Users/mke/git/ish-AOK/tests/manual/test_common.h)
 
 `atomics32.c` is the umbrella probe. The split programs are intended to be compiled inside the guest and now exit non-zero on mismatch, so they can be used as repeatable regression targets for:
@@ -198,6 +199,7 @@ The most relevant reduced atomic/JIT regression probe is:
 - queued realtime signals with payload delivery
 - alternate-stack signal handler delivery
 - eventfd read interruption and `SA_RESTART` behavior through the shared wait path
+- amd64-specific regressions around cross-page COW writes, exec loader zeroing, `fcntl` lock lifetime races, and `cc1` stress under guest `gcc`
 
 For app-bundled roots or imported roots running under iSH-AOK, the guest-side setup helper is:
 

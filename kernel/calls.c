@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "debug.h"
 #include "app/DiagnosticsBridge.h"
+#include "jit/jit.h"
 #include "kernel/calls.h"
 #include "emu/interrupt.h"
 #include "emu/memory.h"
@@ -2861,6 +2862,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 static void dump_opcode_window(guest_addr_t ip);
 static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu);
+static bool amd64_hlt_is_zero_sentinel_trap(guest_addr_t ip);
+static void dump_amd64_hlt_zero_sentinel_state(const struct cpu_state *cpu);
 static void dump_amd64_loader_state(const struct cpu_state *cpu);
 static void dump_amd64_store_trace(const struct cpu_state *cpu);
 static void dump_fault_pt_state(guest_addr_t addr);
@@ -2952,6 +2955,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
             dump_amd64_regs(cpu);
             dump_fault_pt_state(cpu->segfault_addr);
             dump_amd64_cc1_trace(cpu);
+            dump_amd64_cc1_jit_trace(cpu);
             if (amd64_verbose_fault_trace_enabled()) {
                 dump_amd64_loader_state(cpu);
                 dump_amd64_store_trace(cpu);
@@ -3029,8 +3033,13 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
     dump_opcode_window(ip);
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
-        if (have_first_opcode && first_opcode == 0xf4)
+        dump_amd64_cc1_trace(cpu);
+        dump_amd64_cc1_jit_trace(cpu);
+        if (have_first_opcode && first_opcode == 0xf4) {
             dump_amd64_hlt_tls_state(cpu);
+            if (amd64_hlt_is_zero_sentinel_trap(ip))
+                dump_amd64_hlt_zero_sentinel_state(cpu);
+        }
         if (amd64_verbose_fault_trace_enabled()) {
             dump_amd64_loader_state(cpu);
             dump_amd64_store_trace(cpu);
@@ -3409,6 +3418,39 @@ static void dump_opcode_window(guest_addr_t ip) {
     printk("\n");
 }
 
+static void dump_guest_byte_window(const char *label, guest_addr_t addr) {
+    const int before = 8;
+    const int after = 8;
+
+    printk("%s around %#llx: ", label, (unsigned long long) addr);
+    for (int i = -before; i < after; i++) {
+        uint8_t b;
+        guest_addr_t byte_addr = addr + i;
+        if (i == 0)
+            printk("[");
+        if (user_get(byte_addr, b))
+            printk("??");
+        else
+            printk("%02x", b);
+        if (i == 0)
+            printk("]");
+        else
+            printk(" ");
+    }
+    printk("\n");
+}
+
+static bool amd64_hlt_is_zero_sentinel_trap(guest_addr_t ip) {
+    static const uint8_t pattern[] = {0xf4, 0x80, 0x3f, 0x00, 0x74, 0x01, 0xf4};
+    uint8_t bytes[sizeof(pattern)];
+
+    for (size_t i = 0; i < sizeof(bytes); i++) {
+        if (user_get(ip + i, bytes[i]))
+            return false;
+    }
+    return memcmp(bytes, pattern, sizeof(pattern)) == 0;
+}
+
 static void dump_amd64_regs(const struct cpu_state *cpu) {
     printk("amd64 regs: rax=%#llx rbx=%#llx rcx=%#llx rdx=%#llx rsi=%#llx rdi=%#llx\n",
            (unsigned long long) cpu->amd64_regs[amd64_rax],
@@ -3430,6 +3472,15 @@ static void dump_amd64_regs(const struct cpu_state *cpu) {
            (unsigned long long) cpu->amd64_regs[amd64_r14],
            (unsigned long long) cpu->amd64_regs[amd64_r15],
            (unsigned long long) cpu->amd64_rip);
+    printk("amd64 flags: eflags=%#x zf=%u cf=%u of=%u sf=%u pf=%u df=%u af_ops=%u\n",
+           cpu->eflags,
+           cpu->zf ? 1u : 0u,
+           cpu->cf ? 1u : 0u,
+           cpu->of ? 1u : 0u,
+           cpu->sf ? 1u : 0u,
+           cpu->pf ? 1u : 0u,
+           cpu->df ? 1u : 0u,
+           cpu->af_ops);
 }
 
 static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu) {
@@ -3453,6 +3504,32 @@ static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu) {
     else
         printk("%#llx", (unsigned long long) fs_dtv);
     printk("\n");
+}
+
+static void dump_amd64_hlt_zero_sentinel_state(const struct cpu_state *cpu) {
+    guest_addr_t r8 = cpu->amd64_regs[amd64_r8];
+    guest_addr_t rdi = cpu->amd64_regs[amd64_rdi];
+    uint8_t r8_byte = 0;
+    uint8_t rdi_byte = 0;
+    int r8_fault = user_get(r8, r8_byte);
+    int rdi_fault = user_get(rdi, rdi_byte);
+
+    printk("amd64 hlt zero-sentinel: r8=%#llx byte=",
+           (unsigned long long) r8);
+    if (r8_fault)
+        printk("??");
+    else
+        printk("%02x", r8_byte);
+    printk(" rdi=%#llx byte=",
+           (unsigned long long) rdi);
+    if (rdi_fault)
+        printk("??");
+    else
+        printk("%02x", rdi_byte);
+    printk("\n");
+
+    dump_guest_byte_window("amd64 hlt r8 window", r8);
+    dump_guest_byte_window("amd64 hlt rdi window", rdi);
 }
 
 static void dump_amd64_loader_state(const struct cpu_state *cpu) {
@@ -3935,6 +4012,7 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     if (current->abi == GUEST_ABI_AMD64) {
         dump_amd64_regs(cpu);
         dump_amd64_cc1_trace(cpu);
+        dump_amd64_cc1_jit_trace(cpu);
         if (amd64_verbose_fault_trace_enabled()) {
             dump_amd64_loader_state(cpu);
             dump_amd64_store_trace(cpu);

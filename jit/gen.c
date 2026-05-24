@@ -2470,6 +2470,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.opcode == 0x83 || insn.opcode == 0xc0 ||
              insn.opcode == 0xc1 || insn.opcode == 0xc6 ||
              insn.opcode == 0xc7)) {
+        if (amd64_modrm_mod(insn.modrm) != 3 &&
+                (insn.opcode == 0x80 || insn.opcode == 0x81 || insn.opcode == 0x83) &&
+                amd64_modrm_reg(insn.modrm) == 7) {
+            // Memory-form cmp imm* drives trap-on-mismatch sequences in glibc/musl
+            // startup code. Keep it on the interpreter path until the frontend/helper
+            // path is proven equivalent.
+            goto amd64_bridge_step;
+        }
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
             state->amd64_fallback_to_interp = true;

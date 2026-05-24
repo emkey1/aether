@@ -31,6 +31,124 @@ static pid_t_ i386_special_trace_tgid;
 static char i386_special_trace_comm[16] = "";
 static unsigned i386_special_trace_count;
 
+#define AMD64_CC1_JIT_TRACE_COUNT 128
+struct amd64_cc1_jit_trace {
+    guest_addr_t block_addr;
+    uint8_t bytes[8];
+    bool have_bytes;
+    qword_t before_rip;
+    qword_t after_rip;
+    qword_t before_rsp;
+    qword_t after_rsp;
+    qword_t before_rax;
+    qword_t after_rax;
+    qword_t before_rdi;
+    qword_t after_rdi;
+    qword_t before_rsi;
+    qword_t after_rsi;
+    qword_t before_rdx;
+    qword_t after_rdx;
+    qword_t before_rcx;
+    qword_t after_rcx;
+    dword_t before_eflags;
+    dword_t after_eflags;
+    int interrupt;
+};
+
+static struct amd64_cc1_jit_trace amd64_cc1_jit_trace[AMD64_CC1_JIT_TRACE_COUNT];
+static unsigned amd64_cc1_jit_trace_next;
+static pid_t_ amd64_cc1_jit_trace_pid;
+
+static inline bool amd64_cc1_jit_trace_enabled(void) {
+    return current != NULL &&
+        current->abi == GUEST_ABI_AMD64 &&
+        strcmp(current->comm, "cc1") == 0;
+}
+
+static bool amd64_cc1_force_interp_block(guest_addr_t ip) {
+    (void) ip;
+    return amd64_cc1_jit_trace_enabled();
+}
+
+static void amd64_cc1_jit_trace_record(guest_addr_t block_addr,
+        struct tlb *tlb,
+        const struct cpu_state *before, const struct cpu_state *after, int interrupt) {
+    struct amd64_cc1_jit_trace *trace;
+    if (!amd64_cc1_jit_trace_enabled())
+        return;
+    if (amd64_cc1_jit_trace_pid != current->pid) {
+        memset(amd64_cc1_jit_trace, 0, sizeof(amd64_cc1_jit_trace));
+        amd64_cc1_jit_trace_next = 0;
+        amd64_cc1_jit_trace_pid = current->pid;
+    }
+    trace = &amd64_cc1_jit_trace[amd64_cc1_jit_trace_next++ % AMD64_CC1_JIT_TRACE_COUNT];
+    memset(trace, 0, sizeof(*trace));
+    trace->block_addr = block_addr;
+    trace->have_bytes = tlb != NULL && tlb_read(tlb, block_addr, trace->bytes, sizeof(trace->bytes));
+    trace->before_rip = before->amd64_rip;
+    trace->after_rip = after->amd64_rip;
+    trace->before_rsp = before->amd64_regs[amd64_rsp];
+    trace->after_rsp = after->amd64_regs[amd64_rsp];
+    trace->before_rax = before->amd64_regs[amd64_rax];
+    trace->after_rax = after->amd64_regs[amd64_rax];
+    trace->before_rdi = before->amd64_regs[amd64_rdi];
+    trace->after_rdi = after->amd64_regs[amd64_rdi];
+    trace->before_rsi = before->amd64_regs[amd64_rsi];
+    trace->after_rsi = after->amd64_regs[amd64_rsi];
+    trace->before_rdx = before->amd64_regs[amd64_rdx];
+    trace->after_rdx = after->amd64_regs[amd64_rdx];
+    trace->before_rcx = before->amd64_regs[amd64_rcx];
+    trace->after_rcx = after->amd64_regs[amd64_rcx];
+    trace->before_eflags = before->eflags;
+    trace->after_eflags = after->eflags;
+    trace->interrupt = interrupt;
+}
+
+void dump_amd64_cc1_jit_trace(const struct cpu_state *cpu) {
+    unsigned total, count, start, i;
+    (void) cpu;
+    if (!amd64_cc1_jit_trace_enabled())
+        return;
+    if (amd64_cc1_jit_trace_pid != current->pid)
+        return;
+    total = amd64_cc1_jit_trace_next;
+    if (total == 0)
+        return;
+    count = total < AMD64_CC1_JIT_TRACE_COUNT ? total : AMD64_CC1_JIT_TRACE_COUNT;
+    start = total >= AMD64_CC1_JIT_TRACE_COUNT ? total - AMD64_CC1_JIT_TRACE_COUNT : 0;
+    printk("amd64 cc1 jit trace (%u entries):\n", count);
+    for (i = 0; i < count; i++) {
+        const struct amd64_cc1_jit_trace *trace =
+            &amd64_cc1_jit_trace[(start + i) % AMD64_CC1_JIT_TRACE_COUNT];
+        printk("cc1-jit[%03u] block=%#llx int=%d rip=%#llx->%#llx rsp=%#llx->%#llx rax=%#llx->%#llx rdi=%#llx->%#llx rsi=%#llx->%#llx rdx=%#llx->%#llx rcx=%#llx->%#llx eflags=%#x->%#x\n",
+               i,
+               (unsigned long long) trace->block_addr,
+               trace->interrupt,
+               (unsigned long long) trace->before_rip,
+               (unsigned long long) trace->after_rip,
+               (unsigned long long) trace->before_rsp,
+               (unsigned long long) trace->after_rsp,
+               (unsigned long long) trace->before_rax,
+               (unsigned long long) trace->after_rax,
+               (unsigned long long) trace->before_rdi,
+               (unsigned long long) trace->after_rdi,
+               (unsigned long long) trace->before_rsi,
+               (unsigned long long) trace->after_rsi,
+               (unsigned long long) trace->before_rdx,
+               (unsigned long long) trace->after_rdx,
+               (unsigned long long) trace->before_rcx,
+               (unsigned long long) trace->after_rcx,
+               trace->before_eflags,
+               trace->after_eflags);
+        if (trace->have_bytes) {
+            printk("cc1-jit[%03u] bytes=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                   i,
+                   trace->bytes[0], trace->bytes[1], trace->bytes[2], trace->bytes[3],
+                   trace->bytes[4], trace->bytes[5], trace->bytes[6], trace->bytes[7]);
+        }
+    }
+}
+
 static bool amd64_jit_debug_enabled(void) {
     static int enabled = -1;
     if (enabled == -1)
@@ -786,6 +904,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         TRACE("%d %08x --- cycle %ld\n", current_pid(current), ip, frame->cpu.cycle);
 
         bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
+        struct cpu_state before_block_cpu = frame->cpu;
         if (force_block_boundary_break)
             __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
         interrupt = jit_enter(block, frame, tlb);
@@ -795,6 +914,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
+        amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
         *cpu = frame->cpu;
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
@@ -859,7 +979,9 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
     struct jit_block *block = state.block;
     struct jit_frame frame = {.cpu = *cpu};
+    struct cpu_state before_block_cpu = frame.cpu;
     int interrupt = jit_enter(block, &frame, tlb);
+    amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame.cpu, interrupt);
     *cpu = frame.cpu;
     jit_block_free(NULL, block);
     if (interrupt == INT_NONE)
@@ -877,7 +999,9 @@ static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
 
     struct jit_block *block = state.block;
     struct jit_frame frame = {.cpu = *cpu};
+    struct cpu_state before_block_cpu = frame.cpu;
     int interrupt = jit_enter(block, &frame, tlb);
+    amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame.cpu, interrupt);
     *cpu = frame.cpu;
     jit_block_free(NULL, block);
     return interrupt;
@@ -942,6 +1066,18 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
 
         fallback_to_interp = false;
         ip = frame->cpu.amd64_rip;
+        if (amd64_cc1_force_interp_block(ip)) {
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            *cpu = frame->cpu;
+            jit_crash_lock = NULL;
+            jit_crash_mutex_lock = NULL;
+            pthread_rwlock_unlock(&jit->jetsam_lock.l);
+            jit_crash_unwind_active = false;
+            jit_crash_frame = NULL;
+            jit_crash_cpu = NULL;
+            return cpu_run_to_interrupt_amd64(cpu, tlb);
+        }
         size_t cache_index = jit_cache_hash(ip);
         block = cache[cache_index];
         amd64_jit_debug("frontend enter ip=%llx comm=%s abi=%d",
@@ -1015,9 +1151,13 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                 block->used > 2 ? block->code[2] : 0,
                 block->used > 3 ? block->code[3] : 0,
                 (unsigned long) amd64_step_to_interrupt_jit);
+        {
+            struct cpu_state before_block_cpu = frame->cpu;
         amd64_jit_bridge_set_tlb(tlb);
         interrupt = jit_enter(block, frame, tlb);
         amd64_jit_bridge_set_tlb(NULL);
+            amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
+        }
         if (ip != 0 && frame->cpu.amd64_rip == 0) {
             printk("[amd64-jit] frontend zero-rip comm=%s pid=%d block=%#llx end=%#llx rsp=%#llx int=%d slots=%lx %lx %lx %lx\n",
                    current != NULL ? current->comm : "?",

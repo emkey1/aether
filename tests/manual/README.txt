@@ -36,6 +36,7 @@ Focused tests:
   futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage
   process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage
   pthread_sync.c       mutex/condvar/rwlock/timed wait and pthread_once coverage
+  amd64_regress.c      amd64 cross-page write, exec loader, fcntl race, and cc1 stress
   amd64_gas_probe.sh   host-side GNU as immediate/register encoding probe
 
 All focused tests accept -v or --verbose. Without it they print only failures

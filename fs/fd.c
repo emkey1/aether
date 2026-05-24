@@ -385,19 +385,20 @@ int fd_setflags(struct fd *fd, int flags) {
 
 static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool guest64_locks) {
     struct fdtable *table = current->files;
-    struct fd *fd = f_get(f);
+    struct fd *fd = f_get_retain(f);
     if (fd == NULL)
         return _EBADF;
     struct flock32_ flock32;
     struct flock_ flock;
     fd_t new_f;
-    int err;
+    dword_t ret;
     switch (cmd) {
         case F_DUPFD_:
             STRACE("fcntl(%d, F_DUPFD, %d)", f, arg);
             fd->refcount++;
             new_f = f_install_start(fd, arg);
-            return new_f;
+            ret = new_f;
+            break;
 
         case F_DUPFD_CLOEXEC_:
             STRACE("fcntl(%d, F_DUPFD_CLOEXEC, %d)", f, arg);
@@ -405,96 +406,122 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
             new_f = f_install_start(fd, arg);
             if (new_f >= 0)
                 bit_set(new_f, table->cloexec);
-            return new_f;
+            ret = new_f;
+            break;
 
         case F_GETFD_:
             STRACE("fcntl(%d, F_GETFD)", f);
-            return bit_test(f, table->cloexec);
+            ret = bit_test(f, table->cloexec);
+            break;
         case F_SETFD_:
             STRACE("fcntl(%d, F_SETFD, 0x%x)", f, arg);
             if (arg & 1)
                 bit_set(f, table->cloexec);
             else
                 bit_clear(f, table->cloexec);
-            return 0;
+            ret = 0;
+            break;
 
         case F_GETFL_:
             STRACE("fcntl(%d, F_GETFL)", f);
-            return fd_getflags(fd);
+            ret = fd_getflags(fd);
+            break;
         case F_SETFL_:
             STRACE("fcntl(%d, F_SETFL, %#x)", f, arg);
-            err = fd_setflags(fd, arg);
-            return err;
+            ret = fd_setflags(fd, arg);
+            break;
 
         case F_GETLK_:
             STRACE("fcntl(%d, F_GETLK, %#x)", f, arg);
             if (guest64_locks) {
                 if (user_read(arg, &flock, sizeof(flock)))
-                    return _EFAULT;
+                    ret = _EFAULT;
+                else
+                    goto got_flock_32;
             } else {
                 if (user_read(arg, &flock32, sizeof(flock32)))
-                    return _EFAULT;
-                flock.type = flock32.type;
-                flock.whence = flock32.whence;
-                flock.start = flock32.start;
-                flock.len = flock32.len;
-                flock.pid = flock32.pid;
-            }
-            err = fcntl_getlk(fd, &flock);
-            if (err >= 0) {
-                if (guest64_locks) {
-                    if (user_write(arg, &flock, sizeof(flock)))
-                        return _EFAULT;
-                } else {
-                    flock32.type = flock.type;
-                    flock32.whence = flock.whence;
-                    flock32.start = (unsigned)flock.start;
-                    flock32.len = (unsigned)flock.len;
-                    flock32.pid = flock.pid;
-                    if (user_write(arg, &flock32, sizeof(flock32)))
-                        return _EFAULT;
+                    ret = _EFAULT;
+                else {
+got_flock_32:
+                    if (!guest64_locks) {
+                        flock.type = flock32.type;
+                        flock.whence = flock32.whence;
+                        flock.start = flock32.start;
+                        flock.len = flock32.len;
+                        flock.pid = flock32.pid;
+                    }
+                    ret = fcntl_getlk(fd, &flock);
+                    if (ret >= 0) {
+                        if (guest64_locks) {
+                            if (user_write(arg, &flock, sizeof(flock)))
+                                ret = _EFAULT;
+                        } else {
+                            flock32.type = flock.type;
+                            flock32.whence = flock.whence;
+                            flock32.start = (unsigned)flock.start;
+                            flock32.len = (unsigned)flock.len;
+                            flock32.pid = flock.pid;
+                            if (user_write(arg, &flock32, sizeof(flock32)))
+                                ret = _EFAULT;
+                        }
+                    }
                 }
             }
-            return err;
+            break;
 
         case F_GETLK64_:
             STRACE("fcntl(%d, F_GETLK64, %#x)", f, arg);
             if (user_read(arg, &flock, sizeof(flock)))
-                return _EFAULT;
-            err = fcntl_getlk(fd, &flock);
-            if (err >= 0)
-                if (user_write(arg, &flock, sizeof(flock)))
-                    return _EFAULT;
-            return err;
+                ret = _EFAULT;
+            else {
+                ret = fcntl_getlk(fd, &flock);
+                if (ret >= 0)
+                    if (user_write(arg, &flock, sizeof(flock)))
+                        ret = _EFAULT;
+            }
+            break;
 
         case F_SETLK_:
         case F_SETLKW_:
             STRACE("fcntl(%d, F_SETLK%*s, %#x)", f, cmd == F_SETLKW_, "W", arg);
             if (guest64_locks) {
                 if (user_read(arg, &flock, sizeof(flock)))
-                    return _EFAULT;
+                    ret = _EFAULT;
+                else
+                    goto set_flock_32;
             } else {
                 if (user_read(arg, &flock32, sizeof(flock32)))
-                    return _EFAULT;
-                flock.type = flock32.type;
-                flock.whence = flock32.whence;
-                flock.start = flock32.start;
-                flock.len = flock32.len;
-                flock.pid = flock32.pid;
+                    ret = _EFAULT;
+                else {
+set_flock_32:
+                    if (!guest64_locks) {
+                        flock.type = flock32.type;
+                        flock.whence = flock32.whence;
+                        flock.start = flock32.start;
+                        flock.len = flock32.len;
+                        flock.pid = flock32.pid;
+                    }
+                    ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                }
             }
-            return fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+            break;
 
         case F_SETLK64_:
         case F_SETLKW64_:
             STRACE("fcntl(%d, F_SETLK%*s64, %#x)", f, cmd == F_SETLKW_, "W", arg);
             if (user_read(arg, &flock, sizeof(flock)))
-                return _EFAULT;
-            return fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                ret = _EFAULT;
+            else
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+            break;
 
         default:
             STRACE("fcntl(%d, %d)", f, cmd);
-            return _EINVAL;
+            ret = _EINVAL;
+            break;
     }
+    fd_close(fd);
+    return ret;
 }
 
 dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg) {
