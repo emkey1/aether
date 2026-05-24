@@ -16,6 +16,7 @@
 #include <mach/mach.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 
@@ -120,6 +121,18 @@ void *exception_handler(void *unused) {
 static bool initialize_if_needed(void) {
     if (initialized) {
         return true;
+    }
+
+    // If a debugger is attached, avoid taking over EXC_BREAKPOINT handling.
+    // LLDB relies on this exception path and can deadlock or become unstable
+    // if we override it for process-wide hook handling.
+    struct kinfo_proc info = {};
+    size_t info_size = sizeof(info);
+    int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    if (sysctl(mib, (u_int)(sizeof(mib) / sizeof(mib[0])), &info, &info_size, NULL, 0) == 0) {
+        if ((info.kp_proc.p_flag & P_TRACED) != 0) {
+            return false;
+        }
     }
 
 #define CHECK(x)          \
@@ -302,7 +315,9 @@ done:
 }
 
 bool hook(void *old, void *new) {
-    initialize_if_needed();
+    if (!initialize_if_needed()) {
+        return false;
+    }
 
 #define CHECK(x)          \
     do {                  \

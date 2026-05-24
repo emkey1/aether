@@ -46,6 +46,10 @@ _xaddr .req x3
     and w8, _addr, 0xfff
     cmp x8, (0x1000-(\size/8))
     b.hi crosspage_load_\id
+    .ifc \type,write
+        bl resolve_write_ptr
+        b back_\id
+    .endif
     and w8, _addr, 0xfffff000
     str w8, [_tlb, (-TLB_entries+TLB_dirty_page)]
     ubfx x9, _xaddr, 12, 10

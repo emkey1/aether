@@ -7,7 +7,6 @@
 
 #import "hook.h"
 #import <UIKit/UIKit.h>
-#import <assert.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
 
@@ -28,8 +27,10 @@ static void patch_if_needed(void) {
             Dl_info info;
             dladdr((__bridge void *)objc_getClass("WKWebView"), &info);
             void *symbol = find_symbol(info.dli_fbase, "__ZN6WebKit14PageClientImpl37assistiveTechnologyMakeFirstResponderEv");
-            bool hooked = hook((void *)symbol, (void *)replacement);
-            assert(hooked);
+            bool hooked = symbol != NULL && hook((void *)symbol, (void *)replacement);
+            if (!hooked) {
+                NSLog(@"Accessibility patch skipped (symbol missing or debugger attached)");
+            }
         });
     }
 }

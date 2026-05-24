@@ -103,6 +103,18 @@ segfault_\type:
 
 .endr
 
+.global resolve_write_ptr
+resolve_write_ptr:
+    save_c
+    sub x0, _tlb, TLB_entries
+    mov w1, _addr
+    bl NAME(tlb_write_ptr_slow)
+    mov x19, x0
+    restore_c
+    cbz x19, segfault_write
+    mov _xaddr, x19
+    ret
+
 .global crosspage_load
 crosspage_load:
     save_c

@@ -3450,8 +3450,9 @@ static inline bool amd64_mem_read(struct cpu_state *cpu, struct tlb *tlb, qword_
         cpu->segfault_was_write = false;
         return false;
     }
+    tlb->segfault_addr = 0;
     if (!tlb_read(tlb, addr, out, size)) {
-        cpu->segfault_addr = addr;
+        cpu->segfault_addr = tlb->segfault_addr != 0 ? tlb->segfault_addr : addr;
         cpu->segfault_was_write = false;
         return false;
     }
@@ -3474,8 +3475,12 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         cpu->segfault_was_write = true;
         return false;
     }
+    tlb->segfault_addr = 0;
     if (!tlb_write(tlb, addr, value, size)) {
-        cpu->segfault_addr = addr;
+        // Cross-page accesses can fault on a later page than the starting
+        // guest address. Preserve the TLB-reported failing page so the page
+        // fault handler resolves the actual missing/COW page.
+        cpu->segfault_addr = tlb->segfault_addr != 0 ? tlb->segfault_addr : addr;
         cpu->segfault_was_write = true;
         return false;
     }
@@ -4949,7 +4954,8 @@ static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
         case 0xaa:
         case 0xab:
             value = amd64_reg_get(cpu, amd64_rax, size);
-            if (!amd64_mem_write(cpu, tlb, amd64_string_addr(cpu, amd64_rdi), &value, size / 8))
+            qword_t guest_addr = amd64_string_addr(cpu, amd64_rdi);
+            if (!amd64_mem_write(cpu, tlb, guest_addr, &value, size / 8))
                 goto amd64_string_pf;
             amd64_bump_string_reg(cpu, amd64_rdi, size);
             break;

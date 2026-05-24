@@ -596,6 +596,16 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     if (flags & MMAP_SHARED) mmap_flags |= MAP_SHARED;
     int mmap_prot = PROT_READ;
     if (prot & P_WRITE) mmap_prot |= PROT_WRITE;
+    // Host VM protections operate at host-page granularity. On 16K-page iOS
+    // devices, a single host page can cover multiple 4K guest pages with
+    // different guest permissions. In that configuration we cannot safely use
+    // host protections to enforce guest writability for private file-backed
+    // mappings, because a guest-writable page can share a host page with a
+    // guest-readonly mapping and fault on the host despite the guest page
+    // table allowing the write. Fall back to a writable host mapping and let
+    // the guest page tables enforce access.
+    if (real_page_size != PAGE_SIZE && (mmap_flags & MAP_PRIVATE))
+        mmap_prot |= PROT_WRITE;
 
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;

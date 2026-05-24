@@ -16,6 +16,7 @@
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "util/sync.h"
+#include <dlfcn.h>
 
 // The Evil global lock.  Use sparingly or not at all
 extern pthread_mutex_t multicore_lock;
@@ -800,7 +801,16 @@ void mem_ref_cnt_mod(struct mem *mem, int value) { // value should only be -1 or
     pthread_mutex_lock(&mem->reference.lock);
     
     if(((mem->reference.count + value) < 0)) { // Prevent the count from going negative.
-        printk("ERROR: Attempt to decrement mem reference count to be negative, ignoring(%d:%d)\n", mem->reference.count, value);
+        void *caller = __builtin_return_address(0);
+        Dl_info caller_info = {};
+        const char *caller_name = "?";
+        ptrdiff_t caller_offset = 0;
+        if (caller != NULL && dladdr(caller, &caller_info) != 0 && caller_info.dli_sname != NULL) {
+            caller_name = caller_info.dli_sname;
+            caller_offset = (char *) caller - (char *) caller_info.dli_saddr;
+        }
+        printk("ERROR: Attempt to decrement mem reference count to be negative, ignoring(%d:%d) caller=%s+%td addr=%p mem=%p\n",
+               mem->reference.count, value, caller_name, caller_offset, caller, mem);
         pthread_mutex_unlock(&mem->reference.lock);
         return;
     }

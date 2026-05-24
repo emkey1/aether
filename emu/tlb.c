@@ -75,3 +75,7 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int ty
     tlb_ent->data_minus_addr = (uintptr_t) ptr - TLB_PAGE(addr);
     return (void *) (tlb_ent->data_minus_addr + addr);
 }
+
+__no_instrument void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr) {
+    return __tlb_write_ptr(tlb, addr);
+}

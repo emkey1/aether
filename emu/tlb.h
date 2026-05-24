@@ -29,6 +29,7 @@ void tlb_refresh(struct tlb *tlb, struct mmu *mmu);
 void tlb_free(struct tlb *tlb);
 void tlb_flush(struct tlb *tlb);
 void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type);
+void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr);
 
 forceinline __no_instrument void *__tlb_read_ptr(struct tlb *tlb, guest_addr_t addr) {
     if (unlikely(tlb->mem_changes != tlb->mmu->changes))
