@@ -81,6 +81,13 @@
             ReferencedContainer = "container:iSH-AOK.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "ISH_AMD64_CC1_FORCE_INTERP"
+            value = "ranges"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

@@ -65,23 +65,65 @@ static inline bool amd64_cc1_jit_trace_enabled(void) {
         strcmp(current->comm, "cc1") == 0;
 }
 
-static bool amd64_cc1_force_interp_enabled(void) {
-    static int enabled = -1;
-    if (enabled == -1) {
-        const char *value = getenv("ISH_AMD64_CC1_FORCE_INTERP");
-        enabled = value == NULL ||
-                (strcmp(value, "0") != 0 &&
-                 strcmp(value, "false") != 0 &&
-                 strcmp(value, "off") != 0 &&
-                 strcmp(value, "no") != 0);
+enum amd64_cc1_force_interp_mode {
+    amd64_cc1_force_interp_none = 0,
+    amd64_cc1_force_interp_all,
+    amd64_cc1_force_interp_suspect_ranges,
+    amd64_cc1_force_interp_suspect_ranges_wide,
+};
+
+static int amd64_cc1_force_interp_mode(void) {
+    static int mode = -1;
+    if (mode != -1)
+        return mode;
+
+    const char *value = getenv("ISH_AMD64_CC1_FORCE_INTERP");
+    if (value == NULL || strcmp(value, "1") == 0 ||
+            strcmp(value, "true") == 0 || strcmp(value, "on") == 0 ||
+            strcmp(value, "yes") == 0 || strcmp(value, "all") == 0) {
+        mode = amd64_cc1_force_interp_all;
+        return mode;
     }
-    return enabled == 1;
+    if (strcmp(value, "ranges") == 0 || strcmp(value, "suspect") == 0 ||
+            strcmp(value, "narrow") == 0) {
+        mode = amd64_cc1_force_interp_suspect_ranges;
+        return mode;
+    }
+    if (strcmp(value, "ranges-wide") == 0 || strcmp(value, "suspect-wide") == 0 ||
+            strcmp(value, "wide") == 0) {
+        mode = amd64_cc1_force_interp_suspect_ranges_wide;
+        return mode;
+    }
+    mode = amd64_cc1_force_interp_none;
+    return mode;
 }
 
 static bool amd64_cc1_force_interp_block(guest_addr_t ip) {
-    (void) ip;
-    return amd64_cc1_jit_trace_enabled() &&
-        amd64_cc1_force_interp_enabled();
+    if (!amd64_cc1_jit_trace_enabled())
+        return false;
+
+    switch (amd64_cc1_force_interp_mode()) {
+    case amd64_cc1_force_interp_all:
+        return true;
+    case amd64_cc1_force_interp_suspect_ranges:
+        return (ip >= 0x7ffffdf9f03eull && ip <= 0x7ffffdf9f17eull) ||
+            (ip >= 0x7ffffdf83480ull && ip <= 0x7ffffdf83814ull) ||
+            (ip >= 0x7ffffdf83a3aull && ip <= 0x7ffffdf83d99ull) ||
+            (ip >= 0xf7832eull && ip <= 0xf6b080ull) ||
+            (ip >= 0x7ffffdc1adb8ull && ip <= 0x7ffffdc2730dull) ||
+            (ip >= 0x7ffffdc88398ull && ip <= 0x7ffffdc8859dull);
+    case amd64_cc1_force_interp_suspect_ranges_wide:
+        return (ip >= 0x7ffffdf9f03eull && ip <= 0x7ffffdf9f17eull) ||
+            (ip >= 0x7ffffdf83480ull && ip <= 0x7ffffdf83814ull) ||
+            (ip >= 0x7ffffdf83a3aull && ip <= 0x7ffffdf83d99ull) ||
+            (ip >= 0xf7832eull && ip <= 0xf6b080ull) ||
+            (ip >= 0x7ffffdc1adb8ull && ip <= 0x7ffffdc2730dull) ||
+            (ip >= 0x7ffffdc88398ull && ip <= 0x7ffffdc8859dull) ||
+            (ip >= 0x7ffffdc9a330ull && ip <= 0x7ffffdc9a663ull) ||
+            (ip >= 0x7ffffdcb83e3ull && ip <= 0x7ffffdcb847bull);
+    default:
+        return false;
+    }
 }
 
 static void amd64_cc1_jit_trace_record(guest_addr_t block_addr,
