@@ -14,7 +14,19 @@ if get_option('kernel') == 'ish'
             include_directories: includes)
     endif
 
-    unicorn = cc.find_library('unicorn', required: false)
+    unicorn = disabler()
+    if host_machine.system() == 'darwin'
+        unicorn_dirs = ['/usr/local/lib']
+        if host_machine.cpu_family() == 'aarch64'
+            unicorn_dirs = [
+                '/opt/homebrew/opt/unicorn/lib',
+                '/opt/homebrew/lib',
+            ]
+        endif
+        unicorn = cc.find_library('unicorn', dirs: unicorn_dirs, required: false)
+    else
+        unicorn = cc.find_library('unicorn', required: false)
+    endif
     if unicorn.found()
         executable('unicornomatic', ['unicornomatic.c', 'undefined-flags.c'], dependencies: [ish, unicorn])
         configure_file(input: 'ptraceomatic-gdb.gdb', output: 'unicornomatic-gdb.gdb', copy: true)
