@@ -16,11 +16,16 @@ jobs:
           submodules: true
           fetch-depth: 0
 
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+          bundler-cache: true
+
       - name: Install deps
         run: |
           pip3 install meson
           brew install ninja llvm
-          bundle install
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
@@ -52,4 +57,3 @@ jobs:
           path: |
             fastlane.log
             ~/Library/Logs/gym
-

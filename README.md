@@ -134,8 +134,8 @@ When you are ready for full TestFlight automation, use:
 If `preflight` says Ruby is too old, run:
 
 ```bash
-brew install ruby
-echo 'export PATH="/opt/homebrew/opt/ruby/bin:$PATH"' >> ~/.zshrc
+brew install ruby@3.3
+echo 'export PATH="/opt/homebrew/opt/ruby@3.3/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 bundle install
 ```
