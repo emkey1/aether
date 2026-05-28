@@ -266,6 +266,12 @@ static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
     struct fakefs_db *fs = &mount->fakefs;
     db_begin_write(fs);
     int err = realfs.link(mount, src, dst);
+    if (err == _EEXIST && path_get_inode(fs, dst) == 0) {
+        // Recover from a stale host-side temp path that is missing from fakefs.
+        int cleanup_err = realfs.unlink(mount, dst);
+        if (cleanup_err == 0 || cleanup_err == _ENOENT)
+            err = realfs.link(mount, src, dst);
+    }
     if (err < 0) {
         db_rollback(fs);
         return err;
