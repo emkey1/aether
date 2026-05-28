@@ -2,6 +2,12 @@ before_all do
     ensure_bundle_exec
 end
 
+PROJECT_PATH = "iSH-AOK.xcodeproj"
+APP_TARGET = "iSH-AOK"
+FILE_PROVIDER_TARGET = "iSH-AOK.FileProvider"
+BUILD_TAG_PREFIX = "builds/iSH-AOK_"
+GITHUB_REPOSITORY = "emkey1/ish-AOK"
+
 lane :build do |options|
     setup_ci
     sync_code_signing
@@ -10,23 +16,23 @@ lane :build do |options|
     # do this after commiting the version bump but before building the app
     if is_ci
       update_code_signing_settings(
-        path: "iSH.xcodeproj",
-        targets: "iSH",
+        path: PROJECT_PATH,
+        targets: APP_TARGET,
         use_automatic_signing: false,
-        profile_uuid: ENV["sigh_app.ish.iSH_development"],
+        profile_uuid: ENV["sigh_app.ish.iSH-AOK_development"],
       )
       update_code_signing_settings(
-        path: "iSH.xcodeproj",
-        targets: "iSHFileProvider",
+        path: PROJECT_PATH,
+        targets: FILE_PROVIDER_TARGET,
         use_automatic_signing: false,
-        profile_uuid: ENV["sigh_app.ish.iSH.FileProvider_development"],
+        profile_uuid: ENV["sigh_app.ish.iSH-AOK.FileProvider_development"],
       )
     end
 
     config = options[:config]
     config = "app/#{config}.xcconfig" if config
     build_app(
-      project: "iSH.xcodeproj",
+      project: PROJECT_PATH,
       scheme: "iSH",
       xcconfig: config,
       xcargs: "DEVELOPMENT_TEAM=#{CredentialsManager::AppfileConfig.try_fetch_value(:team_id)}",
@@ -35,7 +41,7 @@ lane :build do |options|
 end
 
 lane :upload_build do
-    last_tag = `git describe --tags --abbrev=0 --match builds/\*`.chomp
+    last_tag = `git describe --tags --abbrev=0 --match '#{BUILD_TAG_PREFIX}*'`.chomp
     shortlog = `git shortlog #{last_tag}..HEAD`
     if shortlog.empty?
         UI.error "No commits since last build"
@@ -51,18 +57,18 @@ lane :upload_build do
         sh "agvtool", "new-version", build_number.to_s
     end
     commit_version_bump(
-        xcodeproj: "iSH.xcodeproj",
+        xcodeproj: PROJECT_PATH,
         message: "Bump version to #{build_number}",
         force: true,
     )
-    tag = "builds/#{build_number}"
+    tag = "#{BUILD_TAG_PREFIX}#{build_number}"
     add_git_tag(tag: tag)
 
     build
-    build(config: "AppStore", output: "iSH-appstore")
+    build(config: "AppStore", output: "iSH-AOK-appstore")
     puts testflight_changelog
     upload_to_testflight(
-        ipa: "iSH-appstore.ipa",
+        ipa: "iSH-AOK-appstore.ipa",
         changelog: testflight_changelog,
         wait_processing_interval: 300, # the processing is expected to take a total of 5 hours, so don't logspam too much
         distribute_external: true,
@@ -73,13 +79,13 @@ lane :upload_build do
     sh "git pull --no-rebase"
     push_to_git_remote
     set_github_release(
-        repository_name: "ish-app/ish",
+        repository_name: GITHUB_REPOSITORY,
         tag_name: tag,
         commitish: nil, # the tag better exist
         name: "Build #{build_number}",
         description: changelog,
         is_prerelease: true,
-        upload_assets: ["iSH.ipa", "iSH.app.dSYM.zip", "iSH-appstore.app.dSYM.zip"],
+        upload_assets: ["iSH-AOK.ipa", "iSH-AOK.app.dSYM.zip", "iSH-AOK-appstore.app.dSYM.zip"],
         api_token: ENV["GH_TOKEN"],
     )
 end

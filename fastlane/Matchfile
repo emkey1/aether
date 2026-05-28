@@ -1,2 +1,2 @@
-git_url("https://github.com/ish-app/certificates")
-app_identifier(["app.ish.iSH", "app.ish.iSH.FileProvider"])
+git_url(ENV.fetch("MATCH_GIT_URL"))
+app_identifier(["app.ish.iSH-AOK", "app.ish.iSH-AOK.FileProvider"])
