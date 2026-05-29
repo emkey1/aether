@@ -393,13 +393,16 @@ void vec_fcmp_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t 
 
 // come to the dark side of macros
 #define _ISNAN_int32_t(x) false
-#define _ISNAN_float(x) isnan(x)
-#define _ISNAN_double(x) isnan(x)
-#define _ISNAN(x, t) _ISNAN_##t(x)
-#define _VEC_CVT(src, dst, src_t, dst_t, n) \
+#define VEC_CAST(src, dst, src_t, dst_t, n) \
+    do { \
+        for (int i = 0; i < n; ++i) \
+            ((dst_t *)dst)[i] = ((src_t *)src)[i]; \
+    } while (0)
+
+#define VEC_TRUNC_INT(src, dst, src_t, dst_t, n) \
     do { \
         for (int i = 0; i < n; ++i) { \
-            if (_ISNAN(((src_t *)src)[i], src_t)) \
+            if (isnan(((src_t *)src)[i])) \
                 ((dst_t *)dst)[i] = INT32_MIN; \
             else \
                 ((dst_t *)dst)[i] = ((src_t *)src)[i]; \
@@ -408,25 +411,30 @@ void vec_fcmp_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t 
 
 #define VEC_CVT(name, src_t, dst_t) \
     void vec_cvt##name(NO_CPU, const src_t *src, dst_t *dst) { \
-        _VEC_CVT(src, dst, src_t, dst_t, 1); \
+        VEC_CAST(src, dst, src_t, dst_t, 1); \
     }
 
-#define PACKED_VEC_CVT(name, src_field, dst_field, src_t, dst_t, n) \
+#define VEC_CVTT(name, src_t, dst_t) \
+    void vec_cvt##name(NO_CPU, const src_t *src, dst_t *dst) { \
+        VEC_TRUNC_INT(src, dst, src_t, dst_t, 1); \
+    }
+
+#define PACKED_VEC_CVTT(name, src_field, dst_field, src_t, dst_t, n) \
     void vec_cvt##name(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) { \
-        _VEC_CVT(src->src_field, dst->dst_field, src_t, dst_t, n); \
+        VEC_TRUNC_INT(src->src_field, dst->dst_field, src_t, dst_t, n); \
         /* Note: this needs to be second, because src and dst may alias */ \
         memset(dst->dst_field + n, 0, sizeof(*dst) - n * sizeof(*dst->dst_field)); \
     }
 
 VEC_CVT(si2sd32, int32_t, double)
-VEC_CVT(tsd2si64, double, int32_t)
+VEC_CVTT(tsd2si64, double, int32_t)
 VEC_CVT(sd2ss64, double, float)
 VEC_CVT(si2ss32, int32_t, float)
-VEC_CVT(tss2si32, float, int32_t)
+VEC_CVTT(tss2si32, float, int32_t)
 VEC_CVT(ss2sd32, float, double)
 
-PACKED_VEC_CVT(tpd2dq64, f64, u32, double, int32_t, 2)
-PACKED_VEC_CVT(tps2dq32, f32, u32, float, int32_t, 4)
+PACKED_VEC_CVTT(tpd2dq64, f64, u32, double, int32_t, 2)
+PACKED_VEC_CVTT(tps2dq32, f32, u32, float, int32_t, 4)
 
 void vec_unpackl_bw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
     for (int i = 7; i >= 0; i--) {
