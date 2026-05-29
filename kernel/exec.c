@@ -965,7 +965,9 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     {
         enum { AMD64_EXEC_TRACE_BUDGET = 64 };
         static unsigned amd64_exec_trace_count;
+        lock(&current->group->lock, 0);
         struct tty *tty = current->group->tty;
+        unlock(&current->group->lock);
         bool trace_exec = current->abi == GUEST_ABI_AMD64 &&
                 tty != NULL &&
                 (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR);

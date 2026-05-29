@@ -186,12 +186,13 @@ struct posix_timer {
 
 // struct thread_group is way too long to type comfortably
 struct tgroup {
-    struct list threads; // locked by pids_lock, by majority vote
+    struct list threads; // locked by pids_lock
     struct task *leader; // immutable
     long group_count_in_int;
     struct rusage_ rusage;
 
-    // locked by pids_lock
+    // Process-group/session membership lists are protected by pids_lock.
+    // Group-local metadata (sid, pgid, tty) is protected by group->lock.
     pid_t_ sid, pgid;
     struct list session;
     struct list pgroup;
@@ -216,7 +217,8 @@ struct tgroup {
 
     dword_t personality;
 
-    // for everything in this struct not locked by something else
+    // for everything in this struct not locked by something else.
+    // Lock ordering: pids_lock -> group->lock -> tty->lock.
     lock_t lock;
 };
 

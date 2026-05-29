@@ -127,34 +127,38 @@ static void ptrace_detach_from_tracer(struct task *tracer, struct task *tracee) 
 // has a child shell running tears down the remote login immediately.
 static void exit_hangup_session_tty(struct task *leader) {
     struct tgroup *group = leader->group;
-    if (group->tty == NULL || group->sid != leader->pid)
+    lock(&group->lock, 0);
+    struct tty *tty = group->tty;
+    pid_t_ sid = group->sid;
+    unlock(&group->lock);
+    if (tty == NULL || sid != leader->pid)
         return;
 
-    struct pid *sid_pid = pid_get(group->sid);
+    struct pid *sid_pid = pid_get(sid);
     if (sid_pid == NULL)
         return;
     if (session_has_other_live_groups(sid_pid, group))
         return;
 
-    struct tty *tty = group->tty;
+    int tty_release_count = 0;
+    struct tgroup *session_group;
+    list_for_each_entry(&sid_pid->session, session_group, session) {
+        lock(&session_group->lock, 0);
+        if (session_group->tty == tty) {
+            session_group->tty = NULL;
+            tty_release_count++;
+        }
+        unlock(&session_group->lock);
+    }
+
     lock(&ttys_lock, 0);
     lock(&tty->lock, 0);
     tty->session = 0;
     tty->fg_group = 0;
     tty_hangup(tty);
     unlock(&tty->lock);
-
-    struct tgroup *session_group;
-    list_for_each_entry(&sid_pid->session, session_group, session) {
-        lock(&session_group->lock, 0);
-        if (session_group->tty == tty) {
-            session_group->tty = NULL;
-            unlock(&session_group->lock);
-            tty_release(tty);
-        } else {
-            unlock(&session_group->lock);
-        }
-    }
+    while (tty_release_count-- > 0)
+        tty_release(tty);
     unlock(&ttys_lock);
 }
 
@@ -451,8 +455,10 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 
     // tear down group
     cond_destroy(&task->group->child_exit);
+    lock(&task->group->lock, 0);
     task_leave_session(task);
     list_remove(&task->group->pgroup);
+    unlock(&task->group->lock);
     free(task->group);
 
     task_destroy(task, 2);
@@ -518,8 +524,13 @@ retry:
                 list_for_each_entry(&parent->children, task, siblings) {
                     if (!task_is_leader(task))
                         continue;
-                    if (idtype == P_PGID_ && task->group->pgid != id)
-                        continue;
+                    if (idtype == P_PGID_) {
+                        lock(&task->group->lock, 0);
+                        bool pgid_match = task->group->pgid == id;
+                        unlock(&task->group->lock);
+                        if (!pgid_match)
+                            continue;
+                    }
                     no_children = false;
                     info->child.pid = task->pid;
                     if (reap_if_needed(task, info, rusage, options))
@@ -633,8 +644,11 @@ dword_t sys_wait4_guest(pid_t_ id, guest_addr_t status_addr, dword_t options, gu
         idtype = P_ALL_;
     else {
         idtype = P_PGID_;
-        if (id == 0)
+        if (id == 0) {
+            lock(&current->group->lock, 0);
             id = current->group->pgid;
+            unlock(&current->group->lock);
+        }
         else
             id = -id;
     }

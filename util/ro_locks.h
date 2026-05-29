@@ -114,40 +114,24 @@ static inline int mylock_with_timeout(lock_t *lock, int UNUSED(log_lock)) {
 }
 
 static inline void complex_lockt(lock_t *lock, int log_lock) {
-    //if (lock->pid == pid)
-    //    return;
-
-    unsigned int count = 0;
-    int random_wait = WAIT_SLEEP + rand() % WAIT_SLEEP;
-    struct timespec lock_pause = {0, random_wait};
-    long count_max = (WAIT_MAX_UPPER - random_wait);
-
-    while (pthread_mutex_trylock(&lock->m)) {
-        count++;
-        if (nanosleep(&lock_pause, NULL) == -1) {
-            // Handle error
-        }
-        if (count > count_max) {
-            if (!log_lock)
-                printk("WARNING: lock contention exceeded retry budget for %s, blocking instead of forcing unlock\n",
-                    lock->lname);
-            pthread_mutex_lock(&lock->m);
-            break;
+    struct timespec start = {};
+    struct timespec end = {};
+    bool contended = pthread_mutex_trylock(&lock->m) != 0;
+    if (contended) {
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        pthread_mutex_lock(&lock->m);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        if (!log_lock) {
+            long waited_ms = (end.tv_sec - start.tv_sec) * 1000L +
+                (end.tv_nsec - start.tv_nsec) / 1000000L;
+            if (waited_ms >= 1000)
+                printk("INFO: contended lock %s waited %ldms\n", lock->lname, waited_ms);
         }
     }
 
     modify_locks_held_count(current, 1);
 
-  /*  if (count > count_max * 0.90) {
-        if (!log_lock)
-            printk("Warning: large lock attempt count (%d), aborted lock attempt(PID: %d Process: %s) (Previously Owned:%s:%d) \n",
-                   count, current_pid(current), current_comm(current), lock->comm, lock->pid);
-    } */
-
     lock->owner = pthread_self();
-    //lock->pid = current_pid(current);
-    //lock->uid = current_uid(current);
-    // strncpy(lock->comm, current_comm(current), sizeof(lock->comm) - 1);
     lock->comm[sizeof(lock->comm) - 1] = '\0';  // Null-terminate just in case
 }
 

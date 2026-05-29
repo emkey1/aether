@@ -40,7 +40,9 @@ static bool amd64_tty2_shell_syscall_trace_enabled(void) {
 static struct tty *amd64_session_tty(void) {
     if (current == NULL || current->abi != GUEST_ABI_AMD64 || current->group == NULL)
         return NULL;
+    lock(&current->group->lock, 0);
     struct tty *tty = current->group->tty;
+    unlock(&current->group->lock);
     if (tty == NULL)
         return NULL;
     if (tty->type != TTY_CONSOLE_MAJOR && tty->type != TTY_PSEUDO_SLAVE_MAJOR)

@@ -144,16 +144,14 @@ void tty_release(struct tty *tty) {
     }
 }
 
-// must call with tty lock
-static void tty_set_controlling(struct tgroup *group, struct tty *tty) {
-    lock(&group->lock, 0);
+// must call with group->lock and tty->lock
+static void tty_set_controlling_locked(struct tgroup *group, struct tty *tty) {
     if (group->tty == NULL) {
         tty->refcount++;
         group->tty = tty;
         tty->session = group->sid;
         tty->fg_group = group->pgid;
     }
-    unlock(&group->lock);
 }
 
 // by default, /dev/console is /dev/tty1
@@ -171,12 +169,12 @@ int tty_open(struct tty *tty, struct fd *fd) {
         // Make this our controlling terminal if:
         // - the terminal doesn't already have a session
         // - we're a session leader
-        complex_lockt(&pids_lock, 0);
+        lock(&current->group->lock, 0);
         lock(&tty->lock, 0);
         if (tty->session == 0 && current->group->sid == current->pid)
-            tty_set_controlling(current->group, tty);
+            tty_set_controlling_locked(current->group, tty);
         unlock(&tty->lock);
-        unlock(&pids_lock);
+        unlock(&current->group->lock);
     }
 
 
@@ -497,19 +495,21 @@ static bool tty_is_current(struct tty *tty) {
     return is_current;
 }
 
-static int tty_signal_if_background(struct tty *tty, pid_t_ current_pgid, int sig) {
-    // you can apparently access a terminal that's not your controlling
-    // terminal all you want
-    if (!tty_is_current(tty))
+// must call with tty->lock
+static int tty_signal_if_background_locked(struct tty *tty, int sig) {
+    pid_t_ current_pgid;
+    bool is_current;
+    lock(&current->group->lock, 0);
+    is_current = current->group->tty == tty;
+    current_pgid = current->group->pgid;
+    unlock(&current->group->lock);
+    if (!is_current)
         return 0;
-    // check if we're in the foreground
     if (tty->fg_group == 0 || current_pgid == tty->fg_group)
         return 0;
-
     if (!try_self_signal(sig))
         return _EIO;
-    else
-        return _EINTR;
+    return _EINTR;
 }
 
 static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
@@ -519,16 +519,12 @@ static ssize_t tty_read(struct fd *fd, void *buf, size_t bufsize) {
 
     int err = 0;
     struct tty *tty = fd->tty;
-    complex_lockt(&pids_lock, 1);
     lock(&tty->lock, 0);
     if (tty->hung_up) {
-        unlock(&pids_lock);
         goto error;
     }
 
-    pid_t_ current_pgid = current->group->pgid;
-    unlock(&pids_lock);
-    err = tty_signal_if_background(tty, current_pgid, SIGTTIN_);
+    err = tty_signal_if_background_locked(tty, SIGTTIN_);
     if (err < 0)
         goto error;
 
@@ -731,10 +727,9 @@ static ssize_t tty_ioctl_size(int cmd) {
 
 static int tiocsctty(struct tty *tty, int force) {
     int err = 0;
-    unlock(&tty->lock); //aaaaaaaa
-    // it's safe because literally nothing happens between that unlock and the last lock, and repulsive for the same reason
-    // locking is ***hard**
+    unlock(&tty->lock);
     complex_lockt(&pids_lock, 0);
+    lock(&current->group->lock, 0);
     lock(&tty->lock, 0);
     // do nothing if this is already our controlling tty
     if (current->group->sid == current->pid && current->group->sid == tty->session)
@@ -764,8 +759,9 @@ static int tiocsctty(struct tty *tty, int force) {
         }
     }
 
-    tty_set_controlling(current->group, tty);
+    tty_set_controlling_locked(current->group, tty);
 out:
+    unlock(&current->group->lock);
     unlock(&pids_lock);
     return err;
 }
@@ -868,13 +864,13 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
             break;
 
         case TIOCSPGRP_:
-            // see "aaaaaaaa" comment above
             unlock(&tty->lock);
-            complex_lockt(&pids_lock, 0);
+            lock(&current->group->lock, 0);
             lock(&tty->lock, 0);
             pid_t_ sid = current->group->sid;
-            unlock(&pids_lock);
-            if (!tty_is_current(tty) || sid != tty->session) {
+            bool is_current = current->group->tty == tty;
+            unlock(&current->group->lock);
+            if (!is_current || sid != tty->session) {
                 err = _ENOTTY;
                 break;
             }

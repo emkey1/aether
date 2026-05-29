@@ -13,6 +13,7 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
     if (pgid == 0)
         pgid = id;
     complex_lockt(&pids_lock, 0);
+    bool group_locked = false;
     struct pid *pid = pid_get(id);
     err = _ESRCH;
     if (pid == NULL)
@@ -21,6 +22,8 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
     if (task == NULL)
         goto out;
     struct tgroup *tgroup = task->group;
+    lock(&tgroup->lock, 0);
+    group_locked = true;
 
     // you can only join a process group in the same session
     if (id != pgid) {
@@ -30,7 +33,15 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
         if (group_pid == NULL || list_empty(&group_pid->pgroup))
             goto out;
         struct tgroup *group_first_tgroup = list_first_entry(&group_pid->pgroup, struct tgroup, pgroup);
-        if (tgroup->sid != group_first_tgroup->sid)
+        pid_t_ group_sid;
+        if (group_first_tgroup == tgroup) {
+            group_sid = tgroup->sid;
+        } else {
+            lock(&group_first_tgroup->lock, 0);
+            group_sid = group_first_tgroup->sid;
+            unlock(&group_first_tgroup->lock);
+        }
+        if (tgroup->sid != group_sid)
             goto out;
     }
 
@@ -53,6 +64,8 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
 
     err = 0;
 out:
+    if (group_locked)
+        unlock(&tgroup->lock);
     unlock(&pids_lock);
     return err;
 }
@@ -63,23 +76,26 @@ dword_t sys_setpgrp(void) {
 
 pid_t_ sys_getpgid(pid_t_ pid) {
     STRACE("getpgid(%d)", pid);
-    complex_lockt(&pids_lock, 0);
     struct task *task = current;
-    if (pid != 0)
-        task = pid_get_task(pid);
-    if (!task) {
-        unlock(&pids_lock);
-        return _ESRCH;
+    bool release_task = false;
+    if (pid != 0) {
+        task = pid_get_task_ref(pid);
+        release_task = true;
     }
-    pid = task->group->pgid;
-    unlock(&pids_lock);
-    return pid;
+    if (!task)
+        return _ESRCH;
+    lock(&task->group->lock, 0);
+    pid_t_ pgid = task->group->pgid;
+    unlock(&task->group->lock);
+    if (release_task)
+        task_ref_cnt_mod(task, -1);
+    return pgid;
 }
 pid_t_ sys_getpgrp(void) {
     return sys_getpgid(0);
 }
 
-// Must lock pids_lock and task->group->lock
+// Must lock pids_lock and task->group->lock.
 void task_leave_session(struct task *task) {
     struct tgroup *group = task->group;
     list_remove_safe(&group->session);
@@ -99,8 +115,10 @@ void task_leave_session(struct task *task) {
 pid_t_ task_setsid(struct task *task) {
     complex_lockt(&pids_lock, 0);
     struct tgroup *group = task->group;
+    lock(&group->lock, 0);
     pid_t_ new_sid = group->leader->pid;
     if (group->pgid == new_sid || group->sid == new_sid) {
+        unlock(&group->lock);
         unlock(&pids_lock);
         return _EPERM;
     }
@@ -114,6 +132,7 @@ pid_t_ task_setsid(struct task *task) {
     list_add(&pid->pgroup, &group->pgroup);
     group->pgid = new_sid;
 
+    unlock(&group->lock);
     unlock(&pids_lock);
     return new_sid;
 }
@@ -125,15 +144,18 @@ dword_t sys_setsid(void) {
 
 dword_t sys_getsid(pid_t_ pid) {
     STRACE("getsid(%d)", pid);
-    complex_lockt(&pids_lock,0);
     struct task *task = current;
-    if (pid != 0)
-        task = pid_get_task(pid);
-    if (task == NULL) {
-        unlock(&pids_lock);
-        return _ESRCH;
+    bool release_task = false;
+    if (pid != 0) {
+        task = pid_get_task_ref(pid);
+        release_task = true;
     }
+    if (task == NULL)
+        return _ESRCH;
+    lock(&task->group->lock, 0);
     pid_t_ sid = task->group->sid;
-    unlock(&pids_lock);
+    unlock(&task->group->lock);
+    if (release_task)
+        task_ref_cnt_mod(task, -1);
     return sid;
 }

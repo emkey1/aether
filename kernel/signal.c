@@ -1897,8 +1897,11 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
     STRACE("kill(%d, %d)", pid, sig);
     if (sig >= NUM_SIGS)
         return _EINVAL;
-    if (pid == 0)
+    if (pid == 0) {
+        lock(&current->group->lock, 0);
         pid = -current->group->pgid;
+        unlock(&current->group->lock);
+    }
 
     int err;
     complex_lockt(&pids_lock, 0);

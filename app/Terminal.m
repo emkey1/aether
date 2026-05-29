@@ -44,6 +44,9 @@ NSNotificationName const TerminalRegistryDidChangeNotification = @"TerminalRegis
 @property (nonatomic) NSMutableData *pendingData;
 // sending output is an asynchronous thing due to javascript, this is used to ensure it doesn't happen twice at once
 @property (nonatomic) BOOL outputInProgress;
+@property (nonatomic) NSData *inFlightData;
+@property (nonatomic) NSUInteger outputGeneration;
+@property (nonatomic) CFTimeInterval outputStartedAt;
 
 @property DelayedUITask *refreshTask;
 @property DelayedUITask *scrollToBottomTask;
@@ -168,6 +171,12 @@ static BOOL ISHTerminalLifecycleLogEnabled(void) {
     const char *enabled = getenv("ISH_TRACE_TERMINAL_LIFECYCLE");
     return enabled != NULL && enabled[0] != '\0' && strcmp(enabled, "0") != 0;
 }
+
+static CFTimeInterval ISHTerminalNowMonotonic(void) {
+    return CACurrentMediaTime();
+}
+
+static const CFTimeInterval ISHTerminalOutputWatchdogSeconds = 1.5;
 
 static NSString *ISHStringFromBOOL(BOOL value) {
     return value ? @"yes" : @"no";
@@ -322,6 +331,49 @@ static void NotifyTerminalRegistryChanged(void) {
     });
 }
 
+- (void)resetOutputStateAndRequeueInFlightDataLocked {
+    NSData *retryData = self.inFlightData;
+    if (retryData.length > 0) {
+        NSMutableData *restored = [[NSMutableData alloc] initWithCapacity:retryData.length + self.pendingData.length];
+        [restored appendData:retryData];
+        [restored appendData:self.pendingData];
+        self.pendingData = restored;
+    }
+    self.inFlightData = nil;
+    self.outputInProgress = NO;
+    self.outputStartedAt = 0;
+    self.outputGeneration++;
+}
+
+- (void)recoverTerminalWebViewWithReason:(NSString *)reason error:(NSError *)error {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSUInteger pendingBytes = 0;
+#if !ISH_LINUX
+        lock(&self->_dataLock, 0);
+        [self resetOutputStateAndRequeueInFlightDataLocked];
+        pendingBytes = self.pendingData.length;
+        unlock(&self->_dataLock);
+#else
+        @synchronized (self) {
+            [self resetOutputStateAndRequeueInFlightDataLocked];
+            pendingBytes = self.pendingData.length;
+        }
+#endif
+        [self recordLifecycleEvent:@"terminal.webview.recover"
+                           details:@{@"reason": reason ?: @"unknown",
+                                     @"pendingBytes": @(pendingBytes),
+                                     @"error": error.localizedDescription ?: @"unknown"}];
+        self.loaded = NO;
+        self.didReportLoadFailure = NO;
+        WKWebView *oldWebView = _webView;
+        oldWebView.navigationDelegate = nil;
+        [oldWebView stopLoading];
+        [oldWebView removeFromSuperview];
+        _webView = nil;
+        [self webView];
+    });
+}
+
 - (void)recordLifecycleEvent:(NSString *)event details:(NSDictionary<NSString *, id> *)details {
     NSMutableDictionary<NSString *, id> *payload = [NSMutableDictionary dictionaryWithDictionary:details ?: @{}];
     payload[@"terminalUUID"] = self.uuid.UUIDString ?: @"";
@@ -429,6 +481,7 @@ static void NotifyTerminalRegistryChanged(void) {
                                          code:WKErrorWebContentProcessTerminated
                                      userInfo:@{NSLocalizedDescriptionKey: @"terminal web content process terminated"}];
     [self reportTerminalLoadFailure:error];
+    [self recoverTerminalWebViewWithReason:@"webContentProcessTerminated" error:error];
 }
 
 - (void)syncWindowSize {
@@ -564,26 +617,69 @@ static void NotifyTerminalRegistryChanged(void) {
 
 #if !ISH_LINUX
     lock(&_dataLock, 0);
+    CFTimeInterval now = ISHTerminalNowMonotonic();
     if (_outputInProgress) {
-        [self.refreshTask schedule];
-        unlock(&_dataLock);
-        return;
+        if (_outputStartedAt > 0 && now - _outputStartedAt > ISHTerminalOutputWatchdogSeconds) {
+            NSData *retryData = self.inFlightData;
+            if (retryData.length > 0) {
+                NSMutableData *restored = [[NSMutableData alloc] initWithCapacity:retryData.length + _pendingData.length];
+                [restored appendData:retryData];
+                [restored appendData:_pendingData];
+                _pendingData = restored;
+            }
+            self.inFlightData = nil;
+            _outputInProgress = NO;
+            _outputStartedAt = 0;
+            self.outputGeneration++;
+            [self recordLifecycleEvent:@"terminal.output.watchdog"
+                               details:@{@"pendingBytes": @(_pendingData.length),
+                                         @"retryBytes": @(retryData.length)}];
+        } else {
+            [self.refreshTask schedule];
+            unlock(&_dataLock);
+            return;
+        }
     }
     NSData *data = _pendingData;
     _pendingData = [[NSMutableData alloc] initWithCapacity:BUF_SIZE];
     _outputInProgress = YES;
+    self.inFlightData = data;
+    _outputStartedAt = now;
+    NSUInteger generation = ++self.outputGeneration;
     notify(&self->_dataConsumed);
     unlock(&_dataLock);
 #else
     NSData *data;
+    NSUInteger generation;
     @synchronized (self) {
         if (_outputInProgress) {
-            [self.refreshTask schedule];
-            return;
+            CFTimeInterval now = ISHTerminalNowMonotonic();
+            if (_outputStartedAt > 0 && now - _outputStartedAt > ISHTerminalOutputWatchdogSeconds) {
+                NSData *retryData = self.inFlightData;
+                if (retryData.length > 0) {
+                    NSMutableData *restored = [[NSMutableData alloc] initWithCapacity:retryData.length + _pendingData.length];
+                    [restored appendData:retryData];
+                    [restored appendData:_pendingData];
+                    _pendingData = restored;
+                }
+                self.inFlightData = nil;
+                _outputInProgress = NO;
+                _outputStartedAt = 0;
+                self.outputGeneration++;
+                [self recordLifecycleEvent:@"terminal.output.watchdog"
+                                   details:@{@"pendingBytes": @(_pendingData.length),
+                                             @"retryBytes": @(retryData.length)}];
+            } else {
+                [self.refreshTask schedule];
+                return;
+            }
         }
         data = _pendingData;
         _pendingData = [[NSMutableData alloc] initWithCapacity:BUF_SIZE];
         _outputInProgress = YES;
+        self.inFlightData = data;
+        _outputStartedAt = ISHTerminalNowMonotonic();
+        generation = ++self.outputGeneration;
         if (self->_tty)
             async_do_in_irq(^{
                 self->_tty->ops->can_output(self->_tty);
@@ -591,17 +687,46 @@ static void NotifyTerminalRegistryChanged(void) {
     }
 #endif
 
+    if (data.length == 0) {
+#if !ISH_LINUX
+        lock(&_dataLock, 0);
+        if (self.outputGeneration == generation) {
+            _outputInProgress = NO;
+            self.inFlightData = nil;
+            _outputStartedAt = 0;
+        }
+        unlock(&_dataLock);
+#else
+        @synchronized (self) {
+            if (self.outputGeneration == generation) {
+                _outputInProgress = NO;
+                self.inFlightData = nil;
+                _outputStartedAt = 0;
+            }
+        }
+#endif
+        return;
+    }
+
     NSString *dataString = ISHJavaScriptLiteralForTerminalData(data);
     NSString *jsToEvaluate = [NSString stringWithFormat:@"exports.write(\"%@\")", dataString];
     [self.webView evaluateJavaScript:jsToEvaluate completionHandler:^(id result, NSError *error) {
 #if !ISH_LINUX
         lock(&self->_dataLock, 0);
-        self->_outputInProgress = NO;
+        if (self.outputGeneration == generation) {
+            self->_outputInProgress = NO;
+            self.inFlightData = nil;
+            self->_outputStartedAt = 0;
+        }
         unlock(&self->_dataLock);
 #else
         bool hasPendingData;
         @synchronized (self) {
-            self->_outputInProgress = NO;
+            if (self.outputGeneration == generation) {
+                self->_outputInProgress = NO;
+                self.inFlightData = nil;
+                self->_outputStartedAt = 0;
+            }
             hasPendingData = self->_pendingData.length > 0;
         }
         if (self->_tty != NULL) {
@@ -615,8 +740,19 @@ static void NotifyTerminalRegistryChanged(void) {
 #endif
         if (error != nil) {
             NSLog(@"error sending bytes to the terminal: %@", error);
+            [self recordLifecycleEvent:@"terminal.output.writeFailed"
+                               details:@{@"bytes": @(data.length),
+                                         @"error": error.localizedDescription ?: @"unknown"}];
+            [self recoverTerminalWebViewWithReason:@"writeFailed" error:error];
             return;
         }
+#if !ISH_LINUX
+        lock(&self->_dataLock, 0);
+        bool hasPendingData = self->_pendingData.length > 0;
+        unlock(&self->_dataLock);
+        if (hasPendingData)
+            [self.refreshTask schedule];
+#endif
     }];
 }
 

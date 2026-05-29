@@ -24,13 +24,14 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
     memset(stat, 0, sizeof(*stat));
     stat->mode = proc_entry_mode(entry);
 
-    complex_lockt(&pids_lock, 1);
-    struct task *task = pid_get_task(entry->pid);
+    struct task *task = pid_get_task_ref(entry->pid);
     if (task != NULL) {
+        lock(&task->general_lock, 0);
         stat->uid = task->uid;
         stat->gid = task->gid;
+        unlock(&task->general_lock);
+        task_ref_cnt_mod(task, -1);
     } // else the memset above will have initialized memory to zero, which is the root uid/gid
-    unlock(&pids_lock);
 
     stat->inode = proc_entry_inode(entry);
     return 0;

@@ -22,20 +22,15 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
 }
 
-static char proc_task_state_char(struct task *task) {
+static char proc_task_state_char_from_snapshot(struct task *task, bool stopped) {
     return (task->zombie ? 'Z' :
-            task->group->stopped ? 'T' :
+            stopped ? 'T' :
             task->io_block && task->pid != current->pid ? 'S' :
             'R');
 }
 
 static struct task *proc_get_task(struct proc_entry *entry) {
-    complex_lockt(&pids_lock, 1);
-    struct task *task = pid_get_task(entry->pid);
-    if (task != NULL)
-        task_ref_cnt_mod(task, 1);
-    unlock(&pids_lock);
-    return task;
+    return pid_get_task_ref(entry->pid);
 }
 static void proc_put_task(struct task *task) {
     if (task != NULL)
@@ -162,25 +157,29 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     comm[sizeof(task->comm)] = '\0';
     unlock(&task->general_lock);
 
-    complex_lockt(&pids_lock, 1);
     lock(&task->group->lock, 0);
+    bool stopped = task->group->stopped;
+    pgid = task->group->pgid;
+    sid = task->group->sid;
+    struct tty *tty = task->group->tty;
+    unlock(&task->group->lock);
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
     // information about itself, but it shouldn't be marked as blocked.
-    proc_state = proc_task_state_char(task);
-    parent_pid = task->parent ? task->parent->pid : 0;
-    pgid = task->group->pgid;
-    sid = task->group->sid;
-    struct tty *tty = task->group->tty;
+    proc_state = proc_task_state_char_from_snapshot(task, stopped);
     tty_dev = tty ? dev_make(tty->driver->major, tty->num) : 0;
-    tty_fg_group = tty ? tty->fg_group : 0;
+    if (tty != NULL) {
+        lock(&tty->lock, 0);
+        tty_fg_group = tty->fg_group;
+        unlock(&tty->lock);
+    }
+    complex_lockt(&pids_lock, 1);
+    parent_pid = task->parent ? task->parent->pid : 0;
     thread_count = list_size(&task->group->threads);
     pending = task->pending;
     blocked = task->blocked;
     exit_signal = task->exit_signal;
-
-    unlock(&task->group->lock);
     unlock(&pids_lock);
     if (mm != NULL)
         mm_release(mm);
@@ -434,12 +433,13 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
 
     lock(&task->general_lock, 0);
     lock(&task->group->lock, 0);
+    bool stopped = task->group->stopped;
 
     unsigned cpu_count = get_cpu_count();
     unsigned allowed_mask = cpu_count >= 31 ? 0x7fffffffU : ((1U << cpu_count) - 1U);
 
     proc_printf(buf, "Name:\t%s\n", task->comm);
-    proc_printf(buf, "State:\t%c\n", proc_task_state_char(task));
+    proc_printf(buf, "State:\t%c\n", proc_task_state_char_from_snapshot(task, stopped));
     proc_printf(buf, "Tgid:\t%d\n", task->tgid);
     proc_printf(buf, "Ngid:\t0\n");
     proc_printf(buf, "Pid:\t%d\n", task->pid);
