@@ -23,6 +23,7 @@ struct mmu {
     struct mmu_ops *ops;
     struct jit *jit;
     uint64_t changes;
+    bool requires_write_revalidate;
 };
 
 #define MEM_READ 0

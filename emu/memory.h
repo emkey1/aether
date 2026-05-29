@@ -33,6 +33,26 @@ struct mem {
 
     wrlock_t lock;
 };
+
+static inline void mem_read_lock_quiesce_aware(struct mem *mem) {
+    if (mem == NULL)
+        return;
+    while (true) {
+        while (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0)
+            nanosleep(&lock_pause, NULL);
+        read_lock(&mem->lock);
+        if (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) == 0)
+            return;
+        read_unlock(&mem->lock);
+        nanosleep(&lock_pause, NULL);
+    }
+}
+
+static inline void mem_read_unlock_quiesce_aware(struct mem *mem) {
+    if (mem != NULL)
+        read_unlock(&mem->lock);
+}
+
 #define MEM_DEFAULT_PAGE_LIMIT ((page_t) 1 << 20)
 #define MEM_DEFAULT_MMAP_FLOOR ((page_t) 0x40000)
 #define MEM_DEFAULT_MMAP_CEILING ((page_t) 0xf7ffe)
@@ -67,6 +87,7 @@ struct data {
     size_t size; // also immutable
     atomic_uint refcount;
     uintptr_t shared_key;
+    uint8_t *host_page_prot; // cached mirrored host protections, one per host page
 
     // for display in /proc/pid/maps
     struct fd *fd;

@@ -542,6 +542,12 @@ static void NotifyTerminalRegistryChanged(void) {
     }
 }
 
+- (void)requestRefresh {
+    [self.refreshTask schedule];
+    if (self.loaded)
+        [self.scrollToBottomTask schedule];
+}
+
 - (void)scrollToBottom {
     if (!self.loaded)
         return;

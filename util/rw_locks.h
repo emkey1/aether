@@ -31,6 +31,12 @@ typedef struct {
     int pid;
     char comm[16];
     char lname[16];
+    void *last_read_lock_pc;
+    void *last_read_unlock_pc;
+    const char *last_read_lock_file;
+    int last_read_lock_line;
+    const char *last_read_unlock_file;
+    int last_read_unlock_line;
     struct {
         pthread_mutex_t lock;
         int count; // If positive, don't delete yet, wait_to_delete
@@ -44,11 +50,24 @@ static inline int trylockw(wrlock_t *lock);
 
 extern void _lock_destroy(wrlock_t *lock);
 
-static inline void _read_unlock(wrlock_t *lock) {
+static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
     int old_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
     if(old_val <= 0) {
-        //printk("ERROR: read_unlock(%x) error(PID: %d Process: %s count %d) (%s:%d)\n",lock, current_pid(current), current_comm(current), lock->val);
-        printk("ERROR: read_unlock(%x) error(val: %d)\n", lock, old_val);
+        printk("ERROR: read_unlock(%x) error(val: %d lock=%s holder=%s(%d) at %s:%d)\n",
+               lock,
+               old_val,
+               lock->lname[0] ? lock->lname : "-",
+               lock->comm[0] ? lock->comm : "-",
+               lock->pid,
+               lock->file != NULL ? lock->file : "-",
+               lock->line);
+        printk("ERROR: read_unlock(%x) pcs last_read_lock=%p last_read_unlock=%p current=%s:%d last_lock=%s:%d last_unlock=%s:%d\n",
+               lock, lock->last_read_lock_pc, lock->last_read_unlock_pc,
+               file != NULL ? file : "-", line,
+               lock->last_read_lock_file != NULL ? lock->last_read_lock_file : "-",
+               lock->last_read_lock_line,
+               lock->last_read_unlock_file != NULL ? lock->last_read_unlock_file : "-",
+               lock->last_read_unlock_line);
         atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
         lock->pid = -1;
         lock->comm[0] = 0;
@@ -59,15 +78,15 @@ static inline void _read_unlock(wrlock_t *lock) {
     if (pthread_rwlock_unlock(&lock->l) != 0)
 //        printk("URGENT: read_unlock(%x) error(PID: %d Process: %s)\n", lock, current_pid(current), current_comm(current));
         printk("URGENT: read_unlock(%x) failed\n", lock);
+    lock->last_read_unlock_pc = __builtin_return_address(0);
+    lock->last_read_unlock_file = file;
+    lock->last_read_unlock_line = line;
     atomic_fetch_sub_explicit(&lock->val, 1, memory_order_relaxed);
     //modify_locks_held_count(current, -1);
     //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
-static inline void read_unlock(wrlock_t *lock) {
-    _read_unlock(lock);
-    return;
-}
+#define read_unlock(lock) _read_unlock(lock, __FILE__, __LINE__)
 
 static inline void _write_unlock(wrlock_t *lock) {
     if(pthread_rwlock_unlock(&lock->l) != 0)
@@ -100,31 +119,37 @@ static inline void loop_lock_generic(wrlock_t *lock, int is_write) {
         pthread_rwlock_rdlock(&lock->l);
 }
 
-static inline void _read_lock(wrlock_t *lock) {
+static inline void _read_lock(wrlock_t *lock, const char *file, int line) {
     loop_lock_read(lock);
     //pthread_rwlock_rdlock(&lock->l);
     // assert(lock->val >= 0);  // If it is negative, a writer is recorded here.
     int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
     int new_val = old_val + 1;
     if(old_val < 0)
-        printk("ERROR: _read_lock() val is %d\n", old_val);
+        printk("ERROR: _read_lock(%x lock=%s) val is %d\n",
+               lock,
+               lock->lname[0] ? lock->lname : "-",
+               old_val);
     
-    if(new_val > 1000) { // We likely have a problem.
-        printk("WARNING: _read_lock(%x) has 1000+ pending read locks.  (File: %s, Line: %d) Breaking likely deadlock/process corruption(PID: %d Process: %s.\n", lock, lock->file, lock->line,lock->pid, lock->comm);
-        read_unlock_and_destroy(lock);
-        //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
-        return;
+    if(new_val > 1000 && (new_val == 1001 || (new_val % 256) == 0)) { // We likely have a problem.
+        printk("WARNING: _read_lock(%x lock=%s) has %d active readers. holder=%s(%d) at %s:%d current=%s(%d)\n",
+               lock,
+               lock->lname[0] ? lock->lname : "-",
+               new_val,
+               lock->comm[0] ? lock->comm : "-",
+               lock->pid,
+               lock->file != NULL ? lock->file : "-",
+               lock->line,
+               "-",
+               -1);
     }
-    
-    /* lock->pid = current_pid(current);
-    if(lock->pid > 9)
-        strncpy((char *)lock->comm, current_comm(current), 16); */
+    lock->last_read_lock_pc = __builtin_return_address(0);
+    lock->last_read_lock_file = file;
+    lock->last_read_lock_line = line;
     //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
 }
 
-static inline void read_lock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
-    _read_lock(lock);
-}
+#define read_lock(lock) _read_lock(lock, __FILE__, __LINE__)
 
 
 static inline void _write_lock(wrlock_t *lock) { // Write lock
@@ -143,13 +168,13 @@ static inline void write_lock(wrlock_t *lock) {
 
 
 static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a read lock to a write lock.
-    _read_unlock(lock);
+    _read_unlock(lock, __FILE__, __LINE__);
     _write_lock(lock);
 }
 
 static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a write lock to a read lock.
     _write_unlock(lock);
-    _read_lock(lock);
+    _read_lock(lock, __FILE__, __LINE__);
 }
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
@@ -159,7 +184,7 @@ static inline void write_unlock_and_destroy(wrlock_t *lock) {
 
 static inline void read_unlock_and_destroy(wrlock_t *lock) {
     if(trylockw(lock)) // Expected to already be held; only fall back to read unlock if it is still active.
-        _read_unlock(lock);
+        _read_unlock(lock, __FILE__, __LINE__);
     
     _lock_destroy(lock);
 }
@@ -183,14 +208,19 @@ static inline int trylockw(wrlock_t *lock) {
     return status;
 }
 
-static inline int trylockr(wrlock_t *lock) {
+static inline int _trylockr(wrlock_t *lock, const char *file, int line) {
     int status = pthread_rwlock_tryrdlock(&lock->l);
     if (status == 0) {
         int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
         if (old_val < 0)
             printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, old_val);
+        lock->last_read_lock_pc = __builtin_return_address(0);
+        lock->last_read_lock_file = file;
+        lock->last_read_lock_line = line;
     }
     return status;
 }
+
+#define trylockr(lock) _trylockr(lock, __FILE__, __LINE__)
 
 #endif // RW_LOCK_H

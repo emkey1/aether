@@ -242,6 +242,8 @@ noreturn void do_exit(struct task *task, int status) {
     struct task *signal_parent = NULL;
     struct siginfo_ signal_info = {};
     int signal_no = 0;
+    struct sighand *old_sighand = NULL;
+    bool destroy_unlinked_task = false;
 
     complex_lockt(&pids_lock, 0);
 
@@ -256,13 +258,8 @@ noreturn void do_exit(struct task *task, int status) {
                task->parent != NULL ? task->parent->tgid : -1,
                task->did_exec, decoded);
     }
-    sighand_release(task->sighand);
+    old_sighand = task->sighand;
     task->sighand = NULL;
-    struct sigqueue *sigqueue, *sigqueue_tmp;
-    list_for_each_entry_safe(&task->queue, sigqueue, sigqueue_tmp, queue) {
-        list_remove(&sigqueue->queue);
-        free(sigqueue);
-    }
     
     struct task *leader = task->group->leader;
 
@@ -308,20 +305,33 @@ noreturn void do_exit(struct task *task, int status) {
     }
 
     vfork_notify(task);
+
+    unlock(&task->general_lock);
     
     if(task != leader) {
-        task_destroy(task, 1);
-    } else {
-        unlock(&task->general_lock);
+        task_unlink_locked(task);
+        destroy_unlinked_task = true;
     }
     
     unlock(&pids_lock);
+
+    if (old_sighand != NULL)
+        sighand_release(old_sighand);
+
+    struct sigqueue *sigqueue, *sigqueue_tmp;
+    list_for_each_entry_safe(&task->queue, sigqueue, sigqueue_tmp, queue) {
+        list_remove(&sigqueue->queue);
+        free(sigqueue);
+    }
 
     if (signal_parent != NULL) {
         if (signal_no != 0)
             send_signal(signal_parent, signal_no, signal_info);
         task_ref_cnt_mod(signal_parent, -1);
     }
+
+    if (destroy_unlinked_task)
+        task_destroy_unlinked(task, 1);
     
 EXIT:pthread_exit(NULL);
 }
@@ -504,28 +514,28 @@ retry:
             bool no_children = true;
             struct task *parent;
             list_for_each_entry(&current->group->threads, parent, group_links) {
-            struct task *task;
-            list_for_each_entry(&current->children, task, siblings) {
-                if (!task_is_leader(task))
-                    continue;
-                if (idtype == P_PGID_ && task->group->pgid != id)
-                    continue;
-                no_children = false;
-                info->child.pid = task->pid;
-                if (reap_if_needed(task, info, rusage, options))
-                    goto found_something;
-            }
-            list_for_each_entry(&current->ptracees, task, ptrace_siblings) {
-                if (!task_is_leader(task))
-                    continue;
-                no_children = false;
-                info->child.pid = task->pid;
-                if (notify_if_ptrace_stopped(task, info)) {
-                    info->sig = SIGCHLD_;
-                    goto found_something;
+                struct task *task;
+                list_for_each_entry(&parent->children, task, siblings) {
+                    if (!task_is_leader(task))
+                        continue;
+                    if (idtype == P_PGID_ && task->group->pgid != id)
+                        continue;
+                    no_children = false;
+                    info->child.pid = task->pid;
+                    if (reap_if_needed(task, info, rusage, options))
+                        goto found_something;
+                }
+                list_for_each_entry(&parent->ptracees, task, ptrace_siblings) {
+                    if (!task_is_leader(task))
+                        continue;
+                    no_children = false;
+                    info->child.pid = task->pid;
+                    if (notify_if_ptrace_stopped(task, info)) {
+                        info->sig = SIGCHLD_;
+                        goto found_something;
+                    }
                 }
             }
-        }
         err = _ECHILD;
         if (no_children)
             goto error;

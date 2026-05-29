@@ -147,13 +147,11 @@
     3:
     .else N .ifc \cond,p
         check_res_or_flag 0/*PF_RES*/, 2/*PF_FLAG*/, \target, 3f
-        # this is so sad
         ldr w8, [_cpu, CPU_res]
         uxtb w8, w8
-        fmov s0, w8
-        cnt v0.8b, v0.8b
-        uaddlv h0, v0.8b
-        fmov w8, s0
+        eor w8, w8, w8, lsr #4
+        eor w8, w8, w8, lsr #2
+        eor w8, w8, w8, lsr #1
         tbz w8, 0, \target
     3:
     .else N .ifc \cond,sxo
@@ -179,7 +177,8 @@
         do_jump \cond, 1f
         ldr _ip, [_ip, 8]
         b jit_ret_chain
-    1:  ldr _ip, [_ip]
+    1:
+        ldr _ip, [_ip]
         b jit_ret_chain
 
     .gadget set_\cond

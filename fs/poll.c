@@ -16,7 +16,6 @@
 #include "fs/poll.h"
 #include "fs/real.h"
 #include "fs/sock.h"
-
 #include "fs/sockrestart.h"
 
 #if defined(__linux__)
@@ -108,6 +107,17 @@ static bool poll_wait_trace_enabled(void) {
     if (current == NULL)
         return false;
     return poll_trace_comm(current->comm);
+}
+
+static bool poll_epoll_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_EPOLL") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
+    if (current == NULL)
+        return false;
+    return strcmp(current->comm, "compile") == 0;
 }
 
 static void poll_wait_trace_fd(struct poll_fd *poll_fd, int host_events, const char *phase) {
@@ -219,6 +229,15 @@ static int poll_scan_ready_locked(struct poll *poll_, poll_callback_t callback, 
                    fd != NULL ? fd->real_fd : -1,
                    raw_poll_types, poll_types,
                    poll_fd->types, path);
+        }
+        if (poll_epoll_trace_enabled() && fd != NULL && fd->real_fd < 0 &&
+                (raw_poll_types != 0 || poll_types != 0)) {
+            char path[MAX_PATH];
+            path[0] = '\0';
+            generic_getpath(fd, path);
+            printk("epoll-trace: scan pid=%d comm=%s real=%d raw=%#x masked=%#x req=%#x path=%s ops=%p\n",
+                   current->pid, current->comm, fd->real_fd,
+                   raw_poll_types, poll_types, poll_fd->types, path, fd->ops);
         }
         if (!poll_types)
             continue;
@@ -423,7 +442,7 @@ void poll_wakeup(struct fd *fd, int events) {
         lock(&poll->lock,0);
         if (poll_fd->types & POLL_EDGETRIGGERED)
             poll_fd->triggered_types &= ~events;
-        if (poll->notify_pipe[1] != -1 && !poll->notify_pending) {
+        if (poll->notify_pipe[1] != -1) {
             ssize_t wrote;
             do {
                 wrote = write(poll->notify_pipe[1], "", 1);
@@ -594,6 +613,18 @@ poll_wait_done:
             if (triggered_poll_fd == NULL || triggered_poll_fd->poll != poll_)
                 continue;
             int host_events = rpe_events(&e[i]);
+            if (poll_epoll_trace_enabled()) {
+                struct fd *fd = triggered_poll_fd->fd;
+                char path[MAX_PATH];
+                path[0] = '\0';
+                if (fd != NULL)
+                    generic_getpath(fd, path);
+                printk("epoll-trace: host pid=%d comm=%s real=%d host=%#x req=%#x path=%s ops=%p\n",
+                       current->pid, current->comm,
+                       fd != NULL ? fd->real_fd : -1, host_events,
+                       triggered_poll_fd->types, path,
+                       fd != NULL ? (void *) fd->ops : NULL);
+            }
             if (triggered_poll_fd->types & POLL_EDGETRIGGERED)
                 triggered_poll_fd->triggered_types &= ~host_events;
             int poll_types = host_events & (triggered_poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL);

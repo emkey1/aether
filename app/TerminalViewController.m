@@ -69,8 +69,17 @@ static BOOL ISHCommandIsDefaultLogin(NSArray<NSString *> *command) {
 }
 
 static BOOL ISHGuestExecutableExists(NSString *path, intptr_t *errOut) {
+    struct task *previousCurrent = NULL;
+    BOOL borrowedInit = [AppDelegate pushUsableInitTaskAsCurrent:&previousCurrent];
+    if (!borrowedInit) {
+        [AppDelegate popCurrentTask:previousCurrent];
+        if (errOut != NULL)
+            *errOut = _ENOENT;
+        return NO;
+    }
     struct statbuf stat;
     int err = generic_statat(AT_PWD, path.UTF8String, &stat, 0);
+    [AppDelegate popCurrentTask:previousCurrent];
     if (err < 0) {
         if (errOut != NULL)
             *errOut = err;

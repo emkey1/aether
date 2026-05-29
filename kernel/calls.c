@@ -1115,6 +1115,7 @@ static syscall_t i386_syscall_table[] = {
     [421] = (syscall_t) sys_rt_sigtimedwait_time64, // rt_sigtimedwait_time64
     [422] = (syscall_t) sys_futex_time64, // futex_time64
     [424] = (syscall_t) syscall_stub, // pidfd_send_signal?
+    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
     [435] = (syscall_t) sys_clone3, // clone3
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
@@ -1438,6 +1439,7 @@ static syscall_t amd64_syscall_table[453] = {
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
+    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
@@ -1479,8 +1481,7 @@ static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_ab
 void dump_stack(int lines);
 
 static bool syscall_is_logged_stub(syscall_t syscall) {
-    return syscall == (syscall_t) syscall_stub ||
-        syscall == (syscall_t) syscall_stub_silent;
+    return syscall == (syscall_t) syscall_stub;
 }
 
 static bool syscall_result_is_errno(dword_t result) {
@@ -4102,8 +4103,14 @@ void handle_interrupt(int interrupt) {
             sys_exit(interrupt);
             break;
     }
-    // The common logic to be executed after handling any interrupt
-    receive_signals();
+    // Host-side wakeups (for example thread pokes or interrupted waits) often
+    // arrive with no guest-visible pending signal work. Avoid serializing all
+    // runnable threads on sighand->lock in that common case.
+    sigset_t_ pending = __atomic_load_n(&current->pending, __ATOMIC_ACQUIRE);
+    sigset_t_ blocked = __atomic_load_n(&current->blocked, __ATOMIC_ACQUIRE);
+    bool has_saved_mask = __atomic_load_n(&current->has_saved_mask, __ATOMIC_ACQUIRE);
+    if (has_saved_mask || (pending & ~blocked) != 0)
+        receive_signals();
     struct tgroup *group = current->group;
     lock(&group->lock, 0);
     while (group->stopped)

@@ -165,6 +165,10 @@ static inline bool task_is_64bit(const struct task *task) {
 struct task *task_create_(struct task *parent);
 // Removes the process from the process table and frees it. Must be called with pids_lock.
 void task_destroy(struct task *task, int UNUSED(caller));
+// Removes the process from the process table. Must be called with pids_lock.
+void task_unlink_locked(struct task *task);
+// Frees an already-unlinked task, or defers it if references remain.
+void task_destroy_unlinked(struct task *task, int UNUSED(caller));
 
 // misc
 void vfork_notify(struct task *task);

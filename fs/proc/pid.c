@@ -129,27 +129,70 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     struct mm *mm = proc_task_mm_retain(task);
     size_t page_count = proc_mem_count_pages(mm ? &mm->mem : NULL);
-    if (mm != NULL)
-        mm_release(mm);
+    pid_t_ pid = 0;
+    char comm[sizeof(task->comm) + 1];
+    char proc_state = 'R';
+    pid_t_ parent_pid = 0;
+    pid_t_ pgid = 0;
+    pid_t_ sid = 0;
+    dword_t tty_dev = 0;
+    int tty_fg_group = 0;
+    long thread_count = 0;
+    addr_t stack_start = 0;
+    addr_t start_brk = 0;
+    addr_t argv_start = 0;
+    addr_t argv_end = 0;
+    addr_t env_start = 0;
+    addr_t env_end = 0;
+    sigset_t_ pending = 0;
+    sigset_t_ blocked = 0;
+    int exit_signal = 0;
 
     lock(&task->general_lock, 0);
+    if (mm != NULL) {
+        stack_start = (addr_t)mm->stack_start;
+        start_brk = (addr_t)mm->start_brk;
+        argv_start = (addr_t)mm->argv_start;
+        argv_end = (addr_t)mm->argv_end;
+        env_start = (addr_t)mm->env_start;
+        env_end = (addr_t)mm->env_end;
+    }
+    pid = task->pid;
+    strncpy(comm, task->comm, sizeof(task->comm));
+    comm[sizeof(task->comm)] = '\0';
+    unlock(&task->general_lock);
+
+    complex_lockt(&pids_lock, 1);
     lock(&task->group->lock, 0);
-    // lock(&task->sighand->lock); // Left disabled; this proc path currently reports ignored/caught as zeroes.
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
     // information about itself, but it shouldn't be marked as blocked.
-    char proc_state = proc_task_state_char(task);
-    
-    proc_printf(buf, "%d ", task->pid);
-    proc_printf(buf, "(%.16s) ", task->comm);
-    proc_printf(buf, "%c ", proc_state);
-    proc_printf(buf, "%d ", task->parent ? task->parent->pid : 0);
-    proc_printf(buf, "%d ", task->group->pgid);
-    proc_printf(buf, "%d ", task->group->sid);
+    proc_state = proc_task_state_char(task);
+    parent_pid = task->parent ? task->parent->pid : 0;
+    pgid = task->group->pgid;
+    sid = task->group->sid;
     struct tty *tty = task->group->tty;
-    proc_printf(buf, "%d ", tty ? dev_make(tty->driver->major, tty->num) : 0);
-    proc_printf(buf, "%d ", tty ? tty->fg_group : 0);
+    tty_dev = tty ? dev_make(tty->driver->major, tty->num) : 0;
+    tty_fg_group = tty ? tty->fg_group : 0;
+    thread_count = list_size(&task->group->threads);
+    pending = task->pending;
+    blocked = task->blocked;
+    exit_signal = task->exit_signal;
+
+    unlock(&task->group->lock);
+    unlock(&pids_lock);
+    if (mm != NULL)
+        mm_release(mm);
+
+    proc_printf(buf, "%d ", pid);
+    proc_printf(buf, "(%.16s) ", comm);
+    proc_printf(buf, "%c ", proc_state);
+    proc_printf(buf, "%d ", parent_pid);
+    proc_printf(buf, "%d ", pgid);
+    proc_printf(buf, "%d ", sid);
+    proc_printf(buf, "%d ", tty_dev);
+    proc_printf(buf, "%d ", tty_fg_group);
     proc_printf(buf, "%u ", 0); // flags
 
     // page faults (no data available)
@@ -166,7 +209,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     proc_printf(buf, "%ld ", 20l); // priority (not adjustable)
     proc_printf(buf, "%ld ", 0l); // nice (also not adjustable)
-    proc_printf(buf, "%ld ", list_size(&task->group->threads));
+    proc_printf(buf, "%ld ", thread_count);
     proc_printf(buf, "%ld ", 0l); // itimer value (deprecated, always 0)
     proc_printf(buf, "%lld ", 0ll); // jiffies on process start
 
@@ -177,12 +220,12 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // bunch of shit that can only be accessed by a debugger
     proc_printf(buf, "%lu ", 0l); // startcode
     proc_printf(buf, "%lu ", 0l); // endcode
-    proc_printf(buf, "%lu ", task->mm ? task->mm->stack_start : 0);
+    proc_printf(buf, "%lu ", stack_start);
     proc_printf(buf, "%lu ", 0l); // kstkesp
     proc_printf(buf, "%lu ", 0l); // kstkeip
 
-    proc_printf(buf, "%lu ", (unsigned long) task->pending & 0xffffffff);
-    proc_printf(buf, "%lu ", (unsigned long) task->blocked & 0xffffffff);
+    proc_printf(buf, "%lu ", (unsigned long) pending & 0xffffffff);
+    proc_printf(buf, "%lu ", (unsigned long) blocked & 0xffffffff);
     /* uint32_t ignored = 0; // Try enabling this at some point.
     uint32_t caught = 0;
     for (int i = 0; i < 32; i++) {
@@ -199,7 +242,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%lu ", 0l); // wchan (wtf)
     proc_printf(buf, "%lu ", 0l); // nswap
     proc_printf(buf, "%lu ", 0l); // cnswap
-    proc_printf(buf, "%d ", task->exit_signal);
+    proc_printf(buf, "%d ", exit_signal);
     proc_printf(buf, "%d ", 0); // processor
 
     // htop and similar procfs consumers expect the modern trailing fields too.
@@ -212,17 +255,14 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%ld ", 0l); // cguest_time
     proc_printf(buf, "%lu ", 0ul); // start_data
     proc_printf(buf, "%lu ", 0ul); // end_data
-    proc_printf(buf, "%lu ", task->mm ? task->mm->start_brk : 0); // start_brk
-    proc_printf(buf, "%lu ", task->mm ? task->mm->argv_start : 0); // arg_start
-    proc_printf(buf, "%lu ", task->mm ? task->mm->argv_end : 0); // arg_end
-    proc_printf(buf, "%lu ", task->mm ? task->mm->env_start : 0); // env_start
-    proc_printf(buf, "%lu ", task->mm ? task->mm->env_end : 0); // env_end
+    proc_printf(buf, "%lu ", start_brk); // start_brk
+    proc_printf(buf, "%lu ", argv_start); // arg_start
+    proc_printf(buf, "%lu ", argv_end); // arg_end
+    proc_printf(buf, "%lu ", env_start); // env_start
+    proc_printf(buf, "%lu ", env_end); // env_end
     proc_printf(buf, "%d", 0); // exit_code
     proc_printf(buf, "\n");
-    
-    //unlock(&task->sighand->lock);
-    unlock(&task->group->lock);
-    unlock(&task->general_lock);
+
     proc_put_task(task);
     return 0;
 }
@@ -475,7 +515,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
     if (mem == NULL)
         return;
 
-    read_lock(&mem->lock);
+    mem_read_lock_quiesce_aware(mem);
     page_t page = 0;
     while (page < mem->page_limit) {
         // find a region
@@ -522,7 +562,7 @@ void proc_maps_dump(struct task *task, struct proc_data *buf) {
                 0, // inode
                 path);
     }
-    read_unlock(&mem->lock);
+    mem_read_unlock_quiesce_aware(mem);
     mm_release(mm);
 }
 

@@ -924,10 +924,10 @@ static qword_t signal_trap_error(struct cpu_state *cpu) {
             qword_t err = 0x4; // user-mode fault
             if (cpu->segfault_was_write)
                 err |= 0x2;
-            read_lock(&current->mem->lock);
+            mem_read_lock_quiesce_aware(current->mem);
             if (mem_segv_reason(current->mem, cpu->segfault_addr) == SEGV_ACCERR_)
                 err |= 0x1;
-            read_unlock(&current->mem->lock);
+            mem_read_unlock_quiesce_aware(current->mem);
             return err;
         }
         default:

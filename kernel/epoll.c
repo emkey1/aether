@@ -1,9 +1,22 @@
 #include "kernel/calls.h"
 #include "fs/poll.h"
+#include <stdlib.h>
+#include <string.h>
 
 static struct fd_ops epoll_ops;
 
 extern bool doEnableMulticore;
+
+static bool epoll_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_EPOLL") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+static bool epoll_trace_comm(void) {
+    return epoll_trace_enabled() && current != NULL && strcmp(current->comm, "compile") == 0;
+}
 
 fd_t sys_epoll_create(int_t flags) {
     STRACE("epoll_create(%#x)", flags);
@@ -63,6 +76,11 @@ int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
         return _EFAULT;
     }
     STRACE(" {events: %#x, data: %#x}", event.events, event.data);
+    if (epoll_trace_comm()) {
+        printk("epoll-trace: ctl pid=%d comm=%s epfd=%d op=%d fd=%d real=%d req_events=%#x data=%#llx\n",
+               current->pid, current->comm, epoll_f, op, f,
+               fd->real_fd, event.events, (unsigned long long) event.data);
+    }
 
     int_t res;
     if (op == EPOLL_CTL_ADD_) {
@@ -92,6 +110,11 @@ static int epoll_callback(void *context, int types, union poll_fd_info info) {
     struct epoll_context *c = context;
     if (c->n >= c->max_events)
         return 0;
+    if (epoll_trace_comm()) {
+        printk("epoll-trace: callback pid=%d comm=%s slot=%d types=%#x data=%#llx\n",
+               current->pid, current->comm, c->n, types,
+               (unsigned long long) info.num);
+    }
     c->events[c->n++] = (struct epoll_event_) {.events = types, .data = info.num};
     return 1;
 }

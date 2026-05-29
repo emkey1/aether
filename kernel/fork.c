@@ -38,10 +38,10 @@
 
 static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
+    if (group == NULL)
+        return NULL;
     *group = *old_group;
     list_init(&group->threads);
-    list_add(&old_group->pgroup, &group->pgroup);
-    list_add(&old_group->session, &group->session);
     if (group->tty) {
         lock(&group->tty->lock, 0);
         group->tty->refcount++;
@@ -101,16 +101,29 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
     }
 
     struct tgroup *old_group = task->group;
-    complex_lockt(&pids_lock, 0);
-    lock(&old_group->lock, 0);
+    struct tgroup *new_group = NULL;
     if (!(flags & CLONE_THREAD_)) {
-        task->group = tgroup_copy(old_group);
-        task->group->leader = task;
-        task->tgid = task->pid;
+        lock(&old_group->lock, 0);
+        new_group = tgroup_copy(old_group);
+        unlock(&old_group->lock);
+        if (new_group == NULL) {
+            err = _ENOMEM;
+            goto fail_free_sighand;
+        }
     } else {
         // New threads do not inherit the parent's alternate signal stack
         task->altstack = 0;
         task->altstack_size = 0;
+    }
+
+    complex_lockt(&pids_lock, 0);
+    lock(&old_group->lock, 0);
+    if (new_group != NULL) {
+        list_add(&old_group->pgroup, &new_group->pgroup);
+        list_add(&old_group->session, &new_group->session);
+        task->group = new_group;
+        task->group->leader = task;
+        task->tgid = task->pid;
     }
     list_add(&task->group->threads, &task->group_links);
     unlock(&old_group->lock);

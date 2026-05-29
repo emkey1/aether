@@ -265,10 +265,8 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
         struct mem *mem = current->mem;
         write_unlock(&mem->lock);
 
-        mem_ref_cnt_mod(mem, 1);
         int memset_err = user_memset(file_end, 0, tail_size);
         write_lock(&mem->lock);
-        mem_ref_cnt_mod(mem, -1);
         if (memset_err) {
             amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
             return _EFAULT;

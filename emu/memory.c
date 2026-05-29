@@ -115,6 +115,30 @@ static bool mem_can_mirror_host_page_protections(void) {
     return real_page_size == PAGE_SIZE;
 }
 
+static bool mem_host_page_mirroring_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *forced = getenv("ISH_ENABLE_HOST_PAGE_MIRROR");
+        const char *disabled = getenv("ISH_DISABLE_HOST_PAGE_MIRROR");
+        if (forced != NULL && forced[0] != '\0' && forced[0] != '0') {
+            enabled = 1;
+        } else if (disabled != NULL && disabled[0] != '\0' && disabled[0] != '0') {
+            enabled = 0;
+        } else {
+#if __APPLE__
+            enabled = 0;
+#else
+            enabled = 1;
+#endif
+        }
+    }
+    return enabled == 1;
+}
+
+static bool mem_uses_host_page_mirroring(void) {
+    return mem_can_mirror_host_page_protections() && mem_host_page_mirroring_enabled();
+}
+
 static void *mem_host_page_addr(struct pt_entry *entry) {
     if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
         return NULL;
@@ -122,17 +146,37 @@ static void *mem_host_page_addr(struct pt_entry *entry) {
     return (void *) ((uintptr_t) data & ~(real_page_size - 1));
 }
 
+static size_t mem_host_page_index(struct pt_entry *entry) {
+    if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
+        return 0;
+    uintptr_t base = (uintptr_t) entry->data->data;
+    uintptr_t addr = (uintptr_t) entry->data->data + entry->offset;
+    return (addr - base) / real_page_size;
+}
+
 static int mem_mirror_host_page_protection(struct pt_entry *entry, int flags) {
-    if (!mem_can_mirror_host_page_protections())
+    if (!mem_uses_host_page_mirroring())
         return 0;
     void *data = mem_host_page_addr(entry);
     if (data == NULL)
         return 0;
+    uint8_t desired = P_READ;
+    if (flags & P_WRITE)
+        desired |= P_WRITE;
+    if (entry->data->host_page_prot != NULL) {
+        size_t idx = mem_host_page_index(entry);
+        if (entry->data->host_page_prot[idx] == desired)
+            return 0;
+    }
     int prot = PROT_READ;
     if (flags & P_WRITE)
         prot |= PROT_WRITE;
     if (mprotect(data, real_page_size, prot) < 0)
         return errno_map();
+    if (entry->data->host_page_prot != NULL) {
+        size_t idx = mem_host_page_index(entry);
+        entry->data->host_page_prot[idx] = desired;
+    }
     return 0;
 }
 
@@ -213,6 +257,7 @@ void mem_init(struct mem *mem) {
     mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
     atomic_init(&mem->quiesce_requested, 0);
     mem->mmu.ops = &mem_mmu_ops;
+    mem->mmu.requires_write_revalidate = mem_uses_host_page_mirroring();
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);
 #endif
@@ -220,6 +265,7 @@ void mem_init(struct mem *mem) {
     // flushes even if malloc reuses the same mmu address after exec/exit.
     mem->mmu.changes = atomic_fetch_add_explicit(&next_mem_change_id, 1, memory_order_relaxed);
     wrlock_init(&mem->lock);
+    strlcpy(mem->lock.lname, "mem", sizeof(mem->lock.lname));
     mem->reference.count = 0;
     mem->reference.ready_to_be_freed = false;
     int rc = pthread_mutex_init(&mem->reference.lock, NULL);
@@ -391,6 +437,15 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
         .dest = start << PAGE_BITS,
 #endif
     };
+    if (mem_uses_host_page_mirroring() && memory != NULL && memory != vdso_data) {
+        size_t host_pages = (data->size + real_page_size - 1) / real_page_size;
+        data->host_page_prot = malloc(host_pages);
+        if (data->host_page_prot == NULL) {
+            free(data);
+            return _ENOMEM;
+        }
+        memset(data->host_page_prot, P_READ | P_WRITE, host_pages);
+    }
 
     for (page_t page = start; page < start + pages; page++) {
         if (mem_pt(mem, page) != NULL)
@@ -445,6 +500,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
             if (data->fd != NULL) {
                 fd_close(data->fd);
             }
+            free(data->host_page_prot);
             free(data);
         }
     }
@@ -540,8 +596,6 @@ int pt_set_flags(struct mem *mem, page_t start, pages_t pages, int flags) {
 int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t pages) {
     if (!mem_page_range_valid(src, start, pages) || !mem_page_range_valid(dst, start, pages))
         return -1;
-    mem_ref_cnt_mod(src, 1);
-    mem_ref_cnt_mod(dst, 1);
     page_t end = start + pages;
     for (page_t page = mem_next_mapped_page(src, start);
          page != BAD_PAGE && page < end;
@@ -565,8 +619,6 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
     }
     mem_changed(src);
     mem_changed(dst);
-    mem_ref_cnt_mod(src, -1);
-    mem_ref_cnt_mod(dst, -1);
     
     return 0;
 }
@@ -663,12 +715,13 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
             void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
             void *data = (char *) entry->data->data + entry->offset;
 
-            if (copy == MAP_FAILED)
+            if (copy == MAP_FAILED) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_to_read_lock(&mem->lock);
                 return NULL;
-            // copy/paste from above
-            mem_ref_cnt_mod(mem, 1);
+            }
             memcpy(copy, data, PAGE_SIZE);
-            mem_ref_cnt_mod(mem, -1);
             pt_map(mem, page, 1, copy, 0, entry->flags &~ P_COW);
             if (locked_general_lock)
                 unlock(&current->general_lock);

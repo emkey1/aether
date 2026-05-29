@@ -71,7 +71,7 @@ static void __attribute__((constructor)) init_futex_hash(void) {
 
 static uintptr_t futex_shared_identity(guest_addr_t addr, guest_addr_t *shared_addr) {
     uintptr_t identity = 0;
-    read_lock(&current->mem->lock);
+    mem_read_lock_quiesce_aware(current->mem);
     struct pt_entry *entry = mem_pt(current->mem, PAGE(addr));
     if (entry != NULL && (entry->flags & P_SHARED)) {
         identity = entry->data->shared_key;
@@ -80,7 +80,7 @@ static uintptr_t futex_shared_identity(guest_addr_t addr, guest_addr_t *shared_a
         if (shared_addr != NULL)
             *shared_addr = entry->offset + PGOFFSET(addr);
     }
-    read_unlock(&current->mem->lock);
+    mem_read_unlock_quiesce_aware(current->mem);
     return identity;
 }
 

@@ -100,25 +100,19 @@ static int proc_net_task_snapshot_collect(struct proc_net_task_snapshot *snapsho
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         struct task *task = pid_entry->task;
-        if (task != NULL && !task->zombie)
-            cap++;
-    }
-    unlock(&pids_lock);
-
-    if (cap == 0)
-        return 0;
-
-    snapshot->tasks = calloc(cap, sizeof(*snapshot->tasks));
-    if (snapshot->tasks == NULL)
-        return _ENOMEM;
-
-    complex_lockt(&pids_lock, 0);
-    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
-        struct task *task = pid_entry->task;
         if (task == NULL || task->zombie)
             continue;
-        if (snapshot->count >= cap)
-            break;
+        if (snapshot->count == cap) {
+            unsigned new_cap = cap ? cap * 2 : 64;
+            struct task **new_tasks = realloc(snapshot->tasks, sizeof(*new_tasks) * new_cap);
+            if (new_tasks == NULL) {
+                unlock(&pids_lock);
+                proc_net_task_snapshot_release(snapshot);
+                return _ENOMEM;
+            }
+            snapshot->tasks = new_tasks;
+            cap = new_cap;
+        }
         task_ref_cnt_mod(task, 1);
         snapshot->tasks[snapshot->count++] = task;
     }

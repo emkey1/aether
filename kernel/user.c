@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "kernel/calls.h"
+#include "kernel/mm.h"
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
@@ -52,20 +53,42 @@ static inline void trace_htop_user_write(struct task *task, struct mem *mem,
     }
 }
 
-static struct mem *task_mem_read_lock(struct task *task) {
+struct task_mem_read_handle {
+    struct mm *mm;
     struct mem *mem;
+};
+
+static struct mem *task_mem_read_lock(struct task *task, struct task_mem_read_handle *handle) {
+    struct mem *mem;
+    handle->mm = NULL;
+    handle->mem = NULL;
     if (task == current) {
         mem = task->mem;
-        if (mem != NULL)
-            read_lock(&mem->lock);
+        if (mem != NULL) {
+            mem_read_lock_quiesce_aware(mem);
+            handle->mem = mem;
+        }
         return mem;
     }
     lock(&task->general_lock, 0);
-    mem = task->mem;
-    if (mem != NULL)
-        read_lock(&mem->lock);
+    if (task->mm != NULL) {
+        handle->mm = task->mm;
+        mm_retain(handle->mm);
+        mem = &handle->mm->mem;
+        mem_read_lock_quiesce_aware(mem);
+        handle->mem = mem;
+    } else {
+        mem = NULL;
+    }
     unlock(&task->general_lock);
     return mem;
+}
+
+static void task_mem_read_unlock(struct task_mem_read_handle *handle) {
+    if (handle->mem != NULL)
+        mem_read_unlock_quiesce_aware(handle->mem);
+    if (handle->mm != NULL)
+        mm_release(handle->mm);
 }
 
 static bool user_range_valid_mem(struct task *task, struct mem *mem, guest_addr_t addr, size_t count) {
@@ -119,20 +142,21 @@ static int __user_write_task_mem(struct task *task, struct mem *mem, guest_addr_
 }
 
 int user_read_task(struct task *task, guest_addr_t addr, void *buf, size_t count) {
-    struct mem *mem = task_mem_read_lock(task);
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(task, &handle);
     if (mem == NULL)
         return 1;
     int res = __user_read_task_mem(task, mem, addr, buf, count);
-    read_unlock(&mem->lock);
+    task_mem_read_unlock(&handle);
     return res;
 }
 
 int user_read_task_mem(struct task *task, struct mem *mem, guest_addr_t addr, void *buf, size_t count) {
     if (mem == NULL)
         return 1;
-    read_lock(&mem->lock);
+    mem_read_lock_quiesce_aware(mem);
     int res = __user_read_task_mem(task, mem, addr, buf, count);
-    read_unlock(&mem->lock);
+    mem_read_unlock_quiesce_aware(mem);
     return res;
 }
 
@@ -144,13 +168,9 @@ static int user_write_task_mem_internal(struct task *task, struct mem *mem, gues
                                         const void *buf, size_t count, bool ptrace) {
     if (mem == NULL)
         return 1;
-    read_lock(&mem->lock);
-    task_ref_cnt_mod(task, 1);
-    mem_ref_cnt_mod(mem, 1);
+    mem_read_lock_quiesce_aware(mem);
     int res = __user_write_task_mem(task, mem, addr, buf, count, ptrace);
-    read_unlock(&mem->lock);
-    task_ref_cnt_mod(task, -1);
-    mem_ref_cnt_mod(mem, -1);
+    mem_read_unlock_quiesce_aware(mem);
     return res;
 }
 
@@ -163,28 +183,22 @@ int user_write_task_ptrace_mem(struct task *task, struct mem *mem, guest_addr_t 
 }
 
 int user_write_task(struct task *task, guest_addr_t addr, const void *buf, size_t count) {
-    struct mem *mem = task_mem_read_lock(task);
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(task, &handle);
     if (mem == NULL)
         return 1;
-    task_ref_cnt_mod(task, 1);
-    mem_ref_cnt_mod(mem, 1);
     int res = __user_write_task_mem(task, mem, addr, buf, count, false);
-    read_unlock(&mem->lock);
-    task_ref_cnt_mod(task, -1);
-    mem_ref_cnt_mod(mem, -1);
+    task_mem_read_unlock(&handle);
     return res;
 }
 
 int user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count) {
-    struct mem *mem = task_mem_read_lock(task);
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(task, &handle);
     if (mem == NULL)
         return 1;
-    task_ref_cnt_mod(task, 1);
-    mem_ref_cnt_mod(mem, 1);
     int res = __user_write_task_mem(task, mem, addr, buf, count, true);
-    read_unlock(&mem->lock);
-    task_ref_cnt_mod(task, -1);
-    mem_ref_cnt_mod(mem, -1);
+    task_mem_read_unlock(&handle);
     return res;
 }
 
@@ -199,24 +213,25 @@ int user_read_string(guest_addr_t addr, char *buf, size_t max) {
         return 1;
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
-    struct mem *mem = task_mem_read_lock(current);
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
     if (mem == NULL)
         return 1;
     size_t i = 0;
     while (i < max) {
         if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
-            read_unlock(&mem->lock);
+            task_mem_read_unlock(&handle);
             return 1;
         }
         if (__user_read_task_mem(current, mem, addr + i, &buf[i], sizeof(buf[i]))) {
-            read_unlock(&mem->lock);
+            task_mem_read_unlock(&handle);
             return 1;
         }
         if (buf[i] == '\0')
             break;
         i++;
     }
-    read_unlock(&mem->lock);
+    task_mem_read_unlock(&handle);
     if (i == max || buf[i] != '\0')
         return 1;
     return 0;
@@ -228,22 +243,23 @@ int user_write_string(guest_addr_t addr, const char *buf) {
     }
     if (!guest_abi_addr_valid(current->abi, addr))
         return 1;
-    struct mem *mem = task_mem_read_lock(current);
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
     if (mem == NULL)
         return 1;
     size_t i = 0;
     do {
         if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
-            read_unlock(&mem->lock);
+            task_mem_read_unlock(&handle);
             return 1;
         }
         if (__user_write_task_mem(current, mem, addr + i, &buf[i], sizeof(buf[i]), false)) {
-            read_unlock(&mem->lock);
+            task_mem_read_unlock(&handle);
             return 1;
         }
         i++;
     } while (buf[i - 1] != '\0');
-    read_unlock(&mem->lock);
+    task_mem_read_unlock(&handle);
     return 0;
 }
 

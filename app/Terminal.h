@@ -28,6 +28,7 @@ struct tty;
 
 - (int)sendOutput:(const void *)buf length:(int)len;
 - (void)sendInput:(NSData *)input;
+- (void)requestRefresh;
 - (void)setPendingDestroyReason:(NSString *)reason;
 
 - (NSString *)arrow:(char)direction;

@@ -158,22 +158,10 @@ dword_t get_count_of_alive_tasks(void) {
 }
 
 struct task *task_create_(struct task *parent) {
-    complex_lockt(&pids_lock, 0);
-    do {
-        last_allocated_pid++;
-        if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
-    } while (!pid_empty(&pids[last_allocated_pid]));
-    struct pid *pid = &pids[last_allocated_pid];
-    pid->id = last_allocated_pid;
-    list_init(&pid->alive);
-    list_init(&pid->session);
-    list_init(&pid->pgroup);
-
     struct task *task = malloc(sizeof(struct task));
-    if (task == NULL) {
-        unlock(&pids_lock);
+    if (task == NULL)
         return NULL;
-    }
+
     *task = (struct task) {};
     if (parent != NULL)
         *task = *parent;
@@ -186,7 +174,6 @@ struct task *task_create_(struct task *parent) {
         task->cap_permitted[0] = task->cap_permitted[1] = UINT32_MAX;
         task->cap_inheritable[0] = task->cap_inheritable[1] = UINT32_MAX;
     }
-    task->pid = pid->id;
     list_init(&task->group_links);
     list_init(&task->children);
     list_init(&task->siblings);
@@ -231,6 +218,18 @@ struct task *task_create_(struct task *parent) {
     task->reference.ready_to_be_freed = false;
     pthread_mutex_init(&task->reference.lock, NULL);
 
+    complex_lockt(&pids_lock, 0);
+    do {
+        last_allocated_pid++;
+        if (last_allocated_pid > MAX_PID) last_allocated_pid = 1;
+    } while (!pid_empty(&pids[last_allocated_pid]));
+    struct pid *pid = &pids[last_allocated_pid];
+    pid->id = last_allocated_pid;
+    list_init(&pid->alive);
+    list_init(&pid->session);
+    list_init(&pid->pgroup);
+    task->pid = pid->id;
+
     pid->task = task;
     list_add(&alive_pids_list, &pid->alive);
     if (parent != NULL) {
@@ -247,26 +246,28 @@ bool should_wait(struct task *t) {
     return task_ref_cnt_get(t, 0) > 1 || locks_held_count(t) || !!(t->pending & ~t->blocked);
 }
 
-void task_destroy(struct task *task, int UNUSED(caller)) {
+void task_unlink_locked(struct task *task) {
     task->exiting = true;
-    
-    //printk("TD(%s:%d): Called by %d\n", task->comm, task->pid, caller);
-    
-    // We use a single loop to wait for the task to be ready to destroy.
-    // This loop replaces all the similar while-loops in the original code.
-    int count = -4000; // Counter to limit the number of times we check.
-    while (should_wait(task) && count < 0) {
-        nanosleep(&lock_pause, NULL); // Sleep for a defined amount of time.
-        count++;
-    }
-    
-    // Remove the task from the sibling and alive lists.
     list_remove(&task->siblings);
     list_remove_safe(&task->ptrace_siblings);
     struct pid *pid = pid_get(task->pid);
     pid->task = NULL;
     list_remove(&pid->alive);
-    
+}
+
+void task_destroy_unlinked(struct task *task, int caller) {
+    task->exiting = true;
+
+    // We use a single loop to wait for the task to be ready to destroy.
+    // This loop replaces all the similar while-loops in the original code.
+    // Reap paths should not stall a waiting parent just to synchronously free
+    // the task object. If references are still draining, defer cleanup.
+    int count = caller == 2 ? 0 : -4000; // Counter to limit the number of times we check.
+    while (count < 0 && should_wait(task)) {
+        nanosleep(&lock_pause, NULL); // Sleep for a defined amount of time.
+        count++;
+    }
+
     if (task_ref_cnt_get(task, 1)) { // Check to see if another thread is accessing this process.  If yes, note that and defer freeing it
         struct task_pending_deletion *pd = malloc(sizeof(struct task_pending_deletion));
         if (pd) {
@@ -284,6 +285,13 @@ void task_destroy(struct task *task, int UNUSED(caller)) {
     } else {
         free(task);
     }
+}
+
+void task_destroy(struct task *task, int caller) {
+    task_unlink_locked(task);
+    unlock(&pids_lock);
+    task_destroy_unlinked(task, caller);
+    complex_lockt(&pids_lock, 0);
 }
 
 // Cleanup function to delete tasks after the grace period
@@ -323,7 +331,8 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
     if (task == NULL || mem == NULL)
         return;
 
-    complex_lockt(&pids_lock, 0);
+    if (trylock(&pids_lock) != 0)
+        return;
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         struct task *other = pid_entry->task;

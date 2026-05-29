@@ -9,6 +9,8 @@
 
 FOUNDATION_EXPORT void ISHScheduleLaunchJournalCompletion(NSDictionary<NSString *, id> * _Nullable details);
 
+struct task;
+
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 
 @property (strong, nonatomic) UIWindow *window;
@@ -22,6 +24,8 @@ FOUNDATION_EXPORT void ISHScheduleLaunchJournalCompletion(NSDictionary<NSString 
 + (NSString * _Nullable)bootFailureOverlayText;
 + (BOOL)bootUsesConsoleSessionFallback;
 + (intptr_t)ensureBooted;
++ (BOOL)pushUsableInitTaskAsCurrent:(struct task * _Nullable * _Nonnull)previousCurrent;
++ (void)popCurrentTask:(struct task * _Nullable)previousCurrent;
 #endif
 
 + (void)maybePresentStartupMessageOnViewController:(UIViewController *)vc;

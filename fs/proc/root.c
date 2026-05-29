@@ -494,36 +494,33 @@ static void proc_root_refresh_pid_snapshot(struct proc_entry *entry) {
         entry->child_names = NULL;
     }
 
-    unsigned count = 0;
+    unsigned cap = 0;
+    unsigned used = 0;
+    pid_t_ *pids = NULL;
     complex_lockt(&pids_lock, 0);
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         struct task *task = pid_entry->task;
-        if (task != NULL && !task->zombie)
-            count++;
-    }
-    unlock(&pids_lock);
-
-    char **names = calloc(count + 1, sizeof(*names));
-    if (names == NULL)
-        return;
-    pid_t_ *pids = count ? malloc(sizeof(*pids) * count) : NULL;
-    if (count != 0 && pids == NULL) {
-        free(names);
-        return;
-    }
-
-    unsigned used = 0;
-    complex_lockt(&pids_lock, 0);
-    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
-        struct task *task = pid_entry->task;
         if (task == NULL || task->zombie)
             continue;
-        if (used >= count)
-            break;
+        if (used == cap) {
+            unsigned new_cap = cap ? cap * 2 : 64;
+            pid_t_ *new_pids = realloc(pids, sizeof(*new_pids) * new_cap);
+            if (new_pids == NULL) {
+                unlock(&pids_lock);
+                free(pids);
+                return;
+            }
+            pids = new_pids;
+            cap = new_cap;
+        }
         pids[used++] = pid_entry->id;
     }
     unlock(&pids_lock);
+
+    char **names = calloc(used + 1, sizeof(*names));
+    if (names == NULL)
+        return;
 
     qsort(pids, used, sizeof(*pids), proc_root_pid_compare);
     for (unsigned i = 0; i < used; i++) {

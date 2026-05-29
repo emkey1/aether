@@ -85,20 +85,26 @@
 #define F2XM1() UNDEFINED
 #define FSQRT() UNDEFINED
 
-#define FUCOMI() \
+#define FUCOMI() do { \
+    cpu->zf = cpu->pf = cpu->cf = 0; \
+    cpu->pf_res = 0; \
     cpu->zf = f80_eq(ST(0), ST_i); \
     cpu->cf = f80_lt(ST(0), ST_i); \
-    cpu->pf = 0; cpu->pf_res = 0
-// not worrying about nans and shit yet
+    if (f80_uncomparable(ST(0), ST_i)) \
+        cpu->zf = cpu->pf = cpu->cf = 1; \
+} while (0)
 
 #define FCOMI FUCOMI
-// FCOMI is supposed to be even more strict with NaNs. We still won't worry.
 
-#define F_COMPARE(x) \
-    cpu->c0 = f80_lt(ST(0), x); \
+#define F_COMPARE(x) do { \
+    float80 fcmp_tmp = (x); \
+    cpu->c0 = f80_lt(ST(0), fcmp_tmp); \
     cpu->c1 = 0; \
-    cpu->c2 = 0; /* again, not worrying about nans */ \
-    cpu->c3 = f80_eq(ST(0), x)
+    cpu->c2 = 0; \
+    cpu->c3 = f80_eq(ST(0), fcmp_tmp); \
+    if (f80_uncomparable(ST(0), fcmp_tmp)) \
+        cpu->c0 = cpu->c2 = cpu->c3 = 1; \
+} while (0)
 #define FCOM() F_COMPARE(ST_i)
 #define FUCOM FCOM
 #define FCOMM(val,z) F_COMPARE(f80_from_float(get(val,z),z))

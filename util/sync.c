@@ -63,12 +63,16 @@ void cond_destroy(cond_t *cond) {
 static bool is_signal_pending(lock_t *lock) {
     if (!current)
         return false;
+    sigset_t_ pending = __atomic_load_n(&current->pending, __ATOMIC_ACQUIRE);
+    sigset_t_ blocked = __atomic_load_n(&current->blocked, __ATOMIC_ACQUIRE);
+    if ((pending & ~blocked) == 0)
+        return false;
     if (lock != &current->sighand->lock)
         lock(&current->sighand->lock, 0);
-    bool pending = !!(current->pending & ~current->blocked);
+    bool has_pending = !!(current->pending & ~current->blocked);
     if (lock != &current->sighand->lock)
         unlock(&current->sighand->lock);
-    return pending;
+    return has_pending;
 }
 
 static bool consume_wait_interrupted(void) {
@@ -105,7 +109,11 @@ static int wait_for_internal(cond_t *cond, lock_t *lock, struct timespec *timeou
 
     if (interruptible && (consume_wait_interrupted() || is_signal_pending(lock)))
         goto out;
+    bool old_should_mark_wait_interrupted = should_mark_wait_interrupted;
+    if (interruptible)
+        should_mark_wait_interrupted = true;
     rc = cond_wait_with_optional_timeout(cond, lock, timeout);
+    should_mark_wait_interrupted = old_should_mark_wait_interrupted;
 #if LOCK_DEBUG
 out:
     lock->debug = lock_tmp;

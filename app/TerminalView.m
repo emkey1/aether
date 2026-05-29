@@ -174,6 +174,7 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
     self.scrollbarView.contentView = webView;
     [self.scrollbarView addSubview:webView];
     [self syncTerminalFocus];
+    [self.terminal requestRefresh];
     ISHRecordTerminalViewEvent(@"terminalView.install.end", _terminal, nil);
 }
 
@@ -259,6 +260,7 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
 
 - (BOOL)becomeFirstResponder {
     self.terminalFocused = YES;
+    [self.terminal requestRefresh];
     [self reloadInputViews];
     return [super becomeFirstResponder];
 }
@@ -268,6 +270,7 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
 }
 - (void)windowDidBecomeKey:(NSNotification *)notif {
     self.terminalFocused = YES;
+    [self.terminal requestRefresh];
 }
 - (void)windowDidResignKey:(NSNotification *)notif {
     self.terminalFocused = NO;
