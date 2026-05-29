@@ -1,5 +1,7 @@
 #include <mach/mach.h>
 #include <mach/mach_time.h>
+#include <TargetConditionals.h>
+#include <stdlib.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/mman.h>
@@ -101,9 +103,21 @@ struct uptime_info get_uptime(void) {
 }
 
 int get_cpu_count(void) {
-     int ncpu;
+     int ncpu = 1;
      size_t size = sizeof(int);
      sysctlbyname("hw.ncpu", &ncpu, &size, NULL, 0);
+     const char *override = getenv("ISH_GUEST_CPU_COUNT");
+     if (override != NULL && override[0] != '\0') {
+         long forced = strtol(override, NULL, 10);
+         if (forced > 0)
+             ncpu = (int) forced;
+     }
+ #if TARGET_OS_OSX && defined(__aarch64__)
+     else if (ncpu > 2)
+         ncpu = 2;
+ #endif
+     if (ncpu < 1)
+         ncpu = 1;
      return ncpu;
 }
 

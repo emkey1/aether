@@ -11,7 +11,6 @@ extern bool doEnableExtraLocking;
 extern pthread_mutex_t wait_for_lock; // Synchroniztion lock
 
 static int wait_for_internal(cond_t *cond, lock_t *lock, struct timespec *timeout, bool interruptible);
-
 #if __linux__
 static struct timespec timespec_add_local(struct timespec x, struct timespec y) {
     x.tv_sec += y.tv_sec;

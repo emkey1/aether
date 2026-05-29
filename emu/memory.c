@@ -211,6 +211,7 @@ void mem_init(struct mem *mem) {
     mem->page_limit = MEM_DEFAULT_PAGE_LIMIT;
     mem->mmap_floor = MEM_DEFAULT_MMAP_FLOOR;
     mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
+    atomic_init(&mem->quiesce_requested, 0);
     mem->mmu.ops = &mem_mmu_ops;
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);

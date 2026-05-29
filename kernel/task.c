@@ -7,6 +7,7 @@
 #include "kernel/task.h"
 #include "emu/memory.h"
 #include "emu/tlb.h"
+#include "jit/jit.h"
 #include "platform/platform.h"
 #include "util/sync.h"
 #include <libkern/OSAtomic.h>
@@ -318,6 +319,36 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     //printk("Seconds since January 1, 1970 = %ld\n", boot_time);
 }
 
+void task_poke_shared_mem(struct task *task, struct mem *mem) {
+    if (task == NULL || mem == NULL)
+        return;
+
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *other = pid_entry->task;
+        if (other == NULL || other == task)
+            continue;
+        if (other->mem != mem)
+            continue;
+        if (other->zombie || other->exiting)
+            continue;
+        pthread_kill(other->thread, SIGUSR1);
+        if (other->cpu.poked_ptr == NULL)
+            continue;
+        cpu_poke(&other->cpu);
+    }
+    unlock(&pids_lock);
+}
+
+static void task_wait_for_mem_quiesce(struct task *task) {
+    struct mem *mem = task != NULL ? task->mem : NULL;
+    while (mem != NULL &&
+           atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0) {
+        nanosleep(&lock_pause, NULL);
+    }
+}
+
 void task_run_current(void) {
     struct task* save = current; // Because I kinda suspect that current gets messed up sometimes
     struct cpu_state *cpu = &save->cpu;
@@ -325,6 +356,7 @@ void task_run_current(void) {
     tlb_refresh(&tlb, &save->mem->mmu);
     
     while (true) {
+        task_wait_for_mem_quiesce(save);
         read_lock(&save->mem->lock);
 
         qword_t amd64_rip_before = cpu->amd64_rip;
@@ -342,6 +374,7 @@ void task_run_current(void) {
         }
 
         read_unlock(&save->mem->lock);
+        jit_cleanup_jetsam_after_interrupt(cpu);
  
         //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
         if(save->parent != NULL) {

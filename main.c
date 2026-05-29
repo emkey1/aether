@@ -42,7 +42,11 @@ static void configure_standalone_i386_safety(int argc, char *const argv[]) {
     opterr = saved_opterr;
 
     const char *force_jit = getenv("ISH_HOST_I386_JIT");
-    if (force_jit != NULL && strcmp(force_jit, "1") == 0)
+    if (force_jit == NULL)
+        return;
+
+    if (strcmp(force_jit, "1") == 0 || strcasecmp(force_jit, "true") == 0 ||
+            strcasecmp(force_jit, "yes") == 0 || strcasecmp(force_jit, "on") == 0)
         return;
 
     if (command == NULL)

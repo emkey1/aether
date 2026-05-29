@@ -431,12 +431,43 @@ void jit_crash_fn(void) {
 // pthread_rwlock_unlock(&jit->jetsam_lock.l) on success.
 static bool jetsam_write_lock_timed(struct jit *jit) {
     static const struct timespec kDelay = {0, 5000000}; // 5ms per retry
-    for (int i = 0; i < 20; i++) {                      // up to 100ms total
+    for (int i = 0; i < 1000; i++) {                    // up to 5s total
         if (pthread_rwlock_trywrlock(&jit->jetsam_lock.l) == 0)
             return true;
         nanosleep(&kDelay, NULL);
     }
     return false;
+}
+
+static void jit_cleanup_jetsam_if_needed(struct jit *jit) {
+    if (jit == NULL)
+        return;
+
+    lock(&jit->lock, 0);
+    if (list_empty(&jit->jetsam)) {
+        unlock(&jit->lock);
+        return;
+    }
+
+    // Set write_wanted before taking the write lock so goroutines still in
+    // jit_enter exit promptly at the next block boundary and drop their read
+    // lock on jetsam_lock.
+    unlock(&jit->lock);
+    __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
+    if (jetsam_write_lock_timed(jit)) {
+        lock(&jit->lock, 0);
+        jit_free_jetsam(jit);
+        // Goroutines compare against cleanup_seq to detect stale last_block
+        // pointers after a cleanup pass.
+        atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
+        __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
+        pthread_rwlock_unlock(&jit->jetsam_lock.l);
+        unlock(&jit->lock);
+    } else {
+        // If we time out, leave jetsam pending for a later pass rather than
+        // pinning all JIT goroutines in yield mode.
+        __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
+    }
 }
 
 static bool jit_i386_gpf_addr_accessible(guest_addr_t addr, int type) {
@@ -1307,37 +1338,13 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     }
     cpu->trapno = interrupt;
 
-    lock(&jit->lock, 0);
-    if (!list_empty(&jit->jetsam)) {
-        // write-lock the jetsam_lock to wait until other jit threads get to
-        // this point, so they will all clear out their block pointers.
-        // Set write_wanted BEFORE write_lock so goroutines still in jit_enter
-        // see the flag at the next jit_ret_chain call and exit promptly.
-        unlock(&jit->lock);
-        __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
-        if (jetsam_write_lock_timed(jit)) {
-            lock(&jit->lock, 0);
-            jit_free_jetsam(jit);
-            // Increment cleanup_seq so goroutines that temporarily released
-            // jetsam_lock during jit_block_compile detect stale last_block pointers.
-            atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
-            // Clear write_wanted before unlock so resumed goroutines don't fire INT_TIMER.
-            __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
-            pthread_rwlock_unlock(&jit->jetsam_lock.l);
-            unlock(&jit->lock);
-        } else {
-            // Timed out waiting for write lock. A goroutine is stuck holding the
-            // read lock (crashed in jit_enter with exception recovery blocked, e.g.
-            // LLDB intercepting EXC_BAD_ACCESS). Clear write_wanted so goroutines
-            // trying to re-acquire the read lock aren't blocked indefinitely.
-            // Jetsam blocks remain until the next successful cleanup pass.
-            __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
-        }
-        return interrupt;
-    }
-    unlock(&jit->lock);
-
     return interrupt;
+}
+
+void jit_cleanup_jetsam_after_interrupt(struct cpu_state *cpu) {
+    if (cpu == NULL || cpu->mmu == NULL || cpu->mmu->jit == NULL)
+        return;
+    jit_cleanup_jetsam_if_needed(cpu->mmu->jit);
 }
 
 void cpu_poke(struct cpu_state *cpu) {

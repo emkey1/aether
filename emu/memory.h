@@ -19,6 +19,7 @@ struct mem {
     page_t page_limit;
     page_t mmap_floor;
     page_t mmap_ceiling;
+    _Atomic int quiesce_requested;
 
 #if ENGINE_JIT
     struct jit *jit;

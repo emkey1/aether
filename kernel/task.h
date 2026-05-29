@@ -250,6 +250,7 @@ dword_t get_count_of_alive_tasks(void);
 // TODO document
 void task_start(struct task *task);
 void task_run_current(void);
+void task_poke_shared_mem(struct task *task, struct mem *mem);
 
 extern void (*exit_hook)(struct task *task, int code);
 

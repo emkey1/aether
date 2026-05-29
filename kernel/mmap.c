@@ -12,6 +12,24 @@
 extern bool doEnableExtraLocking;
 extern struct timespec lock_pause;
 
+static void mem_write_lock_with_pokes(struct mem *mem) {
+    atomic_fetch_add_explicit(&mem->quiesce_requested, 1, memory_order_acq_rel);
+    for (int attempts = 0; attempts < 64; attempts++) {
+        task_poke_shared_mem(current, mem);
+        if (trylockw(&mem->lock) == 0)
+            return;
+        nanosleep(&lock_pause, NULL);
+    }
+
+    task_poke_shared_mem(current, mem);
+    write_lock(&mem->lock);
+}
+
+static void mem_write_unlock_with_pokes(struct mem *mem) {
+    write_unlock(&mem->lock);
+    atomic_fetch_sub_explicit(&mem->quiesce_requested, 1, memory_order_acq_rel);
+}
+
 static bool amd64_vm_failure_trace_enabled(void) {
     return current != NULL && current->abi == GUEST_ABI_AMD64;
 }
@@ -164,9 +182,9 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
 
-    write_lock(&current->mem->lock);
+    mem_write_lock_with_pokes(current->mem);
     guest_addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
-    write_unlock(&current->mem->lock);
+    mem_write_unlock_with_pokes(current->mem);
     if ((sqword_t) res == _ENOMEM)
         amd64_vm_failure_trace("mmap", res, addr, len, prot, flags, (qword_t) fd_no, offset);
     return res;
@@ -223,9 +241,9 @@ int_t sys_munmap_guest(guest_addr_t addr, qword_t len) {
     if (len == 0)
         return _EINVAL;
     
-    write_lock(&current->mem->lock);
+    mem_write_lock_with_pokes(current->mem);
     int err = pt_unmap_always(current->mem, PAGE(addr), PAGE_ROUND_UP(len));
-    write_unlock(&current->mem->lock);
+    mem_write_unlock_with_pokes(current->mem);
     
     if (err < 0)
         return _EINVAL;
@@ -254,7 +272,7 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     pages_t new_pages = PAGE_ROUND_UP(new_len);
     guest_addr_t res = _ENOMEM;
 
-    write_lock(&current->mem->lock);
+    mem_write_lock_with_pokes(current->mem);
 
     // shrinking always works
     if (new_pages <= old_pages) {
@@ -320,7 +338,7 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     res = (guest_addr_t) new_page << PAGE_BITS;
 
 out:
-    write_unlock(&current->mem->lock);
+    mem_write_unlock_with_pokes(current->mem);
     return res;
 }
 
@@ -336,9 +354,9 @@ int_t sys_mprotect_guest(guest_addr_t addr, qword_t len, int_t prot) {
     if (prot & ~P_RWX)
         return _EINVAL;
     pages_t pages = PAGE_ROUND_UP(len);
-    write_lock(&current->mem->lock);
+    mem_write_lock_with_pokes(current->mem);
     int err = pt_set_flags(current->mem, PAGE(addr), pages, prot);
-    write_unlock(&current->mem->lock);
+    mem_write_unlock_with_pokes(current->mem);
     if (err == _ENOMEM)
         amd64_vm_failure_trace("mprotect", err, addr, len, prot, 0, 0, 0);
     return err;
@@ -442,7 +460,7 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
     struct mm *mm = current->mm;
     bool expand_failed = false;
 
-    write_lock(&mm->mem.lock);
+    mem_write_lock_with_pokes(&mm->mem);
     if (new_brk < mm->start_brk)
         goto out;
     guest_addr_t old_brk = mm->brk;
@@ -472,7 +490,7 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
     mm->brk = new_brk;
 out:;
     guest_addr_t brk = mm->brk;
-    write_unlock(&mm->mem.lock);
+    mem_write_unlock_with_pokes(&mm->mem);
     if (expand_failed)
         amd64_vm_failure_trace("brk", brk, new_brk, old_brk, 0, 0, 0, 0);
     return brk;

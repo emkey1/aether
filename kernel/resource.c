@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <string.h>
 #include "kernel/calls.h"
+#include "platform/platform.h"
 #include "util/sync.h"
 
 static bool resource_valid(int resource) {
@@ -283,8 +284,8 @@ int_t sys_sched_getaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t c
             return _ESRCH;
     }
 
-    // Get the number of online processors
-    long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+    // Report the guest-visible CPU topology, not the raw host core count.
+    long cpus = get_cpu_count();
     // Calculate the size of the cpuset
     long cpusetSize = cpus / 8 + 1;
     if (cpusetsize < cpusetSize)

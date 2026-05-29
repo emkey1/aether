@@ -339,6 +339,20 @@ static bool signal_is_realtime(int sig) {
 
 #define UNBLOCKABLE_MASK (sig_mask(SIGKILL_) | sig_mask(SIGSTOP_))
 
+static bool signal_is_synchronous_trap(int sig) {
+    switch (sig) {
+        case SIGILL_:
+        case SIGTRAP_:
+        case SIGBUS_:
+        case SIGFPE_:
+        case SIGSEGV_:
+        case SIGSYS_:
+            return true;
+        default:
+            return false;
+    }
+}
+
 #define SIGNAL_IGNORE 0
 #define SIGNAL_KILL 1
 #define SIGNAL_CALL_HANDLER 2
@@ -383,7 +397,11 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
     list_add_tail(&task->queue, &sigqueue->queue);
     signalfd_wakeup_task(task, sig);
 
-    if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig))
+    // Synchronous fault signals must be delivered even when the task has them
+    // masked. libc abort paths rely on this by blocking signals before
+    // executing a crash instruction like `hlt`.
+    if (sigset_has(task->blocked & ~task->waiting, sig) && signal_is_blockable(sig) &&
+            !signal_is_synchronous_trap(sig))
         return;
 
     bool interrupted_wait = false;
@@ -897,17 +915,7 @@ static guest_addr_t signal_restorer(const struct sigaction_ *action, bool rt) {
 }
 
 static bool signal_should_capture_trap_state(int sig) {
-    switch (sig) {
-        case SIGILL_:
-        case SIGTRAP_:
-        case SIGBUS_:
-        case SIGFPE_:
-        case SIGSEGV_:
-        case SIGSYS_:
-            return true;
-        default:
-            return false;
-    }
+    return signal_is_synchronous_trap(sig);
 }
 
 static qword_t signal_trap_error(struct cpu_state *cpu) {

@@ -102,6 +102,7 @@ void i386_trace_special_op(const char *op, addr_t ip);
 void i386_trace_special_reg_op(const char *op, addr_t ip, int reg);
 struct cpu_state;
 void dump_amd64_cc1_jit_trace(const struct cpu_state *cpu);
+void jit_cleanup_jetsam_after_interrupt(struct cpu_state *cpu);
 
 #endif
 
