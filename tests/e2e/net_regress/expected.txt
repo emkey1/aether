@@ -1,6 +1,8 @@
 SO_REUSEPORT ok
 recvfrom short ok
 SO_PASSCRED ok
+recvmsg ancillary metadata ok
+recvmsg EINTR ok
 sockopt state ok
 unix peername ok
 netlink route dump ok

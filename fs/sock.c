@@ -1001,6 +1001,33 @@ static bool socket_should_retry_io_eintr(struct fd *sock, int real_flags) {
     return !socket_guest_signal_pending();
 }
 
+static bool socket_blocking_syscall_begin(sigset_t *oldmask) {
+    sigset_t sigusr1;
+    sigemptyset(&sigusr1);
+    sigaddset(&sigusr1, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &sigusr1, oldmask);
+
+    if (sigunwind_start()) {
+        pthread_sigmask(SIG_SETMASK, oldmask, NULL);
+        errno = EINTR;
+        return false;
+    }
+
+    if (socket_guest_signal_pending()) {
+        sigunwind_end();
+        pthread_sigmask(SIG_SETMASK, oldmask, NULL);
+        errno = EINTR;
+        return false;
+    }
+
+    pthread_sigmask(SIG_SETMASK, oldmask, NULL);
+    return true;
+}
+
+static void socket_blocking_syscall_end(void) {
+    sigunwind_end();
+}
+
 #if defined(__APPLE__)
 static bool socket_tcp_connect_established(struct fd *sock) {
     if (sock == NULL)
@@ -2696,12 +2723,18 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        do {
-            errno = 0;
-            res = recvfrom(sock->real_fd, buffer, len, real_flags,
-                           sockaddr_addr != 0 ? (void *) sockaddr : NULL,
-                           sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
-        } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+        sigset_t oldmask;
+        if (!socket_blocking_syscall_begin(&oldmask)) {
+            res = -1;
+        } else {
+            do {
+                errno = 0;
+                res = recvfrom(sock->real_fd, buffer, len, real_flags,
+                               sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                               sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
+            } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+            socket_blocking_syscall_end();
+        }
     }
     if (res < 0) {
         free(buffer);
@@ -2808,6 +2841,12 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         if (value_len < sizeof(dword_t))
             return _EINVAL;
         sock->socket.ipv6_recverr = (*(dword_t *) value) != 0;
+        return 0;
+    }
+    if (level == IPPROTO_IP && option == IP_RETOPTS_) {
+        // Linux ping probes this on IPv4 sockets. Darwin raw sockets do not
+        // provide a compatible implementation, and the option is not required
+        // for basic echo functionality.
         return 0;
     }
     if (level == IPPROTO_TCP && option == TCP_CONGESTION_) {
@@ -3366,6 +3405,81 @@ static bool guest_cmsg_append(enum guest_abi abi, uint8_t *buffer, size_t capaci
     return true;
 }
 
+static struct cmsghdr *host_cmsg_first(struct msghdr *msg) {
+    if (msg->msg_control == NULL || msg->msg_controllen < sizeof(struct cmsghdr))
+        return NULL;
+    struct cmsghdr *cmsg = (struct cmsghdr *) msg->msg_control;
+    if (cmsg->cmsg_len < CMSG_LEN(0) || cmsg->cmsg_len > msg->msg_controllen)
+        return NULL;
+    return cmsg;
+}
+
+static struct cmsghdr *host_cmsg_next(struct msghdr *msg, struct cmsghdr *cmsg) {
+    if (msg->msg_control == NULL || cmsg == NULL)
+        return NULL;
+    uint8_t *base = (uint8_t *) msg->msg_control;
+    uint8_t *end = base + msg->msg_controllen;
+    uint8_t *cur = (uint8_t *) cmsg;
+    if (cur < base || cur + sizeof(struct cmsghdr) > end)
+        return NULL;
+    if (cmsg->cmsg_len < CMSG_LEN(0))
+        return NULL;
+    size_t data_len = cmsg->cmsg_len - CMSG_LEN(0);
+    size_t step = CMSG_SPACE(data_len);
+    if (step == 0)
+        return NULL;
+    uint8_t *next = cur + step;
+    if (next + sizeof(struct cmsghdr) > end)
+        return NULL;
+    struct cmsghdr *next_cmsg = (struct cmsghdr *) next;
+    if (next_cmsg->cmsg_len < CMSG_LEN(0) || next + next_cmsg->cmsg_len > end)
+        return NULL;
+    return next_cmsg;
+}
+
+static int sock_cmsg_level_to_fake(int level) {
+    if (level == SOL_SOCKET)
+        return SOL_SOCKET_;
+    return level;
+}
+
+static int sock_cmsg_type_to_fake(int level, int type) {
+    if (level == IPPROTO_IP) {
+        switch (type) {
+            case IP_TTL: return IP_TTL_;
+            case IP_RECVTTL: return IP_TTL_;
+            case IP_TOS: return IP_TOS_;
+        }
+    } else if (level == IPPROTO_IPV6) {
+        switch (type) {
+            case IPV6_HOPLIMIT: return IPV6_HOPLIMIT_;
+            case IPV6_TCLASS: return IPV6_TCLASS_;
+        }
+    }
+    return -1;
+}
+
+static bool sock_cmsg_translate_payload(int level, int type, const void *data, size_t data_len,
+        const void **fake_data, size_t *fake_data_len, int *fake_level, int *fake_type,
+        int *scratch_int) {
+    *fake_level = sock_cmsg_level_to_fake(level);
+    *fake_type = sock_cmsg_type_to_fake(level, type);
+    if (*fake_type < 0)
+        return false;
+
+    *fake_data = data;
+    *fake_data_len = data_len;
+
+    if (level == IPPROTO_IP && type == IP_RECVTTL) {
+        if (data_len < sizeof(uint8_t))
+            return false;
+        *scratch_int = *(const uint8_t *) data;
+        *fake_data = scratch_int;
+        *fake_data_len = sizeof(*scratch_int);
+    }
+    return true;
+}
+
 static void free_msghdr_iov(struct iovec *iov, size_t iovlen) {
     if (iov == NULL)
         return;
@@ -3699,11 +3813,23 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         msg.msg_namelen = 0;
     }
 
-    char real_msg_control[CMSG_SPACE(sizeof(int))] = {}; // only used if needed
+    uint_t guest_controllen_max = msg_fake.msg_controllen;
+    char local_rights_msg_control[CMSG_SPACE(sizeof(int))] = {};
+    void *real_msg_control = NULL;
     if (msg_fake.msg_controllen != 0) {
-        // msg_control, include room for one (1) fd
+        size_t real_msg_controllen = guest_controllen_max;
+        if (sock->socket.domain == AF_LOCAL_ && real_msg_controllen < sizeof(local_rights_msg_control))
+            real_msg_controllen = sizeof(local_rights_msg_control);
+        real_msg_control = calloc(1, real_msg_controllen);
+        if (real_msg_control == NULL) {
+            free(msg_iov_fake);
+            free(msg_iov);
+            if (msg_name != msg_name_stack)
+                free(msg_name);
+            return _ENOMEM;
+        }
         msg.msg_control = real_msg_control;
-        msg.msg_controllen = sizeof(real_msg_control);
+        msg.msg_controllen = real_msg_controllen;
     } else {
         msg.msg_control = NULL;
         msg.msg_controllen = 0;
@@ -3721,6 +3847,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         msg_fake.msg_flags = 0;
         free_msghdr_iov(msg_iov, msg.msg_iovlen);
         free(msg_iov_fake);
+        free(real_msg_control);
         if (msg_name != msg_name_stack)
             free(msg_name);
         err = write_guest_msghdr(msghdr_addr, abi, &msg_fake);
@@ -3741,6 +3868,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
                     if (user_write(msg_iov_fake[i].base, msg_iov[i].iov_base, chunk_size)) {
                         free_msghdr_iov(msg_iov, msg.msg_iovlen);
                         free(msg_iov_fake);
+                        free(real_msg_control);
                         if (msg_name != msg_name_stack)
                             free(msg_name);
                         return _EFAULT;
@@ -3750,6 +3878,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         }
         free_msghdr_iov(msg_iov, msg.msg_iovlen);
         free(msg_iov_fake);
+        free(real_msg_control);
         if (res < 0) {
             if (msg_name != msg_name_stack)
                 free(msg_name);
@@ -3779,6 +3908,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         if (peer_err < 0) {
             free_msghdr_iov(msg_iov, msg.msg_iovlen);
             free(msg_iov_fake);
+            free(real_msg_control);
             if (msg_name != msg_name_stack)
                 free(msg_name);
             return peer_err;
@@ -3787,10 +3917,16 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        do {
-            errno = 0;
-            res = recvmsg(sock->real_fd, &msg, real_flags);
-        } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+        sigset_t oldmask;
+        if (!socket_blocking_syscall_begin(&oldmask)) {
+            res = -1;
+        } else {
+            do {
+                errno = 0;
+                res = recvmsg(sock->real_fd, &msg, real_flags);
+            } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+            socket_blocking_syscall_end();
+        }
     }
     err = 0;
     if (res < 0) {
@@ -3827,11 +3963,18 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     free(msg_iov_fake);
 
     // msg_control (changed)
-    uint_t guest_controllen_max = msg_fake.msg_controllen; // save before zeroing
     msg_fake.msg_controllen = 0;
-    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-    bool have_rights = sock->socket.domain == AF_LOCAL_ && cmsg != NULL &&
-        cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS;
+    struct cmsghdr *cmsg = host_cmsg_first(&msg);
+    struct cmsghdr *rights_cmsg = NULL;
+    bool have_rights = false;
+    for (struct cmsghdr *iter = cmsg; iter != NULL; iter = host_cmsg_next(&msg, iter)) {
+        if (sock->socket.domain == AF_LOCAL_ &&
+                iter->cmsg_level == SOL_SOCKET && iter->cmsg_type == SCM_RIGHTS) {
+            have_rights = true;
+            rights_cmsg = iter;
+            break;
+        }
+    }
     if (sock->socket.domain == AF_LOCAL_ && msg.msg_control != NULL)
         printk("INFO: scm-recv pid=%d sock_real=%d res=%zd real_ctrl_after=%zu have_rights=%d unix_peer=%p scm_empty=%d\n",
                current ? current->pid : -1, sock->real_fd, res, msg.msg_controllen,
@@ -3841,7 +3984,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         sock->socket.unix_passcred && res >= 0;
     struct scm *scm = NULL;
     if (have_rights) {
-        int dummy_fd = ((int *) CMSG_DATA(cmsg))[0];
+        int dummy_fd = ((int *) CMSG_DATA(rights_cmsg))[0];
         close(dummy_fd);
 
         lock(&sock->lock, 0);
@@ -3852,58 +3995,112 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 
         if (res < 0) {
             scm_free(scm);
+            free(real_msg_control);
             if (msg_name != msg_name_stack)
                 free(msg_name);
             return err;
         }
     }
 
-    if (have_rights || want_passcred) {
-        uint8_t guest_msg_control[2048] = {};
+    if (res >= 0 && msg_fake.msg_control != 0 && (cmsg != NULL || want_passcred)) {
         size_t guest_msg_control_len = 0;
         size_t required_msg_control = 0;
         struct ucred_ cred = {};
         bool have_passcred = want_passcred && unix_socket_get_peer_cred(sock, &cred);
 
-        if (have_rights)
-            required_msg_control += guest_cmsg_space(abi, sizeof(fd_t) * scm->num_fds);
+        for (struct cmsghdr *iter = cmsg; iter != NULL; iter = host_cmsg_next(&msg, iter)) {
+            if (iter->cmsg_len < CMSG_LEN(0))
+                continue;
+            size_t data_len = iter->cmsg_len - CMSG_LEN(0);
+            if (sock->socket.domain == AF_LOCAL_ &&
+                    iter->cmsg_level == SOL_SOCKET && iter->cmsg_type == SCM_RIGHTS) {
+                if (have_rights)
+                    required_msg_control += guest_cmsg_space(abi, sizeof(fd_t) * scm->num_fds);
+                continue;
+            }
+            const void *fake_data;
+            size_t fake_data_len;
+            int fake_level;
+            int fake_type;
+            int scratch_int;
+            if (!sock_cmsg_translate_payload(iter->cmsg_level, iter->cmsg_type,
+                        CMSG_DATA(iter), data_len, &fake_data, &fake_data_len,
+                        &fake_level, &fake_type, &scratch_int))
+                continue;
+            required_msg_control += guest_cmsg_space(abi, fake_data_len);
+            (void) fake_level;
+        }
         if (have_passcred)
             required_msg_control += guest_cmsg_space(abi, sizeof(cred));
 
-        if (msg_fake.msg_control == 0 || required_msg_control > guest_controllen_max) {
+        if (required_msg_control > guest_controllen_max) {
             msg_fake.msg_flags |= MSG_CTRUNC_;
-        } else {
-            if (have_rights) {
-                fd_t fds[scm->num_fds];
-                for (unsigned i = 0; i < scm->num_fds; i++) {
-                    fd_retain(scm->fds[i]); // f_install takes ownership; scm_free releases separately
-                    fds[i] = f_install(scm->fds[i], 0);
-                    STRACE(" receiving fd %d", fds[i]);
+        } else if (required_msg_control != 0) {
+            uint8_t *guest_msg_control = calloc(1, required_msg_control);
+            if (guest_msg_control == NULL) {
+                if (scm != NULL)
+                    scm_free(scm);
+                free(real_msg_control);
+                if (msg_name != msg_name_stack)
+                    free(msg_name);
+                return _ENOMEM;
+            }
+            for (struct cmsghdr *iter = cmsg; iter != NULL; iter = host_cmsg_next(&msg, iter)) {
+                if (iter->cmsg_len < CMSG_LEN(0))
+                    continue;
+                size_t data_len = iter->cmsg_len - CMSG_LEN(0);
+                if (sock->socket.domain == AF_LOCAL_ &&
+                        iter->cmsg_level == SOL_SOCKET && iter->cmsg_type == SCM_RIGHTS) {
+                    if (!have_rights)
+                        continue;
+                    fd_t fds[scm->num_fds];
+                    for (unsigned i = 0; i < scm->num_fds; i++) {
+                        fd_retain(scm->fds[i]); // f_install takes ownership; scm_free releases separately
+                        fds[i] = f_install(scm->fds[i], 0);
+                        STRACE(" receiving fd %d", fds[i]);
+                    }
+                    bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
+                            SOL_SOCKET_, SCM_RIGHTS_, fds, sizeof(fd_t) * scm->num_fds);
+                    assert(appended);
+                    continue;
                 }
-                bool appended = guest_cmsg_append(abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
-                        SOL_SOCKET_, SCM_RIGHTS_, fds, sizeof(fd_t) * scm->num_fds);
+                int fake_level = sock_cmsg_level_to_fake(iter->cmsg_level);
+                const void *fake_data;
+                size_t fake_data_len;
+                int fake_type;
+                int scratch_int;
+                if (!sock_cmsg_translate_payload(iter->cmsg_level, iter->cmsg_type,
+                            CMSG_DATA(iter), data_len, &fake_data, &fake_data_len,
+                            &fake_level, &fake_type, &scratch_int))
+                    continue;
+                bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
+                        fake_level, fake_type, fake_data, fake_data_len);
                 assert(appended);
             }
             if (have_passcred) {
-                bool appended = guest_cmsg_append(abi, guest_msg_control, sizeof(guest_msg_control), &guest_msg_control_len,
+                bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
                         SOL_SOCKET_, SCM_CREDENTIALS_, &cred, sizeof(cred));
                 assert(appended);
             }
             if (user_write(msg_fake.msg_control, guest_msg_control, guest_msg_control_len)) {
                 if (scm != NULL)
                     scm_free(scm);
+                free(guest_msg_control);
+                free(real_msg_control);
                 if (msg_name != msg_name_stack)
                     free(msg_name);
                 return _EFAULT;
             }
+            free(guest_msg_control);
             msg_fake.msg_controllen = guest_msg_control_len;
         }
-        if (scm != NULL)
-            scm_free(scm);
     }
+    if (scm != NULL)
+        scm_free(scm);
 
     // by now the iovecs and scm have been freed so we can return
     if (res < 0) {
+        free(real_msg_control);
         if (msg_name != msg_name_stack)
             free(msg_name);
         return err;
@@ -3913,6 +4110,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     if (msg.msg_name != 0) {
         int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, msg_fake.msg_namelen, &msg.msg_namelen);
         if (err < 0) {
+            free(real_msg_control);
             if (msg_name != msg_name_stack)
                 free(msg_name);
             return err;
@@ -3920,6 +4118,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     }
     msg_fake.msg_namelen = msg.msg_namelen;
 
+    free(real_msg_control);
     if (msg_name != msg_name_stack)
         free(msg_name);
     err = write_guest_msghdr(msghdr_addr, abi, &msg_fake);
@@ -3930,6 +4129,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 out_recvmsg_fault:
     free_msghdr_iov(msg_iov, msg.msg_iovlen);
     free(msg_iov_fake);
+    free(real_msg_control);
     if (msg_name != msg_name_stack)
         free(msg_name);
     return _EFAULT;

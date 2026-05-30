@@ -9,11 +9,16 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <ctype.h>
+#include <dlfcn.h>
+#include <notify.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 #import <SystemConfiguration/SystemConfiguration.h>
+#if __has_include(<Network/Network.h>)
+#import <Network/Network.h>
+#endif
 #import <MetricKit/MetricKit.h>
 #import "AboutViewController.h"
 #import "AppDelegate.h"
@@ -53,12 +58,189 @@
 
 @property BOOL exiting;
 @property SCNetworkReachabilityRef reachability;
+#if __has_include(<Network/Network.h>)
+@property (strong, nonatomic) nw_path_monitor_t pathMonitor API_AVAILABLE(ios(12.0));
+@property (strong, nonatomic) dispatch_queue_t pathMonitorQueue API_AVAILABLE(ios(12.0));
+#endif
+@property int dnsNotifyToken;
+@property BOOL dnsNotifyRegistered;
 @property (strong, nonatomic) ISHMetricKitSubscriber *metricKitSubscriber;
 @property BOOL dnsRefreshQueued;
 @property BOOL dnsRefreshRunning;
 @property BOOL waitingForInitialRootImport;
 
 @end
+
+#if !ISH_LINUX
+#pragma pack(push, 4)
+typedef struct {
+    struct in_addr address;
+    struct in_addr mask;
+} ish_dns_sortaddr_t;
+
+typedef struct {
+    char *domain;
+    int32_t n_nameserver;
+    struct sockaddr **nameserver;
+    uint16_t port;
+    int32_t n_search;
+    char **search;
+    int32_t n_sortaddr;
+    ish_dns_sortaddr_t **sortaddr;
+    char *options;
+    uint32_t timeout;
+    uint32_t search_order;
+    uint32_t if_index;
+    uint32_t flags;
+    uint32_t reach_flags;
+    uint32_t reserved[5];
+} ish_dns_resolver_t;
+
+typedef struct {
+    int32_t n_resolver;
+    ish_dns_resolver_t **resolver;
+    int32_t n_scoped_resolver;
+    ish_dns_resolver_t **scoped_resolver;
+    uint32_t reserved[5];
+} ish_dns_config_t;
+#pragma pack(pop)
+
+typedef ish_dns_config_t *(*ISHDnsConfigurationCopyFunc)(void);
+typedef void (*ISHDnsConfigurationFreeFunc)(ish_dns_config_t *config);
+typedef const char *(*ISHDnsConfigurationNotifyKeyFunc)(void);
+
+static ISHDnsConfigurationCopyFunc ISHDnsConfigurationCopySymbol(void) {
+    static ISHDnsConfigurationCopyFunc copyFunc;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        copyFunc = (ISHDnsConfigurationCopyFunc) dlsym(RTLD_DEFAULT, "dns_configuration_copy");
+    });
+    return copyFunc;
+}
+
+static ISHDnsConfigurationFreeFunc ISHDnsConfigurationFreeSymbol(void) {
+    static ISHDnsConfigurationFreeFunc freeFunc;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        freeFunc = (ISHDnsConfigurationFreeFunc) dlsym(RTLD_DEFAULT, "dns_configuration_free");
+    });
+    return freeFunc;
+}
+
+static ISHDnsConfigurationNotifyKeyFunc ISHDnsConfigurationNotifyKeySymbol(void) {
+    static ISHDnsConfigurationNotifyKeyFunc notifyKeyFunc;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        notifyKeyFunc = (ISHDnsConfigurationNotifyKeyFunc) dlsym(RTLD_DEFAULT, "dns_configuration_notify_key");
+    });
+    return notifyKeyFunc;
+}
+
+static ish_dns_resolver_t *ISHResolverPointerAt(ish_dns_resolver_t **resolvers, int index) {
+    ish_dns_resolver_t *resolver = NULL;
+    if (resolvers == NULL || index < 0)
+        return NULL;
+    memcpy(&resolver, resolvers + index, sizeof(resolver));
+    return resolver;
+}
+
+static struct sockaddr *ISHNameserverPointerAt(struct sockaddr **nameservers, int index) {
+    struct sockaddr *sockaddr = NULL;
+    if (nameservers == NULL || index < 0)
+        return NULL;
+    memcpy(&sockaddr, nameservers + index, sizeof(sockaddr));
+    return sockaddr;
+}
+
+static NSString *ISHResolvConfFromDnsConfiguration(void) {
+    ISHDnsConfigurationCopyFunc copyFunc = ISHDnsConfigurationCopySymbol();
+    ISHDnsConfigurationFreeFunc freeFunc = ISHDnsConfigurationFreeSymbol();
+    if (copyFunc == NULL || freeFunc == NULL)
+        return nil;
+
+    ish_dns_config_t *config = copyFunc();
+    if (config == NULL)
+        return nil;
+
+    NSMutableString *resolvConf = [NSMutableString new];
+    NSMutableOrderedSet<NSString *> *uniqueServers = [NSMutableOrderedSet orderedSet];
+    BOOL wroteSearch = NO;
+
+    for (int resolverIndex = 0; resolverIndex < config->n_resolver; resolverIndex++) {
+        ish_dns_resolver_t *resolver = ISHResolverPointerAt(config->resolver, resolverIndex);
+        if (resolver == NULL || resolver->n_nameserver <= 0)
+            continue;
+        if (resolver->options != NULL && strcmp(resolver->options, "mdns") == 0)
+            continue;
+
+        if (!wroteSearch && resolver->n_search > 0 && resolver->search != NULL) {
+            for (int searchIndex = 0; searchIndex < resolver->n_search; searchIndex++) {
+                char *searchDomain = resolver->search[searchIndex];
+                if (searchDomain == NULL || searchDomain[0] == '\0')
+                    continue;
+                if (!wroteSearch) {
+                    [resolvConf appendString:@"search"];
+                    wroteSearch = YES;
+                }
+                [resolvConf appendFormat:@" %s", searchDomain];
+            }
+            if (wroteSearch)
+                [resolvConf appendString:@"\n"];
+        }
+
+        char address[NI_MAXHOST];
+        for (int nameserverIndex = 0; nameserverIndex < resolver->n_nameserver; nameserverIndex++) {
+            struct sockaddr *sockaddr = ISHNameserverPointerAt(resolver->nameserver, nameserverIndex);
+            if (sockaddr == NULL)
+                continue;
+            sa_family_t family = sockaddr->sa_family;
+            socklen_t sockaddrLen = 0;
+            if (family == AF_INET_) {
+                sockaddrLen = sizeof(struct sockaddr_in);
+            } else if (family == AF_INET6_) {
+                struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) sockaddr;
+                if (IN6_IS_ADDR_LINKLOCAL(&addr6->sin6_addr))
+                    continue;
+                sockaddrLen = sizeof(struct sockaddr_in6);
+            } else {
+                continue;
+            }
+            int err = getnameinfo(sockaddr, sockaddrLen,
+                                  address, sizeof(address),
+                                  NULL, 0, NI_NUMERICHOST);
+            if (err != 0)
+                continue;
+            NSString *server = [NSString stringWithUTF8String:address];
+            if (server.length != 0)
+                [uniqueServers addObject:server];
+        }
+    }
+
+    for (NSString *server in uniqueServers) {
+        [resolvConf appendFormat:@"nameserver %@\n", server];
+    }
+
+    if (uniqueServers.count == 0)
+        resolvConf = nil;
+
+    freeFunc(config);
+    return resolvConf;
+}
+
+static NSString *ISHDnsBreadcrumbSummary(NSString *source, NSString *reason, NSString *resolvConf) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    if (source.length != 0)
+        [parts addObject:[NSString stringWithFormat:@"source=%@", source]];
+    if (reason.length != 0)
+        [parts addObject:[NSString stringWithFormat:@"reason=%@", reason]];
+    NSString *trimmed = [resolvConf stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length != 0) {
+        NSString *singleLine = [[trimmed componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]] componentsJoinedByString:@" | "];
+        [parts addObject:[NSString stringWithFormat:@"conf=%@", singleLine]];
+    }
+    return [parts componentsJoinedByString:@"; "];
+}
+#endif
 
 #if !ISH_LINUX
 static void ios_handle_exit(struct task *task, int code) {
@@ -2182,7 +2364,68 @@ void SyncHostname(void) {
 
 - (void)configureDns {
 #if !ISH_LINUX
+    [ISHDiagnosticsStore recordBreadcrumb:@"dns.configure.begin"];
     [self scheduleDnsRefresh:@"manual"];
+    if (!self.dnsNotifyRegistered) {
+        ISHDnsConfigurationNotifyKeyFunc notifyKeyFunc = ISHDnsConfigurationNotifyKeySymbol();
+        const char *notifyKey = notifyKeyFunc != NULL ? notifyKeyFunc() : NULL;
+        if (notifyKey != NULL) {
+            dispatch_queue_t queue = dispatch_get_main_queue();
+#if __has_include(<Network/Network.h>)
+            if (@available(iOS 12.0, *)) {
+                if (self.pathMonitorQueue == nil)
+                    self.pathMonitorQueue = dispatch_queue_create("app.ish.iSH-AOK.dns-monitor", DISPATCH_QUEUE_SERIAL);
+                queue = self.pathMonitorQueue;
+            }
+#endif
+            __weak typeof(self) weakSelf = self;
+            uint32_t token = NOTIFY_TOKEN_INVALID;
+            int err = notify_register_dispatch(notifyKey, &token, queue, ^(int tokenValue) {
+                __strong typeof(weakSelf) self = weakSelf;
+                if (self == nil)
+                    return;
+                [ISHDiagnosticsStore recordBreadcrumb:@"dns.notify"
+                                              details:@{@"token": @(tokenValue)}];
+                [self scheduleDnsRefresh:@"dnsnotify"];
+            });
+            if (err == NOTIFY_STATUS_OK) {
+                self.dnsNotifyToken = (int) token;
+                self.dnsNotifyRegistered = YES;
+            }
+        }
+    }
+#if __has_include(<Network/Network.h>)
+    if (@available(iOS 12.0, *)) {
+        if (self.pathMonitor == nil) {
+            self.pathMonitor = nw_path_monitor_create();
+            if (self.pathMonitorQueue == nil)
+                self.pathMonitorQueue = dispatch_queue_create("app.ish.iSH-AOK.dns-monitor", DISPATCH_QUEUE_SERIAL);
+            __weak typeof(self) weakSelf = self;
+            nw_path_monitor_set_update_handler(self.pathMonitor, ^(nw_path_t path) {
+                __strong typeof(weakSelf) self = weakSelf;
+                if (self == nil)
+                    return;
+                const char *status = "unknown";
+                switch (nw_path_get_status(path)) {
+                    case nw_path_status_satisfied:
+                        status = "satisfied";
+                        break;
+                    case nw_path_status_unsatisfied:
+                        status = "unsatisfied";
+                        break;
+                    case nw_path_status_satisfiable:
+                        status = "satisfiable";
+                        break;
+                }
+                [ISHDiagnosticsStore recordBreadcrumb:@"dns.pathUpdate"
+                                              details:@{@"status": [NSString stringWithUTF8String:status] ?: @"unknown"}];
+                [self scheduleDnsRefresh:@"nwpath"];
+            });
+            nw_path_monitor_set_queue(self.pathMonitor, self.pathMonitorQueue);
+            nw_path_monitor_start(self.pathMonitor);
+        }
+    }
+#endif
 #endif
 }
 
@@ -2206,59 +2449,80 @@ void SyncHostname(void) {
 
 - (void)performDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
-    struct __res_state res;
-    if (EXIT_SUCCESS != res_ninit(&res)) {
-        [self finishDnsRefreshAndRescheduleIfNeeded:reason];
-        return;
-    }
-
-    NSMutableString *resolvConf = [NSMutableString new];
-    if (res.dnsrch[0] != NULL) {
-        [resolvConf appendString:@"search"];
-        for (int i = 0; res.dnsrch[i] != NULL; i++) {
-            [resolvConf appendFormat:@" %s", res.dnsrch[i]];
+    NSString *dnsSource = @"dnsinfo";
+    NSMutableString *resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
+    if (resolvConf == nil) {
+        dnsSource = @"libresolv";
+        struct __res_state res;
+        if (EXIT_SUCCESS != res_ninit(&res)) {
+            [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.failed"
+                                          details:@{@"reason": reason ?: @"unknown",
+                                                    @"source": dnsSource,
+                                                    @"stage": @"res_ninit"}];
+            [self finishDnsRefreshAndRescheduleIfNeeded:reason];
+            return;
         }
-        [resolvConf appendString:@"\n"];
-    }
-    union res_sockaddr_union servers[NI_MAXSERV];
-    int serversFound = res_getservers(&res, servers, NI_MAXSERV);
-    char address[NI_MAXHOST];
-    int usableServers = 0;
-    for (int i = 0; i < serversFound; i ++) {
-        union res_sockaddr_union s = servers[i];
-        sa_family_t family = s.sin.sin_family;
-        socklen_t sockaddrLen = s.sin.sin_len;
-        if (family == AF_INET_) {
-            if (sockaddrLen == 0)
-                sockaddrLen = sizeof(s.sin);
-        } else if (family == AF_INET6_) {
-            if (IN6_IS_ADDR_LINKLOCAL(&s.sin6.sin6_addr)) {
+
+        resolvConf = [NSMutableString new];
+        if (res.dnsrch[0] != NULL) {
+            [resolvConf appendString:@"search"];
+            for (int i = 0; res.dnsrch[i] != NULL; i++) {
+                [resolvConf appendFormat:@" %s", res.dnsrch[i]];
+            }
+            [resolvConf appendString:@"\n"];
+        }
+        union res_sockaddr_union servers[NI_MAXSERV];
+        int serversFound = res_getservers(&res, servers, NI_MAXSERV);
+        char address[NI_MAXHOST];
+        int usableServers = 0;
+        for (int i = 0; i < serversFound; i ++) {
+            union res_sockaddr_union s = servers[i];
+            sa_family_t family = s.sin.sin_family;
+            socklen_t sockaddrLen = s.sin.sin_len;
+            if (family == AF_INET_) {
+                if (sockaddrLen == 0)
+                    sockaddrLen = sizeof(s.sin);
+            } else if (family == AF_INET6_) {
+                if (IN6_IS_ADDR_LINKLOCAL(&s.sin6.sin6_addr)) {
+                    continue;
+                }
+                if (sockaddrLen == 0)
+                    sockaddrLen = sizeof(s.sin6);
+            } else {
                 continue;
             }
-            if (sockaddrLen == 0)
-                sockaddrLen = sizeof(s.sin6);
-        } else {
-            continue;
+            int err = getnameinfo((struct sockaddr *) &s.sin, sockaddrLen,
+                                  address, sizeof(address),
+                                  NULL, 0, NI_NUMERICHOST);
+            if (err != 0) {
+                continue;
+            }
+            [resolvConf appendFormat:@"nameserver %s\n", address];
+            usableServers++;
         }
-        int err = getnameinfo((struct sockaddr *) &s.sin, sockaddrLen,
-                              address, sizeof(address),
-                              NULL, 0, NI_NUMERICHOST);
-        if (err != 0) {
-            continue;
+
+        res_nclose(&res);
+        if (usableServers == 0) {
+            [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.failed"
+                                          details:@{@"reason": reason ?: @"unknown",
+                                                    @"source": dnsSource,
+                                                    @"stage": @"no-servers"}];
+            [self finishDnsRefreshAndRescheduleIfNeeded:reason];
+            return;
         }
-        [resolvConf appendFormat:@"nameserver %s\n", address];
-        usableServers++;
     }
 
-    if (usableServers == 0) {
-        res_nclose(&res);
-        [self finishDnsRefreshAndRescheduleIfNeeded:reason];
-        return;
-    }
+    [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.generated"
+                                  details:@{@"reason": reason ?: @"unknown",
+                                            @"source": dnsSource,
+                                            @"summary": ISHDnsBreadcrumbSummary(dnsSource, reason, resolvConf) ?: @""}];
 
     struct task *previousCurrent;
     if (!PushInitTaskAsCurrent(&previousCurrent)) {
-        res_nclose(&res);
+        [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.failed"
+                                      details:@{@"reason": reason ?: @"unknown",
+                                                @"source": dnsSource,
+                                                @"stage": @"push-init"}];
         [self finishDnsRefreshAndRescheduleIfNeeded:reason];
         return;
     }
@@ -2274,9 +2538,18 @@ void SyncHostname(void) {
     if (!IS_ERR(fd)) {
         fd->ops->write(fd, resolvConf.UTF8String, [resolvConf lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
         fd_close(fd);
+        [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.wrote"
+                                      details:@{@"reason": reason ?: @"unknown",
+                                                @"source": dnsSource,
+                                                @"summary": ISHDnsBreadcrumbSummary(dnsSource, reason, resolvConf) ?: @""}];
+    } else {
+        [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.failed"
+                                      details:@{@"reason": reason ?: @"unknown",
+                                                @"source": dnsSource,
+                                                @"stage": @"open-resolv-conf",
+                                                @"errno": @(PTR_ERR(fd))}];
     }
     PopCurrentTask(previousCurrent);
-    res_nclose(&res);
     [self finishDnsRefreshAndRescheduleIfNeeded:reason];
 #endif
 }
@@ -2439,6 +2712,7 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
     };
     SCNetworkReachabilitySetCallback(self.reachability, NetworkReachabilityCallback, &context);
     SCNetworkReachabilityScheduleWithRunLoop(self.reachability, CFRunLoopGetMain(), kCFRunLoopCommonModes);
+    [self configureDns];
 
     self.metricKitSubscriber = [ISHMetricKitSubscriber new];
     [self.metricKitSubscriber registerIfAvailable];
@@ -2522,6 +2796,20 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 
 - (void)dealloc {
     [self.metricKitSubscriber unregisterIfNeeded];
+    if (self.dnsNotifyRegistered) {
+        notify_cancel(self.dnsNotifyToken);
+        self.dnsNotifyRegistered = NO;
+        self.dnsNotifyToken = NOTIFY_TOKEN_INVALID;
+    }
+#if __has_include(<Network/Network.h>)
+    if (@available(iOS 12.0, *)) {
+        if (self.pathMonitor != nil) {
+            nw_path_monitor_cancel(self.pathMonitor);
+            self.pathMonitor = nil;
+            self.pathMonitorQueue = nil;
+        }
+    }
+#endif
     if (self.reachability != NULL) {
         SCNetworkReachabilityUnscheduleFromRunLoop(self.reachability, CFRunLoopGetMain(), kCFRunLoopCommonModes);
         CFRelease(self.reachability);

@@ -9,6 +9,14 @@
 #include "misc.h"
 #include "debug.h"
 
+#ifndef IPV6_RECVHOPLIMIT
+#define IPV6_RECVHOPLIMIT 37
+#endif
+
+#ifndef IPV6_HOPLIMIT
+#define IPV6_HOPLIMIT 47
+#endif
+
 extern const struct fd_ops socket_fdops;
 
 int_t sys_socketcall(dword_t call_num, addr_t args_addr);
@@ -325,6 +333,8 @@ static inline int sock_flags_from_real(int real) {
 #define IPV6_MTU_ 24
 #define IPV6_UNICAST_HOPS_ 16
 #define IPV6_RECVERR_ 25
+#define IPV6_RECVHOPLIMIT_ 51
+#define IPV6_HOPLIMIT_ 52
 #define IPV6_V6ONLY_ 26
 #define IPV6_TCLASS_ 67
 #define ICMP6_FILTER_ 1
@@ -370,6 +380,7 @@ static inline int sock_opt_to_real(int fake, int level) {
         } break;
         case IPPROTO_IPV6: switch (fake) {
             case IPV6_UNICAST_HOPS_: return IPV6_UNICAST_HOPS;
+            case IPV6_RECVHOPLIMIT_: return IPV6_RECVHOPLIMIT;
             case IPV6_TCLASS_: return IPV6_TCLASS;
             case IPV6_V6ONLY_: return IPV6_V6ONLY;
         } break;
