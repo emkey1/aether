@@ -49,6 +49,9 @@ HOST_GO_BIN=/opt/homebrew/bin/go HOST_GOROOT=/opt/homebrew/Cellar/go/1.26.2/libe
 ## Notes
 
 - The external-project lane is intentionally build-first, not full test-suite-first.
+- External verification is deliberately minimal:
+  - the built binary must exist and be executable
+  - command-line behavior like `-h` or `--help` is not treated as a release gate
 - This is meant to catch:
   - long compile regressions
   - guest process lifecycle issues

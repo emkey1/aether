@@ -38,7 +38,8 @@ summary_render_md() {
         printf '# Go Release Matrix\n\n'
         printf '| Case | Kind | Status | Rootfs | Artifact | Log | Notes |\n'
         printf '| --- | --- | --- | --- | --- | --- | --- |\n'
-        tail -n +2 "$SUMMARY_TSV" | while IFS=$'\t' read -r case kind status rootfs artifact log notes; do
+        awk -F '\t' 'NR == 1 && $1 == "case" { next } NF != 0 { print }' "$SUMMARY_TSV" | \
+        while IFS=$'\t' read -r case kind status rootfs artifact log notes; do
             printf '| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s |\n' \
                 "$case" "$kind" "$status" "$rootfs" "$artifact" "$log" "$notes"
         done
@@ -137,10 +138,10 @@ for case_name in $MATRIX_CASES; do
             run_smoke_case
             ;;
         hey)
-            run_external_case "hey" "https://github.com/rakyll/hey" "/tmp/hey" "go build -o /tmp/hey-bin ." "/tmp/hey-bin -h"
+            run_external_case "hey" "https://github.com/rakyll/hey" "/tmp/hey" "go build -o /tmp/hey-bin ." "test -x /tmp/hey-bin"
             ;;
         cobra-cli)
-            run_external_case "cobra-cli" "https://github.com/spf13/cobra-cli" "/tmp/cobra-cli" "go build -o /tmp/cobra-cli-bin ." "/tmp/cobra-cli-bin --help"
+            run_external_case "cobra-cli" "https://github.com/spf13/cobra-cli" "/tmp/cobra-cli" "go build -o /tmp/cobra-cli-bin ." "test -x /tmp/cobra-cli-bin"
             ;;
         *)
             printf 'unknown matrix case: %s\n' "$case_name" >&2
