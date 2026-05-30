@@ -583,7 +583,13 @@ static void *FallbackConsoleInitThread(void *context) {
 
         struct task *child = current;
         pid_t childPid = child->pid;
-        if (child->group == NULL || child->group->sid != childPid || child->group->pgid != childPid) {
+        bool needsSession = true;
+        if (child->group != NULL) {
+            lock(&child->group->lock, 0);
+            needsSession = child->group->sid != childPid || child->group->pgid != childPid;
+            unlock(&child->group->lock);
+        }
+        if (needsSession) {
             intptr_t session = (intptr_t) (int32_t) sys_setsid();
             if (session < 0)
                 printk("fake init could not start a new session for pid %d: %ld\n", childPid, (long) session);

@@ -641,11 +641,6 @@ struct diag_socket_entry {
     unsigned cap;
 };
 
-struct diag_task_snapshot {
-    struct task **tasks;
-    unsigned count;
-};
-
 static uint32_t netlink_next_port_id(void);
 
 const struct fd_ops socket_fdops;
@@ -1395,40 +1390,6 @@ static int diag_socket_push(struct diag_socket_entry *entries, struct fd *fd) {
     return 0;
 }
 
-static void diag_task_snapshot_release(struct diag_task_snapshot *snapshot) {
-    for (unsigned i = 0; i < snapshot->count; i++)
-        task_ref_cnt_mod(snapshot->tasks[i], -1);
-    free(snapshot->tasks);
-    snapshot->tasks = NULL;
-    snapshot->count = 0;
-}
-
-static int diag_task_snapshot_collect(struct diag_task_snapshot *snapshot) {
-    unsigned cap = 0;
-    complex_lockt(&pids_lock, 0);
-    struct pid *pid_entry;
-    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
-        struct task *task = pid_entry->task;
-        if (task == NULL || task->zombie)
-            continue;
-        if (snapshot->count == cap) {
-            unsigned new_cap = cap ? cap * 2 : 64;
-            struct task **new_tasks = realloc(snapshot->tasks, sizeof(*new_tasks) * new_cap);
-            if (new_tasks == NULL) {
-                unlock(&pids_lock);
-                diag_task_snapshot_release(snapshot);
-                return _ENOMEM;
-            }
-            snapshot->tasks = new_tasks;
-            cap = new_cap;
-        }
-        task_ref_cnt_mod(task, 1);
-        snapshot->tasks[snapshot->count++] = task;
-    }
-    unlock(&pids_lock);
-    return 0;
-}
-
 static struct fdtable *diag_task_files_retain(struct task *task) {
     struct fdtable *files = NULL;
     lock(&task->general_lock, 0);
@@ -1445,8 +1406,8 @@ static void diag_socket_release(struct diag_socket_entry *entries) {
 }
 
 static int diag_collect_sockets(struct diag_socket_entry *entries, int domain, int type) {
-    struct diag_task_snapshot snapshot = {};
-    int err = diag_task_snapshot_collect(&snapshot);
+    struct task_snapshot snapshot = {};
+    int err = task_snapshot_collect(&snapshot, false);
     if (err < 0)
         return err;
 
@@ -1477,7 +1438,7 @@ static int diag_collect_sockets(struct diag_socket_entry *entries, int domain, i
         if (err < 0)
             break;
     }
-    diag_task_snapshot_release(&snapshot);
+    task_snapshot_release(&snapshot);
     return err;
 }
 

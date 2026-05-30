@@ -239,6 +239,11 @@ struct pid {
 // to avoid having this head element in your cycle.
 extern struct list alive_pids_list;
 
+struct task_snapshot {
+    struct task **tasks;
+    unsigned count;
+};
+
 // synchronizes obtaining a pointer to a task and freeing that task
 extern lock_t pids_lock;
 // these functions must be called with pids_lock
@@ -247,6 +252,8 @@ struct pid *pid_get_last_allocated(void);
 struct task *pid_get_task(dword_t pid);
 struct task *pid_get_task_ref(dword_t pid);
 struct task *pid_get_task_zombie(dword_t id); // don't return null if the task exists as a zombie
+int task_snapshot_collect(struct task_snapshot *snapshot, bool leaders_only);
+void task_snapshot_release(struct task_snapshot *snapshot);
 
 dword_t get_count_of_blocked_tasks(void);
 dword_t get_count_of_alive_tasks(void);

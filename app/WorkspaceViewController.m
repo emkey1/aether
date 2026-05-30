@@ -1260,12 +1260,21 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceVisibleProcessRecord
 
 static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceGuestProcessRecords(NSUInteger limit) {
     NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
-    complex_lockt(&pids_lock, 0);
-    struct pid *pidEntry;
-    list_for_each_entry(&alive_pids_list, pidEntry, alive) {
-        struct task *task = pidEntry->task;
-        if (task == NULL || !task_is_leader(task))
-            continue;
+    struct task_snapshot snapshot = {};
+    if (task_snapshot_collect(&snapshot, true) < 0)
+        return records;
+
+    for (unsigned i = 0; i < snapshot.count; i++) {
+        struct task *task = snapshot.tasks[i];
+        bool zombie = false;
+        bool exiting = false;
+        bool ioBlock = false;
+
+        complex_lockt(&pids_lock, 0);
+        zombie = task->zombie;
+        exiting = task->exiting;
+        ioBlock = task->io_block;
+        unlock(&pids_lock);
 
         lock(&task->general_lock, 0);
         NSString *name = [NSString stringWithUTF8String:task->comm];
@@ -1274,14 +1283,18 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceGuestProcessRecords(
             name = @"task";
 
         NSString *state = @"running";
-        if (task->zombie) {
+        if (zombie) {
             state = @"zombie";
-        } else if (task->exiting) {
+        } else if (exiting) {
             state = @"exiting";
-        } else if (task->group != NULL && task->group->stopped) {
-            state = @"stopped";
-        } else if (task->io_block) {
+        } else if (ioBlock) {
             state = @"blocked";
+        } else if (task->group != NULL) {
+            lock(&task->group->lock, 0);
+            bool stopped = task->group->stopped;
+            unlock(&task->group->lock);
+            if (stopped)
+                state = @"stopped";
         }
 
         [records addObject:@{
@@ -1292,7 +1305,7 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceGuestProcessRecords(
             @"abi": @(task->abi),
         }];
     }
-    unlock(&pids_lock);
+    task_snapshot_release(&snapshot);
 
     [records sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *, id> *left,
                                                      NSDictionary<NSString *, id> *right) {

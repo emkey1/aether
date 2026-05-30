@@ -515,11 +515,12 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
 static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
     complex_lockt(&task->group->lock, 0);
     bool stopped = task->group->stopped;
-    unlock(&task->group->lock);
-    if (!stopped || task->group->group_exit_code == 0)
-        return false;
     dword_t exit_code = task->group->group_exit_code;
-    task->group->group_exit_code = 0;
+    if (stopped && exit_code != 0)
+        task->group->group_exit_code = 0;
+    unlock(&task->group->lock);
+    if (!stopped || exit_code == 0)
+        return false;
     info_out->child.status = exit_code;
     return true;
 }

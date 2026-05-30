@@ -83,6 +83,42 @@ struct task *pid_get_task_ref(dword_t id) {
     return task;
 }
 
+void task_snapshot_release(struct task_snapshot *snapshot) {
+    for (unsigned i = 0; i < snapshot->count; i++)
+        task_ref_cnt_mod(snapshot->tasks[i], -1);
+    free(snapshot->tasks);
+    snapshot->tasks = NULL;
+    snapshot->count = 0;
+}
+
+int task_snapshot_collect(struct task_snapshot *snapshot, bool leaders_only) {
+    unsigned cap = 0;
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->zombie || task->exiting)
+            continue;
+        if (leaders_only && !task_is_leader(task))
+            continue;
+        if (snapshot->count == cap) {
+            unsigned new_cap = cap ? cap * 2 : 64;
+            struct task **new_tasks = realloc(snapshot->tasks, sizeof(*new_tasks) * new_cap);
+            if (new_tasks == NULL) {
+                unlock(&pids_lock);
+                task_snapshot_release(snapshot);
+                return _ENOMEM;
+            }
+            snapshot->tasks = new_tasks;
+            cap = new_cap;
+        }
+        task_ref_cnt_mod(task, 1);
+        snapshot->tasks[snapshot->count++] = task;
+    }
+    unlock(&pids_lock);
+    return 0;
+}
+
 struct pid *pid_get_last_allocated(void) {
     if (!last_allocated_pid) {
         return NULL;
