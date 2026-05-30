@@ -54,6 +54,33 @@ static bool current_can_setgids(void) {
     return superuser() || current_has_cap(CAP_SETGID_);
 }
 
+static void cap_emulate_setxuid(uid_t_ old_ruid, uid_t_ old_euid, uid_t_ old_suid) {
+    bool old_any_root = old_ruid == 0 || old_euid == 0 || old_suid == 0;
+    bool new_any_root = current->uid == 0 || current->euid == 0 || current->suid == 0;
+
+    // Linux drops all capabilities once a root-originating task has fully
+    // transitioned to non-root credentials, unless keepcaps/securebits say
+    // otherwise. We do not emulate those knobs yet, so use the default drop.
+    if (old_any_root && !new_any_root) {
+        current->cap_effective[0] = current->cap_effective[1] = 0;
+        current->cap_permitted[0] = current->cap_permitted[1] = 0;
+        return;
+    }
+
+    // Dropping only the effective uid from 0 disables effective capabilities
+    // until/unless the task returns to euid 0.
+    if (old_euid == 0 && current->euid != 0) {
+        current->cap_effective[0] = current->cap_effective[1] = 0;
+        return;
+    }
+
+    // Regaining euid 0 restores effective capabilities from the permitted set.
+    if (old_euid != 0 && current->euid == 0) {
+        current->cap_effective[0] = current->cap_permitted[0];
+        current->cap_effective[1] = current->cap_permitted[1];
+    }
+}
+
 pid_t_ sys_getpid(void) {
     STRACE("getpid()");
     return current->tgid;
@@ -94,6 +121,9 @@ dword_t sys_geteuid(void) {
 
 int_t sys_setuid(uid_t_ uid) {
     STRACE("setuid(%d)", uid);
+    uid_t_ old_ruid = current->uid;
+    uid_t_ old_euid = current->euid;
+    uid_t_ old_suid = current->suid;
     if (current_can_setuids()) {
         current->uid = current->suid = uid;
     } else {
@@ -102,11 +132,15 @@ int_t sys_setuid(uid_t_ uid) {
     }
     current->euid = uid;
     current->fsuid = uid;
+    cap_emulate_setxuid(old_ruid, old_euid, old_suid);
     return 0;
 }
 
 dword_t sys_setresuid(uid_t_ ruid, uid_t_ euid, uid_t_ suid) {
     STRACE("setresuid(%d, %d, %d)", ruid, euid, suid);
+    uid_t_ old_ruid = current->uid;
+    uid_t_ old_euid = current->euid;
+    uid_t_ old_suid = current->suid;
     if (!current_can_setuids()) {
         if (ruid != (uid_t) -1 && ruid != current->uid && ruid != current->euid && ruid != current->suid)
             return _EPERM;
@@ -124,6 +158,7 @@ dword_t sys_setresuid(uid_t_ ruid, uid_t_ euid, uid_t_ suid) {
         current->suid = suid;
     if (euid != (uid_t) -1)
         current->fsuid = euid;
+    cap_emulate_setxuid(old_ruid, old_euid, old_suid);
     return 0;
 }
 
