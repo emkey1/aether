@@ -383,7 +383,7 @@ static int signal_action(struct sighand *sighand, int sig) {
     }
 }
 
-static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ info) {
+static void deliver_signal_unlocked_locked(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
         return;
 
@@ -425,26 +425,33 @@ static void deliver_signal_unlocked(struct task *task, int sig, struct siginfo_ 
         // If the waiter is between publishing waiting_cond and entering
         // pthread_cond_wait(), retry briefly for its lock handoff so the wake
         // is not lost. This avoids global timed polling in wait_for().
-        memset(&task->sighand->lock.owner, 0, sizeof(task->sighand->lock.owner));
-        pthread_mutex_unlock(&task->sighand->lock.m);
+        memset(&sighand->lock.owner, 0, sizeof(sighand->lock.owner));
+        pthread_mutex_unlock(&sighand->lock.m);
         interrupted_wait = wake_waiting_task(task);
-        pthread_mutex_lock(&task->sighand->lock.m);
-        task->sighand->lock.owner = pthread_self();
+        pthread_mutex_lock(&sighand->lock.m);
+        sighand->lock.owner = pthread_self();
     } else {
         interrupted_wait = wake_waiting_task(task);
     }
     if (interrupted_wait) {
-        bool restart = signal_action(task->sighand, sig) == SIGNAL_CALL_HANDLER &&
-            !!(task->sighand->action[sig].flags & SA_RESTART_);
+        bool restart = signal_action(sighand, sig) == SIGNAL_CALL_HANDLER &&
+            !!(sighand->action[sig].flags & SA_RESTART_);
         __atomic_store_n(&task->restart_interrupted_syscall, restart, __ATOMIC_RELEASE);
         __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
     }
 }
 
+void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
+    lock(&sighand->lock, 0);
+    deliver_signal_unlocked_locked(task, sighand, sig, info);
+    unlock(&sighand->lock);
+}
+
 void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
-    lock(&task->sighand->lock, 0);
-    deliver_signal_unlocked(task, sig, info);
-    unlock(&task->sighand->lock);
+    struct sighand *sighand = task->sighand;
+    if (sighand == NULL)
+        return;
+    deliver_signal_with_sighand(task, sighand, sig, info);
 }
 
 static bool signal_still_pending_locked(struct task *task, int sig) {
@@ -834,7 +841,7 @@ void send_signal(struct task *task, int sig, struct siginfo_ info) {
                current != NULL ? current->pid : 0, current != NULL ? current->comm : "?");
     }
     if ((!ignored || synchronously_consumed) && (task->pid <= MAX_PID)) {
-        deliver_signal_unlocked(task, sig, info);
+        deliver_signal_unlocked_locked(task, sighand, sig, info);
     }
     unlock(&sighand->lock);
 
@@ -880,7 +887,7 @@ bool try_self_signal(int sig) {
     bool can_send = signal_action(sighand, sig) != SIGNAL_IGNORE &&
         !sigset_has(current->blocked, sig);
     if (can_send)
-        deliver_signal_unlocked(current, sig, SIGINFO_NIL);
+        deliver_signal_unlocked_locked(current, current->sighand, sig, SIGINFO_NIL);
     unlock(&sighand->lock);
     return can_send;
 }
@@ -1452,11 +1459,12 @@ struct sighand *sighand_copy(struct sighand *sighand) {
     return new_sighand;
 }
 
+void sighand_retain(struct sighand *sighand) {
+    atomic_fetch_add_explicit(&sighand->refcount, 1, memory_order_relaxed);
+}
+
 void sighand_release(struct sighand *sighand) {
-   // while(task_ref_cnt_get(current, 0) > 1) { // Wait for now, task is in one or more critical sections
-   //     nanosleep(&lock_pause, NULL);
-   // }
-    if (--sighand->refcount == 0) {
+    if (atomic_fetch_sub_explicit(&sighand->refcount, 1, memory_order_acq_rel) == 1) {
         free(sighand);
     }
 }

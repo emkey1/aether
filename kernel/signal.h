@@ -201,7 +201,9 @@ struct sighand {
 };
 struct sighand *sighand_new(void);
 struct sighand *sighand_copy(struct sighand *sighand);
+void sighand_retain(struct sighand *sighand);
 void sighand_release(struct sighand *sighand);
+void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info);
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_rt_sigaction_guest(dword_t signum, guest_addr_t action_addr, guest_addr_t oldaction_addr, dword_t sigset_size);

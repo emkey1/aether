@@ -344,41 +344,87 @@ EXIT:pthread_exit(NULL);
 // the current task itself.
 noreturn void do_exit_group(int status) {
     struct tgroup *group = current->group;
-    complex_lockt(&pids_lock, 0);
-    lock(&group->lock, 0);
-    if (amd64_trace_is_lineage_tgid(current->tgid)) {
-        printk("tracked exit_group begin: current=%d tgid=%d abi=%d status=%#x threads=%lu doing=%d\n",
-               current->pid, current->tgid, current->abi, status,
-               list_size(&group->threads), group->doing_group_exit);
-    }
-    if (!group->doing_group_exit) {
-        group->doing_group_exit = true;
-        group->group_exit_code = status;
-    } else {
-        status = group->group_exit_code;
-    }
-
-    // kill everyone else in the group
     struct task *task;
-    task_ref_cnt_mod(current, 1);
-    list_for_each_entry(&group->threads, task, group_links) {
+    struct group_exit_target {
+        struct task *task;
+        struct sighand *sighand;
+    };
+    struct group_exit_target stack_targets[32];
+    struct group_exit_target *targets = stack_targets;
+    size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
+    size_t target_count = 0;
+
+    while (true) {
+        complex_lockt(&pids_lock, 0);
+        lock(&group->lock, 0);
+
         if (amd64_trace_is_lineage_tgid(current->tgid)) {
-            printk("tracked exit_group member: current=%d target=%d tgid=%d exiting=%d zombie=%d io_block=%d pending=%#llx blocked=%#llx self=%d\n",
-                   current->pid, task->pid, task->tgid, task->exiting, task->zombie,
-                   task->io_block,
-                   (unsigned long long) task->pending,
-                   (unsigned long long) task->blocked,
-                   task == current);
+            printk("tracked exit_group begin: current=%d tgid=%d abi=%d status=%#x threads=%lu doing=%d\n",
+                   current->pid, current->tgid, current->abi, status,
+                   list_size(&group->threads), group->doing_group_exit);
         }
-        if (task != current) {
-            deliver_signal(task, SIGKILL_, SIGINFO_NIL);
-            task->group->stopped = false;
-            notify(&task->group->stopped_cond);
+        if (!group->doing_group_exit) {
+            group->doing_group_exit = true;
+            group->group_exit_code = status;
+        } else {
+            status = group->group_exit_code;
         }
+
+        size_t needed = 0;
+        list_for_each_entry(&group->threads, task, group_links) {
+            if (task != current)
+                needed++;
+        }
+        if (needed > target_cap) {
+            unlock(&group->lock);
+            unlock(&pids_lock);
+
+            if (targets != stack_targets)
+                free(targets);
+            targets = malloc(sizeof(*targets) * needed);
+            if (targets == NULL)
+                die("out of memory collecting exit-group targets");
+            target_cap = needed;
+            continue;
+        }
+
+        target_count = 0;
+        task_ref_cnt_mod(current, 1);
+        list_for_each_entry(&group->threads, task, group_links) {
+            if (amd64_trace_is_lineage_tgid(current->tgid)) {
+                printk("tracked exit_group member: current=%d target=%d tgid=%d exiting=%d zombie=%d io_block=%d pending=%#llx blocked=%#llx self=%d\n",
+                       current->pid, task->pid, task->tgid, task->exiting, task->zombie,
+                       task->io_block,
+                       (unsigned long long) task->pending,
+                       (unsigned long long) task->blocked,
+                       task == current);
+            }
+            if (task == current)
+                continue;
+            task_ref_cnt_mod(task, 1);
+            targets[target_count].task = task;
+            targets[target_count].sighand = task->sighand;
+            if (targets[target_count].sighand != NULL)
+                sighand_retain(targets[target_count].sighand);
+            target_count++;
+        }
+        group->stopped = false;
+        unlock(&group->lock);
+        unlock(&pids_lock);
+        break;
     }
 
-    unlock(&pids_lock);
-    unlock(&group->lock);
+    notify(&group->stopped_cond);
+    for (size_t i = 0; i < target_count; i++) {
+        if (targets[i].sighand != NULL) {
+            deliver_signal_with_sighand(targets[i].task, targets[i].sighand, SIGKILL_, SIGINFO_NIL);
+            sighand_release(targets[i].sighand);
+        }
+        task_ref_cnt_mod(targets[i].task, -1);
+    }
+    if (targets != stack_targets)
+        free(targets);
+
     if(current->pid <= MAX_PID)
         do_exit(current, status);
     
