@@ -1687,14 +1687,7 @@ static NSDictionary *MetricKitDiagnosticSummary(MXDiagnostic *diagnostic, NSStri
 static bool PushInitTaskAsCurrent(struct task **previousCurrent) {
     *previousCurrent = current;
 
-    complex_lockt(&pids_lock, 0);
-    struct task *init = pid_get_task(1);
-    if (init != NULL && !init->exiting) {
-        task_ref_cnt_mod(init, 1);
-    } else {
-        init = NULL;
-    }
-    unlock(&pids_lock);
+    struct task *init = pid_get_task_ref(1);
 
     if (init != NULL) {
         bool usable = false;

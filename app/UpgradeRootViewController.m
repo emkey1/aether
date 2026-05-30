@@ -24,40 +24,6 @@
 
 @end
 
-static bool UpgradePushInitTaskAsCurrent(struct task **previousCurrent) {
-    *previousCurrent = current;
-
-    complex_lockt(&pids_lock, 0);
-    struct task *init = pid_get_task(1);
-    if (init != NULL && !init->exiting)
-        task_ref_cnt_mod(init, 1);
-    else
-        init = NULL;
-    unlock(&pids_lock);
-
-    if (init != NULL) {
-        bool usable = false;
-        lock(&init->general_lock, 0);
-        usable = init->mm != NULL && init->mem != NULL &&
-                 init->files != NULL && init->fs != NULL;
-        unlock(&init->general_lock);
-        if (!usable) {
-            task_ref_cnt_mod(init, -1);
-            init = NULL;
-        }
-    }
-
-    current = init;
-    return init != NULL;
-}
-
-static void UpgradePopCurrentTask(struct task *previousCurrent) {
-    struct task *borrowedCurrent = current;
-    current = previousCurrent;
-    if (borrowedCurrent != NULL)
-        task_ref_cnt_mod(borrowedCurrent, -1);
-}
-
 @implementation UpgradeRootViewController
 
 - (void)viewDidLoad {
@@ -68,9 +34,9 @@ static void UpgradePopCurrentTask(struct task *previousCurrent) {
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(processExited:) name:ProcessExitedNotification object:nil];
 
     struct task *previousCurrent = NULL;
-    if (UpgradePushInitTaskAsCurrent(&previousCurrent)) {
+    if ([AppDelegate pushUsableInitTaskAsCurrent:&previousCurrent]) {
         self.terminal = [Terminal createPseudoTerminal:&self->_tty];
-        UpgradePopCurrentTask(previousCurrent);
+        [AppDelegate popCurrentTask:previousCurrent];
     }
     
     self.terminalView.terminal = self.terminal;
@@ -112,9 +78,9 @@ static void UpgradePopCurrentTask(struct task *previousCurrent) {
         [self showAlertWithTitle:@"Upgrade failed" message:@"exit status %d", code];
     } else {
         struct task *previousCurrent = NULL;
-        if (UpgradePushInitTaskAsCurrent(&previousCurrent)) {
+        if ([AppDelegate pushUsableInitTaskAsCurrent:&previousCurrent]) {
             FsUpdateRepositories();
-            UpgradePopCurrentTask(previousCurrent);
+            [AppDelegate popCurrentTask:previousCurrent];
         }
         [self showAlertWithTitle:@"Upgrade succeeded" message:@""];
     }

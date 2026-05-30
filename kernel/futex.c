@@ -494,10 +494,11 @@ static int_t sys_get_robust_list_common(pid_t_ pid, guest_addr_t robust_list_ptr
     STRACE("get_robust_list(%d, %#llx, %#llx)", pid,
             (unsigned long long) robust_list_ptr, (unsigned long long) len_ptr);
 
-    complex_lockt(&pids_lock,0);
-    struct task *task = pid_get_task(pid);
-    unlock(&pids_lock);
-    if (task != current)
+    struct task *task = pid_get_task_ref(pid);
+    bool is_current = task == current;
+    if (task != NULL)
+        task_ref_cnt_mod(task, -1);
+    if (!is_current)
         return _EPERM;
 
     if (user_put(robust_list_ptr, current->robust_list))

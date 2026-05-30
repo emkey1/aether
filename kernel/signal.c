@@ -25,6 +25,7 @@ static dword_t current_altstack_flags(struct task *task);
 static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack);
 static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
+static void send_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info);
 
 static bool should_trace_signal_task(struct task *task) {
     return false;
@@ -824,13 +825,18 @@ int_t sys_signalfd_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize) {
 }
 
 void send_signal(struct task *task, int sig, struct siginfo_ info) {
+    struct sighand *sighand = task->sighand;
+    if (sighand == NULL)
+        return;
+    send_signal_with_sighand(task, sighand, sig, info);
+}
+
+static void send_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     // signal zero is for testing whether a process exists
     if (sig == 0)
         return;
     if (task->zombie || task->exiting)
         return;
-
-    struct sighand *sighand = task->sighand;
     lock(&sighand->lock, 0);
     bool ignored = signal_action(sighand, sig) == SIGNAL_IGNORE;
     bool synchronously_consumed = sigset_has(task->blocked | task->waiting, sig);
@@ -893,17 +899,62 @@ bool try_self_signal(int sig) {
 }
 
 int send_group_signal(dword_t pgid, int sig, struct siginfo_ info) {
+    struct group_signal_target {
+        struct task *task;
+        struct sighand *sighand;
+    };
+    struct group_signal_target stack_targets[32];
+    struct group_signal_target *targets = stack_targets;
+    size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
+    size_t target_count = 0;
+
     complex_lockt(&pids_lock, 0);
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
         unlock(&pids_lock);
         return _ESRCH;
     }
+
+    size_t needed = 0;
     struct tgroup *tgroup;
+    list_for_each_entry(&pid->pgroup, tgroup, pgroup)
+        needed++;
+    if (needed > target_cap) {
+        unlock(&pids_lock);
+        targets = malloc(sizeof(*targets) * needed);
+        if (targets == NULL)
+            return _ENOMEM;
+        target_cap = needed;
+
+        complex_lockt(&pids_lock, 0);
+        pid = pid_get(pgid);
+        if (pid == NULL) {
+            unlock(&pids_lock);
+            free(targets);
+            return _ESRCH;
+        }
+    }
+
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
-        send_signal(tgroup->leader, sig, info);
+        struct task *task = tgroup->leader;
+        if (task == NULL || task->zombie || task->exiting || task->sighand == NULL)
+            continue;
+        task_ref_cnt_mod(task, 1);
+        sighand_retain(task->sighand);
+        targets[target_count++] = (struct group_signal_target) {
+            .task = task,
+            .sighand = task->sighand,
+        };
     }
     unlock(&pids_lock);
+
+    for (size_t i = 0; i < target_count; i++) {
+        send_signal_with_sighand(targets[i].task, targets[i].sighand, sig, info);
+        sighand_release(targets[i].sighand);
+        task_ref_cnt_mod(targets[i].task, -1);
+    }
+    if (targets != stack_targets)
+        free(targets);
     return 0;
 }
 
@@ -1868,36 +1919,117 @@ static int queue_signal_task(struct task *task, dword_t sig, struct siginfo_ inf
     return 0;
 }
 
+struct kill_target {
+    struct task *task;
+};
+
 static int kill_group(pid_t_ pgid, dword_t sig) {
+    struct kill_target stack_targets[32];
+    struct kill_target *targets = stack_targets;
+    size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
+    size_t target_count = 0;
     struct pid *pid = pid_get(pgid);
     if (pid == NULL) {
         unlock(&pids_lock);
         return _ESRCH;
     }
-    struct tgroup *tgroup;
-    int err = _EPERM;
     while((task_ref_cnt_get(current, 0) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
         nanosleep(&lock_pause, NULL);
     }
+
+retry:
+    target_count = 0;
+    size_t needed = 0;
+    struct tgroup *tgroup;
+    list_for_each_entry(&pid->pgroup, tgroup, pgroup)
+        needed++;
+    if (needed > target_cap) {
+        unlock(&pids_lock);
+        if (targets != stack_targets)
+            free(targets);
+        targets = malloc(sizeof(*targets) * needed);
+        if (targets == NULL)
+            return _ENOMEM;
+        target_cap = needed;
+
+        complex_lockt(&pids_lock, 0);
+        pid = pid_get(pgid);
+        if (pid == NULL) {
+            unlock(&pids_lock);
+            free(targets);
+            return _ESRCH;
+        }
+        goto retry;
+    }
+
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
-        int kill_err = kill_task(tgroup->leader, sig);
-        // killing a group should return an error only if no process can be signaled
+        struct task *task = tgroup->leader;
+        if (task == NULL || task->zombie || task->exiting)
+            continue;
+        task_ref_cnt_mod(task, 1);
+        targets[target_count++] = (struct kill_target) {.task = task};
+    }
+    unlock(&pids_lock);
+
+    int err = _EPERM;
+    for (size_t i = 0; i < target_count; i++) {
+        int kill_err = kill_task(targets[i].task, sig);
+        task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
     }
+    if (targets != stack_targets)
+        free(targets);
     return err;
 }
 
 static int kill_everything(dword_t sig) {
-    int err = _EPERM;
+    struct kill_target stack_targets[64];
+    struct kill_target *targets = stack_targets;
+    size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
+    size_t target_count = 0;
+
+retry:
+    target_count = 0;
+    if (targets == NULL)
+        return _ENOMEM;
+
     for (int i = 2; i < MAX_PID; i++) {
         struct task *task = pid_get_task(i);
         if (task == NULL || task == current || !task_is_leader(task))
             continue;
-        int kill_err = kill_task(task, sig);
+        if (target_count == target_cap) {
+            unlock(&pids_lock);
+            size_t new_cap = target_cap * 2;
+            struct kill_target *new_targets = targets == stack_targets
+                ? malloc(sizeof(*new_targets) * new_cap)
+                : realloc(targets, sizeof(*new_targets) * new_cap);
+            if (new_targets == NULL) {
+                if (targets != stack_targets)
+                    free(targets);
+                return _ENOMEM;
+            }
+            if (targets == stack_targets)
+                memcpy(new_targets, stack_targets, sizeof(stack_targets));
+            targets = new_targets;
+            target_cap = new_cap;
+            complex_lockt(&pids_lock, 0);
+            goto retry;
+        }
+        task_ref_cnt_mod(task, 1);
+        targets[target_count++] = (struct kill_target) {.task = task};
+    }
+    unlock(&pids_lock);
+
+    int err = _EPERM;
+    for (size_t i = 0; i < target_count; i++) {
+        int kill_err = kill_task(targets[i].task, sig);
+        task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
     }
+    if (targets != stack_targets)
+        free(targets);
     return err;
 }
 
@@ -1912,29 +2044,27 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
     }
 
     int err;
-    complex_lockt(&pids_lock, 0);
-
     if (pid == -1) {
+        complex_lockt(&pids_lock, 0);
         err = kill_everything(sig);
     } else if (pid < 0) {
+        complex_lockt(&pids_lock, 0);
         err = kill_group(-pid, sig);
     } else {
-        struct task *task = pid_get_task(pid);
+        struct task *task = pid_get_task_ref(pid);
         if (task == NULL) {
-            unlock(&pids_lock);
             return _ESRCH;
         }
 
         // If tgid is nonzero, it must be correct
         if (tgid != 0 && task->tgid != tgid) {
-            unlock(&pids_lock);
+            task_ref_cnt_mod(task, -1);
             return _ESRCH;
         }
 
         err = kill_task(task, sig);
+        task_ref_cnt_mod(task, -1);
     }
-
-    unlock(&pids_lock);
     return err;
 }
 
@@ -1971,15 +2101,13 @@ dword_t sys_rt_sigqueueinfo_guest(pid_t_ pid, dword_t sig, guest_addr_t uinfo_ad
     info.rt.pid = current->pid;
     info.rt.uid = current->uid;
 
-    complex_lockt(&pids_lock, 0);
-    struct task *task = pid_get_task(pid);
+    struct task *task = pid_get_task_ref(pid);
     if (task == NULL) {
-        unlock(&pids_lock);
         return _ESRCH;
     }
 
     err = queue_signal_task(task, sig, info);
-    unlock(&pids_lock);
+    task_ref_cnt_mod(task, -1);
     return err;
 }
 
@@ -1995,19 +2123,17 @@ dword_t sys_rt_tgsigqueueinfo_guest(pid_t_ tgid, pid_t_ tid, dword_t sig, guest_
     info.sig = sig;
     info.sig_errno = 0;
 
-    complex_lockt(&pids_lock, 0);
-    struct task *task = pid_get_task(tid);
+    struct task *task = pid_get_task_ref(tid);
     if (task == NULL) {
-        unlock(&pids_lock);
         return _ESRCH;
     }
     if (task->tgid != tgid) {
-        unlock(&pids_lock);
+        task_ref_cnt_mod(task, -1);
         return _ESRCH;
     }
 
     err = queue_signal_task(task, sig, info);
-    unlock(&pids_lock);
+    task_ref_cnt_mod(task, -1);
     return err;
 }
 

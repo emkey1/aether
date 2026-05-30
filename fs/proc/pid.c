@@ -22,10 +22,10 @@ static void proc_pid_getname(struct proc_entry *entry, char *buf) {
     sprintf(buf, "%d", entry->pid);
 }
 
-static char proc_task_state_char_from_snapshot(struct task *task, bool stopped) {
-    return (task->zombie ? 'Z' :
+static char proc_task_state_char_from_snapshot(pid_t_ pid, bool zombie, bool io_block, bool stopped) {
+    return (zombie ? 'Z' :
             stopped ? 'T' :
-            task->io_block && task->pid != current->pid ? 'S' :
+            io_block && pid != current->pid ? 'S' :
             'R');
 }
 
@@ -142,6 +142,8 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     sigset_t_ pending = 0;
     sigset_t_ blocked = 0;
     int exit_signal = 0;
+    bool zombie = false;
+    bool io_block = false;
 
     lock(&task->general_lock, 0);
     if (mm != NULL) {
@@ -167,7 +169,6 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
     // information about itself, but it shouldn't be marked as blocked.
-    proc_state = proc_task_state_char_from_snapshot(task, stopped);
     tty_dev = tty ? dev_make(tty->driver->major, tty->num) : 0;
     if (tty != NULL) {
         lock(&tty->lock, 0);
@@ -180,9 +181,13 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     pending = task->pending;
     blocked = task->blocked;
     exit_signal = task->exit_signal;
+    zombie = task->zombie;
+    io_block = task->io_block;
     unlock(&pids_lock);
     if (mm != NULL)
         mm_release(mm);
+
+    proc_state = proc_task_state_char_from_snapshot(pid, zombie, io_block, stopped);
 
     proc_printf(buf, "%d ", pid);
     proc_printf(buf, "(%.16s) ", comm);
@@ -412,9 +417,17 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     }
 
     pid_t_ ppid = 0;
+    bool zombie = false;
+    bool io_block = false;
+    sigset_t_ pending = 0;
+    sigset_t_ blocked = 0;
     complex_lockt(&pids_lock, 0);
     if (task->parent != NULL)
         ppid = task->parent->pid;
+    zombie = task->zombie;
+    io_block = task->io_block;
+    pending = task->pending;
+    blocked = task->blocked;
     unlock(&pids_lock);
 
     struct mm *mm = proc_task_mm_retain(task);
@@ -439,7 +452,7 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     unsigned allowed_mask = cpu_count >= 31 ? 0x7fffffffU : ((1U << cpu_count) - 1U);
 
     proc_printf(buf, "Name:\t%s\n", task->comm);
-    proc_printf(buf, "State:\t%c\n", proc_task_state_char_from_snapshot(task, stopped));
+    proc_printf(buf, "State:\t%c\n", proc_task_state_char_from_snapshot(task->pid, zombie, io_block, stopped));
     proc_printf(buf, "Tgid:\t%d\n", task->tgid);
     proc_printf(buf, "Ngid:\t0\n");
     proc_printf(buf, "Pid:\t%d\n", task->pid);
@@ -460,9 +473,9 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     proc_printf(buf, "VmRSS:\t%lu kB\n", vm_kb);
     proc_printf(buf, "Threads:\t%lu\n", list_size(&task->group->threads));
     proc_printf(buf, "SigQ:\t0/0\n");
-    proc_printf(buf, "SigPnd:\t%08x\n", task->pending);
+    proc_printf(buf, "SigPnd:\t%08x\n", pending);
     proc_printf(buf, "ShdPnd:\t00000000\n");
-    proc_printf(buf, "SigBlk:\t%08x\n", task->blocked);
+    proc_printf(buf, "SigBlk:\t%08x\n", blocked);
     proc_printf(buf, "SigIgn:\t00000000\n");
     proc_printf(buf, "SigCgt:\t00000000\n");
     proc_printf(buf, "CapInh:\t%08x%08x\n", task->cap_inheritable[1], task->cap_inheritable[0]);

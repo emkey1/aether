@@ -277,11 +277,10 @@ int_t sys_sched_getaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t c
 
     // Handle pid check separately for clarity
     if (pid != 0) {
-        complex_lockt(&pids_lock, 0);
-        struct task *task = pid_get_task(pid);
-        unlock(&pids_lock);
+        struct task *task = pid_get_task_ref(pid);
         if (task == NULL)
             return _ESRCH;
+        task_ref_cnt_mod(task, -1);
     }
 
     // Report the guest-visible CPU topology, not the raw host core count.
