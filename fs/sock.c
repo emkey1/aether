@@ -5,7 +5,10 @@
 #if defined(__APPLE__)
 #include <net/if_dl.h>
 #endif
+#include <netinet/icmp6.h>
+#include <netinet/ip6.h>
 #include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,6 +132,14 @@ struct sockaddr_in_ {
     uint16_t sin_port;
     uint32_t sin_addr;
     uint8_t sin_zero[8];
+};
+
+struct sockaddr_in6_ {
+    uint16_t sin6_family;
+    uint16_t sin6_port;
+    uint32_t sin6_flowinfo;
+    struct in6_addr sin6_addr;
+    uint32_t sin6_scope_id;
 };
 
 struct guest_ifreq_addr_ {
@@ -1990,37 +2001,66 @@ static int sockaddr_read_bind(guest_addr_t sockaddr_addr, void *sockaddr, uint_t
     // Make sure we can read things without overflowing buffers
     if (*sockaddr_len < 2)
         return _EINVAL;
-    if (*sockaddr_len > sizeof(struct sockaddr_max_))
-        return _EINVAL;
-
-    if (user_read(sockaddr_addr, sockaddr, *sockaddr_len))
+    uint16_t guest_family;
+    if (user_read(sockaddr_addr, &guest_family, sizeof(guest_family)))
         return _EFAULT;
-    struct sockaddr_ *fake_addr = sockaddr;
-    int real_family = sock_family_to_real(fake_addr->family);
+    int real_family = sock_family_to_real(guest_family);
 
     switch (real_family) {
-        case PF_INET:
-            if (*sockaddr_len < sizeof(struct sockaddr_in))
+        case PF_INET: {
+            if (*sockaddr_len < sizeof(struct sockaddr_in_))
                 return _EINVAL;
+            struct sockaddr_in_ guest_addr;
+            if (user_read(sockaddr_addr, &guest_addr, sizeof(guest_addr)))
+                return _EFAULT;
+            {
+                struct sockaddr_in *real_addr = (struct sockaddr_in *) sockaddr;
+                memset(real_addr, 0, sizeof(*real_addr));
 #ifdef __APPLE__
-            ((struct sockaddr_in *) sockaddr)->sin_len = sizeof(struct sockaddr_in);
+                real_addr->sin_len = sizeof(*real_addr);
 #endif
-            ((struct sockaddr_in *) sockaddr)->sin_family = PF_INET;
+                real_addr->sin_family = PF_INET;
+                real_addr->sin_port = guest_addr.sin_port;
+                real_addr->sin_addr.s_addr = guest_addr.sin_addr;
+            }
+            *sockaddr_len = sizeof(struct sockaddr_in);
             break;
-        case PF_INET6:
-            if (*sockaddr_len < sizeof(struct sockaddr_in6))
+        }
+        case PF_INET6: {
+            if (*sockaddr_len < sizeof(struct sockaddr_in6_))
                 return _EINVAL;
+            struct sockaddr_in6_ guest_addr;
+            if (user_read(sockaddr_addr, &guest_addr, sizeof(guest_addr)))
+                return _EFAULT;
+            {
+                struct sockaddr_in6 *real_addr = (struct sockaddr_in6 *) sockaddr;
+                memset(real_addr, 0, sizeof(*real_addr));
 #ifdef __APPLE__
-            ((struct sockaddr_in6 *) sockaddr)->sin6_len = sizeof(struct sockaddr_in6);
+                real_addr->sin6_len = sizeof(*real_addr);
 #endif
-            ((struct sockaddr_in6 *) sockaddr)->sin6_family = PF_INET6;
+                real_addr->sin6_family = PF_INET6;
+                real_addr->sin6_port = guest_addr.sin6_port;
+                real_addr->sin6_flowinfo = guest_addr.sin6_flowinfo;
+                real_addr->sin6_addr = guest_addr.sin6_addr;
+                real_addr->sin6_scope_id = guest_addr.sin6_scope_id;
+            }
+            *sockaddr_len = sizeof(struct sockaddr_in6);
             break;
+        }
         case PF_NETLINK_:
             if (*sockaddr_len < sizeof(struct sockaddr_nl_))
                 return _EINVAL;
+            if (user_read(sockaddr_addr, sockaddr, sizeof(struct sockaddr_nl_)))
+                return _EFAULT;
+            *sockaddr_len = sizeof(struct sockaddr_nl_);
             break;
 
         case PF_LOCAL: {
+            if (*sockaddr_len > sizeof(struct sockaddr_max_))
+                return _EINVAL;
+            if (user_read(sockaddr_addr, sockaddr, *sockaddr_len))
+                return _EFAULT;
+            struct sockaddr_ *fake_addr = sockaddr;
             // First pull out the path, being careful to not overflow anything.
             char path[SOCKADDR_DATA_MAX + 1];
             size_t path_size = *sockaddr_len - offsetof(struct sockaddr_, data);
@@ -2072,6 +2112,8 @@ static int sockaddr_read(guest_addr_t sockaddr_addr, void *sockaddr, uint_t *soc
     inode_release_if_exist(inode);
     return err;
 }
+
+static int ipv6_recverr_fd_get(struct fd *sock);
 
 static int sockaddr_write(guest_addr_t sockaddr_addr, void *sockaddr, uint_t buffer_len, uint_t *sockaddr_len) {
     struct sockaddr *real_addr = sockaddr;
@@ -2791,6 +2833,7 @@ int_t sys_shutdown(fd_t sock_fd, dword_t how) {
 
 static void sock_init_emulation_defaults(struct fd *fd) {
     strcpy(fd->socket.tcp_congestion, DEFAULT_TCP_CONGESTION);
+    fd->socket.ipv6_recverr_fd = -1;
 }
 
 static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t option,
@@ -2841,6 +2884,13 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         if (value_len < sizeof(dword_t))
             return _EINVAL;
         sock->socket.ipv6_recverr = (*(dword_t *) value) != 0;
+        if (sock->socket.ipv6_recverr) {
+            if (ipv6_recverr_fd_get(sock) < 0)
+                return errno_map();
+        } else if (sock->socket.ipv6_recverr_fd >= 0) {
+            close(sock->socket.ipv6_recverr_fd);
+            sock->socket.ipv6_recverr_fd = -1;
+        }
         return 0;
     }
     if (level == IPPROTO_IP && option == IP_RETOPTS_) {
@@ -3449,11 +3499,13 @@ static int sock_cmsg_type_to_fake(int level, int type) {
             case IP_TTL: return IP_TTL_;
             case IP_RECVTTL: return IP_TTL_;
             case IP_TOS: return IP_TOS_;
+            case IP_RECVERR_: return IP_RECVERR_;
         }
     } else if (level == IPPROTO_IPV6) {
         switch (type) {
             case IPV6_HOPLIMIT: return IPV6_HOPLIMIT_;
             case IPV6_TCLASS: return IPV6_TCLASS_;
+            case IPV6_RECVERR_: return IPV6_RECVERR_;
         }
     }
     return -1;
@@ -3461,7 +3513,7 @@ static int sock_cmsg_type_to_fake(int level, int type) {
 
 static bool sock_cmsg_translate_payload(int level, int type, const void *data, size_t data_len,
         const void **fake_data, size_t *fake_data_len, int *fake_level, int *fake_type,
-        int *scratch_int) {
+        uint8_t *scratch, size_t scratch_cap) {
     *fake_level = sock_cmsg_level_to_fake(level);
     *fake_type = sock_cmsg_type_to_fake(level, type);
     if (*fake_type < 0)
@@ -3473,9 +3525,37 @@ static bool sock_cmsg_translate_payload(int level, int type, const void *data, s
     if (level == IPPROTO_IP && type == IP_RECVTTL) {
         if (data_len < sizeof(uint8_t))
             return false;
-        *scratch_int = *(const uint8_t *) data;
-        *fake_data = scratch_int;
-        *fake_data_len = sizeof(*scratch_int);
+        if (scratch_cap < sizeof(int))
+            return false;
+        *(int *) scratch = *(const uint8_t *) data;
+        *fake_data = scratch;
+        *fake_data_len = sizeof(int);
+        return true;
+    }
+
+    if (level == IPPROTO_IPV6 && type == IPV6_RECVERR_) {
+        size_t need = sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6_);
+        if (data_len < sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6))
+            return false;
+        if (scratch_cap < need)
+            return false;
+
+        struct sock_extended_err_ *guest_err = (struct sock_extended_err_ *) scratch;
+        memcpy(guest_err, data, sizeof(*guest_err));
+
+        const struct sockaddr_in6 *host_offender =
+            (const struct sockaddr_in6 *) ((const uint8_t *) data + sizeof(*guest_err));
+        struct sockaddr_in6_ *guest_offender =
+            (struct sockaddr_in6_ *) (scratch + sizeof(*guest_err));
+        memset(guest_offender, 0, sizeof(*guest_offender));
+        guest_offender->sin6_family = AF_INET6_;
+        guest_offender->sin6_port = host_offender->sin6_port;
+        guest_offender->sin6_flowinfo = host_offender->sin6_flowinfo;
+        guest_offender->sin6_addr = host_offender->sin6_addr;
+        guest_offender->sin6_scope_id = host_offender->sin6_scope_id;
+
+        *fake_data = scratch;
+        *fake_data_len = need;
     }
     return true;
 }
@@ -3764,6 +3844,149 @@ int_t sys_sendmsg_amd64_guest(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flag
     return sys_sendmsg_guest_abi(sock_fd, msghdr_addr, flags, GUEST_ABI_AMD64);
 }
 
+static int ipv6_recverr_errno_from_icmp6(uint8_t type, uint8_t code) {
+    switch (type) {
+        case ICMP6_DST_UNREACH:
+            return code == ICMP6_DST_UNREACH_NOPORT ? ECONNREFUSED : EHOSTUNREACH;
+        case ICMP6_PACKET_TOO_BIG:
+            return EMSGSIZE;
+        case ICMP6_TIME_EXCEEDED:
+            return EHOSTUNREACH;
+        case ICMP6_PARAM_PROB:
+            return EPROTO;
+        default:
+            return EHOSTUNREACH;
+    }
+}
+
+static int ipv6_recverr_fd_get(struct fd *sock) {
+    if (sock->socket.ipv6_recverr_fd >= 0)
+        return sock->socket.ipv6_recverr_fd;
+    int fd = socket(AF_INET6, SOCK_DGRAM, IPPROTO_ICMPV6);
+    if (fd < 0)
+        return -1;
+    sock->socket.ipv6_recverr_fd = fd;
+    return fd;
+}
+
+static bool ipv6_recverr_matches_socket(struct fd *sock, const struct ip6_hdr *ip6,
+        const struct udphdr *udp) {
+    struct sockaddr_in6 peer = {};
+    socklen_t peer_len = sizeof(peer);
+    if (getpeername(sock->real_fd, (struct sockaddr *) &peer, &peer_len) < 0)
+        return false;
+    if (peer_len < sizeof(peer))
+        return false;
+    if (memcmp(&ip6->ip6_dst, &peer.sin6_addr, sizeof(peer.sin6_addr)) != 0)
+        return false;
+    if (udp->uh_dport != peer.sin6_port)
+        return false;
+
+    struct sockaddr_in6 local = {};
+    socklen_t local_len = sizeof(local);
+    if (getsockname(sock->real_fd, (struct sockaddr *) &local, &local_len) == 0 &&
+            local_len >= sizeof(local)) {
+        if (local.sin6_port != 0 && udp->uh_sport != local.sin6_port)
+            return false;
+    }
+    return true;
+}
+
+static ssize_t recvmsg_ipv6_errqueue(struct fd *sock, struct msghdr *msg, int real_flags) {
+    int errfd = ipv6_recverr_fd_get(sock);
+    if (errfd < 0) {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+
+    int recv_flags = real_flags & MSG_DONTWAIT;
+    while (1) {
+        uint8_t packet[2048];
+        struct sockaddr_in6 from = {};
+        struct iovec iov = {.iov_base = packet, .iov_len = sizeof(packet)};
+        struct msghdr raw = {
+            .msg_name = &from,
+            .msg_namelen = sizeof(from),
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+        };
+        ssize_t n = recvmsg(errfd, &raw, recv_flags);
+        if (n < 0)
+            return -1;
+        if ((size_t) n < sizeof(struct icmp6_hdr) + sizeof(struct ip6_hdr) + sizeof(struct udphdr))
+            continue;
+
+        const struct icmp6_hdr *icmp6 = (const struct icmp6_hdr *) packet;
+        switch (icmp6->icmp6_type) {
+            case ICMP6_DST_UNREACH:
+            case ICMP6_PACKET_TOO_BIG:
+            case ICMP6_TIME_EXCEEDED:
+            case ICMP6_PARAM_PROB:
+                break;
+            default:
+                continue;
+        }
+
+        const uint8_t *quoted = packet + sizeof(struct icmp6_hdr);
+        size_t quoted_len = (size_t) n - sizeof(struct icmp6_hdr);
+        if (quoted_len < sizeof(struct ip6_hdr) + sizeof(struct udphdr))
+            continue;
+
+        const struct ip6_hdr *inner_ip6 = (const struct ip6_hdr *) quoted;
+        if (inner_ip6->ip6_nxt != IPPROTO_UDP)
+            continue;
+        const struct udphdr *inner_udp =
+            (const struct udphdr *) (quoted + sizeof(struct ip6_hdr));
+        if (!ipv6_recverr_matches_socket(sock, inner_ip6, inner_udp))
+            continue;
+
+        if (msg->msg_name != NULL) {
+            size_t copy_len = msg->msg_namelen < sizeof(from) ? msg->msg_namelen : sizeof(from);
+            memcpy(msg->msg_name, &from, copy_len);
+            msg->msg_namelen = sizeof(from);
+        }
+
+        if (msg->msg_control != NULL &&
+                msg->msg_controllen >= CMSG_SPACE(sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6))) {
+            struct cmsghdr *cmsg = (struct cmsghdr *) msg->msg_control;
+            cmsg->cmsg_level = IPPROTO_IPV6;
+            cmsg->cmsg_type = IPV6_RECVERR_;
+            cmsg->cmsg_len = CMSG_LEN(sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6));
+
+            struct sock_extended_err_ serr = {
+                .ee_errno = ipv6_recverr_errno_from_icmp6(icmp6->icmp6_type, icmp6->icmp6_code),
+                .ee_origin = SO_EE_ORIGIN_ICMP6_,
+                .ee_type = icmp6->icmp6_type,
+                .ee_code = icmp6->icmp6_code,
+                .ee_info = icmp6->icmp6_type == ICMP6_PACKET_TOO_BIG ? ntohl(icmp6->icmp6_mtu) : 0,
+                .ee_data = 0,
+            };
+            memcpy(CMSG_DATA(cmsg), &serr, sizeof(serr));
+            memcpy((uint8_t *) CMSG_DATA(cmsg) + sizeof(serr), &from, sizeof(from));
+            msg->msg_controllen = CMSG_SPACE(sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6));
+        } else {
+            msg->msg_controllen = 0;
+            msg->msg_flags |= MSG_CTRUNC;
+        }
+
+        size_t payload_len = quoted_len;
+        size_t remaining = payload_len;
+        const uint8_t *src = quoted;
+        for (size_t i = 0; i < (size_t) msg->msg_iovlen && remaining > 0; i++) {
+            size_t chunk = msg->msg_iov[i].iov_len;
+            if (chunk > remaining)
+                chunk = remaining;
+            memcpy(msg->msg_iov[i].iov_base, src, chunk);
+            src += chunk;
+            remaining -= chunk;
+        }
+        msg->msg_flags &= ~MSG_TRUNC;
+        if (remaining > 0)
+            msg->msg_flags |= MSG_TRUNC;
+        return payload_len;
+    }
+}
+
 static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags,
         enum guest_abi abi) {
     STRACE("recvmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
@@ -3921,9 +4144,17 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         if (!socket_blocking_syscall_begin(&oldmask)) {
             res = -1;
         } else {
+            bool use_ipv6_errqueue =
+                (flags & MSG_ERRQUEUE_) &&
+                sock->socket.domain == AF_INET6_ &&
+                sock->socket.type == SOCK_DGRAM_ &&
+                sock->socket.ipv6_recverr;
             do {
                 errno = 0;
-                res = recvmsg(sock->real_fd, &msg, real_flags);
+                if (use_ipv6_errqueue)
+                    res = recvmsg_ipv6_errqueue(sock, &msg, real_flags);
+                else
+                    res = recvmsg(sock->real_fd, &msg, real_flags);
             } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
             socket_blocking_syscall_end();
         }
@@ -4022,10 +4253,10 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             size_t fake_data_len;
             int fake_level;
             int fake_type;
-            int scratch_int;
+            uint8_t scratch[sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6_)];
             if (!sock_cmsg_translate_payload(iter->cmsg_level, iter->cmsg_type,
                         CMSG_DATA(iter), data_len, &fake_data, &fake_data_len,
-                        &fake_level, &fake_type, &scratch_int))
+                        &fake_level, &fake_type, scratch, sizeof(scratch)))
                 continue;
             required_msg_control += guest_cmsg_space(abi, fake_data_len);
             (void) fake_level;
@@ -4068,10 +4299,10 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
                 const void *fake_data;
                 size_t fake_data_len;
                 int fake_type;
-                int scratch_int;
+                uint8_t scratch[sizeof(struct sock_extended_err_) + sizeof(struct sockaddr_in6_)];
                 if (!sock_cmsg_translate_payload(iter->cmsg_level, iter->cmsg_type,
                             CMSG_DATA(iter), data_len, &fake_data, &fake_data_len,
-                            &fake_level, &fake_type, &scratch_int))
+                            &fake_level, &fake_type, scratch, sizeof(scratch)))
                     continue;
                 bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
                         fake_level, fake_type, fake_data, fake_data_len);
@@ -4278,6 +4509,14 @@ static int sock_poll(struct fd *fd) {
     if ((types & POLL_WRITE) && !socket_tcp_connect_write_ready(fd))
         types &= ~POLL_WRITE;
 #endif
+    if (fd->socket.ipv6_recverr && fd->socket.ipv6_recverr_fd >= 0) {
+        struct pollfd err_pfd = {
+            .fd = fd->socket.ipv6_recverr_fd,
+            .events = POLLIN,
+        };
+        if (poll(&err_pfd, 1, 0) > 0 && (err_pfd.revents & POLLIN))
+            types |= POLLERR;
+    }
     return types;
 }
 
@@ -4398,6 +4637,10 @@ static int sock_close(struct fd *fd) {
             scm_free(scm);
         }
         unlock(&fd->lock);
+    }
+    if (fd->socket.ipv6_recverr_fd >= 0) {
+        close(fd->socket.ipv6_recverr_fd);
+        fd->socket.ipv6_recverr_fd = -1;
     }
     if (fd->real_fd < 0)
         return 0;

@@ -223,6 +223,9 @@ static void devpts_stat_num(int pty_num, struct statbuf *stat) {
         stat->gid = tty->pty.gid;
         stat->inode = pty_num + 3;
         stat->rdev = dev_make(TTY_PSEUDO_SLAVE_MAJOR, pty_num);
+        stat->atime = tty->atime;
+        stat->mtime = tty->mtime;
+        stat->ctime = tty->ctime;
 
         unlock(&tty->lock);
         unlock(&ttys_lock);

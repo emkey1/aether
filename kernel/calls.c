@@ -2947,9 +2947,8 @@ static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
 }
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
-    read_lock(&current->mem->lock);
-    void *ptr = mem_ptr(current->mem, cpu->segfault_addr, cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
-    read_unlock(&current->mem->lock);
+    void *ptr = mem_ptr_fault(current->mem, cpu->segfault_addr,
+                              cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
 
     if (ptr == NULL) {
         printk("ERROR: %d(%s) page fault on %#llx at %#llx%s\n",

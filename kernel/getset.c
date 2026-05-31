@@ -59,11 +59,12 @@ static void cap_emulate_setxuid(uid_t_ old_ruid, uid_t_ old_euid, uid_t_ old_sui
     bool new_any_root = current->uid == 0 || current->euid == 0 || current->suid == 0;
 
     // Linux drops all capabilities once a root-originating task has fully
-    // transitioned to non-root credentials, unless keepcaps/securebits say
-    // otherwise. We do not emulate those knobs yet, so use the default drop.
+    // transitioned to non-root credentials unless PR_SET_KEEPCAPS or
+    // securebits say otherwise. We only model the keepcaps bit here.
     if (old_any_root && !new_any_root) {
         current->cap_effective[0] = current->cap_effective[1] = 0;
-        current->cap_permitted[0] = current->cap_permitted[1] = 0;
+        if (!current->keepcaps)
+            current->cap_permitted[0] = current->cap_permitted[1] = 0;
         return;
     }
 

@@ -742,6 +742,88 @@ done_write_fault:
     return ptr;
 }
 
+void *mem_ptr_fault(struct mem *mem, guest_addr_t addr, int type) {
+    page_t page = PAGE(addr);
+    write_lock(&mem->lock);
+
+    struct pt_entry *entry = mem_pt(mem, page);
+    if (entry == NULL) {
+        page_t p = page + 1;
+        p = mem_next_mapped_page(mem, p);
+        if (p == BAD_PAGE || p >= mem->page_limit) {
+            write_unlock(&mem->lock);
+            return NULL;
+        }
+        struct pt_entry *next = mem_pt(mem, p);
+        if (next == NULL || !(next->flags & P_GROWSDOWN)) {
+            write_unlock(&mem->lock);
+            return NULL;
+        }
+        pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
+        entry = mem_pt(mem, page);
+    }
+
+    if (entry != NULL && (type == MEM_WRITE || type == MEM_WRITE_PTRACE)) {
+        if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE)) {
+            write_unlock(&mem->lock);
+            return NULL;
+        }
+        if (type == MEM_WRITE_PTRACE)
+            entry->flags |= P_WRITE | P_COW;
+#if ENGINE_JIT
+        jit_invalidate_page(mem->mmu.jit, page);
+#endif
+        if (entry->flags & P_COW) {
+            bool locked_general_lock = false;
+            if (current != NULL && !pthread_equal(current->general_lock.owner, pthread_self())) {
+                lock(&current->general_lock, 0);
+                locked_general_lock = true;
+            }
+            entry = mem_pt(mem, page);
+            if (entry == NULL) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_unlock(&mem->lock);
+                return NULL;
+            }
+            if (type != MEM_WRITE_PTRACE && !(entry->flags & P_WRITE)) {
+                if (locked_general_lock)
+                    unlock(&current->general_lock);
+                write_unlock(&mem->lock);
+                return NULL;
+            }
+            if (entry->flags & P_COW) {
+                void *copy = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+                void *data = (char *) entry->data->data + entry->offset;
+                if (copy == MAP_FAILED) {
+                    if (locked_general_lock)
+                        unlock(&current->general_lock);
+                    write_unlock(&mem->lock);
+                    return NULL;
+                }
+                memcpy(copy, data, PAGE_SIZE);
+                pt_map(mem, page, 1, copy, 0, entry->flags & ~P_COW);
+                entry = mem_pt(mem, page);
+            }
+            if (locked_general_lock)
+                unlock(&current->general_lock);
+        }
+    }
+
+    if (entry != NULL && type != MEM_WRITE_PTRACE && (entry->flags & P_WRITE)) {
+        int host_err = mem_ensure_host_writable(entry);
+        if (host_err < 0) {
+            write_unlock(&mem->lock);
+            return NULL;
+        }
+    }
+
+    void *ptr = mem_ptr_nofault(mem, addr, type);
+    write_unlock(&mem->lock);
+    return ptr;
+}
+
 static void *mem_mmu_translate(struct mmu *mmu, guest_addr_t addr, int type) {
     struct mem *mem = container_of(mmu, struct mem, mmu);
     void *ptr = mem_ptr_nofault(mem, addr, type);

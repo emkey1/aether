@@ -140,6 +140,21 @@ struct cmsghdr_ {
     uint8_t data[];
 };
 
+struct sock_extended_err_ {
+    uint32_t ee_errno;
+    uint8_t ee_origin;
+    uint8_t ee_type;
+    uint8_t ee_code;
+    uint8_t ee_pad;
+    uint32_t ee_info;
+    uint32_t ee_data;
+};
+
+#define SO_EE_ORIGIN_NONE_ 0
+#define SO_EE_ORIGIN_LOCAL_ 1
+#define SO_EE_ORIGIN_ICMP_ 2
+#define SO_EE_ORIGIN_ICMP6_ 3
+
 struct i386_mmsghdr_ {
     struct i386_msghdr_ hdr;
     uint_t len;
@@ -246,6 +261,7 @@ static inline int sock_type_to_real(int type, int protocol) {
 #define MSG_DONTWAIT_ 0x40
 #define MSG_EOR_    0x80
 #define MSG_WAITALL_ 0x100
+#define MSG_ERRQUEUE_ 0x2000
 
 static inline int sock_flags_to_real(int fake) {
     int real = 0;
@@ -256,7 +272,7 @@ static inline int sock_flags_to_real(int fake) {
     if (fake & MSG_DONTWAIT_) real |= MSG_DONTWAIT;
     if (fake & MSG_EOR_) real |= MSG_EOR;
     if (fake & MSG_WAITALL_) real |= MSG_WAITALL;
-    if (fake & ~(MSG_OOB_|MSG_PEEK_|MSG_CTRUNC_|MSG_TRUNC_|MSG_DONTWAIT_|MSG_EOR_|MSG_WAITALL_))
+    if (fake & ~(MSG_OOB_|MSG_PEEK_|MSG_CTRUNC_|MSG_TRUNC_|MSG_DONTWAIT_|MSG_EOR_|MSG_WAITALL_|MSG_ERRQUEUE_))
         TRACE("unimplemented socket flags %d\n", fake);
     return real;
 }

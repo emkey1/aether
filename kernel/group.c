@@ -98,10 +98,12 @@ pid_t_ sys_getpgrp(void) {
 // Must lock pids_lock and task->group->lock.
 void task_leave_session(struct task *task) {
     struct tgroup *group = task->group;
+    struct pid *sid_pid = pid_get(group->sid);
+    bool last_session_group = sid_pid == NULL || list_size(&sid_pid->session) <= 1;
     list_remove_safe(&group->session);
     if (group->tty) {
         lock(&ttys_lock, 0);
-        if (list_empty(&pid_get(group->sid)->session)) {
+        if (last_session_group) {
             lock(&group->tty->lock, 0);
             group->tty->session = 0;
             unlock(&group->tty->lock);

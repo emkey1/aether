@@ -16,6 +16,9 @@ gcc -Wall -Wextra -O2 test_recvmsg_pktinfo.c -o ./test_recvmsg_pktinfo
 gcc -Wall -Wextra -O2 -pthread test_recvmsg_eintr.c -o ./test_recvmsg_eintr
 ./test_recvmsg_eintr
 
+gcc -Wall -Wextra -O2 test_sockaddr_len.c -o ./test_sockaddr_len
+./test_sockaddr_len
+
 gcc -Wall -Wextra -O2 test_sockopt_state.c -o ./test_sockopt_state
 ./test_sockopt_state
 

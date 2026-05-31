@@ -81,6 +81,57 @@ static int proc_pid_copy_user_range(struct task *task, struct mem *mem, addr_t s
     return 0;
 }
 
+static int proc_pid_copy_cmdline_range(struct task *task, struct mem *mem, addr_t start,
+                                       size_t size, addr_t env_start, addr_t env_end,
+                                       struct proc_data *buf) {
+    if (mem == NULL || size == 0)
+        return 0;
+
+    char *data = malloc(size);
+    if (data == NULL)
+        return _ENOMEM;
+    if (user_read_task_mem(task, mem, start, data, size) == 0) {
+        char *first_nul = memchr(data, '\0', size);
+        if (first_nul != NULL && first_nul > data) {
+            size_t title_len = first_nul - data;
+            bool has_tail = false;
+            for (char *p = first_nul + 1; p < data + size; p++) {
+                if (*p != '\0') {
+                    has_tail = true;
+                    break;
+                }
+            }
+            if (has_tail && memchr(data, ':', title_len) != NULL) {
+                proc_buf_append(buf, data, title_len);
+                proc_buf_append(buf, "\0", 1);
+                free(data);
+                return 0;
+            }
+        }
+
+        size_t visible = size;
+        if (data[size - 1] != '\0' && env_end > env_start) {
+            visible = strnlen(data, size);
+            if (visible == size) {
+                size_t env_size = env_end - env_start;
+                char *expanded = realloc(data, size + env_size);
+                if (expanded == NULL) {
+                    free(data);
+                    return _ENOMEM;
+                }
+                data = expanded;
+                if (user_read_task_mem(task, mem, env_start, data + size, env_size) == 0)
+                    visible = strnlen(data, size + env_size);
+                else
+                    visible = size;
+            }
+        }
+        proc_buf_append(buf, data, visible);
+    }
+    free(data);
+    return 0;
+}
+
 // Get user and system CPU time for a task's thread, in jiffies (USER_HZ = 100).
 // Uses the Mach thread_info API so it works from any thread, not just the target.
 static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime) {
@@ -336,6 +387,8 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
     int err = 0;
     struct mm *mm = NULL;
     addr_t start = 0;
+    addr_t env_start = 0;
+    addr_t env_end = 0;
     size_t size = 0;
     lock(&task->general_lock, 0);
     
@@ -344,11 +397,13 @@ static int proc_pid_cmdline_show(struct proc_entry *entry, struct proc_data *buf
 
     start = task->mm->argv_start;
     size = task->mm->argv_end - start;
+    env_start = task->mm->env_start;
+    env_end = task->mm->env_end;
     mm = task->mm;
     mm_retain(mm);
     unlock(&task->general_lock);
 
-    err = proc_pid_copy_user_range(task, &mm->mem, start, size, buf);
+    err = proc_pid_copy_cmdline_range(task, &mm->mem, start, size, env_start, env_end, buf);
     mm_release(mm);
     proc_put_task(task);
     return err;

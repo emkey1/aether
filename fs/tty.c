@@ -7,6 +7,8 @@
 #include "fs/devices.h"
 #include "util/sync.h"
 
+extern time_t boot_time;
+
 extern struct tty_driver pty_master;
 extern struct tty_driver pty_slave;
 
@@ -28,6 +30,9 @@ struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
     tty->driver = driver;
     tty->type = type;
     tty->num = num;
+    tty->atime = (dword_t) boot_time;
+    tty->mtime = (dword_t) boot_time;
+    tty->ctime = (dword_t) boot_time;
     tty->hung_up = false;
     tty->ever_opened = false;
     tty->session = 0;
@@ -456,8 +461,13 @@ no_special:
         }
     }
 
-    if (done_size > 0)
+    if (done_size > 0) {
+        dword_t now = (dword_t) time(NULL);
+        lock(&tty->lock, 0);
+        tty->atime = now;
+        unlock(&tty->lock);
         return done_size;
+    }
     return err;
 }
 
@@ -921,6 +931,50 @@ void tty_hangup(struct tty *tty) {
     tty_poll_wakeup(tty, POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP);
     if (tty->driver == &pty_slave && tty->pty.other != NULL)
         tty_poll_wakeup_unlocked(tty->pty.other, POLL_READ | POLL_HUP);
+}
+
+bool tty_stat_rdev(dev_t_ rdev, struct statbuf *stat) {
+    int major = dev_major(rdev);
+    int minor = dev_minor(rdev);
+    bool tty_alias = false;
+    if (major == TTY_ALTERNATE_MAJOR && minor == DEV_CONSOLE_MINOR) {
+        major = console_major;
+        minor = console_minor;
+        tty_alias = true;
+    }
+
+    if (major == TTY_ALTERNATE_MAJOR && minor == DEV_TTY_MINOR)
+        tty_alias = true;
+
+    if (!tty_alias &&
+            major != TTY_CONSOLE_MAJOR && major != TTY_PSEUDO_MASTER_MAJOR &&
+            major != TTY_PSEUDO_SLAVE_MAJOR)
+        return false;
+
+    dword_t stamp = (dword_t) boot_time;
+    struct tty_driver *driver = tty_drivers[major];
+    if (driver == NULL || minor < 0 || (unsigned) minor >= driver->limit) {
+        stat->atime = stamp;
+        stat->mtime = stamp;
+        stat->ctime = stamp;
+        return true;
+    }
+
+    lock(&ttys_lock, 0);
+    struct tty *tty = driver->ttys[minor];
+    if (tty != NULL && tty != (void *) 1) {
+        lock(&tty->lock, 0);
+        stat->atime = tty->atime;
+        stat->mtime = tty->mtime;
+        stat->ctime = tty->ctime;
+        unlock(&tty->lock);
+    } else {
+        stat->atime = stamp;
+        stat->mtime = stamp;
+        stat->ctime = stamp;
+    }
+    unlock(&ttys_lock);
+    return true;
 }
 
 struct dev_ops tty_dev = {

@@ -76,6 +76,7 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page);
 // used as the incremenent in a for loop to traverse mappings.
 void mem_next_page(struct mem *mem, page_t *page);
 size_t mem_mapped_page_count(struct mem *mem);
+void *mem_ptr_fault(struct mem *mem, guest_addr_t addr, int type);
 
 #define BYTES_ROUND_DOWN(bytes) (PAGE(bytes) << PAGE_BITS)
 #define BYTES_ROUND_UP(bytes) (PAGE_ROUND_UP(bytes) << PAGE_BITS)

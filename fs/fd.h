@@ -75,6 +75,7 @@ struct fd {
             dword_t ipv6_mtu;
             bool ip_recverr;
             bool ipv6_recverr;
+            int ipv6_recverr_fd;
             bool icmp6_filter_valid;
             uint32_t icmp6_filter[8];
             dword_t tcp_defer_accept;

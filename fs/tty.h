@@ -122,6 +122,9 @@ struct tty {
     struct termios_ termios;
     int type;
     int num;
+    dword_t atime;
+    dword_t mtime;
+    dword_t ctime;
 
     pid_t_ session;
     pid_t_ fg_group;
@@ -151,6 +154,7 @@ struct tty {
 ssize_t tty_input(struct tty *tty, const char *input, size_t len, bool blocking);
 void tty_set_winsize(struct tty *tty, struct winsize_ winsize);
 void tty_hangup(struct tty *tty);
+bool tty_stat_rdev(dev_t_ rdev, struct statbuf *stat);
 
 // public for the benefit of ptys
 struct tty *tty_get(struct tty_driver *driver, int type, int num);

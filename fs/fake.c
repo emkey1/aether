@@ -16,6 +16,7 @@
 #include "fs/inode.h"
 #include "fs/poll.h"
 #include "fs/real.h"
+#include "fs/tty.h"
 #define ISH_INTERNAL
 #include "fs/fake.h"
 
@@ -406,6 +407,8 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     fake_stat->uid = ishstat.uid;
     fake_stat->gid = ishstat.gid;
     fake_stat->rdev = ishstat.rdev;
+    if (S_ISCHR(fake_stat->mode))
+        tty_stat_rdev(fake_stat->rdev, fake_stat);
     return 0;
 }
 
@@ -432,6 +435,8 @@ static int fakefs_fstat(struct fd *fd, struct statbuf *fake_stat) {
     fake_stat->uid = ishstat.uid;
     fake_stat->gid = ishstat.gid;
     fake_stat->rdev = ishstat.rdev;
+    if (S_ISCHR(fake_stat->mode))
+        tty_stat_rdev(fake_stat->rdev, fake_stat);
     return 0;
 }
 

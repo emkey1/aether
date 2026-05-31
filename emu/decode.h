@@ -842,13 +842,15 @@ restart:
         case 0x8d: TRACEI("lea\t\t"); READMODRM_MEM;
                    MOV(addr, modrm_reg,oz); break;
 
-        // only gs is supported, and it does nothing
-        // see comment in sys/tls.c
+        // We only emulate one TLS-backed segment selector. FS and GS are both
+        // accepted here and share the same backing state, matching the rest of
+        // the tree where both FS: and GS: memory references resolve via
+        // cpu->tls_ptr. ES/CS/SS/DS remain unsupported.
         case 0x8c: TRACEI("mov seg, modrm\t"); READMODRM;
-            if (modrm.reg != reg_ebp) UNDEFINED;
+            if (modrm.reg != reg_esp && modrm.reg != reg_ebp) UNDEFINED;
             MOV(gs, modrm_val,16); break;
         case 0x8e: TRACEI("mov modrm, seg\t"); READMODRM;
-            if (modrm.reg != reg_ebp) UNDEFINED;
+            if (modrm.reg != reg_esp && modrm.reg != reg_ebp) UNDEFINED;
             MOV(modrm_val, gs,16); break;
 
         case 0x8f: TRACEI("pop modrm");

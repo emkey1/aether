@@ -59,6 +59,7 @@ struct task {
     dword_t cap_effective[2];
     dword_t cap_permitted[2];
     dword_t cap_inheritable[2];
+    bool keepcaps;
 #define MAX_GROUPS 32
     unsigned ngroups;
     uid_t_ groups[MAX_GROUPS];

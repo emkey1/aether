@@ -72,8 +72,11 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED
                 return _EINVAL;
             return 0;
         case PRCTL_GET_KEEPCAPS_:
+            return current->keepcaps ? 1 : 0;
         case PRCTL_SET_KEEPCAPS_:
-            // Compatibility stub: enough for capability-probing startup code.
+            if (arg2 > 1)
+                return _EINVAL;
+            current->keepcaps = arg2 != 0;
             return 0;
         case PRCTL_GET_NAME_: {
             char name[16] = {};
@@ -121,15 +124,30 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED
         case PRCTL_SET_MM_:
             if (!superuser())
                 return _EPERM;
+            lock(&current->general_lock, 0);
+            if (current->mm == NULL) {
+                unlock(&current->general_lock);
+                return _EINVAL;
+            }
             switch (arg2) {
                 case PRCTL_SET_MM_ARG_START_:
+                    current->mm->argv_start = (guest_addr_t) arg3;
+                    break;
                 case PRCTL_SET_MM_ARG_END_:
+                    current->mm->argv_end = (guest_addr_t) arg3;
+                    break;
                 case PRCTL_SET_MM_ENV_START_:
+                    current->mm->env_start = (guest_addr_t) arg3;
+                    break;
                 case PRCTL_SET_MM_ENV_END_:
-                    return 0;
+                    current->mm->env_end = (guest_addr_t) arg3;
+                    break;
                 default:
+                    unlock(&current->general_lock);
                     return _EINVAL;
             }
+            unlock(&current->general_lock);
+            return 0;
         case PRCTL_SET_CHILD_SUBREAPER_:
             if (arg2 > 1)
                 return _EINVAL;
