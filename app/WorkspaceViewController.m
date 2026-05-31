@@ -5157,6 +5157,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     for (UIButton *button in _themeSelectionButtons) {
         NSString *identifier = button.accessibilityIdentifier;
         BOOL selected = [identifier isEqualToString:ISHWorkspaceCurrentThemeIdentifier()];
+        if (selected) {
+            button.accessibilityTraits |= UIAccessibilityTraitSelected;
+        } else {
+            button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+        }
         button.backgroundColor = selected
             ? [theme[@"accent"] colorWithAlphaComponent:0.34]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
@@ -6452,6 +6457,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         if (button == nil)
             continue;
         BOOL current = [descriptor[@"isCurrent"] boolValue];
+        if (current) {
+            button.accessibilityTraits |= UIAccessibilityTraitSelected;
+        } else {
+            button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+        }
         button.backgroundColor = current
             ? [theme[@"accent"] colorWithAlphaComponent:0.16]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.94];
@@ -6998,6 +7008,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     }
     for (UIButton *button in _tabButtons) {
         BOOL selected = button.tag == _selectedTabIndex;
+        if (selected) {
+            button.accessibilityTraits |= UIAccessibilityTraitSelected;
+        } else {
+            button.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+        }
         button.backgroundColor = selected
             ? [theme[@"accent"] colorWithAlphaComponent:0.18]
             : [theme[@"cardAlt"] colorWithAlphaComponent:0.92];
