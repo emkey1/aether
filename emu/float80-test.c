@@ -64,7 +64,7 @@ void assertf(int cond, const char *msg, ...) {
     char buf[1024];
     va_list args;
     va_start(args, msg);
-    vsprintf(buf, msg, args);
+    vsnprintf(buf, sizeof(buf), msg, args);
     va_end(args);
     puts(buf);
 }
