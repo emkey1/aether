@@ -1,5 +1,6 @@
 #include <string.h>
 #include "kernel/errno.h"
+#include "kernel/log.h"
 #include "kernel/random.h"
 #include "fs/poll.h"
 #include "fs/mem.h"
@@ -10,7 +11,8 @@ extern struct dev_ops
     null_dev,
     zero_dev,
     full_dev,
-    random_dev;
+    random_dev,
+    kmsg_dev;
 
 // this file handles major device number MEM_MAJOR, minor device numbers are mapped in table below
 struct dev_ops *mem_devs[256] = {
@@ -23,7 +25,7 @@ struct dev_ops *mem_devs[256] = {
     [DEV_RANDOM_MINOR] = &random_dev,
     [DEV_URANDOM_MINOR] = &random_dev,
     // [10] = &aio_dev,
-    // [11] = &kmsg_dev,
+    [DEV_KMSG_MINOR] = &kmsg_dev,
     // [12] = &oldmem_dev, // replaced by /proc/vmcore
 };
 
@@ -103,5 +105,46 @@ struct dev_ops random_dev = {
     .fd.read = random_read,
     .fd.write = null_write,
     .fd.lseek = null_lseek,
+    .fd.poll = ready_poll,
+};
+
+static ssize_t kmsg_read(struct fd *fd, void *buf, size_t bufsize) {
+    ssize_t res = ish_log_read_bytes(fd->offset, buf, bufsize);
+    if (res > 0)
+        fd->offset += (unsigned long) res;
+    return res;
+}
+
+static ssize_t kmsg_write(struct fd *UNUSED(fd), const void *UNUSED(buf), size_t UNUSED(bufsize)) {
+    return _EPERM;
+}
+
+static off_t_ kmsg_lseek(struct fd *fd, off_t_ off, int whence) {
+    size_t size = ish_log_size();
+    off_t_ target;
+    switch (whence) {
+        case LSEEK_SET:
+            target = off;
+            break;
+        case LSEEK_CUR:
+            target = (off_t_) fd->offset + off;
+            break;
+        case LSEEK_END:
+            target = (off_t_) size + off;
+            break;
+        default:
+            return _EINVAL;
+    }
+    if (target < 0)
+        return _EINVAL;
+    fd->offset = (unsigned long) target;
+    return target;
+}
+
+struct dev_ops kmsg_dev = {
+    .open = null_open,
+    .fd.read = kmsg_read,
+    .fd.write = kmsg_write,
+    .fd.lseek = kmsg_lseek,
     .fd.poll = ready_poll,
 };

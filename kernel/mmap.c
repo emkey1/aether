@@ -375,6 +375,40 @@ dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
     return sys_madvise_guest(addr, len, advice);
 }
 
+dword_t sys_mincore_guest(guest_addr_t addr, qword_t len, guest_addr_t vec_addr) {
+    STRACE("mincore(%#llx, %#llx, %#llx)",
+           (unsigned long long) addr,
+           (unsigned long long) len,
+           (unsigned long long) vec_addr);
+    if (PGOFFSET(addr) != 0)
+        return _EINVAL;
+    if (len == 0)
+        return _EINVAL;
+
+    pages_t pages = PAGE_ROUND_UP(len);
+    page_t start = PAGE(addr);
+
+    mem_read_lock_quiesce_aware(current->mem);
+    for (pages_t i = 0; i < pages; i++) {
+        struct pt_entry *entry = mem_pt(current->mem, start + i);
+        if (entry == NULL) {
+            mem_read_unlock_quiesce_aware(current->mem);
+            return _ENOMEM;
+        }
+        byte_t vec = 1;
+        if (user_write(vec_addr + i, &vec, sizeof(vec))) {
+            mem_read_unlock_quiesce_aware(current->mem);
+            return _EFAULT;
+        }
+    }
+    mem_read_unlock_quiesce_aware(current->mem);
+    return 0;
+}
+
+dword_t sys_mincore(addr_t addr, dword_t len, addr_t vec_addr) {
+    return sys_mincore_guest(addr, len, vec_addr);
+}
+
 dword_t sys_mbind(addr_t UNUSED(addr), dword_t UNUSED(len), int_t UNUSED(mode),
         addr_t UNUSED(nodemask), dword_t UNUSED(maxnode), uint_t UNUSED(flags)) {
     return 0;

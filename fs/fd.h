@@ -70,6 +70,8 @@ struct fd {
             bool unix_passcred;
             bool unix_devlog_sink;
             bool unix_initctl_sink;
+            bool reuseaddr;
+            bool reuseport;
             dword_t ip_mtu_discover;
             dword_t ipv6_mtu_discover;
             dword_t ipv6_mtu;

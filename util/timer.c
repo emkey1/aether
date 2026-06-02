@@ -76,8 +76,17 @@ static void *timer_thread(void *param) {
         if (timer->generation != generation)
             continue;
         if (timer->active && timespec_positive(interval)) {
+            struct timespec now = timespec_now(timer->clockid);
             timer->start = end;
             timer->end = timespec_add(timer->start, interval);
+            if (!timespec_positive(timespec_subtract(timer->end, now))) {
+                // If we fell behind, coalesce missed periods instead of
+                // replaying them in a tight burst. Signal-based users like
+                // Xtigervnc become unusably slow when we try to "catch up"
+                // every expired interval back-to-back.
+                timer->start = now;
+                timer->end = timespec_add(now, interval);
+            }
         } else {
             break;
         }

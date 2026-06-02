@@ -54,6 +54,37 @@ static size_t syslog_read(guest_addr_t buf_addr, size_t len, int flags) {
     return len;
 }
 
+size_t ish_log_size(void) {
+    lock(&log_lock, 0);
+    size_t size = fifo_size(&log_buf);
+    unlock(&log_lock);
+    return size;
+}
+
+ssize_t ish_log_read_bytes(size_t offset, void *buf, size_t len) {
+    lock(&log_lock, 0);
+    size_t available = fifo_size(&log_buf);
+    if (offset >= available) {
+        unlock(&log_lock);
+        return 0;
+    }
+    if (len > available - offset)
+        len = available - offset;
+    if (len == 0) {
+        unlock(&log_lock);
+        return 0;
+    }
+
+    size_t start = (log_buf.start + offset) % log_buf.capacity;
+    size_t first_copy_size = log_buf.capacity - start;
+    if (first_copy_size > len)
+        first_copy_size = len;
+    memcpy(buf, &log_buf.buf[start], first_copy_size);
+    memcpy((char *) buf + first_copy_size, &log_buf.buf[0], len - first_copy_size);
+    unlock(&log_lock);
+    return (ssize_t) len;
+}
+
 static size_t do_syslog(int type, guest_addr_t buf_addr, int_t len) {
     int res;
     switch (type) {

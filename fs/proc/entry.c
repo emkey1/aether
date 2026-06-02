@@ -26,10 +26,17 @@ int proc_entry_stat(struct proc_entry *entry, struct statbuf *stat) {
 
     struct task *task = pid_get_task_ref(entry->pid);
     if (task != NULL) {
-        lock(&task->general_lock, 0);
-        stat->uid = task->uid;
-        stat->gid = task->gid;
-        unlock(&task->general_lock);
+        // generic_openat() holds inodes_lock across stat/open/fstat. Never
+        // block procfs stat on a task lock while that global lock is held, or
+        // a task exiting with general_lock held can stall unrelated file opens.
+        if (trylock(&task->general_lock) == 0) {
+            stat->uid = task->uid;
+            stat->gid = task->gid;
+            unlock(&task->general_lock);
+        } else {
+            stat->uid = task->uid;
+            stat->gid = task->gid;
+        }
         task_ref_cnt_mod(task, -1);
     } // else the memset above will have initialized memory to zero, which is the root uid/gid
 

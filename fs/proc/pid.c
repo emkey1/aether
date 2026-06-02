@@ -210,23 +210,26 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     comm[sizeof(task->comm)] = '\0';
     unlock(&task->general_lock);
 
+    complex_lockt(&pids_lock, 1);
     lock(&task->group->lock, 0);
     bool stopped = task->group->stopped;
     pgid = task->group->pgid;
     sid = task->group->sid;
     struct tty *tty = task->group->tty;
+    if (tty != NULL) {
+        lock(&tty->lock, 0);
+        tty_dev = dev_make(tty->driver->major, tty->num);
+        tty_fg_group = tty->fg_group;
+        unlock(&tty->lock);
+    } else {
+        tty_dev = 0;
+        tty_fg_group = 0;
+    }
     unlock(&task->group->lock);
 
     // program reads this using read-like syscall, so we are in blocking area,
     // which means its io_block is set to true. When a proc reads an
     // information about itself, but it shouldn't be marked as blocked.
-    tty_dev = tty ? dev_make(tty->driver->major, tty->num) : 0;
-    if (tty != NULL) {
-        lock(&tty->lock, 0);
-        tty_fg_group = tty->fg_group;
-        unlock(&tty->lock);
-    }
-    complex_lockt(&pids_lock, 1);
     parent_pid = task->parent ? task->parent->pid : 0;
     thread_count = list_size(&task->group->threads);
     pending = task->pending;
@@ -476,6 +479,7 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     bool io_block = false;
     sigset_t_ pending = 0;
     sigset_t_ blocked = 0;
+    unsigned long thread_count = 0;
     complex_lockt(&pids_lock, 0);
     if (task->parent != NULL)
         ppid = task->parent->pid;
@@ -483,6 +487,7 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     io_block = task->io_block;
     pending = task->pending;
     blocked = task->blocked;
+    thread_count = list_size(&task->group->threads);
     unlock(&pids_lock);
 
     struct mm *mm = proc_task_mm_retain(task);
@@ -526,7 +531,7 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     proc_printf(buf, "VmPin:\t0 kB\n");
     proc_printf(buf, "VmHWM:\t%lu kB\n", vm_kb);
     proc_printf(buf, "VmRSS:\t%lu kB\n", vm_kb);
-    proc_printf(buf, "Threads:\t%lu\n", list_size(&task->group->threads));
+    proc_printf(buf, "Threads:\t%lu\n", thread_count);
     proc_printf(buf, "SigQ:\t0/0\n");
     proc_printf(buf, "SigPnd:\t%08x\n", pending);
     proc_printf(buf, "ShdPnd:\t00000000\n");
@@ -563,8 +568,12 @@ static int proc_pid_sched_show(struct proc_entry *entry, struct proc_data *buf) 
         return _ESRCH;
     }
 
-    lock(&task->group->lock, 0);
-    proc_printf(buf, "%s (%d, #threads: %lu)\n", task->comm, task->pid, list_size(&task->group->threads));
+    unsigned long thread_count = 0;
+    complex_lockt(&pids_lock, 0);
+    thread_count = list_size(&task->group->threads);
+    unlock(&pids_lock);
+
+    proc_printf(buf, "%s (%d, #threads: %lu)\n", task->comm, task->pid, thread_count);
     proc_printf(buf, "---------------------------------------------------------\n");
     proc_printf(buf, "se.exec_start                                : 0.000000\n");
     proc_printf(buf, "se.vruntime                                  : 0.000000\n");
@@ -572,7 +581,6 @@ static int proc_pid_sched_show(struct proc_entry *entry, struct proc_data *buf) 
     proc_printf(buf, "nr_switches                                  : 0\n");
     proc_printf(buf, "nr_voluntary_switches                        : 0\n");
     proc_printf(buf, "nr_involuntary_switches                      : 0\n");
-    unlock(&task->group->lock);
     proc_put_task(task);
     return 0;
 }

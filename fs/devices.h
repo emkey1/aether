@@ -15,6 +15,8 @@
 #define DEV_RANDOM_MINOR 8
 // /dev/urandom
 #define DEV_URANDOM_MINOR 9
+// /dev/kmsg
+#define DEV_KMSG_MINOR 11
 
 // --- tty devices ---
 // /dev/ttyX where X is minor

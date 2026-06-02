@@ -290,7 +290,6 @@ noreturn void do_exit(struct task *task, int status) {
             task_ref_cnt_mod(parent, 1);
             signal_parent = parent;
             signal_no = leader->exit_signal;
-            lock(&parent->general_lock, 0);
             leader->zombie = true;
             notify(&parent->group->child_exit);
             signal_info = (struct siginfo_) {
@@ -301,7 +300,6 @@ noreturn void do_exit(struct task *task, int status) {
                 .child.utime = clock_from_timeval(group_rusage.utime),
                 .child.stime = clock_from_timeval(group_rusage.stime),
             };
-            unlock(&parent->general_lock);
         }
 
         if (exit_hook != NULL)
@@ -479,6 +477,14 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
         return false;
     lock(&task->group->lock, 0);
 
+    // A thread-group leader must remain until the rest of the group exits.
+    // Reaping it early leaves live threads pointing at freed group state and
+    // corrupts /proc consumers that still dereference task->group.
+    if (!list_empty(&task->group->threads)) {
+        unlock(&task->group->lock);
+        return false;
+    }
+
     dword_t exit_code = task->exit_code;
     if (task->group->doing_group_exit)
         exit_code = task->group->group_exit_code;
@@ -499,13 +505,14 @@ static bool reap_if_zombie(struct task *task, struct siginfo_ *info_out, struct 
     if (options & WNOWAIT_)
         return true;
 
-    // tear down group
-    cond_destroy(&task->group->child_exit);
+    // Detach the group from global session/pgroup membership now so wait/reap
+    // semantics stay Linux-like, but defer freeing the group object itself
+    // until the task object is actually destroyed. Procfs and other refcounted
+    // task readers can still legitimately dereference task->group after this.
     lock(&task->group->lock, 0);
     task_leave_session(task);
     list_remove(&task->group->pgroup);
     unlock(&task->group->lock);
-    free(task->group);
 
     task_destroy(task, 2);
     return true;

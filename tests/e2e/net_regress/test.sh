@@ -4,6 +4,9 @@ set -e
 gcc -Wall -Wextra -O2 test_reuseport.c -o ./test_reuseport
 ./test_reuseport
 
+gcc -Wall -Wextra -O2 test_bind_wildcard_reuseaddr.c -o ./test_bind_wildcard_reuseaddr
+./test_bind_wildcard_reuseaddr
+
 gcc -Wall -Wextra -O2 test_recvfrom_short.c -o ./test_recvfrom_short
 ./test_recvfrom_short
 

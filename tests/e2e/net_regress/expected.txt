@@ -1,4 +1,5 @@
 SO_REUSEPORT ok
+wildcard reuseaddr bind conflict ok
 recvfrom short ok
 SO_PASSCRED ok
 recvmsg ancillary metadata ok

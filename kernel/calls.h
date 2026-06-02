@@ -80,6 +80,8 @@ int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
 guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice);
+dword_t sys_mincore(addr_t addr, dword_t len, addr_t vec_addr);
+dword_t sys_mincore_guest(guest_addr_t addr, qword_t len, guest_addr_t vec_addr);
 dword_t sys_mbind(addr_t addr, dword_t len, int_t mode, addr_t nodemask, dword_t maxnode, uint_t flags);
 dword_t sys_mbind_guest(guest_addr_t addr, qword_t len, int_t mode, guest_addr_t nodemask, qword_t maxnode, uint_t flags);
 long sys_get_mempolicy(int *mode, unsigned long *nodemask, unsigned long maxnode, void *addr, unsigned long flags);

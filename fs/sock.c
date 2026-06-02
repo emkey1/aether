@@ -787,6 +787,46 @@ static bool sock_trace_enabled(void) {
     return sock_trace_comm(current->comm) && false;
 }
 
+static bool sock_is_x11_unix_socket(struct fd *sock) {
+    if (sock == NULL || sock->socket.domain != AF_LOCAL_)
+        return false;
+    size_t name_len = sock->socket.unix_name_len;
+    if (name_len == 0)
+        return false;
+    const char *name = sock->socket.unix_name;
+    if (name[0] == '\0') {
+        name++;
+        name_len--;
+    }
+    static const char x11_prefix[] = "/tmp/.X11-unix/X";
+    return name_len >= sizeof(x11_prefix) - 1 &&
+        memcmp(name, x11_prefix, sizeof(x11_prefix) - 1) == 0;
+}
+
+static void sock_x11_event(const char *op, struct fd *sock, ssize_t result, int err, size_t requested) {
+    if (!sock_is_x11_unix_socket(sock))
+        return;
+    size_t name_len = sock->socket.unix_name_len;
+    const char *name = sock->socket.unix_name;
+    if (name_len != 0 && name[0] == '\0') {
+        name++;
+        name_len--;
+    }
+    if (name_len > 107)
+        name_len = 107;
+    printk("INFO: x11sock %s pid=%d comm=%s real=%d requested=%zu result=%zd err=%d flags=%#x peer_pending=%d name=%.*s\n",
+           op, current ? current->pid : -1, current ? current->comm : "?",
+           sock->real_fd, requested, result, err, sock->flags,
+           (int) sock->socket.unix_peer_pending, (int) name_len, name);
+}
+
+static size_t sock_iov_requested(const struct iovec *iov, size_t iovlen) {
+    size_t total = 0;
+    for (size_t i = 0; i < iovlen; i++)
+        total += iov[i].iov_len;
+    return total;
+}
+
 static bool sock_is_devlog_sink(const struct fd *sock) {
     return sock != NULL && sock->socket.domain == AF_LOCAL_ &&
         sock->socket.unix_devlog_sink;
@@ -1012,6 +1052,30 @@ static bool socket_should_retry_io_eintr(struct fd *sock, int real_flags) {
     return !socket_guest_signal_pending();
 }
 
+static bool socket_call_is_blocking(struct fd *sock, int real_flags) {
+    if (fd_getflags(sock) & O_NONBLOCK_)
+        return false;
+#ifdef MSG_DONTWAIT
+    if (real_flags & MSG_DONTWAIT)
+        return false;
+#endif
+    return true;
+}
+
+static bool socket_should_retry_io_eagain(struct fd *sock, int real_flags) {
+    if (errno != EAGAIN && errno != EWOULDBLOCK)
+        return false;
+    return socket_call_is_blocking(sock, real_flags);
+}
+
+static bool socket_should_map_unix_eperm_to_eagain(struct fd *sock, int real_flags) {
+    if (errno != EPERM)
+        return false;
+    if (sock->socket.domain != AF_LOCAL_)
+        return false;
+    return !socket_call_is_blocking(sock, real_flags);
+}
+
 static bool socket_blocking_syscall_begin(sigset_t *oldmask) {
     sigset_t sigusr1;
     sigemptyset(&sigusr1);
@@ -1037,6 +1101,28 @@ static bool socket_blocking_syscall_begin(sigset_t *oldmask) {
 
 static void socket_blocking_syscall_end(void) {
     sigunwind_end();
+}
+
+static int socket_wait_ready(struct fd *sock, short events) {
+    struct pollfd pfd = {
+        .fd = sock->real_fd,
+        .events = events | POLLERR | POLLHUP,
+    };
+    for (;;) {
+        sigset_t oldmask;
+        if (!socket_blocking_syscall_begin(&oldmask))
+            return errno_map();
+        errno = 0;
+        int wait_res = poll(&pfd, 1, -1);
+        socket_blocking_syscall_end();
+        if (wait_res > 0)
+            return 0;
+        if (wait_res == 0)
+            continue;
+        if (errno == EINTR && !socket_guest_signal_pending())
+            continue;
+        return errno_map();
+    }
 }
 
 #if defined(__APPLE__)
@@ -1228,7 +1314,7 @@ static void sock_trace_iov_preview(struct fd *sock, const struct iovec *iov, siz
            sock->real_fd, total, preview);
 }
 
-static int unix_socket_finish_peer(struct fd *sock, bool wait);
+static int unix_socket_finish_peer(struct fd *sock);
 
 static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
     struct fd *fd = adhoc_fd_create(&socket_fdops);
@@ -1493,6 +1579,98 @@ static int diag_recv_q(struct fd *fd) {
     if (fd->real_fd >= 0 && ioctl(fd->real_fd, FIONREAD, &bytes) == 0 && bytes > 0)
         return bytes;
     return 0;
+}
+
+struct inet_bind_info {
+    sa_family_t family;
+    uint16_t port;
+    bool wildcard;
+    uint32_t scope_id;
+    union {
+        struct in_addr v4;
+        struct in6_addr v6;
+    } addr;
+};
+
+static bool inet_bind_info_from_sockaddr(const struct sockaddr *sa, struct inet_bind_info *info) {
+    if (sa == NULL || info == NULL)
+        return false;
+    memset(info, 0, sizeof(*info));
+    if (sa->sa_family == AF_INET) {
+        const struct sockaddr_in *sin = (const struct sockaddr_in *) sa;
+        info->family = AF_INET;
+        info->port = sin->sin_port;
+        info->addr.v4 = sin->sin_addr;
+        info->wildcard = sin->sin_addr.s_addr == htonl(INADDR_ANY);
+        return info->port != 0;
+    }
+    if (sa->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *sin6 = (const struct sockaddr_in6 *) sa;
+        info->family = AF_INET6;
+        info->port = sin6->sin6_port;
+        info->addr.v6 = sin6->sin6_addr;
+        info->scope_id = sin6->sin6_scope_id;
+        info->wildcard = IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr);
+        return info->port != 0;
+    }
+    return false;
+}
+
+static bool inet_bind_addr_overlaps(const struct inet_bind_info *a, const struct inet_bind_info *b) {
+    if (a->family != b->family || a->port != b->port)
+        return false;
+    if (a->wildcard || b->wildcard)
+        return true;
+    if (a->family == AF_INET)
+        return a->addr.v4.s_addr == b->addr.v4.s_addr;
+    if (a->family == AF_INET6)
+        return memcmp(&a->addr.v6, &b->addr.v6, sizeof(a->addr.v6)) == 0 &&
+            a->scope_id == b->scope_id;
+    return false;
+}
+
+static bool sock_bound_inet_conflicts(struct fd *sock, const struct inet_bind_info *candidate) {
+    struct task_snapshot snapshot = {};
+    bool conflict = false;
+    if (task_snapshot_collect(&snapshot, false) < 0)
+        return false;
+
+    for (unsigned i = 0; i < snapshot.count && !conflict; i++) {
+        struct task *task = snapshot.tasks[i];
+        if (task == NULL)
+            continue;
+        struct fdtable *files = diag_task_files_retain(task);
+        if (files == NULL)
+            continue;
+        lock(&files->lock, 0);
+        for (fd_t fd_no = 0; (unsigned) fd_no < files->size; fd_no++) {
+            struct fd *other = fdtable_get(files, fd_no);
+            if (other == NULL || other == sock || other->ops != &socket_fdops)
+                continue;
+            if (other->socket.domain != sock->socket.domain ||
+                    other->socket.type != sock->socket.type ||
+                    other->real_fd < 0) {
+                continue;
+            }
+            struct sockaddr_storage other_addr = {};
+            socklen_t other_addr_len = sizeof(other_addr);
+            if (getsockname(other->real_fd, (struct sockaddr *) &other_addr, &other_addr_len) < 0)
+                continue;
+            struct inet_bind_info other_info = {};
+            if (!inet_bind_info_from_sockaddr((const struct sockaddr *) &other_addr, &other_info))
+                continue;
+            if (!inet_bind_addr_overlaps(candidate, &other_info))
+                continue;
+            if (sock->socket.reuseport && other->socket.reuseport)
+                continue;
+            conflict = true;
+            break;
+        }
+        unlock(&files->lock);
+        fdtable_release(files);
+    }
+    task_snapshot_release(&snapshot);
+    return conflict;
 }
 
 static int diag_tcp_state(struct fd *fd) {
@@ -1865,38 +2043,80 @@ out:
     return err;
 }
 
-static int unix_socket_finish_peer(struct fd *sock, bool wait) {
+static int unix_socket_send_peer_token(struct fd *sock) {
+    size_t sent = 0;
+    const char *buf = (const char *) &sock;
+    while (sent < sizeof(sock)) {
+        ssize_t res = 0;
+        TASK_MAY_BLOCK {
+            while (1) {
+                errno = 0;
+                res = write(sock->real_fd, buf + sent, sizeof(sock) - sent);
+                if (res >= 0)
+                    break;
+                if (socket_should_retry_io_eintr(sock, 0))
+                    continue;
+                if ((errno == EAGAIN || errno == EWOULDBLOCK) &&
+                        socket_call_is_blocking(sock, 0)) {
+                    int wait_err = socket_wait_ready(sock, POLLOUT);
+                    if (wait_err < 0) {
+                        res = wait_err;
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        if (res < 0)
+            return res > -4096 && res < 0 ? (int) res : errno_map();
+        if (res == 0)
+            return _EPIPE;
+        sent += (size_t) res;
+    }
+    return 0;
+}
+
+static int unix_socket_finish_peer(struct fd *sock) {
     if (sock->socket.domain != AF_LOCAL_)
         return 0;
 
     if (sock->socket.unix_peer_pending) {
-        int recv_flags = 0;
-        if (!wait || (fd_getflags(sock) & O_NONBLOCK_))
-            recv_flags |= MSG_DONTWAIT;
-        else
-            recv_flags |= MSG_WAITALL;
+        int recv_flags = MSG_WAITALL;
 
         while (sock->socket.unix_peer_off < sizeof(struct fd *)) {
             ssize_t res = 0;
             TASK_MAY_BLOCK {
-                do {
+                while (1) {
                     errno = 0;
                     res = recv(sock->real_fd,
                                sock->socket.unix_peer_buf + sock->socket.unix_peer_off,
                                sizeof(struct fd *) - sock->socket.unix_peer_off,
                                recv_flags);
-                } while (res < 0 && errno == EINTR);
+                    if (res >= 0)
+                        break;
+                    if (errno == EINTR) {
+                        if (socket_guest_signal_pending())
+                            break;
+                        continue;
+                    }
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        int wait_err = socket_wait_ready(sock, POLLIN);
+                        if (wait_err < 0) {
+                            res = wait_err;
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                }
             }
             if (res < 0)
-                return errno_map();
+                return res > -4096 && res < 0 ? (int) res : errno_map();
             if (res == 0)
                 return _ECONNRESET;
             sock->socket.unix_peer_off += res;
-            if (!wait || (fd_getflags(sock) & O_NONBLOCK_))
-                break;
         }
-        if (sock->socket.unix_peer_off < sizeof(struct fd *))
-            return _EAGAIN;
 
         struct fd *peer = NULL;
         memcpy(&peer, sock->socket.unix_peer_buf, sizeof(peer));
@@ -1939,6 +2159,8 @@ static uint32_t str_hash(const char *str) {
 struct unix_abstract {
     unsigned refcount;
     uint32_t hash;
+    size_t name_len;
+    char *name;
     uint32_t socket_id;
     struct list links;
 };
@@ -1948,6 +2170,7 @@ static lock_t unix_abstract_lock = LOCK_INITIALIZER;
 
 static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *socket_id) {
     uint32_t hash = str_hash(name);
+    size_t name_len = strlen(name);
     lock(&unix_abstract_lock, 0);
     struct unix_abstract *sock_tmp;
     struct unix_abstract *sock = NULL;
@@ -1955,7 +2178,9 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
     if (list_null(bucket))
         list_init(bucket);
     list_for_each_entry(bucket, sock_tmp, links) {
-        if (sock_tmp->hash == hash) {
+        if (sock_tmp->hash == hash &&
+                sock_tmp->name_len == name_len &&
+                memcmp(sock_tmp->name, name, name_len) == 0) {
             sock = sock_tmp;
             break;
         }
@@ -1972,8 +2197,19 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
 
     if (sock == NULL) {
         sock = malloc(sizeof(struct unix_abstract));
+        if (sock == NULL) {
+            unlock(&unix_abstract_lock);
+            return _ENOMEM;
+        }
+        sock->name = strdup(name);
+        if (sock->name == NULL) {
+            free(sock);
+            unlock(&unix_abstract_lock);
+            return _ENOMEM;
+        }
         sock->refcount = 0;
         sock->hash = hash;
+        sock->name_len = name_len;
         sock->socket_id = unix_socket_next_id();
         list_add(bucket, &sock->links);
     }
@@ -1986,10 +2222,16 @@ static int unix_abstract_get(const char *name, struct fd *bind_fd, uint32_t *soc
     return 0;
 }
 
+static bool unix_socket_should_fallback_x11_path(const char *name) {
+    static const char x11_prefix[] = "/tmp/.X11-unix/";
+    return strncmp(name, x11_prefix, strlen(x11_prefix)) == 0;
+}
+
 static void unix_abstract_release(struct unix_abstract *name) {
     lock(&unix_abstract_lock, 0);
     if (--name->refcount == 0) {
         list_remove(&name->links);
+        free(name->name);
         free(name);
     }
     unlock(&unix_abstract_lock);
@@ -2077,6 +2319,11 @@ static int sockaddr_read_bind(guest_addr_t sockaddr_addr, void *sockaddr, uint_t
             } else {
                 STRACE(" unix abstract socket %s", path + 1);
                 err = unix_abstract_get(path + 1, bind_fd, &socket_id);
+                if (err == _ENOENT && bind_fd == NULL &&
+                        unix_socket_should_fallback_x11_path(path + 1)) {
+                    STRACE(" unix abstract fallback to path %s", path + 1);
+                    err = unix_socket_get(path + 1, bind_fd, &socket_id);
+                }
             }
             if (err < 0)
                 return err;
@@ -2167,6 +2414,17 @@ static int_t sys_bind_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t so
             sock->socket.netlink_port_id = addr->nl_pid;
         return 0;
     }
+
+#if defined(__APPLE__)
+    if ((sock->socket.domain == AF_INET_ || sock->socket.domain == AF_INET6_) &&
+            sock->socket.type == SOCK_STREAM_) {
+        struct inet_bind_info candidate = {};
+        if (inet_bind_info_from_sockaddr((const struct sockaddr *) &sockaddr, &candidate) &&
+                sock_bound_inet_conflicts(sock, &candidate)) {
+            return _EADDRINUSE;
+        }
+    }
+#endif
 
     err = bind(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0) {
@@ -2311,7 +2569,12 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
         // later, but do not wait for that acknowledgement here. Linux connect()
         // completes once the transport connection exists; waiting for accept()
         // to run can wedge clients on daemons that accept asynchronously.
-        (void) write(sock->real_fd, &sock, sizeof(struct fd *));
+        int peer_err = unix_socket_send_peer_token(sock);
+        if (peer_err < 0) {
+            sock_trace("connect", sock, -1, peer_err);
+            sock_debug_event("connect-peer-token", sock, -1, peer_err);
+            return peer_err;
+        }
     }
 
     sock_trace("connect", sock, err, 0);
@@ -2400,7 +2663,7 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
         memcpy(client_fd->socket.unix_name, sock->socket.unix_name, sock->socket.unix_name_len);
         client_fd->socket.unix_peer_pending = true;
         client_fd->socket.unix_peer_off = 0;
-        int peer_err = unix_socket_finish_peer(client_fd, !(fd_getflags(client_fd) & O_NONBLOCK_));
+        int peer_err = unix_socket_finish_peer(client_fd);
         if (peer_err < 0 && peer_err != _EAGAIN)
             STRACE("accept4(%d) deferred unix peer link err=%d", sock_fd, peer_err);
     }
@@ -2430,7 +2693,7 @@ static void copy_unix_name(char *sockaddr, dword_t *sockaddr_len, struct fd *soc
 }
 
 static int copy_unix_peer_name(char *sockaddr, dword_t *sockaddr_len, struct fd *sock) {
-    int err = unix_socket_finish_peer(sock, true);
+    int err = unix_socket_finish_peer(sock);
     if (err < 0 && err != _ENOTCONN)
         return err;
 
@@ -2634,6 +2897,11 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
+    if (sock->socket.domain == AF_LOCAL_) {
+        int peer_err = unix_socket_finish_peer(sock);
+        if (peer_err < 0)
+            return peer_err;
+    }
     char *buffer = malloc(len + 1);
     if (user_read(buffer_addr, buffer, len))
         return _EFAULT;
@@ -2675,21 +2943,53 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
 
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        do {
+        while (1) {
             errno = 0;
-            res = sendto(sock->real_fd, buffer, len, real_flags,
-                         sockaddr_addr ? (void *) &sockaddr : NULL, sockaddr_len);
-        } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+            if (sockaddr_addr == 0) {
+                res = send(sock->real_fd, buffer, len, real_flags);
+            } else {
+                res = sendto(sock->real_fd, buffer, len, real_flags,
+                             (void *) &sockaddr, sockaddr_len);
+            }
+            if (res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(sock, real_flags))
+                continue;
+            if (socket_should_retry_io_eagain(sock, real_flags)) {
+                int wait_err = socket_wait_ready(sock, POLLOUT);
+                if (wait_err < 0) {
+                    res = wait_err;
+                    errno = 0;
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
     }
     free(buffer);
     if (res < 0) {
+        if (res > -4096 && res < 0 && errno == 0)
+            return res;
+        if (socket_should_map_unix_eperm_to_eagain(sock, real_flags)) {
+            sock_trace("sendto", sock, -1, _EAGAIN);
+            sock_debug_event("sendto", sock, -1, _EAGAIN);
+            sock_x11_event("sendto-eagain", sock, -1, _EAGAIN, len);
+            return _EAGAIN;
+        }
         int mapped_err = errno_map();
         sock_trace("sendto", sock, -1, mapped_err);
         sock_debug_event("sendto", sock, -1, mapped_err);
+        if (mapped_err == _EAGAIN)
+            sock_x11_event("sendto-eagain", sock, -1, mapped_err, len);
+        else
+            sock_x11_event("sendto-err", sock, -1, mapped_err, len);
         return mapped_err;
     }
     sock_trace("sendto", sock, res, 0);
     sock_debug_event("sendto", sock, res, 0);
+    if ((size_t) res != len)
+        sock_x11_event("sendto-short", sock, res, 0, len);
     return res;
 
 error:
@@ -2714,6 +3014,11 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
+    if (sock->socket.domain == AF_LOCAL_) {
+        int peer_err = unix_socket_finish_peer(sock);
+        if (peer_err < 0)
+            return peer_err;
+    }
     int real_flags = sock_flags_to_real(flags);
     if (real_flags < 0)
         return _EINVAL;
@@ -2765,24 +3070,55 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        sigset_t oldmask;
-        if (!socket_blocking_syscall_begin(&oldmask)) {
-            res = -1;
-        } else {
-            do {
+        while (1) {
+            sigset_t oldmask;
+            if (!socket_blocking_syscall_begin(&oldmask)) {
+                res = errno_map();
                 errno = 0;
+                break;
+            }
+            errno = 0;
+            if (sockaddr_addr == 0 && sockaddr_len_addr == 0) {
+                res = recv(sock->real_fd, buffer, len, real_flags);
+            } else {
                 res = recvfrom(sock->real_fd, buffer, len, real_flags,
                                sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                                sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
-            } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+            }
             socket_blocking_syscall_end();
+            if (res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(sock, real_flags))
+                continue;
+            if (socket_should_retry_io_eagain(sock, real_flags)) {
+                int wait_err = socket_wait_ready(sock, POLLIN);
+                if (wait_err < 0) {
+                    res = wait_err;
+                    errno = 0;
+                    break;
+                }
+                continue;
+            }
+            break;
         }
     }
     if (res < 0) {
         free(buffer);
+        if (res > -4096 && res < 0 && errno == 0)
+            return res;
+        if (socket_should_map_unix_eperm_to_eagain(sock, real_flags)) {
+            sock_trace("recvfrom", sock, -1, _EAGAIN);
+            sock_debug_event("recvfrom", sock, -1, _EAGAIN);
+            sock_x11_event("recvfrom-eagain", sock, -1, _EAGAIN, len);
+            return _EAGAIN;
+        }
         int mapped_err = errno_map();
         sock_trace("recvfrom", sock, -1, mapped_err);
         sock_debug_event("recvfrom", sock, -1, mapped_err);
+        if (mapped_err == _EAGAIN)
+            sock_x11_event("recvfrom-eagain", sock, -1, mapped_err, len);
+        else
+            sock_x11_event("recvfrom-err", sock, -1, mapped_err, len);
         return mapped_err;
     }
 
@@ -2801,6 +3137,8 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
             return _EFAULT;
     sock_trace("recvfrom", sock, res, 0);
     sock_debug_event("recvfrom", sock, res, 0);
+    if (res == 0)
+        sock_x11_event("recvfrom-eof", sock, 0, 0, len);
     return res;
 }
 
@@ -2987,6 +3325,15 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         return 0;
     }
     if (level == SOL_SOCKET_) {
+        if (option == SO_REUSEADDR_) {
+            if (value_len < sizeof(dword_t))
+                return _EINVAL;
+            sock->socket.reuseaddr = (*(dword_t *) value) != 0;
+        } else if (option == SO_REUSEPORT_) {
+            if (value_len < sizeof(dword_t))
+                return _EINVAL;
+            sock->socket.reuseport = (*(dword_t *) value) != 0;
+        }
         if (option == SO_SNDBUFFORCE_) {
             option = SO_SNDBUF_;
         } else if (option == SO_RCVBUFFORCE_) {
@@ -3075,7 +3422,7 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         sockopt_store_value(value, user_value_len, &value_len, &value_p, sizeof(value_p));
     } else if (level == SOL_SOCKET_ && option == SO_PEERCRED_) {
         struct ucred_ cred;
-        int err = unix_socket_finish_peer(sock, true);
+        int err = unix_socket_finish_peer(sock);
         if (err < 0 && err != _ENOTCONN)
             return err;
         lock(&peer_lock, 0);
@@ -3672,7 +4019,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     char real_msg_control[CMSG_SPACE(sizeof(int))]; // only used if actually sending an fd
     if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL &&
             msg_fake.msg_controllen >= guest_cmsg_hdr_size(abi)) {
-        err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
+        err = unix_socket_finish_peer(sock);
         if (err < 0)
             goto out_free_iov;
         // figure out how many file descriptors we're sending
@@ -3777,17 +4124,46 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     sock_trace_tcp_info("sendmsg-before", sock);
 #endif
 
+    size_t requested = sock_iov_requested(msg.msg_iov, msg.msg_iovlen);
     ssize_t send_res = 0;
     TASK_MAY_BLOCK {
-        do {
+        while (1) {
             errno = 0;
             send_res = sendmsg(sock->real_fd, &msg, real_flags);
-        } while (send_res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+            if (send_res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(sock, real_flags))
+                continue;
+            if (socket_should_retry_io_eagain(sock, real_flags)) {
+                int wait_err = socket_wait_ready(sock, POLLOUT);
+                if (wait_err < 0) {
+                    send_res = wait_err;
+                    break;
+                }
+                continue;
+            }
+            break;
+        }
     }
     if (send_res < 0) {
+        if (send_res > -4096 && send_res < 0 && errno == 0) {
+            err = (int) send_res;
+            goto out_free_scm;
+        }
+        if (socket_should_map_unix_eperm_to_eagain(sock, real_flags)) {
+            err = _EAGAIN;
+            sock_trace("sendmsg", sock, -1, err);
+            sock_debug_event("sendmsg", sock, -1, err);
+            sock_x11_event("sendmsg-eagain", sock, -1, err, requested);
+            goto out_free_scm;
+        }
         err = errno_map();
         sock_trace("sendmsg", sock, -1, err);
         sock_debug_event("sendmsg", sock, -1, err);
+        if (err == _EAGAIN)
+            sock_x11_event("sendmsg-eagain", sock, -1, err, requested);
+        else
+            sock_x11_event("sendmsg-err", sock, -1, err, requested);
         if (scm != NULL)
             printk("INFO: scm-send pid=%d real sendmsg FAILED: errno=%d err=%d sock_real=%d\n",
                    current ? current->pid : -1, errno, err, sock->real_fd);
@@ -3796,6 +4172,8 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     err = send_res;
     sock_trace("sendmsg", sock, err, 0);
     sock_debug_event("sendmsg", sock, err, 0);
+    if ((size_t) send_res != requested)
+        sock_x11_event("sendmsg-short", sock, send_res, 0, requested);
     if (scm != NULL)
         printk("INFO: scm-send pid=%d real sendmsg OK: sent=%d sock_real=%d ctrl_len=%zu\n",
                current ? current->pid : -1, err, sock->real_fd, msg.msg_controllen);
@@ -4127,7 +4505,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     }
 
     if (sock->socket.domain == AF_LOCAL_) {
-        int peer_err = unix_socket_finish_peer(sock, !(real_flags & MSG_DONTWAIT));
+        int peer_err = unix_socket_finish_peer(sock);
         if (peer_err < 0) {
             free_msghdr_iov(msg_iov, msg.msg_iovlen);
             free(msg_iov_fake);
@@ -4140,33 +4518,60 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        sigset_t oldmask;
-        if (!socket_blocking_syscall_begin(&oldmask)) {
-            res = -1;
-        } else {
-            bool use_ipv6_errqueue =
-                (flags & MSG_ERRQUEUE_) &&
-                sock->socket.domain == AF_INET6_ &&
-                sock->socket.type == SOCK_DGRAM_ &&
-                sock->socket.ipv6_recverr;
-            do {
+        bool use_ipv6_errqueue =
+            (flags & MSG_ERRQUEUE_) &&
+            sock->socket.domain == AF_INET6_ &&
+            sock->socket.type == SOCK_DGRAM_ &&
+            sock->socket.ipv6_recverr;
+        while (1) {
+            sigset_t oldmask;
+            if (!socket_blocking_syscall_begin(&oldmask)) {
+                res = errno_map();
                 errno = 0;
-                if (use_ipv6_errqueue)
-                    res = recvmsg_ipv6_errqueue(sock, &msg, real_flags);
-                else
-                    res = recvmsg(sock->real_fd, &msg, real_flags);
-            } while (res < 0 && socket_should_retry_io_eintr(sock, real_flags));
+                break;
+            }
+            errno = 0;
+            if (use_ipv6_errqueue)
+                res = recvmsg_ipv6_errqueue(sock, &msg, real_flags);
+            else
+                res = recvmsg(sock->real_fd, &msg, real_flags);
             socket_blocking_syscall_end();
+            if (res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(sock, real_flags))
+                continue;
+            if (socket_should_retry_io_eagain(sock, real_flags)) {
+                int wait_err = socket_wait_ready(sock, POLLIN);
+                if (wait_err < 0) {
+                    res = wait_err;
+                    errno = 0;
+                    break;
+                }
+                continue;
+            }
+            break;
         }
     }
+    size_t requested = sock_iov_requested(msg.msg_iov, msg.msg_iovlen);
     err = 0;
     if (res < 0) {
-        err = errno_map();
+        if (res > -4096 && res < 0 && errno == 0)
+            err = (int) res;
+        else if (socket_should_map_unix_eperm_to_eagain(sock, real_flags))
+            err = _EAGAIN;
+        else
+            err = errno_map();
         sock_trace("recvmsg", sock, -1, err);
         sock_debug_event("recvmsg", sock, -1, err);
+        if (err == _EAGAIN)
+            sock_x11_event("recvmsg-eagain", sock, -1, err, requested);
+        else
+            sock_x11_event("recvmsg-err", sock, -1, err, requested);
     } else {
         sock_trace("recvmsg", sock, res, 0);
         sock_debug_event("recvmsg", sock, res, 0);
+        if (res == 0)
+            sock_x11_event("recvmsg-eof", sock, 0, 0, requested);
         if (sock_trace_enabled()) {
             printk("INFO: net recvmsg-flags pid=%d comm=%s real=%d flags=%#x namelen=%u controllen=%zu\n",
                    current->pid, current->comm, sock->real_fd, msg.msg_flags,
@@ -4526,24 +4931,52 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
     if (fd->socket.domain == AF_LOCAL_) {
-        int err = unix_socket_finish_peer(fd, !(fd->flags & O_NONBLOCK_));
+        int err = unix_socket_finish_peer(fd);
         if (err < 0)
             return err;
     }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        do {
+        while (1) {
             errno = 0;
             res = read(fd->real_fd, buf, size);
-        } while (res < 0 && socket_should_retry_io_eintr(fd, 0));
+            if (res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(fd, 0))
+                continue;
+            if ((errno == EAGAIN || errno == EWOULDBLOCK) &&
+                    socket_call_is_blocking(fd, 0)) {
+                int wait_err = socket_wait_ready(fd, POLLIN);
+                if (wait_err < 0) {
+                    res = wait_err;
+                    errno = 0;
+                    goto out_read;
+                }
+                continue;
+            }
+            break;
+        }
     }
+out_read:
     if (res < 0) {
+        if (res > -4096 && res < 0 && errno == 0)
+            return res;
+        if (socket_should_map_unix_eperm_to_eagain(fd, 0)) {
+            sock_x11_event("read-eagain", fd, -1, _EAGAIN, size);
+            return _EAGAIN;
+        }
         int err = errno_map();
         sock_translate_err(fd, &err);
         sock_trace("read", fd, -1, err);
+        if (err == _EAGAIN)
+            sock_x11_event("read-eagain", fd, -1, err, size);
+        else
+            sock_x11_event("read-err", fd, -1, err, size);
         return err;
     }
     sock_trace("read", fd, res, 0);
+    if (res == 0)
+        sock_x11_event("read-eof", fd, 0, 0, size);
     return res;
 }
 
@@ -4556,18 +4989,46 @@ static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     sock_trace_write_preview(fd, buf, size);
     ssize_t res = 0;
     TASK_MAY_BLOCK {
-        do {
+        while (1) {
             errno = 0;
             res = write(fd->real_fd, buf, size);
-        } while (res < 0 && socket_should_retry_io_eintr(fd, 0));
+            if (res >= 0)
+                break;
+            if (socket_should_retry_io_eintr(fd, 0))
+                continue;
+            if ((errno == EAGAIN || errno == EWOULDBLOCK) &&
+                    socket_call_is_blocking(fd, 0)) {
+                int wait_err = socket_wait_ready(fd, POLLOUT);
+                if (wait_err < 0) {
+                    res = wait_err;
+                    goto out_write;
+                }
+                continue;
+            }
+            break;
+        }
     }
+out_write:
     if (res < 0) {
+        if (res > -4096 && res < 0 && errno == 0)
+            return res;
+        if (socket_should_map_unix_eperm_to_eagain(fd, 0)) {
+            sock_trace("write", fd, -1, _EAGAIN);
+            sock_x11_event("write-eagain", fd, -1, _EAGAIN, size);
+            return _EAGAIN;
+        }
         int err = errno_map();
         sock_translate_err(fd, &err);
         sock_trace("write", fd, -1, err);
+        if (err == _EAGAIN)
+            sock_x11_event("write-eagain", fd, -1, err, size);
+        else
+            sock_x11_event("write-err", fd, -1, err, size);
         return err;
     }
     sock_trace("write", fd, res, 0);
+    if ((size_t) res != size)
+        sock_x11_event("write-short", fd, res, 0, size);
     return res;
 }
 

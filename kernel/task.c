@@ -291,6 +291,15 @@ void task_unlink_locked(struct task *task) {
     list_remove(&pid->alive);
 }
 
+static void task_free_final(struct task *task) {
+    if (task != NULL && task_is_leader(task) && task->group != NULL) {
+        cond_destroy(&task->group->child_exit);
+        free(task->group);
+        task->group = NULL;
+    }
+    free(task);
+}
+
 void task_destroy_unlinked(struct task *task, int caller) {
     task->exiting = true;
 
@@ -319,7 +328,7 @@ void task_destroy_unlinked(struct task *task, int caller) {
         cleanup_pending_deletions();
         return;
     } else {
-        free(task);
+        task_free_final(task);
     }
 }
 
@@ -337,7 +346,7 @@ void cleanup_pending_deletions(void) {
     list_for_each_entry_safe(&tasks_pending_deletion_queue, pd, tmp, list) {
         if ((difftime(time(NULL), pd->added_time) >= GRACE_PERIOD) && !! (!pd->task->reference.count)) { // Delete reaped tasks old and no longer referenced
             if (task_ref_cnt_get(pd->task, 0) == 0) {
-                free(pd->task);
+                task_free_final(pd->task);
                 list_remove(&pd->list);
                 free(pd);
             }

@@ -218,6 +218,8 @@ dword_t sys_sigreturn(void);
 typedef uint64_t sigset_t_;
 dword_t sys_rt_sigprocmask(dword_t how, addr_t set, addr_t oldset, dword_t size);
 dword_t sys_rt_sigprocmask_guest(dword_t how, guest_addr_t set, guest_addr_t oldset, dword_t size);
+dword_t sys_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr);
+dword_t sys_sigprocmask_guest(dword_t how, guest_addr_t set_addr, guest_addr_t oldset_addr);
 int_t sys_rt_sigpending(addr_t set_addr);
 int_t sys_rt_sigpending_guest(guest_addr_t set_addr);
 

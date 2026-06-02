@@ -84,6 +84,35 @@ static bool fakefs_dpkg_trace_enabled(void) {
            strcmp(current->comm, "apt-get") == 0;
 }
 
+static void fakefs_apply_stat_override(struct statbuf *stat, ino_t inode, const struct ish_stat *ishstat) {
+    stat->inode = inode;
+    stat->mode = ishstat->mode;
+    stat->uid = ishstat->uid;
+    stat->gid = ishstat->gid;
+    stat->rdev = ishstat->rdev;
+    if (S_ISCHR(stat->mode))
+        tty_stat_rdev(stat->rdev, stat);
+}
+
+static void fakefs_snapshot_fd_stat(struct fd *fd) {
+    if (fd == NULL || fd->mount == NULL || fd->fake_inode == 0)
+        return;
+    struct statbuf real_stat;
+    if (realfs.fstat(fd, &real_stat) < 0)
+        return;
+
+    struct fakefs_db *fs = &fd->mount->fakefs;
+    sqlite3_mutex_enter(fs->lock);
+    struct ish_stat ishstat;
+    bool found = inode_read_stat(fs, fd->fake_inode, &ishstat);
+    sqlite3_mutex_leave(fs->lock);
+    if (!found)
+        return;
+
+    fakefs_apply_stat_override(&real_stat, fd->fake_inode, &ishstat);
+    fd->stat = real_stat;
+}
+
 static void fakefs_trace_symlink_result(struct mount *mount, struct fakefs_db *fs, const char *target, const char *link, int result, int open_errno) {
     if (!fakefs_dpkg_trace_enabled())
         return;
@@ -234,6 +263,7 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
         fd_close(fd);
         return ERR_PTR(_ENOENT);
     }
+    fakefs_snapshot_fd_stat(fd);
     fd->ops = &fakefs_fdops;
     return fd;
 }
@@ -259,6 +289,7 @@ step:
     db_reset(fs, stmt);
     db_commit(fs);
     fd->fake_inode = inode;
+    fakefs_snapshot_fd_stat(fd);
     fd->ops = &fakefs_fdops;
     return fd;
 }
@@ -426,17 +457,13 @@ static int fakefs_fstat(struct fd *fd, struct statbuf *fake_stat) {
     bool found = inode_read_stat(fs, fd->fake_inode, &ishstat);
     sqlite3_mutex_leave(fs->lock);
     if (!found) {
-        // File was deleted while fd was still open - return ENOENT
-        printk("WARNING: inode_read_stat(%llu): missing inode for open fd\n", (unsigned long long) fd->fake_inode);
-        return _ENOENT;
+        // Linux still allows fstat() on an unlinked-but-open file.
+        // Preserve the most recent fake metadata snapshot on the fd.
+        *fake_stat = fd->stat;
+        return 0;
     }
-    fake_stat->inode = fd->fake_inode;
-    fake_stat->mode = ishstat.mode;
-    fake_stat->uid = ishstat.uid;
-    fake_stat->gid = ishstat.gid;
-    fake_stat->rdev = ishstat.rdev;
-    if (S_ISCHR(fake_stat->mode))
-        tty_stat_rdev(fake_stat->rdev, fake_stat);
+    fakefs_apply_stat_override(fake_stat, fd->fake_inode, &ishstat);
+    fd->stat = *fake_stat;
     return 0;
 }
 
@@ -479,10 +506,21 @@ static int fakefs_fsetattr(struct fd *fd, struct attr attr) {
     db_begin_write(fs);
     struct ish_stat ishstat;
     if (!inode_read_stat(fs, fd->fake_inode, &ishstat)) {
-        // File was deleted while fd was still open - return ENOENT
         db_rollback(fs);
-        printk("WARNING: inode_read_stat(%llu): missing inode for open fd in fsetattr\n", (unsigned long long) fd->fake_inode);
-        return _ENOENT;
+        switch (attr.type) {
+            case attr_uid:
+                fd->stat.uid = attr.uid;
+                return 0;
+            case attr_gid:
+                fd->stat.gid = attr.gid;
+                return 0;
+            case attr_mode:
+                fd->stat.mode = (attr.mode & S_IFMT ? attr.mode & S_IFMT : fd->stat.mode & S_IFMT) |
+                    (attr.mode & ~S_IFMT);
+                return 0;
+            default:
+                return _ENOENT;
+        }
     }
     fake_stat_setattr(&ishstat, attr);
     inode_write_stat(fs, fd->fake_inode, &ishstat);

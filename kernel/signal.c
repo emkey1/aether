@@ -1614,6 +1614,39 @@ static int do_sigprocmask(dword_t how, sigset_t_ set) {
     return 0;
 }
 
+dword_t sys_sigprocmask_guest(dword_t how, guest_addr_t set_addr, guest_addr_t oldset_addr) {
+    dword_t set32 = 0;
+    if (set_addr != 0)
+        if (user_get(set_addr, set32))
+            return _EFAULT;
+
+    STRACE("sigprocmask(%s, %#llx, %#x)",
+            how == SIG_BLOCK_ ? "SIG_BLOCK" :
+            how == SIG_UNBLOCK_ ? "SIG_UNBLOCK" :
+            how == SIG_SETMASK_ ? "SIG_SETMASK" : "??",
+            set_addr != 0 ? (unsigned long long) set32 : ~0ull,
+            oldset_addr);
+
+    if (oldset_addr != 0) {
+        dword_t oldset32 = (dword_t) current->blocked;
+        if (user_put(oldset_addr, oldset32))
+            return _EFAULT;
+    }
+    if (set_addr != 0) {
+        struct sighand *sighand = current->sighand;
+        lock(&sighand->lock, 0);
+        int err = do_sigprocmask(how, (sigset_t_) set32);
+        unlock(&sighand->lock);
+        if (err < 0)
+            return err;
+    }
+    return 0;
+}
+
+dword_t sys_sigprocmask(dword_t how, addr_t set_addr, addr_t oldset_addr) {
+    return sys_sigprocmask_guest(how, set_addr, oldset_addr);
+}
+
 dword_t sys_rt_sigprocmask_guest(dword_t how, guest_addr_t set_addr, guest_addr_t oldset_addr, dword_t size) {
     if (size != sizeof(sigset_t_))
         return _EINVAL;
