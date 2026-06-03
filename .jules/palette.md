@@ -21,3 +21,7 @@
 ## 2024-05-28 - Exposing Visual Badges to Screen Readers
 **Learning:** Visual indicators, such as a red badge signaling an available update, are invisible to screen readers unless their state is programmatically exposed.
 **Action:** When adding or updating visual badges on UI elements, always set a corresponding descriptive `accessibilityValue` (e.g., `@"Update available"`) on the element or its parent container when the badge is visible, and clear it (`nil`) when the badge is hidden, avoiding cluttering the main `accessibilityLabel`.
+
+## 2024-06-03 - Dynamic Accessibility Labels for State-Changing Buttons
+**Learning:** In iOS UI development, when a single button dynamically changes its visual icon and primary function based on state (e.g., setting a new title or action dynamically), its `accessibilityLabel` must be dynamically updated alongside the visual change to accurately describe the current actionable state to VoiceOver users.
+**Action:** When updating a button's visual representation (e.g., via `setTitle:`), ensure you also dynamically update `accessibilityLabel` to match the new state or function.
