@@ -307,15 +307,6 @@ static struct poll_fd *poll_find_ptr(struct poll *poll, struct poll_fd *candidat
     return NULL;
 }
 
-static struct poll_fd *poll_find_real_fd(struct poll *poll, int real_fd) {
-    struct poll_fd *poll_fd;
-    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
-        if (poll_fd->fd != NULL && poll_fd->fd->real_fd == real_fd)
-            return poll_fd;
-    }
-    return NULL;
-}
-
 bool poll_has_fd(struct poll *poll, struct fd *fd) {
     return poll_find_fd(poll, fd) != NULL;
 }
@@ -569,10 +560,6 @@ poll_wait_done:
                 for (int i = 0; i < err; i++) {
                     struct poll_fd *candidate = rpe_data(&e[i]);
                     struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
-#if HAVE_KQUEUE
-                    if (triggered_poll_fd == NULL)
-                        triggered_poll_fd = poll_find_real_fd(poll_, (int) e[i].real.ident);
-#endif
                     if (triggered_poll_fd != NULL)
                         poll_wait_trace_fd(triggered_poll_fd, rpe_events(&e[i]), "host-event");
                     else {
@@ -606,10 +593,6 @@ poll_wait_done:
         for (int i = 0; i < err; i++) {
             struct poll_fd *candidate = rpe_data(&e[i]);
             struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
-#if HAVE_KQUEUE
-            if (triggered_poll_fd == NULL)
-                triggered_poll_fd = poll_find_real_fd(poll_, (int) e[i].real.ident);
-#endif
             if (triggered_poll_fd == NULL || triggered_poll_fd->poll != poll_)
                 continue;
             int host_events = rpe_events(&e[i]);

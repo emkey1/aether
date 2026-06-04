@@ -494,7 +494,6 @@ static void proc_root_refresh_pid_snapshot(struct proc_entry *entry) {
         entry->child_names = NULL;
     }
 
-    unsigned cap = 0;
     unsigned used = 0;
     pid_t_ *pids = NULL;
     complex_lockt(&pids_lock, 0);
@@ -503,20 +502,26 @@ static void proc_root_refresh_pid_snapshot(struct proc_entry *entry) {
         struct task *task = pid_entry->task;
         if (task == NULL || task->zombie)
             continue;
-        if (used == cap) {
-            unsigned new_cap = cap ? cap * 2 : 64;
-            pid_t_ *new_pids = realloc(pids, sizeof(*new_pids) * new_cap);
-            if (new_pids == NULL) {
-                unlock(&pids_lock);
-                free(pids);
-                return;
-            }
-            pids = new_pids;
-            cap = new_cap;
-        }
-        pids[used++] = pid_entry->id;
+        used++;
     }
     unlock(&pids_lock);
+
+    pids = calloc(used ? used : 1, sizeof(*pids));
+    if (pids == NULL)
+        return;
+
+    unsigned filled = 0;
+    complex_lockt(&pids_lock, 0);
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        if (task == NULL || task->zombie)
+            continue;
+        if (filled >= used)
+            break;
+        pids[filled++] = pid_entry->id;
+    }
+    unlock(&pids_lock);
+    used = filled;
 
     char **names = calloc(used + 1, sizeof(*names));
     if (names == NULL)
