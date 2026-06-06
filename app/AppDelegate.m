@@ -6,13 +6,16 @@
 //
 
 #include <resolv.h>
+#include <arpa/nameser.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include <netdb.h>
 #include <ctype.h>
 #include <dlfcn.h>
 #include <notify.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 #import <SystemConfiguration/SystemConfiguration.h>
@@ -64,6 +67,10 @@
 #endif
 @property int dnsNotifyToken;
 @property BOOL dnsNotifyRegistered;
+@property int localDnsServerFD;
+@property BOOL localDnsServerRunning;
+@property (strong, nonatomic) dispatch_source_t localDnsServerReadSource;
+@property (strong, nonatomic) dispatch_queue_t localDnsServerQueue;
 @property (strong, nonatomic) ISHMetricKitSubscriber *metricKitSubscriber;
 @property BOOL dnsRefreshQueued;
 @property BOOL dnsRefreshRunning;
@@ -239,6 +246,144 @@ static NSString *ISHDnsBreadcrumbSummary(NSString *source, NSString *reason, NSS
         [parts addObject:[NSString stringWithFormat:@"conf=%@", singleLine]];
     }
     return [parts componentsJoinedByString:@"; "];
+}
+
+static uint16_t ISHReadBigEndianUInt16(const uint8_t *bytes) {
+    return (uint16_t) ((bytes[0] << 8) | bytes[1]);
+}
+
+static void ISHWriteBigEndianUInt16(uint8_t *bytes, uint16_t value) {
+    bytes[0] = (uint8_t) (value >> 8);
+    bytes[1] = (uint8_t) (value & 0xff);
+}
+
+static void ISHWriteBigEndianUInt32(uint8_t *bytes, uint32_t value) {
+    bytes[0] = (uint8_t) ((value >> 24) & 0xff);
+    bytes[1] = (uint8_t) ((value >> 16) & 0xff);
+    bytes[2] = (uint8_t) ((value >> 8) & 0xff);
+    bytes[3] = (uint8_t) (value & 0xff);
+}
+
+static NSData *ISHNormalizeDnsName(NSString *name) {
+    if (name.length == 0)
+        return nil;
+    NSMutableData *data = [NSMutableData data];
+    NSArray<NSString *> *labels = [name componentsSeparatedByString:@"."];
+    for (NSString *label in labels) {
+        if (label.length == 0 || label.length > 63)
+            return nil;
+        NSData *labelData = [label dataUsingEncoding:NSUTF8StringEncoding];
+        if (labelData == nil || labelData.length != label.length)
+            return nil;
+        uint8_t length = (uint8_t) labelData.length;
+        [data appendBytes:&length length:1];
+        [data appendData:labelData];
+    }
+    uint8_t zero = 0;
+    [data appendBytes:&zero length:1];
+    return data;
+}
+
+static NSString *ISHTrimTrailingDot(NSString *name) {
+    if ([name hasSuffix:@"."])
+        return [name substringToIndex:name.length - 1];
+    return name;
+}
+
+static BOOL ISHIsBonjourLocalHostname(NSString *name) {
+    NSString *trimmed = ISHTrimTrailingDot(name).lowercaseString;
+    return trimmed.length > 6 && [trimmed hasSuffix:@".local"];
+}
+
+static NSArray<NSData *> *ISHAddressesForBonjourHostname(NSString *hostname, uint16_t qtype) {
+    NSString *lookupName = ISHTrimTrailingDot(hostname);
+    if (lookupName.length == 0)
+        return @[];
+
+    struct addrinfo hints = {0};
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_UNSPEC;
+    if (qtype == ns_t_a) {
+        hints.ai_family = AF_INET;
+    } else if (qtype == ns_t_aaaa) {
+        hints.ai_family = AF_INET6;
+    }
+
+    struct addrinfo *results = NULL;
+    int gai = getaddrinfo(lookupName.UTF8String, NULL, &hints, &results);
+    if (gai != 0 || results == NULL)
+        return @[];
+
+    NSMutableOrderedSet<NSData *> *addresses = [NSMutableOrderedSet orderedSet];
+    for (struct addrinfo *cursor = results; cursor != NULL; cursor = cursor->ai_next) {
+        if (cursor->ai_addr == NULL)
+            continue;
+        if (cursor->ai_addr->sa_family == AF_INET) {
+            struct sockaddr_in *addr4 = (struct sockaddr_in *) cursor->ai_addr;
+            [addresses addObject:[NSData dataWithBytes:&addr4->sin_addr length:sizeof(addr4->sin_addr)]];
+            continue;
+        }
+        if (cursor->ai_addr->sa_family == AF_INET6) {
+            struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) cursor->ai_addr;
+            if (IN6_IS_ADDR_LINKLOCAL(&addr6->sin6_addr))
+                continue;
+            [addresses addObject:[NSData dataWithBytes:&addr6->sin6_addr length:sizeof(addr6->sin6_addr)]];
+        }
+    }
+    freeaddrinfo(results);
+    return addresses.array;
+}
+
+static NSData *ISHBuildBonjourDnsResponse(const uint8_t *queryBytes, size_t queryLength, NSString *hostname, uint16_t qtype) {
+    if (queryBytes == NULL || queryLength < NS_HFIXEDSZ)
+        return nil;
+
+    NSArray<NSData *> *addresses = ISHAddressesForBonjourHostname(hostname, qtype);
+    BOOL answered = addresses.count > 0;
+    BOOL supportedType = (qtype == ns_t_a || qtype == ns_t_aaaa || qtype == ns_t_any);
+    NSData *questionName = ISHNormalizeDnsName(ISHTrimTrailingDot(hostname));
+    if (questionName == nil)
+        return nil;
+
+    NSMutableData *response = [NSMutableData data];
+    uint8_t header[12] = {0};
+    memcpy(header, queryBytes, 2);
+    uint16_t queryFlags = ISHReadBigEndianUInt16(queryBytes + 2);
+    uint16_t responseFlags = (uint16_t) 0x8000; // QR
+    if (queryFlags & 0x0100)
+        responseFlags |= 0x0100; // RD
+    responseFlags |= 0x0080; // RA
+    if (!supportedType) {
+        responseFlags |= 0x0004; // Not Implemented
+    }
+    ISHWriteBigEndianUInt16(header + 2, responseFlags);
+    ISHWriteBigEndianUInt16(header + 4, 1);
+    uint16_t answerCount = answered ? (uint16_t) addresses.count : 0;
+    ISHWriteBigEndianUInt16(header + 6, answerCount);
+    ISHWriteBigEndianUInt16(header + 8, 0);
+    ISHWriteBigEndianUInt16(header + 10, 0);
+    [response appendBytes:header length:sizeof(header)];
+    [response appendData:questionName];
+    uint8_t questionTail[4];
+    ISHWriteBigEndianUInt16(questionTail, qtype);
+    ISHWriteBigEndianUInt16(questionTail + 2, ns_c_in);
+    [response appendBytes:questionTail length:sizeof(questionTail)];
+
+    if (!answered)
+        return response;
+
+    for (NSData *address in addresses) {
+        [response appendData:questionName];
+        uint8_t answerHeader[10];
+        uint16_t answerType = (uint16_t) (address.length == 4 ? ns_t_a : ns_t_aaaa);
+        ISHWriteBigEndianUInt16(answerHeader, answerType);
+        ISHWriteBigEndianUInt16(answerHeader + 2, ns_c_in);
+        ISHWriteBigEndianUInt32(answerHeader + 4, 60);
+        ISHWriteBigEndianUInt16(answerHeader + 8, (uint16_t) address.length);
+        [response appendBytes:answerHeader length:sizeof(answerHeader)];
+        [response appendData:address];
+    }
+    return response;
 }
 #endif
 
@@ -2362,9 +2507,139 @@ void SyncHostname(void) {
 }
 #endif
 
+- (NSData *)forwardDnsQuery:(const uint8_t *)queryBytes
+                     length:(size_t)queryLength
+                      qname:(NSString *)qname
+                      qtype:(uint16_t)qtype {
+    if (queryBytes == NULL || queryLength < NS_HFIXEDSZ)
+        return nil;
+
+    if (ISHIsBonjourLocalHostname(qname))
+        return ISHBuildBonjourDnsResponse(queryBytes, queryLength, qname, qtype);
+
+    struct __res_state state = {0};
+    if (res_ninit(&state) != 0)
+        return nil;
+
+    u_char response[NS_PACKETSZ * 8];
+    int responseLength = res_nquery(&state, qname.UTF8String, ns_c_in, qtype, response, sizeof(response));
+    res_nclose(&state);
+    if (responseLength <= 0)
+        return nil;
+    return [NSData dataWithBytes:response length:(NSUInteger) responseLength];
+}
+
+- (void)handleLocalDnsPacket {
+    if (self.localDnsServerFD < 0)
+        return;
+
+    uint8_t buffer[2048];
+    struct sockaddr_storage peer = {0};
+    socklen_t peerLength = sizeof(peer);
+    ssize_t received = recvfrom(self.localDnsServerFD, buffer, sizeof(buffer), 0, (struct sockaddr *) &peer, &peerLength);
+    if (received <= 0)
+        return;
+    if (received < NS_HFIXEDSZ)
+        return;
+
+    ns_msg message;
+    if (ns_initparse(buffer, (int) received, &message) != 0)
+        return;
+    if (ns_msg_count(message, ns_s_qd) < 1)
+        return;
+
+    ns_rr question;
+    if (ns_parserr(&message, ns_s_qd, 0, &question) != 0)
+        return;
+
+    NSString *qname = [NSString stringWithUTF8String:ns_rr_name(question)];
+    if (qname.length == 0)
+        return;
+
+    NSData *response = [self forwardDnsQuery:buffer
+                                      length:(size_t) received
+                                       qname:qname
+                                       qtype:ns_rr_type(question)];
+    if (response.length == 0)
+        return;
+
+    sendto(self.localDnsServerFD, response.bytes, response.length, 0, (struct sockaddr *) &peer, peerLength);
+}
+
+- (void)stopLocalDnsServer {
+#if !ISH_LINUX
+    int fd = self.localDnsServerFD;
+    self.localDnsServerFD = -1;
+    if (self.localDnsServerReadSource != nil) {
+        dispatch_source_cancel(self.localDnsServerReadSource);
+        self.localDnsServerReadSource = nil;
+    } else if (fd >= 0) {
+        close(fd);
+    }
+    self.localDnsServerRunning = NO;
+#endif
+}
+
+- (BOOL)ensureLocalDnsServer {
+#if ISH_LINUX
+    return NO;
+#else
+    if (self.localDnsServerRunning && self.localDnsServerFD >= 0)
+        return YES;
+
+    if (self.localDnsServerQueue == nil)
+        self.localDnsServerQueue = dispatch_queue_create("app.ish.iSH-AOK.local-dns", DISPATCH_QUEUE_SERIAL);
+
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0)
+        return NO;
+
+    int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr = {0};
+    addr.sin_len = sizeof(addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(53);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) != 0) {
+        close(fd);
+        [ISHDiagnosticsStore recordBreadcrumb:@"dns.localServer.failed"
+                                      details:@{@"stage": @"bind",
+                                                @"errno": @(errno)}];
+        return NO;
+    }
+
+    dispatch_source_t source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t) fd, 0, self.localDnsServerQueue);
+    if (source == nil) {
+        close(fd);
+        return NO;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(source, ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (self == nil)
+            return;
+        [self handleLocalDnsPacket];
+    });
+    dispatch_source_set_cancel_handler(source, ^{
+        close(fd);
+    });
+    self.localDnsServerFD = fd;
+    self.localDnsServerReadSource = source;
+    self.localDnsServerRunning = YES;
+    dispatch_resume(source);
+    [ISHDiagnosticsStore recordBreadcrumb:@"dns.localServer.started"
+                                  details:@{@"address": @"127.0.0.1:53"}];
+    return YES;
+#endif
+}
+
 - (void)configureDns {
 #if !ISH_LINUX
     [ISHDiagnosticsStore recordBreadcrumb:@"dns.configure.begin"];
+    [self ensureLocalDnsServer];
     [self scheduleDnsRefresh:@"manual"];
     if (!self.dnsNotifyRegistered) {
         ISHDnsConfigurationNotifyKeyFunc notifyKeyFunc = ISHDnsConfigurationNotifyKeySymbol();
@@ -2451,6 +2726,7 @@ void SyncHostname(void) {
 #if !ISH_LINUX
     NSString *dnsSource = @"dnsinfo";
     NSMutableString *resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
+    BOOL includeLocalDnsServer = [self ensureLocalDnsServer];
     if (resolvConf == nil) {
         dnsSource = @"libresolv";
         struct __res_state res;
@@ -2510,6 +2786,12 @@ void SyncHostname(void) {
             [self finishDnsRefreshAndRescheduleIfNeeded:reason];
             return;
         }
+    }
+
+    if (includeLocalDnsServer) {
+        if (resolvConf == nil)
+            resolvConf = [NSMutableString new];
+        [resolvConf insertString:@"nameserver 127.0.0.1\n" atIndex:0];
     }
 
     [ISHDiagnosticsStore recordBreadcrumb:@"dns.refresh.generated"
@@ -2662,6 +2944,7 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
         [UIView setAnimationsEnabled:NO];
 
 #if !ISH_LINUX
+    self.localDnsServerFD = -1;
     NSString *ishVersion = [NSString stringWithFormat:@"iSH-AOK %@ (%@)",
                          [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
                          [NSBundle.mainBundle objectForInfoDictionaryKey:(NSString *) kCFBundleVersionKey]];
@@ -2796,6 +3079,7 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
 
 - (void)dealloc {
     [self.metricKitSubscriber unregisterIfNeeded];
+    [self stopLocalDnsServer];
     if (self.dnsNotifyRegistered) {
         notify_cancel(self.dnsNotifyToken);
         self.dnsNotifyRegistered = NO;
