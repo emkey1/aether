@@ -2,6 +2,8 @@
 
 iSH-AOK is a fork of [ish-app/ish](https://github.com/ish-app/ish) with local product, tooling, and platform changes for day-to-day development on this tree.
 
+Testflight: https://testflight.apple.com/join/X1flyiqE
+
 This fork is not just a rebrand. It carries fork-specific behavior, bundled roots, diagnostics work, File Provider integration, and an active experimental amd64/x86_64 guest bring-up. If you want upstream iSH, use `ish-app/ish`. If you are working in this repository, this README is the relevant one.
 
 ## What This Fork Adds
