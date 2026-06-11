@@ -1125,6 +1125,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     _sendButton.enabled = !sending;
     _promptField.enabled = !sending;
     [_sendButton setTitle:(sending ? @"..." : @"Send") forState:UIControlStateNormal];
+    _sendButton.accessibilityLabel = sending ? @"Sending" : @"Send";
 }
 
 - (void)handleLLMResponseData:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
