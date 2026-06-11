@@ -1226,9 +1226,10 @@ static dword_t sys_getcwd_common(guest_addr_t buf_addr, dword_t size) {
     if (err < 0)
         return err;
 
-    if (strlen(pwd) + 1 > size)
+    size_t pwd_len = strlen(pwd);
+    if (pwd_len + 1 > size)
         return _ERANGE;
-    size = strlen(pwd) + 1;
+    size = pwd_len + 1;
     STRACE(" \"%.*s\"", size, pwd);
     dword_t res = size;
 

@@ -30,3 +30,6 @@
 ## 2026-03-26 - Eliminate redundant strlen in backwards string construction
 **Learning:** In VFS path construction functions (like `tmpfs_getpath`), when a path string is built backwards from the end of a fixed-size buffer, calling `strlen()` on the resulting pointer to find the total length incurs a redundant O(N) traversal.
 **Action:** When building strings backwards, calculate the final length using pointer arithmetic (e.g., `(size_t)((buf + MAX_PATH) - p)`) instead of `strlen() + 1` to eliminate the unnecessary O(N) recalculation.
+## 2026-03-27 - Hoist string length calculations in sys_getcwd_common
+**Learning:** In `kernel/fs.c`, `sys_getcwd_common` repeatedly called `strlen(pwd)` to determine the length of the current working directory string. This caused unnecessary O(N) traversals per operation, scaling poorly for long paths.
+**Action:** When a string's length needs to be used multiple times in an inner function, compute the length once and cache it in a variable (`pwd_len`) rather than recalculating it internally.
