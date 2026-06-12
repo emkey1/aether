@@ -449,7 +449,8 @@
     cmp x9, 5
     b.eq 3f
     asr w15, w13, w10
-    lsr w14, w13, w10
+    sub w12, w10, 1
+    lsr w14, w13, w12
     b 4f
 2:  lsl w15, w13, w10
     mov w14, w13
@@ -458,7 +459,8 @@
     lsr w14, w14, w12
     b 4f
 3:  lsr w15, w13, w10
-    lsr w14, w13, w10
+    sub w12, w10, 1
+    lsr w14, w13, w12
 4:  and w14, w14, 1
     mov w16, 0
     cmp x10, 1
@@ -484,7 +486,8 @@
     cmp x9, 5
     b.eq 11f
     asr x15, x13, x10
-    lsr x14, x13, x10
+    sub x12, x10, 1
+    lsr x14, x13, x12
     b 12f
 10: lsl x15, x13, x10
     mov x14, x13
@@ -493,7 +496,8 @@
     lsr x14, x14, x12
     b 12f
 11: lsr x15, x13, x10
-    lsr x14, x13, x10
+    sub x12, x10, 1
+    lsr x14, x13, x12
 12: and w14, w14, 1
     mov w16, 0
     cmp x10, 1

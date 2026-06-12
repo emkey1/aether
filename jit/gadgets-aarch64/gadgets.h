@@ -47,11 +47,27 @@ _xaddr .req x3
     cmp x8, (0x1000-(\size/8))
     b.hi crosspage_load_\id
     .ifc \type,write
+        # Writes take the slow path (__tlb_write_ptr via resolve_write_ptr)
+        # when the TLB is stale or host page mirroring requires revalidating
+        # writable hits. IMPORTANT: only x8-x10 may be clobbered here — the
+        # rep-string gadgets keep their stride in w12 live across prep, which
+        # is what broke the earlier inline check (see fbcb277c).
+        ldr x9, [_tlb, (-TLB_entries+TLB_mmu)]
+        ldr x8, [_tlb, (-TLB_entries+TLB_mem_changes)]
+        ldr x10, [x9, MMU_changes]
+        cmp x8, x10
+        b.ne slow_write_\id
+        ldrb w9, [x9, MMU_requires_write_revalidate]
+        cbz w9, fast_write_\id
+slow_write_\id :
         bl resolve_write_ptr
         b back_\id
+fast_write_\id :
     .endif
     and w8, _addr, 0xfffff000
-    str w8, [_tlb, (-TLB_entries+TLB_dirty_page)]
+    .ifc \type,write
+        str w8, [_tlb, (-TLB_entries+TLB_dirty_page)]
+    .endif
     ubfx x9, _xaddr, 12, 10
     eor x9, x9, _xaddr, lsr 22
     mov w10, TLB_ENTRY_SIZE

@@ -29,10 +29,18 @@
 .irp type, read,write
 
 .macro \type\()_prep size, id
-    movq -TLB_entries+TLB_mmu(%_tlb), %r15
-    movq -TLB_entries+TLB_mem_changes(%_tlb), %r14
-    cmpq MMU_changes(%r15), %r14
-    jne handle_miss_\id
+    .ifc \type,write
+        # Writes take the miss path (which re-translates through the mmu) when
+        # the TLB is stale or host page mirroring requires revalidating
+        # writable hits (see __tlb_write_ptr). Reads revalidate at block
+        # boundaries instead (tlb_refresh in cpu_step_to_interrupt).
+        movq -TLB_entries+TLB_mmu(%_tlb), %r15
+        movq -TLB_entries+TLB_mem_changes(%_tlb), %r14
+        cmpq MMU_changes(%r15), %r14
+        jne handle_miss_\id
+        cmpb $(0), MMU_requires_write_revalidate(%r15)
+        jne handle_miss_\id
+    .endif
     movl %_addr, %r14d
     shrl $12, %r14d
     andl $0x3ff, %r14d
@@ -50,8 +58,8 @@
         cmpl TLB_ENTRY_page(%_tlb,%r14), %r15d
     .else
         cmpl TLB_ENTRY_page_if_writable(%_tlb,%r14), %r15d
+        movl %r15d, -TLB_entries+TLB_dirty_page(%_tlb)
     .endif
-    movl %r15d, -TLB_entries+TLB_dirty_page(%_tlb)
     jne handle_miss_\id
     addq TLB_ENTRY_data_minus_addr(%_tlb,%r14), %_addrq
 back_\id :

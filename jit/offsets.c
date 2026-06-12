@@ -69,6 +69,7 @@ void cpu() {
     OFFSET(TLB, tlb, dirty_page);
     OFFSET(TLB, tlb, segfault_addr);
     OFFSET(MMU, mmu, changes);
+    OFFSET(MMU, mmu, requires_write_revalidate);
     OFFSET(TLB_ENTRY, tlb_entry, page);
     OFFSET(TLB_ENTRY, tlb_entry, page_if_writable);
     OFFSET(TLB_ENTRY, tlb_entry, data_minus_addr);
