@@ -103,10 +103,14 @@ struct mm *mm_copy(struct mm *mm) {
     mem_set_mmap_window(&new_mm->mem, mm->mem.mmap_floor, mm->mem.mmap_ceiling);
     ipc_mm_init(new_mm);
     fd_retain(new_mm->exefile);
-    write_lock(&mm->mem.lock);
+    // Use the quiesce/poke protocol: sibling threads sharing this mm hold the
+    // read lock for as long as they execute guest code, and only a poke makes
+    // them exit at the next block boundary. A plain write_lock can stall fork
+    // behind a guest busy-loop indefinitely.
+    mem_write_lock_with_pokes(&mm->mem);
     pt_copy_on_write(&mm->mem, &new_mm->mem, 0, mm->mem.page_limit);
     ipc_mm_copy(new_mm, mm);
-    write_unlock(&mm->mem.lock);
+    mem_write_unlock_with_pokes(&mm->mem);
     return new_mm;
 }
 
