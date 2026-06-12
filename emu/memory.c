@@ -375,6 +375,26 @@ size_t mem_mapped_page_count(struct mem *mem) {
     return count;
 }
 
+// Return the first page >= page with no mapping, or page_limit if every page
+// up to the limit is mapped. Scans leaf entry arrays directly so walking a
+// large contiguous mapped region doesn't redo the page-table descent per page.
+static page_t mem_next_unmapped_page(struct mem *mem, page_t page) {
+    while (page < mem->page_limit) {
+        page_t leaf_base = page - PGDIR_LEAF_INDEX(page);
+        struct pt_entry *entries = mem_pt_leaf_get(mem, leaf_base);
+        if (entries == NULL)
+            return page;
+        for (int i = (int) PGDIR_LEAF_INDEX(page); i < MEM_PTDIR_SIZE; i++) {
+            if (entries[i].data == NULL) {
+                page_t unmapped = leaf_base + (page_t) i;
+                return unmapped < mem->page_limit ? unmapped : mem->page_limit;
+            }
+        }
+        page = leaf_base + MEM_PTDIR_SIZE;
+    }
+    return mem->page_limit;
+}
+
 page_t pt_find_hole(struct mem *mem, pages_t size) {
     if (size == 0 || mem->mmap_ceiling <= mem->mmap_floor)
         return BAD_PAGE;
@@ -388,13 +408,12 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
         if (page > prev_end && page - prev_end >= size)
             best = page - size;
 
-        page_t region_end = page + 1;
-        while (region_end < mem->mmap_ceiling &&
-               mem_next_mapped_page(mem, region_end) == region_end) {
-            region_end++;
-        }
+        page_t region_end = mem_next_unmapped_page(mem, page + 1);
+        if (region_end > mem->mmap_ceiling)
+            region_end = mem->mmap_ceiling;
         prev_end = region_end;
-        page = mem_next_mapped_page(mem, region_end);
+        page = region_end >= mem->mmap_ceiling ? BAD_PAGE
+             : mem_next_mapped_page(mem, region_end);
     }
     if (mem->mmap_ceiling - prev_end >= size)
         best = mem->mmap_ceiling - size;
