@@ -45,14 +45,21 @@ typedef struct {
 } wrlock_t;
 
 void wrlock_init(wrlock_t *lock);
-static inline void read_unlock_and_destroy(wrlock_t *lock);
 static inline int trylockw(wrlock_t *lock);
 
 extern void _lock_destroy(wrlock_t *lock);
 
 static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
-    int old_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
+    // Decrement val and record metadata before releasing the rwlock. Doing it
+    // after the release races with the next owner: a writer could set val to
+    // -1 in the window and this thread's late update would clobber it.
+    int old_val = atomic_fetch_sub_explicit(&lock->val, 1, memory_order_relaxed);
     if(old_val <= 0) {
+        // Unbalanced read_unlock. Repair the count and do not release a
+        // rwlock we evidently do not hold; storing 0 here (as this used to)
+        // could erase a writer's -1, and skipping the pthread unlock while a
+        // read hold was real leaked the lock and wedged every later writer.
+        atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
         printk("ERROR: read_unlock(%x) error(val: %d lock=%s holder=%s(%d) at %s:%d)\n",
                lock,
                old_val,
@@ -68,43 +75,31 @@ static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
                lock->last_read_lock_line,
                lock->last_read_unlock_file != NULL ? lock->last_read_unlock_file : "-",
                lock->last_read_unlock_line);
-        atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
-        lock->pid = -1;
-        lock->comm[0] = 0;
-        //modify_locks_held_count(current, -1);
-        //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
         return;
     }
-    if (pthread_rwlock_unlock(&lock->l) != 0)
-//        printk("URGENT: read_unlock(%x) error(PID: %d Process: %s)\n", lock, current_pid(current), current_comm(current));
-        printk("URGENT: read_unlock(%x) failed\n", lock);
     lock->last_read_unlock_pc = __builtin_return_address(0);
     lock->last_read_unlock_file = file;
     lock->last_read_unlock_line = line;
-    atomic_fetch_sub_explicit(&lock->val, 1, memory_order_relaxed);
-    //modify_locks_held_count(current, -1);
-    //STRACE("read_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+    if (pthread_rwlock_unlock(&lock->l) != 0)
+        printk("URGENT: read_unlock(%x) failed\n", lock);
 }
 
 #define read_unlock(lock) _read_unlock(lock, __FILE__, __LINE__)
 
 static inline void _write_unlock(wrlock_t *lock) {
-    if(pthread_rwlock_unlock(&lock->l) != 0)
-      //  printk("URGENT: write_unlock(%x:%d) error(PID: %d Process: %s) \n", lock, lock->val, current_pid(current), current_comm(current));
-        printk("URGENT: write_unlock(%x:%d) error on unlock\n", lock,
-               atomic_load_explicit(&lock->val, memory_order_relaxed));
-    if(atomic_load_explicit(&lock->val, memory_order_relaxed) != -1) {
-        //printk("ERROR: write_unlock(%x) on lock with val of %d (PID: %d Process: %s )\n", lock, lock->val, current_pid(current), current_comm(current));
-        // printk("ERROR: write_unlock(%x) on lock with val of %d\n", lock, lock->val);  // Comment out for now.  Much noise, little impact (So far as I can tell)
-    }
-    //assert(lock->val == -1);
+    // Clear val and ownership metadata while still holding the rwlock.
+    // Clearing after the release races with the next owner: a reader could
+    // acquire in the window, see val still -1 (spurious _read_lock error),
+    // then this thread's val=0 store erased that reader's count, which made
+    // its eventual read_unlock take the unbalanced path, leak the rwlock,
+    // and permanently wedge every later write_lock.
     atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
-    lock->line = lock->pid = 0;
+    lock->line = 0;
     lock->pid = -1;
     lock->comm[0] = 0;
-    //STRACE("write_unlock(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
     lock->file = NULL;
-    //modify_locks_held_count(current, -1);
+    if(pthread_rwlock_unlock(&lock->l) != 0)
+        printk("URGENT: write_unlock(%x) error on unlock\n", lock);
 }
 
 static inline void write_unlock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
@@ -179,13 +174,6 @@ static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swa
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
     _write_unlock(lock);
-    _lock_destroy(lock);
-}
-
-static inline void read_unlock_and_destroy(wrlock_t *lock) {
-    if(trylockw(lock)) // Expected to already be held; only fall back to read unlock if it is still active.
-        _read_unlock(lock, __FILE__, __LINE__);
-    
     _lock_destroy(lock);
 }
 

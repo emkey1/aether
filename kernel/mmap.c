@@ -388,21 +388,28 @@ dword_t sys_mincore_guest(guest_addr_t addr, qword_t len, guest_addr_t vec_addr)
     pages_t pages = PAGE_ROUND_UP(len);
     page_t start = PAGE(addr);
 
+    // Collect the result before touching guest memory: user_write re-enters
+    // mem_read_lock_quiesce_aware, and taking a nested read lock here
+    // deadlocks against a pending writer's quiesce request (the inner lock
+    // waits for quiesce_requested to drop while the writer waits for the
+    // outer read lock to release).
+    byte_t *vec = malloc(pages);
+    if (vec == NULL)
+        return _ENOMEM;
     mem_read_lock_quiesce_aware(current->mem);
     for (pages_t i = 0; i < pages; i++) {
         struct pt_entry *entry = mem_pt(current->mem, start + i);
         if (entry == NULL) {
             mem_read_unlock_quiesce_aware(current->mem);
+            free(vec);
             return _ENOMEM;
         }
-        byte_t vec = 1;
-        if (user_write(vec_addr + i, &vec, sizeof(vec))) {
-            mem_read_unlock_quiesce_aware(current->mem);
-            return _EFAULT;
-        }
+        vec[i] = 1;
     }
     mem_read_unlock_quiesce_aware(current->mem);
-    return 0;
+    int err = user_write(vec_addr, vec, pages) ? _EFAULT : 0;
+    free(vec);
+    return err;
 }
 
 dword_t sys_mincore(addr_t addr, dword_t len, addr_t vec_addr) {
