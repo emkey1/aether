@@ -77,9 +77,14 @@ static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
                lock->last_read_unlock_line);
         return;
     }
+#if LOCK_DEBUG
     lock->last_read_unlock_pc = __builtin_return_address(0);
     lock->last_read_unlock_file = file;
     lock->last_read_unlock_line = line;
+#else
+    (void) file;
+    (void) line;
+#endif
     if (pthread_rwlock_unlock(&lock->l) != 0)
         printk("URGENT: read_unlock(%x) failed\n", lock);
 }
@@ -138,10 +143,17 @@ static inline void _read_lock(wrlock_t *lock, const char *file, int line) {
                "-",
                -1);
     }
+    // Recording the acquisition site on every read_lock dirties this shared
+    // cache line from every thread on every JIT run-loop iteration; only do
+    // it in debug builds.
+#if LOCK_DEBUG
     lock->last_read_lock_pc = __builtin_return_address(0);
     lock->last_read_lock_file = file;
     lock->last_read_lock_line = line;
-    //STRACE("read_lock(%d, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
+#else
+    (void) file;
+    (void) line;
+#endif
 }
 
 #define read_lock(lock) _read_lock(lock, __FILE__, __LINE__)
@@ -202,9 +214,14 @@ static inline int _trylockr(wrlock_t *lock, const char *file, int line) {
         int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
         if (old_val < 0)
             printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, old_val);
+#if LOCK_DEBUG
         lock->last_read_lock_pc = __builtin_return_address(0);
         lock->last_read_lock_file = file;
         lock->last_read_lock_line = line;
+#else
+        (void) file;
+        (void) line;
+#endif
     }
     return status;
 }
