@@ -581,7 +581,9 @@ static bool gen_amd64_decode_mem_meta(struct gen_state *state, struct tlb *tlb,
             has_index = true;
             index = index_low | (insn->rex.x ? 8 : 0);
         }
-        if (mod == 0 && base_low == 5 && !insn->rex.b) {
+        // mod=00 with base=101 means no base + disp32, regardless of REX.B
+        // (r13 as a base requires mod=01/10).
+        if (mod == 0 && base_low == 5) {
             has_base = false;
         } else {
             has_base = true;
@@ -648,7 +650,7 @@ static bool gen_amd64_decode_rm_extent(struct gen_state *state, struct tlb *tlb,
             return false;
         ip += sizeof(sib);
         unsigned base_low = amd64_modrm_rm(sib);
-        has_base = !(mod == 0 && base_low == 5 && !insn->rex.b);
+        has_base = !(mod == 0 && base_low == 5);
     } else if (mod == 0 && rm_low == 5) {
         has_base = false;
     }
@@ -1430,7 +1432,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    // The grp3 helper does not parse a LOCK prefix; route lock not/neg (legal
+    // on memory operands) to the interpreter.
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.lock_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             (insn.opcode == 0xf6 || insn.opcode == 0xf7) &&
             amd64_modrm_reg(insn.modrm) >= 2) {
@@ -1925,12 +1930,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Only the REX.W form goes direct: the movsxd gadgets implement 64-bit
+    // semantics only. 16/32-bit movsxd falls through to the reg-reg helper.
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.fs_prefix && !insn.lock_prefix &&
-            insn.rep_mode == amd64_jit_rep_none &&
+            insn.rep_mode == amd64_jit_rep_none && insn.rex.w &&
             insn.has_modrm && amd64_modrm_mod(insn.modrm) == 3 &&
             insn.opcode == 0x63) {
-        unsigned size = insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32);
+        unsigned size = 64;
         unsigned src_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
         unsigned dst_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
         next_ip = state->amd64_ip + 1;

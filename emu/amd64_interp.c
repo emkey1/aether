@@ -3975,7 +3975,8 @@ static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
                 modrm->has_index = true;
                 modrm->index = index_low | (rex.x ? 8 : 0);
             }
-            if (mod == 0 && base_low == 5 && !rex.b) {
+            // mod=00 with base=101 means no base + disp32, regardless of REX.B.
+            if (mod == 0 && base_low == 5) {
                 modrm->has_base = false;
             } else {
                 modrm->has_base = true;
@@ -4015,7 +4016,9 @@ static inline bool amd64_decode_modrm(struct cpu_state *cpu, struct tlb *tlb,
             modrm->has_index = true;
             modrm->index = index_low | (rex.x ? 8 : 0);
         }
-        if (mod == 0 && base_low == 5 && !rex.b) {
+        // mod=00 with base=101 means no base + disp32, regardless of REX.B
+        // (r13 as a base requires mod=01/10).
+        if (mod == 0 && base_low == 5) {
             modrm->has_base = false;
         } else {
             modrm->has_base = true;
@@ -8439,6 +8442,7 @@ int amd64_jit_xchg_rm(struct cpu_state *cpu, struct tlb *tlb,
     struct amd64_modrm modrm;
     bool fs_prefix = false;
     bool operand_size_prefix = false;
+    bool lock_prefix = false;
     byte_t byte;
     unsigned size;
     qword_t lhs, rhs;
@@ -8457,6 +8461,12 @@ int amd64_jit_xchg_rm(struct cpu_state *cpu, struct tlb *tlb,
             continue;
         if (byte == 0x64) {
             fs_prefix = true;
+            continue;
+        }
+        if (byte == 0xf0) {
+            // xchg with a memory operand is implicitly locked; the explicit
+            // prefix only needs to be consumed. LOCK with a register form is #UD.
+            lock_prefix = true;
             continue;
         }
         if (byte == 0x66) {
@@ -8478,6 +8488,8 @@ int amd64_jit_xchg_rm(struct cpu_state *cpu, struct tlb *tlb,
     if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
         goto amd64_xchg_rm_pf;
 
+    if (lock_prefix && modrm.is_reg)
+        return INT_UNDEFINED;
     size = opcode == 0x86 ? 8 : (operand_size_prefix ? 16 : (rex.w ? 64 : 32));
     atomic_locked = !modrm.is_reg;
     if (atomic_locked)

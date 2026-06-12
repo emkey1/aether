@@ -109,14 +109,14 @@ static bool amd64_cc1_force_interp_block(guest_addr_t ip) {
         return (ip >= 0x7ffffdf9f03eull && ip <= 0x7ffffdf9f17eull) ||
             (ip >= 0x7ffffdf83480ull && ip <= 0x7ffffdf83814ull) ||
             (ip >= 0x7ffffdf83a3aull && ip <= 0x7ffffdf83d99ull) ||
-            (ip >= 0xf7832eull && ip <= 0xf6b080ull) ||
+            (ip >= 0xf6b080ull && ip <= 0xf7832eull) ||
             (ip >= 0x7ffffdc1adb8ull && ip <= 0x7ffffdc2730dull) ||
             (ip >= 0x7ffffdc88398ull && ip <= 0x7ffffdc8859dull);
     case amd64_cc1_force_interp_suspect_ranges_wide:
         return (ip >= 0x7ffffdf9f03eull && ip <= 0x7ffffdf9f17eull) ||
             (ip >= 0x7ffffdf83480ull && ip <= 0x7ffffdf83814ull) ||
             (ip >= 0x7ffffdf83a3aull && ip <= 0x7ffffdf83d99ull) ||
-            (ip >= 0xf7832eull && ip <= 0xf6b080ull) ||
+            (ip >= 0xf6b080ull && ip <= 0xf7832eull) ||
             (ip >= 0x7ffffdc1adb8ull && ip <= 0x7ffffdc2730dull) ||
             (ip >= 0x7ffffdc88398ull && ip <= 0x7ffffdc8859dull) ||
             (ip >= 0x7ffffdc9a330ull && ip <= 0x7ffffdc9a663ull) ||
