@@ -372,7 +372,9 @@ static int signal_action(struct sighand *sighand, int sig) {
     }
 
     switch (sig) {
-        case SIGCONT_: case SIGCHLD_:
+        // Linux defaults SIGURG to ignore; it arrives with out-of-band TCP
+        // data, so defaulting it to kill terminates innocent network users.
+        case SIGCONT_: case SIGCHLD_: case SIGURG_:
         case SIGIO_: case SIGWINCH_:
             return SIGNAL_IGNORE;
 
@@ -444,6 +446,21 @@ static void deliver_signal_unlocked_locked(struct task *task, struct sighand *si
 
 void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     lock(&sighand->lock, 0);
+    // deliver_signal is the forced path (faults, not kill()). Match Linux
+    // force_sig semantics for synchronous traps: if the signal is ignored,
+    // or blocked with the default handler, reset to SIG_DFL and unblock it
+    // so the task dies. Without this the faulting instruction re-executes
+    // forever: handle_interrupt only calls receive_signals for unblocked
+    // pending signals, and receive_signals skips blocked ones anyway.
+    // User-sent signals go through send_signal and are not affected.
+    if (signal_is_synchronous_trap(sig) && signal_is_blockable(sig)) {
+        struct sigaction_ *action = &sighand->action[sig];
+        if (action->handler == SIG_IGN_ ||
+                (action->handler == SIG_DFL_ && sigset_has(task->blocked, sig))) {
+            *action = (struct sigaction_) {.handler = SIG_DFL_};
+            sigset_del(&task->blocked, sig);
+        }
+    }
     deliver_signal_unlocked_locked(task, sighand, sig, info);
     unlock(&sighand->lock);
 }
@@ -1212,9 +1229,14 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
         current->blocked |= action->mask;
 
         if (user_write(sp, &frame, frame_size)) {
-            printk("WARNING: failed to install amd64 frame for %d at %#llx\n",
+            // The handler can't run (the stack is unwritable or gone). Linux
+            // force_sigsegv kills with SIG_DFL here. Calling deliver_signal
+            // would self-deadlock: receive_signals already holds
+            // sighand->lock and deliver_signal takes it again.
+            printk("WARNING: failed to install amd64 frame for %d at %#llx, killing\n",
                    info->sig, (unsigned long long) sp);
-            deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+            unlock(&sighand->lock);
+            do_exit_group(SIGSEGV_);
         }
 
         if (action->flags & SA_RESETHAND_)
@@ -1269,8 +1291,11 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
 
     // install frame
     if (user_write(sp, &frame, frame_size)) {
-        printk("WARNING: failed to install frame for %d at %#x\n", info->sig, sp);
-        deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+        // See the amd64 path above: kill like Linux force_sigsegv instead of
+        // re-taking sighand->lock via deliver_signal and self-deadlocking.
+        printk("WARNING: failed to install frame for %d at %#x, killing\n", info->sig, sp);
+        unlock(&sighand->lock);
+        do_exit_group(SIGSEGV_);
     }
 
     if (action->flags & SA_RESETHAND_)
@@ -1966,10 +1991,6 @@ static int kill_group(pid_t_ pgid, dword_t sig) {
         unlock(&pids_lock);
         return _ESRCH;
     }
-    while((task_ref_cnt_get(current, 0) > 1) || (locks_held_count(current))) { // Wait for now, task is in one or more critical sections, and/or has locks
-        nanosleep(&lock_pause, NULL);
-    }
-
 retry:
     target_count = 0;
     size_t needed = 0;
