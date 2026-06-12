@@ -37,8 +37,7 @@ struct task {
     uint64_t threadid;
 
     struct {
-        pthread_mutex_t lock;
-        int count; // If positive, don't delete yet, wait_to_delete 
+        atomic_int count; // If positive, don't delete yet, wait_to_delete
         bool ready_to_be_freed; // Should be false initially
     } reference;
     
@@ -295,14 +294,10 @@ void cleanup_pending_deletions(void);
 
 //
 static inline unsigned task_ref_cnt_get(struct task *task, unsigned UNUSED(lock_if_zero)) {
-    unsigned tmp = 0;
-    pthread_mutex_lock(&task->reference.lock); // This would make more
-    tmp = task->reference.count;
-    if(tmp > 1000)  // Work around brain damage.  Remove when said brain damage is fixed
+    int tmp = atomic_load_explicit(&task->reference.count, memory_order_acquire);
+    if(tmp < 0 || tmp > 1000)  // Work around brain damage.  Remove when said brain damage is fixed
         tmp = 0;
-    pthread_mutex_unlock(&task->reference.lock);
-
-    return tmp;
+    return (unsigned) tmp;
 }
 
 

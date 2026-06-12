@@ -266,12 +266,8 @@ void mem_init(struct mem *mem) {
     mem->mmu.changes = atomic_fetch_add_explicit(&next_mem_change_id, 1, memory_order_relaxed);
     wrlock_init(&mem->lock);
     strlcpy(mem->lock.lname, "mem", sizeof(mem->lock.lname));
-    mem->reference.count = 0;
+    atomic_store_explicit(&mem->reference.count, 0, memory_order_relaxed);
     mem->reference.ready_to_be_freed = false;
-    int rc = pthread_mutex_init(&mem->reference.lock, NULL);
-    if (rc != 0) {
-        // Handle error
-    }
 }
 
 void mem_destroy(struct mem *mem) {
@@ -924,11 +920,10 @@ void mem_coredump(struct mem *mem, const char *file) {
 }
 
 void mem_ref_cnt_mod(struct mem *mem, int value) { // value should only be -1 or 1.
-    // Keep track of how many threads are referencing this task
-    if(!doEnableExtraLocking) {
-        return;
-    }
-    
+    // Keep track of how many threads are referencing this mem. Maintained
+    // unconditionally (see task_ref_cnt_mod): mm_release gates teardown on
+    // this count, and the old doEnableExtraLocking preference could be
+    // toggled mid-run, leaving the count permanently imbalanced.
     if(mem == NULL) {
             return;
     }
@@ -937,34 +932,28 @@ void mem_ref_cnt_mod(struct mem *mem, int value) { // value should only be -1 or
         printk("ERROR: invalid mem refcount delta %d\n", value);
         return;
     }
-    
-    pthread_mutex_lock(&mem->reference.lock);
-    
-    if(((mem->reference.count + value) < 0)) { // Prevent the count from going negative.
-        void *caller = __builtin_return_address(0);
-        Dl_info caller_info = {};
-        const char *caller_name = "?";
-        ptrdiff_t caller_offset = 0;
-        if (caller != NULL && dladdr(caller, &caller_info) != 0 && caller_info.dli_sname != NULL) {
-            caller_name = caller_info.dli_sname;
-            caller_offset = (char *) caller - (char *) caller_info.dli_saddr;
+
+    int old_count = atomic_load_explicit(&mem->reference.count, memory_order_relaxed);
+    do {
+        if((old_count + value) < 0) { // Prevent the count from going negative.
+            void *caller = __builtin_return_address(0);
+            Dl_info caller_info = {};
+            const char *caller_name = "?";
+            ptrdiff_t caller_offset = 0;
+            if (caller != NULL && dladdr(caller, &caller_info) != 0 && caller_info.dli_sname != NULL) {
+                caller_name = caller_info.dli_sname;
+                caller_offset = (char *) caller - (char *) caller_info.dli_saddr;
+            }
+            printk("ERROR: Attempt to decrement mem reference count to be negative, ignoring(%d:%d) caller=%s+%td addr=%p mem=%p\n",
+                   old_count, value, caller_name, caller_offset, caller, mem);
+            return;
         }
-        printk("ERROR: Attempt to decrement mem reference count to be negative, ignoring(%d:%d) caller=%s+%td addr=%p mem=%p\n",
-               mem->reference.count, value, caller_name, caller_offset, caller, mem);
-        pthread_mutex_unlock(&mem->reference.lock);
-        return;
-    }
-    
-    
-    mem->reference.count = mem->reference.count + value;
-        
-    pthread_mutex_unlock(&mem->reference.lock);
+    } while (!atomic_compare_exchange_weak_explicit(&mem->reference.count, &old_count, old_count + value,
+                                                    memory_order_acq_rel, memory_order_relaxed));
 }
 
 int mem_ref_cnt_get(struct mem *mem) {
-    pthread_mutex_lock(&mem->reference.lock);
-    int cnt = mem->reference.count;
-    pthread_mutex_unlock(&mem->reference.lock);
+    int cnt = atomic_load_explicit(&mem->reference.count, memory_order_acquire);
     if((cnt < 0) || ( cnt > 1000)) // Stupid kluge while I fix this brain damage
         cnt = 0;
     return cnt;

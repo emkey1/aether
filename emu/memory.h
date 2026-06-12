@@ -26,8 +26,7 @@ struct mem {
 #endif
     struct mmu mmu;
     struct {
-        pthread_mutex_t lock;
-        int count; // If positive, don't delete yet, wait_to_delete
+        atomic_int count; // If positive, don't delete yet, wait_to_delete
         bool ready_to_be_freed; // Should be false initially
     } reference;
 

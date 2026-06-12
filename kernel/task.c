@@ -127,11 +127,12 @@ struct pid *pid_get_last_allocated(void) {
 }
 
 inline void task_ref_cnt_mod(struct task *task, int value) { // value should only be -1 or 1.
-    // Keep track of how many threads are referencing this task
-    if(!doEnableExtraLocking) {
-        return;
-    }
-    
+    // Keep track of how many threads are referencing this task. This used to
+    // be skipped when doEnableExtraLocking was off, but the flag is a live
+    // preference toggle: flipping it mid-run left counts taken under one
+    // setting and released under the other permanently imbalanced. The count
+    // gates task teardown, so it is now maintained unconditionally; as a
+    // lock-free atomic it is cheap enough to always be on.
     if(task == NULL) {
         if(current != NULL) {
             task = current;
@@ -146,25 +147,23 @@ inline void task_ref_cnt_mod(struct task *task, int value) { // value should onl
         return;
     }
 
-    pthread_mutex_lock(&task->reference.lock);
-    
-    if(((task->reference.count + value) < 0) && (task->pid > 9)) { // Prevent the count from going negative.
-        void *caller = __builtin_return_address(0);
-        Dl_info caller_info = {};
-        const char *caller_name = "?";
-        ptrdiff_t caller_offset = 0;
-        if (caller != NULL && dladdr(caller, &caller_info) != 0 && caller_info.dli_sname != NULL) {
-            caller_name = caller_info.dli_sname;
-            caller_offset = (char *) caller - (char *) caller_info.dli_saddr;
+    int old_count = atomic_load_explicit(&task->reference.count, memory_order_relaxed);
+    do {
+        if(((old_count + value) < 0) && (task->pid > 9)) { // Prevent the count from going negative.
+            void *caller = __builtin_return_address(0);
+            Dl_info caller_info = {};
+            const char *caller_name = "?";
+            ptrdiff_t caller_offset = 0;
+            if (caller != NULL && dladdr(caller, &caller_info) != 0 && caller_info.dli_sname != NULL) {
+                caller_name = caller_info.dli_sname;
+                caller_offset = (char *) caller - (char *) caller_info.dli_saddr;
+            }
+            printk("ERROR: Attempt to decrement task reference count to be negative, ignoring(%s:%d) (%d - %d) caller=%s+%td addr=%p\n",
+                   task->comm, task->pid, old_count, value, caller_name, caller_offset, caller);
+            return;
         }
-        printk("ERROR: Attempt to decrement task reference count to be negative, ignoring(%s:%d) (%d - %d) caller=%s+%td addr=%p\n",
-               task->comm, task->pid, task->reference.count, value, caller_name, caller_offset, caller);
-        pthread_mutex_unlock(&task->reference.lock);
-        return;
-    }
-    
-    task->reference.count = task->reference.count + value;
-    pthread_mutex_unlock(&task->reference.lock);
+    } while (!atomic_compare_exchange_weak_explicit(&task->reference.count, &old_count, old_count + value,
+                                                    memory_order_acq_rel, memory_order_relaxed));
 }
 
 dword_t get_count_of_blocked_tasks(void) {
@@ -250,9 +249,8 @@ struct task *task_create_(struct task *parent) {
 
     task->locks_held.count = 0;
     pthread_mutex_init(&task->locks_held.lock, NULL);
-    task->reference.count = 0;
+    atomic_store_explicit(&task->reference.count, 0, memory_order_relaxed);
     task->reference.ready_to_be_freed = false;
-    pthread_mutex_init(&task->reference.lock, NULL);
 
     complex_lockt(&pids_lock, 0);
     do {
@@ -344,12 +342,11 @@ void cleanup_pending_deletions(void) {
     pthread_mutex_lock(&tasks_pending_deletion_lock);
     struct task_pending_deletion *pd, *tmp;
     list_for_each_entry_safe(&tasks_pending_deletion_queue, pd, tmp, list) {
-        if ((difftime(time(NULL), pd->added_time) >= GRACE_PERIOD) && !! (!pd->task->reference.count)) { // Delete reaped tasks old and no longer referenced
-            if (task_ref_cnt_get(pd->task, 0) == 0) {
-                task_free_final(pd->task);
-                list_remove(&pd->list);
-                free(pd);
-            }
+        if (difftime(time(NULL), pd->added_time) >= GRACE_PERIOD &&
+                atomic_load_explicit(&pd->task->reference.count, memory_order_acquire) == 0) { // Delete reaped tasks old and no longer referenced
+            task_free_final(pd->task);
+            list_remove(&pd->list);
+            free(pd);
         }
     }
     pthread_mutex_unlock(&tasks_pending_deletion_lock);
