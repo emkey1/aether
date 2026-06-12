@@ -661,7 +661,11 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
         // This locking stuff is copy/pasted for all the code in this function
         // which changes memory maps.
         read_to_write_lock(&mem->lock);
-        pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
+        // The upgrade drops the read lock before taking the write lock, so
+        // another thread faulting the same growsdown page can map it first.
+        // Mapping again would discard anything that thread already wrote.
+        if (mem_pt(mem, page) == NULL)
+            pt_map_nothing(mem, page, 1, P_WRITE | P_GROWSDOWN);
         write_to_read_lock(&mem->lock);
 
         entry = mem_pt(mem, page);
