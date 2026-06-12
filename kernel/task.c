@@ -430,14 +430,7 @@ void task_run_current(void) {
         read_unlock(&save->mem->lock);
         jit_cleanup_jetsam_after_interrupt(cpu);
  
-        //struct timespec while_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
-        if(save->parent != NULL) {
-            save->parent->group->group_count_in_int++; // Keep track of how many children the parent has
-            handle_interrupt(interrupt);
-            save->parent->group->group_count_in_int--;
-        } else {
-            handle_interrupt(interrupt);
-        }
+        handle_interrupt(interrupt);
     }
 }
 

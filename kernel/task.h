@@ -189,7 +189,6 @@ struct posix_timer {
 struct tgroup {
     struct list threads; // locked by pids_lock
     struct task *leader; // immutable
-    long group_count_in_int;
     struct rusage_ rusage;
 
     // Process-group/session membership lists are protected by pids_lock.
