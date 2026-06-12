@@ -536,8 +536,16 @@ void jit_free(struct jit *jit) {
 }
 
 static inline struct list *blocks_list(struct jit *jit, page_t page, int i) {
-    // TODO is this a good hash function?
+    // Page numbers are dense small integers, so plain modulo distributes fine here.
     return &jit->page_hash[page % JIT_PAGE_HASH_SIZE].blocks[i];
+}
+
+// Block addresses are clustered (aligned entry points, dense code pages), and
+// hash sizes are powers of two, so a plain modulo uses only the low address
+// bits and piles blocks into a fraction of the buckets. Mix with the 64-bit
+// golden ratio and take high bits before reducing.
+static inline size_t jit_hash_bucket(guest_addr_t addr, size_t size) {
+    return (size_t) ((addr * 0x9E3779B97F4A7C15ull) >> 32) % size;
 }
 
 void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
@@ -576,7 +584,7 @@ static void jit_resize_hash(struct jit *jit, size_t new_size) {
         struct jit_block *block, *tmp;
         list_for_each_entry_safe(&jit->hash[i], block, tmp, chain) {
             list_remove(&block->chain);
-            list_init_add(&new_hash[block->addr % new_size], &block->chain);
+            list_init_add(&new_hash[jit_hash_bucket(block->addr, new_size)], &block->chain);
         }
     }
     free(jit->hash);
@@ -591,14 +599,14 @@ static void jit_insert(struct jit *jit, struct jit_block *block) {
     if (jit->num_blocks >= jit->hash_size * 2)
         jit_resize_hash(jit, jit->hash_size * 2);
 
-    list_init_add(&jit->hash[block->addr % jit->hash_size], &block->chain);
+    list_init_add(&jit->hash[jit_hash_bucket(block->addr, jit->hash_size)], &block->chain);
     list_init_add(blocks_list(jit, PAGE(block->addr), 0), &block->page[0]);
     if (PAGE(block->addr) != PAGE(block->end_addr))
         list_init_add(blocks_list(jit, PAGE(block->end_addr), 1), &block->page[1]);
 }
 
 static struct jit_block *jit_lookup(struct jit *jit, guest_addr_t addr) {
-    struct list *bucket = &jit->hash[addr % jit->hash_size];
+    struct list *bucket = &jit->hash[jit_hash_bucket(addr, jit->hash_size)];
     if (list_null(bucket))
         return NULL;
     struct jit_block *block;
@@ -719,7 +727,10 @@ static void jit_free_jetsam(struct jit *jit) {
 int jit_enter(struct jit_block *block, struct jit_frame *frame, struct tlb *tlb);
 
 static inline size_t jit_cache_hash(guest_addr_t ip) {
-    return (ip ^ (ip >> 12)) % JIT_CACHE_SIZE;
+    // Same mixing rationale as jit_hash_bucket: ip ^ (ip >> 12) preserved the
+    // low-bit clustering of block addresses, causing conflict evictions in
+    // this direct-mapped cache.
+    return (size_t) ((ip * 0x9E3779B97F4A7C15ull) >> 32) % JIT_CACHE_SIZE;
 }
 
 static inline bool cpu_take_poke(struct cpu_state *cpu) {
