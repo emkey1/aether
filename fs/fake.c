@@ -251,15 +251,12 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
         ishstat.uid = current->euid;
         ishstat.gid = current->egid;
         ishstat.rdev = 0;
-        if (fd->fake_inode == 0) {
-            path_create(fs, path, &ishstat);
-            fd->fake_inode = path_get_inode(fs, path);
-        }
+        if (fd->fake_inode == 0)
+            fd->fake_inode = path_create(fs, path, &ishstat);
     }
     db_commit(fs);
     if (fd->fake_inode == 0) {
-        // metadata for this file is missing
-        // TODO unlink the real file
+        // File exists on the real FS but has no fakefs metadata (pre-existing inconsistency).
         fd_close(fd);
         return ERR_PTR(_ENOENT);
     }
@@ -286,6 +283,11 @@ step:
         fd = realfs.open(mount, path, O_RDONLY_, 0);
     if (PTR_ERR(fd) == _ENOENT)
         goto step;
+    if (IS_ERR(fd)) {
+        db_reset(fs, stmt);
+        db_rollback(fs);
+        return fd;
+    }
     db_reset(fs, stmt);
     db_commit(fs);
     fd->fake_inode = inode;
@@ -367,14 +369,18 @@ static int fakefs_symlink(struct mount *mount, const char *target, const char *l
         db_rollback(fs);
         return errno_map();
     }
-    ssize_t res = write(fd, target, strlen(target));
+    size_t target_len = strlen(target);
+    ssize_t res = write(fd, target, target_len);
     close(fd);
-    if (res < 0) {
+    if (res != (ssize_t) target_len) {
         int saved_errno = errno;
         unlinkat(mount->root_fd, fix_path(link), 0);
         db_rollback(fs);
-        errno = saved_errno;
-        return errno_map();
+        if (res < 0) {
+            errno = saved_errno;
+            return errno_map();
+        }
+        return _EIO;
     }
 
     // customize the stat info so it looks like a link
@@ -574,7 +580,10 @@ static ssize_t fakefs_readlink(struct mount *mount, const char *path, char *buf,
     ssize_t err = realfs.readlink(mount, path, buf, bufsize);
     if (err == _EINVAL)
         err = file_readlink(mount, path, buf, bufsize);
-    db_commit(fs);
+    if (err < 0)
+        db_rollback(fs);
+    else
+        db_commit(fs);
     return err;
 }
 
@@ -636,7 +645,8 @@ static void __attribute__((constructor)) init_fake_fdops() {
 
 static int fakefs_mount(struct mount *mount) {
     char db_path[PATH_MAX];
-    strncpy(db_path, mount->source, PATH_MAX -1);
+    strncpy(db_path, mount->source, PATH_MAX - 1);
+    db_path[PATH_MAX - 1] = '\0';
     char *basename = strrchr(db_path, '/') + 1;
     assert(strcmp(basename, "data") == 0);
     strncpy(basename, "meta.db", 8);
