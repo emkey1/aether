@@ -62,10 +62,36 @@ function syncProp(name, value) {
     if (oldProps[name] !== value)
         native.propUpdate(name, value);
 }
-let decoder = new TextDecoder();
+// Force a full viewport repaint after output, coalesced to one per animation
+// frame. Under iOS WKWebView, hterm's incremental dirty-row redraw can miss
+// changed row ranges for rapidly-updated regions (e.g. htop's meters and
+// per-process fields), leaving stale pixels until a full repaint (^L). An
+// explicit scheduleInvalidate() + scheduleRedraw() repaints the whole visible
+// viewport, fixing the partially-painted rows. Mirrors the PSCAL iPad port.
+let pendingViewportRefresh = false;
+function scheduleViewportRefresh() {
+    if (pendingViewportRefresh)
+        return;
+    pendingViewportRefresh = true;
+    requestAnimationFrame(() => {
+        pendingViewportRefresh = false;
+        if (!term.scrollPort_)
+            return;
+        term.scrollPort_.scheduleInvalidate();
+        term.scrollPort_.scheduleRedraw();
+        syncScroll();
+    });
+}
 exports.write = (data) => {
-    term.io.writeUTF16(decoder.decode(lib.codec.stringToCodeUnitArray(data)));
+    // Feed raw bytes into hterm's writeUTF8, which uses an internal *streaming*
+    // UTF-8 decoder (TextDecoder with {stream: true}). The previous path ran a
+    // standalone, non-streaming TextDecoder here and then writeUTF16: any
+    // multibyte UTF-8 sequence that straddled the boundary between two coalesced
+    // output chunks got flushed as U+FFFD on both sides, corrupting glyphs like
+    // htop's box-drawing/meter characters. Streaming decode reassembles them.
+    term.io.writeUTF8(lib.codec.stringToCodeUnitArray(data));
     syncProp('applicationCursor', term.keyboard.applicationCursor);
+    scheduleViewportRefresh();
 };
 term.io.sendString = term.io.onVTKeyStroke = (data) => {
     native.sendInput(data);
