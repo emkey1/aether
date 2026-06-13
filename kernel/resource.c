@@ -287,24 +287,35 @@ int_t sys_sched_getaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t c
     // UI), not the raw host core count or the /proc/cpuinfo topology. The Go
     // runtime sizes GOMAXPROCS from this, and nproc reports it.
     long cpus = get_cpu_count_for_affinity();
-    // Calculate the size of the cpuset
-    long cpusetSize = cpus / 8 + 1;
-    if (cpusetsize < cpusetSize)
+
+    // The real kernel returns a cpumask whose length is a multiple of the
+    // guest's sizeof(long): 8 bytes on amd64, 4 on i386. Returning a
+    // non-conforming size (the old cpus/8+1, e.g. a single byte) is mishandled
+    // by musl's __get_nprocs -- which backs nproc and sysconf(_SC_NPROCESSORS_*)
+    // on Alpine -- causing it to report a single CPU. glibc masks this by
+    // falling back to /proc, so it only surfaced on the amd64/musl guest. Match
+    // the kernel's sizing so the count is correct everywhere.
+    size_t unit = guest_abi_is_64bit(current->abi) ? sizeof(uint64_t) : sizeof(uint32_t);
+    size_t bytes_for_cpus = (size_t) (cpus + 7) / 8;
+    size_t mask_size = ((bytes_for_cpus + unit - 1) / unit) * unit;
+    if (mask_size == 0)
+        mask_size = unit;
+    if (cpusetsize < mask_size)
         return _EINVAL;
 
-    char cpuset[cpusetSize];
-    memset(cpuset, 0, cpusetSize);
+    char cpuset[mask_size];
+    memset(cpuset, 0, mask_size);
 
     // Set bits for each CPU
-    for (unsigned i = 0; i < cpus; i++)
-        bit_set(i, cpuset);
+    for (long i = 0; i < cpus; i++)
+        bit_set((size_t) i, cpuset);
 
     // Write to user space, handle error separately
-    if (user_write(cpuset_addr, cpuset, cpusetSize))
+    if (user_write(cpuset_addr, cpuset, mask_size))
         return _EFAULT;
 
     // Return the number of bytes written
-    return (int_t)cpusetSize;
+    return (int_t) mask_size;
 }
 
 int_t sys_sched_setaffinity(pid_t_ UNUSED(pid), dword_t UNUSED(cpusetsize), addr_t UNUSED(cpuset_addr)) {
