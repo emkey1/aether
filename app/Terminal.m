@@ -107,36 +107,44 @@ static NSMapTable<NSUUID *, Terminal *> *terminalsByUUID;
 
 static NSString *ISHJavaScriptLiteralForTerminalData(NSData *data) {
     const unsigned char *bytes = data.bytes;
-    NSMutableString *literal = [[NSMutableString alloc] initWithCapacity:data.length * 4];
-    for (NSUInteger i = 0; i < data.length; i++) {
+    NSUInteger len = data.length;
+    if (len == 0)
+        return @"";
+    // This runs on every screen refresh and dominates bulk-output throughput.
+    // The previous version did an Objective-C method dispatch (and, for every
+    // printable byte, a format-string parse via appendFormat:@"%c") per byte.
+    // Build the whole escaped literal in one C buffer instead and make a single
+    // NSString. Worst case is 4 output chars ("\xNN") per input byte. Every
+    // byte emitted is ASCII, so NSASCIIStringEncoding is lossless.
+    char *out = malloc(len * 4 + 1);
+    if (out == NULL)
+        return @"";
+    static const char hex[] = "0123456789abcdef";
+    size_t o = 0;
+    for (NSUInteger i = 0; i < len; i++) {
         unsigned char byte = bytes[i];
         switch (byte) {
-            case '\\':
-                [literal appendString:@"\\\\"];
-                break;
-            case '"':
-                [literal appendString:@"\\\""];
-                break;
-            case '\r':
-                [literal appendString:@"\\r"];
-                break;
-            case '\n':
-                [literal appendString:@"\\n"];
-                break;
-            case '\t':
-                [literal appendString:@"\\t"];
-                break;
+            case '\\': out[o++] = '\\'; out[o++] = '\\'; break;
+            case '"':  out[o++] = '\\'; out[o++] = '"';  break;
+            case '\r': out[o++] = '\\'; out[o++] = 'r';  break;
+            case '\n': out[o++] = '\\'; out[o++] = 'n';  break;
+            case '\t': out[o++] = '\\'; out[o++] = 't';  break;
             default:
                 if (byte >= 0x20 && byte <= 0x7e) {
-                    [literal appendFormat:@"%c", byte];
+                    out[o++] = (char) byte;
                 } else {
                     // Prompts and line editing emit raw escape/control bytes.
-                    [literal appendFormat:@"\\x%02x", byte];
+                    out[o++] = '\\';
+                    out[o++] = 'x';
+                    out[o++] = hex[byte >> 4];
+                    out[o++] = hex[byte & 0xf];
                 }
                 break;
         }
     }
-    return literal;
+    NSString *literal = [[NSString alloc] initWithBytes:out length:o encoding:NSASCIIStringEncoding];
+    free(out);
+    return literal ?: @"";
 }
 
 static BOOL TerminalShouldMirrorDebugOutput(Terminal *terminal) {
