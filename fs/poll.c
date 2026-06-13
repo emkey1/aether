@@ -539,6 +539,11 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                         }
                     }
                     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+                    // pselect/ppoll set only the guest blocked mask (not the
+                    // host pthread mask), so SIGUSR1 may still be blocked at
+                    // the host level even when the guest wants it unblocked.
+                    // Force-unblock SIGUSR1 so the kevent wait is interruptible.
+                    pthread_sigmask(SIG_UNBLOCK, &sigusr1, NULL);
                     if (poll_wait_trace_enabled()) {
                         fprintf(stderr, "ish-pollwait: sleep pid=%d comm=%s timeout=%lds.%09ld waiters=%d\n",
                                current->pid, current->comm,
@@ -574,6 +579,14 @@ poll_wait_done:
         }
 
         if (err < 0) {
+            // A spurious host SIGUSR1 (e.g. from task_poke_shared_mem for TLB
+            // invalidation) can land here without any guest signal pending.
+            // Only treat this as EINTR if a real guest signal is waiting.
+            lock(&current->sighand->lock, 0);
+            bool signal_pending = !!(current->pending & ~current->blocked);
+            unlock(&current->sighand->lock);
+            if (!signal_pending)
+                continue;
             res = errno_map();
             break;
         }

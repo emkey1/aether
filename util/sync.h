@@ -10,6 +10,7 @@
 #include "kernel/errno.h"
 #include <string.h>
 #include <setjmp.h>
+#include <unistd.h>
 #include "misc.h"
 
 // locks, implemented using pthread
@@ -81,15 +82,22 @@ void notify_once(cond_t *cond);
 extern __thread sigjmp_buf unwind_buf;
 extern __thread bool should_unwind;
 extern __thread bool should_mark_wait_interrupted;
-static inline int sigunwind_start(void) {
-    if (sigsetjmp(unwind_buf, 1)) {
-        should_unwind = false;
-        return 1;
-    } else {
-        should_unwind = true;
-        return 0;
-    }
-}
+// sigsetjmp MUST be called in the same stack frame as siglongjmp's target.
+// A helper function won't work: the compiler refuses to inline functions
+// containing sigsetjmp, so the jmp_buf would point at a dead frame.
+// Use a macro to guarantee in-place expansion at every call site.
+#define sigunwind_start() \
+    ({ \
+        int __sigunwind_result; \
+        if (sigsetjmp(unwind_buf, 1)) { \
+            should_unwind = false; \
+            __sigunwind_result = 1; \
+        } else { \
+            should_unwind = true; \
+            __sigunwind_result = 0; \
+        } \
+        __sigunwind_result; \
+    })
 
 static inline void sigunwind_end(void) {
     should_unwind = false;
