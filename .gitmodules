@@ -1,6 +1,6 @@
 [submodule "libapps"]
 	path = deps/libapps
-	url = https://github.com/ish-app/libapps
+	url = https://github.com/emkey1/libapps
 [submodule "deps/libarchive"]
 	path = deps/libarchive
 	url = https://github.com/libarchive/libarchive
