@@ -389,8 +389,17 @@ static void amd64_trace_track_child(qword_t syscall_num, qword_t result) {
     }
 }
 
+static bool amd64_tty_proc_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_AMD64_TTY") != NULL ? 1 : 0;
+    return enabled != 0;
+}
+
 static void amd64_tty_process_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_TTY_PROC_TRACE_BUDGET = 128 };
+    if (!amd64_tty_proc_trace_enabled())
+        return;
     struct tty *tty = amd64_session_tty();
     if (tty == NULL)
         return;
@@ -794,6 +803,8 @@ static void amd64_tracked_write_trace(qword_t syscall_num, const qword_t raw_arg
 static void amd64_enomem_syscall_trace(qword_t syscall_num, const qword_t raw_args[6], qword_t result) {
     enum { AMD64_ENOMEM_TRACE_BUDGET = 32 };
     static unsigned amd64_enomem_trace_count;
+    if (!amd64_tracked_exec_trace_enabled())
+        return;
     if (current == NULL || current->abi != GUEST_ABI_AMD64)
         return;
     if ((sqword_t) result != _ENOMEM)

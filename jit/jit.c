@@ -241,7 +241,7 @@ static void amd64_jit_note_compile_fallback(const struct gen_state *state, guest
     unsigned long key_total = atomic_fetch_add_explicit(&amd64_jit_compile_fallback_by_key[key], 1,
             memory_order_relaxed) + 1;
 
-    if (total <= 32 || (total & (total - 1)) == 0) {
+    if (amd64_jit_debug_enabled() && (total <= 32 || (total & (total - 1)) == 0)) {
         printk("[amd64-jit] fallback total=%lu op=%s%02x flags=%#x count=%lu ip=%#llx fallback_ip=%#llx attempts=%lu success=%lu comm=%s\n",
                total,
                (state->amd64_fallback_flags & 0x01) ? "0f" : "",
