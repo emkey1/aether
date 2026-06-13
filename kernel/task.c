@@ -450,6 +450,16 @@ static pthread_attr_t task_thread_attr;
 __attribute__((constructor)) static void create_attr(void) {
     pthread_attr_init(&task_thread_attr);
     pthread_attr_setdetachstate(&task_thread_attr, PTHREAD_CREATE_DETACHED);
+#if defined(__APPLE__)
+    // Run emulated guest threads one QoS band below the UI thread
+    // (USER_INTERACTIVE). A multi-threaded guest workload spawns one OS thread
+    // per emulated CPU (e.g. `go run`/`go build` with GOMAXPROCS = ncpu); left
+    // at the default priority those threads are CPU-bound at the same band as
+    // the main thread and starve the terminal/UI, making the app unresponsive
+    // for the duration of the burst. USER_INITIATED still runs guest work
+    // promptly on the performance cores but lets the UI preempt it.
+    pthread_attr_set_qos_class_np(&task_thread_attr, QOS_CLASS_USER_INITIATED, 0);
+#endif
 }
 
 void task_start(struct task *task) {
