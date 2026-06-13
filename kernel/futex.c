@@ -220,8 +220,17 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
             // Keep waiting instead of leaking a spurious EINTR to the guest.
             if (err == _EINTR)
                 continue;
-            if (list_null(&wait.queue))
+            if (list_null(&wait.queue)) {
+                // FUTEX_WAKE removed us from the queue. The wake may have
+                // fired while we were between wait_for iterations (not
+                // sleeping), so the cond notification was lost and the next
+                // wait_for timed out. Regardless of what wait_for returned
+                // last, the semantic result is "woken" (0), not ETIMEDOUT.
+                // Returning ETIMEDOUT here would trigger glibc's
+                // futex_fatal_error() from futex_wait_simple().
+                err = 0;
                 break;
+            }
             if (err != _ETIMEDOUT)
                 break;
         }
