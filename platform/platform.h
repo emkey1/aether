@@ -32,5 +32,9 @@ struct uptime_info {
 struct uptime_info get_uptime(void);
 
 int get_cpu_count(void);
+// CPU count to advertise to guest scheduler-sizing queries (sched_getaffinity /
+// nproc), which may be smaller than get_cpu_count() to reserve host cores for
+// the UI. /proc/cpuinfo and /proc/stat still use the true get_cpu_count().
+int get_cpu_count_for_affinity(void);
 
 #endif

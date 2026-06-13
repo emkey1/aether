@@ -283,8 +283,10 @@ int_t sys_sched_getaffinity_guest(pid_t_ pid, dword_t cpusetsize, guest_addr_t c
         task_ref_cnt_mod(task, -1);
     }
 
-    // Report the guest-visible CPU topology, not the raw host core count.
-    long cpus = get_cpu_count();
+    // Report the scheduler-visible CPU count (may reserve host cores for the
+    // UI), not the raw host core count or the /proc/cpuinfo topology. The Go
+    // runtime sizes GOMAXPROCS from this, and nproc reports it.
+    long cpus = get_cpu_count_for_affinity();
     // Calculate the size of the cpuset
     long cpusetSize = cpus / 8 + 1;
     if (cpusetsize < cpusetSize)

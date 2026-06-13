@@ -60,6 +60,11 @@ int get_cpu_count(void) {
     return get_nprocs();
 }
 
+int get_cpu_count_for_affinity(void) {
+    // No UI to protect on the Linux/CLI build; report the real count.
+    return get_cpu_count();
+}
+
 int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
     char buf[1234];
     char cpu_title[8];

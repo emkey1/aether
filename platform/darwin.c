@@ -121,6 +121,31 @@ int get_cpu_count(void) {
      return ncpu;
 }
 
+// The number of CPUs to advertise to guest scheduler-sizing queries
+// (sched_getaffinity / nproc), as opposed to the true core count reported by
+// /proc/cpuinfo and /proc/stat. Multi-threaded guest workloads spawn one OS
+// thread per "available" CPU -- e.g. the Go runtime sets GOMAXPROCS from
+// sched_getaffinity, and `make -j$(nproc)` from nproc -- and under emulation
+// running hw.ncpu such threads saturates every core, both starving the app UI
+// and drowning the guest in lock/futex/TLB-shootdown overhead (Go actually
+// compiles *faster* with fewer threads). On iOS we reserve roughly a third of
+// the cores (at least one) so those programs leave headroom; /proc/cpuinfo
+// still reports the true count, so htop and friends show all CPUs.
+int get_cpu_count_for_affinity(void) {
+    int ncpu = get_cpu_count();
+#if TARGET_OS_IPHONE
+    if (getenv("ISH_GUEST_CPU_COUNT") == NULL && ncpu > 2) {
+        int reserve = ncpu / 3;
+        if (reserve < 1)
+            reserve = 1;
+        ncpu -= reserve;
+    }
+#endif
+    if (ncpu < 1)
+        ncpu = 1;
+    return ncpu;
+}
+
 int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
     mach_msg_type_number_t info_size = sizeof(processor_cpu_load_info_t);
     processor_cpu_load_info_t sys_load_data = 0;
