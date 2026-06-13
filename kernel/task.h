@@ -196,7 +196,10 @@ struct tgroup {
     struct list session;
     struct list pgroup;
 
-    bool stopped;
+    // Read locklessly on every interrupt-return fast path in handle_interrupt;
+    // _Atomic so that unlocked read is well-defined. All writes are still made
+    // under group->lock, which also orders the stopped_cond wait/notify.
+    _Atomic bool stopped;
     cond_t stopped_cond;
 
     struct tty *tty;

@@ -4114,11 +4114,17 @@ void handle_interrupt(int interrupt) {
     bool has_saved_mask = __atomic_load_n(&current->has_saved_mask, __ATOMIC_ACQUIRE);
     if (has_saved_mask || (pending & ~blocked) != 0)
         receive_signals();
+    // Fast path: group->stopped is almost always false. Read it locklessly
+    // (it is _Atomic) and only take group->lock to actually wait when stopped.
+    // Missing a just-set transition here is harmless: a SIGSTOP'd thread is
+    // poked and re-enters handle_interrupt, catching the stop on the next pass.
     struct tgroup *group = current->group;
-    lock(&group->lock, 0);
-    while (group->stopped)
-        wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
-    unlock(&group->lock);
+    if (group->stopped) {
+        lock(&group->lock, 0);
+        while (group->stopped)
+            wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
+        unlock(&group->lock);
+    }
 }
 
 
