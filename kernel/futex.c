@@ -154,8 +154,13 @@ static int futex_load(guest_addr_t addr, dword_t *out) {
 static bool futex_wait_has_pending_signal(void) {
     if (current == NULL)
         return false;
-    if (__atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL))
-        return true;
+    // Consume any interrupt marker left by a host-side SIGUSR1 poke (mem
+    // quiesce while a sibling thread mmaps a stack, for example). A poke is
+    // not a guest signal — Linux never returns EINTR from futex without a
+    // deliverable signal — so only report one when a signal is actually
+    // pending and unblocked. Real deliveries also set wait.interrupted via
+    // wake_waiting_task, which the wait loop checks separately.
+    __atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL);
     lock(&current->sighand->lock, 0);
     bool pending = !!(current->pending & ~current->blocked);
     unlock(&current->sighand->lock);
@@ -210,8 +215,11 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
                 err = _EINTR;
                 break;
             }
+            // wait_for reported an interrupt but no guest signal is pending
+            // and no delivery marked this wait: a host-side poke woke us.
+            // Keep waiting instead of leaking a spurious EINTR to the guest.
             if (err == _EINTR)
-                break;
+                continue;
             if (list_null(&wait.queue))
                 break;
             if (err != _ETIMEDOUT)
