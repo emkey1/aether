@@ -843,6 +843,7 @@ static void FakeInitPrepareGuestRoot(void) {
     EnsureDirectory("/dev/pts", 0755);
     EnsureDirectory("/etc", 0755);
     EnsureDirectory("/proc", 0555);
+    EnsureDirectory("/sys", 0555);
     EnsureDirectory("/root", 0700);
     EnsureDirectory("/tmp", 01777);
     EnsureDirectory("/run", 0755);
@@ -2310,6 +2311,12 @@ static TerminalViewController *CreateTerminalViewController(void) {
         }
     }
     do_mount(&procfs, "proc", "/proc", "", 0);
+    // Mount sysfs on /sys like the CLI does (main.c). Without it, tools that
+    // read /sys/devices/system/cpu -- e.g. htop 3.4+ for its CPU count -- see
+    // nothing and fall back to reporting a single CPU, even though /proc/cpuinfo
+    // and /proc/stat are correct. The guest's own init does not reliably mount
+    // it (e.g. Alpine's OpenRC sysfs service does not run under the AOK boot).
+    do_mount(&sysfs, "sysfs", "/sys", "", 0);
     do_mount(&devptsfs, "devpts", "/dev/pts", "", 0);
 
     iosfs_init(); // let it mount any filesystems from user defaults
