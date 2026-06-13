@@ -185,6 +185,7 @@ The most relevant reduced atomic/JIT regression probe is:
 - [tests/manual/signal_restart.c](/Users/mke/git/ish-AOK/tests/manual/signal_restart.c)
 - [tests/manual/signal_realtime.c](/Users/mke/git/ish-AOK/tests/manual/signal_realtime.c)
 - [tests/manual/signal_altstack.c](/Users/mke/git/ish-AOK/tests/manual/signal_altstack.c)
+- [tests/manual/signal_poll.c](/Users/mke/git/ish-AOK/tests/manual/signal_poll.c)
 - [tests/manual/eventfd_interrupt.c](/Users/mke/git/ish-AOK/tests/manual/eventfd_interrupt.c)
 - [tests/manual/amd64_regress.c](/Users/mke/git/ish-AOK/tests/manual/amd64_regress.c)
 - [tests/manual/test_common.h](/Users/mke/git/ish-AOK/tests/manual/test_common.h)
@@ -197,6 +198,7 @@ The most relevant reduced atomic/JIT regression probe is:
 - locked logic ops and nearby flag consumers
 - futex wait/wake, timeout, signal interruption, and restart behavior
 - signal delivery, pending masks, `sigtimedwait`, `signalfd`, `sigsuspend`, and thread-directed signals
+- `poll`/`select`/`pselect`/`ppoll` signal interruption and EINTR semantics
 - restart behavior for blocking syscalls under `SA_RESTART`
 - queued realtime signals with payload delivery
 - alternate-stack signal handler delivery
@@ -298,10 +300,11 @@ The current amd64 work frequently touches:
 
 At the time of writing:
 
-- `main` is the general integration branch for the fork.
+- `working` is the active integration branch for the fork. Bug fixes, feature work, and release candidates land here first.
+- `main` tracks merged, stable code and is updated from `working` when a release ships.
 - `amd64` is the active branch for x86_64 guest bring-up.
 
-If you update cross-cutting documentation, keep both branches in sync when the change applies to both.
+If you update cross-cutting documentation, keep all relevant branches in sync.
 
 ## Upstream Relationship
 
