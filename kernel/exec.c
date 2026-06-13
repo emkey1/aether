@@ -928,13 +928,20 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
 
     // setuid/setgid
     if (stat.mode & S_ISUID) {
-        current->suid = current->euid;
         current->euid = stat.uid;
+        current->suid = stat.uid;  // saved-set-uid = new euid, not old
         current->fsuid = current->euid;
+        if (stat.uid == 0) {
+            // Legacy setuid-root: grant full permitted and effective caps so
+            // helpers like sudo can use keepcaps+setresuid to drop uid while
+            // retaining CAP_SETGID for a subsequent setresgid call.
+            current->cap_effective[0] = current->cap_effective[1] = UINT32_MAX;
+            current->cap_permitted[0] = current->cap_permitted[1] = UINT32_MAX;
+        }
     }
     if (stat.mode & S_ISGID) {
-        current->sgid = current->egid;
         current->egid = stat.gid;
+        current->sgid = stat.gid;  // saved-set-gid = new egid, not old
         current->fsgid = current->egid;
     }
 
