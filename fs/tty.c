@@ -658,10 +658,24 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
     unlock(&tty->lock);
 
     int err = 0;
+    // OPOST processing can grow the buffer by at most 2x (every '\n' -> "\r\n").
+    // The vast majority of tty writes are small (prompts, echoed input, single
+    // lines), so service those from the stack and only fall back to malloc for
+    // large writes, keeping the allocator out of the interactive output path.
+    char stackbuf[512];
     char *postbuf = NULL;
+    const char *outbuf = buf;
     size_t postbufsize = bufsize;
     if (oflags & OPOST_) {
-        postbuf = malloc(bufsize * 2);
+        char *out;
+        if (bufsize <= sizeof(stackbuf) / 2) {
+            out = stackbuf;
+        } else {
+            postbuf = malloc(bufsize * 2);
+            if (postbuf == NULL)
+                return _ENOMEM;
+            out = postbuf;
+        }
         postbufsize = 0;
         const char *cbuf = buf;
         for (size_t i = 0; i < bufsize; i++) {
@@ -671,12 +685,12 @@ static ssize_t tty_write(struct fd *fd, const void *buf, size_t bufsize) {
             else if (ch == '\r' && oflags & OCRNL_)
                 ch = '\n';
             else if (ch == '\n' && oflags & ONLCR_)
-                postbuf[postbufsize++] = '\r';
-            postbuf[postbufsize++] = ch;
+                out[postbufsize++] = '\r';
+            out[postbufsize++] = ch;
         }
-        buf = postbuf;
+        outbuf = out;
     }
-    err = tty->driver->ops->write(tty, buf, postbufsize, blocking);
+    err = tty->driver->ops->write(tty, outbuf, postbufsize, blocking);
     if (postbuf)
         free(postbuf);
     if (err < 0)
