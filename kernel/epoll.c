@@ -5,8 +5,6 @@
 
 static struct fd_ops epoll_ops;
 
-extern bool doEnableMulticore;
-
 static bool epoll_trace_enabled(void) {
     static int enabled = -1;
     if (enabled < 0)
@@ -136,15 +134,13 @@ static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events,
 
     struct epoll_context context = {.events = events, .n = 0, .max_events = max_events};
     STRACE("...\n");
+    // Cap infinite epoll_wait at 2 s so the Go scheduler can always make
+    // progress even when the netpoll break-pipe notification is missed.
+    struct timespec bounded = { .tv_sec = 2 };
+    if (timeout_ts_ptr == NULL)
+        timeout_ts_ptr = &bounded;
     int res;
-    if(!doEnableMulticore) {
-        struct timespec mytime;
-        mytime.tv_sec = 2;
-        mytime.tv_nsec = 0;
-        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, &mytime); // Use a bounded wait in single-core mode to keep Go progressing.
-    } else {
-        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout_ts_ptr);
-    }
+    res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout_ts_ptr);
     STRACE("%d end epoll_wait", current->pid);
     if (res >= 0) {
         for (int i = 0; i < res; i++) {

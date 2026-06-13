@@ -691,12 +691,12 @@ static bool proc_pid_fd_readdir(struct proc_entry *entry, unsigned long *index, 
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
         proc_put_task(task);
-        return _ESRCH;
+        return false;
     }
     struct fdtable *files = proc_task_files_retain(task);
     if (files == NULL) {
         proc_put_task(task);
-        return _ESRCH;
+        return false;
     }
     lock(&files->lock, 0);
     while (*index < files->size && files->files[*index] == NULL)
@@ -718,12 +718,12 @@ static bool proc_pid_fdinfo_readdir(struct proc_entry *entry, unsigned long *ind
     struct task *task = proc_get_task(entry);
     if ((task == NULL) || (task->exiting == true)) {
         proc_put_task(task);
-        return _ESRCH;
+        return false;
     }
     struct fdtable *files = proc_task_files_retain(task);
     if (files == NULL) {
         proc_put_task(task);
-        return _ESRCH;
+        return false;
     }
     lock(&files->lock, 0);
     while (*index < files->size && files->files[*index] == NULL)
