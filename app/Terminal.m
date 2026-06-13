@@ -628,20 +628,26 @@ static void NotifyTerminalRegistryChanged(void) {
     CFTimeInterval now = ISHTerminalNowMonotonic();
     if (_outputInProgress) {
         if (_outputStartedAt > 0 && now - _outputStartedAt > ISHTerminalOutputWatchdogSeconds) {
-            NSData *retryData = self.inFlightData;
-            if (retryData.length > 0) {
-                NSMutableData *restored = [[NSMutableData alloc] initWithCapacity:retryData.length + _pendingData.length];
-                [restored appendData:retryData];
-                [restored appendData:_pendingData];
-                _pendingData = restored;
-            }
+            // Watchdog: a previous evaluateJavaScript write has not reported
+            // completion within the timeout. Crucially, do NOT re-queue the
+            // in-flight data. evaluateJavaScript cannot be cancelled, so a write
+            // that is merely slow (not failed) may still apply after we give up
+            // waiting. Re-queuing it would then draw the same bytes a second time,
+            // and a partial-redraw TUI like htop never rewrites cells it believes
+            // are already correct -- so the duplicate produces doubled / garbled
+            // regions (most visible in the fastest-updating area, e.g. the CPU
+            // meters) that persist until a full repaint (^L). If the slow write did
+            // apply, its bytes are already on screen; if the webview is genuinely
+            // wedged, re-queuing to it would not have helped. Either way, just drop
+            // the in-flight tracking and let the next batch proceed.
+            NSUInteger droppedBytes = self.inFlightData.length;
             self.inFlightData = nil;
             _outputInProgress = NO;
             _outputStartedAt = 0;
             self.outputGeneration++;
             [self recordLifecycleEvent:@"terminal.output.watchdog"
                                details:@{@"pendingBytes": @(_pendingData.length),
-                                         @"retryBytes": @(retryData.length)}];
+                                         @"inFlightBytes": @(droppedBytes)}];
         } else {
             [self.refreshTask schedule];
             unlock(&_dataLock);
@@ -663,20 +669,19 @@ static void NotifyTerminalRegistryChanged(void) {
         if (_outputInProgress) {
             CFTimeInterval now = ISHTerminalNowMonotonic();
             if (_outputStartedAt > 0 && now - _outputStartedAt > ISHTerminalOutputWatchdogSeconds) {
-                NSData *retryData = self.inFlightData;
-                if (retryData.length > 0) {
-                    NSMutableData *restored = [[NSMutableData alloc] initWithCapacity:retryData.length + _pendingData.length];
-                    [restored appendData:retryData];
-                    [restored appendData:_pendingData];
-                    _pendingData = restored;
-                }
+                // See the !ISH_LINUX branch above: do NOT re-queue the in-flight
+                // data. evaluateJavaScript can't be cancelled, so a merely-slow
+                // write may still apply; re-sending it would draw the bytes twice
+                // and corrupt partial-redraw TUIs (doubled/garbled regions that
+                // persist until ^L).
+                NSUInteger droppedBytes = self.inFlightData.length;
                 self.inFlightData = nil;
                 _outputInProgress = NO;
                 _outputStartedAt = 0;
                 self.outputGeneration++;
                 [self recordLifecycleEvent:@"terminal.output.watchdog"
                                    details:@{@"pendingBytes": @(_pendingData.length),
-                                             @"retryBytes": @(retryData.length)}];
+                                             @"inFlightBytes": @(droppedBytes)}];
             } else {
                 [self.refreshTask schedule];
                 return;
