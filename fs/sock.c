@@ -5122,7 +5122,7 @@ const struct fd_ops socket_fdops = {
     .ioctl = sock_ioctl,
 };
 
-#if defined(__GNUC__) && __GNUC__ >= 8
+#if (defined(__GNUC__) && __GNUC__ >= 8) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
 #if defined(__clang__)

@@ -1324,7 +1324,6 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
                        : cpu_step_to_interrupt_amd64_frontend(cpu, tlb);
     }
 
-    struct jit *jit = cpu->mmu->jit;
     // Keep normal signal/timer pokes per-CPU. The JIT checks write_wanted
     // separately as a jetsam hint; sharing the same flag lets an ordinary poke
     // leave the JIT permanently in "yield now" mode.

@@ -19,7 +19,7 @@ extern const char extra_lock_comm;
 
 static void halt_system_locked(void);
 
-static bool trace_session_exit_task(struct task *task) {
+static bool trace_session_exit_task(struct task *UNUSED(task)) {
     return false;
 }
 

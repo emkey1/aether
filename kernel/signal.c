@@ -27,7 +27,7 @@ static void signalfd_wakeup_task(struct task *task, int sig);
 static struct fd_ops signalfd_ops;
 static void send_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info);
 
-static bool should_trace_signal_task(struct task *task) {
+static bool should_trace_signal_task(struct task *UNUSED(task)) {
     return false;
 }
 

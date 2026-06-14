@@ -543,7 +543,7 @@ static void proc_root_refresh_pid_snapshot(struct proc_entry *entry) {
 
 static bool proc_root_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_ROOT_LEN) {
-        *next_entry = (struct proc_entry) {&proc_root_entries[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_root_entries[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }

@@ -66,7 +66,7 @@ static struct proc_dir_entry proc_binfmt_misc_entries[] = {
 
 static bool proc_binfmt_misc_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_BINFMT_MISC_LEN) {
-        *next_entry = (struct proc_entry) {&proc_binfmt_misc_entries[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_binfmt_misc_entries[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }
@@ -81,7 +81,7 @@ static struct proc_dir_entry proc_sys_fs_entries[] = {
 
 static bool proc_sys_fs_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_SYS_FS_LEN) {
-        *next_entry = (struct proc_entry) {&proc_sys_fs_entries[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_sys_fs_entries[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }
@@ -122,7 +122,7 @@ struct proc_dir_entry proc_sys_debug[] = {
 
 static bool proc_sys_debug_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_SYS_DEBUG_LEN) {
-        *next_entry = (struct proc_entry) {&proc_sys_debug[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_sys_debug[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }
@@ -167,7 +167,7 @@ struct proc_dir_entry proc_sys_kernel[] = {
 
 static bool proc_sys_kernel_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_SYS_KERNEL_LEN) {
-        *next_entry = (struct proc_entry) {&proc_sys_kernel[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_sys_kernel[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }
@@ -187,7 +187,7 @@ struct proc_dir_entry proc_sys_net[] = {
 
 static bool proc_sys_net_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
     if (*index < PROC_SYS_NET_LEN) {
-        *next_entry = (struct proc_entry) {&proc_sys_net[*index], *index, NULL, NULL, 0, 0};
+        *next_entry = (struct proc_entry) {&proc_sys_net[*index], *index, NULL, NULL, 0, 0, NULL};
         (*index)++;
         return true;
     }

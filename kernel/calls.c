@@ -50,16 +50,16 @@ static struct tty *amd64_session_tty(void) {
     return tty;
 }
 
-static bool amd64_console_tty_is_num(struct tty *tty, int tty_num) {
+static bool __attribute__((unused)) amd64_console_tty_is_num(struct tty *tty, int tty_num) {
     return tty != NULL && tty->type == TTY_CONSOLE_MAJOR && tty->num == tty_num;
 }
 
-static bool amd64_session_tty_is_interactive(struct tty *tty) {
+static bool __attribute__((unused)) amd64_session_tty_is_interactive(struct tty *tty) {
     return tty != NULL &&
         (tty->type == TTY_CONSOLE_MAJOR || tty->type == TTY_PSEUDO_SLAVE_MAJOR);
 }
 
-static bool amd64_interactive_session_comm(const char *comm) {
+static bool __attribute__((unused)) amd64_interactive_session_comm(const char *comm) {
     return strcmp(comm, "login") == 0 ||
         strcmp(comm, "sh") == 0 ||
         strcmp(comm, "ash") == 0 ||
@@ -197,9 +197,9 @@ static void dpkg_overflow_syscall_trace(qword_t syscall_num, const qword_t raw_a
 }
 
 enum { AMD64_TRACE_LINEAGE_MAX = 32 };
-static pid_t_ amd64_traced_exec_pid;
-static pid_t_ amd64_traced_exec_tgid;
-static unsigned amd64_traced_exec_trace_count;
+static pid_t_ amd64_traced_exec_pid __attribute__((unused));
+static pid_t_ amd64_traced_exec_tgid __attribute__((unused));
+static unsigned amd64_traced_exec_trace_count __attribute__((unused));
 static pid_t_ amd64_traced_tgid_lineage[AMD64_TRACE_LINEAGE_MAX];
 static unsigned amd64_tracked_proc_trace_count;
 static unsigned amd64_trace_child_count;
@@ -210,7 +210,7 @@ static unsigned amd64_other_errno_trace_count;
 static unsigned amd64_signal_trace_count;
 static unsigned amd64_write_trace_count;
 
-static void amd64_trace_clear_lineage(void) {
+static void __attribute__((unused)) amd64_trace_clear_lineage(void) {
     memset(amd64_traced_tgid_lineage, 0, sizeof(amd64_traced_tgid_lineage));
 }
 
@@ -846,7 +846,12 @@ static dword_t sys_fallocate_amd64(fd_t f, dword_t mode, dword_t offset_low, dwo
     return sys_fallocate(f, mode, offset_low, offset_high, len_low, len_high);
 }
 
-#if is_gcc(8)
+// The syscall tables intentionally cast handlers with varied signatures to the
+// uniform syscall_t; the dispatcher always invokes them with the correct
+// arguments. clang reports __GNUC__ as 4, so the is_gcc(8) guard alone left the
+// suppression disabled under clang (the actual compiler), producing hundreds of
+// -Wcast-function-type-mismatch warnings.
+#if is_gcc(8) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wcast-function-type"
 #endif
 static syscall_t i386_syscall_table[] = {
@@ -3249,9 +3254,7 @@ static bool handle_i386_read_fault_gpf(struct cpu_state *cpu) {
         return false;
 
     guest_addr_t fault_addr = 0;
-    bool used_decoded_addr = false;
     if (i386_gpf_decode_read_addr(cpu, &fault_addr)) {
-        used_decoded_addr = true;
         if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_READ))
             return false;
     } else if (cpu->segfault_addr != 0 && !cpu->segfault_was_write &&
@@ -3273,13 +3276,11 @@ static bool handle_i386_write_fault_gpf(struct cpu_state *cpu) {
         return false;
 
     guest_addr_t fault_addr = 0;
-    bool used_decoded_addr = false;
     if (cpu->segfault_was_write && cpu->segfault_addr != 0) {
         fault_addr = cpu->segfault_addr;
     } else {
         if (!i386_gpf_decode_write_addr(cpu, &fault_addr))
             return false;
-        used_decoded_addr = true;
     }
 
     if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_WRITE))
