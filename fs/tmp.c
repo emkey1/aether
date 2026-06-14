@@ -341,11 +341,27 @@ static int tmpfs_mount(struct mount *mount) {
 }
 
 
-static int tmpfs_umount(struct mount *UNUSED(mount)) {
-    // big fat fuckin TODO
-    // struct tmp_inode *root = mount->data;
-    // tmpfs_unmount_tree(root);
-    TODO("tmpfs umount");
+// Post-order teardown of the whole directory tree. Each dirent carries one
+// "tree reference" (the refcount it was created with in tmpfs_mount /
+// tmpfs_dir_link); dropping it runs tmp_dirent_cleanup, which in turn releases
+// the dirent's parent and inode references, so the refcounts unwind cleanly up
+// to the root. mount_remove() already rejected the umount with EBUSY if any fd
+// still referenced this mount, so there are no live fd references to race with.
+static void tmpfs_free_tree(struct tmp_dirent *dirent) {
+    while (!list_empty(&dirent->children)) {
+        struct tmp_dirent *child = list_first_entry(&dirent->children, struct tmp_dirent, dir);
+        list_remove(&child->dir);
+        tmpfs_free_tree(child);
+    }
+    tmp_dirent_release(dirent);
+}
+
+static int tmpfs_umount(struct mount *mount) {
+    struct tmp_dirent *root = mount->data;
+    if (root != NULL) {
+        tmpfs_free_tree(root);
+        mount->data = NULL;
+    }
     return 0;
 }
 
