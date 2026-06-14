@@ -85,7 +85,7 @@
          <EnvironmentVariable
             key = "ISH_AMD64_CC1_FORCE_INTERP"
             value = "ranges"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "ISH_TRACE_DPKG_REALFS"
@@ -94,6 +94,11 @@
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "ISH_TRACE_DPKG_FAKEFS"
+            value = "1"
+            isEnabled = "NO">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "ISH_DEBUG_MIRROR_TTY1_OUTPUT"
             value = "1"
             isEnabled = "NO">
          </EnvironmentVariable>
