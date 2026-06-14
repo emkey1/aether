@@ -4132,6 +4132,15 @@ void handle_interrupt(int interrupt) {
     // poked and re-enters handle_interrupt, catching the stop on the next pass.
     struct tgroup *group = current->group;
     if (group->stopped) {
+        if (current->ptrace.traced) {
+            // A traced task reports its group-stop to the tracer and blocks
+            // there until PTRACE_CONT (which lifts group->stopped). Without
+            // this the stop is invisible to the tracer's wait4 and the tracee
+            // hangs -- see ptrace_group_stop(). Re-check traced each pass in
+            // case the tracer detaches us while stopped.
+            while (group->stopped && current->ptrace.traced)
+                ptrace_group_stop();
+        }
         lock(&group->lock, 0);
         while (group->stopped)
             wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);

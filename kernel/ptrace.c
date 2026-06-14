@@ -34,6 +34,10 @@ static void ptrace_resume_child_locked(struct task *child, int resume_sig,
         child->ptrace.syscall_stopped = false;
     child->ptrace.stopped = false;
     child->ptrace.signal = 0;
+    // A signal injected by the tracer must be delivered (run its action) the
+    // next time the tracee processes signals, not re-reported as another
+    // signal-delivery-stop — otherwise the tracer re-injects it forever.
+    child->ptrace.deliver_sig = resume_sig;
     child->ptrace.trap_event = 0;
     child->ptrace.eventmsg = 0;
     if (detach) {
@@ -44,6 +48,19 @@ static void ptrace_resume_child_locked(struct task *child, int resume_sig,
     }
     notify(&child->ptrace.cond);
     unlock(&child->ptrace.lock);
+    // A ptrace resume also lifts any job-control (group) stop on the tracee:
+    // ptrace control takes precedence over SIGSTOP/SIGCONT job control, so a
+    // tracer continuing a group-stopped tracee must let it run. Without this a
+    // tracee that group-stops (e.g. strace re-injecting the post-fork SIGSTOP)
+    // would wait forever in handle_interrupt's group-stop loop.
+    if (resume_sig == 0) {
+        lock(&child->group->lock, 0);
+        if (child->group->stopped) {
+            child->group->stopped = false;
+            notify(&child->group->stopped_cond);
+        }
+        unlock(&child->group->lock);
+    }
     if (resume_sig != 0)
         send_signal(child, resume_sig, SIGINFO_NIL);
 }
@@ -80,6 +97,7 @@ void ptrace_attach_fork_child(struct task *child, struct task *tracee) {
 
     complex_lockt(&pids_lock, 0);
     child->ptrace.traced = true;
+    child->ptrace.seized = tracee->ptrace.seized;
     child->ptrace.sysgood = tracee->ptrace.sysgood;
     child->ptrace.options = tracee->ptrace.options;
     child->ptrace.tracer = tracer;
@@ -494,6 +512,46 @@ void ptrace_syscall_stop(struct cpu_state *cpu) {
     ptrace_stop_common(SIGTRAP_, &info, true);
 }
 
+// Report a job-control group-stop to the tracer and block until it resumes us.
+//
+// A traced task that enters group-stop (SIGSTOP/SIGTSTP/SIGTTIN/SIGTTOU) would
+// otherwise park silently in handle_interrupt's group-stop loop, where the
+// tracer's wait4 can't see it (it never sets ptrace.stopped) and PTRACE_CONT
+// has nothing to resume -- so strace -f following a fork/clone child hangs
+// forever once the child group-stops on the injected SIGSTOP.
+//
+// We route the group-stop through the ptrace stop machinery instead:
+//   - A seized tracee (modern strace -f) is reported as a PTRACE_EVENT_STOP
+//     event-stop (WSTOPSIG == SIGTRAP, event == PTRACE_EVENT_STOP). strace
+//     recognizes this as a group-stop and resumes with PTRACE_CONT(0) rather
+//     than re-injecting the stop signal -- which is what previously produced
+//     the infinite SIGSTOP storm.
+//   - A classic tracee is reported as a plain signal-stop carrying the stop
+//     signal, matching pre-seize ptrace behavior.
+//
+// PTRACE_CONT lifts group->stopped (see ptrace_resume_child_locked), so the
+// caller's group-stop loop falls through and the tracee runs. Caveat: this
+// means a genuine job-control stop (Ctrl-Z) of a traced task is released by the
+// tracer's PTRACE_CONT rather than persisting until SIGCONT (Linux "listener"
+// semantics). Distinguishing the auto-attach SIGSTOP from a real one would be
+// required to honor that, and is out of scope here.
+void ptrace_group_stop(void) {
+    lock(&current->group->lock, 0);
+    int stop_sig = (current->group->group_exit_code >> 8) & 0xff;
+    unlock(&current->group->lock);
+    if (stop_sig == 0)
+        stop_sig = SIGSTOP_;
+
+    struct siginfo_ info = {
+        .sig = stop_sig,
+        .code = SI_KERNEL_,
+    };
+    if (current->ptrace.seized)
+        ptrace_event_stop(SIGTRAP_, &info, PTRACE_EVENT_STOP_, stop_sig);
+    else
+        ptrace_signal_stop(stop_sig, &info);
+}
+
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data) {
     return sys_ptrace_guest(request, pid, addr, data);
 }
@@ -532,6 +590,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             }
 
             child->ptrace.traced = true;
+            child->ptrace.seized = true;
             child->ptrace.tracer = current;
             child->ptrace.options = data;
             child->ptrace.sysgood = !!(data & PTRACE_O_TRACESYSGOOD_);

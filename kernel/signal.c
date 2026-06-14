@@ -1336,13 +1336,20 @@ void receive_signals(void) {
         if (!signal_still_pending_locked(current, sig))
             sigset_del(&current->pending, sig);
 
-        if (current->ptrace.traced && sig != SIGKILL_) {
+        if (current->ptrace.traced && sig != SIGKILL_ &&
+                sig != current->ptrace.deliver_sig) {
             // This notifies the parent, goes to sleep, and waits for the
             // parent to tell it to continue.
             // Any signals received while waiting are left on the queue, except
             // for SIGKILL_, which causes an immediate exit.
             signal_delivery_stop(sig, &sigqueue->info);
         } else {
+            // A signal the tracer asked us to deliver (PTRACE_CONT with a
+            // signal) is consumed and actually delivered exactly once, rather
+            // than re-trapped through signal_delivery_stop (which would make the
+            // tracer re-inject it forever).
+            if (sig == current->ptrace.deliver_sig)
+                current->ptrace.deliver_sig = 0;
             receive_signal(sighand, &sigqueue->info);
         }
         free(sigqueue);

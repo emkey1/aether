@@ -118,6 +118,7 @@ need_file eventfd_interrupt.c
 need_file futex_core.c
 need_file process_lifecycle.c
 need_file pthread_sync.c
+need_file ptrace_group_stop.c
 need_file amd64_regress.c
 
 if ! mkdir -p "$work_dir/bin"; then
@@ -331,7 +332,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync amd64_regress"
+all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop amd64_regress"
 
 test_selected() {
     name=$1

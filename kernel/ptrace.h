@@ -143,6 +143,7 @@ struct user_ {
 dword_t sys_ptrace(dword_t request, dword_t pid, addr_t addr, dword_t data);
 dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_addr_t data);
 void ptrace_signal_stop(int sig, struct siginfo_ *info);
+void ptrace_group_stop(void);
 void ptrace_syscall_stop(struct cpu_state *cpu);
 void ptrace_event_stop(int sig, struct siginfo_ *info, int event, qword_t eventmsg);
 void ptrace_attach_fork_child(struct task *child, struct task *tracee);

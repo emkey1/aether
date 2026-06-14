@@ -34,6 +34,7 @@ executable('eventfd_interrupt', ['eventfd_interrupt.c'], dependencies: dependenc
 executable('futex_core', ['futex_core.c'], dependencies: dependency('threads'))
 executable('process_lifecycle', ['process_lifecycle.c'], dependencies: dependency('threads'))
 executable('pthread_sync', ['pthread_sync.c'], dependencies: dependency('threads'))
+executable('ptrace_group_stop', ['ptrace_group_stop.c'])
 
 # various tests for code that modifies itself
 executable('modify', ['modify.c'], link_args: ['-zexecstack'])

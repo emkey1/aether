@@ -89,11 +89,21 @@ struct task {
 
         bool traced;
         bool stopped;
+        // Attached via PTRACE_SEIZE (vs classic TRACEME/ATTACH). Determines how
+        // a job-control group-stop is reported to the tracer: a seized tracee
+        // gets a PTRACE_EVENT_STOP event-stop (which strace -f recognizes as a
+        // group-stop and resumes with PTRACE_CONT(0)); a classic tracee gets a
+        // plain signal-stop carrying the stop signal.
+        bool seized;
         bool sysgood;
         bool stop_at_syscall;
         bool syscall_stopped;
         dword_t options;
         int signal;
+        // A signal the tracer injected via PTRACE_CONT/SYSCALL/etc. It must be
+        // delivered (run its action) on the next receive, not re-trapped through
+        // signal_delivery_stop — otherwise an injected signal loops forever.
+        int deliver_sig;
         struct siginfo_ info;
         int trap_event;
         qword_t eventmsg;
