@@ -192,13 +192,19 @@ static int poll_deliver_ready_locked(struct poll *poll_, struct poll_fd *poll_fd
     // thundering herd problem at all, but at least the semantics
     // are right. I'll just leave that as a TODO.
     if (poll_fd->types & POLL_ONESHOT) {
-        list_remove(&poll_fd->polls);
-        list_remove(&poll_fd->fds);
+        // Linux EPOLLONESHOT: after one delivery the fd is DISARMED (it stops
+        // reporting) but stays REGISTERED in the epoll so EPOLL_CTL_MOD can
+        // re-arm it. We used to remove and free the registration here, which
+        // made a later re-arm MOD return ENOENT: ivykis's iv_fd_epoll uses an
+        // EPOLLONESHOT eventfd as its cross-thread wakeup and re-arms it with
+        // MOD, so this aborted syslog-ng (iv_fatal). The premature free also
+        // fed a use-after-free in the multi-epoll close path. Disarm by
+        // clearing the watched read/write interest; poll_mod_fd restores it on
+        // re-arm. For host-backed fds, drop the host-side watch but keep the
+        // poll_fd registered.
+        poll_fd->types &= ~(POLL_READ | POLL_WRITE);
         if (poll_fd_has_host_wait(poll_fd))
-            real_poll_update(&poll_->real, fd->real_fd, 0, NULL);
-        // Keep poll_fd storage alive on the freelist so stale host
-        // readiness events cannot turn into a use-after-free.
-        poll_fd_free(poll_fd);
+            real_poll_update(&poll_->real, fd->real_fd, poll_fd->types, poll_fd);
         return res;
     }
 
