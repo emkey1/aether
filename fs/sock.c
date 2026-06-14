@@ -2454,31 +2454,52 @@ static void fill_cred(struct ucred_ *cred) {
     cred->gid = current->egid;
 }
 
+// /dev/log and /run|/dev/initctl have a built-in fallback sink so guests can
+// log (or send initctl messages) even when no daemon is running. But if a real
+// daemon (e.g. syslog-ng) has bound the socket, we must connect to it for real
+// and deliver messages; only fall back to the built-in sink when nothing is
+// listening. This marks the socket as a sink; callers use it when the real
+// connect/send fails with no listener.
+static bool sock_devlog_initctl_fallback(struct fd *sock, bool devlog_target, bool initctl_target) {
+    if (devlog_target) {
+        sock->socket.unix_devlog_sink = true;
+        fill_cred(&sock->socket.unix_cred);
+        sock_debug_event("connect-devlog-fallback", sock, 0, 0);
+        return true;
+    }
+    if (initctl_target) {
+        sock->socket.unix_initctl_sink = true;
+        fill_cred(&sock->socket.unix_cred);
+        sock_debug_event("connect-initctl-fallback", sock, 0, 0);
+        return true;
+    }
+    return false;
+}
+
 static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t sockaddr_len) {
     STRACE("connect(%d, 0x%llx, %d)", sock_fd, (unsigned long long) sockaddr_addr, sockaddr_len);
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
     sock_debug_guest_sockaddr("connect", sock, sockaddr_addr, sockaddr_len);
+    // Remember whether this is a /dev/log or initctl target; try a real connect
+    // first and fall back to the built-in sink only if nothing is bound there.
+    bool connect_devlog_target = false;
+    bool connect_initctl_target = false;
     if (sock->socket.domain == AF_LOCAL_) {
         sock->socket.unix_devlog_sink = false;
         sock->socket.unix_initctl_sink = false;
-        if (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len)) {
-            sock->socket.unix_devlog_sink = true;
-            fill_cred(&sock->socket.unix_cred);
-            sock_debug_event("connect-devlog", sock, 0, 0);
-            return 0;
-        }
-        if (guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)) {
-            sock->socket.unix_initctl_sink = true;
-            fill_cred(&sock->socket.unix_cred);
-            sock_debug_event("connect-initctl", sock, 0, 0);
-            return 0;
-        }
+        connect_devlog_target = guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len);
+        connect_initctl_target = !connect_devlog_target &&
+            guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len);
     }
     struct sockaddr_max_ sockaddr;
     int err = sockaddr_read(sockaddr_addr, &sockaddr, &sockaddr_len);
     if (err < 0) {
+        // No real socket is bound at /dev/log or initctl: fall back to the
+        // built-in sink so logging/initctl still succeed without a daemon.
+        if (sock_devlog_initctl_fallback(sock, connect_devlog_target, connect_initctl_target))
+            return 0;
         // Linux reports connect() to a missing abstract UNIX socket as
         // ECONNREFUSED, which util-linux agetty expects for its Plymouth probe.
         if (err == _ENOENT && sock->socket.domain == AF_LOCAL_ &&
@@ -2540,6 +2561,10 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
             }
             err = 0;
         } else {
+            // A bound-but-not-listening (or absent) /dev/log or initctl socket
+            // falls back to the built-in sink rather than failing the connect.
+            if (sock_devlog_initctl_fallback(sock, connect_devlog_target, connect_initctl_target))
+                return 0;
             sock_trace("connect", sock, -1, mapped_err);
             return mapped_err;
         }
@@ -2572,11 +2597,19 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
         // later, but do not wait for that acknowledgement here. Linux connect()
         // completes once the transport connection exists; waiting for accept()
         // to run can wedge clients on daemons that accept asynchronously.
-        int peer_err = unix_socket_send_peer_token(sock);
-        if (peer_err < 0) {
-            sock_trace("connect", sock, -1, peer_err);
-            sock_debug_event("connect-peer-token", sock, -1, peer_err);
-            return peer_err;
+        //
+        // Only connection-oriented sockets do this: a datagram socket has no
+        // accept() on the peer to consume the token, so writing it would inject
+        // a spurious 8-byte datagram ahead of the application's data (e.g. into
+        // a syslogd reading /dev/log). SO_PEERCRED already tolerates the
+        // resulting NULL unix_peer for datagram sockets.
+        if (sock->socket.type == SOCK_STREAM_ || sock->socket.type == SOCK_SEQPACKET_) {
+            int peer_err = unix_socket_send_peer_token(sock);
+            if (peer_err < 0) {
+                sock_trace("connect", sock, -1, peer_err);
+                sock_debug_event("connect-peer-token", sock, -1, peer_err);
+                return peer_err;
+            }
         }
     }
 
@@ -2914,18 +2947,27 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
     int err = _EINVAL;
     if (real_flags < 0)
         goto error;
-    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock) ||
-            (sock->socket.domain == AF_LOCAL_ &&
-             (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len) ||
-              guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len)))) {
+    // A socket that fell back to the built-in /dev/log or initctl sink (no real
+    // listener at connect time) discards its writes.
+    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock)) {
         free(buffer);
         return len;
     }
+    // A connectionless sendto() to /dev/log or initctl delivers for real if a
+    // daemon is bound there, and otherwise falls back to discarding.
+    bool sendto_devlog_fallback = sock->socket.domain == AF_LOCAL_ &&
+        (guest_sockaddr_is_devlog(sockaddr_addr, sockaddr_len) ||
+         guest_sockaddr_is_initctl(sockaddr_addr, sockaddr_len));
     struct sockaddr_max_ sockaddr;
     if (sockaddr_addr) {
         err = sockaddr_read(sockaddr_addr, &sockaddr, &sockaddr_len);
-        if (err < 0)
+        if (err < 0) {
+            if (sendto_devlog_fallback) {
+                free(buffer);
+                return len;
+            }
             goto error;
+        }
     }
 
     if (sock->socket.domain == AF_NETLINK_) {
@@ -2981,6 +3023,11 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
             return _EAGAIN;
         }
         int mapped_err = errno_map();
+        // A /dev/log or initctl path whose socket exists but has no live reader
+        // (e.g. a stale socket left by a dead daemon) falls back to discarding.
+        if (sendto_devlog_fallback &&
+                (mapped_err == _ECONNREFUSED || mapped_err == _ENOTCONN || mapped_err == _ENOENT))
+            return len;
         sock_trace("sendto", sock, -1, mapped_err);
         sock_debug_event("sendto", sock, -1, mapped_err);
         if (mapped_err == _EAGAIN)
@@ -3980,16 +4027,21 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             goto out_free_iov;
     }
 
-    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock) ||
-            (sock->socket.domain == AF_LOCAL_ &&
-             (guest_sockaddr_is_devlog(msg_fake.msg_name, msg_fake.msg_namelen) ||
-              guest_sockaddr_is_initctl(msg_fake.msg_name, msg_fake.msg_namelen)))) {
+    // A socket that fell back to the built-in /dev/log or initctl sink (no real
+    // listener at connect time) discards its writes.
+    if (sock_is_devlog_sink(sock) || sock_is_initctl_sink(sock)) {
         size_t total = 0;
         for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
             total += msg_iov[i].iov_len;
         err = (int_t) total;
         goto out_free_iov;
     }
+    // A connectionless sendmsg() to /dev/log or initctl delivers for real if a
+    // daemon is bound there, and otherwise falls back to discarding (handled at
+    // the send-error path below).
+    bool sendmsg_devlog_fallback = sock->socket.domain == AF_LOCAL_ &&
+        (guest_sockaddr_is_devlog(msg_fake.msg_name, msg_fake.msg_namelen) ||
+         guest_sockaddr_is_initctl(msg_fake.msg_name, msg_fake.msg_namelen));
 
     if (sock->socket.domain == AF_NETLINK_) {
         err = netlink_handle_sendmsg(sock, &msg);
@@ -4161,6 +4213,13 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             goto out_free_scm;
         }
         err = errno_map();
+        // A /dev/log or initctl path whose socket exists but has no live reader
+        // falls back to discarding rather than failing the send.
+        if (sendmsg_devlog_fallback &&
+                (err == _ECONNREFUSED || err == _ENOTCONN || err == _ENOENT)) {
+            err = (int_t) requested;
+            goto out_free_scm;
+        }
         sock_trace("sendmsg", sock, -1, err);
         sock_debug_event("sendmsg", sock, -1, err);
         if (err == _EAGAIN)
