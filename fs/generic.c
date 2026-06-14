@@ -175,7 +175,19 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
         }
     }
 
+    // mount->fs->open can issue a host open() that blocks indefinitely -- most
+    // notably opening a FIFO (e.g. syslog-ng's /dev/xconsole) with no peer,
+    // which blocks until the other end is opened. inodes_lock is a single global
+    // lock (see the "don't do this" above), so holding it across such an open
+    // wedges every other open() in the emulator -- the whole app appears to
+    // freeze. Drop the lock around the open for files that can block, and
+    // re-acquire it for the inode bookkeeping below.
+    bool open_may_block = !created && S_ISFIFO(stat.mode) && !(flags & O_NONBLOCK_);
+    if (open_may_block)
+        unlock(&inodes_lock);
     struct fd *fd = mount->fs->open(mount, path, flags, mode);
+    if (open_may_block)
+        lock(&inodes_lock, 0);
     if (IS_ERR(fd)) {
         unlock(&inodes_lock);
         // if an error happens after this point, fd_close will release the
