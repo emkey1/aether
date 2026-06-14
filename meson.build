@@ -43,6 +43,26 @@ offsets = custom_target('offsets',
     output: 'cpu-offsets.h', input: 'jit/offsets.c', depfile: 'cpu-offsets.h.d',
     command: [find_program('tools/staticdefine.sh'), '@OUTDIR@/compile_commands.json', '@INPUT@', '@OUTPUT@', '@DEPFILE@'])
 
+# Generate the embedded /AOK/tests table (consumed by fs/aok.c) from the curated
+# fs/aok-tests.manifest, so the regression sources under tests/manual/ ship in
+# /AOK/tests automatically. Editing a listed test, or adding a manifest line,
+# propagates on the next build. The manifest is read at configure time so every
+# listed source is a proper build dependency.
+fs_mod = import('fs')
+python = find_program('python3')
+aok_test_srcs = []
+foreach line : fs_mod.read('fs/aok-tests.manifest').strip().split('\n')
+    entry = line.strip()
+    if entry != '' and not entry.startswith('#')
+        aok_test_srcs += files('tests/manual' / entry.split()[0])
+    endif
+endforeach
+aok_generated_tests = custom_target('aok_generated_tests',
+    output: 'aok_generated_tests.inc',
+    input: [files('tools/gen-aokfs.py', 'fs/aok-tests.manifest')] + aok_test_srcs,
+    command: [python, '@INPUT0@', '@INPUT1@',
+              meson.current_source_dir() / 'tests' / 'manual', '@OUTPUT@'])
+
 emu_src = [
     'emu/tlb.c',
     'emu/fpu.c',
@@ -112,7 +132,7 @@ if get_option('kernel') == 'ish'
 
         'kernel/fs.c',
         'kernel/fs_info.c',
-        'fs/aok.c',
+        'fs/aok.c', aok_generated_tests,
         'fs/mount.c',
         'fs/fd.c',
         'fs/inode.c',

@@ -1,0 +1,37 @@
+# Files exposed read-only at /AOK/tests, embedded into the kernel by
+# tools/gen-aokfs.py at build time (see meson.build / fs/aok.c).
+#
+# Each line: <filename> [mode]
+#   <filename>  is read from tests/manual/<filename> and served at
+#               /AOK/tests/<filename>.
+#   [mode]      optional octal permission bits. Defaults: .sh -> 0555,
+#               everything else -> 0444.
+#
+# To add a regression to /AOK/tests, add its source under tests/manual/ and
+# list it here -- the next build picks it up automatically. Order here is the
+# order shown by `ls /AOK/tests`.
+
+README.txt
+atomics32.c
+atomic_common.h
+test_common.h
+atomic_xadd32.c
+atomic_cmpxchg32.c
+atomic_cmpxchg8b.c
+atomic_logic32.c
+signal_core.c
+signal_restart.c
+signal_realtime.c
+signal_altstack.c
+signal_poll.c
+eventfd_interrupt.c
+futex_core.c
+process_lifecycle.c
+pthread_sync.c
+ptrace_group_stop.c
+ptrace_thread_follow.c
+epoll_mod_wake.c
+epoll_oneshot_rearm.c
+ptrace_exit_kill.c
+amd64_jit_bench.sh
+setup-regressions.sh
