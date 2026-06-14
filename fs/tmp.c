@@ -448,11 +448,7 @@ static int tmpfs_rmdir(struct mount *mount, const char *path) {
     return err;
 }
 
-static int tmpfs_setattr(struct mount *mount, const char *path, struct attr attr) {
-    struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
-    if (IS_ERR(dirent))
-        return PTR_ERR(dirent);
-    struct tmp_inode *inode = dirent->inode;
+static int tmpfs_apply_attr(struct tmp_inode *inode, struct attr attr) {
     int err = 0;
     lock(&inode->lock, 0);
     switch (attr.type) {
@@ -478,6 +474,14 @@ static int tmpfs_setattr(struct mount *mount, const char *path, struct attr attr
             err = _EPERM;
     }
     unlock(&inode->lock);
+    return err;
+}
+
+static int tmpfs_setattr(struct mount *mount, const char *path, struct attr attr) {
+    struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
+    if (IS_ERR(dirent))
+        return PTR_ERR(dirent);
+    int err = tmpfs_apply_attr(dirent->inode, attr);
     tmp_dirent_release(dirent);
     return err;
 }
@@ -601,6 +605,10 @@ static int tmpfs_fstat(struct fd *fd, struct statbuf *stat) {
     *stat = inode->stat;
     unlock(&inode->lock);
     return 0;
+}
+
+static int tmpfs_fsetattr(struct fd *fd, struct attr attr) {
+    return tmpfs_apply_attr(tmpfs_fd_inode(fd), attr);
 }
 
 static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
@@ -727,6 +735,7 @@ const struct fs_ops tmpfs = {
     .rmdir = tmpfs_rmdir,
     .fstat = tmpfs_fstat,
     .setattr = tmpfs_setattr,
+    .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
@@ -744,6 +753,7 @@ const struct fs_ops cgroupfs = {
     .rmdir = tmpfs_rmdir,
     .fstat = tmpfs_fstat,
     .setattr = tmpfs_setattr,
+    .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
@@ -761,6 +771,7 @@ const struct fs_ops cgroup2fs = {
     .rmdir = tmpfs_rmdir,
     .fstat = tmpfs_fstat,
     .setattr = tmpfs_setattr,
+    .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
