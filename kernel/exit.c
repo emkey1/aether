@@ -591,7 +591,14 @@ retry:
                         goto found_something;
                 }
                 list_for_each_entry(&parent->ptracees, task, ptrace_siblings) {
-                    if (!task_is_leader(task))
+                    // A tracer can wait on traced threads (non-leaders), not
+                    // just process leaders, when __WALL is set -- strace -f
+                    // relies on this to follow CLONE_THREAD workers. Without it
+                    // a stopped thread's ptrace-stop is never reported, so the
+                    // tracer blocks in wait4 forever and never resumes the
+                    // thread, freezing the whole traced process (e.g. syslog-ng
+                    // under strace -f, or any pthread program).
+                    if (!task_is_leader(task) && !(options & __WALL_))
                         continue;
                     no_children = false;
                     info->child.pid = task->pid;
