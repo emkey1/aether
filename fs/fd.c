@@ -451,7 +451,10 @@ got_flock_32:
                         flock.pid = flock32.pid;
                     }
                     ret = fcntl_getlk(fd, &flock);
-                    if (ret >= 0) {
+                    // ret is unsigned (dword_t); fcntl_getlk returns a signed
+                    // int that is negative on error, so test the sign rather
+                    // than ret >= 0 (always true for an unsigned).
+                    if ((sdword_t) ret >= 0) {
                         if (guest64_locks) {
                             if (user_write(arg, &flock, sizeof(flock)))
                                 ret = _EFAULT;
@@ -475,7 +478,7 @@ got_flock_32:
                 ret = _EFAULT;
             else {
                 ret = fcntl_getlk(fd, &flock);
-                if (ret >= 0)
+                if ((sdword_t) ret >= 0)
                     if (user_write(arg, &flock, sizeof(flock)))
                         ret = _EFAULT;
             }
