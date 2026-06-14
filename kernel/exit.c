@@ -168,11 +168,16 @@ static void exit_hangup_session_tty(struct task *leader) {
 noreturn void do_exit(struct task *task, int status) {
     if(task->reference.ready_to_be_freed) {
         goto EXIT;
-    } else {
-        task->exiting = true;
     }
+    bool was_already_exiting = task->exiting;
+    task->exiting = true;
 
-    if (task == current && task->ptrace.traced &&
+    // Report PTRACE_EVENT_EXIT only on the FIRST entry to do_exit. If we re-enter
+    // (ptrace_stop_common can see a pending SIGKILL during this very event-exit
+    // stop and call do_exit_group again), reporting the event again recurses
+    // do_exit -> ptrace_event_stop -> ptrace_stop_common -> do_exit_group ->
+    // do_exit ... until the stack overflows and the whole app crashes.
+    if (!was_already_exiting && task == current && task->ptrace.traced &&
             (task->ptrace.options & PTRACE_O_TRACEEXIT_)) {
         struct siginfo_ info = {
             .sig = SIGTRAP_,
