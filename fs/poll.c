@@ -311,6 +311,26 @@ bool poll_has_fd(struct poll *poll, struct fd *fd) {
     return poll_find_fd(poll, fd) != NULL;
 }
 
+// Wake any thread currently blocked in poll_wait on this poll so it re-scans fd
+// readiness. Caller must hold poll->lock. Emulated fds (eventfd, pipe, etc.)
+// have no host-side wait queue and no periodic rescan, so a blocked epoll_wait
+// only re-checks readiness when the notify pipe is poked -- which normally only
+// happens on the fd's own read/write (poll_wakeup), not on epoll_ctl. When a
+// caller arms an already-ready emulated fd via EPOLL_CTL_ADD/MOD (as ivykis
+// does re-arming an eventfd it never writes), poke here so the waiter notices
+// instead of sleeping until its (possibly very long) timeout. No-op when no one
+// is waiting (notify_pipe closed), so single-threaded epoll users pay nothing.
+static void poll_poke_notify_locked(struct poll *poll) {
+    if (poll->notify_pipe[1] == -1)
+        return;
+    ssize_t wrote;
+    do {
+        wrote = write(poll->notify_pipe[1], "", 1);
+    } while (wrote < 0 && errno == EINTR);
+    if (wrote >= 0 || errno == EAGAIN)
+        poll->notify_pending = true;
+}
+
 int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
     int err;
     lock(&fd->poll_lock, 0);
@@ -344,6 +364,11 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
 
     list_add(&fd->poll_fds, &poll_fd->polls);
     list_add(&poll->poll_fds, &poll_fd->fds);
+
+    // An emulated fd added while ready can't surface through the host kevent;
+    // wake a blocked poller so it re-scans. (See poll_poke_notify_locked.)
+    if (!poll_fd_has_host_wait(poll_fd))
+        poll_poke_notify_locked(poll);
 
     err = 0;
 out:
@@ -402,6 +427,12 @@ int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
     poll_fd->types = types;
     poll_fd->info = info;
     poll_fd->triggered_types &= types;
+
+    // Arming an already-ready emulated fd via MOD must wake a blocked poll_wait;
+    // it won't get a host event or a poll_wakeup otherwise, so it would sleep
+    // until timeout. (This is the lost wakeup that wedged syslog-ng/ivykis.)
+    if (!poll_fd_has_host_wait(poll_fd))
+        poll_poke_notify_locked(poll);
 
     err = 0;
 out:

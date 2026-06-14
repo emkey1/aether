@@ -36,6 +36,7 @@ executable('process_lifecycle', ['process_lifecycle.c'], dependencies: dependenc
 executable('pthread_sync', ['pthread_sync.c'], dependencies: dependency('threads'))
 executable('ptrace_group_stop', ['ptrace_group_stop.c'])
 executable('ptrace_thread_follow', ['ptrace_thread_follow.c'], dependencies: dependency('threads'))
+executable('epoll_mod_wake', ['epoll_mod_wake.c'], dependencies: dependency('threads'))
 
 # various tests for code that modifies itself
 executable('modify', ['modify.c'], link_args: ['-zexecstack'])
