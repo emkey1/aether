@@ -57,6 +57,16 @@ struct guest_vm_layout {
     guest_addr_t stack_pointer;
 };
 
+// Scalar accessor for the one field the hot address-validation path needs.
+// guest_abi_vm_layout() below returns a ~40-byte struct by value, which the
+// compiler will not fold away — materializing the whole thing just to read
+// user_addr_max showed up as a large slice of the amd64 interpreter's time, since
+// guest_abi_range_valid() runs on every instruction fetch and memory access.
+// This is the single source of truth for the value (the struct uses it too).
+static inline qword_t guest_abi_user_addr_max(enum guest_abi abi) {
+    return abi == GUEST_ABI_AMD64 ? ((qword_t) 1 << 47) : ((qword_t) 1 << 32);
+}
+
 static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
     switch (abi) {
     case GUEST_ABI_AMD64:
@@ -69,7 +79,7 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             // pointer marshalling is still 32-bit.
             .mmap_floor = (page_t) 0x1000,
             .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
-            .user_addr_max = (qword_t) 1 << 47,
+            .user_addr_max = guest_abi_user_addr_max(abi),
             .stack_page = (page_t) 0xffffe,
             .stack_pointer = 0xfffff000u,
         };
@@ -80,7 +90,7 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             .page_limit = (page_t) 1 << 20,
             .mmap_floor = (page_t) 0x40000,
             .mmap_ceiling = (page_t) 0xf7ffe,
-            .user_addr_max = (qword_t) 1 << 32,
+            .user_addr_max = guest_abi_user_addr_max(abi),
             .stack_page = (page_t) 0xffffd,
             .stack_pointer = 0xffffe000u,
         };
@@ -96,11 +106,11 @@ static inline bool guest_abi_is_64bit(enum guest_abi abi) {
 }
 
 static inline bool guest_abi_addr_valid(enum guest_abi abi, qword_t addr) {
-    return addr < guest_abi_vm_layout(abi).user_addr_max;
+    return addr < guest_abi_user_addr_max(abi);
 }
 
 static inline bool guest_abi_range_valid(enum guest_abi abi, qword_t addr, qword_t size) {
-    qword_t max = guest_abi_vm_layout(abi).user_addr_max;
+    qword_t max = guest_abi_user_addr_max(abi);
     if (addr >= max)
         return false;
     if (size == 0)
