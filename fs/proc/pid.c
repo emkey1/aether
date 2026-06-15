@@ -559,6 +559,35 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
 }
 
 static int proc_pid_cgroup_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // iSH does not track per-task cgroup membership, so report every task at the
+    // root ("/") of each mounted hierarchy. The named v1 hierarchies (e.g.
+    // name=elogind) must be listed here or elogind/systemd fail to start with
+    // ENODATA ("Cannot determine cgroup we are running in").
+    int next_id = 1;
+    char seen[512] = "|";
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (strcmp(mount->fs->name, "cgroup") != 0)
+            continue;
+        const char *name = mount->info != NULL ? strstr(mount->info, "name=") : NULL;
+        if (name == NULL)
+            continue;
+        char controller[128];
+        size_t n = 0;
+        for (const char *p = name; *p != '\0' && *p != ',' && n + 1 < sizeof(controller); p++)
+            controller[n++] = *p;
+        controller[n] = '\0';
+        // Dedupe hierarchies that happen to be mounted more than once.
+        char key[130];
+        memcpy(key, controller, n);
+        key[n] = '|';
+        key[n + 1] = '\0';
+        if (strstr(seen, key) != NULL)
+            continue;
+        if (strlen(seen) + n + 1 < sizeof(seen))
+            strcat(seen, key);
+        proc_printf(buf, "%d:%s:/\n", next_id++, controller);
+    }
     proc_printf(buf, "0::/\n");
     return 0;
 }
