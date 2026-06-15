@@ -7559,6 +7559,11 @@ restart_prefix:
         }
         break;
     }
+    case 0x9b:
+        // FWAIT/WAIT: wait for pending x87 exceptions. The emulator raises FPU
+        // exceptions synchronously and has none pending here, so it is a no-op.
+        // musl's printf double->long-double path (fldl; fwait; fstpt) needs it.
+        break;
     case 0x98:
         if (rex.w) {
             amd64_reg_set(cpu, amd64_rax, 64, (qword_t) (sqword_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32));
