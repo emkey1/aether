@@ -60,8 +60,11 @@ static unsigned amd64_cc1_jit_trace_next;
 static pid_t_ amd64_cc1_jit_trace_pid;
 
 static inline bool amd64_cc1_jit_trace_enabled(void) {
+    // Gated per compiled block in the amd64 frontend; only "cc1" begins with
+    // 'c', so the one-byte pre-filter skips the strcmp for every other guest.
     return current != NULL &&
         current->abi == GUEST_ABI_AMD64 &&
+        current->comm[0] == 'c' &&
         strcmp(current->comm, "cc1") == 0;
 }
 
@@ -212,10 +215,7 @@ static bool amd64_jit_debug_enabled(void) {
     return enabled == 1;
 }
 
-static void amd64_jit_debug(const char *fmt, ...) {
-    if (!amd64_jit_debug_enabled())
-        return;
-
+static void amd64_jit_debug_impl(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     fputs("[amd64-jit] ", stderr);
@@ -223,6 +223,16 @@ static void amd64_jit_debug(const char *fmt, ...) {
     fputc('\n', stderr);
     va_end(args);
 }
+
+// Guard the (varargs) debug call at the call site so the arguments aren't even
+// evaluated — let alone the variadic call made — when JIT debug is disabled.
+// This runs several times per compiled block / frontend entry, so the bare
+// call (which previously only returned early *inside* the function) showed up
+// as ~420 sampled stacks in the amd64-JIT hot path.
+#define amd64_jit_debug(...) do { \
+    if (amd64_jit_debug_enabled()) \
+        amd64_jit_debug_impl(__VA_ARGS__); \
+} while (0)
 
 static void amd64_jit_note_compile_attempt(void) {
     atomic_fetch_add_explicit(&amd64_jit_compile_attempts, 1, memory_order_relaxed);
@@ -1391,7 +1401,7 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
         if (!amd64_jit_is_enabled())
             return cpu_run_to_interrupt_amd64(cpu, tlb);
-        if (strcmp(current->comm, "as") == 0)
+        if (current->comm[0] == 'a' && strcmp(current->comm, "as") == 0)
             return cpu_run_to_interrupt_amd64(cpu, tlb);
         return cpu->tf ? cpu_single_step_amd64_frontend(cpu, tlb)
                        : cpu_step_to_interrupt_amd64_frontend(cpu, tlb);
