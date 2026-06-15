@@ -157,6 +157,7 @@ if get_option('kernel') == 'ish'
         'fs/adhoc.c',
         'fs/sock.c',
         'fs/pipe.c',
+        'fs/fifo.c',
         'fs/sockrestart.c',
         'fs/lock.c',
 

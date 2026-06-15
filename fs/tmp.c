@@ -4,6 +4,8 @@
 #include "kernel/errno.h"
 #include "kernel/fs.h"
 #include "fs/path.h"
+#include "fs/fifo.h"
+#include "fs/poll.h"
 #include "util/refcount.h"
 #include "util/timer.h"
 #include "debug.h"
@@ -20,6 +22,7 @@ struct tmp_inode {
     union {
         void *file_data;
         //char *symlink_data;
+        struct fifo_file *fifo; // S_IFIFO: the shared named-pipe buffer
     };
 };
 
@@ -41,6 +44,7 @@ static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
     node->stat.mode = mode;
     node->stat.uid = current->euid;
     node->stat.gid = current->egid;
+    node->file_data = NULL; // also clears the ->fifo union slot for S_IFIFO
     if (S_ISREG(mode)) {
         node->file_data = malloc(0);
         if (node->file_data == NULL) {
@@ -58,6 +62,8 @@ static void tmp_inode_cleanup(struct tmp_inode *inode) {
     // target string there too (same union slot).
     if (S_ISREG(inode->stat.mode) || S_ISLNK(inode->stat.mode)) {
         free(inode->file_data);
+    } else if (S_ISFIFO(inode->stat.mode)) {
+        fifo_file_free(inode->fifo);
     }
     free(inode);
 }
@@ -423,6 +429,30 @@ out_creat:
         tmpfs_fd_seekdir(fd, list_first_entry(&dirent->children, struct tmp_dirent, dir));
     }
     unlock(&dirent->lock);
+
+    // A FIFO inode shares one named-pipe buffer across all opens; create it
+    // lazily and run the POSIX open rendezvous. generic_openat drops the global
+    // inodes_lock around this open (open_may_block) so blocking here is safe.
+    if (S_ISFIFO(dirent->inode->stat.mode)) {
+        struct tmp_inode *inode = dirent->inode;
+        lock(&inode->lock, 0);
+        if (inode->fifo == NULL)
+            inode->fifo = fifo_file_new();
+        struct fifo_file *fifo = inode->fifo;
+        unlock(&inode->lock);
+        if (fifo == NULL) {
+            fd_close(fd);
+            return ERR_PTR(_ENOMEM);
+        }
+        // generic_openat only assigns fd->flags after fs->open returns, but the
+        // FIFO open rendezvous needs the access mode now.
+        fd->flags = flags;
+        int ferr = fifo_file_open(fifo, fd);
+        if (ferr < 0) {
+            fd_close(fd);
+            return ERR_PTR(ferr);
+        }
+    }
     return fd;
 }
 
@@ -523,6 +553,9 @@ static int tmpfs_utime(struct mount *mount, const char *path, struct timespec at
 
 static int tmpfs_close(struct fd *fd) {
     // shouldn't need locking as this is the last reference to the fd
+    struct tmp_inode *inode = fd->tmpfs.dirent->inode;
+    if (S_ISFIFO(inode->stat.mode) && inode->fifo != NULL)
+        fifo_file_close(inode->fifo, fd);
     tmp_dirent_release(fd->tmpfs.dirent);
     fd->tmpfs.dirent = NULL;
     return 0;
@@ -689,6 +722,8 @@ static int tmpfs_fsetattr(struct fd *fd, struct attr attr) {
 static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
     ssize_t res;
     struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISFIFO(inode->stat.mode))
+        return fifo_file_read(inode->fifo, fd, buf, bufsize);
     lock(&inode->lock, 0);
     res = _EISDIR;
     if (S_ISDIR(inode->stat.mode))
@@ -712,6 +747,8 @@ out:
 static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     ssize_t res;
     struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISFIFO(inode->stat.mode))
+        return fifo_file_write(inode->fifo, fd, buf, bufsize);
     lock(&inode->lock, 0);
     res = _EISDIR;
     if (S_ISDIR(inode->stat.mode))
@@ -859,9 +896,17 @@ const struct fs_ops cgroup2fs = {
     .readlink = tmpfs_readlink,
 };
 
+static int tmpfs_poll(struct fd *fd) {
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISFIFO(inode->stat.mode))
+        return fifo_file_poll(inode->fifo, fd);
+    return POLL_READ | POLL_WRITE;
+}
+
 const struct fd_ops tmpfs_fdops = {
     .read = tmpfs_read,
     .write = tmpfs_write,
+    .poll = tmpfs_poll,
     .lseek = tmpfs_lseek,
     .readdir = tmpfs_readdir,
     .telldir = tmpfs_telldir,

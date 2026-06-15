@@ -37,6 +37,9 @@ struct fd {
         struct {
             uint64_t val;
         } eventfd;
+        // fifo (named pipe): links fds open on the same FIFO inode. The shared
+        // buffer (struct fifo) lives on the inode; locked by the fifo's fds_lock.
+        struct list fifo_other_fds;
         struct {
             struct timer *timer;
             uint64_t expirations;
