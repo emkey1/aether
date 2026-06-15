@@ -10611,8 +10611,46 @@ amd64_0f_rm_pf:
     return INT_PF;
 }
 
+// Instrumentation: every 0F vector op the amd64 JIT can't do as a native gadget
+// is COMPILED into a bridge to this C helper (no compile-fallback — it runs
+// per-op at runtime). That bridge is the dominant amd64-JIT cost. Count by op2
+// so we can rank which vector ops are worth a real gadget. ISH_TRACE_AMD64_JIT_STATS=1.
+static unsigned long amd64_jit_vec_bridge_by_op2[256];
+static unsigned long amd64_jit_vec_bridge_total;
+
+static void amd64_jit_note_vec_bridge(unsigned long op2) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_TRACE_AMD64_JIT_STATS") != NULL ? 1 : 0;
+    if (!enabled)
+        return;
+    __atomic_fetch_add(&amd64_jit_vec_bridge_by_op2[op2 & 0xff], 1, __ATOMIC_RELAXED);
+    unsigned long total = __atomic_add_fetch(&amd64_jit_vec_bridge_total, 1, __ATOMIC_RELAXED);
+    if (total < 256 || (total & (total - 1)) != 0)
+        return; // dump a sorted ranking at each power of two >= 256
+    struct { unsigned op2; unsigned long count; } ent[256];
+    unsigned n = 0;
+    for (unsigned k = 0; k < 256; k++) {
+        unsigned long c = __atomic_load_n(&amd64_jit_vec_bridge_by_op2[k], __ATOMIC_RELAXED);
+        if (c != 0) { ent[n].op2 = k; ent[n].count = c; n++; }
+    }
+    for (unsigned i = 1; i < n; i++) {
+        unsigned o = ent[i].op2; unsigned long c = ent[i].count; unsigned j = i;
+        while (j > 0 && ent[j - 1].count < c) { ent[j] = ent[j - 1]; j--; }
+        ent[j].op2 = o; ent[j].count = c;
+    }
+    fprintf(stderr, "[amd64-jit-bridge] vec-bridges=%lu distinct-op2=%u (top by frequency):\n", total, n);
+    unsigned show = n < 20 ? n : 20;
+    for (unsigned i = 0; i < show; i++) {
+        unsigned long pm = 1000UL * ent[i].count / total;
+        fprintf(stderr, "[amd64-jit-bridge]   0f %02x  count=%lu  (%lu.%lu%%)\n",
+               ent[i].op2, ent[i].count, pm / 10, pm % 10);
+    }
+}
+
 int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip) {
+    amd64_jit_note_vec_bridge(op2);
     qword_t saved_rip = cpu->amd64_rip;
     guest_addr_t checked_next_ip;
     struct amd64_rex_prefix rex = {0};

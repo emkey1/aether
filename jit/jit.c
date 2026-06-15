@@ -232,6 +232,50 @@ static void amd64_jit_note_compile_success(void) {
     atomic_fetch_add_explicit(&amd64_jit_compile_successes, 1, memory_order_relaxed);
 }
 
+static bool amd64_jit_stats_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_TRACE_AMD64_JIT_STATS") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+// Dump the per-opcode JIT fallback counts sorted by frequency, so the
+// most-often-unimplemented ops (the ones worth turning into native gadgets
+// to cut JIT->interp bridges) rank first. key 0x000-0x0ff = one-byte opcode,
+// 0x100-0x1ff = 0F-prefixed (op2). Enable with ISH_TRACE_AMD64_JIT_STATS=1.
+static void amd64_jit_dump_fallback_histogram(unsigned long total) {
+    struct { unsigned key; unsigned long count; } ent[512];
+    unsigned n = 0;
+    for (unsigned k = 0; k < 512; k++) {
+        unsigned long c = atomic_load_explicit(&amd64_jit_compile_fallback_by_key[k],
+                memory_order_relaxed);
+        if (c != 0) {
+            ent[n].key = k;
+            ent[n].count = c;
+            n++;
+        }
+    }
+    for (unsigned i = 1; i < n; i++) {
+        unsigned key = ent[i].key;
+        unsigned long count = ent[i].count;
+        unsigned j = i;
+        while (j > 0 && ent[j - 1].count < count) {
+            ent[j] = ent[j - 1];
+            j--;
+        }
+        ent[j].key = key;
+        ent[j].count = count;
+    }
+    fprintf(stderr, "[amd64-jit-stats] block-fallbacks=%lu distinct-ops=%u (top by frequency):\n", total, n);
+    unsigned show = n < 24 ? n : 24;
+    for (unsigned i = 0; i < show; i++) {
+        unsigned key = ent[i].key;
+        unsigned long pm = total ? (1000UL * ent[i].count / total) : 0;
+        fprintf(stderr, "[amd64-jit-stats]   %s%02x  count=%lu  (%lu.%lu%%)\n",
+               key >= 0x100 ? "0f " : "   ", key & 0xff, ent[i].count, pm / 10, pm % 10);
+    }
+}
+
 static void amd64_jit_note_compile_fallback(const struct gen_state *state, guest_addr_t ip) {
     unsigned key = (state->amd64_fallback_flags & 0x01)
         ? 0x100u | state->amd64_fallback_op2
@@ -254,6 +298,11 @@ static void amd64_jit_note_compile_fallback(const struct gen_state *state, guest
                atomic_load_explicit(&amd64_jit_compile_successes, memory_order_relaxed),
                current != NULL ? current->comm : "?");
     }
+
+    // Periodic sorted dump (powers of two >= 256) so a single run prints the
+    // frequency ranking as it converges, without needing an exit hook.
+    if (amd64_jit_stats_enabled() && total >= 8 && (total & (total - 1)) == 0)
+        amd64_jit_dump_fallback_histogram(total);
 }
 
 bool amd64_jit_is_enabled(void) {
