@@ -548,21 +548,21 @@ inline void modify_locks_held_count(struct task *task, int value) { // value sho
         return;
     }
 
-    int old_count;
-    int new_count;
-    do {
-        old_count = __atomic_load_n(&task->locks_held.count, __ATOMIC_RELAXED);
-        new_count = old_count + value;
-        if (new_count < 0 && task->pid > 9) {
-            printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
-            return;
-        }
-    } while (!__atomic_compare_exchange_n(&task->locks_held.count, &old_count, new_count,
-                                          true, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+    // Only the task's own thread ever modifies its own locks_held count — every
+    // caller passes current (lock()/unlock() in util/ro_locks.h, jit_crash_fn).
+    // So this is single-writer and needs no CAS retry loop; one relaxed RMW is
+    // correct. Concurrent readers (exit_wait_needed / task-teardown gating) use
+    // relaxed atomic loads and only care whether the count is nonzero. This runs
+    // on every lock()/unlock() — several times per guest syscall — so collapsing
+    // the old load+CAS-loop to a single atomic add (an LSE `ldadd` on Apple
+    // Silicon) measurably trims per-syscall lock overhead.
+    int new_count = __atomic_add_fetch(&task->locks_held.count, value, __ATOMIC_RELAXED);
 
     if (new_count < 0) {
+        // Unbalanced unlock (a bug): clamp back to zero rather than underflow.
         __atomic_store_n(&task->locks_held.count, 0, __ATOMIC_RELAXED);
-        printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
+        if (task->pid > 9)
+            printk("ERROR: Attempt to decrement locks_held count below zero, ignoring\n");
     }
 }
 
