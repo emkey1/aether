@@ -1291,6 +1291,36 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // F2 0F 58 addsd | 59 mulsd, mod==3: scalar-double low-lane arithmetic
+    // (dst.f64[0] OP= src.f64[0], high 64 bits preserved). F2 (repnz) only; the
+    // packed/single (66/F3/none) variants keep bridging.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) == 3 &&
+            !insn.operand_size_prefix && insn.rep_mode == amd64_jit_repnz &&
+            (insn.op2 == 0x58 || insn.op2 == 0x59)) {
+        extern void gadget_amd64_v_addsd_reg(void);
+        extern void gadget_amd64_v_mulsd_reg(void);
+        void (*gadget)(void) = insn.op2 == 0x58
+            ? (void (*)(void)) gadget_amd64_v_addsd_reg
+            : (void (*)(void)) gadget_amd64_v_mulsd_reg;
+        unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-scalard op2=%02x ip=%llx src=%u dst=%u next=%llx",
+                insn.op2, (unsigned long long) insn.start_ip, rm_id, reg_id,
+                (unsigned long long) next_ip);
+        gen(state, (unsigned long) gadget);
+        gen(state, (unsigned long) (rm_id | (reg_id << 4)));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     // 66 0F 73 /2 ib psrlq | /6 ib psllq, mod==3: shift each 64-bit lane of an
     // xmm by imm8. The /digit is the op extension; the bridge folds REX.R into
     // modrm.reg and #UDs reg>=8, so REX.R cases are left to the bridge to match.

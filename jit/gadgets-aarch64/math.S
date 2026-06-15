@@ -1886,3 +1886,29 @@ amd64_v_lane64_binop pxor, eor
 amd64_v_shift_q_imm psrlq, lsr
 # 66 0F 73 /6 ib psllq
 amd64_v_shift_q_imm psllq, lsl
+
+# Scalar-double SSE2 (F2 0F 58 addsd / 59 mulsd), reg-reg: operate on the low
+# 64-bit lane only, dst.f64[0] = dst.f64[0] OP src.f64[0]; dst's high 64 bits are
+# preserved (the 8-byte str writes only the low lane). aarch64 C `double` math
+# lowers to these same fadd/fmul, so this is bit-identical to the interpreter.
+# (First NEON use in a gadget: d0/d1 are caller-saved, loaded fresh from cpu->xmm
+# each time and dead after gret, and no C call is made, so they are free scratch.)
+.macro amd64_v_scalar_double name, fpop
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr d0, [x10]
+        ldr d1, [x9]
+        \fpop d0, d0, d1
+        str d0, [x10]
+        gret 1
+.endm
+
+# F2 0F 58 addsd
+amd64_v_scalar_double addsd, fadd
+# F2 0F 59 mulsd
+amd64_v_scalar_double mulsd, fmul
