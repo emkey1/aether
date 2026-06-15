@@ -5212,9 +5212,10 @@ restart_prefix:
         if (op2 == 0x38) {
             // Three-byte 0F 38 escape (SSSE3 / SSE4.1). Implemented: pshufb
             // (66 0F 38 00), pblendvb (10), blendvps/blendvpd (14/15), ptest (17),
-            // and pmovsx/pmovzx packed sign/zero-extend moves (20-25 sign, 30-35
-            // zero) — emitted by auto-vectorizers and by optimized string/format
-            // code. They require the 66 operand-size prefix and no F2/F3 prefix.
+            // pcmpeqq (29), pmulld (40), and pmovsx/pmovzx packed sign/zero-extend
+            // moves (20-25 sign, 30-35 zero) — emitted by auto-vectorizers and by
+            // optimized string/format code. They require the 66 operand-size
+            // prefix and no F2/F3 prefix.
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
                 cpu->amd64_rip = saved_rip;
@@ -5226,10 +5227,12 @@ restart_prefix:
             bool is_blendvps = op3 == 0x14;
             bool is_blendvpd = op3 == 0x15;
             bool is_ptest = op3 == 0x17;
+            bool is_pcmpeqq = op3 == 0x29;
+            bool is_pmulld = op3 == 0x40;
             bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
                             (op3 >= 0x30 && op3 <= 0x35);
             if ((!is_pshufb && !is_pblendvb && !is_blendvps && !is_blendvpd &&
-                    !is_ptest && !is_pmovx) ||
+                    !is_ptest && !is_pcmpeqq && !is_pmulld && !is_pmovx) ||
                     !operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             struct amd64_modrm modrm;
@@ -5328,6 +5331,31 @@ restart_prefix:
                     for (unsigned i = 0; i < 2; i++)
                         result.qw[i] = (mask.qw[i] & 0x8000000000000000ull)
                                 ? src.qw[i] : dst.qw[i];
+                }
+                cpu->xmm[modrm.reg] = result;
+                break;
+            }
+            if (is_pmulld || is_pcmpeqq) {
+                // PMULLD (66 0F 38 40): 4x packed 32-bit multiply, low 32 bits of
+                // each product (the low half is identical for signed/unsigned).
+                // PCMPEQQ (66 0F 38 29): 2x packed 64-bit equality, all-ones where
+                // the lanes are equal else 0. dst=reg, src=r/m; read both operands
+                // before the store in case src aliases the destination.
+                union xmm_reg src;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                union xmm_reg result;
+                if (is_pmulld) {
+                    for (unsigned i = 0; i < 4; i++)
+                        result.u32[i] = dst.u32[i] * src.u32[i];
+                } else {
+                    for (unsigned i = 0; i < 2; i++)
+                        result.qw[i] = (dst.qw[i] == src.qw[i])
+                                ? 0xFFFFFFFFFFFFFFFFull : 0;
                 }
                 cpu->xmm[modrm.reg] = result;
                 break;
