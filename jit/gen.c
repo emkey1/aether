@@ -1448,6 +1448,41 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         gen_amd64_defer_rip(state, next_ip);
         return true;
     }
+
+    // movdqa (66 0F 6F load / 7F store) and movdqu (F3 0F 6F / 7F), reg<->mem,
+    // mod!=3: a 128-bit move identical to movaps/movups, so it reuses the same
+    // load128/store128 gadgets. NO-prefix 0F 6F/7F is MMX movq (64-bit mm regs)
+    // and is excluded; F2 is not a valid movdq prefix. (Go's memmove path.)
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            insn.rep_mode != amd64_jit_repnz &&
+            (insn.operand_size_prefix || insn.rep_mode == amd64_jit_repz) &&
+            (insn.op2 == 0x6f || insn.op2 == 0x7f)) {
+        bool is_store = insn.op2 == 0x7f;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, 128, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-movdq-mem ip=%llx op2=%02x store=%d meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.op2, is_store, meta, disp,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_v_load128_mem(void);
+        extern void gadget_amd64_v_store128_mem(void);
+        gen(state, (unsigned long) (is_store
+                    ? (void (*)(void)) gadget_amd64_v_store128_mem
+                    : (void (*)(void)) gadget_amd64_v_load128_mem));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
 #endif
 
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
