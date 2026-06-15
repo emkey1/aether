@@ -1801,3 +1801,28 @@
     sxth eax, eax
     gret
 .gadget_list cvte, SIZE_LIST
+
+# ---------------------------------------------------------------------------
+# amd64 native SSE register-register gadgets.
+#
+# These replace the per-op C bridge (amd64_jit_0f_vec_rm) for the hottest
+# register-register vector ops. They touch only cpu->xmm[] (and the operand
+# word), never the GPR reg-cache (x20-x27) or _ip/_cpu/_tlb, so gen.c does NOT
+# flush the reg cache around them. No memory operand => no TLB/prep => x8-x15
+# are all free scratch (same as the amd64_*_reg_reg GPR gadgets above).
+#
+# Operand word layout (one gadget slot): src xmm id in bits 0-3, dst xmm id in
+# bits 4-7. cpu->xmm[i] lives at CPU_xmm + i*16.
+# ---------------------------------------------------------------------------
+
+# movdqa/movdqu xmm1, xmm2 (66/F3 0F 6F, mod==3): cpu->xmm[dst] = cpu->xmm[src]
+.gadget amd64_v_mov128_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    add x10, x11, x10, lsl 4
+    ldp x12, x13, [x9]
+    stp x12, x13, [x10]
+    gret 1

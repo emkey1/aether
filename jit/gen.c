@@ -1225,6 +1225,38 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+#if defined(__aarch64__)
+    // Native aarch64 SSE register-register gadgets. These intercept the hottest
+    // reg-reg vector ops that would otherwise compile into a per-op C bridge
+    // (amd64_jit_0f_vec_rm). Only the exact reg-reg cases matched here are taken
+    // natively; every other form (memory operand, MMX no-prefix, other prefixes)
+    // falls through to the bridge below. The gadgets touch only cpu->xmm[], so
+    // the GPR reg cache is left intact (no flush) and the rip is deferred.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) == 3 &&
+            insn.operand_size_prefix && insn.rep_mode == amd64_jit_rep_none &&
+            insn.op2 == 0x6f) {
+        // 66 0F 6F /r, mod==3: movdqa xmm1, xmm2 (128-bit register copy)
+        unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-mov128-reg ip=%llx src=%u dst=%u next=%llx",
+                (unsigned long long) insn.start_ip, rm_id, reg_id,
+                (unsigned long long) next_ip);
+        extern void gadget_amd64_v_mov128_reg(void);
+        gen(state, (unsigned long) gadget_amd64_v_mov128_reg);
+        gen(state, (unsigned long) (rm_id | (reg_id << 4)));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+#endif
+
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
             (insn.op2 == 0x10 ||
              insn.op2 == 0x2a ||
