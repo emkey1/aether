@@ -3050,7 +3050,9 @@ static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_
             GEN(((uint16_t) imm) | (cpu_reg_offset(reg, modrm->rm_opcode) << 16));
             break;
 
-        default: die("unimplemented vecarg");
+        default:
+            printk("jit: unimplemented vector op at ip %#x\n", (unsigned) state->orig_ip);
+            UNDEFINED;
     }
     return true;
 }
