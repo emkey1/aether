@@ -1367,6 +1367,7 @@ static syscall_t amd64_syscall_table[453] = {
     [213] = (syscall_t) sys_epoll_create0,
     [217] = (syscall_t) sys_getdents64,
     [218] = (syscall_t) sys_set_tid_address,
+    [221] = (syscall_t) syscall_success_stub, // fadvise64 (advisory; ignored)
     [222] = (syscall_t) sys_timer_create_amd64,
     [223] = (syscall_t) sys_timer_settime,
     [224] = (syscall_t) sys_timer_gettime,
@@ -2376,6 +2377,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 162: // sync
     case 186: // gettid
     case 187: // readahead stubbed
+    case 221: // fadvise64 stubbed (advisory; args ignored)
     case 253: // inotify_init
     case 309: // getcpu stubbed
         return 0;
@@ -2443,6 +2445,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 86:  // link
     case 88:  // symlink
     case 90:  // chmod
+    case 91:  // fchmod
     case 109: // setpgid
     case 113: // setreuid
     case 114: // setregid
@@ -2499,7 +2502,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 72:  // fcntl
     case 83:  // mkdir
     case 89:  // readlink
-    case 91:  // fchmod
     case 92:  // chown
     case 93:  // fchown
     case 94:  // lchown
