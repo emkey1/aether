@@ -1859,3 +1859,30 @@ amd64_v_lane64_binop paddq, add
 amd64_v_lane64_binop psubq, sub
 # 0F 57 xorps / 66 0F 57 xorpd: 128-bit bitwise XOR (two 64-bit lanes)
 amd64_v_lane64_binop pxor, eor
+
+# psrlq/psllq xmm, imm8 (66 0F 73 /2,/6): shift each 64-bit lane by an imm baked
+# into bits 8-15 of the operand word; rm xmm id in bits 0-3 is both source and
+# dest. A shift count > 63 yields all-zero lanes (the variable lsr/lsl would
+# otherwise wrap mod 64), selected branchlessly: lsr/lsl leave NZCV from the cmp
+# intact, so csel zeroes the lanes when count > 63.
+.macro amd64_v_shift_q_imm name, shift
+    .gadget amd64_v_\name\()_imm
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 8, 8
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        ldp x12, x13, [x9]
+        cmp x10, 63
+        \shift x12, x12, x10
+        \shift x13, x13, x10
+        csel x12, xzr, x12, hi
+        csel x13, xzr, x13, hi
+        stp x12, x13, [x9]
+        gret 1
+.endm
+
+# 66 0F 73 /2 ib psrlq
+amd64_v_shift_q_imm psrlq, lsr
+# 66 0F 73 /6 ib psllq
+amd64_v_shift_q_imm psllq, lsl

@@ -1290,6 +1290,44 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         gen_amd64_defer_rip(state, next_ip);
         return true;
     }
+
+    // 66 0F 73 /2 ib psrlq | /6 ib psllq, mod==3: shift each 64-bit lane of an
+    // xmm by imm8. The /digit is the op extension; the bridge folds REX.R into
+    // modrm.reg and #UDs reg>=8, so REX.R cases are left to the bridge to match.
+    // Only the qword shifts (/2,/6) go native; the byte shifts /3,/7 bridge.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.rex.r &&
+            amd64_modrm_mod(insn.modrm) == 3 &&
+            insn.operand_size_prefix && insn.rep_mode == amd64_jit_rep_none &&
+            insn.op2 == 0x73 &&
+            (amd64_modrm_reg(insn.modrm) == 2 || amd64_modrm_reg(insn.modrm) == 6)) {
+        extern void gadget_amd64_v_psrlq_imm(void);
+        extern void gadget_amd64_v_psllq_imm(void);
+        unsigned ext = amd64_modrm_reg(insn.modrm);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        uint8_t imm8;
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        if (!tlb_read(tlb, next_ip, &imm8, sizeof(imm8))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        next_ip += sizeof(uint8_t);
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-shiftq op2=73 /%u ip=%llx rm=%u imm=%u next=%llx",
+                ext, (unsigned long long) insn.start_ip, rm_id, imm8,
+                (unsigned long long) next_ip);
+        gen(state, (unsigned long) (ext == 2
+                    ? (void (*)(void)) gadget_amd64_v_psrlq_imm
+                    : (void (*)(void)) gadget_amd64_v_psllq_imm));
+        gen(state, (unsigned long) (rm_id | ((unsigned long) imm8 << 8)));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
 #endif
 
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
