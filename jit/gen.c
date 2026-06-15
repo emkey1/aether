@@ -1236,8 +1236,16 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             !insn.fs_prefix && !insn.lock_prefix &&
             amd64_modrm_mod(insn.modrm) == 3 &&
             insn.operand_size_prefix && insn.rep_mode == amd64_jit_rep_none &&
-            insn.op2 == 0x6f) {
-        // 66 0F 6F /r, mod==3: movdqa xmm1, xmm2 (128-bit register copy)
+            (insn.op2 == 0x6f || insn.op2 == 0xd4)) {
+        // 66 0F /r, mod==3 register-register SSE2 ops (dst=reg, src=rm):
+        //   6F movdqa (128-bit copy), D4 paddq (packed 64-bit add)
+        extern void gadget_amd64_v_mov128_reg(void);
+        extern void gadget_amd64_v_paddq_reg(void);
+        void (*gadget)(void) = NULL;
+        switch (insn.op2) {
+        case 0x6f: gadget = gadget_amd64_v_mov128_reg; break;
+        case 0xd4: gadget = gadget_amd64_v_paddq_reg; break;
+        }
         unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
         unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
@@ -1246,11 +1254,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             return false;
         }
         state->amd64_ip = next_ip;
-        amd64_jit_debug("v-mov128-reg ip=%llx src=%u dst=%u next=%llx",
-                (unsigned long long) insn.start_ip, rm_id, reg_id,
+        amd64_jit_debug("v-reg op2=%02x ip=%llx src=%u dst=%u next=%llx",
+                insn.op2, (unsigned long long) insn.start_ip, rm_id, reg_id,
                 (unsigned long long) next_ip);
-        extern void gadget_amd64_v_mov128_reg(void);
-        gen(state, (unsigned long) gadget_amd64_v_mov128_reg);
+        gen(state, (unsigned long) gadget);
         gen(state, (unsigned long) (rm_id | (reg_id << 4)));
         gen_amd64_defer_rip(state, next_ip);
         return true;

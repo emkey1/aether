@@ -1826,3 +1826,32 @@
     ldp x12, x13, [x9]
     stp x12, x13, [x10]
     gret 1
+
+# Register-register binary op over the two 64-bit lanes of an xmm:
+# cpu->xmm[dst] = cpu->xmm[dst] OP cpu->xmm[src]. 64-bit-lane integer ops
+# (paddq/psubq) and the 128-bit bitwise ops (pxor/pand/por/pandn) all reduce to
+# two independent 64-bit ops on the lane pair. \rev swaps the operands so pandn
+# (result = ~dst & src) maps to bic Rd, src, dst.
+.macro amd64_v_lane64_binop name, insn, rev=0
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldp x12, x13, [x10]
+        ldp x14, x15, [x9]
+        .if \rev
+            \insn x12, x14, x12
+            \insn x13, x15, x13
+        .else
+            \insn x12, x12, x14
+            \insn x13, x13, x15
+        .endif
+        stp x12, x13, [x10]
+        gret 1
+.endm
+
+# 66 0F D4 paddq
+amd64_v_lane64_binop paddq, add
