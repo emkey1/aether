@@ -1857,3 +1857,5 @@
 amd64_v_lane64_binop paddq, add
 # 66 0F FB psubq
 amd64_v_lane64_binop psubq, sub
+# 0F 57 xorps / 66 0F 57 xorpd: 128-bit bitwise XOR (two 64-bit lanes)
+amd64_v_lane64_binop pxor, eor

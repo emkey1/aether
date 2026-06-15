@@ -1264,6 +1264,32 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         gen_amd64_defer_rip(state, next_ip);
         return true;
     }
+
+    // 0F 57 xorps / 66 0F 57 xorpd, mod==3: a 128-bit bitwise XOR either way, so
+    // no operand-size-prefix gating (unlike the SSE2 integer ops above). A rep
+    // prefix is #UD — left to the bridge.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) == 3 &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            insn.op2 == 0x57) {
+        extern void gadget_amd64_v_pxor_reg(void);
+        unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-xor op2=57 ip=%llx src=%u dst=%u next=%llx",
+                (unsigned long long) insn.start_ip, rm_id, reg_id,
+                (unsigned long long) next_ip);
+        gen(state, (unsigned long) gadget_amd64_v_pxor_reg);
+        gen(state, (unsigned long) (rm_id | (reg_id << 4)));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
 #endif
 
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
