@@ -2056,3 +2056,119 @@ amd64_vmem_segfault_read:
     stp  x12, x13, [x14]
     gret 3
     amd64_vread_bullshit 16, load128
+
+# 64-bit TLB write fast path: x9 = guest addr in -> writable host ptr out (or the
+# cross-page staging buffer, flushed by amd64_vwrite_done). Mirrors the 32-bit
+# write_prep: a TLB-staleness / host-page-mirroring check routes to the slow C
+# resolver; the hit path checks page_if_writable and records the dirty page.
+.macro amd64_vwrite_prep size, id
+    and  x8, x9, 0xfff
+    cmp  x8, (0x1000-\size)
+    b.hi amd64_vwxpage_\id
+    ldr  x11, [_tlb, (-TLB_entries+TLB_mmu)]
+    ldr  x8,  [_tlb, (-TLB_entries+TLB_mem_changes)]
+    ldr  x12, [x11, MMU_changes]
+    cmp  x8, x12
+    b.ne amd64_vwslow_\id
+    ldrb w12, [x11, MMU_requires_write_revalidate]
+    cbz  w12, amd64_vwfast_\id
+amd64_vwslow_\id:
+    bl   amd64_vmem_write_resolve
+    b    amd64_vwback_\id
+amd64_vwfast_\id:
+    and  x8, x9, #0xfffffffffffff000
+    str  x8, [_tlb, (-TLB_entries+TLB_dirty_page)]
+    ubfx x11, x9, 12, 10
+    eor  x11, x11, x9, lsr 22
+    and  x11, x11, 0x3ff
+    mov  w12, TLB_ENTRY_SIZE
+    madd x11, x11, x12, _tlb
+    ldr  x13, [x11, TLB_ENTRY_page_if_writable]
+    cmp  x8, x13
+    b.ne amd64_vwmiss_\id
+    ldr  x13, [x11, TLB_ENTRY_data_minus_addr]
+    add  x9, x13, x9
+amd64_vwback_\id:
+.endm
+
+# After the store, if x9 was the cross-page staging buffer, flush it to memory.
+.macro amd64_vwrite_done size, id
+    add  x8, _cpu, LOCAL_value
+    cmp  x8, x9
+    b.ne amd64_vwdone_\id
+    mov  x19, \size
+    bl   amd64_vmem_crosspage_write
+amd64_vwdone_\id:
+.endm
+
+.macro amd64_vwrite_bullshit size, id
+amd64_vwmiss_\id:
+    bl   amd64_vmem_write_miss
+    b    amd64_vwback_\id
+amd64_vwxpage_\id:
+    str  x9, [_cpu, LOCAL_value_addr]
+    add  x9, _cpu, LOCAL_value
+    b    amd64_vwback_\id
+.endm
+
+.global amd64_vmem_write_resolve
+amd64_vmem_write_resolve:
+    save_c
+    sub  x0, _tlb, TLB_entries
+    mov  x1, x9
+    bl   NAME(tlb_write_ptr_slow)
+    mov  x19, x0
+    restore_c
+    cbz  x19, amd64_vmem_segfault_write
+    mov  x9, x19
+    ret
+
+.global amd64_vmem_write_miss
+amd64_vmem_write_miss:
+    save_c
+    sub  x0, _tlb, TLB_entries
+    mov  x1, x9
+    mov  x2, 1
+    bl   NAME(tlb_handle_miss)
+    mov  x19, x0
+    restore_c
+    cbz  x19, amd64_vmem_segfault_write
+    mov  x9, x19
+    ret
+
+.global amd64_vmem_crosspage_write
+amd64_vmem_crosspage_write:
+    save_c
+    sub  x0, _tlb, TLB_entries
+    add  x2, _cpu, LOCAL_value
+    ldr  x1, [_cpu, LOCAL_value_addr]
+    mov  x3, x19
+    bl   NAME(__tlb_write_cross_page)
+    mov  x19, x0
+    restore_c
+    cbz  x19, amd64_vmem_segfault_write
+    ret
+
+.global amd64_vmem_segfault_write
+amd64_vmem_segfault_write:
+    ldr  x8, [_tlb, (-TLB_entries+TLB_segfault_addr)]
+    str  x8, [_cpu, CPU_segfault_addr]
+    mov  w8, 1
+    strb w8, [_cpu, CPU_segfault_was_write]
+    mov  x0, INT_PF
+    b    jit_exit
+
+# movaps/movups m128, xmm (0F 29 / 0F 11): [addr] = cpu->xmm[reg]
+.gadget amd64_v_store128_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vwrite_prep 16, store128
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldp  x12, x13, [x14]
+    stp  x12, x13, [x9]
+    amd64_vwrite_done 16, store128
+    gret 3
+    amd64_vwrite_bullshit 16, store128
