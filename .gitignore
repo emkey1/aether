@@ -25,6 +25,11 @@ alpine-minirootfs-*.tar.gz
 com.apple.DeveloperTools/
 tests/host/
 diagnostics*
+# DiagnosticsBridge.h is a real build dependency (included by kernel/calls.c for
+# both the CLI and app builds), not generated diagnostics output. The pattern
+# above matches it case-insensitively on macOS, so a fresh checkout silently
+# lacked it and the build broke. Keep it tracked.
+!app/DiagnosticsBridge.h
 
 .claude/
 CLAUDE.md
