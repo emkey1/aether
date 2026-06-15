@@ -1002,7 +1002,14 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         TRACE("%d %08x --- cycle %ld\n", current_pid(current), ip, frame->cpu.cycle);
 
         bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
-        struct cpu_state before_block_cpu = frame->cpu;
+        // before_block_cpu is consumed only by the cc1 amd64 JIT trace, which is
+        // off unless the guest is amd64 'cc1'. Copying the whole cpu_state every
+        // block otherwise is pure overhead on the hottest loop in the emulator,
+        // so take the snapshot only when the trace is actually enabled.
+        bool cc1_trace = amd64_cc1_jit_trace_enabled();
+        struct cpu_state before_block_cpu;
+        if (cc1_trace)
+            before_block_cpu = frame->cpu;
         if (force_block_boundary_break)
             __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
         interrupt = jit_enter(block, frame, tlb);
@@ -1012,7 +1019,8 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
-        amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
+        if (cc1_trace)
+            amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
         *cpu = frame->cpu;
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
@@ -1077,9 +1085,10 @@ static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
 
     struct jit_block *block = state.block;
     struct jit_frame frame = {.cpu = *cpu};
-    struct cpu_state before_block_cpu = frame.cpu;
     int interrupt = jit_enter(block, &frame, tlb);
-    amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame.cpu, interrupt);
+    // *cpu is still the pre-block state here (committed below), so pass it
+    // directly as the trace's "before" instead of snapshotting the cpu_state.
+    amd64_cc1_jit_trace_record(block->addr, tlb, cpu, &frame.cpu, interrupt);
     *cpu = frame.cpu;
     jit_block_free(NULL, block);
     if (interrupt == INT_NONE)
@@ -1097,9 +1106,10 @@ static int cpu_single_step_no_debug(struct cpu_state *cpu, struct tlb *tlb) {
 
     struct jit_block *block = state.block;
     struct jit_frame frame = {.cpu = *cpu};
-    struct cpu_state before_block_cpu = frame.cpu;
     int interrupt = jit_enter(block, &frame, tlb);
-    amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame.cpu, interrupt);
+    // *cpu is still the pre-block state here (committed below), so pass it
+    // directly as the trace's "before" instead of snapshotting the cpu_state.
+    amd64_cc1_jit_trace_record(block->addr, tlb, cpu, &frame.cpu, interrupt);
     *cpu = frame.cpu;
     jit_block_free(NULL, block);
     return interrupt;
@@ -1250,11 +1260,15 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                 block->used > 3 ? block->code[3] : 0,
                 (unsigned long) amd64_step_to_interrupt_jit);
         {
-            struct cpu_state before_block_cpu = frame->cpu;
+            bool cc1_trace = amd64_cc1_jit_trace_enabled();
+            struct cpu_state before_block_cpu;
+            if (cc1_trace)
+                before_block_cpu = frame->cpu;
         amd64_jit_bridge_set_tlb(tlb);
         interrupt = jit_enter(block, frame, tlb);
         amd64_jit_bridge_set_tlb(NULL);
-            amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
+            if (cc1_trace)
+                amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
         }
         if (ip != 0 && frame->cpu.amd64_rip == 0) {
             printk("[amd64-jit] frontend zero-rip comm=%s pid=%d block=%#llx end=%#llx rsp=%#llx int=%d slots=%lx %lx %lx %lx\n",
