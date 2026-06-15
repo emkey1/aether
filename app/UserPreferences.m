@@ -176,7 +176,7 @@ bool (*remove_user_default)(const char *name);
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
             kPreferenceEnableExtraLockingKey: @(YES),
-            kPreferenceEnableExperimentalAmd64JitKey: @(NO),
+            kPreferenceEnableExperimentalAmd64JitKey: @(YES),
             kPreferenceEnableLLMClientKey: @(NO),
             kPreferenceLLMProviderKey: @"OpenRouter Free",
             kPreferenceLLMServerURLKey: @"https://openrouter.ai/api/v1",

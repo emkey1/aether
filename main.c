@@ -68,7 +68,7 @@ static void configure_standalone_i386_safety(int argc, char *const argv[]) {
 static void configure_standalone_amd64_jit(void) {
     const char *force_jit = getenv("ISH_HOST_AMD64_JIT");
     if (force_jit == NULL) {
-        amd64_jit_set_enabled(false);
+        amd64_jit_set_enabled(true);
         return;
     }
 

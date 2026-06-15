@@ -17,7 +17,7 @@
 #include <string.h>
 
 extern int current_pid(struct task *task);
-static atomic_bool amd64_jit_enabled = false;
+static atomic_bool amd64_jit_enabled = true;
 static atomic_ulong amd64_jit_compile_attempts;
 static atomic_ulong amd64_jit_compile_successes;
 static atomic_ulong amd64_jit_compile_fallbacks;
