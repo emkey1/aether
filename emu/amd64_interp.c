@@ -350,8 +350,14 @@ static inline bool amd64_cc1_trace_enabled(void) {
 }
 
 static inline bool amd64_cc1_trace_record_enabled(void) {
+    // Runs on EVERY amd64 instruction (amd64_step_to_interrupt). Unlike the other
+    // trace checks it has no getenv gate, so guard the strcmp with a one-byte
+    // pre-filter: only "cc1" begins with 'c', so every other guest skips the
+    // per-instruction strcmp call entirely. Behavior-identical (comm[0]=='c' is
+    // implied by comm=="cc1"; a non-'c' comm can never equal "cc1").
     return current != NULL &&
         current->abi == GUEST_ABI_AMD64 &&
+        current->comm[0] == 'c' &&
         strcmp(current->comm, "cc1") == 0;
 }
 
