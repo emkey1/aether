@@ -5209,6 +5209,104 @@ restart_prefix:
                 break;
             return INT_UNDEFINED;
         }
+        if (op2 == 0x38) {
+            // Three-byte 0F 38 escape (SSE4.1+). Currently only the
+            // pmovsx/pmovzx packed sign/zero-extend moves (66 0F 38 20-25 sign,
+            // 30-35 zero) are implemented; emitted by auto-vectorizers to widen
+            // narrower integer lanes (e.g. int32->int64 accumulation). They all
+            // require the 66 operand-size prefix and no F2/F3 prefix.
+            byte_t op3;
+            if (!amd64_fetch_u8(cpu, tlb, &op3)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            bool is_ptest = op3 == 0x17;
+            bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
+                            (op3 >= 0x30 && op3 <= 0x35);
+            if ((!is_ptest && !is_pmovx) || !operand_size_prefix ||
+                    rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= AMD64_XMM_COUNT ||
+                    (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT))
+                return INT_UNDEFINED;
+            if (is_ptest) {
+                // PTEST xmm1, xmm2/m128 (66 0F 38 17). ZF = ((DEST & SRC) == 0),
+                // CF = ((SRC & ~DEST) == 0); OF/AF/PF/SF cleared. Commonly emitted
+                // for "is this vector all-zero / a subset" tests (e.g. memcmp).
+                union xmm_reg src;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                unsigned __int128 d = cpu->xmm[modrm.reg].u128;
+                unsigned __int128 s = src.u128;
+                cpu->cf = (s & ~d) == 0;
+                cpu->of = 0;
+                cpu->af = 0;
+                cpu->af_ops = 0;
+                cpu->zf = (d & s) == 0;
+                cpu->sf = 0;
+                cpu->pf = 0;
+                cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+                collapse_flags(cpu);
+                break;
+            }
+            bool zero_extend = (op3 & 0xf0) == 0x30;
+            unsigned src_elem_bytes, dst_elem_bytes;
+            switch (op3 & 0x0f) {
+                case 0x0: src_elem_bytes = 1; dst_elem_bytes = 2; break; // b->w
+                case 0x1: src_elem_bytes = 1; dst_elem_bytes = 4; break; // b->d
+                case 0x2: src_elem_bytes = 1; dst_elem_bytes = 8; break; // b->q
+                case 0x3: src_elem_bytes = 2; dst_elem_bytes = 4; break; // w->d
+                case 0x4: src_elem_bytes = 2; dst_elem_bytes = 8; break; // w->q
+                default:  src_elem_bytes = 4; dst_elem_bytes = 8; break; // d->q (0x5)
+            }
+            unsigned count = 16 / dst_elem_bytes;          // result lanes
+            unsigned src_bytes = count * src_elem_bytes;   // bytes consumed
+            // Source is the low src_bytes of an xmm register or a src_bytes-sized
+            // memory operand. Read only those bytes for the memory form so a
+            // qword/dword/word operand at a page boundary cannot over-read.
+            union xmm_reg src = {0};
+            if (modrm.is_reg) {
+                src = cpu->xmm[modrm.rm];
+            } else {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                if (!amd64_mem_read(cpu, tlb, addr, &src, src_bytes)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+            }
+            union xmm_reg result = {0};
+            for (unsigned i = 0; i < count; i++) {
+                int64_t elem;
+                if (src_elem_bytes == 1)
+                    elem = zero_extend ? (int64_t) src.u8[i]
+                                       : (int64_t) (int8_t) src.u8[i];
+                else if (src_elem_bytes == 2)
+                    elem = zero_extend ? (int64_t) src.u16[i]
+                                       : (int64_t) (int16_t) src.u16[i];
+                else
+                    elem = zero_extend ? (int64_t) src.u32[i]
+                                       : (int64_t) (int32_t) src.u32[i];
+                if (dst_elem_bytes == 2)
+                    result.u16[i] = (uint16_t) elem;
+                else if (dst_elem_bytes == 4)
+                    result.u32[i] = (uint32_t) elem;
+                else
+                    result.qw[i] = (uint64_t) elem;
+            }
+            cpu->xmm[modrm.reg] = result;
+            break;
+        }
         if (op2 >= 0x80 && op2 <= 0x8f) {
             int32_t rel32;
             if (!amd64_fetch(cpu, tlb, &rel32, sizeof(rel32))) {
@@ -5307,6 +5405,39 @@ restart_prefix:
                     goto amd64_gpf_restore;
                 amd64_set_double_shift_flags(cpu, lhs, result, op_size, count, false);
             }
+            break;
+        }
+        if (op2 == 0xb8) {
+            // POPCNT r, r/m (F3 0F B8). The F3 (REPZ) prefix is mandatory — bare
+            // 0F B8 is not POPCNT. Counts set bits in the source operand; ZF is
+            // set iff the source is zero, and CF/OF/SF/AF/PF are cleared.
+            struct amd64_modrm modrm;
+            qword_t src;
+            qword_t src_masked;
+            qword_t count;
+            if (rep_mode != AMD64_REPZ)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &src))
+                goto amd64_gpf_restore;
+            src_masked = amd64_trunc(src, op_size);
+            count = (op_size == 64)
+                    ? (qword_t) __builtin_popcountll(src_masked)
+                    : (qword_t) __builtin_popcount((uint32_t) src_masked);
+            cpu->cf = 0;
+            cpu->of = 0;
+            cpu->af = 0;
+            cpu->af_ops = 0;
+            cpu->zf = src_masked == 0;
+            cpu->sf = 0;
+            cpu->pf = 0;
+            cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+            collapse_flags(cpu);
+            amd64_reg_set(cpu, modrm.reg, op_size, count);
             break;
         }
         if (op2 == 0xbc || op2 == 0xbd) {
