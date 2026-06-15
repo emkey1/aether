@@ -54,7 +54,9 @@ static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
 DEFINE_REFCOUNT_STATIC(tmp_inode)
 
 static void tmp_inode_cleanup(struct tmp_inode *inode) {
-    if (S_ISREG(inode->stat.mode)) {
+    // Regular files keep their contents in file_data; symlinks keep their
+    // target string there too (same union slot).
+    if (S_ISREG(inode->stat.mode) || S_ISLNK(inode->stat.mode)) {
         free(inode->file_data);
     }
     free(inode);
@@ -589,6 +591,63 @@ out:
     return err;
 }
 
+static int tmpfs_symlink(struct mount *mount, const char *target, const char *link) {
+    const char *filename;
+    struct tmp_dirent *parent = tmpfs_lookup_parent(mount, link, &filename);
+    if (IS_ERR(parent))
+        return PTR_ERR(parent);
+    if (parent == NULL)
+        return _EEXIST;
+    lock(&parent->lock, 0);
+
+    int err = tmpfs_dir_lookup_existence(parent, filename);
+    if (err < 0)
+        goto out;
+
+    struct tmp_inode *inode = tmp_inode_new(S_IFLNK | 0777);
+    err = _ENOMEM;
+    if (inode == NULL)
+        goto out;
+    // Store the link target in file_data (the union slot files use for content).
+    size_t target_len = strlen(target);
+    inode->file_data = malloc(target_len + 1);
+    if (inode->file_data == NULL) {
+        tmp_inode_release(inode);
+        goto out;
+    }
+    memcpy(inode->file_data, target, target_len);
+    inode->stat.size = target_len;
+
+    err = tmpfs_dir_link(parent, filename, inode, NULL);
+    tmp_inode_release(inode);
+    if (err == 0)
+        tmpfs_update_mtime_and_ctime(parent->inode);
+out:
+    unlock(&parent->lock);
+    tmp_dirent_release(parent);
+    return err;
+}
+
+static ssize_t tmpfs_readlink(struct mount *mount, const char *path, char *buf, size_t bufsize) {
+    struct tmp_dirent *dirent = tmpfs_lookup(mount, path);
+    if (IS_ERR(dirent))
+        return PTR_ERR(dirent);
+    struct tmp_inode *inode = dirent->inode;
+    ssize_t res;
+    lock(&inode->lock, 0);
+    if (!S_ISLNK(inode->stat.mode)) {
+        res = _EINVAL;
+    } else {
+        res = inode->stat.size;
+        if ((size_t) res > bufsize)
+            res = bufsize;
+        memcpy(buf, inode->file_data, res);
+    }
+    unlock(&inode->lock);
+    tmp_dirent_release(dirent);
+    return res;
+}
+
 // ========================
 // ======== FD OPS ========
 // ========================
@@ -756,6 +815,8 @@ const struct fs_ops tmpfs = {
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,
+    .symlink = tmpfs_symlink,
+    .readlink = tmpfs_readlink,
 };
 
 const struct fs_ops cgroupfs = {
@@ -774,6 +835,8 @@ const struct fs_ops cgroupfs = {
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,
+    .symlink = tmpfs_symlink,
+    .readlink = tmpfs_readlink,
 };
 
 const struct fs_ops cgroup2fs = {
@@ -792,6 +855,8 @@ const struct fs_ops cgroup2fs = {
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,
+    .symlink = tmpfs_symlink,
+    .readlink = tmpfs_readlink,
 };
 
 const struct fd_ops tmpfs_fdops = {
