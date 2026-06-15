@@ -769,7 +769,14 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     jit_crash_cpu = cpu;
     jit_crash_interrupt = INT_GPF;
     jit_crash_addr = frame->cpu.eip;
-    if (sigsetjmp(jit_crash_unwind_buf, 1) != 0) {
+    // savesigs=0: this sigsetjmp is the JIT crash-recovery target, reached only via
+    // jit_crash_fn() from the Mach EXC_BAD_ACCESS handler. That handler redirects the
+    // faulting thread (thread_set_state) without touching the host signal mask, so the
+    // mask is invariant from here to any fault — there is nothing to restore. Saving it
+    // (savesigs=1) cost a sigprocmask + sigaltstack syscall pair on EVERY block-dispatch
+    // entry: ~35% of host time for a syscall-heavy guest. siglongjmp(...,1) at line ~418
+    // honors the savemask=0 flag and acts as _longjmp (no mask restore).
+    if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
         cpu->segfault_addr = jit_crash_addr;
@@ -1145,7 +1152,10 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     jit_crash_cpu = cpu;
     jit_crash_interrupt = INT_GPF;
     jit_crash_addr = frame->cpu.amd64_rip;
-    if (sigsetjmp(jit_crash_unwind_buf, 1) != 0) {
+    // savesigs=0: see the i386 cpu_step_to_interrupt site — crash recovery arrives from
+    // the Mach exception handler, which leaves the host signal mask untouched, so there
+    // is no mask to save or restore here.
+    if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
         if (current != NULL && strcmp(current->comm, "apk") == 0) {
