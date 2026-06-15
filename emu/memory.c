@@ -191,6 +191,13 @@ static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
     page_t root = PGDIR_ROOT_INDEX(page);
     page_t mid = PGDIR_MID_INDEX(page);
     for (; root < MEM_PGDIR_ROOT_SIZE; root++) {
+        // Nothing at or beyond page_limit is mapped, so stop rather than walk
+        // the (mostly empty) high directory. A 32-bit address space populates
+        // only root 0 and mid < 1024 of the 4096x8192 directory; without this
+        // bound the terminating scan after the last mapped page visits ~11000
+        // empty slots on every fork's copy-on-write pass.
+        if (PGDIR_LEAF_BASE(root, 0) >= mem->page_limit)
+            return BAD_PAGE;
         struct pt_directory_chunk *chunk =
             atomic_load_explicit(&mem->pgdir_root[root], memory_order_acquire);
         if (chunk == NULL) {
@@ -198,12 +205,14 @@ static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
             continue;
         }
         for (; mid < MEM_PGDIR_MID_SIZE; mid++) {
+            page_t base = PGDIR_LEAF_BASE(root, mid);
+            if (base >= mem->page_limit)
+                return BAD_PAGE;
             struct pt_entry *entries =
                 atomic_load_explicit(&chunk->leaves[mid], memory_order_acquire);
             if (entries == NULL)
                 continue;
-            page_t base = PGDIR_LEAF_BASE(root, mid);
-            return base < mem->page_limit ? base : BAD_PAGE;
+            return base;
         }
         mid = 0;
     }
