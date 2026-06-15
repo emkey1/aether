@@ -743,7 +743,7 @@ static ssize_t tty_ioctl_size(int cmd) {
         case TIOCPKT_: case TIOCGPKT_:
         case FIONREAD_:
             return sizeof(dword_t);
-        case TCFLSH_: case TIOCSCTTY_:
+        case TCFLSH_: case TIOCSCTTY_: case TIOCCONS_:
             return 0;
     }
     return -1;
@@ -881,6 +881,12 @@ static int tty_ioctl(struct fd *fd, int cmd, void *arg) {
 
         case TIOCSCTTY_:
             err = tiocsctty(tty, (uintptr_t) arg);
+            break;
+
+        case TIOCCONS_:
+            // Redirect-console-output ioctl (bootlogd). iSH has no kernel
+            // console stream to redirect, so accept it as a no-op instead of
+            // failing with ENOTTY.
             break;
 
         case TIOCGPGRP_:

@@ -70,6 +70,7 @@ struct termios_ {
 #define TIOCSPGRP_ 0x5410
 #define TIOCGWINSZ_ 0x5413
 #define TIOCSWINSZ_ 0x5414
+#define TIOCCONS_ 0x541d
 #define TIOCPKT_ 0x5420
 #define TIOCGPTN_ 0x80045430
 #define TIOCSPTLCK_ 0x40045431
