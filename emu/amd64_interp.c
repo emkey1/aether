@@ -4221,7 +4221,19 @@ static inline int amd64_fxsave_op(struct cpu_state *cpu, struct tlb *tlb,
     struct amd64_fxsave_area area;
     qword_t addr;
 
-    if (modrm->is_reg || (modrm->reg != 0 && modrm->reg != 1))
+    if (modrm->is_reg) {
+        // Register-form 0F AE: /5 LFENCE, /6 MFENCE, /7 SFENCE. The interpreter
+        // runs each guest thread's instructions in order, but other guest
+        // threads are host pthreads sharing this address space, so emit a host
+        // full barrier to make the ordering visible to them. (Go's cputicks
+        // uses 'mfence; lfence; rdtsc' when rdtscp isn't advertised.)
+        if (modrm->reg >= 5 && modrm->reg <= 7) {
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            return INT_NONE;
+        }
+        return INT_UNDEFINED;
+    }
+    if (modrm->reg != 0 && modrm->reg != 1)
         return INT_UNDEFINED;
 
     addr = amd64_effective_addr(cpu, modrm, fs_prefix);
