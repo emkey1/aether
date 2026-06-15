@@ -1,5 +1,6 @@
 #include "gadgets.h"
 #include "math.h"
+#include "emu/interrupt.h"
 
 .gadget load32_addr
     mov _tmp, _addr
@@ -1934,3 +1935,124 @@ amd64_v_scalar_double mulsd, fmul
     add x13, x13, x10, lsl 4
     str d0, [x13]
     gret 1
+
+# ---------------------------------------------------------------------------
+# Native amd64 SSE memory load/store.
+#
+# Unlike the i386 SSE path, amd64 guest addresses are 47-bit, so the 32-bit
+# _addr(w3)-based read_prep/handlers cannot be used. These gadgets compute the
+# full 64-bit effective address (reusing the meta/disp encoding produced by
+# gen_amd64_decode_mem_meta, same bit layout the LEA gadget uses) and resolve it
+# through a 64-bit TLB fast path, falling to the C slow helpers (which already
+# take a 64-bit guest_addr_t) on miss/cross-page, and to a controlled INT_PF
+# exit on a real fault.
+#
+# Contract from gen.c: the reg cache is FLUSHED first (so cpu->amd64_regs is
+# current for the address read AND correct for fault re-execution, since save_regs
+# only mirrors the cache to the i386 slots), and the rip is FLUSHED first (so
+# cpu->amd64_rip already points at this instruction for a fault). Operands:
+#   [_ip,0]=meta  [_ip,8]=disp  [_ip,16]=next_ip (rip-relative addend).  gret 3.
+# Register use: x9=address (-> host ptr), x10=xmm id (survives via save_c),
+# x8/x11/x12/x13/x14/x15/x0 scratch; never touches x20-x27 (the flushed cache).
+# ---------------------------------------------------------------------------
+
+# 64-bit TLB read fast path: x9 = guest addr in -> host ptr out (or miss/xpage).
+.macro amd64_vread_prep size, id
+    and  x8, x9, 0xfff
+    cmp  x8, (0x1000-\size)
+    b.hi amd64_vxpage_\id
+    and  x8, x9, #0xfffffffffffff000
+    ubfx x11, x9, 12, 10
+    eor  x11, x11, x9, lsr 22
+    and  x11, x11, 0x3ff
+    mov  w12, TLB_ENTRY_SIZE
+    madd x11, x11, x12, _tlb
+    ldr  x13, [x11, TLB_ENTRY_page]
+    cmp  x8, x13
+    b.ne amd64_vmiss_\id
+    ldr  x13, [x11, TLB_ENTRY_data_minus_addr]
+    add  x9, x13, x9
+amd64_vback_\id:
+.endm
+
+.macro amd64_vread_bullshit size, id
+amd64_vmiss_\id:
+    bl amd64_vmem_read_miss
+    b amd64_vback_\id
+amd64_vxpage_\id:
+    mov x19, \size
+    bl amd64_vmem_crosspage_read
+    b amd64_vback_\id
+.endm
+
+.global amd64_vmem_read_miss
+amd64_vmem_read_miss:
+    save_c
+    sub x0, _tlb, TLB_entries
+    mov x1, x9
+    mov x2, xzr
+    bl NAME(tlb_handle_miss)
+    mov x19, x0
+    restore_c
+    cbz x19, amd64_vmem_segfault_read
+    mov x9, x19
+    ret
+
+.global amd64_vmem_crosspage_read
+amd64_vmem_crosspage_read:
+    save_c
+    sub x0, _tlb, TLB_entries
+    add x2, _cpu, LOCAL_value
+    mov x1, x9
+    mov x3, x19
+    bl NAME(__tlb_read_cross_page)
+    mov x19, x0
+    restore_c
+    cbz x19, amd64_vmem_segfault_read
+    add x9, _cpu, LOCAL_value
+    ret
+
+.global amd64_vmem_segfault_read
+amd64_vmem_segfault_read:
+    ldr x8, [_tlb, (-TLB_entries+TLB_segfault_addr)]
+    str x8, [_cpu, CPU_segfault_addr]
+    strb wzr, [_cpu, CPU_segfault_was_write]
+    mov x0, INT_PF
+    b jit_exit
+
+# Compute the 64-bit effective address from meta(x8)/disp(x9) into x9. Reads base
+# and index from cpu->amd64_regs in memory (the reg cache was flushed by gen.c).
+.macro amd64_vmem_addr
+    tbz  x8, 30, 7001f
+    ubfx x0, x8, 20, 4
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x14, [x14, x0, lsl 3]
+    add  x9, x9, x14
+7001:
+    tbz  x8, 31, 7002f
+    ubfx x0, x8, 24, 4
+    ubfx x15, x8, 28, 2
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x14, [x14, x0, lsl 3]
+    lsl  x14, x14, x15
+    add  x9, x9, x14
+7002:
+    tbz  x8, 32, 7003f
+    ldr  x14, [_ip, 16]
+    add  x9, x9, x14
+7003:
+.endm
+
+# movaps/movups xmm, m128 (0F 28 / 0F 10): cpu->xmm[reg] = [addr]
+.gadget amd64_v_load128_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 16, load128
+    ldp  x12, x13, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    stp  x12, x13, [x14]
+    gret 3
+    amd64_vread_bullshit 16, load128

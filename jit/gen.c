@@ -1387,6 +1387,37 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         gen_amd64_defer_rip(state, next_ip);
         return true;
     }
+
+    // 0F 28 movaps / 0F 10 movups (+66 movapd/movupd), reg<-mem, mod!=3: native
+    // 128-bit xmm load through a 64-bit TLB fast path. The interp does not enforce
+    // movaps alignment (reads like movups), so one gadget serves both. F2/F3
+    // (movsd/movss scalar) and fs/address-size forms keep bridging. The reg cache
+    // and rip are flushed so a page fault re-executes this instruction correctly.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            insn.rep_mode == amd64_jit_rep_none &&
+            (insn.op2 == 0x28 || insn.op2 == 0x10)) {
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, 128, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-load128-mem ip=%llx op2=%02x meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.op2, meta, disp,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_v_load128_mem(void);
+        gen(state, (unsigned long) gadget_amd64_v_load128_mem);
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
 #endif
 
     if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
