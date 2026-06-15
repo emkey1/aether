@@ -1321,6 +1321,35 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // F2 0F 2A cvtsi2sd xmm, r/m, mod==3: xmm[reg].f64[0] = (double) signed
+    // GPR[rm] (REX.W -> 64-bit source, else 32-bit), high 64 bits preserved. The
+    // source is a GPR, so flush the reg cache first to make cpu->amd64_regs
+    // current; the gadget then reads it from memory. F2 (cvtsi2sd) only; F3
+    // cvtsi2ss keeps bridging.
+    if (!insn.address_size_prefix && insn.two_byte_opcode && insn.has_modrm &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            amd64_modrm_mod(insn.modrm) == 3 &&
+            !insn.operand_size_prefix && insn.rep_mode == amd64_jit_repnz &&
+            insn.op2 == 0x2a) {
+        extern void gadget_amd64_v_cvtsi2sd_reg(void);
+        unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("v-cvtsi2sd ip=%llx gpr=%u xmm=%u w=%d next=%llx",
+                (unsigned long long) insn.start_ip, rm_id, reg_id, insn.rex.w,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen(state, (unsigned long) gadget_amd64_v_cvtsi2sd_reg);
+        gen(state, (unsigned long) (rm_id | (reg_id << 4) | ((insn.rex.w ? 1ul : 0ul) << 8)));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     // 66 0F 73 /2 ib psrlq | /6 ib psllq, mod==3: shift each 64-bit lane of an
     // xmm by imm8. The /digit is the op extension; the bridge folds REX.R into
     // modrm.reg and #UDs reg>=8, so REX.R cases are left to the bridge to match.

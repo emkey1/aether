@@ -1912,3 +1912,25 @@ amd64_v_shift_q_imm psllq, lsl
 amd64_v_scalar_double addsd, fadd
 # F2 0F 59 mulsd
 amd64_v_scalar_double mulsd, fmul
+
+# cvtsi2sd xmm, r/m (F2 0F 2A), reg-reg: xmm[dst].f64[0] = (double) signed GPR[src].
+# Operand: GPR src id bits 0-3, xmm dst id bits 4-7, REX.W in bit 8 (1=64-bit
+# source, 0=32-bit). gen.c flushes the reg cache first so cpu->amd64_regs is
+# current, then this reads the source straight from memory. scvtf matches the
+# interp's C (double) cast bit-for-bit. Only the low 64 bits of dst are written.
+.gadget amd64_v_cvtsi2sd_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x12, _cpu, CPU_amd64_regs
+    add x12, x12, x9, lsl 3
+    tbz x8, 8, 1f
+    ldr x12, [x12]
+    scvtf d0, x12
+    b 2f
+1:  ldr w12, [x12]
+    scvtf d0, w12
+2:  add x13, _cpu, CPU_xmm
+    add x13, x13, x10, lsl 4
+    str d0, [x13]
+    gret 1
