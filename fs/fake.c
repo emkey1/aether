@@ -17,6 +17,7 @@
 #include "fs/poll.h"
 #include "fs/real.h"
 #include "fs/tty.h"
+#include "fs/fifo.h"
 #define ISH_INTERNAL
 #include "fs/fake.h"
 
@@ -31,6 +32,20 @@ static struct fd_ops initctl_fdops;
 #define INITCTL_DEV_PATH "dev/initctl"
 #define INITCTL_RUN_INODE ((ino_t) 0x495348696e697401ULL)
 #define INITCTL_DEV_INODE ((ino_t) 0x495348696e697402ULL)
+
+// Both initctl paths (run/initctl and the legacy dev/initctl) are one logical
+// init control channel, so they share a single named pipe.
+static struct fifo_file *fakefs_initctl_fifo;
+static lock_t fakefs_initctl_lock = LOCK_INITIALIZER;
+
+static struct fifo_file *fakefs_get_initctl_fifo(void) {
+    lock(&fakefs_initctl_lock, 0);
+    if (fakefs_initctl_fifo == NULL)
+        fakefs_initctl_fifo = fifo_file_new();
+    struct fifo_file *fifo = fakefs_initctl_fifo;
+    unlock(&fakefs_initctl_lock);
+    return fifo;
+}
 
 static bool fakefs_initctl_info(const char *path, const char **virtual_path, ino_t *inode) {
     while (*path == '/')
@@ -142,12 +157,12 @@ static void fakefs_trace_symlink_result(struct mount *mount, struct fakefs_db *f
             ishstat.mode, ishstat.uid, ishstat.gid, ishstat.rdev);
 }
 
-static ssize_t initctl_read(struct fd *UNUSED(fd), void *UNUSED(buf), size_t UNUSED(bufsize)) {
-    return 0;
+static ssize_t initctl_read(struct fd *fd, void *buf, size_t bufsize) {
+    return fifo_file_read(fakefs_initctl_fifo, fd, buf, bufsize);
 }
 
-static ssize_t initctl_write(struct fd *UNUSED(fd), const void *UNUSED(buf), size_t bufsize) {
-    return bufsize;
+static ssize_t initctl_write(struct fd *fd, const void *buf, size_t bufsize) {
+    return fifo_file_write(fakefs_initctl_fifo, fd, buf, bufsize);
 }
 
 static ssize_t initctl_pread(struct fd *UNUSED(fd), void *UNUSED(buf), size_t UNUSED(bufsize), off_t UNUSED(off)) {
@@ -162,12 +177,14 @@ static off_t_ initctl_lseek(struct fd *UNUSED(fd), off_t_ UNUSED(off), int UNUSE
     return _ESPIPE;
 }
 
-static int initctl_poll(struct fd *UNUSED(fd)) {
-    return POLL_READ | POLL_WRITE;
+static int initctl_poll(struct fd *fd) {
+    return fifo_file_poll(fakefs_initctl_fifo, fd);
 }
 
 static int fakefs_close(struct fd *fd) {
     if (fakefs_is_initctl_fd(fd)) {
+        if (fakefs_initctl_fifo != NULL)
+            fifo_file_close(fakefs_initctl_fifo, fd);
         free(fd->fs_data);
         fd->fs_data = NULL;
         return 0;
@@ -229,6 +246,16 @@ static struct fd *fakefs_open_initctl(const char *path, int flags) {
     if (fd->fs_data == NULL) {
         fd_close(fd);
         return ERR_PTR(_ENOMEM);
+    }
+    struct fifo_file *fifo = fakefs_get_initctl_fifo();
+    if (fifo == NULL) {
+        fd_close(fd);
+        return ERR_PTR(_ENOMEM);
+    }
+    int ferr = fifo_file_open(fifo, fd); // fd->flags was set above
+    if (ferr < 0) {
+        fd_close(fd);
+        return ERR_PTR(ferr);
     }
     return fd;
 }
