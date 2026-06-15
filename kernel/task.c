@@ -10,6 +10,7 @@
 #include "jit/jit.h"
 #include "platform/platform.h"
 #include "util/sync.h"
+#include "util/timer.h"
 #include <libkern/OSAtomic.h>
 #include <os/proc.h>
 #include <dlfcn.h>
@@ -190,6 +191,42 @@ dword_t get_count_of_alive_tasks(void) {
     }
     unlock(&pids_lock);
     return res;
+}
+
+// Linux-style load average computed over the guest's OWN runnable tasks, so
+// /proc/loadavg reflects the guest rather than the host load that the platform
+// getloadavg returns. The EMA is advanced lazily on read, one step per elapsed
+// 5-second interval (the classic calc_load cadence).
+#define GUEST_LOAD_FSHIFT 11
+#define GUEST_LOAD_FIXED_1 (1u << GUEST_LOAD_FSHIFT)
+void get_guest_loadavg(uint64_t out[3]) {
+    static const unsigned exp[3] = {1884, 2014, 2037}; // 1/exp(5s/{1,5,15}min) in FIXED_1
+    static lock_t load_lock = LOCK_INITIALIZER;
+    static uint64_t load[3];
+    static time_t last_sec;
+
+    // Runnable tasks = alive minus io-blocked, excluding this reader itself.
+    long active = (long) get_count_of_alive_tasks() - (long) get_count_of_blocked_tasks() - 1;
+    if (active < 0)
+        active = 0;
+    struct timespec now = timespec_now(CLOCK_MONOTONIC);
+
+    lock(&load_lock, 0);
+    if (last_sec == 0)
+        last_sec = now.tv_sec;
+    long steps = (now.tv_sec - last_sec) / 5;
+    if (steps > 0) {
+        long do_steps = steps > 64 ? 64 : steps;
+        for (long s = 0; s < do_steps; s++)
+            for (int i = 0; i < 3; i++)
+                load[i] = (load[i] * exp[i] +
+                           (uint64_t) active * GUEST_LOAD_FIXED_1 * (GUEST_LOAD_FIXED_1 - exp[i]))
+                          >> GUEST_LOAD_FSHIFT;
+        last_sec = steps > 64 ? now.tv_sec : last_sec + steps * 5;
+    }
+    for (int i = 0; i < 3; i++)
+        out[i] = load[i] << (16 - GUEST_LOAD_FSHIFT);
+    unlock(&load_lock);
 }
 
 struct task *task_create_(struct task *parent) {

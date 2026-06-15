@@ -269,6 +269,7 @@ void task_snapshot_release(struct task_snapshot *snapshot);
 
 dword_t get_count_of_blocked_tasks(void);
 dword_t get_count_of_alive_tasks(void);
+void get_guest_loadavg(uint64_t out[3]);
 
 #define MAX_PID (1 << 15) // oughta be enough
 

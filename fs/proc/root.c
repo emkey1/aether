@@ -349,12 +349,13 @@ static int proc_show_diskstats(struct proc_entry *UNUSED(entry), struct proc_dat
 }
 
 static int proc_show_loadavg(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    struct uptime_info uptime = get_uptime();
+    uint64_t loads[3];
+    get_guest_loadavg(loads);
     struct pid *last_pid = pid_get_last_allocated();
     int last_pid_id = last_pid ? last_pid->id : 0;
-    double load_1m = uptime.load_1m / 65536.0;
-    double load_5m = uptime.load_5m / 65536.0;
-    double load_15m = uptime.load_15m / 65536.0;
+    double load_1m = loads[0] / 65536.0;
+    double load_5m = loads[1] / 65536.0;
+    double load_15m = loads[2] / 65536.0;
     int blocked_task_count = get_count_of_blocked_tasks();
     int alive_task_count = get_count_of_alive_tasks();
     // running_task_count is calculated abool proc_net_readdir(struct proc_entry * UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) pproximetly, since we don't know the real number of currently running tasks.

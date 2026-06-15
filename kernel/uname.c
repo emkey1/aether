@@ -157,10 +157,12 @@ static void sysinfo_specific(struct sys_info *info) {
 dword_t sys_sysinfo(addr_t info_addr) {
     struct sys_info info = {0};
     struct uptime_info uptime = get_uptime();
+    uint64_t loads[3];
+    get_guest_loadavg(loads);
     info.uptime = (dword_t)uptime.uptime_ticks;
-    info.loads[0] = (dword_t)uptime.load_1m;
-    info.loads[1] = (dword_t)uptime.load_5m;
-    info.loads[2] = (dword_t)uptime.load_15m;
+    info.loads[0] = (dword_t)loads[0];
+    info.loads[1] = (dword_t)loads[1];
+    info.loads[2] = (dword_t)loads[2];
     sysinfo_specific(&info);
 
     if (user_put(info_addr, info))
