@@ -183,7 +183,19 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
 }
 
 static int proc_show_cmdline(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    proc_printf(buf, "%s\n", ish_boot_command_line);
+    proc_printf(buf, "%s", ish_boot_command_line);
+    // Real kernels advertise the console on the kernel command line, and tools
+    // like bootlogd deduce the console device from it. iSH has no bootloader, so
+    // synthesize a console= entry from the active console (matching the device
+    // reported by /proc/consoles) when the command line doesn't already have one.
+    if (strstr(ish_boot_command_line, "console=") == NULL) {
+        const char *sep = ish_boot_command_line[0] != '\0' ? " " : "";
+        if (console_major == TTY_CONSOLE_MAJOR)
+            proc_printf(buf, "%sconsole=tty%d", sep, console_minor);
+        else if (console_major == TTY_PSEUDO_SLAVE_MAJOR)
+            proc_printf(buf, "%sconsole=pts/%d", sep, console_minor);
+    }
+    proc_printf(buf, "\n");
     return 0;
 }
 
