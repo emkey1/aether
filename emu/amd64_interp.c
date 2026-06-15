@@ -5210,22 +5210,24 @@ restart_prefix:
             return INT_UNDEFINED;
         }
         if (op2 == 0x38) {
-            // Three-byte 0F 38 escape (SSE4.1+). Currently only the
-            // pmovsx/pmovzx packed sign/zero-extend moves (66 0F 38 20-25 sign,
-            // 30-35 zero) are implemented; emitted by auto-vectorizers to widen
-            // narrower integer lanes (e.g. int32->int64 accumulation). They all
-            // require the 66 operand-size prefix and no F2/F3 prefix.
+            // Three-byte 0F 38 escape (SSSE3 / SSE4.1). Implemented: pshufb
+            // (66 0F 38 00), pblendvb (10), ptest (17), and pmovsx/pmovzx packed
+            // sign/zero-extend moves (20-25 sign, 30-35 zero) — emitted by
+            // auto-vectorizers and by optimized string/format code. They require
+            // the 66 operand-size prefix and no F2/F3 prefix.
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
                 cpu->amd64_rip = saved_rip;
                 cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
+            bool is_pshufb = op3 == 0x00;
+            bool is_pblendvb = op3 == 0x10;
             bool is_ptest = op3 == 0x17;
             bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
                             (op3 >= 0x30 && op3 <= 0x35);
-            if ((!is_ptest && !is_pmovx) || !operand_size_prefix ||
-                    rep_mode != AMD64_REP_NONE)
+            if ((!is_pshufb && !is_pblendvb && !is_ptest && !is_pmovx) ||
+                    !operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             struct amd64_modrm modrm;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
@@ -5257,6 +5259,46 @@ restart_prefix:
                 cpu->pf = 0;
                 cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
                 collapse_flags(cpu);
+                break;
+            }
+            if (is_pshufb) {
+                // PSHUFB xmm1, xmm2/m128 (66 0F 38 00). dest=reg=xmm1 is BOTH the
+                // byte source and the destination; control=r/m. For each byte i:
+                // result[i] = (control[i] & 0x80) ? 0 : dest_orig[control[i] & 0xF].
+                // Snapshot dest first so the in-place store never corrupts a later
+                // index lookup.
+                union xmm_reg control;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &control)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                union xmm_reg result;
+                for (unsigned i = 0; i < 16; i++)
+                    result.u8[i] = (control.u8[i] & 0x80)
+                            ? 0 : dst.u8[control.u8[i] & 0x0F];
+                cpu->xmm[modrm.reg] = result;
+                break;
+            }
+            if (is_pblendvb) {
+                // PBLENDVB xmm1, xmm2/m128 (66 0F 38 10). Per-byte variable blend
+                // controlled by the high bit of each byte in the IMPLICIT XMM0
+                // mask: result[i] = mask[i]&0x80 ? src[i] : dst[i]. dst=reg,
+                // src=r/m, mask=xmm0. Snapshot all three before writing so an
+                // operand that aliases xmm0 (or the destination) stays correct.
+                union xmm_reg src;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                union xmm_reg mask = cpu->xmm[0];
+                union xmm_reg result;
+                for (unsigned i = 0; i < 16; i++)
+                    result.u8[i] = (mask.u8[i] & 0x80) ? src.u8[i] : dst.u8[i];
+                cpu->xmm[modrm.reg] = result;
                 break;
             }
             bool zero_extend = (op3 & 0xf0) == 0x30;
