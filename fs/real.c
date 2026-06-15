@@ -766,7 +766,7 @@ int realfs_setattr(struct mount *mount, const char *path, struct attr attr) {
         case attr_size:
             return realfs_truncate(mount, path, attr.size);
         default:
-            TODO("other attrs");
+            return _EINVAL;
     }
     if (err < 0)
         return errno_map();
@@ -789,7 +789,7 @@ int realfs_fsetattr(struct fd *fd, struct attr attr) {
         case attr_size:
             err = ftruncate(real_fd, attr.size);
             break;
-        default: abort();
+        default: return _EINVAL;
     }
     if (err < 0)
         return errno_map();
