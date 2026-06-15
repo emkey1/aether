@@ -279,6 +279,12 @@ void task_run_current(void);
 void task_poke_shared_mem(struct task *task, struct mem *mem);
 
 extern void (*exit_hook)(struct task *task, int code);
+// Called when the init process (pid 1) exits, before the brutal halt_system_locked()
+// teardown. If set (the standalone CLI sets it), it is expected not to return — it
+// terminates the host process with a status derived from init's exit code, so the
+// host exit status mirrors the guest's instead of the process dying via the
+// pthread_kill(SIGKILL) sweep. Left NULL by the iOS app, preserving its behavior.
+extern void (*halt_hook)(int status);
 
 #define superuser() (current != NULL && current->euid == 0)
 

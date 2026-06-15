@@ -105,6 +105,20 @@ static char *build_envp_from_term(void) {
     return envp;
 }
 
+// Invoked (via halt_hook) when guest init exits. Mirror init's wait-status as the
+// host process exit code, then terminate immediately. Using _exit (after flushing
+// stdio) rather than returning is deliberate: this runs on whichever guest thread
+// happened to finalize the teardown, while pids_lock and the task's general_lock
+// are still held — _exit avoids atexit handlers that might re-enter those locks,
+// and lets the OS reclaim every lingering guest pthread cleanly instead of the
+// pthread_kill(SIGKILL) sweep that would otherwise kill us with signal 9.
+static noreturn void cli_halt(int status) {
+    fflush(NULL);
+    if ((status & 0x7f) == 0)          // WIFEXITED
+        _exit((status >> 8) & 0xff);
+    _exit(128 + (status & 0x7f));      // WIFSIGNALED: shell convention 128+signo
+}
+
 static void ignore_eexist(int err) {
     if (err < 0 && err != _EEXIST)
         fprintf(stderr, "warning: setup step failed: %s\n", strerror(-err));
@@ -130,6 +144,7 @@ int main(int argc, char *const argv[]) {
     run_at_boot();
     configure_standalone_i386_safety(argc, argv);
     configure_standalone_amd64_jit();
+    halt_hook = cli_halt;
 
     char *envp = build_envp_from_term();
     if (envp == NULL) {

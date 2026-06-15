@@ -70,6 +70,11 @@ static bool exit_tgroup(struct task *task) {
 // A function pointer that can be assigned to a cleanup function to be called upon task exit.
 void (*exit_hook)(struct task *task, int code) = NULL;
 
+// Optional hook invoked when init (pid 1) exits, before halt_system_locked(). The
+// standalone CLI sets this to terminate the host process with init's exit status;
+// it does not return. NULL for the iOS app (keeps the existing teardown behavior).
+void (*halt_hook)(int status) = NULL;
+
 static inline bool exit_wait_needed(struct task *task) {
     return task_ref_cnt_get(task, 0) > 2 || locks_held_count(task);
 }
@@ -289,7 +294,13 @@ noreturn void do_exit(struct task *task, int status) {
         // notify parent that we died
         struct task *parent = leader->parent;
         if (parent == NULL) {
-            // init died
+            // init died. The CLI's halt_hook exits the host process with init's
+            // status (and does not return), so the host exit code mirrors the guest
+            // — including for multi-threaded init (e.g. the Go runtime), whose
+            // lingering sibling pthreads would otherwise be host-SIGKILLed by
+            // halt_system_locked(), killing the whole process with signal 9 (137).
+            if (halt_hook != NULL)
+                halt_hook(status);
             halt_system_locked();
         } else {
             task_ref_cnt_mod(parent, 1);
