@@ -274,6 +274,30 @@ static void tty_echo(struct tty *tty, const char *data, size_t size) {
     tty->driver->ops->write(tty, data, size, false);
 }
 
+// Canonical-mode echo is emitted in tiny fragments (each typed char, "\b \b"
+// erases, "\r\n", "^" prefixes), and each tty_echo is a full driver write --
+// for PTYs, a round-trip per keystroke. Batch the fragments into a caller-owned
+// stack buffer and flush in as few writes as possible. Callers must flush
+// before waking a reader (so an echoed "\r\n" reaches the terminal before the
+// reader runs) and at the end of the input batch.
+static void tty_echo_flush(struct tty *tty, char *buf, size_t *len) {
+    if (*len > 0) {
+        tty_echo(tty, buf, *len);
+        *len = 0;
+    }
+}
+static void tty_echo_buffered(struct tty *tty, char *buf, size_t cap, size_t *len, const char *data, size_t size) {
+    if (size > cap) {
+        tty_echo_flush(tty, buf, len);
+        tty_echo(tty, data, size);
+        return;
+    }
+    if (*len + size > cap)
+        tty_echo_flush(tty, buf, len);
+    memcpy(buf + *len, data, size);
+    *len += size;
+}
+
 static bool tty_trace_comm(const char *comm) {
     if (comm == NULL)
         return false;
@@ -348,6 +372,8 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
      !(ch == '\t' || ch == '\n' || ch == cc[VSTART_] || ch == cc[VSTOP_]))
 
     if (lflags & ICANON_) {
+        char echo_buf[512];
+        size_t echo_len = 0;
         for (size_t i = 0; i < size; i++) {
             done_size++;
             char ch = input[i];
@@ -380,9 +406,9 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
                         break;
                     tty->bufsize--;
                     if (echo) {
-                        tty_echo(tty, "\b \b", 3);
+                        tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\b \b", 3);
                         if (SHOULD_ECHOCTL(tty->buf[tty->bufsize]))
-                            tty_echo(tty, "\b \b", 3);
+                            tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\b \b", 3);
                     }
                 }
                 echo = false;
@@ -392,7 +418,7 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
             } else if (ch == '\n' || ch == cc[VEOL_]) {
                 // echo it now, before the read call goes through
                 if (echo)
-                    tty_echo(tty, "\r\n", 2);
+                    tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\r\n", 2);
 canon_wake:
                 err = tty_push_char(tty, ch, /*flag*/true, blocking);
                 if (err < 0) {
@@ -400,6 +426,7 @@ canon_wake:
                     break;
                 }
                 echo = false;
+                tty_echo_flush(tty, echo_buf, &echo_len);
                 tty_input_wakeup(tty);
             } else {
                 if (!tty_send_input_signal(tty, ch, &queue)) {
@@ -414,12 +441,13 @@ no_special:
 
             if (echo) {
                 if (SHOULD_ECHOCTL(ch)) {
-                    tty_echo(tty, "^", 1);
+                    tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "^", 1);
                     ch ^= '\100';
                 }
-                tty_echo(tty, &ch, 1);
+                tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, &ch, 1);
             }
         }
+        tty_echo_flush(tty, echo_buf, &echo_len);
     } else {
         for (size_t i = 0; i < size; i++) {
             done_size++;

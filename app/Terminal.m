@@ -553,7 +553,7 @@ static void NotifyTerminalRegistryChanged(void) {
                 wait_for_ignore_signals(&_dataConsumed, &_dataLock, NULL);
         }
     }
-    [_pendingData appendData:[NSData dataWithBytes:buf length:len]];
+    [_pendingData appendBytes:buf length:(NSUInteger) len];
     [self.refreshTask schedule];
     unlock(&_dataLock);
 #else
@@ -562,7 +562,7 @@ static void NotifyTerminalRegistryChanged(void) {
         if (len > room)
             len = room;
         if (len > 0) {
-            [_pendingData appendData:[NSData dataWithBytes:buf length:len]];
+            [_pendingData appendBytes:buf length:(NSUInteger) len];
             [_refreshTask schedule];
         }
     }
