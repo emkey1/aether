@@ -275,6 +275,35 @@ static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 @property (nullable) NSError *initialBundledRootImportError;
 @end
 
+// A root's name becomes a directory name and, once mounted, the filesystem
+// "source" string that guest init scripts parse with whitespace-delimited
+// tools (df, mount, ...). A space or shell/path metacharacter there breaks
+// stock scripts (e.g. mountall.sh's df parsing) or allows path traversal, so
+// restrict names to a conservative, path- and shell-safe character set.
+static BOOL RootNameIsValid(NSString *name, NSError **error) {
+    NSString *reason = nil;
+    if (name.length == 0) {
+        reason = @"Filesystem name can't be empty";
+    } else if ([name hasPrefix:@"."]) {
+        reason = @"Filesystem name can't start with '.'";
+    } else {
+        static NSCharacterSet *disallowed;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            disallowed = [[NSCharacterSet characterSetWithCharactersInString:
+                @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"] invertedSet];
+        });
+        if ([name rangeOfCharacterFromSet:disallowed].location != NSNotFound)
+            reason = @"Filesystem name can only contain letters, numbers, '.', '-', and '_' (no spaces)";
+    }
+    if (reason != nil) {
+        if (error != NULL)
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{NSLocalizedDescriptionKey: reason}];
+        return NO;
+    }
+    return YES;
+}
+
 @implementation Roots
 
 - (instancetype)init {
@@ -481,6 +510,8 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
 
 - (BOOL)importRootFromArchive:(NSURL *)archive name:(NSString *)name error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress {
     EnableCaseSensitiveFilesystemLookupsIfPossible();
+    if (!RootNameIsValid(name, error))
+        return NO;
     NSAssert(![self.roots containsObject:name], @"root already exists: %@", name);
     struct fakefsify_error fs_err;
     NSURL *destination = [self rootUrl:name];
@@ -584,6 +615,8 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
         *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{NSLocalizedDescriptionKey: @"Cannot rename the default filesystem"}];
         return NO;
     }
+    if (!RootNameIsValid(newName, error))
+        return NO;
     NSAssert([self.roots containsObject:name], @"root does not exist: %@", name);
     
     if (![NSFileManager.defaultManager moveItemAtURL:[self rootUrl:name] toURL:[self rootUrl:newName] error:error])
