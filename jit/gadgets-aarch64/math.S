@@ -1855,3 +1855,5 @@
 
 # 66 0F D4 paddq
 amd64_v_lane64_binop paddq, add
+# 66 0F FB psubq
+amd64_v_lane64_binop psubq, sub
