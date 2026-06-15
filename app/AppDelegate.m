@@ -796,7 +796,7 @@ static int EnsureSymlink(const char *path, const char *target);
 static NSData *BootEnvironmentForCommand(NSString *commandPath) {
     NSString *shell = commandPath.length != 0 ? commandPath : @"/bin/sh";
     NSArray<NSString *> *entries = @[
-        @"TERM=xterm-256color",
+        @"TERM=linux",
         @"HOME=/root",
         @"USER=root",
         @"LOGNAME=root",
