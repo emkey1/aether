@@ -1236,17 +1236,21 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             !insn.fs_prefix && !insn.lock_prefix &&
             amd64_modrm_mod(insn.modrm) == 3 &&
             insn.operand_size_prefix && insn.rep_mode == amd64_jit_rep_none &&
-            (insn.op2 == 0x6f || insn.op2 == 0xd4 || insn.op2 == 0xfb)) {
+            (insn.op2 == 0x6f || insn.op2 == 0xd4 || insn.op2 == 0xfb ||
+             insn.op2 == 0xef)) {
         // 66 0F /r, mod==3 register-register SSE2 ops (dst=reg, src=rm):
-        //   6F movdqa (128-bit copy), D4 paddq, FB psubq (packed 64-bit add/sub)
+        //   6F movdqa (128-bit copy), D4 paddq, FB psubq (packed 64-bit add/sub),
+        //   EF pxor (128-bit XOR — same gadget as xorps, lane width irrelevant)
         extern void gadget_amd64_v_mov128_reg(void);
         extern void gadget_amd64_v_paddq_reg(void);
         extern void gadget_amd64_v_psubq_reg(void);
+        extern void gadget_amd64_v_pxor_reg(void);
         void (*gadget)(void) = NULL;
         switch (insn.op2) {
         case 0x6f: gadget = gadget_amd64_v_mov128_reg; break;
         case 0xd4: gadget = gadget_amd64_v_paddq_reg; break;
         case 0xfb: gadget = gadget_amd64_v_psubq_reg; break;
+        case 0xef: gadget = gadget_amd64_v_pxor_reg; break;
         }
         unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
         unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
