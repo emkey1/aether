@@ -5211,10 +5211,10 @@ restart_prefix:
         }
         if (op2 == 0x38) {
             // Three-byte 0F 38 escape (SSSE3 / SSE4.1). Implemented: pshufb
-            // (66 0F 38 00), pblendvb (10), ptest (17), and pmovsx/pmovzx packed
-            // sign/zero-extend moves (20-25 sign, 30-35 zero) — emitted by
-            // auto-vectorizers and by optimized string/format code. They require
-            // the 66 operand-size prefix and no F2/F3 prefix.
+            // (66 0F 38 00), pblendvb (10), blendvps/blendvpd (14/15), ptest (17),
+            // and pmovsx/pmovzx packed sign/zero-extend moves (20-25 sign, 30-35
+            // zero) — emitted by auto-vectorizers and by optimized string/format
+            // code. They require the 66 operand-size prefix and no F2/F3 prefix.
             byte_t op3;
             if (!amd64_fetch_u8(cpu, tlb, &op3)) {
                 cpu->amd64_rip = saved_rip;
@@ -5223,10 +5223,13 @@ restart_prefix:
             }
             bool is_pshufb = op3 == 0x00;
             bool is_pblendvb = op3 == 0x10;
+            bool is_blendvps = op3 == 0x14;
+            bool is_blendvpd = op3 == 0x15;
             bool is_ptest = op3 == 0x17;
             bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
                             (op3 >= 0x30 && op3 <= 0x35);
-            if ((!is_pshufb && !is_pblendvb && !is_ptest && !is_pmovx) ||
+            if ((!is_pshufb && !is_pblendvb && !is_blendvps && !is_blendvpd &&
+                    !is_ptest && !is_pmovx) ||
                     !operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             struct amd64_modrm modrm;
@@ -5298,6 +5301,34 @@ restart_prefix:
                 union xmm_reg result;
                 for (unsigned i = 0; i < 16; i++)
                     result.u8[i] = (mask.u8[i] & 0x80) ? src.u8[i] : dst.u8[i];
+                cpu->xmm[modrm.reg] = result;
+                break;
+            }
+            if (is_blendvps || is_blendvpd) {
+                // BLENDVPS (66 0F 38 14) / BLENDVPD (15) xmm1, xmm2/m128, <XMM0>.
+                // Same implicit-XMM0 variable blend as pblendvb, but per 32-bit
+                // (blendvps) or 64-bit (blendvpd) lane, selected by that lane's
+                // high (sign) bit in XMM0. dst=reg, src=r/m, mask=xmm0; snapshot
+                // all three before the store so an operand aliasing xmm0 (or the
+                // destination) stays correct.
+                union xmm_reg src;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                union xmm_reg dst = cpu->xmm[modrm.reg];
+                union xmm_reg mask = cpu->xmm[0];
+                union xmm_reg result;
+                if (is_blendvps) {
+                    for (unsigned i = 0; i < 4; i++)
+                        result.u32[i] = (mask.u32[i] & 0x80000000u)
+                                ? src.u32[i] : dst.u32[i];
+                } else {
+                    for (unsigned i = 0; i < 2; i++)
+                        result.qw[i] = (mask.qw[i] & 0x8000000000000000ull)
+                                ? src.qw[i] : dst.qw[i];
+                }
                 cpu->xmm[modrm.reg] = result;
                 break;
             }
