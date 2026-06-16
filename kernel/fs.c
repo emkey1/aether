@@ -2003,7 +2003,12 @@ dword_t sys_splice(fd_t UNUSED(in_fd), addr_t UNUSED(in_off_addr), fd_t UNUSED(o
 }
 dword_t sys_copy_file_range(fd_t UNUSED(in_fd), addr_t UNUSED(in_off), fd_t UNUSED(out_fd),
         addr_t UNUSED(out_off), dword_t UNUSED(len), uint_t UNUSED(flags)) {
-    return _EPERM; // good enough for ruby
+    // Not implemented. Return ENOSYS (not EPERM) so callers fall back to a
+    // read/write copy: systemd only falls back on ERRNO_IS_NOT_SUPPORTED
+    // (ENOSYS/EOPNOTSUPP), not EPERM -- with EPERM systemd-sysusers' file copy
+    // failed outright. ENOSYS is the canonical "kernel too old for
+    // copy_file_range" signal that systemd, coreutils and ruby all handle.
+    return _ENOSYS;
 }
 
 dword_t sys_xattr_stub(addr_t UNUSED(path_addr), addr_t UNUSED(name_addr),

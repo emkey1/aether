@@ -37,6 +37,7 @@ executable('pthread_sync', ['pthread_sync.c'], dependencies: dependency('threads
 executable('fcntl_lock', ['fcntl_lock.c'])
 executable('fcntl_ofd', ['fcntl_ofd.c'])
 executable('at_empty_path', ['at_empty_path.c'])
+executable('copy_file_range', ['copy_file_range.c'])
 executable('ptrace_group_stop', ['ptrace_group_stop.c'])
 executable('ptrace_thread_follow', ['ptrace_thread_follow.c'], dependencies: dependency('threads'))
 executable('epoll_mod_wake', ['epoll_mod_wake.c'], dependencies: dependency('threads'))

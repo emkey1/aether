@@ -2383,6 +2383,9 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 213: // epoll_create(size) -- handler ignores size
         return 1;
     case 277: // sync_file_range -- success stub ignores all args
+    case 326: // copy_file_range -- ENOSYS stub ignores all args; also its amd64
+              // size_t len is 64-bit, which the generic full-width check would
+              // reject (SIGSYS) -- systemd-sysusers passes len=SIZE_MAX
         return 0;
     case 15:  // rt_sigreturn
     case 24:  // sched_yield
@@ -2620,7 +2623,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 202: // futex
     case 275: // splice
     case 310: // process_vm_readv
-    case 326: // copy_file_range
     case 413: // pselect_time64
     case 422: // futex_time64
     case 441: // epoll_pwait2
