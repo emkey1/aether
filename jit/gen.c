@@ -3037,6 +3037,39 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native op-store/RMW arith: [mem] <op>= reg for ADD (0x01), SUB (0x29), CMP
+    // (0x39), mod!=3, 32/64-bit (no 0x66). [mem] is both source and destination
+    // (read-modify-write); modrm.reg is the rhs. Flags eager; CMP is flags-only (no
+    // store). Byte forms (0x00/28/38), ADC/SBB, 16-bit, and locked forms keep
+    // bridging. Same flush + #PF-reexec discipline (a fault on the store re-reads).
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.opcode == 0x01 || insn.opcode == 0x29 || insn.opcode == 0x39)) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("opstore-arith ip=%llx op=%02x size=%u meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode, size,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_opstore_arith32(void), gadget_amd64_opstore_arith64(void);
+        gen(state, (unsigned long) (size == 64
+                    ? gadget_amd64_opstore_arith64 : gadget_amd64_opstore_arith32));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&

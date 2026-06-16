@@ -2632,3 +2632,75 @@ amd64_gen_loadop_arith loadop_arith64, 8, 63
 
 amd64_gen_loadop_logic loadop_logic32, 4, 32
 amd64_gen_loadop_logic loadop_logic64, 8, 64
+
+# amd64 op-store/RMW arith: [mem] <op>= reg (d=0 forms ADD 0x01 / SUB 0x29 / CMP
+# 0x39), mod!=3, sizes 32/64. [mem] is BOTH source (lhs) and destination; reg
+# (modrm.reg) is the rhs. Read-modify-write: vread the old [mem], compute + set flags
+# eagerly, then (unless CMP) vwrite the result back. Two preps on the same address,
+# so the guest addr lives in x0 across both (x0 is saved by save_c and untouched by
+# the prep fast paths) and the result moves to x10 before the write (x15 is NOT saved
+# across a prep). Flags are set before the store, matching the bridge: a #PF on the
+# store re-executes the whole insn (the re-read is idempotent). CMP (0x39) sets flags
+# only. Byte (0x00/28/38), ADC/SBB, 16-bit, locked forms bridge. opcode|regid packed
+# in x10 survives the read prep. Operands: meta(0)/disp(1)/next_ip(2).
+.macro amd64_gen_opstore_arith name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives read prep) */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (old, 32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (old, 64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x12, x10, 8, 4              /* x12 = reg id (rhs source) */
+    add  x11, _cpu, CPU_amd64_regs
+    ldr  x10, [x11, x12, lsl 3]      /* x10 = rhs = reg value */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+    cmp  x9, 0x28
+    b.hs 1f
+    adds w15, w13, w10
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+2:  mov  w15, w15
+.else
+    cmp  x9, 0x28
+    b.hs 1f
+    adds x15, x13, x10
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+2:
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    cmp  x9, 0x38                    /* CMP (>=0x38): flags only, no store */
+    b.hs 3f
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w  /* x9 = host write addr */
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+3:  gret 3
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_opstore_arith opstore_arith32, 4, 31
+amd64_gen_opstore_arith opstore_arith64, 8, 63
