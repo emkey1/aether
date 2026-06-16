@@ -2368,6 +2368,16 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fchmodat2_guest(
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]));
         return true;
+    case 40: // sendfile(out_fd, in_fd, off_t *offset, size_t count) -- native so
+             // the 64-bit count and offset pointer survive the marshaller
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sendfile_guest(
+                (fd_t) raw_args[0], (fd_t) raw_args[1], raw_args[2], raw_args[3]));
+        return true;
+    case 326: // copy_file_range(fd_in, off_in, fd_out, off_out, len, flags)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_copy_file_range_guest(
+                (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3],
+                raw_args[4], (uint_t) raw_args[5]));
+        return true;
     default:
         return false;
     }
@@ -2387,12 +2397,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 213: // epoll_create(size) -- handler ignores size
         return 1;
     case 277: // sync_file_range -- success stub ignores all args
-    case 40:  // sendfile -- EINVAL stub ignores args; amd64 count is a 64-bit
-              // size_t (systemd passes a huge count falling back from
-              // copy_file_range), which the full-width check would reject
-    case 326: // copy_file_range -- ENOSYS stub ignores all args; also its amd64
-              // size_t len is 64-bit, which the generic full-width check would
-              // reject (SIGSYS) -- systemd-sysusers passes len=SIZE_MAX
         return 0;
     case 15:  // rt_sigreturn
     case 24:  // sched_yield

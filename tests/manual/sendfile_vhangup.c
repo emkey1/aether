@@ -1,16 +1,15 @@
-// amd64 sendfile (64-bit count) and vhangup must not crash / be "missing".
+// amd64 sendfile real copy (+ no SIGSYS on 64-bit count), and vhangup wired.
 //
-// Two amd64 syscall-table gaps seen finishing the Devuan install:
-//   - sendfile (#40): systemd's file copy falls back to sendfile after
-//     copy_file_range returns ENOSYS, passing a 64-bit size_t count. sendfile
-//     was classified as a 4-arg call, so the full-width arg marshaller rejected
-//     the wide count -> SIGSYS ("Bad system call"). It is a stub returning
-//     EINVAL (systemd then falls back to read/write); it just must not SIGSYS.
-//   - vhangup (#153): login calls it to reset the controlling tty; amd64 had no
-//     table entry ("missing syscall 153"). It is now a success (no-op) stub.
+// sendfile (#40 amd64 / #187 i386) was a stub that first SIGSYS'd on amd64
+// because its 64-bit size_t count tripped the legacy arg marshaller. It is now
+// implemented natively (shared engine with copy_file_range) and actually copies
+// bytes; this is systemd's copy fallback path. vhangup (#153 amd64 / #111 i386)
+// had no table entry ("missing syscall"); it is now a success no-op stub that
+// login uses to reset the controlling tty.
 //
-// Test requires only a clean return, never SIGSYS: sendfile -> EINVAL/ENOSYS
-// (or success); vhangup -> 0 (or EPERM). Arch-neutral via the SYS_* numbers.
+// Verifies sendfile with a NULL offset copies the data and advances positions
+// (offset semantics are covered by copy_file_range.c's shared engine), and that
+// vhangup returns cleanly. Arch-neutral.
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <errno.h>
@@ -39,43 +38,53 @@
 # endif
 #endif
 
-int main(int argc, char **argv) {
-    test_init(argc, argv);
+static const char MSG[] = "SENDFILE MOVES THESE BYTES";
 
-    // sendfile with a 64-bit count -- the systemd copy fallback. Reaching the
-    // line after the syscall at all proves no SIGSYS.
-    const char *sp = "/tmp/sendfile_vhangup.src", *dp = "/tmp/sendfile_vhangup.dst";
-    int s = open(sp, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    int d = open(dp, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (s >= 0) (void) write(s, "x", 1);
+static void test_sendfile(void) {
+    size_t mlen = strlen(MSG);
+    char buf[128];
+    int s = open("/tmp/sf.src", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    int d = open("/tmp/sf.dst", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (s < 0 || d < 0) { printf("FAIL: open: %s\n", strerror(errno)); failures_total++; goto out; }
+    if (write(s, MSG, mlen) != (ssize_t) mlen) { printf("FAIL: write src\n"); failures_total++; goto out; }
+    lseek(s, 0, SEEK_SET);
+
     errno = 0;
-    long r = syscall(SYS_sendfile, d, s, (void *) 0, (size_t) 0x7fffffffffffffffULL);
-    int e = errno;
-    if (r >= 0)
-        test_logf("sendfile returned %ld (implemented)\n", r);
-    else if (e == EINVAL || e == ENOSYS || e == EOPNOTSUPP)
-        test_logf("sendfile -> -1 %s (callers fall back) ok\n", strerror(e));
-    else {
-        printf("FAIL: sendfile -> -1 %s (want EINVAL/ENOSYS or success)\n", strerror(e));
-        failures_total++;
+    // NULL offset: read from src's current position, write to dst, advance both.
+    long r = syscall(SYS_sendfile, d, s, (void *) 0, (size_t) mlen);
+    if (r != (long) mlen) {
+        printf("FAIL: sendfile: r=%ld (%s), want %zu\n", r, r < 0 ? strerror(errno) : "", mlen);
+        failures_total++; goto out;
     }
+    ssize_t got = pread(d, buf, sizeof buf - 1, 0);
+    if (got >= 0) buf[got] = '\0';
+    if (got != (ssize_t) mlen || strcmp(buf, MSG) != 0) {
+        printf("FAIL: sendfile dest content wrong: \"%s\"\n", buf); failures_total++;
+    }
+    if (lseek(s, 0, SEEK_CUR) != (off_t) mlen) { printf("FAIL: sendfile src pos not advanced\n"); failures_total++; }
+    test_logf("sendfile copy ok (%ld bytes)\n", r);
+out:
     if (s >= 0) close(s);
     if (d >= 0) close(d);
-    unlink(sp);
-    unlink(dp);
+    unlink("/tmp/sf.src"); unlink("/tmp/sf.dst");
+}
 
-    // vhangup -- must be wired (not "missing syscall"); no-op stub succeeds.
+static void test_vhangup(void) {
     errno = 0;
-    r = syscall(SYS_vhangup);
-    e = errno;
+    long r = syscall(SYS_vhangup);
     if (r == 0)
         test_logf("vhangup -> 0 ok\n");
-    else if (e == EPERM)
+    else if (errno == EPERM)
         test_logf("vhangup -> -1 EPERM (acceptable)\n");
     else {
-        printf("FAIL: vhangup -> %ld %s (want 0)\n", r, r < 0 ? strerror(e) : "");
+        printf("FAIL: vhangup -> %ld %s (want 0)\n", r, r < 0 ? strerror(errno) : "");
         failures_total++;
     }
+}
 
+int main(int argc, char **argv) {
+    test_init(argc, argv);
+    test_sendfile();
+    test_vhangup();
     return finish_suite("sendfile_vhangup");
 }

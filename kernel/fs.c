@@ -1992,23 +1992,204 @@ dword_t sys_fsync(fd_t f) {
 }
 
 // a few stubs
-dword_t sys_sendfile(fd_t UNUSED(out_fd), fd_t UNUSED(in_fd), addr_t UNUSED(offset_addr), dword_t UNUSED(count)) {
-    return _EINVAL;
+// Read one chunk into a host buffer for the sendfile()/copy_file_range() engine.
+// If off != NULL the read happens at *off without disturbing the fd's own file
+// position and *off is advanced; otherwise the fd's current position is used and
+// advanced (mirrors sys_read_buf). Returns bytes read, 0 at EOF, or -errno.
+static ssize_t copy_read_chunk(struct fd *fd, void *buf, size_t size, off_t_ *off) {
+    ssize_t res;
+    lock(&fd->lock, 0);
+    if (off == NULL) {
+        if (fd->ops->read)
+            res = fd->ops->read(fd, buf, size);
+        else if (fd->ops->pread) {
+            res = fd->ops->pread(fd, buf, size, fd->offset);
+            if (res > 0)
+                fd->ops->lseek(fd, res, LSEEK_CUR);
+        } else
+            res = _EINVAL;
+    } else {
+        if (fd->ops->pread)
+            res = fd->ops->pread(fd, buf, size, *off);
+        else if (fd->ops->read && fd->ops->lseek) {
+            off_t_ saved = fd->ops->lseek(fd, 0, LSEEK_CUR);
+            if ((res = fd->ops->lseek(fd, *off, LSEEK_SET)) >= 0) {
+                res = fd->ops->read(fd, buf, size);
+                fd->ops->lseek(fd, saved, LSEEK_SET);
+            }
+        } else
+            res = _ESPIPE;
+        if (res > 0)
+            *off += res;
+    }
+    unlock(&fd->lock);
+    return res;
 }
-dword_t sys_sendfile64(fd_t UNUSED(out_fd), fd_t UNUSED(in_fd), addr_t UNUSED(offset_addr), dword_t UNUSED(count)) {
-    return _EINVAL;
+
+// Symmetric write side for the copy engine.
+static ssize_t copy_write_chunk(struct fd *fd, const void *buf, size_t size, off_t_ *off) {
+    ssize_t res;
+    lock(&fd->lock, 0);
+    if (off == NULL) {
+        if (fd->ops->write)
+            res = fd->ops->write(fd, buf, size);
+        else if (fd->ops->pwrite) {
+            res = fd->ops->pwrite(fd, buf, size, fd->offset);
+            if (res > 0)
+                fd->ops->lseek(fd, res, LSEEK_CUR);
+        } else
+            res = _EINVAL;
+    } else {
+        if (fd->ops->pwrite)
+            res = fd->ops->pwrite(fd, buf, size, *off);
+        else if (fd->ops->write && fd->ops->lseek) {
+            off_t_ saved = fd->ops->lseek(fd, 0, LSEEK_CUR);
+            if ((res = fd->ops->lseek(fd, *off, LSEEK_SET)) >= 0) {
+                res = fd->ops->write(fd, buf, size);
+                fd->ops->lseek(fd, saved, LSEEK_SET);
+            }
+        } else
+            res = _ESPIPE;
+        if (res > 0)
+            *off += res;
+    }
+    unlock(&fd->lock);
+    return res;
+}
+
+// Shared engine for sendfile() and copy_file_range(): move up to count bytes
+// from in_fd to out_fd through a host bounce buffer. in_off/out_off are host
+// copies of the caller's offsets (NULL = use the fd's current position). Returns
+// bytes copied (possibly short, e.g. at EOF or on a signal), or -errno if none.
+static dword_t fd_copy_range(fd_t in_no, off_t_ *in_off, fd_t out_no, off_t_ *out_off, uint64_t count) {
+    struct fd *in_fd = f_get(in_no);
+    struct fd *out_fd = f_get(out_no);
+    if (in_fd == NULL || out_fd == NULL)
+        return _EBADF;
+    if (S_ISDIR(in_fd->type) || S_ISDIR(out_fd->type))
+        return _EISDIR;
+    if ((fd_getflags(in_fd) & O_ACCMODE_) == O_WRONLY_)
+        return _EBADF;
+    if ((fd_getflags(out_fd) & O_ACCMODE_) == O_RDONLY_)
+        return _EBADF;
+    if (count > MAX_RW_COUNT)
+        count = MAX_RW_COUNT;
+    if (count == 0)
+        return 0;
+
+    size_t bufsize = count < 65536 ? (size_t) count : 65536;
+    char *buf = malloc(bufsize);
+    if (buf == NULL)
+        return _ENOMEM;
+
+    dword_t total = 0;
+    int err = 0;
+    TASK_MAY_BLOCK {
+        while (total < count) {
+            size_t want = count - total < bufsize ? (size_t) (count - total) : bufsize;
+            ssize_t nr = copy_read_chunk(in_fd, buf, want, in_off);
+            if (nr < 0) { err = (int) nr; break; }
+            if (nr == 0) break; // EOF on the input
+            ssize_t nw = copy_write_chunk(out_fd, buf, (size_t) nr, out_off);
+            if (nw < 0) { err = (int) nw; break; }
+            total += (dword_t) nw;
+            if (nw < nr) break; // short write: report progress, stop
+        }
+    }
+
+    free(buf);
+    if (total > 0)
+        return total;
+    return err < 0 ? (dword_t) err : 0;
+}
+
+// sendfile(out_fd, in_fd, offset, count): the offset, if present, applies to
+// in_fd (read side); out_fd always uses its current position. off64 selects the
+// width of the guest *offset (i386 sendfile is 32-bit, sendfile64/amd64 64-bit).
+static dword_t do_sendfile(fd_t out_fd, fd_t in_fd, guest_addr_t offset_addr, uint64_t count, bool off64) {
+    off_t_ off = 0;
+    off_t_ *off_ptr = NULL;
+    if (offset_addr != 0) {
+        if (off64) {
+            if (user_get(offset_addr, off))
+                return _EFAULT;
+        } else {
+            dword_t off32;
+            if (user_get(offset_addr, off32))
+                return _EFAULT;
+            off = (off_t_) (sdword_t) off32;
+        }
+        off_ptr = &off;
+    }
+    dword_t res = fd_copy_range(in_fd, off_ptr, out_fd, NULL, count);
+    if ((sdword_t) res >= 0 && off_ptr != NULL) {
+        if (off64) {
+            if (user_put(offset_addr, off))
+                return _EFAULT;
+        } else {
+            dword_t off32 = (dword_t) off;
+            if (user_put(offset_addr, off32))
+                return _EFAULT;
+        }
+    }
+    return res;
+}
+
+dword_t sys_sendfile(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t count) {
+    STRACE("sendfile(%d, %d, 0x%x, %d)", out_fd, in_fd, offset_addr, count);
+    return do_sendfile(out_fd, in_fd, offset_addr, count, false);
+}
+dword_t sys_sendfile64(fd_t out_fd, fd_t in_fd, addr_t offset_addr, dword_t count) {
+    STRACE("sendfile64(%d, %d, 0x%x, %d)", out_fd, in_fd, offset_addr, count);
+    return do_sendfile(out_fd, in_fd, offset_addr, count, true);
+}
+dword_t sys_sendfile_guest(fd_t out_fd, fd_t in_fd, guest_addr_t offset_addr, uint64_t count) {
+    STRACE("sendfile(%d, %d, 0x%llx, %llu)", out_fd, in_fd, (unsigned long long) offset_addr,
+           (unsigned long long) count);
+    return do_sendfile(out_fd, in_fd, offset_addr, count, true); // amd64 off_t is 64-bit
 }
 dword_t sys_splice(fd_t UNUSED(in_fd), addr_t UNUSED(in_off_addr), fd_t UNUSED(out_fd), addr_t UNUSED(out_off_addr), dword_t UNUSED(count), dword_t UNUSED(flags)) {
     return _EINVAL;
 }
-dword_t sys_copy_file_range(fd_t UNUSED(in_fd), addr_t UNUSED(in_off), fd_t UNUSED(out_fd),
-        addr_t UNUSED(out_off), dword_t UNUSED(len), uint_t UNUSED(flags)) {
-    // Not implemented. Return ENOSYS (not EPERM) so callers fall back to a
-    // read/write copy: systemd only falls back on ERRNO_IS_NOT_SUPPORTED
-    // (ENOSYS/EOPNOTSUPP), not EPERM -- with EPERM systemd-sysusers' file copy
-    // failed outright. ENOSYS is the canonical "kernel too old for
-    // copy_file_range" signal that systemd, coreutils and ruby all handle.
-    return _ENOSYS;
+// copy_file_range(fd_in, off_in, fd_out, off_out, len, flags). off_in/off_out
+// are loff_t* (64-bit on both ABIs) or NULL. flags must be 0.
+static dword_t do_copy_file_range(fd_t in_fd, guest_addr_t in_off_addr, fd_t out_fd,
+        guest_addr_t out_off_addr, uint64_t len, uint_t flags) {
+    if (flags != 0)
+        return _EINVAL;
+    off_t_ in_off = 0, out_off = 0;
+    off_t_ *in_ptr = NULL, *out_ptr = NULL;
+    if (in_off_addr != 0) {
+        if (user_get(in_off_addr, in_off))
+            return _EFAULT;
+        in_ptr = &in_off;
+    }
+    if (out_off_addr != 0) {
+        if (user_get(out_off_addr, out_off))
+            return _EFAULT;
+        out_ptr = &out_off;
+    }
+    dword_t res = fd_copy_range(in_fd, in_ptr, out_fd, out_ptr, len);
+    if ((sdword_t) res >= 0) {
+        if (in_ptr != NULL && user_put(in_off_addr, in_off))
+            return _EFAULT;
+        if (out_ptr != NULL && user_put(out_off_addr, out_off))
+            return _EFAULT;
+    }
+    return res;
+}
+
+dword_t sys_copy_file_range(fd_t in_fd, addr_t in_off, fd_t out_fd, addr_t out_off,
+        dword_t len, uint_t flags) {
+    STRACE("copy_file_range(%d, 0x%x, %d, 0x%x, %d, %#x)", in_fd, in_off, out_fd, out_off, len, flags);
+    return do_copy_file_range(in_fd, in_off, out_fd, out_off, len, flags);
+}
+dword_t sys_copy_file_range_guest(fd_t in_fd, guest_addr_t in_off, fd_t out_fd, guest_addr_t out_off,
+        uint64_t len, uint_t flags) {
+    STRACE("copy_file_range(%d, 0x%llx, %d, 0x%llx, %llu, %#x)", in_fd,
+           (unsigned long long) in_off, out_fd, (unsigned long long) out_off,
+           (unsigned long long) len, flags);
+    return do_copy_file_range(in_fd, in_off, out_fd, out_off, len, flags);
 }
 
 dword_t sys_xattr_stub(addr_t UNUSED(path_addr), addr_t UNUSED(name_addr),

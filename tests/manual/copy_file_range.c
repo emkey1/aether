@@ -1,17 +1,14 @@
-// copy_file_range with a 64-bit length must not SIGSYS on amd64.
+// copy_file_range(): real data-copy behavior, including offset semantics.
 //
-// Regression for the amd64 syscall arg marshaller. copy_file_range (amd64 #326)
-// was classified as a 6-arg call and run through the generic full-width check,
-// which rejects any of the first N args whose upper 32 bits are set and raises
-// SIGSYS ("Bad system call"). systemd-sysusers calls copy_file_range with
-// len = SIZE_MAX to copy a whole file; on amd64 size_t is 64-bit, so that len
-// tripped the check and killed the process -- openssh-server/polkitd user
-// creation died with exit 159 (128+SIGSYS). (On i386 size_t is 32-bit, so the
-// existing handler never saw a wide len.)
+// History: copy_file_range was a stub. It first SIGSYS'd on amd64 because its
+// 64-bit size_t len tripped the legacy arg marshaller; it is now implemented
+// natively (amd64 #326 via the 64-bit native-syscall path; i386 #377), doing a
+// real read/write copy with correct off_in/off_out handling. systemd-sysusers
+// copies /etc/passwd-style files this way.
 //
-// The handler is a stub; it now returns ENOSYS (not EPERM) so callers fall back
-// to a read/write copy. This test only requires that the call RETURNS (no
-// SIGSYS) -- ENOSYS, or a real success, are both acceptable.
+// Verifies: whole-file copy with NULL offsets (advances both positions); an
+// explicit in-offset copies a sub-range, updates *off_in, and leaves the input
+// file position unchanged. Arch-neutral.
 #define _GNU_SOURCE
 #include <fcntl.h>
 #include <unistd.h>
@@ -31,45 +28,83 @@
 # endif
 #endif
 
+static const char MSG[] = "HELLO COPY FILE RANGE WORLD"; // 27 bytes
+
+static long cfr(int in, long long *in_off, int out, long long *out_off, size_t len) {
+    return syscall(SYS_copy_file_range, in, in_off, out, out_off, len, 0u);
+}
+
+static int make_file(const char *path, const char *data, size_t n) {
+    int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return -1;
+    if (n && write(fd, data, n) != (ssize_t) n) { close(fd); return -1; }
+    lseek(fd, 0, SEEK_SET);
+    return fd;
+}
+
+// NULL offsets: copy the whole file and advance both file positions.
+static void test_whole_copy(void) {
+    size_t mlen = strlen(MSG);
+    char buf[128];
+    int s = make_file("/tmp/cfr.src", MSG, mlen);
+    int d = open("/tmp/cfr.dst", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (s < 0 || d < 0) { printf("FAIL: open: %s\n", strerror(errno)); failures_total++; goto out; }
+
+    errno = 0;
+    long r = cfr(s, NULL, d, NULL, mlen);
+    if (r != (long) mlen) {
+        printf("FAIL: copy_file_range whole: r=%ld (%s), want %zu\n", r, r < 0 ? strerror(errno) : "", mlen);
+        failures_total++; goto out;
+    }
+    ssize_t got = pread(d, buf, sizeof buf - 1, 0);
+    if (got >= 0) buf[got] = '\0';
+    if (got != (ssize_t) mlen || strcmp(buf, MSG) != 0) {
+        printf("FAIL: dest content wrong: \"%s\"\n", buf); failures_total++;
+    }
+    if (lseek(s, 0, SEEK_CUR) != (off_t) mlen) { printf("FAIL: src pos not advanced\n"); failures_total++; }
+    if (lseek(d, 0, SEEK_CUR) != (off_t) mlen) { printf("FAIL: dst pos not advanced\n"); failures_total++; }
+    test_logf("whole-file copy ok (%ld bytes)\n", r);
+out:
+    if (s >= 0) close(s);
+    if (d >= 0) close(d);
+    unlink("/tmp/cfr.src"); unlink("/tmp/cfr.dst");
+}
+
+// Explicit in-offset: copy a sub-range, update *off_in, leave the input file
+// position unchanged.
+static void test_offset_copy(void) {
+    size_t mlen = strlen(MSG);
+    char buf[128];
+    int s = make_file("/tmp/cfr.src", MSG, mlen);
+    int d = open("/tmp/cfr.dst2", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (s < 0 || d < 0) { printf("FAIL: open2: %s\n", strerror(errno)); failures_total++; goto out; }
+
+    lseek(s, 3, SEEK_SET);       // marker that must NOT move
+    long long in_off = 6;        // copy from offset 6 to end
+    size_t want = mlen - 6;
+    errno = 0;
+    long r = cfr(s, &in_off, d, NULL, want);
+    if (r != (long) want) {
+        printf("FAIL: copy_file_range sub-range: r=%ld (%s), want %zu\n", r, r < 0 ? strerror(errno) : "", want);
+        failures_total++; goto out;
+    }
+    ssize_t got = pread(d, buf, sizeof buf - 1, 0);
+    if (got >= 0) buf[got] = '\0';
+    if (got != (ssize_t) want || strcmp(buf, MSG + 6) != 0) {
+        printf("FAIL: sub-range content wrong: \"%s\"\n", buf); failures_total++;
+    }
+    if (in_off != (long long) mlen) { printf("FAIL: in_off=%lld, want %zu\n", in_off, mlen); failures_total++; }
+    if (lseek(s, 0, SEEK_CUR) != 3) { printf("FAIL: src pos moved (should stay 3)\n"); failures_total++; }
+    test_logf("offset copy ok (in_off->%lld, src pos kept at 3)\n", in_off);
+out:
+    if (s >= 0) close(s);
+    if (d >= 0) close(d);
+    unlink("/tmp/cfr.src"); unlink("/tmp/cfr.dst2");
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
-    const char *sp = "/tmp/copy_file_range.src";
-    const char *dp = "/tmp/copy_file_range.dst";
-
-    int s = open(sp, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    int d = open(dp, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (s < 0 || d < 0) {
-        printf("FAIL: open: %s\n", strerror(errno));
-        failures_total++;
-        return finish_suite("copy_file_range");
-    }
-    (void) write(s, "hello", 5);
-    lseek(s, 0, SEEK_SET);
-
-    // The systemd-sysusers pattern: a huge length to "copy everything". Use a
-    // large *positive* value (~SSIZE_MAX), not (size_t)-1 -- the marshaller
-    // treats all-ones as a valid sign-extended -1 and lets it through, whereas
-    // a value with high bits set but != -1 is exactly what tripped the amd64
-    // full-width check and raised SIGSYS. (On i386, size_t is 32-bit so this
-    // truncates harmlessly.) Raw syscall so glibc doesn't reshape the args;
-    // reaching the next line at all proves no SIGSYS.
-    size_t big_len = (size_t) 0x7fffffffffffffffULL;
-    errno = 0;
-    long r = syscall(SYS_copy_file_range, s, (void *) 0, d, (void *) 0, big_len, 0u);
-    int e = errno;
-
-    if (r >= 0) {
-        test_logf("copy_file_range returned %ld (implemented)\n", r);
-    } else if (e == ENOSYS) {
-        test_logf("copy_file_range -> -1 ENOSYS (callers fall back) ok\n");
-    } else {
-        printf("FAIL: copy_file_range -> -1 %s (want ENOSYS or success)\n", strerror(e));
-        failures_total++;
-    }
-
-    close(s);
-    close(d);
-    unlink(sp);
-    unlink(dp);
+    test_whole_copy();
+    test_offset_copy();
     return finish_suite("copy_file_range");
 }
