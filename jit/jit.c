@@ -1265,12 +1265,43 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
             *cpu = frame->cpu;
+            // If an explicit RIP range is set (ISH_AMD64_FORCE_INTERP_LO/_HI), run
+            // the interpreter ONLY while rip stays in the range, then hand back to
+            // the JIT. A tight range isolates a single instruction, so a bisection
+            // pins the exact faulty gadget instead of the whole interp-until-syscall
+            // stretch. (debug path; single-threaded use.) Otherwise (cc1 ranges /
+            // "all") keep the original interp-until-interrupt behavior.
+            if (getenv("ISH_AMD64_FORCE_INTERP_HI") != NULL) {
+                bool saved_tf = cpu->tf;
+                int rc = INT_DEBUG;
+                while (amd64_cc1_force_interp_block(cpu->amd64_rip)) {
+                    cpu->tf = 1;
+                    rc = cpu_run_to_interrupt_amd64(cpu, tlb);
+                    if (rc != INT_DEBUG)
+                        break;
+                }
+                cpu->tf = saved_tf;
+                frame->cpu = *cpu;
+                frame->cpu.eip = (dword_t) frame->cpu.amd64_rip;
+                if (rc == INT_DEBUG)
+                    continue; // rip left the range; resume the JIT
+                // a real interrupt fired mid-range; return it
+                jit_crash_lock = NULL;
+                jit_crash_mutex_lock = NULL;
+                pthread_rwlock_unlock(&jit->jetsam_lock.l);
+                jit_crash_unwind_active = false;
+                jit_crash_frame = NULL;
+                jit_crash_cpu = NULL;
+                *cpu = frame->cpu;
+                return rc;
+            }
             jit_crash_lock = NULL;
             jit_crash_mutex_lock = NULL;
             pthread_rwlock_unlock(&jit->jetsam_lock.l);
             jit_crash_unwind_active = false;
             jit_crash_frame = NULL;
             jit_crash_cpu = NULL;
+            *cpu = frame->cpu;
             return cpu_run_to_interrupt_amd64(cpu, tlb);
         }
         size_t cache_index = jit_cache_hash(ip);
