@@ -2355,3 +2355,49 @@ amd64_vmem_segfault_write:
     str  w10, [_cpu, CPU_eip]
     b    jit_ret
     amd64_vwrite_bullshit 8, call_ir
+
+# amd64 indirect jmp, memory form (0xff /4, mod!=3): the target is the 8-byte value
+# at the effective address -- this is the PLT thunk `jmp *off(%rip)` and vtable/
+# function-pointer dispatch. rip = *(u64 *)addr, then exit. meta(op0)/disp(op1)
+# describe the addressing mode and next_ip(op2) is the rip-relative base consumed by
+# amd64_vmem_addr. rip is flushed by gen.c so a #PF on the target load re-executes.
+# The FS-prefix form is excluded in gen.c (amd64_vmem_addr does not add tls_ptr).
+.gadget amd64_jmp_indir_mem
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 8, jmp_im       /* x9 = host addr of the target */
+    ldr  x10, [x9]                   /* target = *(u64 *)addr */
+    str  x10, [_cpu, CPU_amd64_rip]
+    str  w10, [_cpu, CPU_eip]
+    b    jit_ret
+    amd64_vread_bullshit 8, jmp_im
+
+# amd64 indirect call, memory form (0xff /2, mod!=3): read the 8-byte target from the
+# effective address FIRST (x86 order), then push the return address and set rip. Two
+# faulting accesses -- the target load (id call_im) and the push (id call_im_w). x10
+# holds the target across the push's vwrite_prep (preserved by save_c). RSP is
+# committed only after the push store and rip is flushed by gen.c, so a #PF on either
+# access cleanly re-executes the whole instruction. FS-prefix form excluded in gen.c.
+.gadget amd64_call_indir_mem
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 8, call_im      /* x9 = host addr of the target */
+    ldr  x10, [x9]                   /* x10 = target (survives the push prep) */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x9, [x14, 4*8]              /* RSP */
+    sub  x9, x9, 8                   /* new RSP = push store address */
+    amd64_vwrite_prep 8, call_im_w
+    ldr  x11, [_ip, 16]              /* return address (operand 2 = next_ip) */
+    str  x11, [x9]                   /* push return address */
+    amd64_vwrite_done 8, call_im_w
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]
+    sub  x8, x8, 8
+    str  x8, [x14, 4*8]             /* RSP -= 8 (commit after the store) */
+    str  x10, [_cpu, CPU_amd64_rip]  /* rip = target (read before the push) */
+    str  w10, [_cpu, CPU_eip]
+    b    jit_ret
+    amd64_vread_bullshit 8, call_im
+    amd64_vwrite_bullshit 8, call_im_w

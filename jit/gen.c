@@ -1905,6 +1905,42 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             state->amd64_fallback_to_interp = true;
             return false;
         }
+        // Native memory-indirect call (/2) and jmp (/4): mod!=3, target is the
+        // 8-byte value read from the effective address -- PLT stubs
+        // `jmp/call *off(%rip)` and vtable/function-pointer dispatch, the common
+        // real-code case. gen_amd64_decode_mem_meta needs amd64_ip still at the
+        // opcode, so this runs before the advance below. 64-bit only (no 0x66);
+        // FS-prefix and address-size forms keep bridging (the amd64_vmem_addr gadget
+        // handles neither). rip is flushed so a #PF on the load/push re-executes.
+        if ((group == 2 || group == 4) && amd64_modrm_mod(insn.modrm) != 3 &&
+                !insn.lock_prefix && !insn.operand_size_prefix && !insn.fs_prefix) {
+            unsigned long meta, disp;
+            if (!gen_amd64_decode_mem_meta(state, tlb, &insn, 64, &meta, &disp, &next_ip)) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            state->amd64_ip = next_ip;
+            gen_amd64_flush_reg_cache(state);
+            gen_amd64_flush_rip(state);
+            if (group == 4) {
+                amd64_jit_debug("jmp-indir-mem ip=%llx meta=%lx disp=%lx next=%llx",
+                        (unsigned long long) insn.start_ip, meta, disp,
+                        (unsigned long long) next_ip);
+                extern void gadget_amd64_jmp_indir_mem(void);
+                gen(state, (unsigned long) gadget_amd64_jmp_indir_mem);
+            } else {
+                amd64_jit_debug("call-indir-mem ip=%llx meta=%lx disp=%lx next=%llx",
+                        (unsigned long long) insn.start_ip, meta, disp,
+                        (unsigned long long) next_ip);
+                extern void gadget_amd64_call_indir_mem(void);
+                gen(state, (unsigned long) gadget_amd64_call_indir_mem);
+            }
+            gen(state, meta);
+            gen(state, disp);
+            gen(state, (unsigned long) next_ip);
+            return false;
+        }
         state->amd64_ip = next_ip;
         // Native register-indirect call (/2) and jmp (/4): mod==3, target =
         // regs[rm]. The memory forms and the other groups (inc/dec/push/far)
