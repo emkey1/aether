@@ -930,6 +930,7 @@ static syscall_t i386_syscall_table[] = {
     [106] = (syscall_t) sys_stat,
     [107] = (syscall_t) sys_lstat,
     [108] = (syscall_t) sys_fstat,
+    [111] = (syscall_t) syscall_success_stub, // vhangup (tty-cleanup no-op)
     [114] = (syscall_t) sys_wait4,
     [116] = (syscall_t) sys_sysinfo,
     [117] = (syscall_t) sys_ipc,
@@ -1346,6 +1347,7 @@ static syscall_t amd64_syscall_table[453] = {
     [150] = (syscall_t) sys_munlock,
     [151] = (syscall_t) sys_mlockall,
     [152] = (syscall_t) sys_munlockall,
+    [153] = (syscall_t) syscall_success_stub, // vhangup (tty-cleanup no-op)
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
     [160] = (syscall_t) sys_setrlimit64,
@@ -2385,6 +2387,9 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 213: // epoll_create(size) -- handler ignores size
         return 1;
     case 277: // sync_file_range -- success stub ignores all args
+    case 40:  // sendfile -- EINVAL stub ignores args; amd64 count is a 64-bit
+              // size_t (systemd passes a huge count falling back from
+              // copy_file_range), which the full-width check would reject
     case 326: // copy_file_range -- ENOSYS stub ignores all args; also its amd64
               // size_t len is 64-bit, which the generic full-width check would
               // reject (SIGSYS) -- systemd-sysusers passes len=SIZE_MAX
@@ -2402,6 +2407,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 110: // getppid
     case 111: // getpgrp
     case 112: // setsid
+    case 153: // vhangup (no args; tty-cleanup no-op stub)
     case 162: // sync
     case 186: // gettid
     case 187: // readahead stubbed
@@ -2576,7 +2582,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
         return 3;
     case 13:  // rt_sigaction
     case 14:  // rt_sigprocmask
-    case 40:  // sendfile
     case 78:  // getdents
     case 128: // rt_sigtimedwait
     case 232: // epoll_wait

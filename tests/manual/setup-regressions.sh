@@ -128,6 +128,7 @@ need_file fcntl_ofd.c
 need_file at_empty_path.c
 need_file copy_file_range.c
 need_file name_to_handle_at.c
+need_file sendfile_vhangup.c
 need_file amd64_regress.c
 
 if ! mkdir -p "$work_dir/bin"; then
@@ -341,7 +342,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at amd64_regress"
+all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup amd64_regress"
 
 test_selected() {
     name=$1
