@@ -39,8 +39,14 @@ int fd_close(struct fd *fd) {
     int err = 0;
     if (--fd->refcount == 0) {
         poll_cleanup_fd(fd);
-        if (fd->inode != NULL)
+        if (fd->inode != NULL) {
             flock_remove_owned_by(fd);
+            // Open file description locks are owned by this struct fd; release
+            // them when the last reference to the open file description goes
+            // away (process POSIX locks, owned by the fdtable, are dropped per
+            // close() in fdtable_close).
+            file_lock_remove_owned_by(fd, fd);
+        }
         if (fd->ops->close)
             err = fd->ops->close(fd);
         // see comment in close in kernel/fs.h
@@ -276,6 +282,14 @@ void fdtable_do_cloexec(struct fdtable *table) {
 #define F_SETLK64_ 13
 #define F_SETLKW64_ 14
 
+// Open file description locks. Same flock argument layout as the matching
+// F_*LK / F_*LK64 commands on each ABI, but owned by the open file description
+// rather than the process. glibc (LFS) and musl both route these through the
+// 64-bit struct flock, so the i386 path reads a struct flock_ (like F_*LK64).
+#define F_OFD_GETLK_ 36
+#define F_OFD_SETLK_ 37
+#define F_OFD_SETLKW_ 38
+
 #define F_DUPFD_CLOEXEC_ 1030
 #define CLOSE_RANGE_UNSHARE_ (1U << 1)
 #define CLOSE_RANGE_CLOEXEC_ (1U << 2)
@@ -446,7 +460,7 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
                 flock.start = flock64.start;
                 flock.len = flock64.len;
                 flock.pid = flock64.pid;
-                ret = fcntl_getlk(fd, &flock);
+                ret = fcntl_getlk(fd, &flock, false);
                 // ret is unsigned (dword_t); fcntl_getlk returns a signed int
                 // that is negative on error, so test the sign rather than
                 // ret >= 0 (always true for an unsigned).
@@ -469,7 +483,7 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
                 flock.start = flock32.start;
                 flock.len = flock32.len;
                 flock.pid = flock32.pid;
-                ret = fcntl_getlk(fd, &flock);
+                ret = fcntl_getlk(fd, &flock, false);
                 if ((sdword_t) ret >= 0) {
                     flock32.type = flock.type;
                     flock32.whence = flock.whence;
@@ -487,7 +501,7 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
             if (user_read(arg, &flock, sizeof(flock)))
                 ret = _EFAULT;
             else {
-                ret = fcntl_getlk(fd, &flock);
+                ret = fcntl_getlk(fd, &flock, false);
                 if ((sdword_t) ret >= 0)
                     if (user_write(arg, &flock, sizeof(flock)))
                         ret = _EFAULT;
@@ -510,7 +524,7 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
                 flock.start = flock64.start;
                 flock.len = flock64.len;
                 flock.pid = flock64.pid;
-                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_, false);
             } else {
                 if (user_read(arg, &flock32, sizeof(flock32))) {
                     ret = _EFAULT;
@@ -521,7 +535,7 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
                 flock.start = flock32.start;
                 flock.len = flock32.len;
                 flock.pid = flock32.pid;
-                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_, false);
             }
             break;
 
@@ -536,7 +550,67 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
             if (user_read(arg, &flock, sizeof(flock)))
                 ret = _EFAULT;
             else
-                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW64_);
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW64_, false);
+            break;
+
+        case F_OFD_GETLK_:
+            STRACE("fcntl(%d, F_OFD_GETLK, %#x)", f, arg);
+            if (guest64_locks) {
+                struct flock_amd64 flock64;
+                if (user_read(arg, &flock64, sizeof(flock64))) {
+                    ret = _EFAULT;
+                    break;
+                }
+                flock.type = flock64.type;
+                flock.whence = flock64.whence;
+                flock.start = flock64.start;
+                flock.len = flock64.len;
+                flock.pid = flock64.pid;
+                ret = fcntl_getlk(fd, &flock, true);
+                if ((sdword_t) ret >= 0) {
+                    flock64.type = flock.type;
+                    flock64.whence = flock.whence;
+                    flock64.start = flock.start;
+                    flock64.len = flock.len;
+                    flock64.pid = flock.pid;
+                    if (user_write(arg, &flock64, sizeof(flock64)))
+                        ret = _EFAULT;
+                }
+            } else {
+                // i386: OFD locks arrive via fcntl64 with the 64-bit struct flock.
+                if (user_read(arg, &flock, sizeof(flock))) {
+                    ret = _EFAULT;
+                    break;
+                }
+                ret = fcntl_getlk(fd, &flock, true);
+                if ((sdword_t) ret >= 0)
+                    if (user_write(arg, &flock, sizeof(flock)))
+                        ret = _EFAULT;
+            }
+            break;
+
+        case F_OFD_SETLK_:
+        case F_OFD_SETLKW_:
+            STRACE("fcntl(%d, F_OFD_SETLK%*s, %#x)", f, cmd == F_OFD_SETLKW_, "W", arg);
+            if (guest64_locks) {
+                struct flock_amd64 flock64;
+                if (user_read(arg, &flock64, sizeof(flock64))) {
+                    ret = _EFAULT;
+                    break;
+                }
+                flock.type = flock64.type;
+                flock.whence = flock64.whence;
+                flock.start = flock64.start;
+                flock.len = flock64.len;
+                flock.pid = flock64.pid;
+                ret = fcntl_setlk(fd, &flock, cmd == F_OFD_SETLKW_, true);
+            } else {
+                if (user_read(arg, &flock, sizeof(flock))) {
+                    ret = _EFAULT;
+                    break;
+                }
+                ret = fcntl_setlk(fd, &flock, cmd == F_OFD_SETLKW_, true);
+            }
             break;
 
         default:
@@ -569,6 +643,11 @@ dword_t sys_fcntl32(fd_t fd, dword_t cmd, dword_t arg) {
         case F_GETLK64_:
         case F_SETLK64_:
         case F_SETLKW64_:
+        // OFD locks use the 64-bit struct flock here; on i386 glibc/musl always
+        // route them through fcntl64, never the legacy 32-bit fcntl syscall.
+        case F_OFD_GETLK_:
+        case F_OFD_SETLK_:
+        case F_OFD_SETLKW_:
             return _EINVAL;
     }
     return sys_fcntl(fd, cmd, arg);

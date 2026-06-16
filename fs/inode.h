@@ -88,9 +88,10 @@ struct flock_amd64 {
     pid_t_ pid;
 } __attribute__((packed));
 
-int fcntl_getlk(struct fd *fd, struct flock_ *flock);
+// ofd selects an open-file-description lock (F_OFD_*) over a process POSIX lock
+int fcntl_getlk(struct fd *fd, struct flock_ *flock, bool ofd);
 // cmd should be either F_SETLK or F_SETLKW
-int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool block);
+int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool block, bool ofd);
 int flock_lock(struct fd *fd, int operation);
 
 // locks the inode internally

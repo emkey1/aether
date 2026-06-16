@@ -155,5 +155,7 @@ int main(int argc, char **argv) {
     printf("%s (%d failure%s)\n",
            fails ? "FCNTL LOCK TEST FAILED" : "FCNTL LOCK TEST PASSED",
            fails, fails == 1 ? "" : "s");
+    // Marker consumed by setup-regressions.sh (grep '^fcntl_lock: PASS$').
+    printf("fcntl_lock: %s\n", fails ? "FAIL" : "PASS");
     return fails ? 1 : 0;
 }

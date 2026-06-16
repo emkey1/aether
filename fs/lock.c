@@ -147,7 +147,7 @@ static int file_lock_acquire(struct inode_data *inode, struct file_lock *request
 
 #define OFF_T_MAX ~(1l << (sizeof(off_t) * 8 - 1))
 
-static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file_lock *lock) {
+static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file_lock *lock, bool ofd) {
     off_t_ offset;
     switch (flock->whence) {
         case LSEEK_SET:
@@ -184,8 +184,21 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
         lock->end = OFF_T_MAX;
     }
     lock->type = flock->type;
-    lock->owner = current->files;
-    lock->pid = current->pid;
+    if (ofd) {
+        // Open file description lock (F_OFD_*): owned by the open file
+        // description (the struct fd), not the process. dup()/fork() share the
+        // same struct fd, so the lock is shared across them -- matching OFD
+        // semantics -- while a separate open() gets a distinct owner and thus
+        // conflicts. The owner is a struct fd* here vs a struct fdtable* for
+        // process POSIX locks, so the two never alias and correctly conflict
+        // with each other even within one process. OFD locks are not owned by
+        // any process, so l_pid is reported as -1 (per fcntl(2)).
+        lock->owner = fd;
+        lock->pid = -1;
+    } else {
+        lock->owner = current->files;
+        lock->pid = current->pid;
+    }
     strncpy(lock->comm, current->comm, 16);
     return 0;
 }
@@ -203,14 +216,14 @@ static int flock_from_file_lock(struct file_lock *lock, struct flock_ *flock) {
     return 0;
 }
 
-int fcntl_getlk(struct fd *fd, struct flock_ *flock) {
+int fcntl_getlk(struct fd *fd, struct flock_ *flock, bool ofd) {
     if (flock->type != F_RDLCK_ && flock->type != F_WRLCK_)
         return _EINVAL;
     struct inode_data *inode = fd->inode;
     lock(&inode->lock, 0);
 
     struct file_lock request;
-    int err = file_lock_from_flock(fd, flock, &request);
+    int err = file_lock_from_flock(fd, flock, &request, ofd);
     if (err < 0)
         goto out;
     struct file_lock *lock = file_lock_test(inode, &request);
@@ -224,7 +237,7 @@ out:
     return err;
 }
 
-int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
+int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking, bool ofd) {
     if (flock->type != F_RDLCK_ && flock->type != F_WRLCK_ && flock->type != F_UNLCK_)
         return _EINVAL;
     int fd_mode = fd_getflags(fd) & O_ACCMODE_;
@@ -237,7 +250,7 @@ int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking) {
     lock(&inode->lock, 0);
 
     struct file_lock request;
-    int err = file_lock_from_flock(fd, flock, &request);
+    int err = file_lock_from_flock(fd, flock, &request, ofd);
     if (err < 0)
         goto out;
     TASK_MAY_BLOCK {
