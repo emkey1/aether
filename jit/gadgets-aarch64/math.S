@@ -2779,3 +2779,139 @@ amd64_gen_opstore_logic opstore_logic64, 8, 64
     str  x11, [x13, x10, lsl 3]      /* write the full 64-bit register */
     gret 3
     amd64_vread_bullshit 4, movsxd_mem
+
+# amd64 load-op adc/sbb: reg <op>= [mem] + carry (ADC 0x13 / SBB 0x1b), mod!=3, 32/64.
+# reg=dst/lhs, [mem]=rhs, carry-in = CPU_cf. ARM adcs/sbcs do the carry arithmetic
+# directly: set the ARM C flag from cf (cmp cf,1 => C=cf for adc; subs xzr,xzr,cf =>
+# C=!cf for sbb, since ARM SBC uses C as "no borrow"), then adcs/sbcs sets the result
+# + C (=x86 CF for adc, =!borrow for sbb) + V (=x86 OF). AF/ZF/SF/PF via
+# amd64_cached_set_addsub_flags, but the interp computes AF from rhs_with_carry
+# (rhs+cf), so x10 is set to rhs+cf before the macro (the macro uses x10 only for AF).
+.macro amd64_gen_loadop_addc name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vbytes, \name  /* x9 = host addr of the rhs */
+.if \vbytes == 4
+    ldr  w11, [x9]                   /* rhs = [mem] (32-bit) */
+.else
+    ldr  x11, [x9]                   /* rhs = [mem] (64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x8, x10, 8, 4               /* x8 = dst reg id */
+    add  x12, _cpu, CPU_amd64_regs
+    ldr  x13, [x12, x8, lsl 3]       /* x13 = lhs = dst reg value */
+    mov  x10, x11                    /* x10 = rhs */
+    ldrb w12, [_cpu, CPU_cf]         /* x12 = carry-in (0/1) */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    cmp  x9, 0x18
+    b.hs 1f                          /* SBB (0x1b) */
+    cmp  x12, 1                      /* ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs                     /* CF */
+    cset w16, vs                     /* OF */
+    b    2f
+1:  subs xzr, xzr, x12               /* ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc                     /* CF (borrow) */
+    cset w16, vs                     /* OF */
+2:  add  x10, x10, x12               /* x10 = rhs + cf = rhs_with_carry (for AF) */
+.if \vbytes == 4
+    mov  w10, w10
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    add  x12, _cpu, CPU_amd64_regs
+.if \vbytes == 4
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x8, lsl 3]
+.else
+    str  x15, [x12, x8, lsl 3]
+.endif
+    gret 3
+    amd64_vread_bullshit \vbytes, \name
+.endm
+
+amd64_gen_loadop_addc loadop_addc32, 4, 31
+amd64_gen_loadop_addc loadop_addc64, 8, 63
+
+# amd64 op-store/RMW adc/sbb: [mem] <op>= reg + carry (ADC 0x11 / SBB 0x19), mod!=3,
+# 32/64. Same carry handling as loadop_addc but [mem] is lhs+dest (RMW): guest addr in
+# x0 across both preps, result -> x10 before the store. carry-in read after the read
+# prep; flags (incl. the new CF) written before the store.
+.macro amd64_gen_opstore_addc name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives read prep) */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x12, x10, 8, 4              /* x12 = reg id (rhs) */
+    add  x11, _cpu, CPU_amd64_regs
+    ldr  x10, [x11, x12, lsl 3]      /* x10 = rhs = reg value */
+    ldrb w12, [_cpu, CPU_cf]         /* x12 = carry-in (0/1) */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    cmp  x9, 0x18
+    b.hs 1f                          /* SBB (0x19) */
+    cmp  x12, 1                      /* ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs xzr, xzr, x12               /* ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc
+    cset w16, vs
+2:  add  x10, x10, x12               /* rhs_with_carry for AF */
+.if \vbytes == 4
+    mov  w10, w10
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+    gret 3
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_opstore_addc opstore_addc32, 4, 31
+amd64_gen_opstore_addc opstore_addc64, 8, 63
