@@ -1825,6 +1825,31 @@ static dword_t sys_fchownat_common(fd_t at_f, guest_addr_t path_addr, dword_t ow
         return _EBADF;
     int err;
     bool follow_links = flags & AT_SYMLINK_NOFOLLOW_ ? false : true;
+
+    // AT_EMPTY_PATH: an empty pathname operates on the at fd itself -- the
+    // fchownat(fd, "", ..., AT_EMPTY_PATH) idiom glibc/systemd use as
+    // fchown-by-fd (AT_FDCWD means the current directory). Without this the
+    // empty path is resolved relative to `at` and returns ENOENT, which broke
+    // systemd-sysusers copying /etc/gshadow's permissions onto its temp file
+    // (openssh-server / polkitd user creation). Mirrors sys_fchmodat_common.
+    if (path[0] == '\0') {
+        if (!(flags & AT_EMPTY_PATH_))
+            return _ENOENT;
+        if (owner != (uid_t) -1) {
+            err = at_f == AT_FDCWD_ ? generic_setattrat(AT_PWD, ".", make_attr(uid, owner), true)
+                                    : generic_fsetattr(at, make_attr(uid, owner));
+            if (err < 0)
+                return err;
+        }
+        if (group != (uid_t) -1) {
+            err = at_f == AT_FDCWD_ ? generic_setattrat(AT_PWD, ".", make_attr(gid, group), true)
+                                    : generic_fsetattr(at, make_attr(gid, group));
+            if (err < 0)
+                return err;
+        }
+        return 0;
+    }
+
     if (owner != (uid_t) -1) {
         err = generic_setattrat(at, path, make_attr(uid, owner), follow_links);
         if (err < 0)
