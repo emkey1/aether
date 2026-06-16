@@ -212,6 +212,74 @@
 .gadget_list skip, COND_LIST
 .gadget_list skipn, COND_LIST
 
+# All-eager condition check for amd64. amd64 arith/logic gadgets compute flags
+# eagerly into eflags (ZF=bit6, SF=bit7, PF=bit2) plus the CPU_cf/CPU_of bytes,
+# and do NOT maintain CPU_res -- so unlike i386 do_jump we must never read
+# CPU_res. (do_jump's sxo/sxoz read CPU_res directly with no eager path, which is
+# stale garbage on amd64.) Branches to \target if the COND_LIST condition holds.
+.macro amd64_do_jump cond, target
+    .ifc \cond,o
+        ldrb w8, [_cpu, CPU_of]
+        cbnz w8, \target
+    .endif
+    .ifc \cond,c
+        ldrb w8, [_cpu, CPU_cf]
+        cbnz w8, \target
+    .endif
+    .ifc \cond,z
+        ldr w8, [_cpu, CPU_eflags]
+        tbnz w8, 6, \target
+    .endif
+    .ifc \cond,cz
+        ldrb w8, [_cpu, CPU_cf]
+        cbnz w8, \target
+        ldr w8, [_cpu, CPU_eflags]
+        tbnz w8, 6, \target
+    .endif
+    .ifc \cond,s
+        ldr w8, [_cpu, CPU_eflags]
+        tbnz w8, 7, \target
+    .endif
+    .ifc \cond,p
+        ldr w8, [_cpu, CPU_eflags]
+        tbnz w8, 2, \target
+    .endif
+    .ifc \cond,sxo
+        ldr w8, [_cpu, CPU_eflags]
+        ubfx w8, w8, 7, 1
+        ldrb w9, [_cpu, CPU_of]
+        cmp w8, w9
+        b.ne \target
+    .endif
+    .ifc \cond,sxoz
+        ldr w8, [_cpu, CPU_eflags]
+        tbnz w8, 6, \target
+        ubfx w8, w8, 7, 1
+        ldrb w9, [_cpu, CPU_of]
+        cmp w8, w9
+        b.ne \target
+    .endif
+.endm
+
+# amd64 conditional jumps (0x70-0x7f, 0x0f 80-8f). The target is a 64-bit guest
+# rip, so set CPU_amd64_rip/CPU_eip and exit to the main loop (no static link --
+# same as the bridge, minus the gadget->C->gadget round-trip). gen.c emits
+# operand 0 = taken target, operand 1 = else (swapped for negated condition
+# codes). Uses only label 1.
+.irp cond, COND_LIST
+    .gadget amd64_jcc_\cond
+        amd64_do_jump \cond, 1f
+        ldr x10, [_ip, 8]
+        str x10, [_cpu, CPU_amd64_rip]
+        str w10, [_cpu, CPU_eip]
+        b jit_ret
+    1:
+        ldr x10, [_ip]
+        str x10, [_cpu, CPU_amd64_rip]
+        str w10, [_cpu, CPU_eip]
+        b jit_ret
+.endr
+
 .gadget pushf
     save_c
     mov x0, _cpu

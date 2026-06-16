@@ -375,6 +375,31 @@ static void gen_amd64_jmp_rel(struct gen_state *state, guest_addr_t target_ip) {
     state->jump_ip[0] = state->size - 1;
 }
 
+// Emit a native amd64 conditional jump. The 16 x86 condition codes map onto the
+// 8 do_jump base conditions (base = cc>>1) plus a swap of the two targets for the
+// negated (odd) codes. The gadget evaluates the condition from the eager eflags,
+// sets CPU_amd64_rip to the taken-or-else target, and exits the block (the main
+// loop resolves the dynamic target, exactly as the bridge did but without the
+// gadget->C->gadget round-trip). flush + invalidate the deferred rip like
+// gen_amd64_jmp_rel; the gadget writes rip itself, so no static link.
+static void gen_amd64_jcc(struct gen_state *state, unsigned cc,
+        guest_addr_t target_ip, guest_addr_t next_ip) {
+    extern void gadget_amd64_jcc_o(void), gadget_amd64_jcc_c(void),
+            gadget_amd64_jcc_z(void), gadget_amd64_jcc_cz(void),
+            gadget_amd64_jcc_s(void), gadget_amd64_jcc_p(void),
+            gadget_amd64_jcc_sxo(void), gadget_amd64_jcc_sxoz(void);
+    static void (* const gadgets[8])(void) = {
+        gadget_amd64_jcc_o, gadget_amd64_jcc_c, gadget_amd64_jcc_z, gadget_amd64_jcc_cz,
+        gadget_amd64_jcc_s, gadget_amd64_jcc_p, gadget_amd64_jcc_sxo, gadget_amd64_jcc_sxoz,
+    };
+    bool swap = cc & 1;
+    gen_amd64_flush_reg_cache(state);
+    state->amd64_deferred_rip_valid = false;
+    gen(state, (unsigned long) gadgets[(cc >> 1) & 7]);
+    gen(state, (unsigned long) (swap ? next_ip : target_ip));   // operand 0: taken
+    gen(state, (unsigned long) (swap ? target_ip : next_ip));   // operand 1: else
+}
+
 __attribute__((unused)) static bool amd64_jit_low8_reg(unsigned reg) {
     return reg < 8;
 }
@@ -869,16 +894,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel8);
         target_ip = next_ip + rel8;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("jcc-rel8-helper ip=%llx cc=%u target=%llx next=%llx",
+        amd64_jit_debug("jcc-rel8 ip=%llx cc=%u target=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned) (insn.opcode & 0xf),
                 (unsigned long long) target_ip,
                 (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_3_retint(state, amd64_jit_jcc_abs,
-                (unsigned long) (insn.opcode & 0xf),
-                (unsigned long) target_ip,
-                (unsigned long) next_ip);
-        gen_exit(state);
+        gen_amd64_jcc(state, insn.opcode & 0xf, target_ip, next_ip);
         return false;
     }
 
@@ -892,16 +913,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel32);
         target_ip = next_ip + rel32;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("jcc-rel32-helper ip=%llx cc=%u target=%llx next=%llx",
+        amd64_jit_debug("jcc-rel32 ip=%llx cc=%u target=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned) (insn.op2 & 0xf),
                 (unsigned long long) target_ip,
                 (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_3_retint(state, amd64_jit_jcc_abs,
-                (unsigned long) (insn.op2 & 0xf),
-                (unsigned long) target_ip,
-                (unsigned long) next_ip);
-        gen_exit(state);
+        gen_amd64_jcc(state, insn.op2 & 0xf, target_ip, next_ip);
         return false;
     }
 
