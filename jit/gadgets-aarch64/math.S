@@ -2303,3 +2303,22 @@ amd64_vmem_segfault_write:
     str  x11, [x14, 5*8]             /* regs[rbp] = popped value */
     gret 0
     amd64_vread_bullshit 8, leave
+
+# amd64 ret (0xc3): pop the 64-bit return address into RIP and exit the block;
+# the main loop then finds/runs the target block (indirect target, so no static
+# link). Saves the gadget->C->gadget round-trip the bridge paid. A page fault on
+# the stack read re-executes the ret (rip flushed). RSP is committed only after
+# the read succeeds. No operands; ends the block via jit_ret (no gret).
+.gadget amd64_ret
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x9, [x14, 4*8]               /* x9 = RSP = read address */
+    amd64_vread_prep 8, ret
+    ldr  x10, [x9]                    /* x10 = return address (popped) */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]
+    add  x8, x8, 8
+    str  x8, [x14, 4*8]              /* RSP += 8 */
+    str  x10, [_cpu, CPU_amd64_rip]  /* rip = target */
+    str  w10, [_cpu, CPU_eip]        /* mirror low 32 bits, as amd64_jmp does */
+    b    jit_ret
+    amd64_vread_bullshit 8, ret

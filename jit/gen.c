@@ -746,10 +746,15 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         (insn.rep_mode != amd64_jit_rep_none ? 0x40 : 0);
 
     if (amd64_jit_one_byte_ret_prefixes(&insn) && insn.opcode == 0xc3) {
-        amd64_jit_debug("ret-helper ip=%llx",
+        amd64_jit_debug("ret ip=%llx",
                 (unsigned long long) insn.start_ip);
-        gen_amd64_helper_tlb_0_retint(state, amd64_jit_ret);
-        gen_exit(state);
+        // Native ret: pop the return address into rip and exit the block. The
+        // gadget branches to jit_ret itself (indirect target -> no static link),
+        // so no gen_exit. rip flushed so a #PF on the stack read re-executes.
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_ret(void);
+        gen(state, (unsigned long) gadget_amd64_ret);
         return false;
     }
 
