@@ -2465,3 +2465,51 @@ amd64_gen_mov_load  mov_load64,  8
 amd64_gen_mov_store mov_store16, 2
 amd64_gen_mov_store mov_store32, 4
 amd64_gen_mov_store mov_store64, 8
+
+# amd64 MOV reg8<-[mem] (0x8a), mod!=3: load one byte into the modrm.reg byte
+# register. Byte registers alias: without REX, reg 4-7 are AH/CH/DH/BH = the HIGH
+# byte (bits 8-15) of regs[reg-4]; otherwise the low byte of regs[reg]. Computing a
+# BYTE POINTER up front (&regs[reg], or &regs[reg-4]+1 for the high-byte case) makes
+# a single strb handle both. The byte ptr is held in x10 across the prep (only x10
+# survives a slow-path bl). meta bit34 = REX_PRESENT. Cache+rip flushed by gen.c.
+.gadget amd64_mov_load8
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x12, x8, 8, 4               /* reg id */
+    add  x10, _cpu, CPU_amd64_regs
+    add  x10, x10, x12, lsl 3        /* &regs[reg] (low-byte address) */
+    tbnz x8, 34, 1f                  /* REX present -> low byte */
+    cmp  x12, 4
+    b.lo 1f                          /* reg 0-3 -> low byte */
+    sub  x10, x10, 4*8               /* reg 4-7, no REX: &regs[reg-4]... */
+    add  x10, x10, 1                 /* ...+1 = AH/CH/DH/BH high byte */
+1:
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 1, mov_load8    /* x9 = host addr of the source byte */
+    ldrb w11, [x9]
+    strb w11, [x10]                  /* write the byte (low or high), preserve rest */
+    gret 3
+    amd64_vread_bullshit 1, mov_load8
+
+# amd64 MOV [mem]<-reg8 (0x88), mod!=3: store one byte from the modrm.reg byte
+# register (AH/CH/DH/BH high-byte aliasing as above). The source byte is read through
+# the same byte pointer into x10 (survives the vwrite_prep), then stored.
+.gadget amd64_mov_store8
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x12, x8, 8, 4               /* reg id */
+    add  x11, _cpu, CPU_amd64_regs
+    add  x11, x11, x12, lsl 3        /* &regs[reg] (low-byte address) */
+    tbnz x8, 34, 1f
+    cmp  x12, 4
+    b.lo 1f
+    sub  x11, x11, 4*8
+    add  x11, x11, 1                 /* AH/CH/DH/BH high byte */
+1:
+    ldrb w10, [x11]                  /* x10 = source byte (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vwrite_prep 1, mov_store8  /* x9 = host write addr */
+    strb w10, [x9]
+    amd64_vwrite_done 1, mov_store8
+    gret 3
+    amd64_vwrite_bullshit 1, mov_store8
