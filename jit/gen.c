@@ -1079,9 +1079,74 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.opcode == 0x3c || insn.opcode == 0x3d ||
              insn.opcode == 0xa8 || insn.opcode == 0xa9)) {
         bool imm8 = (insn.opcode & 1) == 0;
-        next_ip = state->amd64_ip + (imm8
-                ? sizeof(uint8_t)
-                : (insn.operand_size_prefix ? sizeof(uint16_t) : sizeof(uint32_t)));
+        bool is_test = insn.opcode == 0xa8 || insn.opcode == 0xa9;
+        unsigned size = imm8 ? 8 : (insn.operand_size_prefix ? 16 : (insn.rex.w ? 64 : 32));
+        // x86 ALU op from the opcode (0=add,1=or,2=adc,3=sbb,4=and,5=sub,6=xor,7=cmp)
+        unsigned op = is_test ? 0 : ((insn.opcode >> 3) & 7);
+        guest_addr_t imm_ip = state->amd64_ip;
+        unsigned long value;
+        if (imm8) {
+            int8_t i;
+            if (!tlb_read(tlb, imm_ip, &i, sizeof(i))) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            value = (unsigned long) (qword_t) (sqword_t) i;
+            next_ip = imm_ip + sizeof(i);
+        } else if (size == 16) {
+            uint16_t i;
+            if (!tlb_read(tlb, imm_ip, &i, sizeof(i))) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            value = (unsigned long) i;
+            next_ip = imm_ip + sizeof(i);
+        } else {
+            int32_t i;
+            if (!tlb_read(tlb, imm_ip, &i, sizeof(i))) {
+                state->amd64_ip = state->amd64_orig_ip;
+                state->amd64_fallback_to_interp = true;
+                return false;
+            }
+            value = (unsigned long) (qword_t) (sqword_t) i;
+            next_ip = imm_ip + sizeof(i);
+        }
+#if defined(__aarch64__)
+        // Route 32/64-bit add/sub/cmp and and/or/xor (on the accumulator, reg 0)
+        // to the same validated cached reg-imm gadgets the modrm 80/81/83 path
+        // uses, eliminating the amd64_jit_accum_imm_op bridge + its re-decode.
+        // adc/sbb (carry-in), 8/16-bit, and test keep bridging.
+        if ((size == 32 || size == 64) && !is_test) {
+            bool route_arith = (op == 0 || op == 5 || op == 7);
+            bool route_logic = (op == 1 || op == 4 || op == 6);
+            if (route_arith || route_logic) {
+                unsigned long packed = (unsigned long) insn.opcode |
+                    ((unsigned long) op << 8) |
+                    (0ul << 12) |
+                    ((unsigned long) size << 16);
+                if (insn.rex.present)
+                    packed |= 1ul << 24;
+                state->amd64_ip = next_ip;
+                amd64_jit_debug("accum-imm-direct ip=%llx opcode=%02x op=%u size=%u value=%llx next=%llx",
+                        (unsigned long long) insn.start_ip, insn.opcode, op, size,
+                        (unsigned long long) value, (unsigned long long) next_ip);
+                extern void gadget_amd64_cached_arith_reg_imm(void);
+                extern void gadget_amd64_cached_logic_reg_imm(void);
+                gen_amd64_ensure_reg_cache(state);
+                gen(state, (unsigned long) (route_logic
+                            ? (void (*)(void)) gadget_amd64_cached_logic_reg_imm
+                            : (void (*)(void)) gadget_amd64_cached_arith_reg_imm));
+                gen(state, packed);
+                gen(state, value);
+                if (op != 7) // cmp does not write back
+                    gen_amd64_mark_reg_cache_dirty(state);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+        }
+#endif
         state->amd64_ip = next_ip;
         amd64_jit_debug("accum-imm-helper ip=%llx opcode=%02x next=%llx",
                 (unsigned long long) insn.start_ip,
