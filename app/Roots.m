@@ -35,6 +35,10 @@ static NSURL *RootsDir(void) {
 }
 
 static NSString *kDefaultRoot = @"Default Root";
+// A single file-provider domain hosts every installed root as a folder, instead
+// of registering one domain per root (which spammed the Files sidebar). Must
+// stay in sync with the displayName shown in Files and the deep-link path.
+static NSString *const kISHFileProviderDomainIdentifier = @"iSH-AOK";
 static NSString *const kBundledRootIdentifierKey = @"identifier";
 static NSString *const kBundledRootDisplayNameKey = @"displayName";
 static NSString *const kBundledRootArchiveNameKey = @"archiveName";
@@ -164,8 +168,7 @@ static BOOL EstimateArchiveExtractionRequirement(NSURL *archiveURL, long long *r
         }
         return NO;
     }
-    archive_read_support_filter_gzip(archive);
-    archive_read_support_filter_bzip2(archive);
+    archive_read_support_filter_all(archive); // gzip, bzip2, xz, zstd, ... (match fakefs_import)
     archive_read_support_format_tar(archive);
     if (archive_read_open_filename(archive, archiveURL.fileSystemRepresentation, 65536) != ARCHIVE_OK) {
         if (error != NULL) {
@@ -182,22 +185,27 @@ static BOOL EstimateArchiveExtractionRequirement(NSURL *archiveURL, long long *r
     long long entryCount = 0;
     struct archive_entry *entry = NULL;
     int err = ARCHIVE_OK;
-    while ((err = archive_read_next_header(archive, &entry)) == ARCHIVE_OK) {
+    while (true) {
+        err = archive_read_next_header(archive, &entry);
+        if (err == ARCHIVE_EOF)
+            break;
+        // ARCHIVE_WARN is non-fatal (e.g. a UTF-8 link path that can't also be
+        // rendered in the process locale); keep estimating. Only hard errors abort.
+        if (err != ARCHIVE_OK && err != ARCHIVE_WARN) {
+            if (error != NULL) {
+                *error = [NSError errorWithDomain:@"libarchive"
+                                             code:archive_errno(archive)
+                                         userInfo:@{NSLocalizedDescriptionKey:
+                                                        @"The filesystem archive could not be read."}];
+            }
+            archive_read_free(archive);
+            return NO;
+        }
         entryCount++;
         la_int64_t entrySize = archive_entry_size(entry);
         if (entrySize > 0)
             payloadBytes += entrySize;
         archive_read_data_skip(archive);
-    }
-    if (err != ARCHIVE_EOF) {
-        if (error != NULL) {
-            *error = [NSError errorWithDomain:@"libarchive"
-                                         code:archive_errno(archive)
-                                     userInfo:@{NSLocalizedDescriptionKey:
-                                                    @"The filesystem archive could not be read."}];
-        }
-        archive_read_free(archive);
-        return NO;
     }
     archive_read_free(archive);
 
@@ -373,6 +381,51 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     return nil;
 }
 
+- (NSArray<NSURL *> *)cachedRootArchiveURLs {
+    // /AOK/persist is a single shared real-fs mount — the AppGroup container's
+    // AOK/persist directory (see AOKPersistDirectoryURL / the do_mount in
+    // AppDelegate). It is the same regardless of which root is booted and is NOT
+    // inside any root's fakefs data dir (that's just an empty mount point), so we
+    // scan the shared host directory directly.
+    NSURL *container = ContainerURL();
+    if (container == nil)
+        return @[];
+    NSURL *cacheDir = [[[container URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+                        URLByAppendingPathComponent:@"persist" isDirectory:YES]
+                       URLByAppendingPathComponent:@"roots" isDirectory:YES];
+    NSArray<NSURL *> *entries = [NSFileManager.defaultManager
+        contentsOfDirectoryAtURL:cacheDir
+      includingPropertiesForKeys:@[NSURLIsRegularFileKey, NSURLFileSizeKey]
+                         options:NSDirectoryEnumerationSkipsHiddenFiles
+                           error:nil];
+
+    static NSArray<NSString *> *suffixes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        suffixes = @[@".tar", @".tar.gz", @".tgz", @".tar.bz2", @".tbz", @".tbz2",
+                     @".tar.xz", @".txz", @".tar.zst", @".tzst", @".tar.lz", @".tar.lzma"];
+    });
+
+    NSMutableArray<NSURL *> *archives = [NSMutableArray array];
+    for (NSURL *entry in entries) {
+        NSNumber *isRegular = nil;
+        [entry getResourceValue:&isRegular forKey:NSURLIsRegularFileKey error:nil];
+        if (!isRegular.boolValue)
+            continue;
+        NSString *lower = entry.lastPathComponent.lowercaseString;
+        for (NSString *suffix in suffixes) {
+            if ([lower hasSuffix:suffix]) {
+                [archives addObject:entry];
+                break;
+            }
+        }
+    }
+    [archives sortUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+        return [a.lastPathComponent localizedStandardCompare:b.lastPathComponent];
+    }];
+    return archives;
+}
+
 - (void)syncFileProviderDomains {
     [self requestFileProviderDomainSync];
 }
@@ -416,24 +469,50 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
                 NSLog(@"error adjusting domains: %@", error);
         };
         onError(error);
-        NSMutableOrderedSet<NSString *> *missingRoots = [NSMutableOrderedSet orderedSetWithArray:rootsSnapshot ?: @[]];
+        NSLog(@"syncing the iSH-AOK file provider domain for %lu root(s)", (unsigned long) rootsSnapshot.count);
+
+        // Tell Files to re-list the roots (the domain root container) whenever the
+        // set of installed roots changes.
+        void (^signalRoots)(NSFileProviderDomain *) = ^(NSFileProviderDomain *domain) {
+            if (domain == nil)
+                return;
+            NSFileProviderManager *manager = [NSFileProviderManager managerForDomain:domain];
+            [manager signalEnumeratorForContainerItemIdentifier:NSFileProviderRootContainerItemIdentifier
+                                              completionHandler:^(NSError *signalError) {
+                if (signalError != nil)
+                    NSLog(@"error signaling root enumerator: %@", signalError);
+            }];
+        };
+
+        // Keep exactly one domain ("iSH-AOK"); remove everything else, including
+        // the legacy one-domain-per-root entries from older builds.
+        NSFileProviderDomain *ourDomain = nil;
         for (NSFileProviderDomain *domain in domains) {
-            if ([missingRoots containsObject:domain.identifier]) {
-                [missingRoots removeObject:domain.identifier];
-            } else {
-                [NSFileManager.defaultManager removeItemAtURL:
-                 [NSFileProviderManager.defaultManager.documentStorageURL
-                  URLByAppendingPathComponent:domain.pathRelativeToDocumentStorage]
-                                                        error:nil];
-                [NSFileProviderManager removeDomain:domain completionHandler:onError];
+            if (ourDomain == nil && [domain.identifier isEqualToString:kISHFileProviderDomainIdentifier]) {
+                ourDomain = domain;
+                continue;
             }
+            [NSFileManager.defaultManager removeItemAtURL:
+             [NSFileProviderManager.defaultManager.documentStorageURL
+              URLByAppendingPathComponent:domain.pathRelativeToDocumentStorage]
+                                                    error:nil];
+            [NSFileProviderManager removeDomain:domain completionHandler:onError];
         }
-        for (NSString *rootId in missingRoots) {
-            [NSFileProviderManager addDomain:[[NSFileProviderDomain alloc] initWithIdentifier:rootId
-                                                                                  displayName:rootId
-                                                                pathRelativeToDocumentStorage:rootId]
-                           completionHandler:onError];
+
+        if (ourDomain == nil) {
+            NSFileProviderDomain *domain = [[NSFileProviderDomain alloc]
+                       initWithIdentifier:kISHFileProviderDomainIdentifier
+                              displayName:kISHFileProviderDomainIdentifier
+            pathRelativeToDocumentStorage:kISHFileProviderDomainIdentifier];
+            [NSFileProviderManager addDomain:domain completionHandler:^(NSError *addError) {
+                onError(addError);
+                if (addError == nil)
+                    signalRoots(domain);
+            }];
+        } else {
+            signalRoots(ourDomain);
         }
+
         BOOL shouldResync = NO;
         @synchronized (self) {
             shouldResync = self.domainsNeedUpdate ||
@@ -519,6 +598,9 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     NSURL *tempDestination = [temporaryDirectory URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
     if (tempDestination == nil)
         return NO;
+    // libarchive (used by the preflight below and by fakefs_import) needs a UTF-8
+    // LC_CTYPE to read Debian/Devuan tarballs whose entries carry UTF-8 link paths.
+    fakefs_ensure_utf8_locale();
     NSError *spaceError = nil;
     if (!RootsCheckAvailableSpaceForArchive(archive, temporaryDirectory, &spaceError)) {
         if (error != NULL)

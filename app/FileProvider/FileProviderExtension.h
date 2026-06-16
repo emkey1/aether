@@ -19,17 +19,23 @@ struct fakefs_mount {
 @interface ISHFileProviderMount : NSObject
 
 @property (nonatomic, readonly) struct fakefs_mount *mount;
-@property (nonatomic, readonly) NSString *domainIdentifier;
+// The installed root this mount is opened against. Also the name used for the
+// per-root app-group lock (category "root"), so it coordinates with the running
+// app's boot lock on the same root.
+@property (nonatomic, readonly) NSString *rootName;
 @property (nonatomic, readonly) NSURL *rootURL;
 @property (nonatomic, readonly) NSRecursiveLock *ioLock;
 
-- (nullable instancetype)initWithDomainIdentifier:(NSString *)domainIdentifier error:(NSError * _Nullable * _Nullable)error;
+- (nullable instancetype)initWithRootName:(NSString *)rootName error:(NSError * _Nullable * _Nullable)error;
 
 @end
 
 @interface FileProviderExtension : NSFileProviderExtension
 
-- (struct fakefs_mount *)mount;
+// Lazily opens (and caches) the fakefs mount for a single installed root.
+- (nullable ISHFileProviderMount *)mountForRootName:(NSString *)rootName error:(NSError * _Nullable * _Nullable)error;
+// The valid installed root names found in the shared app-group container.
+- (NSArray<NSString *> *)installedRootNames;
 
 @end
 

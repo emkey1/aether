@@ -122,10 +122,33 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     return fd;
 }
 
+// Lists the valid installed roots in the shared app-group container. Mirrors the
+// app-side RootURLLooksValid check (a "data" directory plus a "meta.db").
+static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
+    NSURL *rootsDir = [ContainerURL() URLByAppendingPathComponent:@"roots" isDirectory:YES];
+    if (rootsDir == nil)
+        return @[];
+    NSArray<NSURL *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtURL:rootsDir
+                                                            includingPropertiesForKeys:nil
+                                                                               options:0
+                                                                                 error:nil];
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    for (NSURL *entry in entries) {
+        NSURL *data = [entry URLByAppendingPathComponent:@"data" isDirectory:YES];
+        NSURL *meta = [entry URLByAppendingPathComponent:@"meta.db" isDirectory:NO];
+        BOOL isDir = NO;
+        if ([NSFileManager.defaultManager fileExistsAtPath:data.path isDirectory:&isDir] && isDir &&
+            [NSFileManager.defaultManager fileExistsAtPath:meta.path])
+            [names addObject:entry.lastPathComponent];
+    }
+    [names sortUsingSelector:@selector(localizedStandardCompare:)];
+    return names;
+}
+
 @interface ISHFileProviderMount ()
 
 @property (nonatomic) struct fakefs_mount storage;
-@property (nonatomic, readwrite) NSString *domainIdentifier;
+@property (nonatomic, readwrite) NSString *rootName;
 @property (nonatomic, readwrite) NSURL *rootURL;
 @property (nonatomic, readwrite) NSRecursiveLock *ioLock;
 
@@ -133,7 +156,7 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 @implementation ISHFileProviderMount
 
-- (nullable instancetype)initWithDomainIdentifier:(NSString *)domainIdentifier error:(NSError **)error {
+- (nullable instancetype)initWithRootName:(NSString *)rootName error:(NSError **)error {
     self = [super init];
     if (self == nil)
         return nil;
@@ -141,8 +164,8 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     _storage.root_fd = -1;
     NSURL *container = ContainerURL();
     NSURL *fs_dir = [[container URLByAppendingPathComponent:@"roots"]
-                     URLByAppendingPathComponent:domainIdentifier];
-    _domainIdentifier = [domainIdentifier copy];
+                     URLByAppendingPathComponent:rootName];
+    _rootName = [rootName copy];
     _rootURL = [fs_dir URLByAppendingPathComponent:@"data"];
     _ioLock = [[NSRecursiveLock alloc] init];
     _storage.source = strdup(_rootURL.fileSystemRepresentation);
@@ -193,65 +216,58 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 @interface FileProviderExtension () {
 }
-@property (nonatomic) ISHFileProviderMount *mountOwner;
+// One open fakefs mount per installed root, opened lazily. Replaces the old
+// single-mount-per-domain model now that one domain hosts every root.
+@property (nonatomic) NSMutableDictionary<NSString *, ISHFileProviderMount *> *mountsByRoot;
 @end
 
 @implementation FileProviderExtension
 
-- (struct fakefs_mount *)mount {
-    NSAssert(self.mountOwner != nil, @"");
-    return self.mountOwner.mount;
+- (nullable ISHFileProviderMount *)mountForRootName:(NSString *)rootName error:(NSError **)error {
+    if (rootName.length == 0) {
+        if (error != nil)
+            *error = [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil];
+        return nil;
+    }
+    @synchronized (self) {
+        if (self.mountsByRoot == nil)
+            self.mountsByRoot = [NSMutableDictionary dictionary];
+        ISHFileProviderMount *mountOwner = self.mountsByRoot[rootName];
+        if (mountOwner != nil)
+            return mountOwner;
+
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.begin", ISHFileProviderDetails(rootName));
+        NSTimeInterval start = NSDate.date.timeIntervalSinceReferenceDate;
+        mountOwner = [[ISHFileProviderMount alloc] initWithRootName:rootName error:error];
+        if (mountOwner == nil) {
+            NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(rootName);
+            details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
+            if (error != nil && *error != nil)
+                details[@"error"] = (*error).localizedDescription ?: @"unknown";
+            ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.failed", details);
+            return nil;
+        }
+        self.mountsByRoot[rootName] = mountOwner;
+        NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(rootName);
+        details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.end", details);
+        return mountOwner;
+    }
 }
 
-- (nullable ISHFileProviderMount *)getMountOwnerWithError:(NSError **)error {
-    NSString *domainIdentifier = self.domain.identifier ?: @"";
-    int rootLockFd = ISHFileProviderAcquireRootLock(domainIdentifier, NO);
-    ISHFileProviderMount *mountOwner = nil;
-    BOOL shouldCleanup = NO;
-    NSString *cleanupKey = ISHFileProviderCleanupDefaultsKey(domainIdentifier);
-    @try {
-        @synchronized (self) {
-            mountOwner = self.mountOwner;
-            if (mountOwner == nil) {
-                if (self.domain == nil) {
-                    if (error != nil)
-                        *error = [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNotAuthenticated userInfo:nil];
-                    return nil;
-                }
-                ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.begin",
-                                                ISHFileProviderDetails(domainIdentifier));
-                NSTimeInterval start = NSDate.date.timeIntervalSinceReferenceDate;
-                mountOwner = [[ISHFileProviderMount alloc] initWithDomainIdentifier:self.domain.identifier error:error];
-                if (mountOwner == nil) {
-                    NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(domainIdentifier);
-                    details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
-                    if (error != nil && *error != nil)
-                        details[@"error"] = (*error).localizedDescription ?: @"unknown";
-                    ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.failed", details);
-                    return nil;
-                }
-                self.mountOwner = mountOwner;
-                NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(domainIdentifier);
-                details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
-                ISHFileProviderRecordBreadcrumb(@"fileprovider.mount.create.end", details);
-            }
-        }
+- (NSArray<NSString *> *)installedRootNames {
+    return ISHFileProviderInstalledRootNames();
+}
 
-        // Keep the synchronized section and shared root lock small; cleanup can
-        // walk the filesystem and will take its own exclusive root lock.
-        NSDate *lastCleanup = [NSUserDefaults.standardUserDefaults objectForKey:cleanupKey];
-        lastCleanup = lastCleanup ? lastCleanup : NSDate.distantPast;
-        shouldCleanup = [NSDate.date timeIntervalSinceDate:lastCleanup] > 60 * 60 /* 1 hour */;
-    } @finally {
-        ISHAppGroupReleaseLock(rootLockFd);
-    }
-
-    if (shouldCleanup) {
-        [self cleanupStorage];
-        [NSUserDefaults.standardUserDefaults setObject:NSDate.date forKey:cleanupKey];
-    }
-
-    return mountOwner;
+// Periodically removes materialized files whose backing inode no longer exists.
+// Runs at most hourly; triggered when the domain root is enumerated.
+- (void)maybeCleanupStorage {
+    NSString *cleanupKey = ISHFileProviderCleanupDefaultsKey(@"all");
+    NSDate *lastCleanup = [NSUserDefaults.standardUserDefaults objectForKey:cleanupKey] ?: NSDate.distantPast;
+    if ([NSDate.date timeIntervalSinceDate:lastCleanup] <= 60 * 60 /* 1 hour */)
+        return;
+    [self cleanupStorage];
+    [NSUserDefaults.standardUserDefaults setObject:NSDate.date forKey:cleanupKey];
 }
 
 - (NSURL *)storageURL {
@@ -263,9 +279,14 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (nullable NSFileProviderItem)itemForIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError * _Nullable *)error {
     NSTimeInterval start = NSDate.date.timeIntervalSinceReferenceDate;
-    ISHFileProviderMount *mountOwner = [self getMountOwnerWithError:error];
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(identifier);
+    if (rootName == nil) {
+        // The domain root container: a synthetic folder listing the roots.
+        return [[FileProviderItem alloc] initWithIdentifier:NSFileProviderRootContainerItemIdentifier mountOwner:nil error:error];
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:error];
     if (mountOwner == nil) {
-        NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(self.domain.identifier);
+        NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(rootName);
         details[@"identifier"] = identifier ?: @"";
         details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
         if (error != nil && *error != nil)
@@ -273,15 +294,16 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
         ISHFileProviderRecordBreadcrumb(@"fileprovider.item.lookup.failed", details);
         return nil;
     }
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", NO);
+    NSFileProviderItemIdentifier inner = ISHFileProviderInnerIdentifier(identifier);
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, NO);
     @try {
         NSLog(@"item for id %@", identifier);
         NSError *err;
-        FileProviderItem *item = [[FileProviderItem alloc] initWithIdentifier:identifier mountOwner:mountOwner error:&err];
+        FileProviderItem *item = [[FileProviderItem alloc] initWithIdentifier:inner mountOwner:mountOwner error:&err];
         if (item == nil) {
             if (error != nil)
                 *error = err;
-            NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(self.domain.identifier);
+            NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(rootName);
             details[@"identifier"] = identifier ?: @"";
             details[@"duration_ms"] = ISHFileProviderDurationMilliseconds(start);
             details[@"error"] = err.localizedDescription ?: @"unknown";
@@ -290,7 +312,7 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
         }
         NSNumber *duration = ISHFileProviderDurationMilliseconds(start);
         if (duration.integerValue >= 200) {
-            NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(self.domain.identifier);
+            NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(rootName);
             details[@"identifier"] = identifier ?: @"";
             details[@"duration_ms"] = duration;
             ISHFileProviderRecordBreadcrumb(@"fileprovider.item.lookup.slow", details);
@@ -315,12 +337,13 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (nullable NSFileProviderItemIdentifier)persistentIdentifierForItemAtURL:(NSURL *)url {
     if ([url.URLByDeletingLastPathComponent isEqual:NSFileProviderManager.defaultManager.documentStorageURL]) {
-        NSAssert([self.domain.identifier isEqualToString:url.lastPathComponent], @"url isn't the same as our domain");
         return NSFileProviderRootContainerItemIdentifier;
     }
     NSString *identifier = url.pathComponents[url.pathComponents.count - 2];
-    if (identifier.longLongValue == 0 && !ISHFileProviderIsVirtualIdentifier(identifier))
-        return nil; // something must be screwed I guess
+    // Identifiers are now "<root>" or "<root>+<inner>" (a single path component),
+    // so the old "must be a decimal inode or virt_" check no longer applies.
+    if (identifier.length == 0)
+        return nil;
     NSLog(@"id for url %@ = %@", url, identifier);
     return identifier;
 }
@@ -383,9 +406,9 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 #pragma mark - Action helpers
 
 // FIXME: not dry enough
-// These helpers assume the mount has already been created by itemForIdentifier:error:
-- (BOOL)doCreateDirectoryAt:(NSString *)path inode:(ino_t *)inode error:(NSError **)error {
-    struct fakefs_mount *mount = self.mountOwner.mount;
+// These helpers operate on a specific root's mount, resolved by the caller from
+// the parent/item identifier.
+- (BOOL)doCreateDirectoryAt:(NSString *)path mount:(struct fakefs_mount *)mount inode:(ino_t *)inode error:(NSError **)error {
     NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
     if (![NSFileManager.defaultManager createDirectoryAtURL:url
                                 withIntermediateDirectories:NO
@@ -411,8 +434,7 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     return YES;
 }
 
-- (BOOL)doCreateFileAt:(NSString *)path importFrom:(NSURL *)importURL inode:(ino_t *)inode error:(NSError **)error {
-    struct fakefs_mount *mount = self.mountOwner.mount;
+- (BOOL)doCreateFileAt:(NSString *)path importFrom:(NSURL *)importURL mount:(struct fakefs_mount *)mount inode:(ino_t *)inode error:(NSError **)error {
     NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
     if (![NSFileManager.defaultManager copyItemAtURL:importURL
                                                toURL:url
@@ -455,22 +477,34 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (void)createDirectoryWithName:(NSString *)directoryName inParentItemIdentifier:(NSFileProviderItemIdentifier)parentItemIdentifier completionHandler:(void (^)(NSFileProviderItem _Nullable, NSError * _Nullable))completionHandler {
     NSError *error;
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(parentItemIdentifier);
+    if (rootName == nil) {
+        // The top level lists roots; you can't create a directory directly there.
+        completionHandler(nil, [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil]);
+        return;
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:&error];
+    if (mountOwner == nil) {
+        completionHandler(nil, error);
+        return;
+    }
     NSString *parentPath = [self pathOfItemWithIdentifier:parentItemIdentifier error:&error];
     if (parentPath == nil) {
         completionHandler(nil, error);
         return;
     }
     ino_t inode;
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [self.mountOwner.ioLock lock];
-    BOOL worked = [self doCreateDirectoryAt:[parentPath stringByAppendingFormat:@"/%@", directoryName] inode:&inode error:&error];
-    [self.mountOwner.ioLock unlock];
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, YES);
+    [mountOwner.ioLock lock];
+    BOOL worked = [self doCreateDirectoryAt:[parentPath stringByAppendingFormat:@"/%@", directoryName] mount:mountOwner.mount inode:&inode error:&error];
+    [mountOwner.ioLock unlock];
     ISHAppGroupReleaseLock(rootLockFd);
     if (!worked) {
         completionHandler(nil, error);
         return;
     }
-    FileProviderItem *item = [self itemForIdentifier:[NSString stringWithFormat:@"%lu", (unsigned long) inode] error:&error];
+    NSFileProviderItemIdentifier newIdentifier = ISHFileProviderComposeIdentifier(rootName, [NSString stringWithFormat:@"%lu", (unsigned long) inode]);
+    FileProviderItem *item = [self itemForIdentifier:newIdentifier error:&error];
     if (item == nil)
         completionHandler(nil, error);
     else
@@ -479,39 +513,50 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (void)importDocumentAtURL:(NSURL *)fileURL toParentItemIdentifier:(NSFileProviderItemIdentifier)parentItemIdentifier completionHandler:(void (^)(NSFileProviderItem _Nullable, NSError * _Nullable))completionHandler {
     NSError *error;
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(parentItemIdentifier);
+    if (rootName == nil) {
+        completionHandler(nil, [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil]);
+        return;
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:&error];
+    if (mountOwner == nil) {
+        completionHandler(nil, error);
+        return;
+    }
     NSString *parentPath = [self pathOfItemWithIdentifier:parentItemIdentifier error:&error];
     if (parentPath == nil) {
         completionHandler(nil, error);
         return;
     }
-    
+
     [fileURL startAccessingSecurityScopedResource];
     BOOL isDir;
     assert([NSFileManager.defaultManager fileExistsAtPath:fileURL.path isDirectory:&isDir] && !isDir);
     ino_t inode;
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [self.mountOwner.ioLock lock];
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, YES);
+    [mountOwner.ioLock lock];
     BOOL worked = [self doCreateFileAt:[parentPath stringByAppendingFormat:@"/%@", fileURL.lastPathComponent]
                             importFrom:fileURL
+                                 mount:mountOwner.mount
                                  inode:&inode
                                  error:&error];
-    [self.mountOwner.ioLock unlock];
+    [mountOwner.ioLock unlock];
     ISHAppGroupReleaseLock(rootLockFd);
     [fileURL stopAccessingSecurityScopedResource];
     if (!worked) {
         completionHandler(nil, error);
         return;
     }
-    
-    FileProviderItem *item = [self itemForIdentifier:[NSString stringWithFormat:@"%lu", (unsigned long) inode] error:&error];
+
+    NSFileProviderItemIdentifier newIdentifier = ISHFileProviderComposeIdentifier(rootName, [NSString stringWithFormat:@"%lu", (unsigned long) inode]);
+    FileProviderItem *item = [self itemForIdentifier:newIdentifier error:&error];
     if (item == nil)
         completionHandler(nil, error);
     else
         completionHandler(item, nil);
 }
 
-- (NSString *)pathFromURL:(NSURL *)url {
-    struct fakefs_mount *mount = self.mountOwner.mount;
+- (NSString *)pathFromURL:(NSURL *)url mount:(struct fakefs_mount *)mount {
     NSURL *root = [NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]];
     assert([url.path hasPrefix:root.path]);
     NSString *path = [url.path substringFromIndex:root.path.length];
@@ -521,15 +566,14 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     return path;
 }
 
-- (BOOL)doDelete:(NSString *)path itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
-    struct fakefs_mount *mount = self.mountOwner.mount;
+- (BOOL)doDelete:(NSString *)path mount:(struct fakefs_mount *)mount itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
     NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
     NSDirectoryEnumerator<NSURL *> *enumerator = [NSFileManager.defaultManager enumeratorAtURL:url
                                                                     includingPropertiesForKeys:nil
                                                                                        options:NSDirectoryEnumerationSkipsSubdirectoryDescendants
                                                                                   errorHandler:nil];
     for (NSURL *suburl in enumerator) {
-        if (![self doDelete:[self pathFromURL:suburl] itemIdentifier:identifier error:error])
+        if (![self doDelete:[self pathFromURL:suburl mount:mount] mount:mount itemIdentifier:identifier error:error])
             return NO;
     }
     db_begin_write(&mount->db);
@@ -549,15 +593,26 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (void)deleteItemWithIdentifier:(NSFileProviderItemIdentifier)itemIdentifier completionHandler:(void (^)(NSError * _Nullable))completionHandler {
     NSError *error;
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(itemIdentifier);
+    if (rootName == nil || [ISHFileProviderInnerIdentifier(itemIdentifier) isEqualToString:NSFileProviderRootContainerItemIdentifier]) {
+        // Don't allow deleting the top level or an entire root through Files.
+        completionHandler([NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil]);
+        return;
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:&error];
+    if (mountOwner == nil) {
+        completionHandler(error);
+        return;
+    }
     NSString *path = [self pathOfItemWithIdentifier:itemIdentifier error:&error];
     if (path == nil) {
         completionHandler(error);
         return;
     }
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [self.mountOwner.ioLock lock];
-    BOOL worked = [self doDelete:path itemIdentifier:itemIdentifier error:&error];
-    [self.mountOwner.ioLock unlock];
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, YES);
+    [mountOwner.ioLock lock];
+    BOOL worked = [self doDelete:path mount:mountOwner.mount itemIdentifier:itemIdentifier error:&error];
+    [mountOwner.ioLock unlock];
     ISHAppGroupReleaseLock(rootLockFd);
     if (!worked)
         completionHandler(error);
@@ -565,8 +620,7 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
         completionHandler(nil);
 }
 
-- (BOOL)doRename:(NSString *)src to:(NSString *)dst itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
-    struct fakefs_mount *mount = self.mountOwner.mount;
+- (BOOL)doRename:(NSString *)src to:(NSString *)dst mount:(struct fakefs_mount *)mount itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
     db_begin_write(&mount->db);
     path_rename(&mount->db, src.fileSystemRepresentation, dst.fileSystemRepresentation);
     int err = renameat(mount->root_fd, fix_path(src.fileSystemRepresentation), mount->root_fd, fix_path(dst.fileSystemRepresentation));
@@ -582,16 +636,26 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (void)renameItemWithIdentifier:(NSFileProviderItemIdentifier)itemIdentifier toName:(NSString *)itemName completionHandler:(void (^)(NSFileProviderItem _Nullable, NSError * _Nullable))completionHandler {
     NSError *error;
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(itemIdentifier);
+    if (rootName == nil || [ISHFileProviderInnerIdentifier(itemIdentifier) isEqualToString:NSFileProviderRootContainerItemIdentifier]) {
+        completionHandler(nil, [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil]);
+        return;
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:&error];
+    if (mountOwner == nil) {
+        completionHandler(nil, error);
+        return;
+    }
     FileProviderItem *item = [self itemForIdentifier:itemIdentifier error:&error];
     if (item == nil) {
         completionHandler(nil, error);
         return;
     }
     NSString *dstPath = [item.path.stringByDeletingLastPathComponent stringByAppendingPathComponent:itemName];
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [self.mountOwner.ioLock lock];
-    BOOL worked = [self doRename:item.path to:dstPath itemIdentifier:itemIdentifier error:&error];
-    [self.mountOwner.ioLock unlock];
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, YES);
+    [mountOwner.ioLock lock];
+    BOOL worked = [self doRename:item.path to:dstPath mount:mountOwner.mount itemIdentifier:itemIdentifier error:&error];
+    [mountOwner.ioLock unlock];
     ISHAppGroupReleaseLock(rootLockFd);
     if (!worked) {
         completionHandler(nil, error);
@@ -602,6 +666,18 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 
 - (void)reparentItemWithIdentifier:(NSFileProviderItemIdentifier)itemIdentifier toParentItemWithIdentifier:(NSFileProviderItemIdentifier)parentItemIdentifier newName:(NSString *)newName completionHandler:(void (^)(NSFileProviderItem _Nullable, NSError * _Nullable))completionHandler {
     NSError *error;
+    NSString *rootName = ISHFileProviderRootNameForIdentifier(itemIdentifier);
+    NSString *parentRootName = ISHFileProviderRootNameForIdentifier(parentItemIdentifier);
+    if (rootName == nil || parentRootName == nil || ![rootName isEqualToString:parentRootName]) {
+        // Moving across roots (or to/from the top level) isn't supported.
+        completionHandler(nil, [NSError errorWithDomain:NSFileProviderErrorDomain code:NSFileProviderErrorNoSuchItem userInfo:nil]);
+        return;
+    }
+    ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:&error];
+    if (mountOwner == nil) {
+        completionHandler(nil, error);
+        return;
+    }
     FileProviderItem *item = [self itemForIdentifier:itemIdentifier error:&error];
     if (item == nil) {
         completionHandler(nil, error);
@@ -614,10 +690,10 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     }
     if (newName == nil)
         newName = item.path.lastPathComponent;
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [self.mountOwner.ioLock lock];
-    BOOL worked = [self doRename:item.path to:[parent.path stringByAppendingPathComponent:newName] itemIdentifier:itemIdentifier error:&error];
-    [self.mountOwner.ioLock unlock];
+    int rootLockFd = ISHFileProviderAcquireRootLock(rootName, YES);
+    [mountOwner.ioLock lock];
+    BOOL worked = [self doRename:item.path to:[parent.path stringByAppendingPathComponent:newName] mount:mountOwner.mount itemIdentifier:itemIdentifier error:&error];
+    [mountOwner.ioLock unlock];
     ISHAppGroupReleaseLock(rootLockFd);
     if (!worked) {
         completionHandler(nil, error);
@@ -632,7 +708,9 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
     FileProviderItem *item = [self itemForIdentifier:containerItemIdentifier error:error];
     if (item == nil)
         return nil;
-    return [[FileProviderEnumerator alloc] initWithItem:item];
+    if (item.mountOwner == nil) // the domain root: opportune moment to GC storage
+        [self maybeCleanupStorage];
+    return [[FileProviderEnumerator alloc] initWithItem:item extension:self];
 }
 
 #pragma mark - Storage deletion
@@ -643,24 +721,30 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
 // TODO: Create hardlinks into file provider storage instead of copies
 //
 - (void)cleanupStorage {
-    ISHFileProviderMount *mountOwner = self.mountOwner;
-    NSAssert(mountOwner != nil, @"Mount should exist by this point");
-
     NSTimeInterval start = NSDate.date.timeIntervalSinceReferenceDate;
     NSFileManager *manager = NSFileManager.defaultManager;
-    int rootLockFd = ISHFileProviderAcquireRootLock(self.domain.identifier ?: @"", YES);
-    [mountOwner.ioLock lock];
     NSArray<NSURL *> *storageDirs = [manager contentsOfDirectoryAtURL:self.storageURL includingPropertiesForKeys:nil options:0 error:nil];
     NSUInteger removedCount = 0;
     for (NSURL *dir in storageDirs) {
-        inode_t inode = dir.lastPathComponent.longLongValue;
-        if (inode == 0)
+        // Materialized storage dirs are named by the fully-scoped identifier,
+        // "<root>+<inode>". Root folders and virtual items have no inode and are
+        // left alone.
+        NSString *fullIdentifier = dir.lastPathComponent;
+        NSString *rootName = ISHFileProviderRootNameForIdentifier(fullIdentifier);
+        NSFileProviderItemIdentifier inner = ISHFileProviderInnerIdentifier(fullIdentifier);
+        inode_t inode = inner.longLongValue;
+        if (rootName == nil || inode == 0)
+            continue;
+        ISHFileProviderMount *mountOwner = [self mountForRootName:rootName error:nil];
+        if (mountOwner == nil)
             continue;
 
+        int rootLockFd = ISHFileProviderAcquireRootLock(rootName, NO);
         BOOL exists = inode_exists(&mountOwner.mount->db, inode);
+        ISHAppGroupReleaseLock(rootLockFd);
 
         if (!exists) {
-            NSLog(@"removing dead inode %llu", inode);
+            NSLog(@"removing dead inode %llu in %@", inode, rootName);
             NSError *err;
             if (![manager removeItemAtURL:dir error:&err])
                 NSLog(@"failed to remove dead inode: %@", err);
@@ -668,11 +752,9 @@ static int ISHFileProviderAcquireRootLock(NSString *domainIdentifier, BOOL exclu
                 removedCount++;
         }
     }
-    [mountOwner.ioLock unlock];
-    ISHAppGroupReleaseLock(rootLockFd);
     NSNumber *duration = ISHFileProviderDurationMilliseconds(start);
     if (removedCount != 0 || duration.integerValue >= 500) {
-        NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(self.domain.identifier);
+        NSMutableDictionary<NSString *, id> *details = ISHFileProviderDetails(@"all");
         details[@"duration_ms"] = duration;
         details[@"removed"] = @(removedCount);
         ISHFileProviderRecordBreadcrumb(@"fileprovider.cleanup", details);

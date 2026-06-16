@@ -790,7 +790,7 @@ static NSArray<NSString *> *BootCommandFallbackCandidatesDescription(NSArray<NSA
 }
 
 static int EnsureDirectory(const char *path, mode_t_ mode);
-static int EnsureRegularFileIfMissing(const char *path, const char *contents, mode_t_ mode);
+static int EnsureRegularFileNonEmpty(const char *path, const char *contents, mode_t_ mode);
 static int EnsureSymlink(const char *path, const char *target);
 
 static NSData *BootEnvironmentForCommand(NSString *commandPath) {
@@ -856,8 +856,8 @@ static void FakeInitPrepareGuestRoot(void) {
     EnsureSymlink("/dev/stderr", "/proc/self/fd/2");
     EnsureSymlink("/etc/mtab", "/proc/mounts");
 
-    EnsureRegularFileIfMissing("/etc/hostname", "localhost\n", 0644);
-    EnsureRegularFileIfMissing("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
+    // /etc/hostname and /etc/hosts are provisioned by ProvisionGuestHostFiles(), which
+    // runs on every boot path (not just the fake-init fallback) -- see ensureBooted.
 }
 
 typedef struct {
@@ -1287,13 +1287,24 @@ static int EnsureCharacterDevice(const char *path, mode_t_ mode, dev_t_ device) 
     return 0;
 }
 
-static int EnsureRegularFileIfMissing(const char *path, const char *contents, mode_t_ mode) {
+// Ensure PATH is a regular file with non-empty contents: writes CONTENTS when the file is
+// missing OR exists as a regular file but is zero-length. A file that already has content
+// (e.g. a value the user set) is left untouched. Docker-exported rootfs images ship
+// /etc/hostname and /etc/hosts as empty 0-byte files (both are runtime bind-mounts inside
+// the container, so the exported image layer is empty), so a missing-only check would
+// leave them empty -- which gives the whole system an empty hostname.
+static int EnsureRegularFileNonEmpty(const char *path, const char *contents, mode_t_ mode) {
     struct statbuf stat;
     int err = generic_statat(AT_PWD, path, &stat, AT_SYMLINK_NOFOLLOW_);
-    if (err >= 0)
-        return S_ISREG(stat.mode) ? 0 : _EEXIST;
-    if (err != _ENOENT)
+    if (err >= 0) {
+        if (!S_ISREG(stat.mode))
+            return _EEXIST;
+        if (stat.size > 0)
+            return 0;
+        // exists but empty -- fall through and write the default contents
+    } else if (err != _ENOENT) {
         return err;
+    }
 
     struct fd *fd = generic_open(path, O_WRONLY_ | O_CREAT_ | O_TRUNC_, mode & 07777);
     if (IS_ERR(fd))
@@ -1307,6 +1318,16 @@ static int EnsureRegularFileIfMissing(const char *path, const char *contents, mo
     }
     fd_close(fd);
     return 0;
+}
+
+// Provision /etc/hostname and /etc/hosts before init starts, on EVERY boot path (real
+// /sbin/init and the fake-init fallback) -- called from ensureBooted. Docker-exported
+// distro images ship both files empty and the guest's hostname.sh only *reads*
+// /etc/hostname, so an empty file there leaves the system with an empty hostname.
+static void ProvisionGuestHostFiles(void) {
+    EnsureDirectory("/etc", 0755);
+    EnsureRegularFileNonEmpty("/etc/hostname", "localhost\n", 0644);
+    EnsureRegularFileNonEmpty("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
 }
 
 static int EnsureSymlink(const char *path, const char *target) {
@@ -2363,6 +2384,10 @@ static TerminalViewController *CreateTerminalViewController(void) {
     char argv[4096];
     [Terminal convertCommand:argvCommand toArgs:argv limitSize:sizeof(argv)];
     NSData *envpData = BootEnvironmentForCommand(command.firstObject);
+    // Provision /etc/hostname and /etc/hosts before launching init on EVERY boot path
+    // (real /sbin/init and the fake-init fallback). Docker-exported images ship both as
+    // empty 0-byte files, which otherwise leaves the system with an empty hostname.
+    ProvisionGuestHostFiles();
     if (bootUsesNativeFakeInit) {
         FakeInitPrepareGuestRoot();
         err = StartFallbackConsoleSupervisor(command, argvCommand, argv, sizeof(argv), envpData);

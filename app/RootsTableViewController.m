@@ -16,6 +16,10 @@
 #import "WorkspaceViewController.h"
 
 @interface RootsTableViewController ()
+// Archives found in the shared /AOK/persist/roots directory, shown as the
+// "Root Cached Filesystems" section. Cached so the table data source is stable
+// within a reload; refreshed on appear and when roots change.
+@property (nonatomic, copy) NSArray<NSURL *> *cachedRootArchives;
 @end
 
 @interface RootDetailViewController : UITableViewController <UIDocumentPickerDelegate, UITextFieldDelegate>
@@ -87,18 +91,45 @@
     return Roots.instance.roots.count != 0;
 }
 
+- (BOOL)showsCachedRootsSection {
+    return self.cachedRootArchives.count != 0;
+}
+
+- (void)reloadCachedRootArchives {
+    self.cachedRootArchives = Roots.instance.cachedRootArchiveURLs;
+}
+
+// Sections appear in this fixed order, each shown only when non-empty:
+// Installed Filesystems, Root Cached Filesystems, Bundled Filesystems.
+- (NSInteger)installedRootsSectionIndex {
+    return self.showsInstalledRootsSection ? 0 : NSNotFound;
+}
+- (NSInteger)cachedRootsSectionIndex {
+    if (!self.showsCachedRootsSection)
+        return NSNotFound;
+    return self.showsInstalledRootsSection ? 1 : 0;
+}
+- (NSInteger)bundledChoicesSectionIndex {
+    if (!self.showsBundledChoicesSection)
+        return NSNotFound;
+    NSInteger index = 0;
+    if (self.showsInstalledRootsSection)
+        index++;
+    if (self.showsCachedRootsSection)
+        index++;
+    return index;
+}
+
 - (BOOL)sectionShowsInstalledRoots:(NSInteger)section {
-    if (!self.showsInstalledRootsSection)
-        return NO;
-    return section == 0;
+    return self.showsInstalledRootsSection && section == self.installedRootsSectionIndex;
+}
+
+- (BOOL)sectionShowsCachedRoots:(NSInteger)section {
+    return self.showsCachedRootsSection && section == self.cachedRootsSectionIndex;
 }
 
 - (BOOL)sectionShowsBundledChoices:(NSInteger)section {
-    if (!self.showsBundledChoicesSection)
-        return NO;
-    if (!self.showsInstalledRootsSection)
-        return section == 0;
-    return section == 1;
+    return self.showsBundledChoicesSection && section == self.bundledChoicesSectionIndex;
 }
 
 - (NSIndexPath *)selectedIndexPathForSender:(id)sender {
@@ -208,7 +239,7 @@
 }
 
 - (void)updateEmptyState {
-    if (Roots.instance.roots.count != 0 || self.bundledChoices.count != 0) {
+    if (Roots.instance.roots.count != 0 || self.cachedRootArchives.count != 0 || self.bundledChoices.count != 0) {
         self.tableView.backgroundView = nil;
         self.tableView.scrollEnabled = YES;
         self.navigationItem.rightBarButtonItem.enabled = YES;
@@ -265,17 +296,29 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    [self reloadCachedRootArchives];
     [Roots.instance observe:@[@"roots", @"defaultRoot", @"initialBundledRootImportInProgress", @"initialBundledRootImportError"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
+        [self reloadCachedRootArchives];
         [self updateEmptyState];
         [self.tableView reloadData];
     }];
     [self updateEmptyState];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // Re-scan /AOK/persist/roots: archives may have been dropped in from the guest
+    // (wget/scp/Files) since this screen was last shown.
+    [self reloadCachedRootArchives];
+    [self.tableView reloadData];
+}
+
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     NSInteger sections = 0;
     if (self.showsInstalledRootsSection)
+        sections++;
+    if (self.showsCachedRootsSection)
         sections++;
     if (self.showsBundledChoicesSection)
         sections++;
@@ -284,6 +327,8 @@
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if ([self sectionShowsInstalledRoots:section])
         return Roots.instance.roots.count;
+    if ([self sectionShowsCachedRoots:section])
+        return self.cachedRootArchives.count;
     if ([self sectionShowsBundledChoices:section])
         return self.bundledChoices.count;
     return 0;
@@ -291,12 +336,15 @@
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if ([self sectionShowsInstalledRoots:section]) {
-        if (self.showsBundledChoicesSection)
+        if (self.showsBundledChoicesSection || self.showsCachedRootsSection)
             return @"Installed Filesystems";
         return self.choosesRootOnSelection ? @"Choose a Filesystem" : nil;
     }
+    if ([self sectionShowsCachedRoots:section]) {
+        return @"Root Cached Filesystems";
+    }
     if ([self sectionShowsBundledChoices:section]) {
-        if (self.showsInstalledRootsSection)
+        if (self.showsInstalledRootsSection || self.showsCachedRootsSection)
             return @"Bundled Filesystems";
         return @"Choose a Filesystem";
     }
@@ -306,6 +354,9 @@
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if ([self sectionShowsInstalledRoots:section] && self.choosesRootOnSelection) {
         return @"Tap a filesystem to make it active and continue booting.";
+    }
+    if ([self sectionShowsCachedRoots:section]) {
+        return @"Archives in /AOK/persist/roots (shared across all filesystems). Tap one to install it as a new filesystem.";
     }
     if ([self sectionShowsBundledChoices:section]) {
         if (!self.showsInstalledRootsSection)
@@ -323,6 +374,23 @@
         NSDictionary<NSString *, NSString *> *choice = self.bundledChoices[indexPath.row];
         cell.textLabel.text = choice[@"displayName"];
         cell.detailTextLabel.text = [self _bundledChoiceSubtitle:choice];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+        cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+        return cell;
+    }
+
+    if ([self sectionShowsCachedRoots:indexPath.section]) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"CachedRootArchive"];
+        if (cell == nil)
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"CachedRootArchive"];
+        NSURL *archive = self.cachedRootArchives[indexPath.row];
+        cell.textLabel.text = archive.lastPathComponent;
+        NSNumber *size = nil;
+        [archive getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+        cell.detailTextLabel.text = size != nil
+            ? [NSByteCountFormatter stringFromByteCount:size.longLongValue countStyle:NSByteCountFormatterCountStyleFile]
+            : nil;
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
@@ -349,6 +417,12 @@
         [self _confirmBundledImportChoiceIfNeeded:self.bundledChoices[indexPath.row]];
         return;
     }
+    if ([self sectionShowsCachedRoots:indexPath.section]) {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        if (indexPath.row < (NSInteger) self.cachedRootArchives.count)
+            [self importArchiveAtURL:self.cachedRootArchives[indexPath.row] securityScoped:NO];
+        return;
+    }
     if (self.choosesRootOnSelection && [self sectionShowsInstalledRoots:indexPath.section]) {
         [tableView deselectRowAtIndexPath:indexPath animated:YES];
         [self _completeRootSelectionWithName:Roots.instance.roots[indexPath.row]];
@@ -369,6 +443,8 @@
     NSIndexPath *indexPath = [self selectedIndexPathForSender:sender];
     if (indexPath != nil && [self sectionShowsBundledChoices:indexPath.section])
         return NO;
+    if (indexPath != nil && [self sectionShowsCachedRoots:indexPath.section])
+        return NO;
     if (self.choosesRootOnSelection && indexPath != nil && [self sectionShowsInstalledRoots:indexPath.section])
         return NO;
     return [super shouldPerformSegueWithIdentifier:identifier sender:sender];
@@ -380,7 +456,12 @@
 
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSAssert(urls.count == 1, @"somehow picked multiple documents");
-    NSURL *url = urls.firstObject;
+    // Document-picker URLs are security-scoped; cached /root/roots archives live
+    // in our own container and aren't.
+    [self importArchiveAtURL:urls.firstObject securityScoped:YES];
+}
+
+- (void)importArchiveAtURL:(NSURL *)url securityScoped:(BOOL)securityScoped {
     NSString *fileName = url.lastPathComponent.stringByDeletingPathExtension;
     if ([fileName hasSuffix:@".tar"])
         fileName = fileName.stringByDeletingPathExtension;
@@ -397,9 +478,11 @@
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error;
-        [url startAccessingSecurityScopedResource];
+        if (securityScoped)
+            [url startAccessingSecurityScopedResource];
         BOOL success = [Roots.instance importRootFromArchive:url name:name error:&error progressReporter:progressVC];
-        [url stopAccessingSecurityScopedResource];
+        if (securityScoped)
+            [url stopAccessingSecurityScopedResource];
         dispatch_async(dispatch_get_main_queue(), ^{
             [progressVC dismissViewControllerAnimated:YES completion:^{
                 if (!success) {
@@ -478,7 +561,10 @@
 }
 
 - (void)browseFiles {
-    NSURL *url = [NSFileProviderManager.defaultManager.documentStorageURL URLByAppendingPathComponent:self.rootName];
+    // The root now lives one level down, inside the single "iSH-AOK" domain.
+    NSURL *url = [[NSFileProviderManager.defaultManager.documentStorageURL
+                   URLByAppendingPathComponent:@"iSH-AOK"]
+                  URLByAppendingPathComponent:self.rootName];
     NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
     components.scheme = @"shareddocuments";
     [UIApplication openURL:components.string];
