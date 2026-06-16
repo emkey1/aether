@@ -2582,3 +2582,53 @@ amd64_gen_mov_store mov_store64, 8
 
 amd64_gen_loadop_arith loadop_arith32, 4, 31
 amd64_gen_loadop_arith loadop_arith64, 8, 63
+
+# amd64 load-op logic: reg <op>= [mem] (d=1 forms OR 0x0b / AND 0x23 / XOR 0x33),
+# mod!=3, sizes 32/64. reg is dst/lhs, [mem] is rhs. Like loadop_arith but with the
+# logic flag rule (CF=OF=0, AF undefined, ZF/SF/PF from the result) via
+# amd64_cached_set_logic_flags (it reads the result in x15 and the size in a reg).
+# Byte forms (0x0a/22/32) + TEST + 16-bit bridge. Operands: meta(0)/disp(1)/next_ip(2).
+.macro amd64_gen_loadop_logic name, vbytes, ssize
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vbytes, \name  /* x9 = host addr of the rhs */
+.if \vbytes == 4
+    ldr  w11, [x9]                   /* rhs = [mem] (32-bit) */
+.else
+    ldr  x11, [x9]                   /* rhs = [mem] (64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x8, x10, 8, 4               /* x8 = dst reg id */
+    add  x13, _cpu, CPU_amd64_regs
+    ldr  x13, [x13, x8, lsl 3]       /* x13 = lhs = dst reg value */
+    cmp  x9, 0x23
+    b.eq 1f                          /* AND */
+    cmp  x9, 0x33
+    b.eq 2f                          /* XOR */
+    orr  x15, x13, x11               /* OR (0x0b) */
+    b    3f
+1:  and  x15, x13, x11
+    b    3f
+2:  eor  x15, x13, x11
+3:
+.if \vbytes == 4
+    mov  w15, w15                    /* zero-extend 32-bit result */
+.endif
+    mov  x11, \ssize                 /* size in a reg for the flag macro */
+    amd64_cached_set_logic_flags x15, x11
+    add  x13, _cpu, CPU_amd64_regs
+.if \vbytes == 4
+    ubfx x12, x15, 0, 32
+    str  x12, [x13, x8, lsl 3]
+.else
+    str  x15, [x13, x8, lsl 3]
+.endif
+    gret 3
+    amd64_vread_bullshit \vbytes, \name
+.endm
+
+amd64_gen_loadop_logic loadop_logic32, 4, 32
+amd64_gen_loadop_logic loadop_logic64, 8, 64

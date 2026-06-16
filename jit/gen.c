@@ -3006,6 +3006,37 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native load-op logic: reg <op>= [mem] for OR (0x0b), AND (0x23), XOR (0x33),
+    // mod!=3, 32/64-bit (no 0x66). Same as load-op arith but the logic flag rule
+    // (CF=OF=0, ZF/SF/PF from result). Byte forms (0x0a/22/32), TEST, 16-bit bridge.
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.opcode == 0x0b || insn.opcode == 0x23 || insn.opcode == 0x33)) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("loadop-logic ip=%llx op=%02x size=%u meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode, size,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_loadop_logic32(void), gadget_amd64_loadop_logic64(void);
+        gen(state, (unsigned long) (size == 64
+                    ? gadget_amd64_loadop_logic64 : gadget_amd64_loadop_logic32));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
