@@ -45,7 +45,7 @@ struct epoll_event_ {
 #define EPOLLET_ (1 << 31)
 #define EPOLLONESHOT_ (1 << 30)
 
-int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
+int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_addr) {
     STRACE("epoll_ctl(%d, %d, %d, %#x)", epoll_f, op, f, event_addr);
     struct fd *epoll = f_get_retain(epoll_f);
     if (epoll == NULL)
@@ -94,8 +94,8 @@ int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
     return res;
 }
 
-int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_addr) {
-    return sys_epoll_ctl(epoll_f, op, f, event_addr);
+int_t sys_epoll_ctl(fd_t epoll_f, int_t op, fd_t f, addr_t event_addr) {
+    return sys_epoll_ctl_guest(epoll_f, op, f, event_addr);
 }
 
 struct epoll_context {
@@ -117,7 +117,7 @@ static int epoll_callback(void *context, int types, union poll_fd_info info) {
     return 1;
 }
 
-static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events, struct timespec *timeout_ts_ptr) {
+static int epoll_wait_common(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, struct timespec *timeout_ts_ptr) {
     struct fd *epoll = f_get_retain(epoll_f);
     if (epoll == NULL)
         return _EBADF;
@@ -155,7 +155,7 @@ static int epoll_wait_common(fd_t epoll_f, addr_t events_addr, int_t max_events,
     return res;
 }
 
-int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout) {
+int_t sys_epoll_wait_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, int_t timeout) {
     STRACE("epoll_wait(%d, %#x, %d, %d)", epoll_f, events_addr, max_events, timeout);
     struct timespec timeout_ts;
     struct timespec *timeout_ts_ptr = NULL;
@@ -167,11 +167,11 @@ int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t t
     return epoll_wait_common(epoll_f, events_addr, max_events, timeout_ts_ptr);
 }
 
-int_t sys_epoll_wait_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, int_t timeout) {
-    return sys_epoll_wait(epoll_f, events_addr, max_events, timeout);
+int_t sys_epoll_wait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout) {
+    return sys_epoll_wait_guest(epoll_f, events_addr, max_events, timeout);
 }
 
-int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout, addr_t sigmask_addr, dword_t sigsetsize) {
+int_t sys_epoll_pwait_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, int_t timeout, guest_addr_t sigmask_addr, dword_t sigsetsize) {
     sigset_t_ mask;
     if (sigmask_addr != 0) {
         if (sigsetsize != sizeof(sigset_t_))
@@ -192,12 +192,12 @@ int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t 
     return epoll_wait_common(epoll_f, events_addr, max_events, timeout_ts_ptr);
 }
 
-int_t sys_epoll_pwait_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, int_t timeout,
-        guest_addr_t sigmask_addr, dword_t sigsetsize) {
-    return sys_epoll_pwait(epoll_f, events_addr, max_events, timeout, sigmask_addr, sigsetsize);
+int_t sys_epoll_pwait(fd_t epoll_f, addr_t events_addr, int_t max_events, int_t timeout,
+        addr_t sigmask_addr, dword_t sigsetsize) {
+    return sys_epoll_pwait_guest(epoll_f, events_addr, max_events, timeout, sigmask_addr, sigsetsize);
 }
 
-int_t sys_epoll_pwait2(fd_t epoll_f, addr_t events_addr, int_t max_events, addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
+int_t sys_epoll_pwait2_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events, guest_addr_t timeout_addr, guest_addr_t sigmask_addr, dword_t sigsetsize) {
     sigset_t_ mask;
     if (sigmask_addr != 0) {
         if (sigsetsize != sizeof(sigset_t_))
@@ -223,9 +223,9 @@ int_t sys_epoll_pwait2(fd_t epoll_f, addr_t events_addr, int_t max_events, addr_
     return epoll_wait_common(epoll_f, events_addr, max_events, timeout_ts_ptr);
 }
 
-int_t sys_epoll_pwait2_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_events,
-        guest_addr_t timeout_addr, guest_addr_t sigmask_addr, dword_t sigsetsize) {
-    return sys_epoll_pwait2(epoll_f, events_addr, max_events, timeout_addr, sigmask_addr, sigsetsize);
+int_t sys_epoll_pwait2(fd_t epoll_f, addr_t events_addr, int_t max_events,
+        addr_t timeout_addr, addr_t sigmask_addr, dword_t sigsetsize) {
+    return sys_epoll_pwait2_guest(epoll_f, events_addr, max_events, timeout_addr, sigmask_addr, sigsetsize);
 }
 
 static int epoll_close(struct fd *fd) {

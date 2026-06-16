@@ -15,7 +15,7 @@
 #include "fs/tty.h"
 #include "kernel/calls.h"
 
-static int user_read_or_zero(addr_t addr, void *data, size_t size) {
+static int user_read_or_zero(guest_addr_t addr, void *data, size_t size) {
     if (addr == 0)
         memset(data, 0, size);
     else if (user_read(addr, data, size))

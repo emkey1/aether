@@ -262,7 +262,7 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
 
 #define UMOUNT_NOFOLLOW_ 8
 
-dword_t sys_umount2(addr_t target_addr, dword_t flags) {
+dword_t sys_umount2_guest(guest_addr_t target_addr, dword_t flags) {
     char target_raw[MAX_PATH];
     if (user_read_string(target_addr, target_raw, sizeof(target_raw)))
         return _EFAULT;
@@ -276,6 +276,10 @@ dword_t sys_umount2(addr_t target_addr, dword_t flags) {
     err = do_umount(target);
     unlock(&mounts_lock);
     return err;
+}
+
+dword_t sys_umount2(addr_t target_addr, dword_t flags) {
+    return sys_umount2_guest(target_addr, flags);
 }
 
 struct list mounts = {&mounts, &mounts};

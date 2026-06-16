@@ -677,23 +677,34 @@ dword_t sys_nanosleep_amd64_guest(guest_addr_t req_addr, guest_addr_t rem_addr) 
     return sys_nanosleep_guest_abi(req_addr, rem_addr, GUEST_ABI_AMD64);
 }
 
-dword_t sys_times(addr_t tbuf) {
+dword_t sys_times_guest(guest_addr_t tbuf) {
     STRACE("times(0x%x)", tbuf);
     if (tbuf) {
-        struct tms_ tmp;
         struct rusage_ rusage = rusage_get_current();
-        tmp.tms_utime = clock_from_timeval(rusage.utime);
-        tmp.tms_stime = clock_from_timeval(rusage.stime);
-        tmp.tms_cutime = tmp.tms_utime;
-        tmp.tms_cstime = tmp.tms_stime;
-        if (user_put(tbuf, tmp))
-            return _EFAULT;
+        clock_t_ utime = clock_from_timeval(rusage.utime);
+        clock_t_ stime = clock_from_timeval(rusage.stime);
+        if (current->abi == GUEST_ABI_AMD64) {
+            // amd64 struct tms has 64-bit (long) fields, vs the 32-bit i386 layout.
+            struct amd64_tms { qword_t utime, stime, cutime, cstime; } tmp = {
+                .utime = utime, .stime = stime, .cutime = utime, .cstime = stime,
+            };
+            if (user_put(tbuf, tmp))
+                return _EFAULT;
+        } else {
+            struct tms_ tmp;
+            tmp.tms_utime = utime;
+            tmp.tms_stime = stime;
+            tmp.tms_cutime = utime;
+            tmp.tms_cstime = stime;
+            if (user_put(tbuf, tmp))
+                return _EFAULT;
+        }
     }
     return 0;
 }
 
-dword_t sys_times_guest(guest_addr_t tbuf) {
-    return sys_times(tbuf);
+dword_t sys_times(addr_t tbuf) {
+    return sys_times_guest(tbuf);
 }
 
 dword_t sys_gettimeofday(addr_t tv, addr_t tz) {
@@ -716,7 +727,7 @@ dword_t sys_gettimeofday_guest(guest_addr_t tv, guest_addr_t tz) {
     return sys_gettimeofday(tv, tz);
 }
 
-dword_t sys_gettimeofday_amd64(addr_t tv, addr_t tz) {
+dword_t sys_gettimeofday_amd64_guest(guest_addr_t tv, guest_addr_t tz) {
     STRACE("gettimeofday(0x%x, 0x%x)", tv, tz);
     struct timeval timeval;
     struct timezone timezone;
@@ -732,8 +743,8 @@ dword_t sys_gettimeofday_amd64(addr_t tv, addr_t tz) {
     return 0;
 }
 
-dword_t sys_gettimeofday_amd64_guest(guest_addr_t tv, guest_addr_t tz) {
-    return sys_gettimeofday_amd64(tv, tz);
+dword_t sys_gettimeofday_amd64(addr_t tv, addr_t tz) {
+    return sys_gettimeofday_amd64_guest(tv, tz);
 }
 
 dword_t sys_settimeofday(addr_t UNUSED(tv), addr_t UNUSED(tz)) {

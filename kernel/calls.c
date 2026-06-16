@@ -1460,6 +1460,12 @@ static syscall_t amd64_syscall_table[453] = {
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
+    [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
+    [429] = (syscall_t) syscall_stub_silent, // move_mount
+    [430] = (syscall_t) syscall_stub_silent, // fsopen
+    [431] = (syscall_t) syscall_stub_silent, // fsconfig
+    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) syscall_stub_silent, // pidfd_open
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
@@ -1954,6 +1960,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mount_guest(
                 raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], raw_args[4]));
         return true;
+    case 166: // umount2: target is a pointer, so it needs the full 64-bit addr
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_umount2_guest(
+                raw_args[0], (dword_t) raw_args[1]));
+        return true;
     case 170:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_sethostname_guest(
                 raw_args[0], (dword_t) raw_args[1]));
@@ -2305,16 +2315,16 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_settime64_guest(
                 (fd_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
-    case 412:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat64(
+    case 412: // utimensat64 == utimensat on amd64 (64-bit time_t); use the full-width handler
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_utimensat_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]));
         return true;
-    case 413:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_time64(
+    case 413: // pselect6_time64 == pselect6 on amd64; use the full-width handler
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pselect_amd64_guest(
                 (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5]));
         return true;
-    case 414:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_time64(
+    case 414: // ppoll_time64 == ppoll on amd64; use the full-width handler
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_ppoll_amd64_guest(
                 raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3], (dword_t) raw_args[4]));
         return true;
     case 59:
@@ -2361,6 +2371,19 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
 
 static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     switch (syscall_num) {
+    // Corrected arg counts: these handlers read fewer/more args than the grouped
+    // fall-through below would validate. An over-count makes the marshaller check
+    // unused upper arg registers (which hold caller garbage) and SIGSYS; an
+    // under-count zero-fills a real arg. Same bug class as fchmod(91)/keyctl(250).
+    case 200: // tkill(tid, sig) -- was grouped as 1, dropping the signal number
+        return 2;
+    case 145: // sched_getscheduler(pid)
+    case 146: // sched_get_priority_max(policy)
+    case 147: // sched_get_priority_min(policy)
+    case 213: // epoll_create(size) -- handler ignores size
+        return 1;
+    case 277: // sync_file_range -- success stub ignores all args
+        return 0;
     case 15:  // rt_sigreturn
     case 24:  // sched_yield
     case 34:  // pause
@@ -2380,6 +2403,12 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 221: // fadvise64 stubbed (advisory; args ignored)
     case 253: // inotify_init
     case 309: // getcpu stubbed
+    case 428: // open_tree   (silent ENOSYS stub; args ignored, so skip full-width arg validation)
+    case 429: // move_mount
+    case 430: // fsopen
+    case 431: // fsconfig
+    case 432: // fsmount
+    case 433: // fspick
         return 0;
     case 3:   // close
     case 12:  // brk
@@ -2416,18 +2445,17 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 164: // settimeofday
     case 166: // umount2
     case 170: // sethostname
-    case 200: // tkill
     case 201: // time
     case 218: // set_tid_address
     case 231: // exit_group
     case 272: // unshare
     case 273: // set_robust_list
-    case 277: // sync_file_range stubbed
     case 284: // eventfd
     case 291: // epoll_create
     case 294: // inotify_init1
     case 225: // timer_getoverrun
     case 226: // timer_delete
+    case 250: // keyctl (sys_keyctl stub only switches on cmd; arg2-arg5 are ignored)
         return 1;
     case 4:   // stat
     case 5:   // fstat
@@ -2457,9 +2485,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 140: // getpriority
     case 143: // sched_getparam
     case 144: // sched_setscheduler
-    case 145: // sched_getscheduler
-    case 146: // sched_get_priority_max
-    case 147: // sched_get_priority_min
     case 160: // setrlimit
     case 158: // arch_prctl
     case 229: // clock_getres
@@ -2515,7 +2540,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 165: // mount
     case 203: // sched_setaffinity
     case 204: // sched_getaffinity
-    case 213: // epoll_create
     case 217: // getdents64
     case 227: // clock_settime
     case 230: // clock_nanosleep
@@ -2578,7 +2602,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 55:  // getsockopt
     case 157: // prctl
     case 23:  // select
-    case 250: // keyctl
     case 260: // fchownat
     case 265: // linkat
     case 271: // ppoll

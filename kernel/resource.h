@@ -86,7 +86,7 @@ struct amd64_rusage_ {
 
 struct rusage_ rusage_get_current(void);
 void rusage_add(struct rusage_ *dst, struct rusage_ *src);
-int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_ *rusage);
+int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage);
 #define RUSAGE_SELF_ 0
 #define RUSAGE_CHILDREN_ -1
 dword_t sys_getrusage(dword_t who, addr_t rusage_addr);

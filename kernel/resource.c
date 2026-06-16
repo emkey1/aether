@@ -69,7 +69,7 @@ dword_t sys_getrlimit32(dword_t resource, addr_t rlim_addr) {
     return 0;
 }
 
-dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
+dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr) {
     struct rlimit_ rlimit;
     int err = rlimit_get(current, resource, &rlimit);
     if (err < 0)
@@ -79,8 +79,8 @@ dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
     return 0;
 }
 
-dword_t sys_getrlimit64_guest(dword_t resource, guest_addr_t rlim_addr) {
-    return sys_getrlimit64(resource, rlim_addr);
+dword_t sys_getrlimit64(dword_t resource, addr_t rlim_addr) {
+    return sys_getrlimit64_guest(resource, rlim_addr);
 }
 
 dword_t sys_old_getrlimit32(dword_t resource, addr_t rlim_addr) {
@@ -216,7 +216,7 @@ void rusage_add(struct rusage_ *dst, struct rusage_ *src) {
     timeval_add(&dst->stime, &src->stime);
 }
 
-int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_ *rusage) {
+int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage) {
     if (abi == GUEST_ABI_AMD64) {
         struct amd64_rusage_ guest = {
             .utime = {.sec = rusage->utime.sec, .usec = rusage->utime.usec},
@@ -245,7 +245,7 @@ int write_guest_rusage_abi(enum guest_abi abi, addr_t addr, const struct rusage_
     return 0;
 }
 
-dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
+dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
     struct rusage_ rusage;
     switch (who) {
         case RUSAGE_SELF_:
@@ -264,8 +264,8 @@ dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
     return 0;
 }
 
-dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
-    return sys_getrusage(who, rusage_addr);
+dword_t sys_getrusage(dword_t who, addr_t rusage_addr) {
+    return sys_getrusage_guest(who, rusage_addr);
 }
 
 int_t sys_sched_getaffinity(pid_t_ pid, dword_t cpusetsize, addr_t cpuset_addr) {
