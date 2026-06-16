@@ -829,15 +829,24 @@ int realfs_flock(struct fd *fd, int operation) {
 
 int realfs_statfs(struct mount *mount, struct statfsbuf *stat) {
     struct statvfs vfs = {};
-    fstatvfs(mount->root_fd, &vfs);
-    stat->bsize = vfs.f_bsize;
+    if (fstatvfs(mount->root_fd, &vfs) < 0)
+        return errno_map();
+    // f_blocks/f_bfree/f_bavail are counts in units of the fundamental block
+    // size (f_frsize). On Linux, statfs f_bsize equals that block size, so
+    // callers that size free space as count*f_bsize (apt does) get correct
+    // bytes. Darwin's statvfs instead puts the large "optimal I/O size" in
+    // f_bsize (e.g. 1 MiB against a 4 KiB f_frsize), which inflates those
+    // callers by f_bsize/f_frsize -- 256x, e.g. 46 GB free shown as 11.9 TB.
+    // Mirror Linux: present f_bsize == f_frsize == the fundamental block size.
+    unsigned long block_size = vfs.f_frsize != 0 ? vfs.f_frsize : vfs.f_bsize;
+    stat->bsize = block_size;
     stat->blocks = vfs.f_blocks;
     stat->bfree = vfs.f_bfree;
     stat->bavail = vfs.f_bavail;
     stat->files = vfs.f_files;
     stat->ffree = vfs.f_ffree;
     stat->namelen = vfs.f_namemax;
-    stat->frsize = vfs.f_frsize;
+    stat->frsize = block_size;
     return 0;
 }
 
