@@ -34,6 +34,7 @@ executable('eventfd_interrupt', ['eventfd_interrupt.c'], dependencies: dependenc
 executable('futex_core', ['futex_core.c'], dependencies: dependency('threads'))
 executable('process_lifecycle', ['process_lifecycle.c'], dependencies: dependency('threads'))
 executable('pthread_sync', ['pthread_sync.c'], dependencies: dependency('threads'))
+executable('fcntl_lock', ['fcntl_lock.c'])
 executable('ptrace_group_stop', ['ptrace_group_stop.c'])
 executable('ptrace_thread_follow', ['ptrace_thread_follow.c'], dependencies: dependency('threads'))
 executable('epoll_mod_wake', ['epoll_mod_wake.c'], dependencies: dependency('threads'))

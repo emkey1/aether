@@ -434,40 +434,50 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
         case F_GETLK_:
             STRACE("fcntl(%d, F_GETLK, %#x)", f, arg);
             if (guest64_locks) {
-                if (user_read(arg, &flock, sizeof(flock)))
+                // amd64 native struct flock (l_start at offset 8); translate
+                // field-by-field -- it is NOT layout-compatible with flock_.
+                struct flock_amd64 flock64;
+                if (user_read(arg, &flock64, sizeof(flock64))) {
                     ret = _EFAULT;
-                else
-                    goto got_flock_32;
+                    break;
+                }
+                flock.type = flock64.type;
+                flock.whence = flock64.whence;
+                flock.start = flock64.start;
+                flock.len = flock64.len;
+                flock.pid = flock64.pid;
+                ret = fcntl_getlk(fd, &flock);
+                // ret is unsigned (dword_t); fcntl_getlk returns a signed int
+                // that is negative on error, so test the sign rather than
+                // ret >= 0 (always true for an unsigned).
+                if ((sdword_t) ret >= 0) {
+                    flock64.type = flock.type;
+                    flock64.whence = flock.whence;
+                    flock64.start = flock.start;
+                    flock64.len = flock.len;
+                    flock64.pid = flock.pid;
+                    if (user_write(arg, &flock64, sizeof(flock64)))
+                        ret = _EFAULT;
+                }
             } else {
-                if (user_read(arg, &flock32, sizeof(flock32)))
+                if (user_read(arg, &flock32, sizeof(flock32))) {
                     ret = _EFAULT;
-                else {
-got_flock_32:
-                    if (!guest64_locks) {
-                        flock.type = flock32.type;
-                        flock.whence = flock32.whence;
-                        flock.start = flock32.start;
-                        flock.len = flock32.len;
-                        flock.pid = flock32.pid;
-                    }
-                    ret = fcntl_getlk(fd, &flock);
-                    // ret is unsigned (dword_t); fcntl_getlk returns a signed
-                    // int that is negative on error, so test the sign rather
-                    // than ret >= 0 (always true for an unsigned).
-                    if ((sdword_t) ret >= 0) {
-                        if (guest64_locks) {
-                            if (user_write(arg, &flock, sizeof(flock)))
-                                ret = _EFAULT;
-                        } else {
-                            flock32.type = flock.type;
-                            flock32.whence = flock.whence;
-                            flock32.start = (unsigned)flock.start;
-                            flock32.len = (unsigned)flock.len;
-                            flock32.pid = flock.pid;
-                            if (user_write(arg, &flock32, sizeof(flock32)))
-                                ret = _EFAULT;
-                        }
-                    }
+                    break;
+                }
+                flock.type = flock32.type;
+                flock.whence = flock32.whence;
+                flock.start = flock32.start;
+                flock.len = flock32.len;
+                flock.pid = flock32.pid;
+                ret = fcntl_getlk(fd, &flock);
+                if ((sdword_t) ret >= 0) {
+                    flock32.type = flock.type;
+                    flock32.whence = flock.whence;
+                    flock32.start = (unsigned)flock.start;
+                    flock32.len = (unsigned)flock.len;
+                    flock32.pid = flock.pid;
+                    if (user_write(arg, &flock32, sizeof(flock32)))
+                        ret = _EFAULT;
                 }
             }
             break;
@@ -488,34 +498,45 @@ got_flock_32:
         case F_SETLKW_:
             STRACE("fcntl(%d, F_SETLK%*s, %#x)", f, cmd == F_SETLKW_, "W", arg);
             if (guest64_locks) {
-                if (user_read(arg, &flock, sizeof(flock)))
+                // amd64 native struct flock (l_start at offset 8); translate
+                // field-by-field -- it is NOT layout-compatible with flock_.
+                struct flock_amd64 flock64;
+                if (user_read(arg, &flock64, sizeof(flock64))) {
                     ret = _EFAULT;
-                else
-                    goto set_flock_32;
-            } else {
-                if (user_read(arg, &flock32, sizeof(flock32)))
-                    ret = _EFAULT;
-                else {
-set_flock_32:
-                    if (!guest64_locks) {
-                        flock.type = flock32.type;
-                        flock.whence = flock32.whence;
-                        flock.start = flock32.start;
-                        flock.len = flock32.len;
-                        flock.pid = flock32.pid;
-                    }
-                    ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                    break;
                 }
+                flock.type = flock64.type;
+                flock.whence = flock64.whence;
+                flock.start = flock64.start;
+                flock.len = flock64.len;
+                flock.pid = flock64.pid;
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+            } else {
+                if (user_read(arg, &flock32, sizeof(flock32))) {
+                    ret = _EFAULT;
+                    break;
+                }
+                flock.type = flock32.type;
+                flock.whence = flock32.whence;
+                flock.start = flock32.start;
+                flock.len = flock32.len;
+                flock.pid = flock32.pid;
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
             }
             break;
 
         case F_SETLK64_:
         case F_SETLKW64_:
-            STRACE("fcntl(%d, F_SETLK%*s64, %#x)", f, cmd == F_SETLKW_, "W", arg);
+            // NB: the blocking flag is cmd == F_SETLKW64_, not F_SETLKW_ -- this
+            // is the 64-bit command (14), and musl on i386 always routes its
+            // F_SETLKW through here (64-bit off_t). Comparing against F_SETLKW_
+            // (7) made every F_SETLKW64 non-blocking, so blocking locks returned
+            // EAGAIN instead of waiting.
+            STRACE("fcntl(%d, F_SETLK%*s64, %#x)", f, cmd == F_SETLKW64_, "W", arg);
             if (user_read(arg, &flock, sizeof(flock)))
                 ret = _EFAULT;
             else
-                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW_);
+                ret = fcntl_setlk(fd, &flock, cmd == F_SETLKW64_);
             break;
 
         default:

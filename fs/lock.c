@@ -322,10 +322,19 @@ void file_lock_remove_owned_by(struct fd *fd, void *owner) {
     struct inode_data *inode = fd->inode;
     lock(&inode->lock, 0);
     struct file_lock *lock, *tmp;
+    bool removed = false;
     list_for_each_entry_safe(&inode->posix_locks, lock, tmp, locks) {
-        if (lock->owner == owner)
+        if (lock->owner == owner) {
             file_lock_delete(lock);
+            removed = true;
+        }
     }
+    // Wake any F_SETLKW waiter blocked on inode->posix_unlock: releasing a
+    // lock by closing the fd / exiting the process must unblock contenders,
+    // just as the explicit F_UNLCK path (file_lock_acquire) does. Without
+    // this, a waiter could sleep forever on a lock that is already gone.
+    if (removed)
+        notify(&inode->posix_unlock);
     unlock(&inode->lock);
 }
 

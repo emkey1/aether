@@ -73,6 +73,20 @@ struct flock32_ {
     pid_t_ pid;
     char comm[16];
 } __attribute__((packed));
+// The amd64 (x86_64) ABI struct flock: 64-bit l_start/l_len, with l_start
+// 8-byte aligned -- i.e. 4 bytes of padding after the two leading shorts.
+// This is NOT the same layout as struct flock_ above, which is packed to
+// match the i386 struct flock64 (l_start at offset 4). The amd64 fcntl path
+// must therefore translate field-by-field rather than reading the guest
+// struct straight into a struct flock_.
+struct flock_amd64 {
+    word_t type;
+    word_t whence;
+    dword_t pad_;
+    sqword_t start;
+    sqword_t len;
+    pid_t_ pid;
+} __attribute__((packed));
 
 int fcntl_getlk(struct fd *fd, struct flock_ *flock);
 // cmd should be either F_SETLK or F_SETLKW
