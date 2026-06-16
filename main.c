@@ -68,7 +68,15 @@ static void configure_standalone_i386_safety(int argc, char *const argv[]) {
 static void configure_standalone_amd64_jit(void) {
     const char *force_jit = getenv("ISH_HOST_AMD64_JIT");
     if (force_jit == NULL) {
+        // The amd64 JIT is only implemented and validated on aarch64 hosts (the
+        // iOS target). On other hosts the gadget path is incomplete and SIGSEGVs
+        // on even trivial amd64 programs, so default it off and run the
+        // interpreter; force it on for development with ISH_HOST_AMD64_JIT=1.
+#if defined(__aarch64__)
         amd64_jit_set_enabled(true);
+#else
+        amd64_jit_set_enabled(false);
+#endif
         return;
     }
 
