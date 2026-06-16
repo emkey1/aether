@@ -2075,12 +2075,17 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             next_ip = state->amd64_ip + sizeof(imm8);
         }
         state->amd64_ip = next_ip;
-        amd64_jit_debug("push-imm-helper ip=%llx value=%llx next=%llx",
+        amd64_jit_debug("push-imm ip=%llx value=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) value,
                 (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_push_imm,
-                value, (unsigned long) next_ip);
+        // Native push of a sign-extended 64-bit immediate (value computed above).
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_push_imm(void);
+        gen(state, (unsigned long) gadget_amd64_push_imm);
+        gen(state, value);
+        gen_amd64_defer_rip(state, next_ip);
         return true;
     }
 

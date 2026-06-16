@@ -2268,3 +2268,21 @@ amd64_vmem_segfault_write:
     str  x11, [x14, x10, lsl 3]       /* regs[dest] = value (pop rsp: value wins) */
     gret 1
     amd64_vread_bullshit 8, pop_reg
+
+# amd64 push imm (0x68 imm32 / 0x6a imm8): push a sign-extended 64-bit immediate.
+# gen.c has already sign-extended the immediate to 64 bits and emits it as
+# operand 0, so the gadget just stores it. Same flush/fault contract as push_reg.
+.gadget amd64_push_imm
+    ldr  x10, [_ip]                   /* x10 = sign-extended 64-bit immediate */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x9, [x14, 4*8]               /* x9 = RSP */
+    sub  x9, x9, 8                    /* x9 = new RSP = store address */
+    amd64_vwrite_prep 8, push_imm
+    str  x10, [x9]
+    amd64_vwrite_done 8, push_imm
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]
+    sub  x8, x8, 8
+    str  x8, [x14, 4*8]
+    gret 1
+    amd64_vwrite_bullshit 8, push_imm
