@@ -23,6 +23,25 @@
 #import <net/if_var.h>
 #endif
 
+#if !defined(__APPLE__)
+/* iSH's /proc/net code was written against the BSD struct if_data + AF_LINK that
+   macOS getifaddrs() returns. On Linux, getifaddrs() hands back a
+   struct rtnl_link_stats on AF_PACKET entries; map the field names so the same
+   code reads real Linux interface stats. */
+#include <linux/if_link.h>
+#define AF_LINK AF_PACKET
+#define if_data rtnl_link_stats
+#define ifi_ibytes rx_bytes
+#define ifi_ipackets rx_packets
+#define ifi_ierrors rx_errors
+#define ifi_iqdrops rx_dropped
+#define ifi_imcasts multicast
+#define ifi_obytes tx_bytes
+#define ifi_opackets tx_packets
+#define ifi_oerrors tx_errors
+#define ifi_collisions collisions
+#endif
+
 // Partially cribbed from https://github.com/ish-app/ish/pull/315/commits/4a3d96b4ed81470216534d299b921ba3c09ba03f#diff-8c3246e6b14ecb993cb4bf40b3d502a201566f225e339aa09cff57871f0d6351
 
 #pragma mark - /proc/net
