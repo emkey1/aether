@@ -316,9 +316,13 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     }
     dword_t pt_flags = entry->flags;
     struct data *backing_data = entry->data; // capture before the loop reassigns `entry`
+    // P_COW is internal per-page copy-on-write state: it legitimately differs across a
+    // single mapping after fork() + partial writes -- exactly how apt's anonymous
+    // DynamicMMap looks when it tries to grow. Require only the mapping's type and
+    // permission bits to match, not COW state.
     for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
         entry = mem_pt(current->mem, page);
-        if (entry == NULL || entry->flags != pt_flags) {
+        if (entry == NULL || (entry->flags & ~P_COW) != (pt_flags & ~P_COW)) {
             res = _EFAULT;
             goto out;
         }
@@ -341,7 +345,7 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     if (extra_is_hole) {
         int err = is_file
                 ? mremap_map_file_extra(current->mem, extra_start, extra_pages, backing_fd, extra_file_offset, pt_flags)
-                : pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
+                : pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags & ~P_COW);
         res = err < 0 ? err : addr;
         goto out;
     }
@@ -360,7 +364,7 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     }
     int err = is_file
             ? mremap_map_file_extra(current->mem, new_page + old_pages, extra_pages, backing_fd, extra_file_offset, pt_flags)
-            : pt_map_nothing(current->mem, new_page + old_pages, extra_pages, pt_flags);
+            : pt_map_nothing(current->mem, new_page + old_pages, extra_pages, pt_flags & ~P_COW);
     if (err == 0) {
         err = pt_move(current->mem, PAGE(addr), new_page, old_pages);
         if (err < 0)
