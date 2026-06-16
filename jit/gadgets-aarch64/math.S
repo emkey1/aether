@@ -2763,3 +2763,19 @@ amd64_gen_opstore_arith opstore_arith64, 8, 63
 
 amd64_gen_opstore_logic opstore_logic32, 4, 32
 amd64_gen_opstore_logic opstore_logic64, 8, 64
+
+# amd64 MOVSXD reg64 <- [mem]32 (movslq, 0x63 with REX.W), mod!=3: sign-extend a
+# 32-bit memory operand into a 64-bit register. No flags. gen.c only routes the
+# REX.W form here (the rare non-W 0x63 bridges). dst reg id in x10 survives the prep;
+# ldrsw does the 32->64 sign extend. Operands: meta(0)/disp(1)/next_ip(2).
+.gadget amd64_movsxd_mem
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x10, x8, 8, 4               /* dst reg id (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 4, movsxd_mem   /* x9 = host addr of the 32-bit source */
+    ldrsw x11, [x9]                  /* sign-extend 32 -> 64 */
+    add  x13, _cpu, CPU_amd64_regs
+    str  x11, [x13, x10, lsl 3]      /* write the full 64-bit register */
+    gret 3
+    amd64_vread_bullshit 4, movsxd_mem

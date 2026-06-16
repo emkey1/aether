@@ -3103,6 +3103,35 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native MOVSXD reg64 <- [mem]32 (movslq, 0x63 with REX.W), mod!=3: sign-extend a
+    // 32-bit memory operand into a 64-bit register, no flags. Only the REX.W form is
+    // routed here (the rare non-W 0x63 32-bit form, and FS/address-size, keep bridging).
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            insn.opcode == 0x63 && insn.rex.w) {
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, 32, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("movsxd-mem ip=%llx meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, meta, disp,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_movsxd_mem(void);
+        gen(state, (unsigned long) gadget_amd64_movsxd_mem);
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
