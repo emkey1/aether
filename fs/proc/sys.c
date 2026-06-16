@@ -15,7 +15,9 @@ void get_current_hostname(char *hostname, size_t size);
 #import <netinet/in.h>
 #import <sys/socket.h>
 #import <unistd.h>
+#if defined(__APPLE__)
 #import <net/if_var.h>
+#endif
 
 extern const char *proc_ish_version;
 

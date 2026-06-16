@@ -19,7 +19,9 @@
 #import <netinet/tcp.h>
 #import <sys/socket.h>
 #import <unistd.h>
+#if defined(__APPLE__)
 #import <net/if_var.h>
+#endif
 
 // Partially cribbed from https://github.com/ish-app/ish/pull/315/commits/4a3d96b4ed81470216534d299b921ba3c09ba03f#diff-8c3246e6b14ecb993cb4bf40b3d502a201566f225e339aa09cff57871f0d6351
 
