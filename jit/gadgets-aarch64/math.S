@@ -2228,3 +2228,43 @@ amd64_vmem_segfault_write:
     amd64_vwrite_done 16, store128
     gret 3
     amd64_vwrite_bullshit 16, store128
+
+# amd64 push reg (0x50+r; REX.B selects r8-r15): always a 64-bit stack push in
+# long mode -- the 0x66 operand-size form is excluded by gen.c. The reg cache and
+# rip are flushed before this gadget, so guest registers live in CPU_amd64_regs
+# (memory) and a page fault re-executes the instruction. RSP is regs[4].
+# Operand 0: source register number (0-15). `push rsp` pushes the pre-decrement
+# RSP because the value is read before RSP is updated.
+.gadget amd64_push_reg
+    ldr  x8, [_ip]
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x10, [x14, x8, lsl 3]        /* x10 = value (survives prep via save_c) */
+    ldr  x9, [x14, 4*8]               /* x9 = RSP (regs[4]) */
+    sub  x9, x9, 8                    /* x9 = new RSP = store address */
+    amd64_vwrite_prep 8, push_reg
+    str  x10, [x9]
+    amd64_vwrite_done 8, push_reg
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]               /* re-read original RSP (still unmodified) */
+    sub  x8, x8, 8
+    str  x8, [x14, 4*8]               /* commit RSP -= 8 only after the store */
+    gret 1
+    amd64_vwrite_bullshit 8, push_reg
+
+# amd64 pop reg (0x58+r; REX.B selects r8-r15): always a 64-bit stack pop.
+# Operand 0: destination register number (0-15). `pop rsp` works because regs[rsp]
+# is written first and then overwritten by the popped value.
+.gadget amd64_pop_reg
+    ldr  x8, [_ip]
+    mov  x10, x8                      /* x10 = dest reg (survives prep via save_c) */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x9, [x14, 4*8]               /* x9 = RSP = read address */
+    amd64_vread_prep 8, pop_reg
+    ldr  x11, [x9]                    /* x11 = popped value */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]
+    add  x8, x8, 8
+    str  x8, [x14, 4*8]               /* regs[rsp] = rsp + 8 */
+    str  x11, [x14, x10, lsl 3]       /* regs[dest] = value (pop rsp: value wins) */
+    gret 1
+    amd64_vread_bullshit 8, pop_reg

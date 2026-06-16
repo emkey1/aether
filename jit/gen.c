@@ -1998,13 +1998,19 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         if (insn.rex.b)
             reg |= 8;
         next_ip = insn.end_ip;
-        amd64_jit_debug("push-helper ip=%llx reg=%lu next=%llx",
+        amd64_jit_debug("push-reg ip=%llx reg=%lu next=%llx",
                 (unsigned long long) insn.start_ip,
                 reg,
                 (unsigned long long) next_ip);
         state->amd64_ip = next_ip;
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_push_reg,
-                reg, (unsigned long) next_ip);
+        // Native 64-bit stack push. Flush the reg cache + rip so the gadget reads
+        // guest registers from CPU_amd64_regs and a #PF re-executes this insn.
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_push_reg(void);
+        gen(state, (unsigned long) gadget_amd64_push_reg);
+        gen(state, reg);
+        gen_amd64_defer_rip(state, next_ip);
         return true;
     }
 
@@ -2014,13 +2020,18 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         if (insn.rex.b)
             reg |= 8;
         next_ip = insn.end_ip;
-        amd64_jit_debug("pop-helper ip=%llx reg=%lu next=%llx",
+        amd64_jit_debug("pop-reg ip=%llx reg=%lu next=%llx",
                 (unsigned long long) insn.start_ip,
                 reg,
                 (unsigned long long) next_ip);
         state->amd64_ip = next_ip;
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_pop_reg,
-                reg, (unsigned long) next_ip);
+        // Native 64-bit stack pop. Same reg-cache/rip flush contract as push.
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_pop_reg(void);
+        gen(state, (unsigned long) gadget_amd64_pop_reg);
+        gen(state, reg);
+        gen_amd64_defer_rip(state, next_ip);
         return true;
     }
 

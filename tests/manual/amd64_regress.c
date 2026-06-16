@@ -417,6 +417,46 @@ static void test_cc1_varargs_compile_stress(void) {
     }
 }
 
+// Native JIT push/pop gadgets: push r8-r15 (REX.B-encoded) and pop them back in
+// reverse, verifying strict LIFO order and 64-bit value integrity. The compiler
+// also saves/restores its own callee-saved regs around this block, adding more
+// push/pop. (gen.c emits gadget_amd64_push_reg/pop_reg for 0x50-0x5f.)
+static void test_push_pop_lifo(void) {
+    uint64_t out[8];
+    uint64_t *p = out;
+    __asm__ volatile(
+        "movq $0x000000000000A000, %%r8\n\t"
+        "movq $0x000000000000B000, %%r9\n\t"
+        "movq $0x000000000000C000, %%r10\n\t"
+        "movq $0x000000000000D000, %%r11\n\t"
+        "movq $0x000000000000E000, %%r12\n\t"
+        "movq $0x000000000000F000, %%r13\n\t"
+        "movq $0x000000000001A000, %%r14\n\t"
+        "movq $0x000000000001B000, %%r15\n\t"
+        "pushq %%r8\n\t pushq %%r9\n\t pushq %%r10\n\t pushq %%r11\n\t"
+        "pushq %%r12\n\t pushq %%r13\n\t pushq %%r14\n\t pushq %%r15\n\t"
+        "popq %%rax\n\t movq %%rax, 0(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 8(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 16(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 24(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 32(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 40(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 48(%0)\n\t"
+        "popq %%rax\n\t movq %%rax, 56(%0)\n\t"
+        : : "r"(p)
+        : "rax", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "memory");
+    static const uint64_t want[8] = {
+        0x1B000, 0x1A000, 0xF000, 0xE000, 0xD000, 0xC000, 0xB000, 0xA000
+    };
+    for (int i = 0; i < 8; i++) {
+        if (out[i] != want[i]) {
+            failf("push_pop_lifo", (uint64_t) i, out[i], want[i], 0, 0, 0);
+            return;
+        }
+    }
+    test_logf("push_pop_lifo: ok\n");
+}
+
 int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "--exec-child") == 0)
         return helper_exec_child();
@@ -425,6 +465,7 @@ int main(int argc, char **argv) {
     test_cross_page_private_store();
     test_exec_loader_zero(argv);
     test_fcntl_lock_close_race();
+    test_push_pop_lifo();
     test_cc1_varargs_compile_stress();
     return finish_suite("amd64_regress");
 }
