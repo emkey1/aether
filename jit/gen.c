@@ -774,13 +774,26 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     if (amd64_jit_one_byte_ret_prefixes(&insn) && insn.opcode == 0xc9) {
         next_ip = insn.end_ip;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("leave-helper ip=%llx next=%llx",
+        if (insn.operand_size_prefix) {
+            // 16-bit leave is rare; keep bridging it (ends the block).
+            amd64_jit_debug("leave16-helper ip=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) next_ip);
+            gen_amd64_helper_tlb_2_retint(state, amd64_jit_leave,
+                    16, (unsigned long) next_ip);
+            gen_exit(state);
+            return false;
+        }
+        amd64_jit_debug("leave ip=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_leave,
-                insn.operand_size_prefix ? 16 : 64, (unsigned long) next_ip);
-        gen_exit(state);
-        return false;
+        // Native 64-bit leave continues in-block like push/pop.
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_leave(void);
+        gen(state, (unsigned long) gadget_amd64_leave);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
     }
 
     if (amd64_jit_one_byte_branch_prefixes(&insn) && insn.opcode == 0xe9) {

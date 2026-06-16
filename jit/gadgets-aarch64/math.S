@@ -2286,3 +2286,20 @@ amd64_vmem_segfault_write:
     str  x8, [x14, 4*8]
     gret 1
     amd64_vwrite_bullshit 8, push_imm
+
+# amd64 leave (0xc9): mov rsp, rbp ; pop rbp. RBP is regs[5]. The pop reads from
+# [RBP] (the new RSP), then RSP = RBP + 8 and RBP = the popped value. RSP/RBP are
+# committed only after the read succeeds, so a page fault re-executes cleanly.
+# 64-bit only; the 0x66 (16-bit) form stays bridged. No operands.
+.gadget amd64_leave
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x9, [x14, 5*8]               /* x9 = RBP = read address */
+    amd64_vread_prep 8, leave
+    ldr  x11, [x9]                    /* x11 = popped value (new RBP) */
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 5*8]               /* re-read old RBP */
+    add  x8, x8, 8                    /* new RSP = old RBP + 8 */
+    str  x8, [x14, 4*8]              /* regs[rsp] = old_rbp + 8 */
+    str  x11, [x14, 5*8]             /* regs[rbp] = popped value */
+    gret 0
+    amd64_vread_bullshit 8, leave
