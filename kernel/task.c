@@ -11,8 +11,10 @@
 #include "platform/platform.h"
 #include "util/sync.h"
 #include "util/timer.h"
+#if defined(__APPLE__)
 #include <libkern/OSAtomic.h>
 #include <os/proc.h>
+#endif
 #include <dlfcn.h>
 
 #define GRACE_PERIOD 2 // How long we want to deallocate tasks that have exited

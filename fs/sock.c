@@ -118,6 +118,9 @@ struct sockaddr_nl_ {
     uint32_t nl_groups;
 };
 
+/* glibc <net/if.h> defines ifr_name as a macro (ifr_ifrn.ifrn_name) that would
+   mangle the field name in iSH's guest-ABI struct below; neutralize it. */
+#undef ifr_name
 struct ifreq_ {
     char ifr_name[IFNAMSIZ_];
     union {
@@ -290,12 +293,12 @@ static void netlink_fill_link_info(const struct ifaddrs *addrs, const struct ifa
     info->mtu = 1500;
     info->txqlen = 1000;
     info->operstate = (cursor->ifa_flags & IFF_RUNNING) ? IF_OPER_UP_ : IF_OPER_UNKNOWN_;
+#if defined(__APPLE__)
     if (cursor->ifa_data != NULL) {
         const struct if_data *stats = (const struct if_data *) cursor->ifa_data;
         if (stats->ifi_mtu != 0)
             info->mtu = (uint32_t) stats->ifi_mtu;
     }
-#if defined(__APPLE__)
     for (const struct ifaddrs *entry = addrs; entry != NULL; entry = entry->ifa_next) {
         if (entry->ifa_name == NULL || entry->ifa_addr == NULL)
             continue;

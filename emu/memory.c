@@ -1,3 +1,4 @@
+#define _GNU_SOURCE // for dladdr/Dl_info (refcount-underflow diagnostic)
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>

@@ -14,7 +14,9 @@
 #import <netinet/in.h>
 #import <sys/socket.h>
 #import <unistd.h>
+#if defined(__APPLE__)
 #import <net/if_var.h>
+#endif
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>

@@ -1,6 +1,8 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
+#if defined(__APPLE__)
 #include <sys/sysctl.h>
+#endif
 #include <sys/ioctl.h>
 #include <inttypes.h>
 #include <string.h>
@@ -31,14 +33,14 @@ static int proc_show_if_inet6(struct proc_entry * UNUSED(entry), struct proc_dat
     size_t needed; // How much buffer do we need to allocate
     // char *mybuf;
     
+#if defined(__APPLE__)
     int mib[] = {CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS};
-    // sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
     if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), NULL, &needed, NULL, 0) < 0) {
        printk("error in route-sysctl-estimate");
-       //return 0;
-    } else {
-       //printk("%s\n", )
     }
+#else
+    (void) needed;
+#endif
     
     bool success = (getifaddrs(&addrs) == 0);
     unsigned count = 0;

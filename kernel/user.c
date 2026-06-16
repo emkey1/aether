@@ -1,7 +1,12 @@
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include "kernel/calls.h"
 #include "kernel/mm.h"
+
+#ifndef IOV_MAX
+#define IOV_MAX 1024 // glibc only exposes IOV_MAX under _XOPEN_SOURCE
+#endif
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;

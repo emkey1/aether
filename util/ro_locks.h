@@ -8,6 +8,7 @@
 #define RO_LOCKS_H
 
 #include <strings.h>
+#include <string.h>
 #include "misc.h"
 #include "debug.h"
 #include "kernel/errno.h"

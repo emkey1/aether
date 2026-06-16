@@ -1,6 +1,8 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
+#if defined(__APPLE__)
 #include <sys/sysctl.h>
+#endif
 #include <inttypes.h>
 #include "kernel/calls.h"
 #include "fs/proc.h"
