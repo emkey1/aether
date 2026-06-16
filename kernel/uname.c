@@ -138,6 +138,21 @@ static void sysinfo_specific(struct sys_info *info) {
     info->freehigh = 0;
     info->mem_unit = (dword_t)mem_unit;
 }
+static void sysinfo_specific_amd64(struct amd64_sys_info *info) {
+    struct mem_usage usage = get_mem_usage();
+    // amd64 fields are 64-bit, so report raw byte counts with mem_unit == 1; no
+    // need for the 32-bit mem_unit down-scaling loop the i386 path performs.
+    info->totalram = usage.total != 0 ? usage.total : usage.available;
+    info->freeram = usage.free;
+    info->sharedram = 0;
+    info->bufferram = usage.cached;
+    info->totalswap = 0;
+    info->freeswap = 0;
+    info->procs = 0;
+    info->totalhigh = 0;
+    info->freehigh = 0;
+    info->mem_unit = 1;
+}
 #elif __linux__
 static void sysinfo_specific(struct sys_info *info) {
     struct sysinfo host_info;
@@ -152,24 +167,59 @@ static void sysinfo_specific(struct sys_info *info) {
     info->freehigh = host_info.freehigh;
     info->mem_unit = host_info.mem_unit;
 }
+static void sysinfo_specific_amd64(struct amd64_sys_info *info) {
+    struct sysinfo host_info;
+    sysinfo(&host_info);
+    // host __kernel_ulong_t fields are 64-bit on a 64-bit Linux host; copy them
+    // straight through without the truncation the 32-bit i386 path suffers.
+    info->totalram = host_info.totalram;
+    info->freeram = host_info.freeram;
+    info->sharedram = host_info.sharedram;
+    info->bufferram = host_info.bufferram;
+    info->totalswap = host_info.totalswap;
+    info->freeswap = host_info.freeswap;
+    info->procs = host_info.procs;
+    info->totalhigh = host_info.totalhigh;
+    info->freehigh = host_info.freehigh;
+    info->mem_unit = host_info.mem_unit;
+}
 #endif
 
-dword_t sys_sysinfo(addr_t info_addr) {
-    struct sys_info info = {0};
+// The amd64 struct sysinfo must come out to exactly 112 bytes from natural C
+// alignment alone (procs/pad at 80/82, then a 4-byte gap so totalhigh lands at
+// offset 88, freehigh at 96, mem_unit at 104, padded out to 112).
+static_assert(sizeof(struct amd64_sys_info) == 112, "amd64 sysinfo layout mismatch");
+
+dword_t sys_sysinfo_guest(guest_addr_t info_addr) {
     struct uptime_info uptime = get_uptime();
     uint64_t loads[3];
     get_guest_loadavg(loads);
+
+    // amd64 glibc expects the 112-byte struct sysinfo with 64-bit fields, so on
+    // that ABI fill and write the wider layout with raw (un-truncated) values.
+    if (current->abi == GUEST_ABI_AMD64) {
+        struct amd64_sys_info info = {0};
+        info.uptime = (sqword_t)uptime.uptime_ticks;
+        info.loads[0] = loads[0];
+        info.loads[1] = loads[1];
+        info.loads[2] = loads[2];
+        sysinfo_specific_amd64(&info);
+        if (user_put(info_addr, info))
+            return _EFAULT;
+        return 0;
+    }
+
+    struct sys_info info = {0};
     info.uptime = (dword_t)uptime.uptime_ticks;
     info.loads[0] = (dword_t)loads[0];
     info.loads[1] = (dword_t)loads[1];
     info.loads[2] = (dword_t)loads[2];
     sysinfo_specific(&info);
-
     if (user_put(info_addr, info))
         return _EFAULT;
     return 0;
 }
 
-dword_t sys_sysinfo_guest(guest_addr_t info_addr) {
-    return sys_sysinfo(info_addr);
+dword_t sys_sysinfo(addr_t info_addr) {
+    return sys_sysinfo_guest(info_addr);
 }

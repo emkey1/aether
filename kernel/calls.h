@@ -442,6 +442,25 @@ struct sys_info {
     dword_t mem_unit;
     char pad;
 };
+// amd64 struct sysinfo: 64-bit (__kernel_ulong_t) fields, natural alignment.
+// Do NOT pack — the 4-byte gap after procs/pad (placing totalhigh at offset 88)
+// and the trailing pad to 112 bytes are part of the ABI and come for free from
+// the compiler's natural alignment of the qword_t members.
+struct amd64_sys_info {
+    sqword_t uptime;
+    qword_t loads[3];
+    qword_t totalram;
+    qword_t freeram;
+    qword_t sharedram;
+    qword_t bufferram;
+    qword_t totalswap;
+    qword_t freeswap;
+    word_t procs;
+    word_t pad;
+    qword_t totalhigh;
+    qword_t freehigh;
+    dword_t mem_unit;
+};
 dword_t sys_sysinfo(addr_t info_addr);
 dword_t sys_sysinfo_guest(guest_addr_t info_addr);
 
