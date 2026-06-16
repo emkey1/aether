@@ -70,15 +70,36 @@ static int compare_cpus(struct cpu_state *cpu, struct tlb *tlb, int pid, int und
     } \
 } while (0)
 #define CHECK_REG(pt, cp) CHECK(regs.pt, cpu->cp, #cp)
-    CHECK_REG(rax, eax);
-    CHECK_REG(rbx, ebx);
-    CHECK_REG(rcx, ecx);
-    CHECK_REG(rdx, edx);
-    CHECK_REG(rsi, esi);
-    CHECK_REG(rdi, edi);
-    CHECK_REG(rsp, esp);
-    CHECK_REG(rbp, ebp);
-    CHECK_REG(rip, eip);
+#define CHECK_REG64(pt, idx) CHECK((qword_t) regs.pt, cpu->amd64_regs[idx], #pt)
+    if (current->abi == GUEST_ABI_AMD64) {
+        CHECK_REG64(rax, amd64_rax);
+        CHECK_REG64(rbx, amd64_rbx);
+        CHECK_REG64(rcx, amd64_rcx);
+        CHECK_REG64(rdx, amd64_rdx);
+        CHECK_REG64(rsi, amd64_rsi);
+        CHECK_REG64(rdi, amd64_rdi);
+        CHECK_REG64(rsp, amd64_rsp);
+        CHECK_REG64(rbp, amd64_rbp);
+        CHECK_REG64(r8, amd64_r8);
+        CHECK_REG64(r9, amd64_r9);
+        CHECK_REG64(r10, amd64_r10);
+        CHECK_REG64(r11, amd64_r11);
+        CHECK_REG64(r12, amd64_r12);
+        CHECK_REG64(r13, amd64_r13);
+        CHECK_REG64(r14, amd64_r14);
+        CHECK_REG64(r15, amd64_r15);
+        CHECK((qword_t) regs.rip, cpu->amd64_rip, "rip");
+    } else {
+        CHECK_REG(rax, eax);
+        CHECK_REG(rbx, ebx);
+        CHECK_REG(rcx, ecx);
+        CHECK_REG(rdx, edx);
+        CHECK_REG(rsi, esi);
+        CHECK_REG(rdi, edi);
+        CHECK_REG(rsp, esp);
+        CHECK_REG(rbp, ebp);
+        CHECK_REG(rip, eip);
+    }
     undefined_flags |= (1 << 8); // treat trap flag as undefined
     regs.eflags = (regs.eflags & ~undefined_flags) | (cpu->eflags & undefined_flags);
     // give a nice visual representation of the flags
@@ -252,12 +273,35 @@ static void pt_copy_to_real(int pid, addr_t start, size_t size) {
     }
 }
 
+// amd64 syscall interception during single-stepping. Returns true if the syscall
+// must execute on the real cpu (it changes the address space / TLS / signal
+// state), false if ptraceomatic should substitute the fake cpu's result (rax).
+// Memory-result copying for individual syscalls is added incrementally.
+static bool amd64_intercept_syscall(struct cpu_state *cpu, int pid, struct user_regs_struct *regs, int sender, int receiver, long *saved_fd) {
+    (void) pid; (void) regs; (void) sender; (void) receiver; (void) saved_fd;
+    switch (cpu->amd64_regs[amd64_rax]) {
+        case 9:   // mmap
+        case 10:  // mprotect
+        case 11:  // munmap
+        case 12:  // brk
+        case 13:  // rt_sigaction
+        case 14:  // rt_sigprocmask
+        case 15:  // rt_sigreturn
+        case 158: // arch_prctl (sets fs base for TLS)
+            return true;
+    }
+    return false;
+}
+
 static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int sender, int receiver) {
     // step fake cpu
+    bool is_amd64 = current->abi == GUEST_ABI_AMD64;
     cpu->tf = 1;
     int interrupt = cpu_run_to_interrupt(cpu, tlb);
     // hack to clean up before the exit syscall
-    if (interrupt == INT_SYSCALL && cpu->eax == 1) {
+    if (interrupt == INT_SYSCALL &&
+            (is_amd64 ? (cpu->amd64_regs[amd64_rax] == 60 || cpu->amd64_regs[amd64_rax] == 231)
+                      : (cpu->eax == 1))) {
         if (kill(pid, SIGKILL) < 0) {
             perror("kill tracee during exit");
             exit(1);
@@ -282,13 +326,24 @@ static void step_tracing(struct cpu_state *cpu, struct tlb *tlb, int pid, int se
             regs.rip += 2;
         } else if (((inst & 0xff00) >> 8) == 0x31) {
             // rdtsc, no good way to get the same result here except copy from fake cpu
-            regs.rax = cpu->eax;
-            regs.rdx = cpu->edx;
+            if (is_amd64) {
+                regs.rax = cpu->amd64_regs[amd64_rax];
+                regs.rdx = cpu->amd64_regs[amd64_rdx];
+            } else {
+                regs.rax = cpu->eax;
+                regs.rdx = cpu->edx;
+            }
+            regs.rip += 2;
+        } else if (is_amd64 && ((inst & 0xff00) >> 8) == 0x05) {
+            // syscall (amd64): take the fake cpu's result, or run it for real
+            if (amd64_intercept_syscall(cpu, pid, &regs, sender, receiver, &saved_fd))
+                goto do_step;
+            regs.rax = cpu->amd64_regs[amd64_rax];
             regs.rip += 2;
         } else {
             goto do_step;
         }
-    } else if ((inst & 0xff) == 0xcd && ((inst & 0xff00) >> 8) == 0x80) {
+    } else if (!is_amd64 && (inst & 0xff) == 0xcd && ((inst & 0xff00) >> 8) == 0x80) {
         // int $0x80, intercept the syscall unless it's one of a few actually important ones
         dword_t syscall_num = (dword_t) regs.rax;
         switch (syscall_num) {
@@ -429,14 +484,22 @@ do_step:
 }
 
 static void prepare_tracee(int pid) {
-    transplant_vdso(pid, vdso_data, sizeof(vdso_data));
-
-    // copy the stack
-    pt_copy(pid, 0xffffd000, 0x1000);
     struct user_regs_struct regs;
-    getregs(pid, &regs);
-    regs.rsp = current->cpu.esp;
-    setregs(pid, &regs);
+    if (current->abi == GUEST_ABI_AMD64) {
+        // match the emulator's initial rsp/rip. (vdso + argv/auxv stack sync for
+        // programs that actually read them is amd64 phase-2 work.)
+        getregs(pid, &regs);
+        regs.rsp = current->cpu.amd64_regs[amd64_rsp];
+        regs.rip = current->cpu.amd64_rip;
+        setregs(pid, &regs);
+    } else {
+        transplant_vdso(pid, vdso_data, sizeof(vdso_data));
+        // copy the stack
+        pt_copy(pid, 0xffffd000, 0x1000);
+        getregs(pid, &regs);
+        regs.rsp = current->cpu.esp;
+        setregs(pid, &regs);
+    }
 
     // find out how big the signal stack frame needs to be
     __asm__("cpuid"
