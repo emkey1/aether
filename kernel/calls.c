@@ -2420,12 +2420,17 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 303: // name_to_handle_at (EOPNOTSUPP stub; args ignored, and its
     case 304: // open_by_handle_at  pointer args are 64-bit guest addresses)
     case 309: // getcpu stubbed
+    case 424: // pidfd_send_signal (ENOSYS stub; callers fall back to kill)
+    case 425: // io_uring_setup    (ENOSYS stub; callers use ordinary syscalls)
+    case 426: // io_uring_enter
+    case 427: // io_uring_register
     case 428: // open_tree   (silent ENOSYS stub; args ignored, so skip full-width arg validation)
     case 429: // move_mount
     case 430: // fsopen
     case 431: // fsconfig
     case 432: // fsmount
     case 433: // fspick
+    case 434: // pidfd_open (ENOSYS stub; login/PAM fall back to waitpid)
         return 0;
     case 3:   // close
     case 12:  // brk
