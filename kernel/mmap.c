@@ -261,6 +261,27 @@ int_t sys_munmap(addr_t addr, uint_t len) {
 #define MREMAP_MAYMOVE_ 1
 #define MREMAP_FIXED_ 2
 
+// Map the freshly-grown tail of a file-backed mapping during an mremap grow. The extra
+// pages continue the same file at file_offset; the existing pages are left untouched (the
+// caller pt_moves them when relocating), which preserves both MAP_SHARED contents and any
+// MAP_PRIVATE/COW data already written. Mirrors the fd path in do_mmap().
+static int mremap_map_file_extra(struct mem *mem, page_t start, pages_t pages,
+        struct fd *fd, qword_t file_offset, unsigned pt_flags) {
+    if (fd == NULL || fd->ops->mmap == NULL)
+        return _EFAULT;
+    int prot = pt_flags & (P_READ | P_WRITE | P_EXEC | P_SHARED);
+    int mmap_flags = (pt_flags & P_SHARED) ? MMAP_SHARED : MMAP_PRIVATE;
+    int err = fd->ops->mmap(fd, mem, start, pages, (off_t) file_offset, prot, mmap_flags);
+    if (err < 0)
+        return err;
+    struct pt_entry *e = mem_pt(mem, start);
+    if (e != NULL && e->data != NULL) {
+        e->data->fd = fd_retain(fd);
+        e->data->file_offset = file_offset;
+    }
+    return 0;
+}
+
 guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags) {
     STRACE("mremap(%#llx, %#llx, %#llx, %d)", (unsigned long long) addr,
            (unsigned long long) old_len, (unsigned long long) new_len, flags);
@@ -294,6 +315,7 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
         goto out;
     }
     dword_t pt_flags = entry->flags;
+    struct data *backing_data = entry->data; // capture before the loop reassigns `entry`
     for (page_t page = PAGE(addr); page < PAGE(addr) + old_pages; page++) {
         entry = mem_pt(current->mem, page);
         if (entry == NULL || entry->flags != pt_flags) {
@@ -301,16 +323,25 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
             goto out;
         }
     }
-    if (!(pt_flags & P_ANONYMOUS)) {
-        FIXME("mremap grow on file mappings");
+    // File-backed grow: map the extra tail pages from the same fd. Only fd-backed
+    // mappings whose fd we retained (data->fd) are growable this way.
+    bool is_file = !(pt_flags & P_ANONYMOUS);
+    struct fd *backing_fd = is_file && backing_data != NULL ? backing_data->fd : NULL;
+    qword_t extra_file_offset = backing_data != NULL
+            ? backing_data->file_offset + ((qword_t) old_pages << PAGE_BITS) : 0;
+    if (is_file && (backing_fd == NULL || backing_fd->ops->mmap == NULL)) {
+        FIXME("mremap grow on a mapping with no growable backing fd");
         res = _EFAULT;
         goto out;
     }
+
     page_t extra_start = PAGE(addr) + old_pages;
     pages_t extra_pages = new_pages - old_pages;
     bool extra_is_hole = pt_is_hole(current->mem, extra_start, extra_pages);
     if (extra_is_hole) {
-        int err = pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
+        int err = is_file
+                ? mremap_map_file_extra(current->mem, extra_start, extra_pages, backing_fd, extra_file_offset, pt_flags)
+                : pt_map_nothing(current->mem, extra_start, extra_pages, pt_flags);
         res = err < 0 ? err : addr;
         goto out;
     }
@@ -327,7 +358,9 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
         res = _ENOMEM;
         goto out;
     }
-    int err = pt_map_nothing(current->mem, new_page + old_pages, extra_pages, pt_flags);
+    int err = is_file
+            ? mremap_map_file_extra(current->mem, new_page + old_pages, extra_pages, backing_fd, extra_file_offset, pt_flags)
+            : pt_map_nothing(current->mem, new_page + old_pages, extra_pages, pt_flags);
     if (err == 0) {
         err = pt_move(current->mem, PAGE(addr), new_page, old_pages);
         if (err < 0)
