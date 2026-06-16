@@ -2322,3 +2322,36 @@ amd64_vmem_segfault_write:
     str  w10, [_cpu, CPU_eip]        /* mirror low 32 bits, as amd64_jmp does */
     b    jit_ret
     amd64_vread_bullshit 8, ret
+
+# amd64 indirect jmp, register form (0xff /4, mod==3): rip = regs[rm], exit. No
+# memory access. Operand 0 = rm register number (0-15). Always 64-bit in long mode.
+.gadget amd64_jmp_indir_reg
+    ldr  x8, [_ip]
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x10, [x14, x8, lsl 3]       /* target = regs[rm] */
+    str  x10, [_cpu, CPU_amd64_rip]
+    str  w10, [_cpu, CPU_eip]
+    b    jit_ret
+
+# amd64 indirect call, register form (0xff /2, mod==3): push the return address
+# and set rip = regs[rm]. The target is read BEFORE the push (x86 order; matters
+# for `call *%rsp`). Operand 0 = rm reg number, operand 1 = next_ip (return addr).
+# rip flushed so a #PF on the push re-executes the call.
+.gadget amd64_call_indir_reg
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [_ip]
+    ldr  x10, [x14, x8, lsl 3]       /* x10 = target = regs[rm] (survives prep) */
+    ldr  x9, [x14, 4*8]              /* RSP */
+    sub  x9, x9, 8                   /* new RSP = store address */
+    amd64_vwrite_prep 8, call_ir
+    ldr  x11, [_ip, 8]               /* return address (operand 1) */
+    str  x11, [x9]                   /* push return address */
+    amd64_vwrite_done 8, call_ir
+    add  x14, _cpu, CPU_amd64_regs
+    ldr  x8, [x14, 4*8]
+    sub  x8, x8, 8
+    str  x8, [x14, 4*8]             /* RSP -= 8 */
+    str  x10, [_cpu, CPU_amd64_rip]  /* rip = target (read before the push) */
+    str  w10, [_cpu, CPU_eip]
+    b    jit_ret
+    amd64_vwrite_bullshit 8, call_ir

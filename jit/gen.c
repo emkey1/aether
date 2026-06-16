@@ -1906,6 +1906,34 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             return false;
         }
         state->amd64_ip = next_ip;
+        // Native register-indirect call (/2) and jmp (/4): mod==3, target =
+        // regs[rm]. The memory forms and the other groups (inc/dec/push/far)
+        // keep bridging. Always 64-bit in long mode (require no 0x66).
+        if ((group == 2 || group == 4) && amd64_modrm_mod(insn.modrm) == 3 &&
+                !insn.lock_prefix && !insn.operand_size_prefix) {
+            unsigned long rm = amd64_modrm_rm(insn.modrm);
+            if (insn.rex.b)
+                rm |= 8;
+            gen_amd64_flush_reg_cache(state);
+            if (group == 4) {
+                amd64_jit_debug("jmp-indir-reg ip=%llx rm=%lu",
+                        (unsigned long long) insn.start_ip, rm);
+                state->amd64_deferred_rip_valid = false;
+                extern void gadget_amd64_jmp_indir_reg(void);
+                gen(state, (unsigned long) gadget_amd64_jmp_indir_reg);
+                gen(state, rm);
+            } else {
+                amd64_jit_debug("call-indir-reg ip=%llx rm=%lu next=%llx",
+                        (unsigned long long) insn.start_ip, rm,
+                        (unsigned long long) next_ip);
+                gen_amd64_flush_rip(state);
+                extern void gadget_amd64_call_indir_reg(void);
+                gen(state, (unsigned long) gadget_amd64_call_indir_reg);
+                gen(state, rm);
+                gen(state, (unsigned long) next_ip);
+            }
+            return false;
+        }
         amd64_jit_debug("ff-group-helper ip=%llx modrm=%02x next=%llx",
                 (unsigned long long) insn.start_ip,
                 insn.modrm,
