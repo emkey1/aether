@@ -2973,6 +2973,39 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native load-op arith: reg <op>= [mem] for the d=1 forms ADD (0x03), SUB (0x2b),
+    // CMP (0x3b), mod!=3, 32/64-bit (no 0x66). reg is the dst/lhs, [mem] is the rhs;
+    // flags are set eagerly. Mirrors the cached_arith_reg_reg coverage (ADC/SBB and
+    // byte forms 0x02/2a/3a keep bridging; 16-bit bridges). Same flush+#PF-reexec
+    // discipline as MOV; FS-prefix and address-size forms bridge.
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.opcode == 0x03 || insn.opcode == 0x2b || insn.opcode == 0x3b)) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("loadop-arith ip=%llx op=%02x size=%u meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode, size,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_loadop_arith32(void), gadget_amd64_loadop_arith64(void);
+        gen(state, (unsigned long) (size == 64
+                    ? gadget_amd64_loadop_arith64 : gadget_amd64_loadop_arith32));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&

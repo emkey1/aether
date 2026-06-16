@@ -2513,3 +2513,72 @@ amd64_gen_mov_store mov_store64, 8
     amd64_vwrite_done 1, mov_store8
     gret 3
     amd64_vwrite_bullshit 1, mov_store8
+
+# amd64 load-op arith: reg <op>= [mem] (d=1 forms ADD 0x03 / SUB 0x2b / CMP 0x3b),
+# mod!=3, sizes 32/64. The reg operand (modrm.reg) is the destination/lhs and the
+# memory operand is the rhs. Mirrors gadget_amd64_cached_arith_reg_reg but reads the
+# rhs from memory and runs in flush style (cache flushed by gen.c -> regs in memory,
+# #PF re-executes). Sets CF/OF/AF/ZF/SF/PF eagerly via amd64_cached_set_addsub_flags
+# (lhs=x13, rhs=x10, result=x15, cf=x14, of=x16; the macro touches x12/x17 only, so
+# opcode (x9) and dst id (x8) survive it). CMP (opcode>=0x38) sets flags but does not
+# write the destination. Byte forms (0x02/2a/3a) and ADC/SBB bridge (parity with the
+# reg-reg native path); 16-bit (0x66) bridges. opcode|regid packed in x10 survives
+# the prep (only x10 does). Operands: meta(0)/disp(1)/next_ip(2).
+.macro amd64_gen_loadop_arith name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vbytes, \name  /* x9 = host addr of the rhs */
+.if \vbytes == 4
+    ldr  w11, [x9]                   /* rhs = [mem] (32-bit) */
+.else
+    ldr  x11, [x9]                   /* rhs = [mem] (64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x8, x10, 8, 4               /* x8 = dst reg id */
+    add  x13, _cpu, CPU_amd64_regs
+    ldr  x13, [x13, x8, lsl 3]       /* x13 = lhs = dst reg value */
+    mov  x10, x11                    /* x10 = rhs */
+.if \vbytes == 4
+    mov  w13, w13                    /* truncate lhs to 32 */
+    mov  w10, w10                    /* truncate rhs to 32 */
+    cmp  x9, 0x28
+    b.hs 1f
+    adds w15, w13, w10
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+2:  mov  w15, w15                    /* zero-extend 32-bit result */
+.else
+    cmp  x9, 0x28
+    b.hs 1f
+    adds x15, x13, x10
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+2:
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    cmp  x9, 0x38                    /* CMP (>=0x38): flags only, no write */
+    b.hs 3f
+    add  x13, _cpu, CPU_amd64_regs
+.if \vbytes == 4
+    ubfx x12, x15, 0, 32             /* 32-bit write zero-extends the upper 32 */
+    str  x12, [x13, x8, lsl 3]
+.else
+    str  x15, [x13, x8, lsl 3]
+.endif
+3:  gret 3
+    amd64_vread_bullshit \vbytes, \name
+.endm
+
+amd64_gen_loadop_arith loadop_arith32, 4, 31
+amd64_gen_loadop_arith loadop_arith64, 8, 63
