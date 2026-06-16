@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <locale.h>
 #include <search.h>
 #include <sys/stat.h>
 #include <archive.h>
@@ -149,7 +150,39 @@ static const char *import_host_path(void **case_map, const char *guest_path, boo
     return resolved->canonical;
 }
 
+void fakefs_ensure_utf8_locale(void) {
+    // libarchive converts archive path/linkpath strings to the process LC_CTYPE
+    // charset; under the default "C" locale that conversion fails for the UTF-8
+    // paths in Debian/Devuan (docker-export) tarballs ("... can't be converted
+    // from UTF-8 to current locale"), which aborts the read. Pin a UTF-8 LC_CTYPE
+    // so the conversion is a no-op. Only LC_CTYPE is touched, to avoid disturbing
+    // numeric/time formatting categories used elsewhere in the process.
+    if (setlocale(LC_CTYPE, "en_US.UTF-8") != NULL)
+        return;
+    if (setlocale(LC_CTYPE, "C.UTF-8") != NULL)
+        return;
+    setlocale(LC_CTYPE, "");
+}
+
+// libarchive's narrow path accessors convert to the process LC_CTYPE charset and
+// can fail / return NULL in the C locale (as on iOS, where en_US.UTF-8 may not be
+// installable) for UTF-8 archive entries. Prefer the UTF-8 accessors, which need
+// no conversion; fall back to the narrow form.
+static const char *entry_pathname_u8(struct archive_entry *e) {
+    const char *p = archive_entry_pathname_utf8(e);
+    return p != NULL ? p : archive_entry_pathname(e);
+}
+static const char *entry_hardlink_u8(struct archive_entry *e) {
+    const char *p = archive_entry_hardlink_utf8(e);
+    return p != NULL ? p : archive_entry_hardlink(e);
+}
+static const char *entry_symlink_u8(struct archive_entry *e) {
+    const char *p = archive_entry_symlink_utf8(e);
+    return p != NULL ? p : archive_entry_symlink(e);
+}
+
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress p) {
+    fakefs_ensure_utf8_locale();
     void *case_map = NULL;
     int err = mkdir(fs, 0777);
     if (err < 0)
@@ -176,8 +209,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     struct archive *archive = archive_read_new();
     if (archive == NULL)
         ARCHIVE_ERR(archive);
-    archive_read_support_filter_gzip(archive);
-    archive_read_support_filter_bzip2(archive);
+    archive_read_support_filter_all(archive); // gzip, bzip2, xz, zstd, ... (whatever libarchive was built with)
     archive_read_support_format_tar(archive);
     if (archive_read_open_filename(archive, archive_path, 65536) != ARCHIVE_OK)
         ARCHIVE_ERR(archive);
@@ -195,11 +227,19 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
 
     // do actual shit
     struct archive_entry *entry;
-    while ((err = archive_read_next_header(archive, &entry)) == ARCHIVE_OK) {
+    while (true) {
+        err = archive_read_next_header(archive, &entry);
+        if (err == ARCHIVE_EOF)
+            break;
+        // ARCHIVE_WARN is non-fatal: libarchive returns it when e.g. a pax/UTF-8
+        // link path can't also be rendered in the process locale. The UTF-8 form
+        // is still available via the *_utf8 accessors, so keep importing.
+        if (err != ARCHIVE_OK && err != ARCHIVE_WARN)
+            ARCHIVE_ERR(archive);
         char entry_path[MAX_PATH];
-        if (!path_normalize(archive_entry_pathname(entry), entry_path)) {
+        if (!path_normalize(entry_pathname_u8(entry), entry_path)) {
             // Avoid pwnage
-            fprintf(stderr, "warning: skipped possible path traversal %s\n", archive_entry_pathname(entry));
+            fprintf(stderr, "warning: skipped possible path traversal %s\n", entry_pathname_u8(entry));
             continue;
         }
         if (!progress_update(&p, (double) archive_filter_bytes(archive, -1) / archive_bytes, entry_path))
@@ -207,7 +247,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         if (strcmp(entry_path, "") == 0)
             archive_has_root = true;
 
-        const char *hardlink = archive_entry_hardlink(entry);
+        const char *hardlink = entry_hardlink_u8(entry);
         if (hardlink) {
             char hardlink_path[MAX_PATH];
             if (!path_normalize(hardlink, hardlink_path)) {
@@ -287,7 +327,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
             case AE_IFLNK:
                 if (host_path_exists)
                     break;
-                err = (int) write(fd, archive_entry_symlink(entry), strlen(archive_entry_symlink(entry)));
+                err = (int) write(fd, entry_symlink_u8(entry), strlen(entry_symlink_u8(entry)));
                 if (err < 0)
                     POSIX_ERR();
         }
@@ -320,8 +360,8 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         sqlite3_bind_int64(insert_path, 2, sqlite3_last_insert_rowid(db));
         STEP_RESET(insert_path);
     }
-    if (err != ARCHIVE_EOF)
-        ARCHIVE_ERR(archive);
+    // (EOF reached normally above; ARCHIVE_WARN entries were imported and hard
+    // errors already returned, so no trailing status check is needed.)
 
     // Add a path entry for the root if it's missing
     if (!archive_has_root) {
@@ -346,6 +386,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
 }
 
 bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_error *err_out, struct progress p) {
+    fakefs_ensure_utf8_locale();
     // open the archive
     struct archive *archive = archive_write_new();
     if (archive == NULL)
