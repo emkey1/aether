@@ -596,9 +596,9 @@
     and x15, x15, x16
     b 5f
 4:  eor x15, x15, x16
-5:  amd64_cached_mask_result x15, x12
-    amd64_cached_write x14, x15, x12
-    amd64_cached_set_logic_flags x15, x12
+5:  amd64_cached_mask_result x15, x0
+    amd64_cached_write x14, x15, x0
+    amd64_cached_set_logic_flags x15, x0
     gret 1
 
 .gadget amd64_hybrid_logic_reg_reg
