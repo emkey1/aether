@@ -2401,3 +2401,67 @@ amd64_vmem_segfault_write:
     b    jit_ret
     amd64_vread_bullshit 8, call_im
     amd64_vwrite_bullshit 8, call_im_w
+
+# amd64 MOV reg<-[mem] (0x8b), mod!=3: load \vbytes from the effective address into
+# the modrm.reg register with amd64 size semantics (32-bit zero-extends the upper 32,
+# 16-bit merges the low 16 and preserves the rest). The reg cache is flushed by gen.c,
+# so base/index come from CPU_amd64_regs and the destination is written there too (a
+# #PF re-executes via the flushed rip). meta(op0)/disp(op1) describe the addressing
+# mode; next_ip(op2) is amd64_vmem_addr's rip base. A per-size gadget keeps the
+# vread_prep size literal (correct cross-page staging). Byte (0x8a) keeps bridging --
+# its modrm.reg encodes AH/CH/DH/BH without REX (amd64_reg_get_encoded8).
+.macro amd64_gen_mov_load name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x10, x8, 8, 4               /* dest reg id (survives prep via save_c) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vbytes, \name  /* x9 = host addr of the source */
+    add  x13, _cpu, CPU_amd64_regs
+    add  x13, x13, x10, lsl 3        /* &regs[dest] */
+.if \vbytes == 2
+    ldrh w10, [x9]
+    strh w10, [x13]                  /* merge low 16, preserve upper */
+.elseif \vbytes == 4
+    ldr  w10, [x9]
+    str  x10, [x13]                  /* 32-bit load zero-extends; full slot store */
+.else
+    ldr  x10, [x9]
+    str  x10, [x13]
+.endif
+    gret 3
+    amd64_vread_bullshit \vbytes, \name
+.endm
+
+# amd64 MOV [mem]<-reg (0x89), mod!=3: store the low \vbytes of the modrm.reg register
+# to the effective address. Reg cache flushed by gen.c (source read from
+# CPU_amd64_regs). The source value lives in x10 across vwrite_prep (only x10 survives
+# a prep slow-path bl); rip flushed so a #PF on the store re-executes. Byte (0x88)
+# keeps bridging (AH/CH/DH/BH encoding).
+.macro amd64_gen_mov_store name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x10, x8, 8, 4               /* source reg id */
+    amd64_vmem_addr                  /* x9 = effective address */
+    add  x11, _cpu, CPU_amd64_regs
+    ldr  x10, [x11, x10, lsl 3]      /* x10 = source value (survives prep) */
+    amd64_vwrite_prep \vbytes, \name /* x9 = host write addr */
+.if \vbytes == 2
+    strh w10, [x9]
+.elseif \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name
+    gret 3
+    amd64_vwrite_bullshit \vbytes, \name
+.endm
+
+amd64_gen_mov_load  mov_load16,  2
+amd64_gen_mov_load  mov_load32,  4
+amd64_gen_mov_load  mov_load64,  8
+amd64_gen_mov_store mov_store16, 2
+amd64_gen_mov_store mov_store32, 4
+amd64_gen_mov_store mov_store64, 8

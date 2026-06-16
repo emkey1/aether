@@ -2922,6 +2922,50 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         }
     }
 
+    // Native MOV reg<->mem, word forms (0x8b load, 0x89 store), mod!=3: the most
+    // common memory instruction and flag-free. Like the vector mem ops, the reg
+    // cache and rip are flushed so a #PF re-executes -- base/index are read from
+    // CPU_amd64_regs and the destination reg is written there too. Per-size gadget
+    // keeps the vread/vwrite size literal (correct cross-page staging). Byte forms
+    // (0x88/0x8a) keep bridging because modrm.reg without REX encodes AH/CH/DH/BH;
+    // FS-prefix and address-size forms bridge too (amd64_vmem_addr adds no tls_ptr).
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.opcode == 0x89 || insn.opcode == 0x8b)) {
+        bool is_load = insn.opcode == 0x8b;
+        unsigned size = insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32);
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("mov-mem ip=%llx op=%02x load=%d size=%u meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode, is_load, size,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_mov_load16(void), gadget_amd64_mov_load32(void),
+                gadget_amd64_mov_load64(void), gadget_amd64_mov_store16(void),
+                gadget_amd64_mov_store32(void), gadget_amd64_mov_store64(void);
+        void (*g)(void);
+        if (is_load)
+            g = size == 16 ? gadget_amd64_mov_load16
+              : size == 32 ? gadget_amd64_mov_load32 : gadget_amd64_mov_load64;
+        else
+            g = size == 16 ? gadget_amd64_mov_store16
+              : size == 32 ? gadget_amd64_mov_store32 : gadget_amd64_mov_store64;
+        gen(state, (unsigned long) g);
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
