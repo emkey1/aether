@@ -1292,6 +1292,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // imul reg, rm (0F AF) is bridged: a native gadget_amd64_imul_reg exists but
+    // its low-reg form corrupts state in a specific -O1 interleaving (a low-reg
+    // imul_reg followed by a hot-cache hash multiply) that isolated tests don't
+    // hit; left bridged pending root-cause. The 69/6B imm form is native + proven.
     if (!insn.address_size_prefix &&
             (insn.rep_mode == amd64_jit_rep_none ||
              ((insn.op2 == 0xbc || insn.op2 == 0xbd) &&
