@@ -976,9 +976,55 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             state->amd64_fallback_to_interp = true;
             return false;
         }
+        guest_addr_t imul_imm_ip = next_ip;
         next_ip += insn.opcode == 0x69
             ? (insn.operand_size_prefix ? sizeof(int16_t) : sizeof(int32_t))
             : sizeof(int8_t);
+#if defined(__aarch64__)
+        // imul reg, rm, imm (reg form): native multiply with overflow flags.
+        if (!insn.fs_prefix && !insn.lock_prefix &&
+                amd64_modrm_mod(insn.modrm) == 3) {
+            unsigned size = insn.operand_size_prefix ? 16 : (insn.rex.w ? 64 : 32);
+            unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+            unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+            if ((size == 32 || size == 64) &&
+                    amd64_jit_low8_reg(reg_id) && amd64_jit_low8_reg(rm_id)) {
+                unsigned long imm_val;
+                if (insn.opcode == 0x6b) {
+                    int8_t i;
+                    if (!tlb_read(tlb, imul_imm_ip, &i, sizeof(i))) {
+                        state->amd64_ip = state->amd64_orig_ip;
+                        state->amd64_fallback_to_interp = true;
+                        return false;
+                    }
+                    imm_val = (unsigned long) (qword_t) (sqword_t) i;
+                } else {
+                    int32_t i;
+                    if (!tlb_read(tlb, imul_imm_ip, &i, sizeof(i))) {
+                        state->amd64_ip = state->amd64_orig_ip;
+                        state->amd64_fallback_to_interp = true;
+                        return false;
+                    }
+                    imm_val = (unsigned long) (qword_t) (sqword_t) i;
+                }
+                unsigned long packed = ((unsigned long) reg_id << 8) |
+                    ((unsigned long) rm_id << 12) |
+                    ((unsigned long) size << 16);
+                state->amd64_ip = next_ip;
+                amd64_jit_debug("imul-imm-direct ip=%llx dst=%u src=%u size=%u imm=%llx next=%llx",
+                        (unsigned long long) insn.start_ip, reg_id, rm_id, size,
+                        (unsigned long long) imm_val, (unsigned long long) next_ip);
+                extern void gadget_amd64_imul_imm(void);
+                gen_amd64_ensure_reg_cache(state);
+                gen(state, (unsigned long) gadget_amd64_imul_imm);
+                gen(state, packed);
+                gen(state, imm_val);
+                gen_amd64_mark_reg_cache_dirty(state);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+        }
+#endif
         state->amd64_ip = next_ip;
         amd64_jit_debug("imul-imm-helper ip=%llx opcode=%02x next=%llx",
                 (unsigned long long) insn.start_ip,

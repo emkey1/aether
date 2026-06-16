@@ -347,6 +347,62 @@
     amd64_cached_write x8, x15, x0
 7:  gret 2
 
+# imul body: x13 = op1, x10 = op2, x9 = dst reg id, x12 = size (32/64).
+# result = low N bits of the signed product -> dst; CF=OF = (product was truncated),
+# matching amd64_set_mul_flags. SF/ZF/AF/PF are left untouched (undefined per spec;
+# the prior op's lazy/eager flag state stays valid). Clobbers x14-x17.
+.macro amd64_imul_body
+    cmp x12, 64
+    b.eq 8001f
+    sxtw x13, w13
+    sxtw x10, w10
+    mul x14, x13, x10
+    sxtw x15, w14
+    cmp x15, x14
+    cset w16, ne
+    mov w15, w14
+    b 8002f
+8001:
+    mul x15, x13, x10
+    smulh x14, x13, x10
+    asr x17, x15, 63
+    cmp x14, x17
+    cset w16, ne
+8002:
+    amd64_cached_write x9, x15, x12
+    strb w16, [_cpu, CPU_cf]
+    strb w16, [_cpu, CPU_of]
+    ldr w17, [_cpu, CPU_eflags]
+    mov w14, (1 | (1 << 11))
+    bic w17, w17, w14
+    cbz w16, 8003f
+    orr w17, w17, w14
+8003:
+    str w17, [_cpu, CPU_eflags]
+.endm
+
+# imul reg, rm, imm (69 id / 6B ib), reg form: dst <- rm * imm (signed)
+.gadget amd64_imul_imm
+    ldr x8, [_ip]
+    ldr x10, [_ip, 8]
+    ubfx x9, x8, 8, 4
+    ubfx x11, x8, 12, 4
+    ubfx x12, x8, 16, 7
+    amd64_cached_read x11, x13
+    amd64_imul_body
+    gret 2
+
+# imul reg, rm (0F AF), reg form: dst <- dst * rm (signed)
+.gadget amd64_imul_reg
+    ldr x8, [_ip]
+    ubfx x9, x8, 8, 4
+    ubfx x11, x8, 12, 4
+    ubfx x12, x8, 16, 7
+    amd64_cached_read x9, x13
+    amd64_cached_read x11, x10
+    amd64_imul_body
+    gret 1
+
 .gadget amd64_cached_arith_reg_reg
     ldr x8, [_ip]
     and x9, x8, 0xff
