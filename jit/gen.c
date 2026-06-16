@@ -821,12 +821,19 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         next_ip = state->amd64_ip + sizeof(rel32);
         target_ip = next_ip + rel32;
         state->amd64_ip = next_ip;
-        amd64_jit_debug("call-rel32-helper ip=%llx target=%llx next=%llx",
+        amd64_jit_debug("call-rel32 ip=%llx target=%llx next=%llx",
                 (unsigned long long) insn.start_ip,
                 (unsigned long long) target_ip,
                 (unsigned long long) next_ip);
-        gen_amd64_helper_tlb_2_retint(state, amd64_jit_call_abs,
-                (unsigned long) target_ip, (unsigned long) next_ip);
+        // Native call: push the 64-bit return address (reusing the push-imm
+        // gadget, which stores its operand verbatim), then statically link to
+        // the target block exactly as jmp rel32 does. A page fault during the
+        // push re-executes this instruction (rip flushed to the call's addr).
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_push_imm(void);
+        gen(state, (unsigned long) gadget_amd64_push_imm);
+        gen(state, (unsigned long) next_ip);
         gen_amd64_jmp_rel(state, target_ip);
         return false;
     }
