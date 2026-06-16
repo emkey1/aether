@@ -102,6 +102,24 @@ static int amd64_cc1_force_interp_mode(void) {
 }
 
 static bool amd64_cc1_force_interp_block(guest_addr_t ip) {
+    // env-driven RIP-range force-interp, for bisecting an amd64 JIT bug in ANY
+    // guest: ISH_AMD64_FORCE_INTERP_LO/_HI (hex) force blocks in [LO, HI) to the
+    // interpreter. Read once per process (so each bisection run picks its own range).
+    static int range_init = 0;
+    static guest_addr_t range_lo = 0, range_hi = 0;
+    if (!range_init) {
+        const char *lo = getenv("ISH_AMD64_FORCE_INTERP_LO");
+        const char *hi = getenv("ISH_AMD64_FORCE_INTERP_HI");
+        if (lo != NULL && hi != NULL) {
+            range_lo = (guest_addr_t) strtoull(lo, NULL, 0);
+            range_hi = (guest_addr_t) strtoull(hi, NULL, 0);
+        }
+        range_init = 1;
+    }
+    if (range_hi != 0 && current != NULL && current->abi == GUEST_ABI_AMD64 &&
+            ip >= range_lo && ip < range_hi)
+        return true;
+
     if (!amd64_cc1_jit_trace_enabled())
         return false;
 
