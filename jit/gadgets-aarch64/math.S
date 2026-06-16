@@ -2704,3 +2704,62 @@ amd64_gen_loadop_logic loadop_logic64, 8, 64
 
 amd64_gen_opstore_arith opstore_arith32, 4, 31
 amd64_gen_opstore_arith opstore_arith64, 8, 63
+
+# amd64 op-store/RMW logic + TEST: [mem] <op>= reg for OR (0x09), AND (0x21), XOR
+# (0x31), and TEST (0x85 = [mem] AND reg, flags only, NO write), mod!=3, sizes 32/64.
+# Same RMW frame as opstore_arith (guest addr in x0 across both preps; result -> x10
+# before the store) with the logic flag rule via amd64_cached_set_logic_flags. OR/AND/
+# XOR write the result back; TEST computes the AND for flags and skips the store.
+# Byte forms (0x08/20/30/84), 16-bit, locked bridge. Operands: meta(0)/disp(1)/next(2).
+.macro amd64_gen_opstore_logic name, vbytes, ssize
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    and  x10, x8, 0xfff              /* opcode|regid<<8 (survives read prep) */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (64-bit) */
+.endif
+    and  x9, x10, 0xff               /* x9 = opcode */
+    ubfx x12, x10, 8, 4              /* x12 = reg id (rhs) */
+    add  x11, _cpu, CPU_amd64_regs
+    ldr  x10, [x11, x12, lsl 3]      /* x10 = rhs = reg value */
+    cmp  x9, 0x21
+    b.eq 1f                          /* AND (0x21) */
+    cmp  x9, 0x85
+    b.eq 1f                          /* TEST (0x85) = AND */
+    cmp  x9, 0x31
+    b.eq 2f                          /* XOR (0x31) */
+    orr  x15, x13, x10               /* OR (0x09) */
+    b    3f
+1:  and  x15, x13, x10
+    b    3f
+2:  eor  x15, x13, x10
+3:
+.if \vbytes == 4
+    mov  w15, w15                    /* zero-extend 32-bit result */
+.endif
+    mov  x11, \ssize
+    amd64_cached_set_logic_flags x15, x11
+    cmp  x9, 0x85                    /* TEST: flags only, no store */
+    b.eq 4f
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+4:  gret 3
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_opstore_logic opstore_logic32, 4, 32
+amd64_gen_opstore_logic opstore_logic64, 8, 64

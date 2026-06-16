@@ -3070,6 +3070,39 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native op-store/RMW logic + TEST: [mem] <op>= reg for OR (0x09), AND (0x21),
+    // XOR (0x31) -- read-modify-write -- and TEST (0x85, = [mem] AND reg, flags only,
+    // no store), mod!=3, 32/64-bit (no 0x66). Logic flags. Byte forms (0x08/20/30/84),
+    // 16-bit, and locked forms keep bridging.
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.opcode == 0x09 || insn.opcode == 0x21 ||
+             insn.opcode == 0x31 || insn.opcode == 0x85)) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("opstore-logic ip=%llx op=%02x size=%u meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode, size,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_opstore_logic32(void), gadget_amd64_opstore_logic64(void);
+        gen(state, (unsigned long) (size == 64
+                    ? gadget_amd64_opstore_logic64 : gadget_amd64_opstore_logic32));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode &&
             !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
