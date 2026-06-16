@@ -1431,6 +1431,8 @@ static syscall_t amd64_syscall_table[453] = {
     [297] = (syscall_t) sys_rt_tgsigqueueinfo,
     [299] = (syscall_t) sys_recvmmsg_amd64,
     [302] = (syscall_t) sys_prlimit64,
+    [303] = (syscall_t) syscall_eopnotsupp_stub, // name_to_handle_at
+    [304] = (syscall_t) syscall_eopnotsupp_stub, // open_by_handle_at
     [307] = (syscall_t) sys_sendmmsg_amd64,
     [309] = (syscall_t) syscall_success_stub, // getcpu
     [310] = (syscall_t) sys_process_vm_readv,
@@ -2405,6 +2407,8 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 187: // readahead stubbed
     case 221: // fadvise64 stubbed (advisory; args ignored)
     case 253: // inotify_init
+    case 303: // name_to_handle_at (EOPNOTSUPP stub; args ignored, and its
+    case 304: // open_by_handle_at  pointer args are 64-bit guest addresses)
     case 309: // getcpu stubbed
     case 428: // open_tree   (silent ENOSYS stub; args ignored, so skip full-width arg validation)
     case 429: // move_mount
