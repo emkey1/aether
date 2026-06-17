@@ -158,6 +158,27 @@ void sigusr1_handler(int UNUSED(sig)) {
     }
 }
 
+// Force this thread's thread-local storage for everything sigusr1_handler
+// touches to be instantiated *now*, on a normal call stack where malloc is
+// safe. On Darwin the first access to a __thread variable is resolved lazily by
+// _tlv_get_addr, which malloc()s the per-thread TLV block. If SIGUSR1 is
+// delivered before that has happened, sigusr1_handler's own __thread access
+// re-enters malloc from async-signal context; if the interrupted code already
+// holds the (non-recursive) malloc lock, the process aborts in
+// _os_unfair_lock_recursive_abort. Every thread that unblocks SIGUSR1 must call
+// this first. Taking each variable's address forces _tlv_get_addr; the volatile
+// loads keep the compiler from eliding the accesses.
+void signal_thread_locals_init(void) {
+    volatile struct task *const *cur = (volatile struct task *const *) &current;
+    volatile bool *unwind = &should_unwind;
+    volatile bool *mark = &should_mark_wait_interrupted;
+    volatile char *buf = (volatile char *) &unwind_buf;
+    (void) *cur;
+    (void) *unwind;
+    (void) *mark;
+    (void) *buf;
+}
+
 // This is how you would mitigate the unlock/wait race if the wait
 // is async signal safe. wait_for *should* be safe from this race
 // because of synchronization involving the waiting_cond_lock.

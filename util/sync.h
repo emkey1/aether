@@ -111,6 +111,10 @@ int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout
 void notify(cond_t *cond);
 void notify_once(cond_t *cond);
 void sigusr1_handler(int sig);
+// Instantiate this thread's thread-local storage used by sigusr1_handler before
+// SIGUSR1 is unblocked, so the handler never has to malloc() it from async
+// signal context. See the definition in sync.c.
+void signal_thread_locals_init(void);
 bool current_is_valid(void);
 
 #endif

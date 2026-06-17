@@ -471,13 +471,20 @@ void task_run_current(void) {
 }
 
 static void *task_thread(void *task) {
+    current = task;
+
+    // SIGUSR1 is blocked on entry (task_start created us that way). Instantiate
+    // the thread-local storage sigusr1_handler relies on -- on this normal call
+    // stack, where malloc is safe -- before unblocking SIGUSR1. The assignment
+    // above instantiates `current`; this covers should_unwind / unwind_buf /
+    // should_mark_wait_interrupted as well.
+    signal_thread_locals_init();
+
     sigset_t sigusr1;
     sigemptyset(&sigusr1);
     sigaddset(&sigusr1, SIGUSR1);
     pthread_sigmask(SIG_UNBLOCK, &sigusr1, NULL);
 
-    current = task;
-    
     update_thread_name();
     
     task_run_current();
@@ -502,8 +509,20 @@ __attribute__((constructor)) static void create_attr(void) {
 }
 
 void task_start(struct task *task) {
+    // Create the thread with SIGUSR1 blocked so it cannot run sigusr1_handler
+    // before task_thread has instantiated its thread-local storage (see
+    // signal_thread_locals_init). Otherwise a sibling's TLB-shootdown poke
+    // (task_poke_shared_mem -> pthread_kill(.., SIGUSR1)) could be delivered
+    // while the new thread is mid-malloc instantiating that storage, making the
+    // handler re-enter malloc and abort on the malloc lock. The new thread
+    // inherits this mask and unblocks SIGUSR1 itself once it is safe.
+    sigset_t sigusr1, oldmask;
+    sigemptyset(&sigusr1);
+    sigaddset(&sigusr1, SIGUSR1);
+    pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
     if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
         die("could not create thread");
+    pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 }
 
 int_t sys_sched_yield(void) {

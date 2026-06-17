@@ -43,6 +43,16 @@ void timer_free(struct timer *timer) {
 
 static void *timer_thread(void *param) {
     struct timer *timer = param;
+    // SIGUSR1 (used by timer_set/timer_free to interrupt our nanosleep) is
+    // blocked on entry. Instantiate the thread-local storage sigusr1_handler
+    // touches on this normal call stack, then unblock SIGUSR1, so the handler
+    // never has to malloc() a TLV block from async signal context.
+    signal_thread_locals_init();
+    sigset_t sigusr1;
+    sigemptyset(&sigusr1);
+    sigaddset(&sigusr1, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &sigusr1, NULL);
+
     lock(&timer->lock, 1);
     while (true) {
         uint64_t generation = timer->generation;
@@ -129,8 +139,17 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
         pthread_kill(timer->thread, SIGUSR1);
     } else if (timer->active) {
         timer->thread_running = true;
+        // Born with SIGUSR1 blocked so the timer thread cannot run
+        // sigusr1_handler (and lazily malloc() its TLV block from async signal
+        // context) before it has instantiated its thread-locals. It unblocks
+        // SIGUSR1 itself once safe. See signal_thread_locals_init.
+        sigset_t sigusr1, oldmask;
+        sigemptyset(&sigusr1);
+        sigaddset(&sigusr1, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
         pthread_create(&timer->thread, NULL, timer_thread, timer);
         pthread_detach(timer->thread);
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
     }
     unlock(&timer->lock);
     return 0;
