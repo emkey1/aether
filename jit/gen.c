@@ -318,10 +318,14 @@ static void gen(struct gen_state *state, unsigned long thing) {
 }
 
 static void gen_amd64_emit_rip(struct gen_state *state, guest_addr_t rip) {
-    extern void gadget_amd64_set_rip(void);
     state->amd64_deferred_rip_valid = false;
+#if defined(__aarch64__)
+    extern void gadget_amd64_set_rip(void);
     gen(state, (unsigned long) gadget_amd64_set_rip);
     gen(state, (unsigned long) rip);
+#else
+    (void) rip;   // amd64 JIT gadgets are aarch64-only; x86_64 bridges to interp
+#endif
 }
 
 static void gen_amd64_flush_reg_cache(struct gen_state *state) {
@@ -367,12 +371,16 @@ static void gen_amd64_flush_rip(struct gen_state *state) {
 }
 
 static void gen_amd64_jmp_rel(struct gen_state *state, guest_addr_t target_ip) {
-    extern void gadget_amd64_jmp(void);
     gen_amd64_flush_reg_cache(state);
     state->amd64_deferred_rip_valid = false;
+#if defined(__aarch64__)
+    extern void gadget_amd64_jmp(void);
     gen(state, (unsigned long) gadget_amd64_jmp);
     gen(state, (unsigned long) (target_ip | (1ull << 63)));
     state->jump_ip[0] = state->size - 1;
+#else
+    (void) target_ip;
+#endif
 }
 
 // Emit a native amd64 conditional jump. The 16 x86 condition codes map onto the
@@ -384,6 +392,7 @@ static void gen_amd64_jmp_rel(struct gen_state *state, guest_addr_t target_ip) {
 // gen_amd64_jmp_rel; the gadget writes rip itself, so no static link.
 static void gen_amd64_jcc(struct gen_state *state, unsigned cc,
         guest_addr_t target_ip, guest_addr_t next_ip) {
+#if defined(__aarch64__)
     extern void gadget_amd64_jcc_o(void), gadget_amd64_jcc_c(void),
             gadget_amd64_jcc_z(void), gadget_amd64_jcc_cz(void),
             gadget_amd64_jcc_s(void), gadget_amd64_jcc_p(void),
@@ -398,6 +407,9 @@ static void gen_amd64_jcc(struct gen_state *state, unsigned cc,
     gen(state, (unsigned long) gadgets[(cc >> 1) & 7]);
     gen(state, (unsigned long) (swap ? next_ip : target_ip));   // operand 0: taken
     gen(state, (unsigned long) (swap ? target_ip : next_ip));   // operand 1: else
+#else
+    (void) state; (void) cc; (void) target_ip; (void) next_ip;
+#endif
 }
 
 __attribute__((unused)) static bool amd64_jit_low8_reg(unsigned reg) {
@@ -735,6 +747,7 @@ int gen_step_amd64(struct gen_state *state, struct tlb *tlb) {
     return gen_step64(state, tlb);
 }
 
+#if defined(__aarch64__)
 static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     struct amd64_jit_insn insn;
     int8_t rel8;
@@ -3695,6 +3708,23 @@ amd64_bridge_step:
     state->amd64_fallback_to_interp = true;
     return false;
 }
+#else
+static int gen_step64(struct gen_state *state, struct tlb *tlb) {
+    // The amd64 JIT gadgets are implemented only for aarch64 hosts. On other
+    // hosts (x86_64: mint's Linux VM, CI's build-linux) every amd64 instruction
+    // bridges to the interpreter, mirroring the decode-fail fallback above; this
+    // keeps the binary linking without the aarch64-only gadget symbols.
+    (void) tlb;
+    state->amd64_orig_ip = state->amd64_ip;
+    state->orig_ip_extra = 0;
+    state->amd64_fallback_to_interp = true;
+    state->amd64_fallback_ip = state->amd64_ip;
+    state->amd64_fallback_opcode = 0xff;
+    state->amd64_fallback_op2 = 0;
+    state->amd64_fallback_flags = 0x80;
+    return false;
+}
+#endif
 
 void gen_end(struct gen_state *state) {
     if (state->amd64) {
