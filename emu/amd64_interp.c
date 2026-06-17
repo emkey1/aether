@@ -3671,7 +3671,7 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
             return INT_NONE;
         }
         case 32: {
-            uint64_t product = (uint32_t) amd64_reg_get(cpu, amd64_rax, 32) * (uint32_t) src;
+            uint64_t product = (uint64_t) (uint32_t) amd64_reg_get(cpu, amd64_rax, 32) * (uint32_t) src;
             amd64_reg_set(cpu, amd64_rax, 32, product);
             amd64_reg_set(cpu, amd64_rdx, 32, product >> 32);
             amd64_set_mul_flags(cpu, (product >> 32) != 0);
@@ -3703,7 +3703,7 @@ static inline int amd64_grp3_muldiv(struct cpu_state *cpu, struct tlb *tlb,
             return INT_NONE;
         }
         case 32: {
-            int64_t product = (int32_t) amd64_reg_get(cpu, amd64_rax, 32) * (int32_t) src;
+            int64_t product = (int64_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32) * (int32_t) src;
             amd64_reg_set(cpu, amd64_rax, 32, (uint32_t) product);
             amd64_reg_set(cpu, amd64_rdx, 32, (uint32_t) ((uint64_t) product >> 32));
             amd64_set_mul_flags(cpu, product != (int64_t) (int32_t) product);
@@ -7885,7 +7885,9 @@ restart_prefix:
         if (rex.w) {
             amd64_reg_set(cpu, amd64_rax, 64, (qword_t) (sqword_t) (int32_t) amd64_reg_get(cpu, amd64_rax, 32));
         } else if (operand_size_prefix) {
-            amd64_reg_set(cpu, amd64_rax, 16, (word_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 8));
+            // cbw: sign-extend AL into AX. Reinterpret the byte as signed first;
+            // (int16_t) alone treats 0x80 as +128, not -128.
+            amd64_reg_set(cpu, amd64_rax, 16, (word_t) (int16_t) (int8_t) amd64_reg_get(cpu, amd64_rax, 8));
         } else {
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) (int16_t) amd64_reg_get(cpu, amd64_rax, 16));
         }
