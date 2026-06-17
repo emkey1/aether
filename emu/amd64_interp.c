@@ -5784,6 +5784,35 @@ restart_prefix:
             }
             break;
         }
+        // SSE2/MMX packed-integer ops the inline decoder below does not implement:
+        // PMULLW/PMULHW (d5/e5), PMULHUW (e4), packed averages (e0/e3), packed
+        // shifts by xmm/imm (d1-d3, e1/e2, f1-f3, 71-73), saturating add/sub
+        // (e8/e9/ec/ed), signed min/max (ea/ee), PMADDWD (f5) and MOVNTDQ (e7).
+        // The shared vector bridge (amd64_jit_0f_vec_rm) implements the complete
+        // set the JIT bridges, so decode the modrm here purely to find the
+        // instruction end, rewind rip to the instruction start, and hand off.
+        // Without this, a basic block that fell back to the interpreter (e.g. a
+        // crypto routine touching xmm8-15) hits one of these and raises a bogus
+        // #UD even though the JIT path handles it — see sshd-auth pmullw crash.
+        if (op2 == 0xd1 || op2 == 0xd2 || op2 == 0xd3 || op2 == 0xd5 ||
+                (op2 >= 0xe0 && op2 <= 0xe5) || op2 == 0xe7 ||
+                (op2 >= 0xe8 && op2 <= 0xea) || (op2 >= 0xec && op2 <= 0xee) ||
+                op2 == 0xf1 || op2 == 0xf2 || op2 == 0xf3 || op2 == 0xf5 ||
+                op2 == 0x71 || op2 == 0x72 || op2 == 0x73) {
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            // 71-73 carry a one-byte immediate shift count after the modrm; the
+            // rest of these forms have no immediate, so rip already marks the end.
+            unsigned long vec_next_ip = (unsigned long) cpu->amd64_rip;
+            if (op2 == 0x71 || op2 == 0x72 || op2 == 0x73)
+                vec_next_ip += 1;
+            cpu->amd64_rip = saved_rip;
+            return amd64_jit_0f_vec_rm(cpu, tlb, op2, vec_next_ip);
+        }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x12 || op2 == 0x13 ||
                 op2 == 0x14 || op2 == 0x15 ||
                 op2 == 0x16 || op2 == 0x17 ||
