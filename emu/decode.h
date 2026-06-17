@@ -1272,8 +1272,23 @@ restart:
             break;
 
         case 0xf2:
+#if OP_SIZE == 16
+        repnzrestart:
+#endif
             READINSN;
             switch (insn) {
+                case 0x66:
+                    // operand-size prefix following the repnz prefix (e.g.
+                    // `repnz scasw` = f2 66 af). Same fix as the rep handler:
+                    // rewind and re-decode in the 16-bit decoder so the string
+                    // op gets the 16-bit operand size with the repnz intact.
+#if OP_SIZE == 32
+                    TRACE("repnz 16-bit mode\n");
+                    RESTORE_IP;
+                    return glue(DECODER_NAME, 16)(DECODER_PASS_ARGS);
+#else
+                    goto repnzrestart;
+#endif
                 case 0x0f:
                     READINSN;
                     switch (insn) {
@@ -1324,8 +1339,26 @@ restart:
             break;
 
         case 0xf3:
+#if OP_SIZE == 16
+        represtart:
+#endif
             READINSN;
             switch (insn) {
+                case 0x66:
+                    // operand-size prefix following the rep prefix: `rep movsw`
+                    // and friends are encoded f3 66 a5 (rep first, then 0x66).
+                    // Mirror the lock-prefix handling below: rewind to the start
+                    // of the instruction and re-decode in the 16-bit decoder so
+                    // the string op gets the 16-bit operand size with the rep
+                    // prefix intact (otherwise this fell through to UNDEFINED,
+                    // raising a spurious SIGILL).
+#if OP_SIZE == 32
+                    TRACE("rep 16-bit mode\n");
+                    RESTORE_IP;
+                    return glue(DECODER_NAME, 16)(DECODER_PASS_ARGS);
+#else
+                    goto represtart;
+#endif
                 case 0x0f:
                     // 2-byte opcode prefix
                     // after a rep prefix, means we have sse/mmx insanity
