@@ -737,6 +737,177 @@ amd64_gen_rotate_imm rotate_imm64, 8
 amd64_gen_shift_imm shift_imm32, 4
 amd64_gen_shift_imm shift_imm64, 8
 
+# ROL (/0) / ROR (/1) reg, CL (0xd3) or reg, 1 (0xd1), 32/64, flush style (covers all
+# regs incl r8-r15 AND low-8, since rotate-by-cl/1 had NO native path -- group 0/1 always
+# bridged). Identical result/CF/OF math to amd64_gen_rotate_imm; the ONLY difference is
+# the count source: bit8 of the operand (use_cl) selects CL (= regs[rcx]=regs[1] low byte)
+# vs the literal 1. Count is masked %size; effective==0 -> NO flag change (x86); OF defined
+# only for effective==1; matches interp amd64_set_rotate_flags (which uses count%size for
+# both the no-op and the ==1 checks). Operand: rm bits0-3, group bit4 (0=ROL/1=ROR), use_cl
+# bit8.
+.macro amd64_gen_rotate_count name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    and  x9, x8, 0xf                 /* rm reg id */
+    add  x11, _cpu, CPU_amd64_regs
+    add  x11, x11, x9, lsl 3         /* &regs[rm] */
+    tbz  x8, 8, 12f                  /* use_cl? */
+    ldr  x10, [_cpu, (CPU_amd64_regs + 8)]  /* CL = low byte of rcx=regs[1] */
+    and  x10, x10, 0xff
+    b    13f
+12: mov  x10, 1                      /* reg,1 form */
+13:
+.if \vbytes == 4
+    and  x10, x10, 31                /* effective = count % 32 */
+    cbz  x10, 9f
+    ldr  w13, [x11]
+    tbnz x8, 4, 1f
+    mov  w12, 32                     /* ROL32: ror by 32-eff */
+    sub  w12, w12, w10
+    ror  w15, w13, w12
+    and  w14, w15, 1                 /* cf = result & 1 */
+    lsr  w16, w15, 31
+    eor  w16, w16, w14               /* of = cf ^ MSB */
+    b    2f
+1:  ror  w15, w13, w10               /* ROR32 */
+    lsr  w14, w15, 31                /* cf = MSB */
+    and  w16, w15, 1
+    eor  w16, w16, w14               /* of = cf ^ bit0 */
+2:  ubfx x12, x15, 0, 32
+    str  x12, [x11]
+.else
+    and  x10, x10, 63                /* effective = count % 64 */
+    cbz  x10, 9f
+    ldr  x13, [x11]
+    tbnz x8, 4, 1f
+    mov  x12, 64                     /* ROL64 */
+    sub  x12, x12, x10
+    ror  x15, x13, x12
+    and  x14, x15, 1
+    lsr  x16, x15, 63
+    eor  x16, x16, x14
+    b    2f
+1:  ror  x15, x13, x10               /* ROR64 */
+    lsr  x14, x15, 63
+    and  x16, x15, 1
+    eor  x16, x16, x14
+2:  str  x15, [x11]
+.endif
+    strb w14, [_cpu, CPU_cf]
+    ldr  w17, [_cpu, CPU_eflags]
+    bic  w17, w17, 1
+    orr  w17, w17, w14               /* eflags CF (bit 0) */
+    cmp  x10, 1
+    b.ne 8f                          /* OF defined only for 1-bit rotate */
+    strb w16, [_cpu, CPU_of]
+    bic  w17, w17, (1 << 11)
+    orr  w17, w17, w16, lsl 11       /* eflags OF (bit 11) */
+8:  str  w17, [_cpu, CPU_eflags]
+9:  gret 1
+.endm
+
+amd64_gen_rotate_count rotate_count32, 4
+amd64_gen_rotate_count rotate_count64, 8
+
+# SHL (/4) / SHR (/5) / SAR (/7) reg, CL (0xd3) or reg, 1 (0xd1), 32/64, flush style for
+# r8-r15 (low-8 already native via cached_shift_reg_count). Identical result/CF/OF math to
+# amd64_gen_shift_imm; only the count source differs (bit8 use_cl -> CL=regs[1] low byte,
+# otherwise literal 1). count%size==0 -> no change/no flags. Operand: rm bits0-3, group
+# bits4-7, use_cl bit8.
+.macro amd64_gen_shift_count name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    and  x11, x8, 0xf                /* rm id */
+    ubfx x9, x8, 4, 4               /* group (4 shl / 5 shr / 7 sar) */
+    add  x13, _cpu, CPU_amd64_regs
+    add  x11, x13, x11, lsl 3       /* &regs[rm] */
+    tbz  x8, 8, 12f                 /* use_cl? */
+    ldr  x10, [_cpu, (CPU_amd64_regs + 8)]  /* CL */
+    and  x10, x10, 0xff
+    b    13f
+12: mov  x10, 1
+13:
+.if \vbytes == 4
+    and  x10, x10, 31
+    cbz  x10, 9f
+    ldr  w13, [x11]
+    cmp  x9, 4
+    b.eq 2f
+    cmp  x9, 5
+    b.eq 3f
+    asr  w15, w13, w10              /* SAR */
+    sub  w12, w10, 1
+    lsr  w14, w13, w12
+    b    4f
+2:  lsl  w15, w13, w10             /* SHL */
+    mov  w14, w13
+    mov  w12, 32
+    sub  w12, w12, w10
+    lsr  w14, w14, w12
+    b    4f
+3:  lsr  w15, w13, w10             /* SHR */
+    sub  w12, w10, 1
+    lsr  w14, w13, w12
+4:  and  w14, w14, 1
+    mov  w16, 0
+    cmp  x10, 1
+    b.ne 5f
+    cmp  x9, 4
+    b.eq 6f
+    cmp  x9, 5
+    b.eq 7f
+    b    5f
+6:  lsr  w16, w15, 31
+    eor  w16, w16, w14
+    b    5f
+7:  lsr  w16, w13, 31
+5:  mov  w15, w15
+    ubfx x12, x15, 0, 32
+    str  x12, [x11]
+    amd64_cached_set_shift_flags 31
+.else
+    and  x10, x10, 63
+    cbz  x10, 9f
+    ldr  x13, [x11]
+    cmp  x9, 4
+    b.eq 2f
+    cmp  x9, 5
+    b.eq 3f
+    asr  x15, x13, x10             /* SAR */
+    sub  x12, x10, 1
+    lsr  x14, x13, x12
+    b    4f
+2:  lsl  x15, x13, x10            /* SHL */
+    mov  x14, x13
+    mov  x12, 64
+    sub  x12, x12, x10
+    lsr  x14, x14, x12
+    b    4f
+3:  lsr  x15, x13, x10            /* SHR */
+    sub  x12, x10, 1
+    lsr  x14, x13, x12
+4:  and  w14, w14, 1
+    mov  w16, 0
+    cmp  x10, 1
+    b.ne 5f
+    cmp  x9, 4
+    b.eq 6f
+    cmp  x9, 5
+    b.eq 7f
+    b    5f
+6:  lsr  x16, x15, 63
+    eor  w16, w16, w14
+    b    5f
+7:  lsr  x16, x13, 63
+5:  str  x15, [x11]
+    amd64_cached_set_shift_flags 63
+.endif
+9:  gret 1
+.endm
+
+amd64_gen_shift_count shift_count32, 4
+amd64_gen_shift_count shift_count64, 8
+
 .gadget amd64_cached_logic_reg_reg
     ldr x8, [_ip]
     and x9, x8, 0xff

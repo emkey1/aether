@@ -2498,6 +2498,43 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             }
 #endif
         }
+#if defined(__aarch64__)
+        // Native reg,CL (0xd3) / reg,1 (0xd1), 32/64-bit, flush style. Covers what the
+        // cached low-8 shift path above does NOT: ROL/ROR (group 0/1) for ALL regs (they
+        // had no native path -- always bridged), and SHL/SHR/SAR (group 4/5/7) for the
+        // high regs r8-r15. Byte (0xd0/0xd2, size 8), 16-bit, RCL/RCR (group 2/3, through
+        // CF) keep bridging. Count source: use_cl bit (set for 0xd3 = CL, clear for 0xd1 =
+        // literal 1) packed at bit 8; rm bits 0-3, group bits 4-7.
+        if (size == 32 || size == 64) {
+            unsigned long rcount = (unsigned long) rm_id |
+                ((unsigned long) group << 4) |
+                ((insn.opcode == 0xd3) ? (1ul << 8) : 0ul);
+            if (group == 0 || group == 1) {
+                amd64_jit_debug("rotate-count ip=%llx op=%02x grp=%u rm=%u size=%u next=%llx",
+                        (unsigned long long) insn.start_ip, insn.opcode, group, rm_id,
+                        size, (unsigned long long) next_ip);
+                gen_amd64_flush_reg_cache(state);
+                extern void gadget_amd64_rotate_count32(void), gadget_amd64_rotate_count64(void);
+                gen(state, (unsigned long) (size == 64
+                            ? gadget_amd64_rotate_count64 : gadget_amd64_rotate_count32));
+                gen(state, rcount);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+            if (group == 4 || group == 5 || group == 7) {
+                amd64_jit_debug("shift-count ip=%llx op=%02x grp=%u rm=%u size=%u next=%llx",
+                        (unsigned long long) insn.start_ip, insn.opcode, group, rm_id,
+                        size, (unsigned long long) next_ip);
+                gen_amd64_flush_reg_cache(state);
+                extern void gadget_amd64_shift_count32(void), gadget_amd64_shift_count64(void);
+                gen(state, (unsigned long) (size == 64
+                            ? gadget_amd64_shift_count64 : gadget_amd64_shift_count32));
+                gen(state, rcount);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+        }
+#endif
         amd64_jit_debug("shift-helper ip=%llx opcode=%02x group=%u rm=%u size=%u next=%llx",
                 (unsigned long long) insn.start_ip,
                 insn.opcode,
