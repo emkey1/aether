@@ -641,6 +641,102 @@
 amd64_gen_rotate_imm rotate_imm32, 4
 amd64_gen_rotate_imm rotate_imm64, 8
 
+# SHL (/4) / SHR (/5) / SAR (/7) reg, imm8 (0xc1), 32/64-bit, flush style so it covers
+# r8-r15 (SHA-512's sigma functions do `shr r8,imm`; cached_shift_reg_count is low-8
+# only). Mirrors cached_shift_reg_count's per-op result/CF/OF math exactly (CF = last
+# bit shifted out; OF defined only for a 1-bit shift: SHL = MSB(res)^CF, SHR =
+# MSB(src), SAR = 0) and reuses amd64_cached_set_shift_flags (cache-agnostic: writes
+# CPU_*). Shift count%size==0 -> no change. Operand: rm bits 0-3, group bits 4-7,
+# imm8 bits 8-15.
+.macro amd64_gen_shift_imm name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    and  x11, x8, 0xf                /* rm id */
+    ubfx x9, x8, 4, 4                /* group (4 shl / 5 shr / 7 sar) */
+    ubfx x10, x8, 8, 8              /* imm count */
+    add  x13, _cpu, CPU_amd64_regs
+    add  x11, x13, x11, lsl 3       /* &regs[rm] */
+.if \vbytes == 4
+    and  x10, x10, 31
+    cbz  x10, 9f
+    ldr  w13, [x11]
+    cmp  x9, 4
+    b.eq 2f
+    cmp  x9, 5
+    b.eq 3f
+    asr  w15, w13, w10              /* SAR */
+    sub  w12, w10, 1
+    lsr  w14, w13, w12
+    b    4f
+2:  lsl  w15, w13, w10             /* SHL */
+    mov  w14, w13
+    mov  w12, 32
+    sub  w12, w12, w10
+    lsr  w14, w14, w12
+    b    4f
+3:  lsr  w15, w13, w10             /* SHR */
+    sub  w12, w10, 1
+    lsr  w14, w13, w12
+4:  and  w14, w14, 1
+    mov  w16, 0
+    cmp  x10, 1
+    b.ne 5f
+    cmp  x9, 4
+    b.eq 6f
+    cmp  x9, 5
+    b.eq 7f
+    b    5f
+6:  lsr  w16, w15, 31
+    eor  w16, w16, w14
+    b    5f
+7:  lsr  w16, w13, 31
+5:  mov  w15, w15
+    ubfx x12, x15, 0, 32
+    str  x12, [x11]
+    amd64_cached_set_shift_flags 31
+.else
+    and  x10, x10, 63
+    cbz  x10, 9f
+    ldr  x13, [x11]
+    cmp  x9, 4
+    b.eq 2f
+    cmp  x9, 5
+    b.eq 3f
+    asr  x15, x13, x10             /* SAR */
+    sub  x12, x10, 1
+    lsr  x14, x13, x12
+    b    4f
+2:  lsl  x15, x13, x10            /* SHL */
+    mov  x14, x13
+    mov  x12, 64
+    sub  x12, x12, x10
+    lsr  x14, x14, x12
+    b    4f
+3:  lsr  x15, x13, x10            /* SHR */
+    sub  x12, x10, 1
+    lsr  x14, x13, x12
+4:  and  w14, w14, 1
+    mov  w16, 0
+    cmp  x10, 1
+    b.ne 5f
+    cmp  x9, 4
+    b.eq 6f
+    cmp  x9, 5
+    b.eq 7f
+    b    5f
+6:  lsr  x16, x15, 63
+    eor  w16, w16, w14
+    b    5f
+7:  lsr  x16, x13, 63
+5:  str  x15, [x11]
+    amd64_cached_set_shift_flags 63
+.endif
+9:  gret 1
+.endm
+
+amd64_gen_shift_imm shift_imm32, 4
+amd64_gen_shift_imm shift_imm64, 8
+
 .gadget amd64_cached_logic_reg_reg
     ldr x8, [_ip]
     and x9, x8, 0xff

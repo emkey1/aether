@@ -2753,6 +2753,23 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             gen_amd64_defer_rip(state, next_ip);
             return true;
         }
+        // SHL (/4) / SHR (/5) / SAR (/7) reg, imm8 (0xc1), 32/64-bit -- native for
+        // HIGH regs (r8-r15); the cached_shift clause above already took the low-8
+        // case and returned, so this catches the r8-r15 shifts that were bridging
+        // (SHA-512's sigma `shr r8,imm`). Flush style, same flag math as cached_shift.
+        if (insn.opcode == 0xc1 && (group == 4 || group == 5 || group == 7) &&
+                (size == 32 || size == 64)) {
+            extern void gadget_amd64_shift_imm32(void), gadget_amd64_shift_imm64(void);
+            amd64_jit_debug("shift-imm-hi ip=%llx rm=%u grp=%u size=%u imm=%llx next=%llx",
+                    (unsigned long long) insn.start_ip, rm_id, group, size,
+                    (unsigned long long) value, (unsigned long long) next_ip);
+            gen_amd64_flush_reg_cache(state);
+            gen(state, (unsigned long) (size == 64
+                        ? gadget_amd64_shift_imm64 : gadget_amd64_shift_imm32));
+            gen(state, (unsigned long) (rm_id | (group << 4) | ((value & 0xff) << 8)));
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
 #endif
         if ((insn.opcode == 0x80 || insn.opcode == 0x81 ||
                     insn.opcode == 0x83) &&
