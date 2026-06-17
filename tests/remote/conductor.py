@@ -61,9 +61,13 @@ CELLS = {
     "device:amd64:jit":    dict(arch="x86_64", engine="amd64:jit",    kind="device"),
     "device:amd64:interp": dict(arch="x86_64", engine="amd64:interp", kind="device"),
     "device:i386:jit":     dict(arch="i386",   engine="i386:jit",     kind="device"),
+    # iSH built in mint's x86_64 Linux VM: a different i386 JIT codegen
+    # (gadgets-x86_64) than the M5/device aarch64 gadgets -> independent cell.
+    # Needs the VM ish built (ISH_MINT_ISH); opt-in via --cells, not in defaults.
+    "mint:i386:jit":       dict(arch="i386",   engine="i386:jit",     kind="mintish"),
 }
 ORACLE_KINDS = {"rosetta", "mint"}
-DEFAULT_CELLS = [c for c, s in CELLS.items() if s["kind"] != "device"]
+DEFAULT_CELLS = [c for c, s in CELLS.items() if s["kind"] not in ("device", "mintish")]
 
 def discover_tests():
     return sorted(p.stem for p in CORPUS.glob("*.c"))
@@ -91,7 +95,9 @@ def probe_mint():
     except subprocess.TimeoutExpired:
         return None
     return dict(host=host, instance=inst, base=base,
-                remote_bindir=rb, vm_bindir=f"{home}/{rb}")
+                remote_bindir=rb, vm_bindir=f"{home}/{rb}",
+                vm_ish=os.environ.get("ISH_MINT_ISH", "/tmp/ish-item4/build/ish"),
+                vm_fsdir=os.environ.get("ISH_MINT_FSDIR", "/tmp/ish-mint-fs"))
 
 def push_to_mint(tests, binmap, mint):
     host = mint["host"]
@@ -104,6 +110,25 @@ def push_to_mint(tests, binmap, mint):
 def mint_run_cmd(mint, test, arch, extra):
     vmbin = f"{mint['vm_bindir']}/{test}.{arch}"
     inner_args = " ".join(shlex.quote(x) for x in [vmbin, "--engine", "oracle", *extra])
+    inner = f"limactl shell {shlex.quote(mint['instance'])} -- {inner_args}"
+    remote = "bash -lc " + shlex.quote(inner)
+    return ["ssh", "-o", "BatchMode=yes", mint["host"], remote]
+
+def stage_mint_ish(mint):
+    """Copy the pushed binaries into a writable VM dir so the VM's ish can `-r`
+    it (the ~/.ish-oracle mount is read-only). Needed for the mint:i386:jit cell,
+    which runs the corpus under iSH built in the mint VM (x86_64-host i386 JIT)."""
+    inner = (f"mkdir -p {mint['vm_fsdir']}/bin && "
+             f"cp {mint['vm_bindir']}/* {mint['vm_fsdir']}/bin/ 2>/dev/null; "
+             f"chmod +x {mint['vm_fsdir']}/bin/* 2>/dev/null; true")
+    remote = "bash -lc " + shlex.quote(
+        f"limactl shell {shlex.quote(mint['instance'])} -- sh -c {shlex.quote(inner)}")
+    sh(["ssh", "-o", "BatchMode=yes", mint["host"], remote], timeout=60)
+
+def mint_ish_run_cmd(mint, test, arch, engine, extra):
+    inner_args = " ".join(shlex.quote(x) for x in
+        [mint["vm_ish"], "-r", mint["vm_fsdir"], f"/bin/{test}.{arch}",
+         "--engine", engine, *extra])
     inner = f"limactl shell {shlex.quote(mint['instance'])} -- {inner_args}"
     remote = "bash -lc " + shlex.quote(inner)
     return ["ssh", "-o", "BatchMode=yes", mint["host"], remote]
@@ -189,6 +214,8 @@ def run_cell(cell, test, binaries, fakefs, mint=None, extra=None):
         cmd = ["arch", "-x86_64", str(binaries["oracle"]), "--engine", "oracle", *extra]
     elif kind == "mint":
         cmd = mint_run_cmd(mint, test, arch, extra)
+    elif kind == "mintish":
+        cmd = mint_ish_run_cmd(mint, test, arch, engine, extra)
     else:  # ish
         cmd = [str(ISH), "-f", str(fakefs), f"/bin/{test}.{arch}", "--engine", engine, *extra]
     try:
@@ -474,18 +501,20 @@ def cmd_run(args):
     (WORK / "bin").mkdir(exist_ok=True)
 
     mint = None if args.no_mint else probe_mint()
-    if any(CELLS[c]["kind"] == "mint" for c in cells):
+    if any(CELLS[c]["kind"] in ("mint", "mintish") for c in cells):
         if mint:
-            print(f"mint oracle: {mint['host']} lima/{mint['instance']} → {mint['vm_bindir']}")
+            print(f"mint: {mint['host']} lima/{mint['instance']} → {mint['vm_bindir']}")
         else:
-            print("mint oracle unavailable — running M5-local cells only")
-            cells = [c for c in cells if CELLS[c]["kind"] != "mint"]
+            print("mint unavailable — running M5-local cells only")
+            cells = [c for c in cells if CELLS[c]["kind"] not in ("mint", "mintish")]
 
     print(f"building {len(tests)} test(s): {', '.join(tests)}")
     binmap = {t: build_variants(t) for t in tests}
     fakefs = build_fakefs(tests)
-    if mint and any(CELLS[c]["kind"] == "mint" for c in cells):
+    if mint and any(CELLS[c]["kind"] in ("mint", "mintish") for c in cells):
         push_to_mint(tests, binmap, mint)
+    if mint and any(CELLS[c]["kind"] == "mintish" for c in cells):
+        stage_mint_ish(mint)
 
     summary, any_fail = {}, False
     for test in tests:

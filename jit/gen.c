@@ -4043,8 +4043,16 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define MUL18(val,z) MUL1(val,z)
 #define MUL1(val,z) load(val, z); gz(mul, z)
 #define IMUL1(val,z) load(val, z); gz(imul1, z)
+// The div/idiv #DE gadget that consumes this IP operand (and does `gret 1`) is
+// implemented only for aarch64; the x86_64 i386 div gadget takes no operand, so
+// emitting the IP there desyncs the gadget stream (crash). Guard it to aarch64.
+#if defined(__aarch64__)
 #define DIV(val, z) load(val, z); gz(div, z); GEN(state->orig_ip)
 #define IDIV(val, z) load(val, z); gz(idiv, z); GEN(state->orig_ip)
+#else
+#define DIV(val, z) load(val, z); gz(div, z)
+#define IDIV(val, z) load(val, z); gz(idiv, z)
+#endif
 #define IMUL3(times, src, dst,z) load(src, z); op(imul, times, z); store(dst, z)
 #define IMUL2(val, reg,z) IMUL3(val, reg, reg, z)
 
