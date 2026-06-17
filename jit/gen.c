@@ -2999,6 +2999,14 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                     gen_amd64_defer_rip(state, next_ip);
                     return true;
                 }
+                // Any operand in r8-r15: flush-style native arith (cached_arith is
+                // low-8 only). SHA-512's `add r8,r9` was the top reg-reg C bridge.
+                gen_amd64_flush_reg_cache(state);
+                extern void gadget_amd64_arith_reg_reg(void);
+                gen(state, (unsigned long) gadget_amd64_arith_reg_reg);
+                gen(state, packed);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
 #endif
             }
             amd64_jit_debug("reg-reg-helper ip=%llx opcode=%02x reg=%u rm=%u size=%u next=%llx",

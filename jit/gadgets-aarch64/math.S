@@ -1383,6 +1383,66 @@ amd64_gen_shift_imm shift_imm64, 8
     str w16, [_cpu, CPU_eflags]
     gret 1
 
+# Flush-style ADD/SUB/CMP reg,reg (0x00-03/28-2b/38-3b), 32/64 -- the high-reg
+# sibling of cached_arith_reg_reg (which is low-8 only). SHA-512's `add r8,r9` was the
+# top remaining C bridge (amd64_jit_reg_reg_op); arith had a cached path but, unlike
+# logic, no flush/hybrid fallback, so any r8-r15 operand bridged. gen.c flushes the
+# cache, this reads/writes operands straight from CPU_amd64_regs. Same add/sub math +
+# eager addsub flags as cached_arith_reg_reg; CMP (>=0x38) sets flags but no write.
+# Operand: opcode bits 0-7, reg bits 8-11, rm bits 12-15, size bits 16-22.
+.gadget amd64_arith_reg_reg
+    ldr  x8, [_ip]
+    and  x9, x8, 0xff
+    ubfx x10, x8, 8, 4
+    ubfx x11, x8, 12, 4
+    ubfx x0, x8, 16, 7
+    add  x12, _cpu, CPU_amd64_regs
+    tst  x9, 2
+    b.ne 1f
+    mov  x8, x11                     /* d=0: dst = rm */
+    ldr  x13, [x12, x11, lsl 3]
+    ldr  x10, [x12, x10, lsl 3]
+    b    2f
+1:  mov  x8, x10                     /* d=1: dst = reg */
+    ldr  x13, [x12, x10, lsl 3]
+    ldr  x10, [x12, x11, lsl 3]
+2:  cmp  x0, 64
+    b.eq 3f
+    mov  w13, w13
+    mov  w10, w10
+    cmp  x9, 0x28
+    b.hs 4f
+    adds w15, w13, w10
+    cset w14, cs
+    cset w16, vs
+    b    5f
+4:  subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+5:  mov  w15, w15
+    amd64_cached_set_addsub_flags 31
+    cmp  x9, 0x38
+    b.hs 8f
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x8, lsl 3]
+8:  gret 1
+3:  cmp  x9, 0x28
+    b.hs 6f
+    adds x15, x13, x10
+    cset w14, cs
+    cset w16, vs
+    b    7f
+6:  subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+7:  amd64_cached_set_addsub_flags 63
+    cmp  x9, 0x38
+    b.hs 9f
+    add  x12, _cpu, CPU_amd64_regs
+    str  x15, [x12, x8, lsl 3]
+9:  gret 1
+
 .gadget amd64_logic_reg_imm
     ldr x8, [_ip]
     ldr x10, [_ip, 8]
