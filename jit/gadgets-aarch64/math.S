@@ -3407,8 +3407,9 @@ amd64_gen_incdec_mem incdec_mem64, 8, 63
 # directly: set the ARM C flag from cf (cmp cf,1 => C=cf for adc; subs xzr,xzr,cf =>
 # C=!cf for sbb, since ARM SBC uses C as "no borrow"), then adcs/sbcs sets the result
 # + C (=x86 CF for adc, =!borrow for sbb) + V (=x86 OF). AF/ZF/SF/PF via
-# amd64_cached_set_addsub_flags, but the interp computes AF from rhs_with_carry
-# (rhs+cf), so x10 is set to rhs+cf before the macro (the macro uses x10 only for AF).
+# amd64_cached_set_addsub_flags, which derives AF as bit 4 of (lhs ^ rhs ^ res) from
+# the original rhs in x10 -- the result already carries cf in, so folding cf into rhs
+# would corrupt AF (fixed alongside the interp adc/sbb helper).
 .macro amd64_gen_loadop_addc name, vbytes, sbit
 .gadget amd64_\name
     ldr  x8, [_ip]                   /* meta */
@@ -3450,12 +3451,11 @@ amd64_gen_incdec_mem incdec_mem64, 8, 63
 .endif
     cset w14, cc                     /* CF (borrow) */
     cset w16, vs                     /* OF */
-2:  add  x10, x10, x12               /* x10 = rhs + cf = rhs_with_carry (for AF) */
+2:
 .if \vbytes == 4
-    mov  w10, w10
-    mov  w15, w15
+    mov  w15, w15                    /* zero-extend 32-bit result for the flag macro */
 .endif
-    amd64_cached_set_addsub_flags \sbit
+    amd64_cached_set_addsub_flags \sbit  /* AF from original rhs (x10), not rhs+cf */
     add  x12, _cpu, CPU_amd64_regs
 .if \vbytes == 4
     ubfx x13, x15, 0, 32
@@ -3515,12 +3515,11 @@ amd64_gen_loadop_addc loadop_addc64, 8, 63
 .endif
     cset w14, cc
     cset w16, vs
-2:  add  x10, x10, x12               /* rhs_with_carry for AF */
+2:
 .if \vbytes == 4
-    mov  w10, w10
-    mov  w15, w15
+    mov  w15, w15                    /* zero-extend 32-bit result for the flag macro */
 .endif
-    amd64_cached_set_addsub_flags \sbit
+    amd64_cached_set_addsub_flags \sbit  /* AF from original rhs (x10), not rhs+cf */
     mov  x10, x15                    /* result -> x10 (survives the write prep) */
     mov  x9, x0                      /* guest addr -> x9 */
     amd64_vwrite_prep \vbytes, \name\()_w

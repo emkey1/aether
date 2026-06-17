@@ -3359,8 +3359,8 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
     // Native adc/sbb with a memory operand, 32/64-bit (no 0x66), mod!=3 -- completes
     // the arith family. Load-op (reg <op>= [mem] + carry): ADC 0x13, SBB 0x1b. Op-
     // store/RMW ([mem] <op>= reg + carry): ADC 0x11, SBB 0x19. Carry-in = CPU_cf; the
-    // gadgets use ARM adcs/sbcs and feed rhs+cf to the addsub flag macro for AF (the
-    // interp computes AF/OF from rhs_with_carry). Byte (0x10/12/18/1a), 16-bit, and
+    // gadgets use ARM adcs/sbcs for the result + CF/OF, and compute AF/ZF/SF/PF via
+    // amd64_cached_set_addsub_flags from the original rhs. Byte (0x10/12/18/1a), 16-bit, and
     // locked forms keep bridging.
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
