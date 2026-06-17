@@ -719,6 +719,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     save->mm->stack_start = sp;
     save->cpu.amd64_syscall = (struct amd64_syscall_state) {};
     save->cpu.fcw = 0x37f;
+    save->cpu.mxcsr = 0x1f80;
 
     memset(save->cpu.amd64_regs, 0, sizeof(save->cpu.amd64_regs));
     save->cpu.amd64_rip = entry;

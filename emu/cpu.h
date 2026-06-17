@@ -291,6 +291,12 @@ struct cpu_state {
         };
     };
 
+    // SSE control/status word (ldmxcsr/stmxcsr; also reported by fxsave). SSE
+    // runs round-to-nearest with all exceptions masked, so the rounding/exception
+    // bits are not yet honored, but the value is stored so a control-word
+    // read-modify-write round-trips (Free Pascal's FPU init does this).
+    dword_t mxcsr;
+
     // TLS bullshit
     word_t gs;
     guest_addr_t tls_ptr;

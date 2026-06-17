@@ -4198,7 +4198,7 @@ static void amd64_fill_fxsave_area(struct cpu_state *cpu, struct amd64_fxsave_ar
     memset(area, 0, sizeof(*area));
     area->fcw = cpu->fcw;
     area->fsw = cpu->fsw;
-    area->mxcsr = 0x1f80;
+    area->mxcsr = cpu->mxcsr;
     area->mxcsr_mask = 0xffff;
 
     for (int i = 0; i < 8; i++) {
@@ -4219,6 +4219,7 @@ static void amd64_restore_fxsave_area(struct cpu_state *cpu, const struct amd64_
     word_t fcw = area->fcw;
     fpu_ldcw16(cpu, &fcw);
     cpu->fsw = area->fsw;
+    cpu->mxcsr = area->mxcsr;
 
     for (int i = 0; i < 8; i++) {
         float80 value = {0};
@@ -4250,10 +4251,33 @@ static inline int amd64_fxsave_op(struct cpu_state *cpu, struct tlb *tlb,
         }
         return INT_UNDEFINED;
     }
+    addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+
+    // /2 LDMXCSR, /3 STMXCSR: 32-bit MXCSR, no alignment requirement. The
+    // emulator runs SSE round-to-nearest with all exceptions masked and does not
+    // honor MXCSR's rounding/exception bits, but stores/loads the value so a
+    // control-word read-modify-write round-trips.
+    if (modrm->reg == 2 || modrm->reg == 3) {
+        dword_t mxcsr;
+        if (modrm->reg == 2) {
+            if (!amd64_mem_read(cpu, tlb, addr, &mxcsr, sizeof(mxcsr))) {
+                cpu->amd64_rip = saved_rip;
+                return INT_PF;
+            }
+            cpu->mxcsr = mxcsr & 0xffff;
+        } else {
+            mxcsr = cpu->mxcsr;
+            if (!amd64_mem_write(cpu, tlb, addr, &mxcsr, sizeof(mxcsr))) {
+                cpu->amd64_rip = saved_rip;
+                return INT_PF;
+            }
+        }
+        return INT_NONE;
+    }
+
     if (modrm->reg != 0 && modrm->reg != 1)
         return INT_UNDEFINED;
 
-    addr = amd64_effective_addr(cpu, modrm, fs_prefix);
     if ((addr & 0xf) != 0) {
         cpu->amd64_rip = saved_rip;
         cpu->segfault_addr = addr;
