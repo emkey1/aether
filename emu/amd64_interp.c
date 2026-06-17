@@ -6806,7 +6806,7 @@ restart_prefix:
         if (op2 == 0xaf) {
             struct amd64_modrm modrm;
             qword_t rhs, lhs, result;
-            sqword_t signed_result;
+            __int128_t full;
             bool overflow;
             if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
                 cpu->amd64_rip = saved_rip;
@@ -6816,10 +6816,13 @@ restart_prefix:
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
                 goto amd64_gpf_restore;
             lhs = amd64_reg_get(cpu, modrm.reg, op_size);
-            signed_result = amd64_sign_extend(lhs, op_size) * amd64_sign_extend(rhs, op_size);
-            result = amd64_trunc((qword_t) signed_result, op_size);
+            // 128-bit product so 64-bit signed overflow is detectable; a 64-bit
+            // product truncates, leaving CF/OF always clear.
+            full = (__int128_t) (sqword_t) amd64_sign_extend(lhs, op_size) *
+                   (__int128_t) (sqword_t) amd64_sign_extend(rhs, op_size);
+            result = amd64_trunc((qword_t) full, op_size);
             amd64_reg_set(cpu, modrm.reg, op_size, result);
-            overflow = signed_result != amd64_sign_extend(result, op_size);
+            overflow = full != (__int128_t) (sqword_t) amd64_sign_extend(result, op_size);
             amd64_set_mul_flags(cpu, overflow);
             break;
         }
@@ -10595,15 +10598,18 @@ amd64_0f_rm_done:
     }
     if (op2 == 0xaf) {
         qword_t rhs, lhs, result;
-        sqword_t signed_result;
+        __int128_t full;
         bool overflow;
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
             goto amd64_0f_rm_pf;
         lhs = amd64_reg_get(cpu, modrm.reg, op_size);
-        signed_result = amd64_sign_extend(lhs, op_size) * amd64_sign_extend(rhs, op_size);
-        result = amd64_trunc((qword_t) signed_result, op_size);
+        // 128-bit product so 64-bit signed overflow is detectable; a 64-bit
+        // product truncates, leaving CF/OF always clear.
+        full = (__int128_t) (sqword_t) amd64_sign_extend(lhs, op_size) *
+               (__int128_t) (sqword_t) amd64_sign_extend(rhs, op_size);
+        result = amd64_trunc((qword_t) full, op_size);
         amd64_reg_set(cpu, modrm.reg, op_size, result);
-        overflow = signed_result != amd64_sign_extend(result, op_size);
+        overflow = full != (__int128_t) (sqword_t) amd64_sign_extend(result, op_size);
         amd64_set_mul_flags(cpu, overflow);
         cpu->amd64_rip = (qword_t) next_ip;
         amd64_sync_legacy_regs(cpu);
