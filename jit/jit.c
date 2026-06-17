@@ -60,8 +60,16 @@ static unsigned amd64_cc1_jit_trace_next;
 static pid_t_ amd64_cc1_jit_trace_pid;
 
 static inline bool amd64_cc1_jit_trace_enabled(void) {
-    // Gated per compiled block in the amd64 frontend; only "cc1" begins with
-    // 'c', so the one-byte pre-filter skips the strcmp for every other guest.
+    // Diagnostic ring buffer for bisecting cc1 JIT issues. OFF unless
+    // ISH_AMD64_CC1_TRACE is set: it snapshots the full guest cpu_state on every
+    // compiled block, which is pure overhead on a normal compile. Gated per
+    // compiled block in the amd64 frontend; only "cc1" begins with 'c', so the
+    // one-byte pre-filter skips the strcmp for every other guest.
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_AMD64_CC1_TRACE") != NULL ? 1 : 0;
+    if (!enabled)
+        return false;
     return current != NULL &&
         current->abi == GUEST_ABI_AMD64 &&
         current->comm[0] == 'c' &&
@@ -81,7 +89,17 @@ static int amd64_cc1_force_interp_mode(void) {
         return mode;
 
     const char *value = getenv("ISH_AMD64_CC1_FORCE_INTERP");
-    if (value == NULL || strcmp(value, "1") == 0 ||
+    if (value == NULL) {
+        // Default OFF: cc1 runs under the JIT like every other guest. This was
+        // force_interp_all while bisecting a cc1 miscompile that no longer
+        // reproduces (JIT-vs-interp .o output is byte-identical across the
+        // corpus); forcing the interpreter makes every gcc/g++ compile ~3x
+        // slower. Set ISH_AMD64_CC1_FORCE_INTERP=1 to re-enable if a regression
+        // turns up.
+        mode = amd64_cc1_force_interp_none;
+        return mode;
+    }
+    if (strcmp(value, "1") == 0 ||
             strcmp(value, "true") == 0 || strcmp(value, "on") == 0 ||
             strcmp(value, "yes") == 0 || strcmp(value, "all") == 0) {
         mode = amd64_cc1_force_interp_all;
