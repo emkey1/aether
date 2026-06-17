@@ -3223,19 +3223,22 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
-    // Native imm-to-mem arith RMW: [mem] <op>= imm for ADD (group /0) and SUB (/5),
-    // mod!=3, 32/64-bit (0x81 imm32, 0x83 imm8 sign-extended; no 0x66). The common
-    // "adjust a memory variable by a constant" case. CMP (/7) deliberately stays on
-    // the interpreter (glibc/musl startup trap sequences); adc/sbb-imm (/2,/3), the
-    // logic groups (handled separately), byte (0x80) and 16-bit keep bridging.
+    // Native imm-to-mem ALU RMW: [mem] <op>= imm for ADD (/0), OR (/1), AND (/4),
+    // SUB (/5), XOR (/6), mod!=3, 32/64-bit (0x81 imm32, 0x83 imm8 sign-extended; no
+    // 0x66). The common "adjust a memory variable by a constant / set/clear flag
+    // bits" case. CMP (/7) deliberately stays on the interpreter (glibc/musl startup
+    // trap sequences); adc/sbb-imm (/2,/3), byte (0x80) and 16-bit keep bridging.
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
             amd64_modrm_mod(insn.modrm) != 3 &&
             (insn.opcode == 0x81 || insn.opcode == 0x83) &&
-            (amd64_modrm_reg(insn.modrm) == 0 || amd64_modrm_reg(insn.modrm) == 5)) {
+            (amd64_modrm_reg(insn.modrm) == 0 || amd64_modrm_reg(insn.modrm) == 1 ||
+             amd64_modrm_reg(insn.modrm) == 4 || amd64_modrm_reg(insn.modrm) == 5 ||
+             amd64_modrm_reg(insn.modrm) == 6)) {
         unsigned size = insn.rex.w ? 64 : 32;
         unsigned group = amd64_modrm_reg(insn.modrm);
+        bool is_logic = group == 1 || group == 4 || group == 6;
         unsigned long meta, disp;
         if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
@@ -3263,14 +3266,19 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             next_ip += sizeof(imm32);
         }
         state->amd64_ip = next_ip;
-        amd64_jit_debug("imm-arith ip=%llx grp=%u size=%u imm=%lx meta=%lx disp=%lx next=%llx",
-                (unsigned long long) insn.start_ip, group, size, (unsigned long) imm,
-                meta, disp, (unsigned long long) next_ip);
+        amd64_jit_debug("imm-alu ip=%llx grp=%u logic=%d size=%u imm=%lx meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, group, is_logic, size,
+                (unsigned long) imm, meta, disp, (unsigned long long) next_ip);
         gen_amd64_flush_reg_cache(state);
         gen_amd64_flush_rip(state);
-        extern void gadget_amd64_imm_arith32(void), gadget_amd64_imm_arith64(void);
-        gen(state, (unsigned long) (size == 64
-                    ? gadget_amd64_imm_arith64 : gadget_amd64_imm_arith32));
+        extern void gadget_amd64_imm_arith32(void), gadget_amd64_imm_arith64(void),
+                gadget_amd64_imm_logic32(void), gadget_amd64_imm_logic64(void);
+        void (*g)(void);
+        if (is_logic)
+            g = size == 64 ? gadget_amd64_imm_logic64 : gadget_amd64_imm_logic32;
+        else
+            g = size == 64 ? gadget_amd64_imm_arith64 : gadget_amd64_imm_arith32;
+        gen(state, (unsigned long) g);
         gen(state, meta);
         gen(state, disp);
         gen(state, (unsigned long) next_ip);

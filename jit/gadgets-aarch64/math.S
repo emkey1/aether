@@ -2978,3 +2978,53 @@ amd64_gen_opstore_addc opstore_addc64, 8, 63
 
 amd64_gen_imm_arith imm_arith32, 4, 31
 amd64_gen_imm_arith imm_arith64, 8, 63
+
+# amd64 imm-to-mem logic RMW: [mem] <op>= imm for OR (group /1), AND (/4), XOR (/6),
+# mod!=3, 32/64. Like imm_arith but logic flags (CF=OF=0, ZF/SF/PF from result). The
+# sign-extended immediate is operand 3; group is operand 4. TEST imm (0xf6/0xf7) is a
+# different opcode and bridges. Operands: meta/disp/next_ip/imm/group -> gret 5.
+.macro amd64_gen_imm_logic name, vbytes, ssize
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (64-bit) */
+.endif
+    ldr  x10, [_ip, 24]             /* rhs = immediate (sign-extended) */
+    ldr  x9, [_ip, 32]             /* group: 1=or, 4=and, 6=xor */
+    cmp  x9, 4
+    b.eq 1f
+    cmp  x9, 6
+    b.eq 2f
+    orr  x15, x13, x10               /* OR (group /1) */
+    b    3f
+1:  and  x15, x13, x10
+    b    3f
+2:  eor  x15, x13, x10
+3:
+.if \vbytes == 4
+    mov  w15, w15
+.endif
+    mov  x11, \ssize
+    amd64_cached_set_logic_flags x15, x11
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+    gret 5
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_imm_logic imm_logic32, 4, 32
+amd64_gen_imm_logic imm_logic64, 8, 64
