@@ -384,6 +384,62 @@ VEC_PACKED_OP(sub_p, -, f64, 64, 2)
 VEC_PACKED_OP(sub_p, -, f32, 32, 4)
 VEC_PACKED_OP(mul_p, *, f64, 64, 2)
 VEC_PACKED_OP(mul_p, *, f32, 32, 4)
+VEC_PACKED_OP(div_p, /, f64, 64, 2)
+VEC_PACKED_OP(div_p, /, f32, 32, 4)
+
+// Packed min/max mirror the scalar single_fmin/single_fmax NaN handling:
+// the source operand is returned when src cmp dst, when either is NaN, or
+// (implicitly) when the two are equal.
+#define VEC_PACKED_MINMAX(name, cmp, field, size, n) \
+    void vec_##name##size(NO_CPU, union xmm_reg *src, union xmm_reg *dst) { \
+        for (int i = 0; i < n; ++i) { \
+            if (src->field[i] cmp dst->field[i] || isnan(src->field[i]) || isnan(dst->field[i])) \
+                dst->field[i] = src->field[i]; \
+        } \
+    }
+VEC_PACKED_MINMAX(min_p, <, f64, 64, 2)
+VEC_PACKED_MINMAX(min_p, <, f32, 32, 4)
+VEC_PACKED_MINMAX(max_p, >, f64, 64, 2)
+VEC_PACKED_MINMAX(max_p, >, f32, 32, 4)
+
+// sqrtpd/sqrtps: dst[i] = sqrt(src[i]) (unary; not an accumulate). Read all
+// source lanes before writing in case src and dst are the same register.
+void vec_sqrt_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    double s0 = src->f64[0], s1 = src->f64[1];
+    dst->f64[0] = sqrt(s0);
+    dst->f64[1] = sqrt(s1);
+}
+void vec_sqrt_p32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    float s0 = src->f32[0], s1 = src->f32[1], s2 = src->f32[2], s3 = src->f32[3];
+    dst->f32[0] = sqrtf(s0);
+    dst->f32[1] = sqrtf(s1);
+    dst->f32[2] = sqrtf(s2);
+    dst->f32[3] = sqrtf(s3);
+}
+
+// cvtps2pd: two packed floats (low 64 bits of src) -> two doubles.
+void vec_cvtps2pd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    float s0 = src->f32[0], s1 = src->f32[1];
+    dst->f64[0] = s0;
+    dst->f64[1] = s1;
+}
+// cvtpd2ps: two doubles -> two floats in the low 64 bits; high 64 bits zeroed.
+void vec_cvtpd2ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    double s0 = src->f64[0], s1 = src->f64[1];
+    dst->f32[0] = (float) s0;
+    dst->f32[1] = (float) s1;
+    dst->f32[2] = 0;
+    dst->f32[3] = 0;
+}
+// cvtdq2ps: four packed signed int32 -> four floats (same lane count/width).
+void vec_cvtdq2ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    int32_t s0 = (int32_t) src->u32[0], s1 = (int32_t) src->u32[1];
+    int32_t s2 = (int32_t) src->u32[2], s3 = (int32_t) src->u32[3];
+    dst->f32[0] = s0;
+    dst->f32[1] = s1;
+    dst->f32[2] = s2;
+    dst->f32[3] = s3;
+}
 
 void vec_fcmp_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t type) {
     for (size_t i = 0; i < sizeof(dst->f64) / sizeof(*dst->f64); ++i) {
@@ -435,6 +491,16 @@ VEC_CVT(ss2sd32, float, double)
 
 PACKED_VEC_CVTT(tpd2dq64, f64, u32, double, int32_t, 2)
 PACKED_VEC_CVTT(tps2dq32, f32, u32, float, int32_t, 4)
+
+// cvtdq2pd: two packed signed int32 from the low 64 bits of src -> two
+// doubles in dst. Read both source dwords before writing any result: src and
+// dst may be the same register, and writing dst->f64[0] clobbers src->u32[1].
+void vec_cvtdq2pd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    int32_t s0 = (int32_t) src->u32[0];
+    int32_t s1 = (int32_t) src->u32[1];
+    dst->f64[0] = s0;
+    dst->f64[1] = s1;
+}
 
 void vec_unpackl_bw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
     for (int i = 7; i >= 0; i--) {

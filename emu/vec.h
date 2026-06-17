@@ -103,6 +103,12 @@ void vec_sub_p64(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_sub_p32(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_mul_p64(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_mul_p32(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_div_p64(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_div_p32(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_min_p64(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_min_p32(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_max_p64(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
+void vec_max_p32(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 
 void vec_or_dq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
 void vec_xor_dq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
@@ -148,6 +154,12 @@ void vec_cvtss2sd32(NO_CPU, const float *src, double *dst);
 
 void vec_cvttpd2dq64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
 void vec_cvttps2dq32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_cvtdq2pd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_cvtps2pd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_cvtpd2ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_cvtdq2ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_sqrt_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_sqrt_p32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
 
 // TODO organize
 void vec_packss_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
