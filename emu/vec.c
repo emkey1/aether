@@ -609,14 +609,19 @@ void vec_shuffle_d128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint
         dst->u32[i] = src_copy.u32[(encoding >> (i*2)) % 4];
 }
 void vec_shuffle_ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t encoding) {
-    dst->u32[0] = dst->u32[(encoding >> 0) & 3];
-    dst->u32[1] = dst->u32[(encoding >> 2) & 3];
-    dst->u32[2] = src->u32[(encoding >> 4) & 3];
-    dst->u32[3] = src->u32[(encoding >> 6) & 3];
+    // The low two lanes come from dst, the high two from src. Snapshot both
+    // first: writing dst->u32[0] before reading the lane-1 selector (which may
+    // point back at lane 0) otherwise corrupts the result, and src may alias dst.
+    union xmm_reg d = *dst, s = *src;
+    dst->u32[0] = d.u32[(encoding >> 0) & 3];
+    dst->u32[1] = d.u32[(encoding >> 2) & 3];
+    dst->u32[2] = s.u32[(encoding >> 4) & 3];
+    dst->u32[3] = s.u32[(encoding >> 6) & 3];
 }
 void vec_shuffle_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t encoding) {
-    dst->qw[0] = dst->qw[(encoding >> 0) & 1];
-    dst->qw[1] = src->qw[(encoding >> 1) & 1];
+    union xmm_reg d = *dst, s = *src;
+    dst->qw[0] = d.qw[(encoding >> 0) & 1];
+    dst->qw[1] = s.qw[(encoding >> 1) & 1];
 }
 
 void vec_movmask_b128(NO_CPU, const union xmm_reg *src, uint32_t *dst) {
