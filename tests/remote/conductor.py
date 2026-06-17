@@ -41,6 +41,7 @@ REPO = HERE.parent.parent
 ISH = REPO / "build" / "ish"
 FAKEFSIFY = REPO / "build" / "tools" / "fakefsify"
 CORPUS = HERE / "corpus"
+TESTS_MANUAL = REPO / "tests" / "manual"   # Tier 0: the self-checking regression suite
 WORK = HERE / ".work"
 TIMEOUT = 180  # seconds per cell; exceed => HANG
 
@@ -186,6 +187,58 @@ def build_fakefs(tests):
     if r.returncode != 0:
         raise SystemExit(f"fakefsify failed:\n{r.stderr}")
     return fs
+
+
+# ------------------------------------------------ Tier 0: tests/manual suite
+
+def discover_tier0():
+    """The self-checking tests/manual tests (exit 0 + '<name>: PASS')."""
+    return sorted(p.stem for p in TESTS_MANUAL.glob("*.c")
+                  if '#include "test_common.h"' in p.read_text())
+
+def build_tier0(tests):
+    """Build each self-check test (static, -pthread) + a /bin/true into a per-arch
+    staging dir. Returns {arch: [tests that built]} (some are arch-specific)."""
+    built = {a: [] for a in ZIG_TARGET}
+    true_c = WORK / "true.c"
+    true_c.write_text("int main(void){return 0;}\n")
+    for arch, triple in ZIG_TARGET.items():
+        root = WORK / "tier0" / arch
+        if root.exists():
+            shutil.rmtree(root)
+        (root / "bin").mkdir(parents=True)
+        (root / "tmp").mkdir()   # writable scratch some tests need
+        sh(["zig", "cc", "-target", triple, "-static", "-O2",
+            "-o", str(root / "bin" / "true"), str(true_c)])
+        for t in tests:
+            r = sh(["zig", "cc", "-target", triple, "-static", "-O2", "-pthread",
+                    "-I", str(TESTS_MANUAL), "-o", str(root / "bin" / t),
+                    str(TESTS_MANUAL / f"{t}.c")])
+            if r.returncode == 0:
+                built[arch].append(t)
+    return built
+
+def tier0_fakefs(arch):
+    tar = WORK / f"tier0-{arch}.tgz"
+    with tarfile.open(tar, "w:gz") as t:
+        t.add(WORK / "tier0" / arch, arcname=".")
+    fs = WORK / f"tier0fs-{arch}"
+    if fs.exists():
+        shutil.rmtree(fs)
+    r = sh([str(FAKEFSIFY), str(tar), str(fs)])
+    if r.returncode != 0:
+        raise SystemExit(f"tier0 fakefsify {arch} failed:\n{r.stderr}")
+    return fs
+
+def run_tier0(test, fakefs):
+    """A self-check test passes iff it exits 0 AND prints '<test>: PASS'."""
+    try:
+        p = subprocess.run([str(ISH), "-f", str(fakefs), f"/bin/{test}"],
+                           capture_output=True, text=True, timeout=TIMEOUT)
+        ok = p.returncode == 0 and re.search(rf"(?m)^{re.escape(test)}: PASS$", p.stdout)
+        return ("PASS" if ok else "FAIL"), p.returncode, p.stdout + p.stderr
+    except subprocess.TimeoutExpired:
+        return "HANG", None, ""
 
 
 # ---------------------------------------------------------------- run a cell
@@ -627,6 +680,33 @@ def cmd_device(args):
             any_fail = True
     sys.exit(1 if any_fail else 0)
 
+def cmd_tier0(args):
+    """Tier 0: build the tests/manual self-check suite and run it under iSH for
+    each arch (i386 + amd64, default engine). Each test self-asserts '<name>:
+    PASS' -- no oracle compare; this is the functional-regression pass gate."""
+    tests = args.tests.split(",") if args.tests else discover_tier0()
+    WORK.mkdir(exist_ok=True); (WORK / "bin").mkdir(exist_ok=True)
+    print(f"building {len(tests)} self-check test(s) x {len(ZIG_TARGET)} arch(es)")
+    built = build_tier0(tests)
+    fakefs = {a: tier0_fakefs(a) for a in ZIG_TARGET}
+    any_fail = False
+    for arch in ZIG_TARGET:
+        passed = failed = na = 0
+        print(f"\n=== {arch} ===")
+        for t in tests:
+            if t not in built[arch]:
+                na += 1
+                continue
+            verdict, rc, out = run_tier0(t, fakefs[arch])
+            if verdict == "PASS":
+                passed += 1
+            else:
+                failed += 1; any_fail = True
+                tail = (out.strip().splitlines() or [""])[-1][:90]
+                print(f"  [{verdict:4}] {t:22} rc={rc}  {tail}")
+        print(f"  {arch}: {passed} passed, {failed} failed, {na} n/a")
+    sys.exit(1 if any_fail else 0)
+
 def main():
     ap = argparse.ArgumentParser(description="iSH-AOK differential test conductor")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -654,6 +734,8 @@ def main():
     dv.add_argument("--device-bundle", default="com.ish.iSH-AOK", help="bundle id (devicectl)")
     dv.add_argument("--dry-run", action="store_true",
                     help="print ssh/scp/devicectl commands without executing")
+    t0 = sub.add_parser("tier0"); t0.set_defaults(fn=cmd_tier0)
+    t0.add_argument("--tests", help="comma-separated subset (default: all self-check tests)")
     for tool in (ISH, FAKEFSIFY):
         if not tool.exists():
             raise SystemExit(f"missing {tool}; run `ninja -C build` first")
