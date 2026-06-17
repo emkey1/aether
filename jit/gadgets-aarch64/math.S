@@ -2915,3 +2915,66 @@ amd64_gen_loadop_addc loadop_addc64, 8, 63
 
 amd64_gen_opstore_addc opstore_addc32, 4, 31
 amd64_gen_opstore_addc opstore_addc64, 8, 63
+
+# amd64 imm-to-mem arith RMW: [mem] <op>= imm for ADD (group /0) and SUB (group /5),
+# mod!=3, 32/64. The immediate (sign-extended to 64 by gen.c) is operand 3; the group
+# (0=add, 5=sub) is operand 4. Same dual-prep RMW frame as opstore_arith (addr in x0,
+# result in x10 across both preps) with eager addsub flags. cmp (group /7) is kept on
+# the interpreter (glibc/musl startup), and adc/sbb-imm + byte/16-bit bridge.
+# Operands: meta(0)/disp(8)/next_ip(16)/imm(24)/group(32) -> gret 5.
+.macro amd64_gen_imm_arith name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (64-bit) */
+.endif
+    ldr  x10, [_ip, 24]             /* rhs = immediate */
+    ldr  x9, [_ip, 32]             /* group: 0=add, 5=sub */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+    cmp  x9, 0
+    b.eq 1f
+    subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+    b    2f
+1:  adds w15, w13, w10
+    cset w14, cs
+    cset w16, vs
+2:  mov  w15, w15
+.else
+    cmp  x9, 0
+    b.eq 1f
+    subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+    b    2f
+1:  adds x15, x13, x10
+    cset w14, cs
+    cset w16, vs
+2:
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+    gret 5
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_imm_arith imm_arith32, 4, 31
+amd64_gen_imm_arith imm_arith64, 8, 63
