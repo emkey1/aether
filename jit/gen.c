@@ -3223,11 +3223,12 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
-    // Native imm-to-mem ALU RMW: [mem] <op>= imm for ADD (/0), OR (/1), AND (/4),
-    // SUB (/5), XOR (/6), mod!=3, 32/64-bit (0x81 imm32, 0x83 imm8 sign-extended; no
-    // 0x66). The common "adjust a memory variable by a constant / set/clear flag
-    // bits" case. CMP (/7) deliberately stays on the interpreter (glibc/musl startup
-    // trap sequences); adc/sbb-imm (/2,/3), byte (0x80) and 16-bit keep bridging.
+    // Native imm-to-mem ALU: [mem] <op>= imm for ADD (/0), OR (/1), AND (/4), SUB (/5),
+    // XOR (/6) -- RMW -- and CMP (/7) -- flags only, no store -- mod!=3, 32/64-bit
+    // (0x81 imm32, 0x83 imm8 sign-extended; no 0x66). CMP [mem],imm was the SHA-512/
+    // crypt hot-loop bottleneck (it block-bridged); its flags use the same
+    // amd64_cached_set_addsub_flags as native CMP 0x3b/0x39 so they are bit-exact.
+    // adc/sbb-imm (/2,/3), byte (0x80) and 16-bit keep bridging.
     if (!insn.two_byte_opcode && !insn.address_size_prefix &&
             !insn.fs_prefix && !insn.lock_prefix && !insn.operand_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
@@ -3235,10 +3236,11 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             (insn.opcode == 0x81 || insn.opcode == 0x83) &&
             (amd64_modrm_reg(insn.modrm) == 0 || amd64_modrm_reg(insn.modrm) == 1 ||
              amd64_modrm_reg(insn.modrm) == 4 || amd64_modrm_reg(insn.modrm) == 5 ||
-             amd64_modrm_reg(insn.modrm) == 6)) {
+             amd64_modrm_reg(insn.modrm) == 6 || amd64_modrm_reg(insn.modrm) == 7)) {
         unsigned size = insn.rex.w ? 64 : 32;
         unsigned group = amd64_modrm_reg(insn.modrm);
         bool is_logic = group == 1 || group == 4 || group == 6;
+        bool is_cmp = group == 7;
         unsigned long meta, disp;
         if (!gen_amd64_decode_mem_meta(state, tlb, &insn, size, &meta, &disp, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
@@ -3266,24 +3268,72 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             next_ip += sizeof(imm32);
         }
         state->amd64_ip = next_ip;
-        amd64_jit_debug("imm-alu ip=%llx grp=%u logic=%d size=%u imm=%lx meta=%lx disp=%lx next=%llx",
-                (unsigned long long) insn.start_ip, group, is_logic, size,
+        amd64_jit_debug("imm-alu ip=%llx grp=%u logic=%d cmp=%d size=%u imm=%lx meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, group, is_logic, is_cmp, size,
                 (unsigned long) imm, meta, disp, (unsigned long long) next_ip);
         gen_amd64_flush_reg_cache(state);
         gen_amd64_flush_rip(state);
         extern void gadget_amd64_imm_arith32(void), gadget_amd64_imm_arith64(void),
-                gadget_amd64_imm_logic32(void), gadget_amd64_imm_logic64(void);
-        void (*g)(void);
-        if (is_logic)
-            g = size == 64 ? gadget_amd64_imm_logic64 : gadget_amd64_imm_logic32;
-        else
-            g = size == 64 ? gadget_amd64_imm_arith64 : gadget_amd64_imm_arith32;
-        gen(state, (unsigned long) g);
+                gadget_amd64_imm_logic32(void), gadget_amd64_imm_logic64(void),
+                gadget_amd64_imm_cmp32(void), gadget_amd64_imm_cmp64(void);
+        if (is_cmp) {
+            // CMP: flags only, no store -> imm_cmp gadget (meta/disp/next_ip/imm).
+            gen(state, (unsigned long) (size == 64
+                        ? gadget_amd64_imm_cmp64 : gadget_amd64_imm_cmp32));
+            gen(state, meta);
+            gen(state, disp);
+            gen(state, (unsigned long) next_ip);
+            gen(state, (unsigned long) imm);
+        } else {
+            void (*g)(void);
+            if (is_logic)
+                g = size == 64 ? gadget_amd64_imm_logic64 : gadget_amd64_imm_logic32;
+            else
+                g = size == 64 ? gadget_amd64_imm_arith64 : gadget_amd64_imm_arith32;
+            gen(state, (unsigned long) g);
+            gen(state, meta);
+            gen(state, disp);
+            gen(state, (unsigned long) next_ip);
+            gen(state, (unsigned long) imm);
+            gen(state, (unsigned long) group);
+        }
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
+    // Native CMP byte [mem], imm8 (0x80 /7), mod!=3 -- the byte sibling of the imm-cmp
+    // above and the other crypt hot-loop block-bridge. Flags only, 8-bit.
+    if (!insn.two_byte_opcode && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) != 3 &&
+            insn.opcode == 0x80 && amd64_modrm_reg(insn.modrm) == 7) {
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, 8, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        int8_t imm8;
+        if (!tlb_read(tlb, next_ip, &imm8, sizeof(imm8))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        long imm = imm8;
+        next_ip += sizeof(imm8);
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("imm-cmp8 ip=%llx imm=%lx meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, (unsigned long) imm,
+                meta, disp, (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_imm_cmp8(void);
+        gen(state, (unsigned long) gadget_amd64_imm_cmp8);
         gen(state, meta);
         gen(state, disp);
         gen(state, (unsigned long) next_ip);
         gen(state, (unsigned long) imm);
-        gen(state, (unsigned long) group);
         gen_amd64_defer_rip(state, next_ip);
         return true;
     }
@@ -3294,14 +3344,10 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.opcode == 0x83 || insn.opcode == 0xc0 ||
              insn.opcode == 0xc1 || insn.opcode == 0xc6 ||
              insn.opcode == 0xc7)) {
-        if (amd64_modrm_mod(insn.modrm) != 3 &&
-                (insn.opcode == 0x80 || insn.opcode == 0x81 || insn.opcode == 0x83) &&
-                amd64_modrm_reg(insn.modrm) == 7) {
-            // Memory-form cmp imm* drives trap-on-mismatch sequences in glibc/musl
-            // startup code. Keep it on the interpreter path until the frontend/helper
-            // path is proven equivalent.
-            goto amd64_bridge_step;
-        }
+        // Memory-form cmp imm (groups /7) is now native above for all of 0x80/0x81/
+        // 0x83 (it was the crypt/login hot-loop bottleneck). The remaining memory-form
+        // 0x80/0x81/0x83 groups here go through the amd64_jit_modrm_imm helper, which
+        // (unlike the old cmp bridge) does not end the JIT block.
         if (!gen_amd64_decode_rm_extent(state, tlb, &insn, &next_ip)) {
             state->amd64_ip = state->amd64_orig_ip;
             state->amd64_fallback_to_interp = true;

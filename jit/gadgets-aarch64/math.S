@@ -3028,3 +3028,65 @@ amd64_gen_imm_arith imm_arith64, 8, 63
 
 amd64_gen_imm_logic imm_logic32, 4, 32
 amd64_gen_imm_logic imm_logic64, 8, 64
+
+# amd64 CMP [mem], imm (group /7, 0x81/0x83), mod!=3, 32/64 -- the no-store sibling of
+# imm_arith: read [mem]=lhs, subtract the immediate, set eager flags, write NOTHING.
+# This is the SHA-512/crypt hot-loop bottleneck that was bridged (block-ending) for
+# glibc/musl startup safety; the flags use the SAME amd64_cached_set_addsub_flags as
+# native CMP 0x3b/0x39, so they are bit-exact by construction. Single vread (no dual
+# prep, no write). Operands: meta(0)/disp(8)/next_ip(16)/imm(24) -> gret 4.
+.macro amd64_gen_imm_cmp name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vbytes, \name  /* x9 = host addr of [mem] */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (32-bit) */
+    ldr  x10, [_ip, 24]             /* rhs = immediate */
+    mov  w13, w13
+    mov  w10, w10
+    subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+    mov  w15, w15
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (64-bit) */
+    ldr  x10, [_ip, 24]             /* rhs = immediate */
+    subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    gret 4
+    amd64_vread_bullshit \vbytes, \name
+.endm
+
+amd64_gen_imm_cmp imm_cmp32, 4, 31
+amd64_gen_imm_cmp imm_cmp64, 8, 63
+
+# amd64 CMP byte [mem], imm8 (0x80 /7), mod!=3 -- the byte sibling of imm_cmp, the
+# other crypt hot-loop block-bridge. No store. 8-bit flags: operands are zero-extended
+# to 0-255 so the 32-bit subs borrow == the 8-bit borrow (CF via cc); the 8-bit signed
+# overflow (OF) is computed by hand ((lhs^rhs)&(lhs^res)&0x80); AF/ZF/SF/PF come from
+# amd64_cached_set_addsub_flags with the 8-bit result and sign_bit=7. No encoded8
+# concern -- the operand is memory. Operands: meta(0)/disp(8)/next_ip(16)/imm(24).
+.gadget amd64_imm_cmp8
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 1, imm_cmp8     /* x9 = host addr of the byte */
+    ldrb w13, [x9]                   /* lhs = [mem] byte (0-255) */
+    ldr  x10, [_ip, 24]             /* imm */
+    and  w10, w10, 0xff              /* rhs = imm & 0xff */
+    subs w15, w13, w10               /* 0-255 operands: 32-bit borrow == 8-bit borrow */
+    cset w14, cc                     /* CF (borrow) */
+    and  w15, w15, 0xff              /* 8-bit result */
+    eor  w12, w13, w10               /* OF = (lhs^rhs) & (lhs^res) & 0x80 */
+    eor  w17, w13, w15
+    and  w12, w12, w17
+    tst  w12, 0x80
+    cset w16, ne                     /* OF */
+    amd64_cached_set_addsub_flags 7
+    gret 4
+    amd64_vread_bullshit 1, imm_cmp8
