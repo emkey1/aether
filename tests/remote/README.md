@@ -12,7 +12,7 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 | `conductor.py` — 4 modes: `run` / `supervise` / `device` / `tier0` | **working** |
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
-| differential corpus — 7 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops) | **working** |
+| differential corpus — 8 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string) | **working** |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
 | crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
@@ -118,7 +118,7 @@ Two test styles flow through the same matrix:
 
 - **Differential** (`run`, JIT-edge): `corpus/*.c` via `diff_common.h` print a
   canonical `result+flags` line per case; require byte-identical across cells +
-  oracle. Seven families so far, each guarding a bug class this project has hit:
+  oracle. Eight families so far, each guarding a bug class this project has hit:
   - `flags_alu` — integer ALU result + EFLAGS exactness
   - `adc_sbb_mem` — carry-in adc/sbb on the **native memory-operand gadget** (not
     just the bridged register path)
@@ -127,14 +127,15 @@ Two test styles flow through the same matrix:
   - `muldiv` — mul/imul/div/idiv, high half + `#DE`
   - `sse_mxcsr` — ldmxcsr/stmxcsr control-word round-trip (amd64)
   - `bit_ops` — bt/bts/btr/btc (CF) and bsf/bsr (ZF, undefined-dest)
+  - `rep_string` — rep movs/stos + repe/repne cmps/scas; DF fwd/back, cross-page
+    spans (the batch fast path), ECX=0, 16-bit forms, early-out ECX + flags
 - **Self-checking** (`tier0`): the 21 `tests/manual/*.c` tests (atomics, futex,
   signals, ptrace, epoll, fcntl/OFD, copy_file_range, pidfd, …) built static and
   run under iSH per arch, gated on `^<name>: PASS$`. No oracle — functional
   regression, not differential.
 
 Still planned: **SSE/cvt** (out-of-range → integer-indefinite, NaN/Inf, shuf
-lanes, pmovmskb), **rep-string** (cross-page, DF, 16-bit), **atomics**
-(cmpxchg8b/16b), **control-flow/SMC**.
+lanes, pmovmskb), **atomics** (cmpxchg8b/16b), **control-flow/SMC**.
 
 This run the harness found and fixed **~11 amd64/i386 JIT flag & result bugs** —
 adc/sbb carry-in AF/OF (interp *and* the native gadget); rol/ror CF on full
