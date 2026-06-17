@@ -332,17 +332,24 @@ void vec_single_fdiv32(NO_CPU, const float *src, float *dst) { *dst /= *src; }
 void vec_single_fsqrt64(NO_CPU, const double *src, double *dst) { *dst = sqrt(*src); }
 void vec_single_fsqrt32(NO_CPU, const float *src, float *dst) { *dst = sqrtf(*src); }
 
+// x86 [max|min]s[s|d]: DEST is kept ONLY when (DEST > SRC) / (DEST < SRC);
+// in every other case -- SRC greater/less, the two equal (incl. +0 vs -0), or
+// either NaN -- the SRC operand is returned. So the predicate is !(dst cmp src),
+// NOT (src cmp dst): the latter keeps dst on the equal/unordered tie, which
+// differs from real x86 (and from the amd64 path's `dst>src ? dst : src`) on
+// the +0/-0 case. Using !(dst cmp src) also folds in the NaN rule for free
+// (a NaN compare is false, so !false -> take src).
 void vec_single_fmax64(NO_CPU, const double *src, double *dst) {
-    if (*src > *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+    if (!(*dst > *src)) *dst = *src;
 }
 void vec_single_fmin64(NO_CPU, const double *src, double *dst) {
-    if (*src < *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+    if (!(*dst < *src)) *dst = *src;
 }
 void vec_single_fmax32(NO_CPU, const float *src, float *dst) {
-    if (*src > *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+    if (!(*dst > *src)) *dst = *src;
 }
 void vec_single_fmin32(NO_CPU, const float *src, float *dst) {
-    if (*src < *dst || isnan(*src) || isnan(*dst)) *dst = *src;
+    if (!(*dst < *src)) *dst = *src;
 }
 
 static void vec_set_ucomi_flags(struct cpu_state *cpu, bool unordered, bool equal, bool less) {
@@ -387,13 +394,13 @@ VEC_PACKED_OP(mul_p, *, f32, 32, 4)
 VEC_PACKED_OP(div_p, /, f64, 64, 2)
 VEC_PACKED_OP(div_p, /, f32, 32, 4)
 
-// Packed min/max mirror the scalar single_fmin/single_fmax NaN handling:
-// the source operand is returned when src cmp dst, when either is NaN, or
-// (implicitly) when the two are equal.
+// Packed min/max mirror the scalar single_fmin/single_fmax rule exactly: keep
+// dst only when (dst cmp src) holds, else take src -- so the equal/unordered
+// (incl. +0 vs -0) and NaN cases both return src, matching real x86.
 #define VEC_PACKED_MINMAX(name, cmp, field, size, n) \
     void vec_##name##size(NO_CPU, union xmm_reg *src, union xmm_reg *dst) { \
         for (int i = 0; i < n; ++i) { \
-            if (src->field[i] cmp dst->field[i] || isnan(src->field[i]) || isnan(dst->field[i])) \
+            if (!(dst->field[i] cmp src->field[i])) \
                 dst->field[i] = src->field[i]; \
         } \
     }
