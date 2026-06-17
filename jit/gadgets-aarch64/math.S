@@ -1992,6 +1992,76 @@ amd64_v_scalar_double mulsd, fmul
     str d0, [x13]
     gret 1
 
+# Packed byte op over the full 16 bytes of an xmm: cpu->xmm[dst] = xmm[dst] OP
+# xmm[src], via a single NEON .16b instruction. Used for the glibc strlen/memchr
+# SSE2 byte-scan that dominates crypt/login (pcmpeqb + psubb). Touches only
+# cpu->xmm[] (no reg cache flush). Operand word: src id bits 0-3, dst id bits 4-7.
+.macro amd64_v_neon16_binop name, op
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr q0, [x10]
+        ldr q1, [x9]
+        \op v0.16b, v0.16b, v1.16b
+        str q0, [x10]
+        gret 1
+.endm
+
+# 66 0F F8 psubb: packed subtract of 16 bytes
+amd64_v_neon16_binop psubb, sub
+# 66 0F 74 pcmpeqb: per-byte compare-equal -> 0xFF/0x00
+amd64_v_neon16_binop pcmpeqb, cmeq
+
+# movd/movq xmm, r/m (66 0F 6E), reg-reg: load a 32-bit (movd) or 64-bit (movq,
+# REX.W bit 8) GPR into the low lane of xmm[dst] and ZERO the rest of the 128 bits.
+# Reads a GPR, so gen.c flushes the reg cache first. Operand: GPR src id bits 0-3,
+# xmm dst id bits 4-7, REX.W bit 8.
+.gadget amd64_v_movd_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x12, _cpu, CPU_amd64_regs
+    add x12, x12, x9, lsl 3
+    add x13, _cpu, CPU_xmm
+    add x13, x13, x10, lsl 4
+    tbz x8, 8, 1f
+    ldr x14, [x12]
+    str x14, [x13]
+    str xzr, [x13, 8]
+    gret 1
+1:  ldr w14, [x12]                  /* 32-bit: zero-extends into x14 */
+    str x14, [x13]
+    str xzr, [x13, 8]
+    gret 1
+
+# pmovmskb r32, xmm (66 0F D7), reg-reg: pack the most-significant bit of each of
+# the 16 bytes of xmm[src] into a 16-bit mask in GPR[dst] (zero-extended). The
+# core of glibc's SSE2 strlen/memchr (after pcmpeqb). Standard NEON coalesce:
+# isolate each byte's MSB, then shift-right-accumulate to gather bytes 0-7 into
+# byte 0 and bytes 8-15 into byte 8. Writes a GPR, so gen.c flushes the reg cache.
+# Operand: xmm src id bits 0-3, GPR dst id bits 4-7.
+.gadget amd64_v_pmovmskb_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    ldr q0, [x9]
+    ushr v0.16b, v0.16b, 7
+    usra v0.8h, v0.8h, 7
+    usra v0.4s, v0.4s, 14
+    usra v0.2d, v0.2d, 28
+    umov w14, v0.b[0]
+    umov w15, v0.b[8]
+    orr w14, w14, w15, lsl 8
+    add x13, _cpu, CPU_amd64_regs
+    str x14, [x13, x10, lsl 3]
+    gret 1
+
 # ---------------------------------------------------------------------------
 # Native amd64 SSE memory load/store.
 #
