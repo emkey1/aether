@@ -3109,6 +3109,78 @@ amd64_gen_opstore_arith opstore_arith64, 8, 63
 amd64_gen_opstore_logic opstore_logic32, 4, 32
 amd64_gen_opstore_logic opstore_logic64, 8, 64
 
+# amd64 INC/DEC [mem] (0xff /0 = inc, /1 = dec), mod!=3, sizes 32/64. Read-modify-write
+# on the SAME address (guest addr in x0 across both preps; result -> x10 before the
+# store), exactly the opstore_arith frame. INC = lhs+1, DEC = lhs-1. Flags match the
+# interp (amd64_jit_ff_group case 0/1): set the full add/sub flags for rhs=1, then
+# RESTORE CF -- inc/dec preserve CF. CF is eager (CPU_cf byte + eflags bit0), so we
+# snapshot it after the read (w9) and rewrite both after the flag macro. OF/AF/ZF/SF/PF
+# come from adds/subs at native width (32/64 -> V is correct); the computed CF in x14 is
+# discarded by the restore. is_dec = the reg-field low bit (meta bit 8); gen.c gates the
+# group to 0/1 with !rex.r so the reg field is exactly the group. Byte (0xfe) and 16-bit
+# (0x66) bridge -- their OF needs a
+# sub-32 width-correct overflow that adds/subs don't give. Operands: meta(0)/disp(1)/
+# next_ip(2).
+.macro amd64_gen_incdec_mem name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta (opcode bits0-7, reg bits8-11) */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x10, x8, 8, 1               /* x10 = is_dec = reg low bit (survives read prep) */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep \vbytes, \name\()_r   /* x9 = host read addr */
+.if \vbytes == 4
+    ldr  w13, [x9]                   /* lhs = [mem] (old, 32-bit) */
+.else
+    ldr  x13, [x9]                   /* lhs = [mem] (old, 64-bit) */
+.endif
+    ldrb w9, [_cpu, CPU_cf]          /* snapshot CF (eager) before the flag macro */
+.if \vbytes == 4
+    mov  w13, w13                    /* truncate lhs to 32 */
+    cbnz w10, 1f
+    adds w15, w13, 1                 /* INC: lhs + 1 */
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs w15, w13, 1                 /* DEC: lhs - 1 */
+    cset w14, cc
+    cset w16, vs
+2:  mov  w15, w15                    /* zero-extend 32-bit result */
+.else
+    cbnz x10, 1f
+    adds x15, x13, 1                 /* INC: lhs + 1 */
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs x15, x13, 1                 /* DEC: lhs - 1 */
+    cset w14, cc
+    cset w16, vs
+2:
+.endif
+    mov  x10, 1                      /* rhs = 1 (AF: lhs ^ 1 ^ result, bit 4) */
+    amd64_cached_set_addsub_flags \sbit
+    strb w9, [_cpu, CPU_cf]          /* restore CF: inc/dec preserve it */
+    ldr  w17, [_cpu, CPU_eflags]
+    bic  w17, w17, 1
+    orr  w17, w17, w9
+    str  w17, [_cpu, CPU_eflags]
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep \vbytes, \name\()_w  /* x9 = host write addr */
+.if \vbytes == 4
+    str  w10, [x9]
+.else
+    str  x10, [x9]
+.endif
+    amd64_vwrite_done \vbytes, \name\()_w
+    gret 3
+    amd64_vread_bullshit \vbytes, \name\()_r
+    amd64_vwrite_bullshit \vbytes, \name\()_w
+.endm
+
+amd64_gen_incdec_mem incdec_mem32, 4, 31
+amd64_gen_incdec_mem incdec_mem64, 8, 63
+
 # amd64 MOVSXD reg64 <- [mem]32 (movslq, 0x63 with REX.W), mod!=3: sign-extend a
 # 32-bit memory operand into a 64-bit register. No flags. gen.c only routes the
 # REX.W form here (the rare non-W 0x63 bridges). dst reg id in x10 survives the prep;
