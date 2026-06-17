@@ -3181,6 +3181,40 @@ amd64_gen_opstore_logic opstore_logic64, 8, 64
 amd64_gen_incdec_mem incdec_mem32, 4, 31
 amd64_gen_incdec_mem incdec_mem64, 8, 63
 
+# amd64 carry-flag ops: CLC (0xf8), STC (0xf9), CMC (0xf5). One byte, no operand, no
+# memory, no register -- they ONLY touch CF (interp 0xf8/f9/f5: cpu->cf + cpu->cf_bit).
+# CF is eager: the byte CPU_cf (authoritative, read by the CF macro / adc/sbb gadgets)
+# plus eflags bit0 (cf_bit, the pushfq image). Each gadget rewrites both and leaves
+# OF/ZF/SF/PF/AF untouched. Cached-style (no reg-cache flush) -- they never fault and
+# never read/write GPRs, so the x20-x27 cache stays live across them. x16/x17 are
+# inter-gadget scratch. No operands -> gret 0. Previously bridged: stc/clc/cmc forced an
+# interp fallback for the rest of the block, hurting bignum/multi-precision asm
+# (stc;...;adc chains).
+.gadget amd64_clc
+    strb wzr, [_cpu, CPU_cf]         /* CF byte = 0 */
+    ldr  w17, [_cpu, CPU_eflags]
+    bic  w17, w17, 1                 /* eflags bit0 = 0 */
+    str  w17, [_cpu, CPU_eflags]
+    gret 0
+
+.gadget amd64_stc
+    mov  w16, 1
+    strb w16, [_cpu, CPU_cf]         /* CF byte = 1 */
+    ldr  w17, [_cpu, CPU_eflags]
+    orr  w17, w17, 1                 /* eflags bit0 = 1 */
+    str  w17, [_cpu, CPU_eflags]
+    gret 0
+
+.gadget amd64_cmc
+    ldrb w16, [_cpu, CPU_cf]
+    eor  w16, w16, 1                 /* CF = !CF */
+    strb w16, [_cpu, CPU_cf]
+    ldr  w17, [_cpu, CPU_eflags]
+    bic  w17, w17, 1
+    orr  w17, w17, w16               /* eflags bit0 = new CF */
+    str  w17, [_cpu, CPU_eflags]
+    gret 0
+
 # amd64 MOVSXD reg64 <- [mem]32 (movslq, 0x63 with REX.W), mod!=3: sign-extend a
 # 32-bit memory operand into a 64-bit register. No flags. gen.c only routes the
 # REX.W form here (the rare non-W 0x63 bridges). dst reg id in x10 survives the prep;

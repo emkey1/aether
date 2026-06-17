@@ -2310,6 +2310,25 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native carry-flag ops: CLC (0xf8), STC (0xf9), CMC (0xf5). One byte, no operand,
+    // no memory, no register -- only CF changes. Cached-style (no flush): the gadget
+    // rewrites CPU_cf + eflags bit0 and the reg cache stays live. Previously these
+    // bridged, forcing an interp fallback for the rest of the block (bignum stc;adc).
+    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+            (insn.opcode == 0xf8 || insn.opcode == 0xf9 || insn.opcode == 0xf5)) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("carry-flag-op ip=%llx op=%02x next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode,
+                (unsigned long long) next_ip);
+        extern void gadget_amd64_clc(void), gadget_amd64_stc(void), gadget_amd64_cmc(void);
+        gen(state, (unsigned long) (insn.opcode == 0xf8 ? gadget_amd64_clc
+                    : insn.opcode == 0xf9 ? gadget_amd64_stc
+                    : gadget_amd64_cmc));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode && !insn.operand_size_prefix &&
             !insn.address_size_prefix && !insn.fs_prefix &&
             !insn.lock_prefix && !insn.rex.present &&
