@@ -134,13 +134,23 @@ static int epoll_wait_common(fd_t epoll_f, guest_addr_t events_addr, int_t max_e
 
     struct epoll_context context = {.events = events, .n = 0, .max_events = max_events};
     STRACE("...\n");
-    // Cap infinite epoll_wait at 2 s so the Go scheduler can always make
-    // progress even when the netpoll break-pipe notification is missed.
+    // A guest infinite wait (timeout == -1, i.e. timeout_ts_ptr == NULL) must
+    // block until an fd is ready or a signal arrives. Real Linux never returns
+    // 0 events from epoll_wait(-1); some guests assert on it -- notably libuv's
+    // uv__io_poll does `assert(timeout != -1)` when epoll_wait returns 0, so
+    // cmake/node/etc. abort. We still cap each underlying wait at 2 s as a
+    // safety net against a missed readiness notification (the reason the Go
+    // scheduler originally needed this -- a re-armed wait re-scans readiness and
+    // recovers the missed transition), but when the cap expires with nothing
+    // ready we wait again instead of reporting a spurious timeout to the guest.
+    bool guest_infinite = (timeout_ts_ptr == NULL);
     struct timespec bounded = { .tv_sec = 2 };
-    if (timeout_ts_ptr == NULL)
-        timeout_ts_ptr = &bounded;
     int res;
-    res = poll_wait(epoll->epollfd.poll, epoll_callback, &context, timeout_ts_ptr);
+    do {
+        context.n = 0;
+        res = poll_wait(epoll->epollfd.poll, epoll_callback, &context,
+                        guest_infinite ? &bounded : timeout_ts_ptr);
+    } while (guest_infinite && res == 0);
     STRACE("%d end epoll_wait", current->pid);
     if (res >= 0) {
         for (int i = 0; i < res; i++) {
