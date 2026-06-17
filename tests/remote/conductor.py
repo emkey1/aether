@@ -123,6 +123,17 @@ def build_variants(test):
     out["oracle"] = oracle
     return out
 
+SUPERVISOR_SRC = HERE / "guest_supervisor.c"
+
+def build_supervisor():
+    """Build the in-guest batch runner for both arches (static)."""
+    for arch, triple in ZIG_TARGET.items():
+        dst = WORK / "bin" / f"guest_supervisor.{arch}"
+        r = sh(["zig", "cc", "-target", triple, "-static", "-O2",
+                "-o", str(dst), str(SUPERVISOR_SRC)])
+        if r.returncode != 0:
+            raise SystemExit(f"build supervisor {arch} failed:\n{r.stderr}")
+
 def build_fakefs(tests):
     stage = WORK / "stage"
     if stage.exists():
@@ -131,6 +142,10 @@ def build_fakefs(tests):
     for test in tests:
         for arch in ZIG_TARGET:
             shutil.copy(WORK / "bin" / f"{test}.{arch}", stage / "bin" / f"{test}.{arch}")
+    for arch in ZIG_TARGET:                       # include the supervisor if built
+        sup = WORK / "bin" / f"guest_supervisor.{arch}"
+        if sup.exists():
+            shutil.copy(sup, stage / "bin" / sup.name)
     tar = WORK / "fs.tar.gz"
     with tarfile.open(tar, "w:gz") as t:
         t.add(stage, arcname=".")
@@ -177,6 +192,60 @@ def run_cell(cell, test, binaries, fakefs, mint=None, extra=None):
     except subprocess.TimeoutExpired as e:
         rc, out, err, timed_out = None, (e.stdout or b"").decode("utf8", "replace"), "", True
     return Result(cell, classify(rc, timed_out), rc, out.splitlines(), err, time.time() - t0)
+
+
+# ------------------------------------------------ supervised (device) batch run
+
+def parse_supervisor_stream(text):
+    """Parse the SUPER-START/<output>/SUPER-END journal into per-test
+    (output_lines, rc). A SUPER-START with no matching SUPER-END means the
+    emulator died (or was killed on timeout) during that test -- it is the
+    crasher, returned as `dangling`. This is exactly what survives on a real
+    device: the app crash drops the ssh stream, but the fsync'd journal still
+    shows the dangling START."""
+    tests = {}
+    cur = None
+    for ln in text.splitlines():
+        if ln.startswith("SUPER-START "):
+            p = ln.split(maxsplit=2)
+            cur = {"idx": p[1], "name": p[2] if len(p) > 2 else "?", "out": []}
+        elif ln.startswith("SUPER-END ") and cur is not None:
+            p = ln.split()
+            if len(p) >= 3 and p[1] == cur["idx"]:
+                tests[cur["name"]] = (cur["out"], int(p[2]))
+                cur = None
+        elif cur is not None:
+            cur["out"].append(ln)
+    return tests, (cur["name"] if cur else None)
+
+def run_supervised(cell, tests, binmap, fakefs, seed=1, timeout=TIMEOUT):
+    """Run the whole batch under the guest supervisor in one ish launch (the
+    device model). Returns ({test: Result}, crasher_name, seconds)."""
+    arch, engine = CELLS[cell]["arch"], CELLS[cell]["engine"]
+    cmd = [str(ISH), "-f", str(fakefs), f"/bin/guest_supervisor.{arch}",
+           "--engine", engine, "--seed", str(seed), "--journal", "/journal",
+           *[f"/bin/{t}.{arch}" for t in tests]]
+    t0 = time.time(); timed_out = False
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out = p.stdout
+    except subprocess.TimeoutExpired as e:
+        out, timed_out = (e.stdout or b"").decode("utf8", "replace"), True
+    secs = time.time() - t0
+    parsed, dangling = parse_supervisor_stream(out)
+    results = {}
+    for t in tests:
+        key = f"{t}.{arch}"   # the supervisor journals binaries by basename
+        if key in parsed:
+            lines, trc = parsed[key]
+            st = "OK" if trc == 0 else ("CRASH" if trc < 0 else "TEST_ERR")
+            results[t] = Result(cell, st, trc, lines, "", secs / max(len(tests), 1))
+        elif key == dangling:
+            results[t] = Result(cell, "HANG" if timed_out else "CRASH", None, [],
+                                "supervisor journal truncated at this test", secs)
+        else:
+            results[t] = Result(cell, "SKIP", None, [], "not run (after crasher)", 0.0)
+    return results, dangling, secs
 
 
 # ---------------------------------------------------------------- compare
@@ -234,7 +303,8 @@ def minimize_crash(cell, test, binaries, fakefs):
 def report(test, results, mismatches):
     print(f"\n=== {test} ===")
     for r in results:
-        flag = {"OK": "ok", "CRASH": "CRASH", "HANG": "HANG", "TEST_ERR": "ERR"}[r.status]
+        flag = {"OK": "ok", "CRASH": "CRASH", "HANG": "HANG", "TEST_ERR": "ERR",
+                "SKIP": "skip"}[r.status]
         n = len(parse(r.lines)) if r.status == "OK" else 0
         oracle_tag = " (oracle)" if CELLS[r.cell]["kind"] in ORACLE_KINDS else ""
         print(f"  [{flag:5}] {r.cell:16}{oracle_tag:9} rc={r.rc} {n:5} cases {r.secs:6.2f}s")
@@ -307,6 +377,48 @@ def cmd_minimize(args):
     fakefs = build_fakefs([args.test])
     minimize_crash(args.cell, args.test, binmap, fakefs)
 
+def cmd_supervise(args):
+    """Device-model run: ish cells go through the guest supervisor (one launch,
+    journaled) so a crash that drops the connection is still attributable; the
+    oracle/mint cells run per-test as usual. Run locally it validates the same
+    comparison and exercises the journal/crash-reconciliation path."""
+    tests = args.tests.split(",") if args.tests else discover_tests()
+    cells = args.cells.split(",") if args.cells else DEFAULT_CELLS[:]
+    WORK.mkdir(exist_ok=True); (WORK / "bin").mkdir(exist_ok=True)
+    mint = None if args.no_mint else probe_mint()
+    if any(CELLS[c]["kind"] == "mint" for c in cells):
+        if mint:
+            print(f"mint oracle: {mint['host']} lima/{mint['instance']}")
+        else:
+            print("mint oracle unavailable — running M5-local cells only")
+            cells = [c for c in cells if CELLS[c]["kind"] != "mint"]
+    print(f"building {len(tests)} test(s) + supervisor: {', '.join(tests)}")
+    binmap = {t: build_variants(t) for t in tests}
+    build_supervisor()
+    fakefs = build_fakefs(tests)
+    if mint and any(CELLS[c]["kind"] == "mint" for c in cells):
+        push_to_mint(tests, binmap, mint)
+
+    per_cell = {}
+    for cell in cells:
+        if CELLS[cell]["kind"] == "ish":
+            res, dangling, secs = run_supervised(cell, tests, binmap, fakefs, args.seed)
+            per_cell[cell] = res
+            print(f"  supervised {cell:16} {len(tests)} tests {secs:6.2f}s  "
+                  + (f"CRASH→{dangling}" if dangling else "clean"))
+        else:
+            per_cell[cell] = {t: run_cell(cell, t, binmap[t], fakefs, mint=mint,
+                                          extra=["--seed", str(args.seed)]) for t in tests}
+
+    any_fail = False
+    for test in tests:
+        results = [per_cell[c][test] for c in cells]
+        mism, _ = compare(results)
+        report(test, results, mism)
+        if mism or any(r.status in ("CRASH", "HANG") for r in results):
+            any_fail = True
+    sys.exit(1 if any_fail else 0)
+
 def main():
     ap = argparse.ArgumentParser(description="iSH-AOK differential test conductor")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -317,6 +429,10 @@ def main():
     m = sub.add_parser("minimize"); m.set_defaults(fn=cmd_minimize)
     m.add_argument("--test", required=True); m.add_argument("--cell", required=True)
     m.add_argument("--seed", type=int, default=1)
+    sp = sub.add_parser("supervise"); sp.set_defaults(fn=cmd_supervise)
+    sp.add_argument("--tests"); sp.add_argument("--cells")
+    sp.add_argument("--seed", type=int, default=1)
+    sp.add_argument("--no-mint", action="store_true", help="skip the mint VM oracle cells")
     for tool in (ISH, FAKEFSIFY):
         if not tool.exists():
             raise SystemExit(f"missing {tool}; run `ninja -C build` first")
