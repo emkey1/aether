@@ -1846,6 +1846,7 @@ amd64_gen_shift_count shift_count64, 8
     .ifc \op,imul
         .ifnb \s
             sxt\s w10, \arg
+            sxt\s _tmp, _tmp            /* dst is zero-extended on load; sign-extend it for the signed multiply */
             mul _tmp, _tmp, w10
             cmp _tmp, _tmp, sxt\s
         .else
