@@ -455,13 +455,20 @@ void vec_fcmp_p64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t 
             ((dst_t *)dst)[i] = ((src_t *)src)[i]; \
     } while (0)
 
+// x86 cvtt* (truncating float/double -> signed int32) return the integer
+// indefinite 0x80000000 for NaN AND for any value outside the int32 range. A
+// bare C cast is wrong on the arm64 host: float/double -> int32 SATURATES there
+// (e.g. (int32_t)1e30 -> 0x7fffffff), whereas x86 yields 0x80000000 for overflow
+// in BOTH directions. Range-check explicitly, matching amd64_cvtt_scalar_to_int
+// (emu/amd64_interp.c). Every user of this macro has an int32_t destination.
 #define VEC_TRUNC_INT(src, dst, src_t, dst_t, n) \
     do { \
         for (int i = 0; i < n; ++i) { \
-            if (isnan(((src_t *)src)[i])) \
+            src_t _v = ((src_t *)src)[i]; \
+            if (isnan(_v) || _v >= 2147483648.0 || _v < -2147483648.0) \
                 ((dst_t *)dst)[i] = INT32_MIN; \
             else \
-                ((dst_t *)dst)[i] = ((src_t *)src)[i]; \
+                ((dst_t *)dst)[i] = (dst_t) _v; \
         } \
     } while (0)
 
