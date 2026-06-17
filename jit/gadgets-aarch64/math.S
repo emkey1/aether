@@ -572,6 +572,75 @@
     amd64_cached_set_shift_flags 63
 9:  gret 2
 
+# ROL/ROR reg, imm8 (0xc1 /0 rol, /1 ror), reg form, 32/64-bit. THE SHA-512 hot op
+# (Sigma/sigma are ror-chains) -- had no native gadget, bridged per-op through the
+# interp (amd64_rotate_value + amd64_set_rotate_flags + sync/collapse). Flush style:
+# gen.c flushes the reg cache so regs[] memory is current, and this reads/writes the
+# operand straight from CPU_amd64_regs (handles r8-r15, which SHA-512 lives in). Only
+# CF and OF change -- ZF/SF/PF/AF are untouched (so only eflags bits 0 and 11 are
+# rewritten, lazy flags_res left intact); a rotate by count%size==0 changes nothing;
+# OF is defined only for a 1-bit rotate (else left as-is). cf=x14, of=x16 match the
+# interp's amd64_set_rotate_flags exactly. Operand: rm bits 0-3, subop bit 4, imm8
+# bits 8-15. ARM `ror` gives ROR directly; ROL = ROR by (size-eff).
+.macro amd64_gen_rotate_imm name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    and  x9, x8, 0xf                 /* rm reg id */
+    add  x11, _cpu, CPU_amd64_regs
+    add  x11, x11, x9, lsl 3         /* &regs[rm] */
+    ubfx x10, x8, 8, 8               /* imm count */
+.if \vbytes == 4
+    and  x10, x10, 31                /* eff = count % 32 */
+    cbz  x10, 9f
+    ldr  w13, [x11]
+    tbnz x8, 4, 1f
+    mov  w12, 32                     /* ROL32: ror by 32-eff */
+    sub  w12, w12, w10
+    ror  w15, w13, w12
+    and  w14, w15, 1                 /* cf = result & 1 */
+    lsr  w16, w15, 31
+    eor  w16, w16, w14               /* of = cf ^ MSB */
+    b    2f
+1:  ror  w15, w13, w10               /* ROR32 */
+    lsr  w14, w15, 31                /* cf = MSB */
+    and  w16, w15, 1
+    eor  w16, w16, w14               /* of = cf ^ bit0 */
+2:  ubfx x12, x15, 0, 32
+    str  x12, [x11]
+.else
+    and  x10, x10, 63                /* eff = count % 64 */
+    cbz  x10, 9f
+    ldr  x13, [x11]
+    tbnz x8, 4, 1f
+    mov  x12, 64                     /* ROL64 */
+    sub  x12, x12, x10
+    ror  x15, x13, x12
+    and  x14, x15, 1
+    lsr  x16, x15, 63
+    eor  x16, x16, x14
+    b    2f
+1:  ror  x15, x13, x10               /* ROR64 */
+    lsr  x14, x15, 63
+    and  x16, x15, 1
+    eor  x16, x16, x14
+2:  str  x15, [x11]
+.endif
+    strb w14, [_cpu, CPU_cf]
+    ldr  w17, [_cpu, CPU_eflags]
+    bic  w17, w17, 1
+    orr  w17, w17, w14               /* eflags CF (bit 0) */
+    cmp  x10, 1
+    b.ne 8f                          /* OF defined only for 1-bit rotate */
+    strb w16, [_cpu, CPU_of]
+    bic  w17, w17, (1 << 11)
+    orr  w17, w17, w16, lsl 11       /* eflags OF (bit 11) */
+8:  str  w17, [_cpu, CPU_eflags]
+9:  gret 1
+.endm
+
+amd64_gen_rotate_imm rotate_imm32, 4
+amd64_gen_rotate_imm rotate_imm64, 8
+
 .gadget amd64_cached_logic_reg_reg
     ldr x8, [_ip]
     and x9, x8, 0xff

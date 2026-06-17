@@ -2735,6 +2735,25 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             }
 #endif
         }
+        // ROL (/0) / ROR (/1) reg, imm8 (0xc1), 32/64-bit -- native, the SHA-512 hot
+        // op (Sigma/sigma ror-chains) that was bridging via amd64_jit_reg_imm_op.
+        // Flush style so it handles r8-r15 (where SHA-512 lives), not just the cache.
+        // RCL/RCR (/2,/3, carry-rotates) and byte/16-bit keep bridging.
+#if defined(__aarch64__)
+        if (insn.opcode == 0xc1 && (group == 0 || group == 1) &&
+                (size == 32 || size == 64)) {
+            extern void gadget_amd64_rotate_imm32(void), gadget_amd64_rotate_imm64(void);
+            amd64_jit_debug("rotate-imm ip=%llx rm=%u sub=%u size=%u imm=%llx next=%llx",
+                    (unsigned long long) insn.start_ip, rm_id, group, size,
+                    (unsigned long long) value, (unsigned long long) next_ip);
+            gen_amd64_flush_reg_cache(state);
+            gen(state, (unsigned long) (size == 64
+                        ? gadget_amd64_rotate_imm64 : gadget_amd64_rotate_imm32));
+            gen(state, (unsigned long) (rm_id | (group << 4) | ((value & 0xff) << 8)));
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
+#endif
         if ((insn.opcode == 0x80 || insn.opcode == 0x81 ||
                     insn.opcode == 0x83) &&
                 (group == 1 || group == 4 || group == 6) &&
