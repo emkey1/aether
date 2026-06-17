@@ -9,24 +9,27 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 
 | Piece | State |
 |---|---|
-| `conductor.py` — build → matrix → oracle → key-based compare → report | **working** |
-| local-fakefs backend (host `./build/ish`) | **working** (primary) |
-| Rosetta `arch -x86_64` oracle (x86_64) | **working** |
-| mint Lima-VM oracle (true i386 + real-Linux x86_64) | **working** |
-| `corpus/flags_alu.c` — integer ALU result+EFLAGS exactness | **working** |
-| crash/hang classification (signal-exit / timeout) | **working** (local) |
+| `conductor.py` — 4 modes: `run` / `supervise` / `device` / `tier0` | **working** |
+| local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
+| Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
+| differential corpus — 7 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops) | **working** |
+| Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
+| `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
+| crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
+| device backend — ssh deploy/run + devicectl/notify recovery | **scaffold** (dry-run-verified; needs a live device) |
 | `minimize` (case bisection) | basic |
-| ssh / devicectl device backend (journal + heartbeat) | designed, not built |
-| corpus: shifts, SSE/cvt, rep-string, mem-operand adc/sbb, atomics, … | planned |
 
 ## Quickstart
 
 ```bash
 # from repo root, after `ninja -C build`
-python3 tests/remote/conductor.py run                 # all corpus tests, all cells
-python3 tests/remote/conductor.py run --tests flags_alu
-python3 tests/remote/conductor.py run --cells oracle,amd64:interp,amd64:jit
+python3 tests/remote/conductor.py run                  # differential corpus, all cells
+python3 tests/remote/conductor.py run --tests flags_alu --cells oracle,amd64:jit
+python3 tests/remote/conductor.py tier0                # tests/manual self-check suite, per arch
+python3 tests/remote/conductor.py supervise            # journaled batch (device crash model), local
 python3 tests/remote/conductor.py minimize --test flags_alu --cell amd64:jit
+python3 tests/remote/conductor.py run --cells mint:i386:jit   # corpus under iSH built in mint's VM
+python3 tests/remote/conductor.py device --dry-run --device-host <ip>   # device backend (scaffold)
 # results.json + built artifacts land in tests/remote/.work/
 ```
 
@@ -60,6 +63,11 @@ covers all of them):
 | `i386:jit` | default | i386 JIT |
 | `i386:no_cache` | `…/i386_no_cache_comm` | force fresh gadget regen |
 | `i386:single_step` | `…/i386_single_step_comm` | one-instruction blocks |
+| `mint:i386:jit` | iSH built in mint's VM (`gadgets-x86_64`) | x86_64-host i386 JIT — codegen independent of the M5/device aarch64 gadgets |
+| `device:*` | iSH on a real device over ssh:1022 | the actual target (scaffold) |
+
+The last two are **opt-in** (not in the default set): add `--cells mint:i386:jit`
+or use the `device` subcommand explicitly.
 
 **i386 has no interpreter**, so its ground truth is (a) the 3-mode self-diff
 (`jit ≡ no_cache ≡ single_step`, which needs no oracle), (b) the x86_64 oracle
@@ -85,16 +93,18 @@ primary signal this harness exists to catch.
 - **local-fakefs:** the host `ish` process *is* the device. A signal exit →
   `CRASH`; a timeout → `HANG`; both are captured with stderr. One crashing case
   never blocks the rest (and `minimize` bisects `--case` to the culprit).
-- **device (designed):** a JIT bug there also kills sshd and drops the
-  connection. The recovery design:
-  - a **guest supervisor** forks each test as a child and writes a
-    `START …` / `END …` **journal** + a **heartbeat** to the guest fs (the
-    fakefs SQLite / real dir persists across an app restart);
+- **device (scaffold — dry-run-verified, needs a live device):** a JIT bug
+  there also kills sshd and drops the connection. The recovery model (the local
+  `supervise` mode already validates the journal half):
+  - `guest_supervisor.c` forks each test as a child and writes a
+    `SUPER-START …` / `SUPER-END …` **journal** (to stdout *and* an fsync'd file)
+    plus a **heartbeat** to the guest fs (the fakefs SQLite / real dir persists
+    across an app restart, so the journal survives the ssh stream truncating);
   - the conductor streams the journal; loss of heartbeat → probe port 1022;
-  - on confirmed crash it reads the journal — the id with `START` but no `END`
-    is the crasher — pulls forensics (iOS crash report, app log, `[amd64-jit]
-    bad-*` diagnostics), then **recovers**: auto-relaunch via `xcrun devicectl`
-    (USB-tethered), or notify + poll port 1022 (ssh-only);
+  - on confirmed crash it reads the journal — the id with `SUPER-START` but no
+    `SUPER-END` is the crasher — pulls forensics (iOS crash report, app log,
+    `[amd64-jit] bad-*` diagnostics), then **recovers**: auto-relaunch via
+    `xcrun devicectl` (USB-tethered), or notify + poll port 1022 (ssh-only);
   - the crasher is quarantined and the suite resumes; a later isolated-repro
     pass re-runs it with `ISH_TRACE_*` on and minimizes it.
 
@@ -106,17 +116,32 @@ case-insensitive macOS volume corrupts Linux rootfs paths.
 
 Two test styles flow through the same matrix:
 
-- **Differential** (new, JIT-edge): print canonical `result+flags`; require
-  byte-identical across cells + oracle. `corpus/*.c` via `diff_common.h`.
-- **Self-checking** (existing `tests/manual/*.c`): exit 0 + `^<name>: PASS$`,
-  required in every cell. (To be wrapped — Tier 0.)
+- **Differential** (`run`, JIT-edge): `corpus/*.c` via `diff_common.h` print a
+  canonical `result+flags` line per case; require byte-identical across cells +
+  oracle. Seven families so far, each guarding a bug class this project has hit:
+  - `flags_alu` — integer ALU result + EFLAGS exactness
+  - `adc_sbb_mem` — carry-in adc/sbb on the **native memory-operand gadget** (not
+    just the bridged register path)
+  - `shifts` — shl/shr/sar/rol/ror CF/OF at counts 0 / 1 / ≥ width
+  - `sext` — sign/zero-extension (movsx/movzx/cbw/cwde/cdqe)
+  - `muldiv` — mul/imul/div/idiv, high half + `#DE`
+  - `sse_mxcsr` — ldmxcsr/stmxcsr control-word round-trip (amd64)
+  - `bit_ops` — bt/bts/btr/btc (CF) and bsf/bsr (ZF, undefined-dest)
+- **Self-checking** (`tier0`): the 21 `tests/manual/*.c` tests (atomics, futex,
+  signals, ptrace, epoll, fcntl/OFD, copy_file_range, pidfd, …) built static and
+  run under iSH per arch, gated on `^<name>: PASS$`. No oracle — functional
+  regression, not differential.
 
-Planned differential families (each guards a bug class this project has hit):
-flags ✅, **shifts/rotates** (CF/OF at count 0/1/≥width), **SSE/cvt**
-(out-of-range → integer-indefinite, NaN/Inf, shuf lanes, pmovmskb),
-**rep-string** (cross-page, DF, 16-bit), **mem-operand adc/sbb** (the native
-gadget path, *not* the bridged register path), **mul/div** (#DE), **atomics**
-(cmpxchg8b/16b), **sign/zero-ext**, **control-flow/SMC**.
+Still planned: **SSE/cvt** (out-of-range → integer-indefinite, NaN/Inf, shuf
+lanes, pmovmskb), **rep-string** (cross-page, DF, 16-bit), **atomics**
+(cmpxchg8b/16b), **control-flow/SMC**.
+
+This run the harness found and fixed **~11 amd64/i386 JIT flag & result bugs** —
+adc/sbb carry-in AF/OF (interp *and* the native gadget); rol/ror CF on full
+turns; ror-by-1 OF; sar CF past width; cbw sign-extend; 32-bit mul/imul high
+half; 2-op imul w64 overflow; i386 16-bit imul; i386 div/idiv `#DE`; missing
+amd64 LDMXCSR/STMXCSR — each confirmed against the oracle (Rosetta + real-Intel
+mint) and validated back to green.
 
 ## First validated finding (worked example)
 
@@ -127,18 +152,19 @@ carry-in = 1, on **amd64 only** (i386 matched the oracle exactly). Root cause:
 formulas; the folded carry ripples past bit 3 (`0x7f+1=0x80`), corrupting the
 bit-4 XOR (AF) and the signed-overflow test (OF). Fixed by using the original
 `rhs` for OF and the carry-aware nibble form for AF. Harness verdict after the
-fix: all cells agree. (The native *memory-operand* adc/sbb gadget uses the same
-anti-pattern and is a corpus-expansion target.)
+fix: all cells agree. (The native *memory-operand* adc/sbb gadget had the same
+anti-pattern; `adc_sbb_mem` was added to cover it and it too is now fixed.)
 
 ## Layout
 
 ```
 tests/remote/
-  conductor.py          orchestrator (build, matrix, compare, crash, minimize)
+  conductor.py          orchestrator: run / supervise / device / tier0
+  guest_supervisor.c    in-guest batch runner (journal for device crash recovery)
   corpus/
     diff_common.h       differential harness: flag capture, engine self-select,
                         --case/--seed/--list, canonical emit
-    flags_alu.c         integer ALU result+EFLAGS exactness
+    flags_alu.c adc_sbb_mem.c shifts.c sext.c muldiv.c sse_mxcsr.c bit_ops.c
   .work/                build artifacts + results.json (gitignored)
   README.md             this file
 ```
