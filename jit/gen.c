@@ -1721,6 +1721,9 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.op2 == 0x28 ||
              insn.op2 == 0x29 ||
              insn.op2 == 0x50 ||
+             insn.op2 == 0x51 ||
+             insn.op2 == 0x52 ||
+             insn.op2 == 0x53 ||
              insn.op2 == 0x54 ||
              insn.op2 == 0x55 ||
              insn.op2 == 0x56 ||
@@ -1728,6 +1731,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.op2 == 0x58 ||
              insn.op2 == 0x59 ||
              insn.op2 == 0x5a ||
+             insn.op2 == 0x5b ||
              insn.op2 == 0x5c ||
              insn.op2 == 0x5d ||
              insn.op2 == 0x5e ||
@@ -1781,6 +1785,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
              insn.op2 == 0xe3 ||
              insn.op2 == 0xe4 ||
              insn.op2 == 0xe5 ||
+             insn.op2 == 0xe6 ||
              insn.op2 == 0xe7 ||
              insn.op2 == 0xe8 ||
              insn.op2 == 0xe9 ||

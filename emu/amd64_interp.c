@@ -5813,6 +5813,24 @@ restart_prefix:
             cpu->amd64_rip = saved_rip;
             return amd64_jit_0f_vec_rm(cpu, tlb, op2, vec_next_ip);
         }
+        // SSE floating-point ops the inline decoder below does not implement:
+        // movmskps/pd (50), sqrt (51), rsqrt (52), rcp (53), packed
+        // cvtps2pd/cvtpd2ps (5a, scalar cvtss2sd/cvtsd2ss handled above),
+        // cvtdq2ps/cvtps2dq/cvttps2dq (5b), and cvtdq2pd/cvttpd2dq/cvtpd2dq
+        // (e6). None carry an immediate, so the modrm end marks the instruction
+        // end; hand off to the complete vector bridge exactly as the JIT does.
+        if (op2 == 0x50 || op2 == 0x51 || op2 == 0x52 || op2 == 0x53 ||
+                op2 == 0x5a || op2 == 0x5b || op2 == 0xe6) {
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            unsigned long vec_next_ip = (unsigned long) cpu->amd64_rip;
+            cpu->amd64_rip = saved_rip;
+            return amd64_jit_0f_vec_rm(cpu, tlb, op2, vec_next_ip);
+        }
         if (op2 == 0x10 || op2 == 0x11 || op2 == 0x12 || op2 == 0x13 ||
                 op2 == 0x14 || op2 == 0x15 ||
                 op2 == 0x16 || op2 == 0x17 ||
@@ -5924,16 +5942,25 @@ restart_prefix:
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                     goto amd64_gpf_restore;
             } else if (op2 == 0x14 || op2 == 0x15) {
-                if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                if (rep_mode != AMD64_REP_NONE)
                     return INT_UNDEFINED;
                 if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                     goto amd64_gpf_restore;
                 value = cpu->xmm[modrm.reg];
-                if (op2 == 0x14) {
-                    value.qw[1] = src_xmm.qw[0];
+                if (operand_size_prefix) {
+                    // unpcklpd/unpckhpd: interleave the 64-bit lanes.
+                    if (op2 == 0x14) {
+                        value.qw[1] = src_xmm.qw[0];
+                    } else {
+                        value.qw[0] = value.qw[1];
+                        value.qw[1] = src_xmm.qw[1];
+                    }
                 } else {
-                    value.qw[0] = value.qw[1];
-                    value.qw[1] = src_xmm.qw[1];
+                    // unpcklps/unpckhps: interleave the 32-bit lanes.
+                    if (op2 == 0x14)
+                        vec_unpackl_ps128(NULL, &src_xmm, &value);
+                    else
+                        vec_unpackh_ps128(NULL, &src_xmm, &value);
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d || op2 == 0x5e || op2 == 0x5f) {
@@ -10677,6 +10704,123 @@ static void amd64_jit_note_vec_bridge(unsigned long op2) {
     }
 }
 
+// --- Packed/scalar SSE floating-point helpers with x86-faithful semantics ---
+//
+// These back the sqrt/reciprocal/conversion families decoded below (0F 51/52/53,
+// 0F 5A packed, 0F 5B, 0F E6). The host is arm64, whose FP corner cases differ
+// from x86 in two places we must correct: the sign of a sqrt-of-negative QNaN,
+// and float->int overflow saturation. Everything else (NaN propagation, the
+// quieting of widened/narrowed NaNs, round-to-nearest of in-range values) is
+// IEEE-754 and already matches between arm64 and x86.
+
+// x86 SQRT of a negative (non-NaN) operand returns the real-indefinite QNaN
+// 0xffc00000 / 0xfff8000000000000 (sign bit set). arm64's sqrtf/sqrt yield a
+// positive-signed NaN there, so substitute the x86 indefinite explicitly.
+// -0.0 is not < 0 (sqrt(-0)=-0) and NaN inputs are not < 0 (sqrtf quiets them):
+// both fall through to the host, which already matches x86.
+static inline float amd64_sse_sqrt_f32(float x) {
+    if (x < 0.0f) {
+        uint32_t bits = 0xffc00000u;
+        float r;
+        memcpy(&r, &bits, sizeof(r));
+        return r;
+    }
+    return sqrtf(x);
+}
+static inline double amd64_sse_sqrt_f64(double x) {
+    if (x < 0.0) {
+        uint64_t bits = 0xfff8000000000000ull;
+        double r;
+        memcpy(&r, &bits, sizeof(r));
+        return r;
+    }
+    return sqrt(x);
+}
+
+// RSQRTPS/RSQRTSS and RCPPS/RCPSS are defined by the ISA only to ~11-12 bits of
+// precision with an implementation-specific result, so no bit-exact reference
+// exists across CPUs (or vs. Rosetta). We return the precisely-rounded
+// reciprocal: error 0 is well within the architectural 1.5*2^-12 tolerance, and
+// all the special values (0, -0, +/-inf, NaN, negative) match real hardware
+// exactly. Code that uses these as Newton-Raphson seeds converges either way.
+static inline float amd64_sse_rsqrt_f32(float x) {
+    if (x < 0.0f) {
+        uint32_t bits = 0xffc00000u; // rsqrt(-x) follows sqrt(-x) -> QNaN indefinite
+        float r;
+        memcpy(&r, &bits, sizeof(r));
+        return r;
+    }
+    return 1.0f / sqrtf(x); // +0 -> +inf, -0 -> -inf, +inf -> +0, NaN -> NaN
+}
+static inline float amd64_sse_rcp_f32(float x) {
+    return 1.0f / x; // 0 -> +inf, -0 -> -inf, +/-inf -> +/-0, NaN -> NaN
+}
+
+// x86 float/double -> signed int32 conversion. Out-of-range or NaN yields the
+// integer indefinite 0x80000000 (NOT arm64's saturated INT_MAX/INT_MIN, which
+// is why we cannot lean on a bare C cast). cvtt* truncates toward zero; cvt*
+// rounds. There is no MXCSR in this emulator, so the rounding form uses the host
+// default rounding direction (round-to-nearest-even) which is the x86 power-on
+// MXCSR.RC; nothing in the runtime ever calls fesetround.
+static inline int32_t amd64_sse_f2i_trunc(double x) {
+    if (isnan(x) || x >= 2147483648.0 || x < -2147483648.0)
+        return INT32_MIN;
+    return (int32_t) x;
+}
+static inline int32_t amd64_sse_f2i_round(double x) {
+    if (isnan(x))
+        return INT32_MIN;
+    double r = rint(x);
+    if (r >= 2147483648.0 || r < -2147483648.0)
+        return INT32_MIN;
+    return (int32_t) r;
+}
+
+// sqrtps/sqrtpd: read all source lanes first (src may alias dst).
+static inline void amd64_sse_sqrtps(const union xmm_reg *src, union xmm_reg *dst) {
+    float s0 = src->f32[0], s1 = src->f32[1], s2 = src->f32[2], s3 = src->f32[3];
+    dst->f32[0] = amd64_sse_sqrt_f32(s0);
+    dst->f32[1] = amd64_sse_sqrt_f32(s1);
+    dst->f32[2] = amd64_sse_sqrt_f32(s2);
+    dst->f32[3] = amd64_sse_sqrt_f32(s3);
+}
+static inline void amd64_sse_sqrtpd(const union xmm_reg *src, union xmm_reg *dst) {
+    double s0 = src->f64[0], s1 = src->f64[1];
+    dst->f64[0] = amd64_sse_sqrt_f64(s0);
+    dst->f64[1] = amd64_sse_sqrt_f64(s1);
+}
+static inline void amd64_sse_rsqrtps(const union xmm_reg *src, union xmm_reg *dst) {
+    float s0 = src->f32[0], s1 = src->f32[1], s2 = src->f32[2], s3 = src->f32[3];
+    dst->f32[0] = amd64_sse_rsqrt_f32(s0);
+    dst->f32[1] = amd64_sse_rsqrt_f32(s1);
+    dst->f32[2] = amd64_sse_rsqrt_f32(s2);
+    dst->f32[3] = amd64_sse_rsqrt_f32(s3);
+}
+static inline void amd64_sse_rcpps(const union xmm_reg *src, union xmm_reg *dst) {
+    float s0 = src->f32[0], s1 = src->f32[1], s2 = src->f32[2], s3 = src->f32[3];
+    dst->f32[0] = amd64_sse_rcp_f32(s0);
+    dst->f32[1] = amd64_sse_rcp_f32(s1);
+    dst->f32[2] = amd64_sse_rcp_f32(s2);
+    dst->f32[3] = amd64_sse_rcp_f32(s3);
+}
+// cvtps2dq/cvttps2dq: four packed floats -> four int32 (same lane count).
+static inline void amd64_sse_cvtps2dq(const union xmm_reg *src, union xmm_reg *dst, bool trunc) {
+    float s0 = src->f32[0], s1 = src->f32[1], s2 = src->f32[2], s3 = src->f32[3];
+    dst->u32[0] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s0) : amd64_sse_f2i_round(s0));
+    dst->u32[1] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s1) : amd64_sse_f2i_round(s1));
+    dst->u32[2] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s2) : amd64_sse_f2i_round(s2));
+    dst->u32[3] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s3) : amd64_sse_f2i_round(s3));
+}
+// cvtpd2dq/cvttpd2dq: two packed doubles -> two int32 in the low 64 bits;
+// the high 64 bits are zeroed.
+static inline void amd64_sse_cvtpd2dq(const union xmm_reg *src, union xmm_reg *dst, bool trunc) {
+    double s0 = src->f64[0], s1 = src->f64[1];
+    dst->u32[0] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s0) : amd64_sse_f2i_round(s0));
+    dst->u32[1] = (uint32_t) (trunc ? amd64_sse_f2i_trunc(s1) : amd64_sse_f2i_round(s1));
+    dst->u32[2] = 0;
+    dst->u32[3] = 0;
+}
+
 int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long op2, unsigned long next_ip) {
     amd64_jit_note_vec_bridge(op2);
@@ -10697,7 +10841,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             op2 != 0x14 && op2 != 0x15 && op2 != 0x16 && op2 != 0x17 &&
             op2 != 0x2a && op2 != 0x2c && op2 != 0x2e && op2 != 0x2f &&
             op2 != 0x28 &&
-            op2 != 0x29 && op2 != 0x50 && !(op2 >= 0x54 && op2 <= 0x5a) &&
+            op2 != 0x29 && op2 != 0x50 && !(op2 >= 0x51 && op2 <= 0x5b) &&
             !(op2 >= 0x5c && op2 <= 0x5f) &&
             !(op2 >= 0x60 && op2 <= 0x62) &&
             op2 != 0x63 &&
@@ -10717,7 +10861,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             !(op2 >= 0xd8 && op2 <= 0xe0) &&
             op2 != 0xe1 && op2 != 0xe2 &&
             !(op2 >= 0xe3 && op2 <= 0xe5) &&
-            op2 != 0xe7 &&
+            op2 != 0xe6 && op2 != 0xe7 &&
             !(op2 >= 0xe8 && op2 <= 0xee) &&
             op2 != 0xdb && op2 != 0xeb &&
             !(op2 >= 0xf1 && op2 <= 0xf3) &&
@@ -10946,9 +11090,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             }
             amd64_reg_set(cpu, modrm.reg, 32, mask);
         } else if (op2 == 0x5a) {
-            if (operand_size_prefix ||
-                    (rep_mode != AMD64_REPZ && rep_mode != AMD64_REPNZ))
-                return INT_UNDEFINED;
+            // F2=cvtsd2ss, F3=cvtss2sd (scalar); 66=cvtpd2ps, none=cvtps2pd (packed).
             value = cpu->xmm[modrm.reg];
             if (rep_mode == AMD64_REPNZ) {
                 double src_double;
@@ -10960,7 +11102,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     src_double = *(double *) &src_scalar;
                 }
                 value.f32[0] = (float) src_double;
-            } else {
+            } else if (rep_mode == AMD64_REPZ) {
                 float src_float;
                 uint32_t src_word;
                 if (modrm.is_reg) {
@@ -10972,6 +11114,118 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     src_float = *(float *) &src_word;
                 }
                 value.f64[0] = (double) src_float;
+            } else if (operand_size_prefix) {
+                // cvtpd2ps: two doubles (xmm/m128) -> two floats, high 64 zeroed.
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                vec_cvtpd2ps128(NULL, &src_xmm, &value);
+            } else {
+                // cvtps2pd: two floats (low 64 of xmm, or m64) -> two doubles.
+                if (modrm.is_reg) {
+                    src_xmm = cpu->xmm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_xmm.qw[0] = src_scalar;
+                }
+                vec_cvtps2pd64(NULL, &src_xmm, &value);
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x51) {
+            // sqrt: none=sqrtps, 66=sqrtpd, F3=sqrtss, F2=sqrtsd.
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ) {
+                float s;
+                if (modrm.is_reg) {
+                    s = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    uint32_t w = (uint32_t) src_scalar;
+                    s = *(float *) &w;
+                }
+                value.f32[0] = amd64_sse_sqrt_f32(s);
+            } else if (rep_mode == AMD64_REPNZ) {
+                double s;
+                if (modrm.is_reg) {
+                    s = cpu->xmm[modrm.rm].f64[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    s = *(double *) &src_scalar;
+                }
+                value.f64[0] = amd64_sse_sqrt_f64(s);
+            } else {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                if (operand_size_prefix)
+                    amd64_sse_sqrtpd(&src_xmm, &value);
+                else
+                    amd64_sse_sqrtps(&src_xmm, &value);
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x52 || op2 == 0x53) {
+            // 0x52 rsqrt, 0x53 rcp: none=packed-ps, F3=scalar-ss; no 66/F2 form.
+            if (operand_size_prefix || rep_mode == AMD64_REPNZ)
+                return INT_UNDEFINED;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ) {
+                float s;
+                if (modrm.is_reg) {
+                    s = cpu->xmm[modrm.rm].f32[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 32, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    uint32_t w = (uint32_t) src_scalar;
+                    s = *(float *) &w;
+                }
+                value.f32[0] = op2 == 0x52 ? amd64_sse_rsqrt_f32(s)
+                                           : amd64_sse_rcp_f32(s);
+            } else {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                if (op2 == 0x52)
+                    amd64_sse_rsqrtps(&src_xmm, &value);
+                else
+                    amd64_sse_rcpps(&src_xmm, &value);
+            }
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0x5b) {
+            // none=cvtdq2ps, 66=cvtps2dq (round), F3=cvttps2dq (truncate).
+            if (rep_mode == AMD64_REPNZ)
+                return INT_UNDEFINED;
+            if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                goto amd64_0f_vec_rm_pf;
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ)
+                amd64_sse_cvtps2dq(&src_xmm, &value, true);
+            else if (operand_size_prefix)
+                amd64_sse_cvtps2dq(&src_xmm, &value, false);
+            else
+                vec_cvtdq2ps128(NULL, &src_xmm, &value);
+            cpu->xmm[modrm.reg] = value;
+        } else if (op2 == 0xe6) {
+            // F3=cvtdq2pd (m64 src), 66=cvttpd2dq (truncate), F2=cvtpd2dq (round).
+            value = cpu->xmm[modrm.reg];
+            if (rep_mode == AMD64_REPZ) {
+                if (modrm.is_reg) {
+                    src_xmm = cpu->xmm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_xmm.qw[0] = src_scalar;
+                }
+                vec_cvtdq2pd64(NULL, &src_xmm, &value);
+            } else if (operand_size_prefix) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                amd64_sse_cvtpd2dq(&src_xmm, &value, true);
+            } else if (rep_mode == AMD64_REPNZ) {
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_0f_vec_rm_pf;
+                amd64_sse_cvtpd2dq(&src_xmm, &value, false);
+            } else {
+                return INT_UNDEFINED; // no-prefix 0F E6 is not a valid encoding
             }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x58 || op2 == 0x59 || op2 == 0x5c || op2 == 0x5d ||
@@ -11117,16 +11371,25 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                 goto amd64_0f_vec_rm_pf;
         } else if (op2 == 0x14 || op2 == 0x15) {
-            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
+            if (rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                 goto amd64_0f_vec_rm_pf;
             value = cpu->xmm[modrm.reg];
-            if (op2 == 0x14) {
-                value.qw[1] = src_xmm.qw[0];
+            if (operand_size_prefix) {
+                // unpcklpd/unpckhpd: interleave the 64-bit lanes.
+                if (op2 == 0x14) {
+                    value.qw[1] = src_xmm.qw[0];
+                } else {
+                    value.qw[0] = value.qw[1];
+                    value.qw[1] = src_xmm.qw[1];
+                }
             } else {
-                value.qw[0] = value.qw[1];
-                value.qw[1] = src_xmm.qw[1];
+                // unpcklps/unpckhps: interleave the 32-bit lanes.
+                if (op2 == 0x14)
+                    vec_unpackl_ps128(NULL, &src_xmm, &value);
+                else
+                    vec_unpackh_ps128(NULL, &src_xmm, &value);
             }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x16) {
