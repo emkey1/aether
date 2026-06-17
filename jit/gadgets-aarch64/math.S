@@ -2172,11 +2172,14 @@ amd64_gen_shift_count shift_count64, 8
         uxt\s _tmp, _tmp
     .endif
 .endm
-.macro do_div size, s
+.macro do_div fault, size, s
     .if \size == 8
         uxth w8, eax
         uxtb _tmp, _tmp
+        cbz _tmp, \fault
         udiv w9, w8, _tmp
+        cmp w9, w9, uxtb
+        b.ne \fault
         msub w10, w9, _tmp, w8
         bfi eax, w9, 0, 8
         bfi eax, w10, 8, 8
@@ -2184,7 +2187,10 @@ amd64_gen_shift_count shift_count64, 8
         bfi w8, eax, 0, 16
         bfi w8, edx, 16, 16
         uxth _tmp, _tmp
+        cbz _tmp, \fault
         udiv w9, w8, _tmp
+        cmp w9, w9, uxth
+        b.ne \fault
         msub w10, w9, _tmp, w8
         bfi eax, w9, 0, 16
         bfi edx, w10, 0, 16
@@ -2192,18 +2198,24 @@ amd64_gen_shift_count shift_count64, 8
         bfi x8, xax, 0, 32
         bfi x8, xdx, 32, 32
         uxtw _xtmp, _tmp
+        cbz _xtmp, \fault
         udiv x9, x8, _xtmp
+        cmp x9, w9, uxtw
+        b.ne \fault
         msub x10, x9, _xtmp, x8
         mov eax, w9
         mov edx, w10
     .endif
 .endm
-.macro do_idiv size, s
+.macro do_idiv fault, size, s
     # another lazy ass copy paste job
     .if \size == 8
         sxth w8, eax
         sxtb _tmp, _tmp
+        cbz _tmp, \fault
         sdiv w9, w8, _tmp
+        cmp w9, w9, sxtb
+        b.ne \fault
         msub w10, w9, _tmp, w8
         bfi eax, w9, 0, 8
         bfi eax, w10, 8, 8
@@ -2211,7 +2223,10 @@ amd64_gen_shift_count shift_count64, 8
         bfi w8, eax, 0, 16
         bfi w8, edx, 16, 16
         sxth _tmp, _tmp
+        cbz _tmp, \fault
         sdiv w9, w8, _tmp
+        cmp w9, w9, sxth
+        b.ne \fault
         msub w10, w9, _tmp, w8
         bfi eax, w9, 0, 16
         bfi edx, w10, 0, 16
@@ -2219,7 +2234,10 @@ amd64_gen_shift_count shift_count64, 8
         bfi x8, xax, 0, 32
         bfi x8, xdx, 32, 32
         sxtw _xtmp, _tmp
+        cbz _xtmp, \fault
         sdiv x9, x8, _xtmp
+        cmp x9, w9, sxtw
+        b.ne \fault
         msub x10, x9, _xtmp, x8
         mov eax, w9
         mov edx, w10
@@ -2277,11 +2295,27 @@ amd64_gen_shift_count shift_count64, 8
     .endif
 .endm
 
-.irp op, inc,dec,sign_extend,zero_extend,div,idiv,mul,imul1,not
+.irp op, inc,dec,sign_extend,zero_extend,mul,imul1,not
     .irp size, SIZE_LIST
         .gadget \op\()_\size
             ss \size, do_\op
             gret
+    .endr
+    .gadget_list \op, SIZE_LIST
+.endr
+
+# div/idiv carry the faulting instruction IP as operand 0 so a #DE (zero divisor
+# or quotient overflow) can set eip and raise INT_DIV. ARM udiv/sdiv don't trap;
+# do_div/do_idiv branch to the per-gadget fault label on those conditions.
+.irp op, div, idiv
+    .irp size, SIZE_LIST
+        .gadget \op\()_\size
+            ss \size, do_\op, .Lde_\op\()_\size
+            gret 1
+        .Lde_\op\()_\size:
+            ldr eip, [_ip]
+            mov x0, INT_DIV
+            b jit_exit
     .endr
     .gadget_list \op, SIZE_LIST
 .endr
