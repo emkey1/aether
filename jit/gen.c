@@ -1374,10 +1374,49 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
-    // imul reg, rm (0F AF) is bridged: a native gadget_amd64_imul_reg exists but
-    // its low-reg form corrupts state in a specific -O1 interleaving (a low-reg
-    // imul_reg followed by a hot-cache hash multiply) that isolated tests don't
-    // hit; left bridged pending root-cause. The 69/6B imm form is native + proven.
+#if defined(__aarch64__)
+    // imul reg, rm (0F AF), reg form, low8 regs, 32/64-bit: native multiply with
+    // overflow flags via gadget_amd64_imul_reg (shares amd64_imul_body with the
+    // proven imm form). High regs / memory operand / 16-bit / fs / lock fall
+    // through to the bridge below.
+    //
+    // This re-enables the path f2cf6452 disabled. The "latent imul_reg bug" was not
+    // in the gadget: the reverted wiring omitted gen_amd64_mark_reg_cache_dirty, so
+    // the result was written into the host cache register but never flagged dirty.
+    // A following op that flushed/invalidated the cache (e.g. a high-reg multiply
+    // on the bridge) then dropped it, reloading the stale pre-imul value -- which is
+    // exactly why it was interleaving-sensitive and why an intervening flush "fixed"
+    // it. Marking the cache dirty (as the imm form already does) is the fix; proven
+    // by toggling that one call against the repro.
+    if (!insn.operand_size_prefix && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
+            insn.op2 == 0xaf && insn.has_modrm &&
+            amd64_modrm_mod(insn.modrm) == 3) {
+        unsigned size = insn.rex.w ? 64 : 32;
+        unsigned reg_id = amd64_modrm_reg(insn.modrm) | (insn.rex.r ? 8 : 0);
+        unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+        if (amd64_jit_low8_reg(reg_id) && amd64_jit_low8_reg(rm_id)) {
+            unsigned long packed = ((unsigned long) reg_id << 8) |
+                ((unsigned long) rm_id << 12) |
+                ((unsigned long) size << 16);
+            next_ip = state->amd64_ip + 1;
+            state->amd64_ip = next_ip;
+            amd64_jit_debug("imul-reg-direct ip=%llx dst=%u src=%u size=%u next=%llx",
+                    (unsigned long long) insn.start_ip, reg_id, rm_id, size,
+                    (unsigned long long) next_ip);
+            extern void gadget_amd64_imul_reg(void);
+            gen_amd64_ensure_reg_cache(state);
+            gen(state, (unsigned long) gadget_amd64_imul_reg);
+            gen(state, packed);
+            gen_amd64_mark_reg_cache_dirty(state);
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
+    }
+#endif
+
+    // imul reg, rm (0F AF): high-reg / memory / 16-bit forms bridge to the helper.
     if (!insn.address_size_prefix &&
             (insn.rep_mode == amd64_jit_rep_none ||
              ((insn.op2 == 0xbc || insn.op2 == 0xbd) &&
