@@ -890,7 +890,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
-    const char *envp = "TERM=xterm-256color\0";
+    const char *envp = "TERM=screen-256color\0";
 	    err = do_execve(command[0].UTF8String, command.count, argv, envp);
 	    if (err < 0) {
 	        NSString *failureTitle = @"Could not start session command";
@@ -922,7 +922,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         argv_arr[i] = command[i].UTF8String;
     argv_arr[command.count] = NULL;
     const char *envp_arr[] = {
-        "TERM=xterm-256color",
+        "TERM=screen-256color",
         NULL,
     };
     const char *const *argv = argv_arr;

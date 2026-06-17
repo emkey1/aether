@@ -1034,6 +1034,42 @@ int __do_execve(const char *file, struct exec_args argv, struct exec_args envp) 
     return 0;
 }
 
+// Some getty/inittab setups hard-code TERM=vt102 on the boot console and apply it
+// with setenv() before exec'ing login, so it can't be corrected through the
+// environment we hand the boot command — only here, at exec time. vt102 advertises
+// no color at all, so rewrite that single bogus value to screen-256color, matching
+// the TERM the app hands its interactive sessions (TerminalViewController.m). Returns
+// a malloc'd replacement buffer (caller frees) or NULL when no rewrite is needed,
+// keeping the common path allocation-free. envp_len counts every byte of the block
+// including the trailing terminator, matching args_size()'s view of it.
+static char *exec_fixup_term(const char *envp, size_t envp_len) {
+    const char bogus[] = "TERM=vt102";
+    const char fixed[] = "TERM=screen-256color";
+    const char *match = NULL;
+    for (const char *e = envp; *e != '\0'; e += strlen(e) + 1) {
+        if (strncmp(e, "TERM=", 5) == 0) {
+            // Only the first TERM entry takes effect; stop at it whatever its value.
+            if (strcmp(e, bogus) == 0)
+                match = e;
+            break;
+        }
+    }
+    if (match == NULL)
+        return NULL;
+
+    char *buf = malloc(envp_len + (sizeof(fixed) - sizeof(bogus)));
+    if (buf == NULL)
+        return NULL; // out of memory: leave the env unchanged rather than fail exec
+    size_t prefix = (size_t) (match - envp);
+    const char *rest = match + sizeof(bogus); // next entry (sizeof includes the NUL)
+    size_t rest_len = envp_len - (size_t) (rest - envp);
+    char *w = buf;
+    memcpy(w, envp, prefix); w += prefix;
+    memcpy(w, fixed, sizeof(fixed)); w += sizeof(fixed);
+    memcpy(w, rest, rest_len);
+    return buf;
+}
+
 int do_execve(const char *file, size_t argc, const char *argv_p, const char *envp_p) {
     struct exec_args argv = {.count = argc, .args = argv_p};
     struct exec_args envp = {.args = envp_p};
@@ -1041,7 +1077,14 @@ int do_execve(const char *file, size_t argc, const char *argv_p, const char *env
         envp_p += strlen(envp_p) + 1;
         envp.count++;
     }
-    return __do_execve(file, argv, envp);
+    // envp_p now points at the trailing terminator; the block spans envp.args..envp_p.
+    size_t envp_len = (size_t) (envp_p - envp.args) + 1;
+    char *fixed_env = exec_fixup_term(envp.args, envp_len);
+    if (fixed_env != NULL)
+        envp.args = fixed_env;
+    int err = __do_execve(file, argv, envp);
+    free(fixed_env); // NULL-safe: no-op when no rewrite happened
+    return err;
 }
 
 static ssize_t user_read_string_array(guest_addr_t addr, char *buf, size_t max) {
