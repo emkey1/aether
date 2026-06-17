@@ -2329,6 +2329,25 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native direction-flag ops: CLD (0xfc), STD (0xfd). Only DF (eflags bit10) and
+    // df_offset change, exactly the interp (cld: df=0/off=+1; std: df=1/off=-1). These
+    // touch only shared CPU state, so reuse the i386 gadget_cld/gadget_std (byte-
+    // identical: ldr/bic|orr DF_FLAG/str eflags + str +-1 to df_offset, gret 0); no
+    // reg-cache flush. Previously bridged -> interp fallback for the rest of the block
+    // (any function that does cld;...;rep movs, i.e. most of glibc's mem/str routines).
+    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+            (insn.opcode == 0xfc || insn.opcode == 0xfd)) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("df-flag-op ip=%llx op=%02x next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode,
+                (unsigned long long) next_ip);
+        extern void gadget_cld(void), gadget_std(void);
+        gen(state, (unsigned long) (insn.opcode == 0xfc ? gadget_cld : gadget_std));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.two_byte_opcode && !insn.operand_size_prefix &&
             !insn.address_size_prefix && !insn.fs_prefix &&
             !insn.lock_prefix && !insn.rex.present &&
