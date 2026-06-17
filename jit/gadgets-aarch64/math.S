@@ -3402,6 +3402,55 @@ amd64_gen_incdec_mem incdec_mem64, 8, 63
     gret 3
     amd64_vread_bullshit 4, movsxd_mem
 
+# amd64 MOVZX/MOVSX reg <- [mem]: 0F B6 (movzbl/q), B7 (movzwl/q), BE (movsbl/q),
+# BF (movswl/q), mod!=3, dst 32/64. Zero- (B6/B7) or sign-extend (BE/BF) a 1- or
+# 2-byte memory operand into the dst register. NO FLAGS. Flush style (covers r8-r15
+# dst). gen.c packs into meta: dst reg id at bits 8-11 (as usual), is_signed at bit 40,
+# dst64 (REX.W) at bit 41 -- free high bits (vmem_addr/decode_mem_meta only use 0-34).
+# dst regid + the 2 flag bits are folded into x10 to survive the read prep (only x10/x0
+# do). movzx is just ldrb/ldrh (already zero-extends to 64, correct for both dst sizes
+# since a 32-bit x86 write zero-extends). movsx: sxt to W (movs_l) zeroes the upper 32
+# = the x86 32-bit-write rule; sxt to X (movs_q, REX.W) sign-extends to 64.
+# Operands: meta(0)/disp(1)/next_ip(2).
+.macro amd64_gen_movx_mem name, vb
+.gadget amd64_\name
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    ubfx x10, x8, 8, 4               /* dst reg id */
+    ubfx x11, x8, 40, 2              /* signed (bit0) | dst64 (bit1) */
+    orr  x10, x10, x11, lsl 8        /* pack regid | flags<<8 (survives prep) */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep \vb, \name      /* x9 = host addr of the source */
+.if \vb == 1
+    ldrb w11, [x9]                   /* zero-extended byte */
+.else
+    ldrh w11, [x9]                   /* zero-extended half */
+.endif
+    ubfx x12, x10, 8, 2              /* flags */
+    and  x10, x10, 0xf               /* dst reg id */
+    tbz  x12, 0, 9f                  /* unsigned (movzx): already zero-extended */
+    tbnz x12, 1, 8f                  /* signed + dst64 */
+.if \vb == 1
+    sxtb w11, w11                    /* movsbl: sign-extend byte -> 32 (zeroes upper 32) */
+.else
+    sxth w11, w11                    /* movswl */
+.endif
+    b    9f
+8:
+.if \vb == 1
+    sxtb x11, w11                    /* movsbq: sign-extend byte -> 64 */
+.else
+    sxth x11, w11                    /* movswq */
+.endif
+9:  add  x13, _cpu, CPU_amd64_regs
+    str  x11, [x13, x10, lsl 3]      /* write dst (full 64-bit slot) */
+    gret 3
+    amd64_vread_bullshit \vb, \name
+.endm
+
+amd64_gen_movx_mem movx_mem8, 1
+amd64_gen_movx_mem movx_mem16, 2
+
 # amd64 load-op adc/sbb: reg <op>= [mem] + carry (ADC 0x13 / SBB 0x1b), mod!=3, 32/64.
 # reg=dst/lhs, [mem]=rhs, carry-in = CPU_cf. ARM adcs/sbcs do the carry arithmetic
 # directly: set the ARM C flag from cf (cmp cf,1 => C=cf for adc; subs xzr,xzr,cf =>

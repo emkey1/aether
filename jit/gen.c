@@ -1277,6 +1277,46 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // Native MOVZX/MOVSX reg <- [mem] (0F B6/B7/BE/BF, mod!=3), 32/64-bit dst, no flags.
+    // Byte (B6/BE) or word (B7/BF) memory source, zero- (B6/B7) or sign-extended (BE/BF)
+    // into the dst register. The 16-bit-dst (0x66), FS, address-size, and locked forms
+    // keep bridging to amd64_jit_movx below. is_signed -> meta bit 40, REX.W -> meta bit
+    // 41 (free high bits; decode_mem_meta uses only 0-34).
+    if (!insn.operand_size_prefix && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
+            insn.has_modrm && amd64_modrm_mod(insn.modrm) != 3 &&
+            (insn.op2 == 0xb6 || insn.op2 == 0xb7 ||
+             insn.op2 == 0xbe || insn.op2 == 0xbf)) {
+        bool is_byte = (insn.op2 == 0xb6 || insn.op2 == 0xbe);
+        bool is_signed = (insn.op2 == 0xbe || insn.op2 == 0xbf);
+        unsigned opsize = is_byte ? 8 : 16;
+        unsigned long meta, disp;
+        if (!gen_amd64_decode_mem_meta(state, tlb, &insn, opsize, &meta, &disp, &next_ip)) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        if (is_signed)
+            meta |= 1ul << 40;
+        if (insn.rex.w)
+            meta |= 1ul << 41;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("movx-mem ip=%llx op2=%02x meta=%lx disp=%lx next=%llx",
+                (unsigned long long) insn.start_ip, insn.op2, meta, disp,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        gen_amd64_flush_rip(state);
+        extern void gadget_amd64_movx_mem8(void), gadget_amd64_movx_mem16(void);
+        gen(state, (unsigned long) (is_byte
+                    ? gadget_amd64_movx_mem8 : gadget_amd64_movx_mem16));
+        gen(state, meta);
+        gen(state, disp);
+        gen(state, (unsigned long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
     if (!insn.operand_size_prefix && !insn.address_size_prefix &&
             insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
             (insn.op2 == 0xb6 || insn.op2 == 0xb7 ||
