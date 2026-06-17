@@ -462,6 +462,14 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         if (!load_addr_set && header.type == ELF_DYNAMIC) {
             if (interp_name && header.abi == GUEST_ABI_I386)
                 bias = 0x56555000;
+            else if (interp_name && header.abi == GUEST_ABI_AMD64)
+                // Pin the amd64 PIE main executable at the conventional low
+                // Linux base so the brk heap grows up into the large mmap
+                // window. find_hole_for_elf() returns the *top* of the window
+                // (just under mmap_ceiling), which pins start_brk there and
+                // caps the heap at the ~32 MiB gap to the page limit (2^47);
+                // brk-hungry programs like git then fail to expand the heap.
+                bias = 0x555555554000;
             else
                 bias = find_hole_for_elf(&header, ph);
         }
