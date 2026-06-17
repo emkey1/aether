@@ -603,8 +603,8 @@
     b    2f
 1:  ror  w15, w13, w10               /* ROR32 */
     lsr  w14, w15, 31                /* cf = MSB */
-    and  w16, w15, 1
-    eor  w16, w16, w14               /* of = cf ^ bit0 */
+    ubfx w16, w15, 30, 1             /* next-MSB (bit 30) */
+    eor  w16, w16, w14               /* ROR OF (1-bit) = MSB ^ next-MSB */
 2:  ubfx x12, x15, 0, 32
     str  x12, [x11]
 .else
@@ -621,8 +621,8 @@
     b    2f
 1:  ror  x15, x13, x10               /* ROR64 */
     lsr  x14, x15, 63
-    and  x16, x15, 1
-    eor  x16, x16, x14
+    ubfx x16, x15, 62, 1             /* next-MSB (bit 62) */
+    eor  x16, x16, x14               /* ROR OF (1-bit) = MSB ^ next-MSB */
 2:  str  x15, [x11]
 .endif
     strb w14, [_cpu, CPU_cf]
@@ -771,8 +771,8 @@ amd64_gen_shift_imm shift_imm64, 8
     b    2f
 1:  ror  w15, w13, w10               /* ROR32 */
     lsr  w14, w15, 31                /* cf = MSB */
-    and  w16, w15, 1
-    eor  w16, w16, w14               /* of = cf ^ bit0 */
+    ubfx w16, w15, 30, 1             /* next-MSB (bit 30) */
+    eor  w16, w16, w14               /* ROR OF (1-bit) = MSB ^ next-MSB */
 2:  ubfx x12, x15, 0, 32
     str  x12, [x11]
 .else
@@ -789,8 +789,8 @@ amd64_gen_shift_imm shift_imm64, 8
     b    2f
 1:  ror  x15, x13, x10               /* ROR64 */
     lsr  x14, x15, 63
-    and  x16, x15, 1
-    eor  x16, x16, x14
+    ubfx x16, x15, 62, 1             /* next-MSB (bit 62) */
+    eor  x16, x16, x14               /* ROR OF (1-bit) = MSB ^ next-MSB */
 2:  str  x15, [x11]
 .endif
     strb w14, [_cpu, CPU_cf]

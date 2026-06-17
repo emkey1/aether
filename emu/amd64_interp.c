@@ -3274,8 +3274,11 @@ static inline void amd64_set_shift_flags(struct cpu_state *cpu, qword_t lhs, qwo
                 cpu->of = (lhs_masked & sign) != 0;
             break;
         case 7:
-            if (count <= size)
-                cpu->cf = (lhs_masked >> (count - 1)) & 1;
+            // sar shifts in the sign bit, so once the count reaches the operand
+            // width the last bit shifted out is the sign bit (not 0).
+            cpu->cf = (count <= size)
+                ? (lhs_masked >> (count - 1)) & 1
+                : (lhs_masked >> (size - 1)) & 1;
             if (count == 1)
                 cpu->of = 0;
             break;
@@ -3331,17 +3334,22 @@ static inline qword_t amd64_rotate_value(qword_t value, unsigned size, unsigned 
 
 static inline void amd64_set_rotate_flags(struct cpu_state *cpu, qword_t result,
         unsigned size, unsigned count, unsigned subop) {
-    unsigned effective = count % size;
-    if (effective == 0)
+    // CF/OF are affected iff the count masked to 5 bits (6 for 64-bit) is
+    // nonzero -- including when it is a nonzero multiple of the operand size (a
+    // full rotation), where count % size is 0 but CF still takes the rotated bit.
+    unsigned masked = count & (size == 64 ? 63 : 31);
+    if (masked == 0)
         return;
+    qword_t res = amd64_trunc(result, size);
     if (subop == 0) {
-        cpu->cf = result & 1;
-        if (effective == 1)
-            cpu->of = cpu->cf ^ ((amd64_trunc(result, size) >> (size - 1)) & 1);
+        cpu->cf = res & 1;
+        if (masked == 1)
+            cpu->of = cpu->cf ^ ((res >> (size - 1)) & 1);
     } else {
-        cpu->cf = (amd64_trunc(result, size) >> (size - 1)) & 1;
-        if (effective == 1)
-            cpu->of = cpu->cf ^ (result & 1);
+        cpu->cf = (res >> (size - 1)) & 1;
+        // ROR OF (1-bit) = MSB ^ next-MSB of the result, not MSB ^ LSB.
+        if (masked == 1)
+            cpu->of = cpu->cf ^ ((res >> (size - 2)) & 1);
     }
     cpu->cf_bit = cpu->cf;
     cpu->of_bit = cpu->of;
@@ -7685,7 +7693,7 @@ restart_prefix:
                 return INT_GPF;
             }
             count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
-            effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+            effective_count = (modrm.reg == 0 || modrm.reg == 1) ? count :
                 ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
             if (effective_count == 0)
                 break;
@@ -8142,7 +8150,10 @@ restart_prefix:
             goto amd64_gpf_restore;
         count = (opcode == 0xd0 || opcode == 0xd1) ? 1 :
             (amd64_reg_get(cpu, amd64_rcx, 8) & (rm_size == 64 ? 0x3f : 0x1f));
-        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+        // rotates: a full turn (masked count a nonzero multiple of the operand
+        // size) leaves the value unchanged but still updates CF/OF, so gate on
+        // the masked count, not count % size.
+        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? count :
             ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
         bool trace_as_shift = amd64_as_alu_stderr_enabled() &&
             current != NULL &&
@@ -9700,7 +9711,8 @@ int amd64_jit_reg_imm_op(struct cpu_state *cpu, struct tlb *tlb,
 
     if (opcode == 0xc0 || opcode == 0xc1) {
         count = (unsigned) rhs & (size == 64 ? 0x3f : 0x1f);
-        effective_count = (group == 0 || group == 1) ? (count % size) : count;
+        // rotates update flags even on a full turn; gate on the masked count.
+        effective_count = (group == 0 || group == 1) ? count : count;
         if (effective_count != 0) {
             lhs = size == 8
                 ? amd64_reg_get_encoded8(cpu, rm, rex_present)
@@ -12408,7 +12420,10 @@ int amd64_jit_modrm_imm(struct cpu_state *cpu, struct tlb *tlb,
         if (!amd64_fetch(cpu, tlb, &imm8, sizeof(imm8)))
             goto amd64_modrm_imm_pf;
         count = imm8 & (rm_size == 64 ? 0x3f : 0x1f);
-        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+        // rotates: a full turn (masked count a nonzero multiple of the operand
+        // size) leaves the value unchanged but still updates CF/OF, so gate on
+        // the masked count, not count % size.
+        effective_count = (modrm.reg == 0 || modrm.reg == 1) ? count :
             ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
         if (effective_count != 0) {
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
@@ -12601,7 +12616,7 @@ int amd64_jit_shift(struct cpu_state *cpu, struct tlb *tlb,
         (operand_size_prefix ? 16 : (rex.w ? 64 : 32));
     count = (opcode == 0xd0 || opcode == 0xd1) ? 1 :
         ((unsigned) amd64_reg_get(cpu, amd64_rcx, 8) & (rm_size == 64 ? 0x3f : 0x1f));
-    effective_count = (modrm.reg == 0 || modrm.reg == 1) ? (count % rm_size) :
+    effective_count = (modrm.reg == 0 || modrm.reg == 1) ? count :
         ((modrm.reg == 2 || modrm.reg == 3) ? amd64_rotate_carry_count(rm_size, count) : count);
     if (effective_count != 0) {
         if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, rm_size, &lhs))
