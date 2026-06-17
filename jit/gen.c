@@ -2717,6 +2717,15 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 gen_amd64_defer_rip(state, next_ip);
                 return true;
             }
+            // Any operand in r8-r15: flush-style native arith reg-imm (cached is
+            // low-8 only; arith had no flush fallback, unlike logic_reg_imm).
+            gen_amd64_flush_reg_cache(state);
+            extern void gadget_amd64_arith_reg_imm(void);
+            gen(state, (unsigned long) gadget_amd64_arith_reg_imm);
+            gen(state, packed);
+            gen(state, value);
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
 #endif
         }
         if ((insn.opcode == 0xc0 || insn.opcode == 0xc1) &&

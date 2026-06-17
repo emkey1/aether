@@ -1443,6 +1443,56 @@ amd64_gen_shift_imm shift_imm64, 8
     str  x15, [x12, x8, lsl 3]
 9:  gret 1
 
+# Flush-style ADD/SUB/CMP reg,imm (0x81/0x83 /0,/5,/7), 32/64 -- high-reg sibling of
+# cached_arith_reg_imm (low-8 only); arith reg-imm had no flush fallback (logic does),
+# so r8-r15 bridged via amd64_jit_reg_imm_op. Operand: group bits 8-11 (0 add/5 sub/
+# 7 cmp), rm bits 12-15, size bits 16-22; imm = operand 1. CMP (/7) sets flags, no write.
+.gadget amd64_arith_reg_imm
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]
+    ubfx x9, x8, 8, 4
+    ubfx x11, x8, 12, 4
+    ubfx x0, x8, 16, 7
+    add  x12, _cpu, CPU_amd64_regs
+    ldr  x13, [x12, x11, lsl 3]
+    mov  x8, x11
+    cmp  x0, 64
+    b.eq 1f
+    mov  w13, w13
+    mov  w10, w10
+    cmp  x9, 0
+    b.eq 2f
+    subs w15, w13, w10
+    cset w14, cc
+    cset w16, vs
+    b    3f
+2:  adds w15, w13, w10
+    cset w14, cs
+    cset w16, vs
+3:  mov  w15, w15
+    amd64_cached_set_addsub_flags 31
+    cmp  x9, 7
+    b.eq 4f
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x8, lsl 3]
+4:  gret 2
+1:  cmp  x9, 0
+    b.eq 5f
+    subs x15, x13, x10
+    cset w14, cc
+    cset w16, vs
+    b    6f
+5:  adds x15, x13, x10
+    cset w14, cs
+    cset w16, vs
+6:  amd64_cached_set_addsub_flags 63
+    cmp  x9, 7
+    b.eq 7f
+    add  x12, _cpu, CPU_amd64_regs
+    str  x15, [x12, x8, lsl 3]
+7:  gret 2
+
 .gadget amd64_logic_reg_imm
     ldr x8, [_ip]
     ldr x10, [_ip, 8]
