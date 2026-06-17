@@ -12,7 +12,7 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 | `conductor.py` — 4 modes: `run` / `supervise` / `device` / `tier0` | **working** |
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
-| differential corpus — 9 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt) | **working** |
+| differential corpus — 10 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle) | **working** |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
 | crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
@@ -118,7 +118,7 @@ Two test styles flow through the same matrix:
 
 - **Differential** (`run`, JIT-edge): `corpus/*.c` via `diff_common.h` print a
   canonical `result+flags` line per case; require byte-identical across cells +
-  oracle. Nine families so far, each guarding a bug class this project has hit:
+  oracle. Ten families so far, each guarding a bug class this project has hit:
   - `flags_alu` — integer ALU result + EFLAGS exactness
   - `adc_sbb_mem` — carry-in adc/sbb on the **native memory-operand gadget** (not
     just the bridged register path)
@@ -133,13 +133,14 @@ Two test styles flow through the same matrix:
     conversions (cvtsi2/cvtt*2si/cvtss2sd/cvtsd2ss/cvtdq2ps); NaN results and
     out-of-range float→int are canonicalized so the documented arm64-vs-x86 NaN
     sign / saturation differences don't false-diverge
+  - `sse_shuffle` — shufps/shufpd, unpck[lh]p[sd], pshufd/pshuflw/pshufhw, and the
+    sign-mask extracts movmskps/movmskpd/pmovmskb; pure lane moves, byte-exact
 - **Self-checking** (`tier0`): the 21 `tests/manual/*.c` tests (atomics, futex,
   signals, ptrace, epoll, fcntl/OFD, copy_file_range, pidfd, …) built static and
   run under iSH per arch, gated on `^<name>: PASS$`. No oracle — functional
   regression, not differential.
 
-Still planned: **SSE shuffle/blend** (shufps/unpck lane ordering, pmovmskb),
-**atomics** (cmpxchg8b/16b), **control-flow/SMC**.
+Still planned: **atomics** (cmpxchg8b/16b), **control-flow/SMC**.
 
 This run the harness found and fixed **12 amd64/i386 JIT flag & result bugs** —
 adc/sbb carry-in AF/OF (interp *and* the native gadget); rol/ror CF on full
