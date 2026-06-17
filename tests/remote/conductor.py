@@ -56,9 +56,14 @@ CELLS = {
     "i386:jit":         dict(arch="i386",   engine="i386:jit",         kind="ish"),
     "i386:no_cache":    dict(arch="i386",   engine="i386:no_cache",    kind="ish"),
     "i386:single_step": dict(arch="i386",   engine="i386:single_step", kind="ish"),
+    # device cells run the guest supervisor on a real device over ssh:1022 (see
+    # the `device` subcommand). Excluded from DEFAULT_CELLS — they need a device.
+    "device:amd64:jit":    dict(arch="x86_64", engine="amd64:jit",    kind="device"),
+    "device:amd64:interp": dict(arch="x86_64", engine="amd64:interp", kind="device"),
+    "device:i386:jit":     dict(arch="i386",   engine="i386:jit",     kind="device"),
 }
 ORACLE_KINDS = {"rosetta", "mint"}
-DEFAULT_CELLS = list(CELLS)
+DEFAULT_CELLS = [c for c, s in CELLS.items() if s["kind"] != "device"]
 
 def discover_tests():
     return sorted(p.stem for p in CORPUS.glob("*.c"))
@@ -248,6 +253,138 @@ def run_supervised(cell, tests, binmap, fakefs, seed=1, timeout=TIMEOUT):
     return results, dangling, secs
 
 
+# ------------------------------------------------ device backend (ssh + recovery)
+#
+# UNVALIDATED SCAFFOLD (no live device yet). Mirrors the proven mint ssh backend
+# for transport (deploy/run/retrieve) and reuses parse_supervisor_stream for
+# crash reconciliation; the crash-detection + recovery loop is new. `--dry-run`
+# prints every ssh/scp/devicectl command without executing, so the shapes can be
+# reviewed without a device. The device IP varies, so --device-host is required.
+
+def device_cfg(args):
+    d = (args.device_dir or "/tmp/ish-remote").rstrip("/")
+    return {"host": args.device_host, "port": str(args.device_port),
+            "user": args.device_user, "dir": d, "journal": d + "/journal",
+            "recover": args.recover, "udid": args.device_udid,
+            "bundle": args.device_bundle, "dry": args.dry_run}
+
+def _ssh_base(cfg):
+    return ["ssh", "-p", cfg["port"], "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8", f"{cfg['user']}@{cfg['host']}"]
+
+def device_run(cfg, remote_cmd, timeout=60):
+    """Run a command in the guest over ssh:1022. Returns the CompletedProcess, a
+    TimeoutExpired (caller treats as a possible crash), or None on --dry-run."""
+    if cfg["dry"]:
+        print("  DRY ssh:", remote_cmd)
+        return None
+    try:
+        return subprocess.run(_ssh_base(cfg) + [remote_cmd],
+                              capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        return e
+
+def device_scp(cfg, files, dest):
+    if cfg["dry"]:
+        print(f"  DRY scp: {len(files)} file(s) -> {cfg['host']}:{dest}")
+        return None
+    cmd = ["scp", "-P", cfg["port"], "-o", "BatchMode=yes",
+           *[str(f) for f in files], f"{cfg['user']}@{cfg['host']}:{dest}"]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+def device_up(cfg):
+    if cfg["dry"]:
+        return True
+    import socket
+    try:
+        with socket.create_connection((cfg["host"], int(cfg["port"])), timeout=5):
+            return True
+    except OSError:
+        return False
+
+def wait_for_device(cfg, max_wait=300):
+    if cfg["dry"]:
+        return True
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        if device_up(cfg):
+            time.sleep(2)   # let sshd settle after relaunch
+            return True
+        time.sleep(3)
+    return False
+
+def device_deploy(cfg, tests, binmap):
+    device_run(cfg, f"mkdir -p {cfg['dir']}/bin")
+    files = [binmap[t][a] for t in tests for a in ZIG_TARGET]
+    files += [WORK / "bin" / f"guest_supervisor.{a}" for a in ZIG_TARGET]
+    device_scp(cfg, files, f"{cfg['dir']}/bin/")
+    device_run(cfg, f"chmod +x {cfg['dir']}/bin/*")
+
+def device_supervisor_cmd(cfg, cell, tests):
+    arch, engine = CELLS[cell]["arch"], CELLS[cell]["engine"]
+    bins = " ".join(f"{cfg['dir']}/bin/{t}.{arch}" for t in tests)
+    return (f"{cfg['dir']}/bin/guest_supervisor.{arch} --engine {engine} "
+            f"--seed %d --journal {cfg['journal']} {bins}")
+
+def device_recover(cfg):
+    """Relaunch the app after a crash. devicectl for a USB-tethered device;
+    otherwise notify the operator and poll for the app to return."""
+    if cfg["recover"] == "devicectl":
+        cmd = ["xcrun", "devicectl", "device", "process", "launch",
+               "--terminate-existing", "--device", cfg["udid"] or "<udid>", cfg["bundle"]]
+        if cfg["dry"]:
+            print("  DRY recover:", " ".join(cmd))
+        else:
+            sh(cmd, timeout=90)
+    elif cfg["recover"] == "notify":
+        print(f"\n  *** DEVICE CRASHED — relaunch iSH-AOK on the device; "
+              f"waiting for ssh:{cfg['port']} to return ***")
+    else:
+        return False
+    return wait_for_device(cfg)
+
+def device_run_batch(cfg, cell, tests, seed, timeout=900):
+    """Supervised batch on the device with crash recovery. The supervisor journals
+    each test; if the app crashes mid-batch the ssh stream is cut and the port
+    goes down -- after relaunch the fsync'd fs journal's dangling SUPER-START
+    names the crasher. Quarantine it, recover, and resume after it."""
+    arch = CELLS[cell]["arch"]
+    results, remaining = {}, list(tests)
+    while remaining:
+        r = device_run(cfg, device_supervisor_cmd(cfg, cell, remaining) % seed, timeout=timeout)
+        if cfg["dry"]:
+            return {t: Result(cell, "SKIP", None, [], "dry run", 0.0) for t in tests}
+        stream = "" if (r is None or isinstance(r, subprocess.TimeoutExpired)) else r.stdout
+        parsed, dangling = parse_supervisor_stream(stream)
+        for t in list(remaining):
+            key = f"{t}.{arch}"
+            if key in parsed:
+                lines, rc = parsed[key]
+                st = "OK" if rc == 0 else ("CRASH" if rc < 0 else "TEST_ERR")
+                results[t] = Result(cell, st, rc, lines, "", 0.0)
+        remaining = [t for t in remaining if t not in results]
+        if dangling is None:
+            break                       # batch completed
+        if device_up(cfg):
+            continue                    # transient disconnect; rerun the rest
+        # confirmed app crash: relaunch, then trust the fsync'd fs journal
+        print(f"    device down — recovering ({cfg['recover']})")
+        if not device_recover(cfg):
+            break
+        jr = device_run(cfg, f"cat {cfg['journal']}", timeout=30)
+        if jr is not None and not isinstance(jr, subprocess.TimeoutExpired):
+            _, j_dangling = parse_supervisor_stream(jr.stdout)
+            dangling = j_dangling or dangling
+        crasher = next((t for t in remaining if f"{t}.{arch}" == dangling), None)
+        if crasher:
+            results[crasher] = Result(cell, "CRASH", None, [], "crashed the app on device", 0.0)
+            remaining = [t for t in remaining if t != crasher]
+        print(f"    crasher: {crasher or dangling}; resuming {len(remaining)} test(s)")
+    for t in tests:
+        results.setdefault(t, Result(cell, "SKIP", None, [], "not run", 0.0))
+    return results
+
+
 # ---------------------------------------------------------------- compare
 
 def parse(lines):
@@ -419,6 +556,48 @@ def cmd_supervise(args):
             any_fail = True
     sys.exit(1 if any_fail else 0)
 
+def cmd_device(args):
+    """Run the corpus on a real device over ssh (device cells) with crash
+    recovery, comparing against the host x86 oracle (Rosetta + mint). UNVALIDATED
+    scaffold -- use --dry-run to inspect the ssh/scp/devicectl commands."""
+    cfg = device_cfg(args)
+    if not cfg["host"]:
+        raise SystemExit("device backend needs --device-host (the device's ssh IP)")
+    tests = args.tests.split(",") if args.tests else discover_tests()
+    cells = args.cells.split(",") if args.cells else \
+        [c for c, s in CELLS.items() if s["kind"] == "device"]
+    WORK.mkdir(exist_ok=True); (WORK / "bin").mkdir(exist_ok=True)
+    mint = None if args.no_mint else probe_mint()
+    print(f"building {len(tests)} test(s) + supervisor: {', '.join(tests)}")
+    binmap = {t: build_variants(t) for t in tests}
+    build_supervisor()
+    if mint:
+        push_to_mint(tests, binmap, mint)
+    print(f"deploying to {cfg['user']}@{cfg['host']}:{cfg['port']} {cfg['dir']}"
+          + ("  (dry run)" if cfg["dry"] else ""))
+    device_deploy(cfg, tests, binmap)
+
+    per_cell = {}
+    for cell in cells:
+        print(f"device cell {cell}  (recover={cfg['recover']})")
+        per_cell[cell] = device_run_batch(cfg, cell, tests, args.seed)
+    if cfg["dry"]:
+        print("\n(dry run — commands shown above; no device executed)")
+        return
+    oracle_cells = ["oracle"] + (["mint:x86_64", "mint:i386"] if mint else [])
+    for cell in oracle_cells:
+        per_cell[cell] = {t: run_cell(cell, t, binmap[t], None, mint=mint,
+                                      extra=["--seed", str(args.seed)]) for t in tests}
+
+    any_fail = False
+    for test in tests:
+        results = [per_cell[c][test] for c in per_cell]
+        mism, _ = compare(results)
+        report(test, results, mism)
+        if mism or any(r.status in ("CRASH", "HANG") for r in results):
+            any_fail = True
+    sys.exit(1 if any_fail else 0)
+
 def main():
     ap = argparse.ArgumentParser(description="iSH-AOK differential test conductor")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -433,6 +612,19 @@ def main():
     sp.add_argument("--tests"); sp.add_argument("--cells")
     sp.add_argument("--seed", type=int, default=1)
     sp.add_argument("--no-mint", action="store_true", help="skip the mint VM oracle cells")
+    dv = sub.add_parser("device"); dv.set_defaults(fn=cmd_device)
+    dv.add_argument("--tests"); dv.add_argument("--cells")
+    dv.add_argument("--seed", type=int, default=1)
+    dv.add_argument("--no-mint", action="store_true")
+    dv.add_argument("--device-host", help="device ssh host/IP (varies per session)")
+    dv.add_argument("--device-port", type=int, default=1022)
+    dv.add_argument("--device-user", default="mke")
+    dv.add_argument("--device-dir", default="/tmp/ish-remote")
+    dv.add_argument("--recover", choices=["devicectl", "notify", "none"], default="notify")
+    dv.add_argument("--device-udid", help="device UDID (for --recover devicectl)")
+    dv.add_argument("--device-bundle", default="com.ish.iSH-AOK", help="bundle id (devicectl)")
+    dv.add_argument("--dry-run", action="store_true",
+                    help="print ssh/scp/devicectl commands without executing")
     for tool in (ISH, FAKEFSIFY):
         if not tool.exists():
             raise SystemExit(f"missing {tool}; run `ninja -C build` first")
