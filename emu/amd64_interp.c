@@ -3211,12 +3211,14 @@ static inline void amd64_set_adc_flags(struct cpu_state *cpu, qword_t lhs, qword
     qword_t mask = amd64_mask(size);
     qword_t lhs_masked = amd64_trunc(lhs, size);
     qword_t rhs_masked = amd64_trunc(rhs, size);
-    qword_t rhs_with_carry = amd64_trunc(rhs_masked + carry_in, size);
     qword_t res_masked = amd64_trunc(result, size);
     __uint128_t full = (__uint128_t) lhs_masked + rhs_masked + carry_in;
     cpu->cf = size == 64 ? (full >> 64) != 0 : full > mask;
-    cpu->of = ((~(lhs_masked ^ rhs_with_carry) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
-    cpu->af = ((lhs_masked ^ rhs_with_carry ^ res_masked) >> 4) & 1;
+    // OF/AF must use the original rhs, not rhs+carry: pre-folding the carry lets
+    // it ripple past bit 3 (e.g. 0x7f+1=0x80), corrupting the bit-4 XOR (AF) and
+    // the signed-overflow test (OF). AF is the true carry out of bit 3.
+    cpu->of = ((~(lhs_masked ^ rhs_masked) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
+    cpu->af = ((((lhs_masked & 0xf) + (rhs_masked & 0xf) + carry_in) >> 4) & 1);
     cpu->af_ops = 0;
     cpu->zf = res_masked == 0;
     cpu->sf = (res_masked & amd64_sign_bit(size)) != 0;
@@ -3229,12 +3231,13 @@ static inline void amd64_set_sbb_flags(struct cpu_state *cpu, qword_t lhs, qword
         unsigned carry_in, qword_t result, unsigned size) {
     qword_t lhs_masked = amd64_trunc(lhs, size);
     qword_t rhs_masked = amd64_trunc(rhs, size);
-    qword_t rhs_with_carry = amd64_trunc(rhs_masked + carry_in, size);
     qword_t res_masked = amd64_trunc(result, size);
     __uint128_t subtrahend = (__uint128_t) rhs_masked + carry_in;
     cpu->cf = (__uint128_t) lhs_masked < subtrahend;
-    cpu->of = (((lhs_masked ^ rhs_with_carry) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
-    cpu->af = ((lhs_masked ^ rhs_with_carry ^ res_masked) >> 4) & 1;
+    // OF/AF use the original rhs, not rhs+carry (see amd64_set_adc_flags). AF is
+    // the true borrow out of bit 3 including the incoming borrow.
+    cpu->of = (((lhs_masked ^ rhs_masked) & (lhs_masked ^ res_masked)) & amd64_sign_bit(size)) != 0;
+    cpu->af = ((((lhs_masked & 0xf) - (rhs_masked & 0xf) - carry_in) >> 4) & 1);
     cpu->af_ops = 0;
     cpu->zf = res_masked == 0;
     cpu->sf = (res_masked & amd64_sign_bit(size)) != 0;
