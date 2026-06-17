@@ -144,6 +144,8 @@ void tty_release(struct tty *tty) {
         if (master != NULL && pty_slave_closed_by_users(tty)) {
             lock(&master->lock, 0);
             tty_poll_wakeup(master, POLL_READ | POLL_HUP);
+            // Also wake a blocking read() on the master (see tty_close).
+            notify(&master->produced);
             unlock(&master->lock);
         }
     }
@@ -244,6 +246,12 @@ static int tty_close(struct fd *fd) {
         if (wake_master != NULL) {
             lock(&wake_master->lock, 0);
             tty_poll_wakeup(wake_master, POLL_READ | POLL_HUP);
+            // Wake a thread blocked in a plain blocking read() on the master too.
+            // tty_poll_wakeup only nudges pollers; a reader sleeping in tty_read's
+            // wait_for(&produced) must be notified explicitly or it never re-checks
+            // pty_is_half_closed_master and hangs forever once the slave is gone
+            // (the tmux/script "exit wedges" bug).
+            notify(&wake_master->produced);
             unlock(&wake_master->lock);
         }
         lock(&ttys_lock, 0);
@@ -977,8 +985,18 @@ void tty_set_winsize(struct tty *tty, struct winsize_ winsize) {
 void tty_hangup(struct tty *tty) {
     tty->hung_up = true;
     tty_poll_wakeup(tty, POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP);
-    if (tty->driver == &pty_slave && tty->pty.other != NULL)
+    // Wake blocking readers/writers, not just pollers: a thread asleep in
+    // tty_read/tty_write's wait_for() must be notified or it will never observe
+    // hung_up. tty->lock is held by all callers, so notifying this side's conds
+    // is race-free; the peer is notified best-effort (the woken thread re-checks
+    // its conditions, so a missed edge here is harmless).
+    notify(&tty->produced);
+    notify(&tty->consumed);
+    if (tty->driver == &pty_slave && tty->pty.other != NULL) {
         tty_poll_wakeup_unlocked(tty->pty.other, POLL_READ | POLL_HUP);
+        notify(&tty->pty.other->produced);
+        notify(&tty->pty.other->consumed);
+    }
 }
 
 bool tty_stat_rdev(dev_t_ rdev, struct statbuf *stat) {
