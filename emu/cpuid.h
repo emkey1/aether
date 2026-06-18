@@ -19,7 +19,14 @@ static inline dword_t cpuid_extended_max_leaf(void) {
 }
 
 static inline dword_t cpuid_leaf1_ecx_features(void) {
-    return 0;
+    dword_t features = 0;
+    // cmpxchg16b is implemented for the amd64 (long-mode) guest, so advertise it
+    // -- feature-detecting software (glibc, C++ 128-bit lock-free CAS) checks
+    // this bit before emitting the instruction. It is a long-mode-only op, so it
+    // is not advertised to i386 guests (which cannot encode it).
+    if (cpuid_guest_supports_long_mode())
+        features |= (1 << 13); // cx16 (cmpxchg16b)
+    return features;
 }
 
 static inline dword_t cpuid_leaf1_edx_features(void) {
