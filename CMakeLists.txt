@@ -1,0 +1,84 @@
+# aether — a contract / effect-typed front end for the PSCAL VM, built on Rea.
+#
+# Aether lowers to Rea: it reuses the shared Rea front-end engine (the `rea` repo)
+# and installs its own parser, semantic analysis and diagnostics over the engine's
+# hook seam (rea's src/rea/frontend_hooks.h), producing the shared PSCAL AST that
+# pscal-core's VM runs.
+#
+# FetchContent pulls in `rea`, which transitively pulls in `pscal-core`, so building
+# this repo on its own fetches and builds the whole stack automatically.
+cmake_minimum_required(VERSION 3.18)
+project(aether C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+add_compile_options(-Wall)
+if(UNIX AND NOT APPLE)
+    add_compile_definitions(_GNU_SOURCE _POSIX_C_SOURCE=200809L)
+endif()
+if(CMAKE_C_COMPILER_ID STREQUAL "AppleClang")
+    add_compile_options(-Wno-nullability-completeness)
+endif()
+
+find_package(Threads REQUIRED)
+
+include(FetchContent)
+FetchContent_Declare(
+    rea
+    GIT_REPOSITORY https://github.com/emkey1/rea.git
+    GIT_TAG main
+)
+# Brings in the Rea engine sources and, transitively, pscal-core (pscal_core_static).
+FetchContent_MakeAvailable(rea)
+
+include_directories(
+    ${pscal_core_SOURCE_DIR}/src
+    ${pscal_core_SOURCE_DIR}/src/third_party/yyjson
+    ${rea_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+add_compile_definitions(
+    PROGRAM_VERSION="0.0.0"
+    PSCAL_GIT_TAG="untagged"
+    ENABLE_EXT_BUILTIN_MATH ENABLE_EXT_BUILTIN_STRINGS ENABLE_EXT_BUILTIN_SYSTEM
+    ENABLE_EXT_BUILTIN_USER ENABLE_EXT_BUILTIN_YYJSON ENABLE_EXT_BUILTIN_3D
+    ENABLE_EXT_BUILTIN_GRAPHICS
+)
+
+# The shared Rea engine, consumed from the rea repo. Compiled here with Aether's
+# front-end definitions so the engine's main() installs Aether's hooks.
+set(ENGINE_SOURCES
+    ${rea_SOURCE_DIR}/src/rea/main.c
+    ${rea_SOURCE_DIR}/src/rea/lexer.c
+    ${rea_SOURCE_DIR}/src/rea/parser.c
+    ${rea_SOURCE_DIR}/src/rea/semantic.c
+    ${rea_SOURCE_DIR}/src/rea/state.c
+    ${rea_SOURCE_DIR}/src/rea/builtins/thread.c
+    ${rea_SOURCE_DIR}/src/rea/type_stubs.c
+    ${rea_SOURCE_DIR}/src/rea/frontend_hooks.c
+)
+
+# Aether's own overrides, installed over the engine hook seam at startup.
+set(AETHER_SOURCES
+    ${ENGINE_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/diagnostics.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/translate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/parser.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/semantic.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/state.c
+)
+
+add_executable(aether ${AETHER_SOURCES})
+target_compile_definitions(aether PRIVATE
+    FRONTEND_REA
+    PSCAL_FRONTEND_MAIN_NAME=aether_main
+    PSCAL_FRONTEND_KIND=FRONTEND_KIND_AETHER
+    PSCAL_FRONTEND_DISPLAY_NAME=\"Aether\"
+    PSCAL_FRONTEND_USAGE_NAME=\"aether\"
+    PSCAL_FRONTEND_COMPILER_ID=\"aether\"
+    PSCAL_FRONTEND_HAS_REWRITE_DUMP=1
+    PSCAL_FRONTEND_INSTALL_HOOKS=aetherInstallFrontendHooks
+)
+target_link_libraries(aether PRIVATE pscal_core_static Threads::Threads m)
