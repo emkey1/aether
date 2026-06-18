@@ -159,6 +159,9 @@ static const char *mapTypeName(const char *typeName) {
     if (strcmp(typeName, "Real") == 0) {
         return "float";
     }
+    if (strcmp(typeName, "Float") == 0) {
+        return "float";  // models often write Float where Aether uses Real
+    }
     if (strcmp(typeName, "Text") == 0) {
         return "str";
     }
