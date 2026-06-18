@@ -13,7 +13,7 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
 | differential corpus — 11 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle, atomics) | **working** |
-| **conformance corpus** (`conform`) — 9 signal/syscall families vs **real Linux** (mint), Rosetta excluded | **working** (all green) |
+| **conformance corpus** (`conform`) — signal/syscall (`corpus_signal/`) + filesystem/VFS (`corpus_fs/`) families vs **real Linux** (mint), Rosetta excluded | **working** (all green) |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
 | crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
@@ -96,9 +96,9 @@ oracle: a macOS Mach-O has Darwin behavior and lacks Linux-only APIs (signalfd,
 real-time signals, `CLD_*` codes). iSH emulates *Linux*, so the ground truth is
 a **real Linux kernel** — mint's Lima VM (`mint:x86_64` / `mint:i386`).
 
-`conform` therefore builds the corpus in `corpus_signal/` as **only the two
-Linux musl ELFs** (no Mach-O), runs every iSH cell plus the mint cells, and
-key-compares with **mint as the oracle — Rosetta excluded**. Each test prints
+`conform` therefore builds the corpora in `corpus_signal/` and `corpus_fs/` as
+**only the two Linux musl ELFs** (no Mach-O), runs every iSH cell plus the mint
+cells, and key-compares with **mint as the oracle — Rosetta excluded**. Each test prints
 `<key> res=<value>` lines of *behavioral* state (si_code, signo, delivery order,
 errno symbol, masks) — arch-independent, never raw pointers. Same key-based
 compare, same crash classification. Without mint reachable it degrades to an
@@ -112,10 +112,23 @@ check — the divergences only show against real Linux.
 > intentional iSH deviation (i386 runs every handler on the altstack regardless
 > of `SA_ONSTACK`) is documented and the relevant check is gated to amd64.
 
-The 9 families (`sig_si_code`, `sig_rt_order`, `sig_deliver_order`,
+The signal families (`sig_si_code`, `sig_rt_order`, `sig_deliver_order`,
 `sig_block_pending`, `sig_sigtimedwait`, `sig_child`, `sig_signalfd`,
 `sig_altstack`, `sig_restart`) found and locked regressions for five real Linux
 nonconformances — see the commit that introduced them.
+
+The filesystem families (`fs_path`, `fs_openflags`, `fs_dup`, `fs_dirent`,
+`fs_rename_link`, `fs_stat`, `fs_dupfd_range`, `fs_proc`) cover the VFS pin-list
+(path resolution incl. `.`/`..`/symlink loops/`O_NOFOLLOW`/trailing slash,
+dup/dup2/dup3 + `O_CLOEXEC`, stat/statx, readdir order + `d_type`,
+rename/link/unlink + `AT_*` and `renameat2` flags, `/proc` consistency) and
+found+locked nine real Linux nonconformances (O_NOFOLLOW ignored, rmdir/mkdir
+following a final symlink, `unlink(dir)` leaking the host EPERM, lexical `..`
+through a missing component, trailing-slash `O_CREAT`, getdents tiny-buffer EOF,
+RENAME_NOREPLACE rejected, `F_DUPFD` negative-arg abort, `/proc/self` trailing
+slash). Mirrored as the self-checking `tests/manual/fs_conformance.c` Tier-0 gate.
+Known deferred gap: an over-PATH_MAX path returns EFAULT instead of ENAMETOOLONG
+(`fs_path` asserts only "is an error").
 
 ## Crash resilience
 

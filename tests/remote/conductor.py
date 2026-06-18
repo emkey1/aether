@@ -42,6 +42,8 @@ ISH = REPO / "build" / "ish"
 FAKEFSIFY = REPO / "build" / "tools" / "fakefsify"
 CORPUS = HERE / "corpus"
 CONFORM = HERE / "corpus_signal"           # signal/syscall conformance vs REAL LINUX (mint)
+CORPUS_FS = HERE / "corpus_fs"             # filesystem/VFS conformance vs REAL LINUX (mint)
+CONFORM_DIRS = [CONFORM, CORPUS_FS]        # all conformance corpora (same machinery, real-Linux oracle)
 TESTS_MANUAL = REPO / "tests" / "manual"   # Tier 0: the self-checking regression suite
 WORK = HERE / ".work"
 TIMEOUT = 180  # seconds per cell; exceed => HANG
@@ -199,16 +201,31 @@ def build_fakefs(tests):
 # `conform` subcommand compares the iSH cells against mint:x86_64 / mint:i386.
 
 def discover_conform():
-    return sorted(p.stem for p in CONFORM.glob("*.c"))
+    seen = []
+    for d in CONFORM_DIRS:
+        if d.exists():
+            seen += [p.stem for p in d.glob("*.c")]
+    return sorted(seen)
+
+def conform_src(test):
+    """Locate a conformance test's source across the corpora (signal + fs)."""
+    for d in CONFORM_DIRS:
+        p = d / f"{test}.c"
+        if p.exists():
+            return p
+    raise SystemExit(f"no conformance test named {test} in {[str(d) for d in CONFORM_DIRS]}")
 
 def build_conform_variants(test):
     """Build i386 + x86_64 static musl ELFs (no macOS oracle — see above)."""
-    src = CONFORM / f"{test}.c"
+    src = conform_src(test)
+    includes = []
+    for d in CONFORM_DIRS:
+        includes += ["-I", str(d)]
     out = {}
     for arch, triple in ZIG_TARGET.items():
         dst = WORK / "bin" / f"{test}.{arch}"
         r = sh(["zig", "cc", "-target", triple, "-static", "-O2", "-pthread",
-                "-I", str(CONFORM), "-o", str(dst), str(src)])
+                *includes, "-o", str(dst), str(src)])
         if r.returncode != 0:
             raise SystemExit(f"build {test}.{arch} failed:\n{r.stderr}")
         out[arch] = dst

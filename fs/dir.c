@@ -150,6 +150,12 @@ int_t sys_getdents_common(fd_t f, guest_addr_t dirents, dword_t count,
             // Leave the directory position at the start of the entry that did
             // not fit so the next call can return it.
             fd_seekdir(fd, ptr);
+            // Linux returns EINVAL when the buffer is too small to hold even the
+            // first entry, rather than reporting a spurious end-of-directory.
+            if (count == orig_count) {
+                err = _EINVAL;
+                goto out;
+            }
             break;
         }
         if (user_write(dirents, dirent_data, reclen)) {

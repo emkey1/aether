@@ -138,10 +138,17 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
 
     // TODO really, really, seriously reconsider what I'm doing with the strings
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_FOLLOW |
-            (flags & O_CREAT_ ? N_PARENT_DIR_WRITE : 0));
+    // O_NOFOLLOW: do not resolve a *final* symlink component (intermediate
+    // components are still followed), so opening one fails with ELOOP below.
+    int norm = (flags & O_NOFOLLOW_) ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW;
+    if (flags & O_CREAT_)
+        norm |= N_PARENT_DIR_WRITE;
+    int err = path_normalize(at, path_raw, path, norm);
     if (err < 0)
         return ERR_PTR(err);
+    // A trailing slash demands a directory; open() must not create through it.
+    size_t raw_len = strlen(path_raw);
+    bool trailing_slash = raw_len > 0 && path_raw[raw_len - 1] == '/';
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return ERR_PTR(_ENOENT);
@@ -156,6 +163,12 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     err = mount->fs->stat(mount, path, &stat);
     if (err < 0) {
         if ((flags & O_CREAT_) && err == _ENOENT) {
+            // "newname/" names a directory; open() cannot create one (EISDIR).
+            if (trailing_slash) {
+                unlock(&inodes_lock);
+                mount_release(mount);
+                return ERR_PTR(_EISDIR);
+            }
             created = true;
         } else {
             unlock(&inodes_lock);
@@ -163,6 +176,12 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
             return ERR_PTR(err);
         }
     } else {
+        // O_NOFOLLOW: a final symlink we deliberately did not resolve is an error.
+        if ((flags & O_NOFOLLOW_) && S_ISLNK(stat.mode)) {
+            unlock(&inodes_lock);
+            mount_release(mount);
+            return ERR_PTR(_ELOOP);
+        }
         int accmode;
         if (flags & O_RDWR_) accmode = AC_R | AC_W;
         else if (flags & O_WRONLY_) accmode = AC_W;
@@ -314,6 +333,13 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
+    // Linux reports EISDIR for unlink of a directory. Enforce it here so the
+    // host's own errno (EPERM on Darwin/iOS hosts) does not leak to the guest.
+    struct statbuf ust;
+    if (mount->fs->stat(mount, path, &ust) >= 0 && S_ISDIR(ust.mode)) {
+        mount_release(mount);
+        return _EISDIR;
+    }
     err = _EPERM;
     if (mount->fs->unlink)
         err = mount->fs->unlink(mount, path);
@@ -323,7 +349,11 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     return err;
 }
 
-int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, const char *dst_raw) {
+int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, const char *dst_raw, int flags) {
+    // RENAME_NOREPLACE is implemented; RENAME_EXCHANGE/WHITEOUT and any unknown
+    // flag are rejected with EINVAL (Linux's response for unsupported flags).
+    if (flags & ~RENAME_NOREPLACE_)
+        return _EINVAL;
     char src[MAX_PATH];
     int err = path_normalize(src_at, src_raw, src, N_SYMLINK_NOFOLLOW);
     if (err < 0)
@@ -350,9 +380,13 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
         err = _EPERM;
     else {
         struct statbuf stat;
-        if (mount->fs->stat(mount, src, &stat) >= 0)
-            is_dir = S_ISDIR(stat.mode);
-        err = mount->fs->rename(mount, src, dst);
+        if ((flags & RENAME_NOREPLACE_) && mount->fs->stat(mount, dst, &stat) >= 0) {
+            err = _EEXIST;
+        } else {
+            if (mount->fs->stat(mount, src, &stat) >= 0)
+                is_dir = S_ISDIR(stat.mode);
+            err = mount->fs->rename(mount, src, dst);
+        }
     }
     mount_release(mount);
     mount_release(dst_mount);
@@ -453,7 +487,9 @@ ssize_t generic_readlinkat(struct fd *at, const char *path_raw, char *buf, size_
 
 int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_FOLLOW | N_PARENT_DIR_WRITE);
+    // The final component is the name being created and is never followed, so
+    // mkdir over an existing (even dangling) symlink reports EEXIST like Linux.
+    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
@@ -480,7 +516,8 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
 
 int generic_rmdirat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_FOLLOW | N_PARENT_DIR_WRITE);
+    // rmdir does not follow a final symlink: rmdir("symlink-to-dir") is ENOTDIR.
+    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     if (contains_mount_point(path))

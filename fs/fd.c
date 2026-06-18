@@ -409,6 +409,13 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
     switch (cmd) {
         case F_DUPFD_:
             STRACE("fcntl(%d, F_DUPFD, %d)", f, arg);
+            // Linux: arg < 0 or arg >= RLIMIT_NOFILE is EINVAL. arg is unsigned,
+            // so a negative guest value is already a huge value caught here --
+            // this also avoids tripping f_install_start's assert(start >= 0).
+            if ((uint64_t) arg >= (uint64_t) rlimit(RLIMIT_NOFILE_)) {
+                ret = _EINVAL;
+                break;
+            }
             fd->refcount++;
             new_f = f_install_start(fd, arg);
             ret = new_f;
@@ -416,6 +423,10 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
 
         case F_DUPFD_CLOEXEC_:
             STRACE("fcntl(%d, F_DUPFD_CLOEXEC, %d)", f, arg);
+            if ((uint64_t) arg >= (uint64_t) rlimit(RLIMIT_NOFILE_)) {
+                ret = _EINVAL;
+                break;
+            }
             fd->refcount++;
             new_f = f_install_start(fd, arg);
             if (new_f >= 0)

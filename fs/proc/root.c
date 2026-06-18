@@ -365,7 +365,10 @@ static int proc_show_loadavg(struct proc_entry *UNUSED(entry), struct proc_data 
 }
 
 static int proc_readlink_self(struct proc_entry *UNUSED(entry), char *buf) {
-    snprintf(buf, MAX_PATH, "%d/", current->pid);
+    // Linux's /proc/self points at the bare pid ("123"), with no trailing slash.
+    // The path resolver appends "/rest" itself, so the slash was never needed and
+    // only corrupted readlink("/proc/self") for callers that parse the pid.
+    snprintf(buf, MAX_PATH, "%d", current->pid);
     return 0;
 }
 

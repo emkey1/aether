@@ -581,22 +581,20 @@ dword_t sys_unlinkat(fd_t at_f, addr_t path_addr, int_t flags) {
 }
 
 static dword_t sys_renameat2_common(fd_t src_at_f, guest_addr_t src_addr, fd_t dst_at_f, guest_addr_t dst_addr, int_t flags) {
-    if (flags != 0)
-        return _EINVAL;
     char src[MAX_PATH];
     if (user_read_string(src_addr, src, sizeof(src)))
         return _EFAULT;
     char dst[MAX_PATH];
     if (user_read_string(dst_addr, dst, sizeof(dst)))
         return _EFAULT;
-    STRACE("renameat(%d, \"%s\", %d, \"%s\")", src_at_f, src, dst_at_f, dst);
+    STRACE("renameat2(%d, \"%s\", %d, \"%s\", %#x)", src_at_f, src, dst_at_f, dst, flags);
     struct fd *src_at = at_fd(src_at_f);
     if (src_at == NULL)
         return _EBADF;
     struct fd *dst_at = at_fd(dst_at_f);
     if (dst_at == NULL)
         return _EBADF;
-    return generic_renameat(src_at, src, dst_at, dst);
+    return generic_renameat(src_at, src, dst_at, dst, flags);
 }
 
 dword_t sys_renameat2_guest(fd_t src_at_f, guest_addr_t src_addr, fd_t dst_at_f, guest_addr_t dst_addr, int_t flags) {

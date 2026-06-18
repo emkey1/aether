@@ -49,13 +49,18 @@ struct attr {
 #define AT_SYMLINK_NOFOLLOW_ 0x100
 #define AT_NO_AUTOMOUNT_ 0x800
 
+// renameat2 flags
+#define RENAME_NOREPLACE_ (1 << 0)
+#define RENAME_EXCHANGE_ (1 << 1)
+#define RENAME_WHITEOUT_ (1 << 2)
+
 struct fd *generic_open(const char *path, int flags, int mode);
 struct fd *generic_openat(struct fd *at, const char *path, int flags, int mode);
 int generic_getpath(struct fd *fd, char *buf);
 int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, const char *dst_raw);
 int generic_unlinkat(struct fd *at, const char *path);
 int generic_rmdirat(struct fd *at, const char *path);
-int generic_renameat(struct fd *src_at, const char *src, struct fd *dst_at, const char *dst);
+int generic_renameat(struct fd *src_at, const char *src, struct fd *dst_at, const char *dst, int flags);
 int generic_symlinkat(const char *target, struct fd *at, const char *link);
 int generic_mknodat(struct fd *at, const char *path, mode_t_ mode, dev_t_ dev);
 int generic_seek(struct fd *fd, off_t_ off, int whence, size_t size);
@@ -115,6 +120,7 @@ bool mount_param_flag(const char *info, const char *flag);
 #define O_APPEND_ (1 << 10)
 #define O_NONBLOCK_ (1 << 11)
 #define O_DIRECTORY_ (1 << 16)
+#define O_NOFOLLOW_ (1 << 17)
 #define O_CLOEXEC_ (1 << 19)
 
 // generic ioctls

@@ -116,6 +116,12 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                     err = access_check(&stat, AC_X);
                     if (err < 0)
                         return err;
+                } else if (*p != '\0') {
+                    // A non-final component must exist and be a directory. Don't
+                    // silently skip a missing one, or a following ".." would pop
+                    // it lexically -- e.g. "nonexistent/.." must be ENOENT, not
+                    // its (existing) parent.
+                    return err;
                 }
             } else {
                 mount_release(mount);
