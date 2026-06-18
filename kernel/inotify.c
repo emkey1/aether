@@ -282,8 +282,9 @@ int_t sys_inotify_add_watch(fd_t fd_no, addr_t pathname_addr, uint_t mask) {
 
 int_t sys_inotify_add_watch_guest(fd_t fd_no, guest_addr_t pathname_addr, uint_t mask) {
     char path_raw[MAX_PATH];
-    if (user_read_string(pathname_addr, path_raw, sizeof(path_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(pathname_addr, path_raw, sizeof(path_raw));
+    if (path_err)
+        return path_err;
     STRACE("inotify_add_watch(%d, \"%s\", %#x)", fd_no, path_raw, mask);
 
     char path[MAX_PATH];

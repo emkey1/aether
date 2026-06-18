@@ -277,8 +277,9 @@ struct open_how_ {
 
 static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ mode, dword_t flags) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     struct fd *at = at_fd(at_f);
     if (at == NULL)
         return _EBADF;
@@ -365,8 +366,9 @@ static dword_t sys_faccessat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ m
 
 dword_t sys_access_guest(guest_addr_t path_addr, dword_t mode) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     dword_t err = sys_faccessat_common(AT_FDCWD_, path_addr, mode, 0);
     http_resolver_trace_path_result("access", AT_FDCWD_, path, err, mode);
     return err;
@@ -376,8 +378,9 @@ dword_t sys_access(addr_t path_addr, dword_t mode) {
 }
 dword_t sys_faccessat_guest(fd_t at_f, guest_addr_t path_addr, mode_t_ mode, dword_t flags) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     dword_t err = sys_faccessat_common(at_f, path_addr, mode, flags);
     http_resolver_trace_path_result("faccessat", at_f, path, err, ((unsigned long) flags << 16) | mode);
     return err;
@@ -388,8 +391,9 @@ dword_t sys_faccessat(fd_t at_f, addr_t path_addr, mode_t_ mode, dword_t flags) 
 
 fd_t sys_openat_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, mode_t_ mode) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("openat(%d, \"%s\", 0x%x, 0x%x)", at_f, path, flags, mode);
 
     if (flags & O_CREAT_)
@@ -483,8 +487,9 @@ fd_t sys_creat(addr_t path_addr, mode_t_ mode) {
 
 static dword_t sys_readlinkat_common(fd_t at_f, guest_addr_t path_addr, guest_addr_t buf_addr, dword_t bufsize) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("readlinkat(%d, \"%s\", %#x, %#x)", at_f, path, buf_addr, bufsize);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -524,11 +529,13 @@ dword_t sys_readlinkat(fd_t at_f, addr_t path_addr, addr_t buf_addr, dword_t buf
 
 static dword_t sys_linkat_common(fd_t src_at_f, guest_addr_t src_addr, fd_t dst_at_f, guest_addr_t dst_addr) {
     char src[MAX_PATH];
-    if (user_read_string(src_addr, src, sizeof(src)))
-        return _EFAULT;
+    int path_err = user_read_path(src_addr, src, sizeof(src));
+    if (path_err)
+        return path_err;
     char dst[MAX_PATH];
-    if (user_read_string(dst_addr, dst, sizeof(dst)))
-        return _EFAULT;
+    path_err = user_read_path(dst_addr, dst, sizeof(dst));
+    if (path_err)
+        return path_err;
     STRACE("linkat(%d, \"%s\", %d, \"%s\")", src_at_f, src, dst_at_f, dst);
     struct fd *src_at = at_fd(src_at_f);
     if (src_at == NULL)
@@ -555,8 +562,9 @@ dword_t sys_linkat(fd_t src_at_f, addr_t src_addr, fd_t dst_at_f, addr_t dst_add
 #define AT_REMOVEDIR_ 0x200
 static dword_t sys_unlinkat_common(fd_t at_f, guest_addr_t path_addr, int_t flags) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("unlinkat(%d, \"%s\", %d)", at_f, path, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -582,11 +590,13 @@ dword_t sys_unlinkat(fd_t at_f, addr_t path_addr, int_t flags) {
 
 static dword_t sys_renameat2_common(fd_t src_at_f, guest_addr_t src_addr, fd_t dst_at_f, guest_addr_t dst_addr, int_t flags) {
     char src[MAX_PATH];
-    if (user_read_string(src_addr, src, sizeof(src)))
-        return _EFAULT;
+    int path_err = user_read_path(src_addr, src, sizeof(src));
+    if (path_err)
+        return path_err;
     char dst[MAX_PATH];
-    if (user_read_string(dst_addr, dst, sizeof(dst)))
-        return _EFAULT;
+    path_err = user_read_path(dst_addr, dst, sizeof(dst));
+    if (path_err)
+        return path_err;
     STRACE("renameat2(%d, \"%s\", %d, \"%s\", %#x)", src_at_f, src, dst_at_f, dst, flags);
     struct fd *src_at = at_fd(src_at_f);
     if (src_at == NULL)
@@ -619,11 +629,13 @@ dword_t sys_renameat2(fd_t src_at_f, addr_t src_addr, fd_t dst_at_f, addr_t dst_
 
 static dword_t sys_symlinkat_common(guest_addr_t target_addr, fd_t at_f, guest_addr_t link_addr) {
     char target[MAX_PATH];
-    if (user_read_string(target_addr, target, sizeof(target)))
-        return _EFAULT;
+    int path_err = user_read_path(target_addr, target, sizeof(target));
+    if (path_err)
+        return path_err;
     char link[MAX_PATH];
-    if (user_read_string(link_addr, link, sizeof(link)))
-        return _EFAULT;
+    path_err = user_read_path(link_addr, link, sizeof(link));
+    if (path_err)
+        return path_err;
     STRACE("symlinkat(\"%s\", %d, \"%s\")", target, at_f, link);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -646,8 +658,9 @@ dword_t sys_symlinkat(addr_t target_addr, fd_t at_f, addr_t link_addr) {
 
 static dword_t sys_mknodat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ mode, dev_t_ dev) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("mknodat(%d, \"%s\", %#x, %#x)", at_f, path, mode, dev);
     apply_umask(&mode);
     struct fd *at = at_fd(at_f);
@@ -1264,8 +1277,9 @@ void fs_chdir(struct fs_info *fs, struct fd *fd) {
 
 static dword_t sys_chdir_common(guest_addr_t path_addr) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("chdir(\"%s\")", path);
 
     struct fd *dir = open_dir(path);
@@ -1293,8 +1307,9 @@ dword_t sys_fchdir(fd_t f) {
 
 static dword_t sys_chroot_common(guest_addr_t path_addr) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("chroot(\"%s\")", path);
 
     struct fd *dir = open_dir(path);
@@ -1403,8 +1418,9 @@ static int_t statfs64_mount(struct mount *mount, addr_t buf_addr) {
 
 dword_t sys_statfs(addr_t path_addr, addr_t buf_addr) {
     char path_raw[MAX_PATH];
-    if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path_raw, sizeof(path_raw));
+    if (path_err)
+        return path_err;
     STRACE("statfs(\"%s\", %#x)", path_raw, buf_addr);
     char path[MAX_PATH];
     int err = path_normalize(AT_PWD, path_raw, path, N_SYMLINK_NOFOLLOW);
@@ -1420,8 +1436,9 @@ dword_t sys_statfs(addr_t path_addr, addr_t buf_addr) {
 
 static dword_t sys_statfs_amd64_common(guest_addr_t path_addr, guest_addr_t buf_addr) {
     char path_raw[MAX_PATH];
-    if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path_raw, sizeof(path_raw));
+    if (path_err)
+        return path_err;
     STRACE("statfs_amd64(\"%s\", %#x)", path_raw, buf_addr);
     char path[MAX_PATH];
     int err = path_normalize(AT_PWD, path_raw, path, N_SYMLINK_NOFOLLOW);
@@ -1443,8 +1460,9 @@ dword_t sys_statfs_amd64(addr_t path_addr, addr_t buf_addr) {
 
 dword_t sys_statfs64(addr_t path_addr, dword_t buf_size, addr_t buf_addr) {
     char path_raw[MAX_PATH];
-    if (user_read_string(path_addr, path_raw, sizeof(path_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path_raw, sizeof(path_raw));
+    if (path_err)
+        return path_err;
     STRACE("statfs64(\"%s\", %d, %#x)", path_raw, buf_size, buf_addr);
     if (buf_size != sizeof(struct statfs64_))
         return _EINVAL;
@@ -1501,9 +1519,11 @@ dword_t sys_flock(fd_t f, dword_t operation) {
 
 static dword_t sys_utime_common(fd_t at_f, guest_addr_t path_addr, struct timespec atime, struct timespec mtime, dword_t flags) {
     char path[MAX_PATH];
-    if (path_addr != 0)
-        if (user_read_string(path_addr, path, sizeof(path)))
-            return _EFAULT;
+    if (path_addr != 0) {
+        int path_err = user_read_path(path_addr, path, sizeof(path));
+        if (path_err)
+            return path_err;
+    }
     STRACE("utimensat(%d, %s, {{%d, %d}, {%d, %d}}, %d)", at_f, path,
             atime.tv_sec, atime.tv_nsec, mtime.tv_sec, mtime.tv_nsec, flags);
     struct fd *at = at_fd(at_f);
@@ -1731,8 +1751,9 @@ dword_t sys_fchmod(fd_t f, dword_t mode) {
 
 static dword_t sys_fchmodat_common(fd_t at_f, guest_addr_t path_addr, dword_t mode, dword_t flags, bool is_fchmodat2) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     if (is_fchmodat2) {
         STRACE("fchmodat2(%d, \"%s\", %o, 0x%x)", at_f, path, mode, flags);
         if (flags & ~FCHMODAT2_ALLOWED_FLAGS_)
@@ -1815,8 +1836,9 @@ dword_t sys_fchown_amd64(fd_t f, uid_t_ owner, uid_t_ group) {
 
 static dword_t sys_fchownat_common(fd_t at_f, guest_addr_t path_addr, dword_t owner, dword_t group, int flags) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("fchownat(%d, \"%s\", %d, %d, %d)", at_f, path, owner, group, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -1898,8 +1920,9 @@ dword_t sys_lchown_amd64_guest(guest_addr_t path_addr, uid_t_ owner, uid_t_ grou
 dword_t sys_truncate64_guest(guest_addr_t path_addr, dword_t size_low, dword_t size_high) {
     off_t_ size = ((qword_t) size_high << 32) | size_low;
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     return generic_setattrat(NULL, path, make_attr(size, size), true);
 }
 dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high) {
@@ -1938,8 +1961,9 @@ dword_t sys_fallocate(fd_t f, dword_t UNUSED(mode), dword_t offset_low, dword_t 
 
 static dword_t sys_mkdirat_common(fd_t at_f, guest_addr_t path_addr, mode_t_ mode) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("mkdirat(%d, %s, 0%o)", at_f, path, mode);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -1968,8 +1992,9 @@ dword_t sys_mkdirat(fd_t at_f, addr_t path_addr, mode_t_ mode) {
 
 dword_t sys_rmdir_guest(guest_addr_t path_addr) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("rmdir(%s)", path);
     return generic_rmdirat(AT_PWD, path);
 }

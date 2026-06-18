@@ -242,6 +242,42 @@ int user_read_string(guest_addr_t addr, char *buf, size_t max) {
     return 0;
 }
 
+// Like user_read_string, but for pathnames: distinguishes a real memory fault
+// (returns _EFAULT) from a string that overruns the buffer without a NUL
+// (returns _ENAMETOOLONG, matching Linux for paths longer than PATH_MAX).
+// Returns 0 on success. Callers should propagate the return value directly.
+int user_read_path(guest_addr_t addr, char *buf, size_t max) {
+    if (addr == 0)
+        return _EFAULT;
+    if (max == 0)
+        return _EFAULT;
+    if (!guest_abi_addr_valid(current->abi, addr))
+        return _EFAULT;
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return _EFAULT;
+    size_t i = 0;
+    while (i < max) {
+        if (!guest_abi_range_valid(current->abi, (qword_t) addr + i, 1)) {
+            task_mem_read_unlock(&handle);
+            return _EFAULT;
+        }
+        if (__user_read_task_mem(current, mem, addr + i, &buf[i], sizeof(buf[i]))) {
+            task_mem_read_unlock(&handle);
+            return _EFAULT;
+        }
+        if (buf[i] == '\0')
+            break;
+        i++;
+    }
+    task_mem_read_unlock(&handle);
+    // Buffer filled before a terminating NUL: the path is too long.
+    if (i == max)
+        return _ENAMETOOLONG;
+    return 0;
+}
+
 int user_write_string(guest_addr_t addr, const char *buf) {
     if (addr == 0) {
         return 1;

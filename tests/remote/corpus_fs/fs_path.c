@@ -7,8 +7,12 @@
  *   - O_NOFOLLOW on a final symlink must fail ELOOP; iSH ignored the flag.
  *   - stat("/nonexistent/..") must be ENOENT; iSH normalized '..' lexically.
  *   - open("regfile/")/trailing slash on a non-dir must be ENOTDIR.
+ *   - a path longer than PATH_MAX must be ENAMETOOLONG; iSH returned EFAULT
+ *     because user_read_string conflated "too long" with a real memory fault.
  */
 #include "fs_common.h"
+#include <sys/inotify.h>
+#include <sys/mount.h>
 
 static int otype(const char *path, int flags) {
     /* open then report S_ISxxx of the result, or the errno symbol. Always pass a
@@ -118,15 +122,44 @@ int main(int argc, char **argv) {
     emit("path.empty.open", "%s", res_errno(otype("", O_RDONLY)));  /* ENOENT */
     emit("path.empty.stat", "%s", stat_kind("", 0));               /* ENOENT */
 
-    /* KNOWN GAP (not asserted): a path longer than PATH_MAX returns EFAULT under
-     * iSH (user_read_string cannot tell "too long" from "faulted") where Linux
-     * returns ENAMETOOLONG. Both are errors on a pathological input; the errno
-     * precision fix touches ~28 path-read syscall sites and is deferred. */
+    /* A path longer than PATH_MAX must fail ENAMETOOLONG, not EFAULT: user_read_path
+     * tells "buffer overran before a NUL" apart from a real memory fault. (Single
+     * 4999-char component overruns the MAX_PATH=4096 read buffer either way.) */
     char longname[5000];
     memset(longname, 'a', sizeof longname - 1);
     longname[sizeof longname - 1] = '\0';
-    int tl = otype(longname, O_RDONLY);
-    emit_i("path.toolong.is_error", tl < 0);   /* both: 1 (error of some kind) */
+    emit("path.toolong.open", "%s", res_errno(otype(longname, O_RDONLY)));   /* ENAMETOOLONG */
+    emit("path.toolong.stat", "%s", stat_kind(longname, 0));                 /* ENAMETOOLONG */
+
+    /* The same ENAMETOOLONG (not EFAULT) contract holds for every other syscall
+     * that pulls a guest pathname through user_read_path. Regression-lock the
+     * sites converted alongside open/stat: execve/execveat (kernel/exec.c),
+     * inotify_add_watch (kernel/inotify.c), and the mount point + umount2 target
+     * (fs/mount.c). In each, the pathname is copied in before any argv/mask/
+     * permission/existence check, so even a non-root caller observes
+     * ENAMETOOLONG first on both iSH and mint -- we keep the other arguments
+     * valid so nothing else fails first.
+     *
+     * NB: mount's *source* is deliberately NOT tested here. In Linux it goes
+     * through copy_mount_string() (strndup_user, EINVAL when over-long), not
+     * getname(), so it is not a PATH_MAX/ENAMETOOLONG pathname -- the over-long
+     * path lives in the mount *point* (a real getname path) instead. */
+    char *const tl_argv[] = { (char *) "x", NULL };
+    char *const tl_envp[] = { NULL };
+    emit("path.toolong.execve",   "%s", res_errno(execve(longname, tl_argv, tl_envp)));
+    emit("path.toolong.execveat", "%s",
+         res_errno(syscall(SYS_execveat, AT_FDCWD, longname, tl_argv, tl_envp, 0)));
+
+    int ifd = inotify_init();
+    emit("path.toolong.inotify", "%s",
+         ifd < 0 ? errno_name(errno)
+                 : res_errno(inotify_add_watch(ifd, longname, IN_MODIFY)));
+    if (ifd >= 0)
+        close(ifd);
+
+    /* over-long mount point (short, valid source) and over-long umount target */
+    emit("path.toolong.mount",  "%s", res_errno(mount("src", longname, "tmpfs", 0, NULL)));
+    emit("path.toolong.umount", "%s", res_errno(umount2(longname, 0)));
 
     return 0;
 }

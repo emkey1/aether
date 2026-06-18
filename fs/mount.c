@@ -178,12 +178,16 @@ bool mount_param_flag(const char *info, const char *flag) {
 #define MS_FLAGS (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_NOATIME_|MS_NODIRATIME_|MS_RELATIME_|MS_STRICTATIME_)
 
 dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest_addr_t type_addr, dword_t flags, guest_addr_t data_addr) {
+    // source/data/type are copy_mount_string() args in Linux (strndup_user,
+    // EINVAL when over-long), NOT getname() pathnames -- so they keep the plain
+    // user_read_string path. Only the mount point below is a real getname path.
     char source[MAX_PATH] = "";
     if (source_addr != 0 && user_read_string(source_addr, source, sizeof(source)))
         return _EFAULT;
     char point_raw[MAX_PATH];
-    if (user_read_string(point_addr, point_raw, sizeof(point_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(point_addr, point_raw, sizeof(point_raw));
+    if (path_err)
+        return path_err;
     char data[MAX_PATH] = "";
     if (data_addr != 0 && user_read_string(data_addr, data, sizeof(data)))
         return _EFAULT;
@@ -264,8 +268,9 @@ dword_t sys_mount(addr_t source_addr, addr_t point_addr, addr_t type_addr, dword
 
 dword_t sys_umount2_guest(guest_addr_t target_addr, dword_t flags) {
     char target_raw[MAX_PATH];
-    if (user_read_string(target_addr, target_raw, sizeof(target_raw)))
-        return _EFAULT;
+    int path_err = user_read_path(target_addr, target_raw, sizeof(target_raw));
+    if (path_err)
+        return path_err;
     char target[MAX_PATH];
     int err = path_normalize(AT_PWD, target_raw, target,
             flags & UMOUNT_NOFOLLOW_ ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW);

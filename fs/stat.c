@@ -293,8 +293,9 @@ static struct fd *at_fd(fd_t f) {
 static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, int flags) {
     int err;
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("stat(at=%d, path=\"%s\", statbuf=0x%x, flags=0x%x)", at_f, path, statbuf_addr, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -318,8 +319,9 @@ static dword_t sys_stat_path(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, i
 static dword_t sys_stat_path_amd64_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t statbuf_addr, int flags) {
     int err;
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("stat64_amd64(at=%d, path=\"%s\", statbuf=0x%x, flags=0x%x)", at_f, path, statbuf_addr, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -411,8 +413,9 @@ dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr) {
 static dword_t sys_stat_path_legacy(fd_t at_f, addr_t path_addr, addr_t statbuf_addr, int flags) {
     int err;
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
     STRACE("stat32(at=%d, path=\"%s\", statbuf=0x%x, flags=0x%x)", at_f, path, statbuf_addr, flags);
     struct fd *at = at_fd(at_f);
     if (at == NULL)
@@ -471,8 +474,9 @@ dword_t sys_fstat(fd_t fd_no, addr_t statbuf_addr) {
 static dword_t sys_statx_guest_abi(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask,
         guest_addr_t statxbuf_addr, enum guest_abi abi) {
     char path[MAX_PATH];
-    if (user_read_string(path_addr, path, sizeof(path)))
-        return _EFAULT;
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
 
     STRACE("statx(%d, \"%s\", %#x, %#x, %#x)", at_f, path, flags, mask, statxbuf_addr);
 

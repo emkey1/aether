@@ -1138,8 +1138,9 @@ static ssize_t user_read_exec_ptr(guest_addr_t addr, qword_t *ptr_out) {
 
 ssize_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
     char filename[MAX_PATH];
-    if (user_read_string(filename_addr, filename, sizeof(filename)))
-        return _EFAULT;
+    int path_err = user_read_path(filename_addr, filename, sizeof(filename));
+    if (path_err)
+        return path_err;
 
     ssize_t argc;
     char *argv = NULL;
@@ -1172,8 +1173,9 @@ ssize_t sys_execve(addr_t filename_addr, addr_t argv_addr, addr_t envp_addr) {
 
 ssize_t sys_execve_guest(guest_addr_t filename_addr, guest_addr_t argv_addr, guest_addr_t envp_addr) {
     char filename[MAX_PATH];
-    if (user_read_string(filename_addr, filename, sizeof(filename)))
-        return _EFAULT;
+    int path_err = user_read_path(filename_addr, filename, sizeof(filename));
+    if (path_err)
+        return path_err;
 
     ssize_t argc;
     char *argv = NULL;
@@ -1213,8 +1215,11 @@ ssize_t sys_execveat(fd_t dirfd, addr_t filename_addr, addr_t argv_addr, addr_t 
     }
 
     char filename[MAX_PATH] = "";
-    if (filename_addr != 0 && user_read_string(filename_addr, filename, sizeof(filename)))
-        return _EFAULT;
+    if (filename_addr != 0) {
+        int path_err = user_read_path(filename_addr, filename, sizeof(filename));
+        if (path_err)
+            return path_err;
+    }
 
     ssize_t argc;
     char *argv = NULL;
@@ -1270,8 +1275,11 @@ ssize_t sys_execveat_guest(fd_t dirfd, guest_addr_t filename_addr, guest_addr_t 
     }
 
     char filename[MAX_PATH] = "";
-    if (filename_addr != 0 && user_read_string(filename_addr, filename, sizeof(filename)))
-        return _EFAULT;
+    if (filename_addr != 0) {
+        int path_err = user_read_path(filename_addr, filename, sizeof(filename));
+        if (path_err)
+            return path_err;
+    }
 
     ssize_t argc;
     char *argv = NULL;

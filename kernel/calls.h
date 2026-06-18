@@ -27,6 +27,7 @@ int must_check user_write_task(struct task *task, guest_addr_t addr, const void 
 int must_check user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count);
 int must_check user_write_task_ptrace_mem(struct task *task, struct mem *mem, guest_addr_t addr, const void *buf, size_t count);
 int must_check user_read_string(guest_addr_t addr, char *buf, size_t max);
+int must_check user_read_path(guest_addr_t addr, char *buf, size_t max);
 int must_check user_write_string(guest_addr_t addr, const char *buf);
 #define user_get(addr, var) user_read(addr, &(var), sizeof(var))
 #define user_put(addr, var) user_write(addr, &(var), sizeof(var))
