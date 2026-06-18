@@ -6944,6 +6944,49 @@ restart_prefix:
             atomic_locked = lock_prefix;
             if (atomic_locked)
                 lock(&atomic_l_lock, 0);
+            if (rex.w) {
+                // CMPXCHG16B: 128-bit compare-exchange. Compare RDX:RAX with the
+                // 16-byte memory operand; on equal store RCX:RBX (ZF=1), else
+                // reload RDX:RAX from memory (ZF=0). The operand must be 16-byte
+                // aligned or the instruction raises #GP. (Without REX.W this is
+                // CMPXCHG8B -- the 64-bit path below.)
+                qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                if (addr & 0xf) {
+                    if (atomic_locked)
+                        unlock(&atomic_l_lock);
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = addr;
+                    return INT_GPF;
+                }
+                qword_t mem128[2];  // [0] = low qword, [1] = high qword
+                if (!tlb_read(tlb, addr, mem128, 16)) {
+                    if (atomic_locked)
+                        unlock(&atomic_l_lock);
+                    goto amd64_gpf_restore;
+                }
+                bool eq = mem128[0] == amd64_reg_get(cpu, amd64_rax, 64) &&
+                          mem128[1] == amd64_reg_get(cpu, amd64_rdx, 64);
+                collapse_flags(cpu);
+                cpu->zf = eq;
+                cpu->zf_res = 0;
+                if (eq) {
+                    qword_t des128[2] = {
+                        amd64_reg_get(cpu, amd64_rbx, 64),
+                        amd64_reg_get(cpu, amd64_rcx, 64),
+                    };
+                    if (!tlb_write(tlb, addr, des128, 16)) {
+                        if (atomic_locked)
+                            unlock(&atomic_l_lock);
+                        goto amd64_gpf_restore;
+                    }
+                } else {
+                    amd64_reg_set(cpu, amd64_rax, 64, mem128[0]);
+                    amd64_reg_set(cpu, amd64_rdx, 64, mem128[1]);
+                }
+                if (atomic_locked)
+                    unlock(&atomic_l_lock);
+                break;
+            }
             if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &dst)) {
                 if (atomic_locked)
                     unlock(&atomic_l_lock);

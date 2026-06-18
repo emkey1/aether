@@ -12,7 +12,7 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 | `conductor.py` — 4 modes: `run` / `supervise` / `device` / `tier0` | **working** |
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
-| differential corpus — 10 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle) | **working** |
+| differential corpus — 11 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle, atomics) | **working** |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
 | crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
@@ -118,7 +118,7 @@ Two test styles flow through the same matrix:
 
 - **Differential** (`run`, JIT-edge): `corpus/*.c` via `diff_common.h` print a
   canonical `result+flags` line per case; require byte-identical across cells +
-  oracle. Ten families so far, each guarding a bug class this project has hit:
+  oracle. Eleven families so far, each guarding a bug class this project has hit:
   - `flags_alu` — integer ALU result + EFLAGS exactness
   - `adc_sbb_mem` — carry-in adc/sbb on the **native memory-operand gadget** (not
     just the bridged register path)
@@ -135,20 +135,34 @@ Two test styles flow through the same matrix:
     sign / saturation differences don't false-diverge
   - `sse_shuffle` — shufps/shufpd, unpck[lh]p[sd], pshufd/pshuflw/pshufhw, and the
     sign-mask extracts movmskps/movmskpd/pmovmskb; pure lane moves, byte-exact
+  - `atomics` — lock xadd / cmpxchg / cmpxchg8b / cmpxchg16b / lock add·and·or·
+    xor·sub·inc·dec / xchg; result + ZF (cmpxchg arith sub-flags masked — see the
+    oracle-fidelity note below)
 - **Self-checking** (`tier0`): the 21 `tests/manual/*.c` tests (atomics, futex,
   signals, ptrace, epoll, fcntl/OFD, copy_file_range, pidfd, …) built static and
   run under iSH per arch, gated on `^<name>: PASS$`. No oracle — functional
   regression, not differential.
 
-Still planned: **atomics** (cmpxchg8b/16b), **control-flow/SMC**.
+Still planned: **control-flow/SMC**.
 
 This run the harness found and fixed **12 amd64/i386 JIT flag & result bugs** —
 adc/sbb carry-in AF/OF (interp *and* the native gadget); rol/ror CF on full
 turns; ror-by-1 OF; sar CF past width; cbw sign-extend; 32-bit mul/imul high
 half; 2-op imul w64 overflow; i386 16-bit imul; i386 div/idiv `#DE`; missing
 amd64 LDMXCSR/STMXCSR; and i386 min/max returning the wrong operand on the
-`+0`/`-0` (and NaN) tie — each confirmed against the oracle (Rosetta + real-Intel
-mint) and validated back to green.
+`+0`/`-0` (and NaN) tie — plus **implemented amd64 `cmpxchg16b`** (the 128-bit
+compare-exchange was silently running as cmpxchg8b, mangling the result). Each
+confirmed against the oracle (Rosetta + real-Intel mint) and validated to green.
+
+### Oracle fidelity: Rosetta vs real silicon
+
+`atomics` surfaced a case where the **Rosetta oracle is itself unfaithful**:
+after `cmpxchg`, real Intel (the `mint` cell), iSH, and the Intel SDM all set
+CF/PF/AF/SF/OF from `acc − dest`, but Rosetta sets them from `dest − acc`. Taking
+Rosetta as ground truth would have meant "fixing" iSH to be *wrong* — the mint
+real-silicon cross-check caught it. The test masks cmpxchg to ZF (the only
+order-symmetric flag); the episode is a concrete reason the second, real-hardware
+oracle pays for itself.
 
 ## First validated finding (worked example)
 
