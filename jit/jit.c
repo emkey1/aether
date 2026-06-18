@@ -1273,6 +1273,16 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
 
     pthread_rwlock_rdlock(&jit->jetsam_lock.l);
     jit_crash_lock = &jit->jetsam_lock;
+    // This frontend drops jetsam_lock around block compilation (below). While it
+    // is dropped, another thread can take the write lock and run jit_free_jetsam(),
+    // freeing blocks still referenced by our per-call cache[] and the assembly
+    // ret_cache. Track cleanup_seq (bumped under the write lock after each free)
+    // so we can purge those dangling pointers before dereferencing them. The i386
+    // cpu_step_to_interrupt has the identical guard; the amd64 frontend was missing
+    // it, which let a stale cache[] entry reach jit_block_disconnect() on freed
+    // memory and fault (EXC_BAD_ACCESS in jit_block_disconnect under SMP load).
+    unsigned last_block_cleanup_seq =
+        atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
     while (true) {
         if (tlb->mem_changes != cpu->mmu->changes)
             tlb_refresh(tlb, cpu->mmu);
@@ -1364,6 +1374,21 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
             }
             cache[cache_index] = block;
             jit_crash_track_mutex_unlock(&jit->lock);
+        }
+        // If a jetsam cleanup freed blocks while we had jetsam_lock dropped for
+        // compilation, our cache[] and ret_cache may now hold pointers into freed
+        // (and possibly reused) block memory. Purge them before they are read by
+        // the null-code check below, by jit_enter()'s ret prediction, or by the
+        // next iteration's cache lookup. The local `block` stays valid: jit_lookup
+        // never returns jetsam blocks and a freshly compiled block is not jetsam,
+        // and we hold jetsam_lock continuously from here through jit_enter().
+        if (atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed) !=
+                last_block_cleanup_seq) {
+            memset(cache, 0, sizeof(cache));
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            frame->last_block = NULL;
+            last_block_cleanup_seq =
+                atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
         }
         if (block->used == 0 || __atomic_load_n(&block->code[0], __ATOMIC_RELAXED) == 0) {
             printk("[amd64-jit] frontend null-code comm=%s pid=%d block=%#llx end=%#llx used=%zu\n",
