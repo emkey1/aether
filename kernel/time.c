@@ -35,16 +35,20 @@ static int clockid_to_real(uint_t clock, clockid_t *real) {
             *real = CLOCK_MONOTONIC; break;
 #endif
         case CLOCK_BOOTTIME_:
-        case CLOCK_TAI_:
-            // Map to CLOCK_MONOTONIC on platforms without native BOOTTIME/TAI.
-            // On Linux, CLOCK_BOOTTIME (includes suspend time) is the closest
-            // match for monotone-from-boot semantics; fall back to MONOTONIC
-            // on macOS/iOS which do not expose these clocks.
+            // CLOCK_BOOTTIME (includes suspend time) is boot-relative like
+            // MONOTONIC; use the host's when available, else MONOTONIC.
 #ifdef CLOCK_BOOTTIME
-            *real = (clock == CLOCK_BOOTTIME_) ? CLOCK_BOOTTIME : CLOCK_MONOTONIC; break;
+            *real = CLOCK_BOOTTIME; break;
 #else
             *real = CLOCK_MONOTONIC; break;
 #endif
+        case CLOCK_TAI_:
+            // CLOCK_TAI is EPOCH-based (UTC + leap-second offset), NOT
+            // boot-relative — mapping it to MONOTONIC (as before) made
+            // clock_gettime(CLOCK_TAI) return boot-relative seconds, decades
+            // off real Linux. Map to REALTIME (off by only the ~37s leap
+            // offset); iOS/macOS lack a native CLOCK_TAI anyway.
+            *real = CLOCK_REALTIME; break;
         default: return _EINVAL;
     }
     return 0;
@@ -231,8 +235,24 @@ static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespe
                current != NULL ? current->comm : "?",
                res, (long long) rem.tv_sec, rem.tv_nsec);
     }
-    if (res < 0)
-        return errno_map();
+    if (res < 0) {
+        int err = errno_map();
+        // POSIX: an interrupted *relative* sleep reports the time remaining so
+        // the caller (or its libc restart logic) can resume. The host nanosleep
+        // already populated `rem`; hand it back. Best effort — still report
+        // EINTR even if the rem store faults. (iSH previously dropped rem here,
+        // so amd64 nanosleep left the caller's buffer untouched on EINTR.)
+        if (err == _EINTR && rem_addr != 0 && !(flags & TIMER_ABSTIME_)) {
+            if (rem_time64) {
+                struct timespec64_ rem_ts = timespec_to_guest64(rem);
+                (void) user_put(rem_addr, rem_ts);
+            } else {
+                struct timespec_ rem_ts = timespec_to_guest(rem);
+                (void) user_put(rem_addr, rem_ts);
+            }
+        }
+        return err;
+    }
 
     if (rem_addr != 0 && !(flags & TIMER_ABSTIME_)) {
         if (rem_time64) {
@@ -467,12 +487,22 @@ dword_t sys_clock_getres_time64_guest(dword_t clock, guest_addr_t res_addr) {
     return 0;
 }
 
-dword_t sys_clock_settime(dword_t UNUSED(clock), addr_t UNUSED(tp)) {
-    return _EPERM;
+// iSH never has the privilege to change the host wall clock, so settable
+// clocks return EPERM. But Linux distinguishes by clock id: a clock that can
+// never be set (MONOTONIC, BOOTTIME, the CPU-time and COARSE clocks, ...)
+// returns EINVAL regardless of privilege, and an unknown clock id also returns
+// EINVAL. Only CLOCK_REALTIME is settable -> EPERM here. (Previously every
+// clock returned EPERM, so clock_settime(CLOCK_MONOTONIC) was EPERM not EINVAL.)
+static dword_t clock_settime_errno(dword_t clock) {
+    return clock == CLOCK_REALTIME_ ? _EPERM : _EINVAL;
 }
 
-dword_t sys_clock_settime64(dword_t UNUSED(clock), addr_t UNUSED(tp)) {
-    return _EPERM;
+dword_t sys_clock_settime(dword_t clock, addr_t UNUSED(tp)) {
+    return clock_settime_errno(clock);
+}
+
+dword_t sys_clock_settime64(dword_t clock, addr_t UNUSED(tp)) {
+    return clock_settime_errno(clock);
 }
 
 static bool time_warning_trace_enabled(void) {
@@ -603,6 +633,74 @@ long sys_setitimer_amd64_guest(int_t which, guest_addr_t new_val_addr, guest_add
     return sys_setitimer_guest_abi(which, new_val_addr, old_val_addr, GUEST_ABI_AMD64);
 }
 
+// getitimer: report the interval timer currently armed for `which`. iSH only
+// implements ITIMER_REAL (the wall-clock SIGALRM timer); ITIMER_VIRTUAL/PROF
+// can never have been armed (setitimer rejects them) so they read back as
+// {0,0} — exactly what Linux reports for an unset timer. An invalid `which`
+// is EINVAL. (getitimer was entirely unwired before: i386 #105 / amd64 #36
+// raised SIGSYS, so any program polling its interval timer crashed.)
+static long sys_getitimer_guest_abi(int_t which, guest_addr_t old_val_addr, enum guest_abi abi) {
+    STRACE("getitimer(%d, %#llx)", which, (unsigned long long) old_val_addr);
+    if (which != ITIMER_REAL_ && which != ITIMER_VIRTUAL_ && which != ITIMER_PROF_)
+        return _EINVAL;
+
+    struct timer_spec spec = {};
+    struct tgroup *group = current->group;
+    lock(&group->lock, 0);
+    if (which == ITIMER_REAL_ && group->itimer != NULL) {
+        struct timer *timer = group->itimer;
+        lock(&timer->lock, 0);
+        spec.interval = timer->interval;
+        if (timer->active) {
+            struct timespec remaining = timespec_subtract(timer->end,
+                timespec_now(timer->clockid));
+            if (timespec_positive(remaining))
+                spec.value = remaining;
+        }
+        unlock(&timer->lock);
+    }
+    unlock(&group->lock);
+
+    if (old_val_addr != 0) {
+        if (abi == GUEST_ABI_AMD64) {
+            struct amd64_itimerval_ val = {
+                .interval.sec = spec.interval.tv_sec,
+                .interval.usec = spec.interval.tv_nsec / 1000,
+                .value.sec = spec.value.tv_sec,
+                .value.usec = spec.value.tv_nsec / 1000,
+            };
+            if (user_put(old_val_addr, val))
+                return _EFAULT;
+        } else {
+            struct itimerval_ val = {
+                .interval.sec = (dword_t) spec.interval.tv_sec,
+                .interval.usec = (dword_t) (spec.interval.tv_nsec / 1000),
+                .value.sec = (dword_t) spec.value.tv_sec,
+                .value.usec = (dword_t) (spec.value.tv_nsec / 1000),
+            };
+            if (user_put(old_val_addr, val))
+                return _EFAULT;
+        }
+    }
+    return 0;
+}
+
+long sys_getitimer(int_t which, addr_t old_val_addr) {
+    return sys_getitimer_guest_abi(which, old_val_addr, GUEST_ABI_I386);
+}
+
+long sys_getitimer_guest(int_t which, guest_addr_t old_val_addr) {
+    return sys_getitimer_guest_abi(which, old_val_addr, GUEST_ABI_I386);
+}
+
+long sys_getitimer_amd64(int_t which, addr_t old_val_addr) {
+    return sys_getitimer_guest_abi(which, old_val_addr, GUEST_ABI_AMD64);
+}
+
+long sys_getitimer_amd64_guest(int_t which, guest_addr_t old_val_addr) {
+    return sys_getitimer_guest_abi(which, old_val_addr, GUEST_ABI_AMD64);
+}
+
 long sys_alarm(uint_t seconds) {
     STRACE("alarm(%d)", seconds);
     if (time_warning_trace_enabled())
@@ -658,8 +756,13 @@ static dword_t sys_nanosleep_guest_abi(guest_addr_t req_addr, guest_addr_t rem_a
                current != NULL ? current->comm : "?",
                res, (long long) rem.tv_sec, rem.tv_nsec);
     }
-    if (res < 0)
-        return errno_map();
+    if (res < 0) {
+        int err = errno_map();
+        // On EINTR report the remaining time (Linux does); best effort.
+        if (err == _EINTR && rem_addr != 0)
+            (void) write_guest_timespec_abi(abi, rem_addr, &rem);
+        return err;
+    }
     if (rem_addr != 0 && write_guest_timespec_abi(abi, rem_addr, &rem))
         return _EFAULT;
     return 0;
@@ -1054,6 +1157,15 @@ fd_t sys_timerfd_create(int_t clockid, int_t flags) {
     if (time_warning_trace_enabled())
         printk("WARNING: timerfd_create pid=%d tgid=%d comm=%s clockid=%d flags=%#x\n",
                current->pid, current->tgid, current->comm, clockid, flags);
+    // Linux timerfd only accepts the wall/uptime clocks; the CPU-time and
+    // COARSE clocks (and unknown ids) are rejected with EINVAL even though
+    // clockid_to_real would happily map some of them.
+    if (clockid != CLOCK_REALTIME_ && clockid != CLOCK_MONOTONIC_ && clockid != CLOCK_BOOTTIME_)
+        return _EINVAL;
+    // Only TFD_NONBLOCK / TFD_CLOEXEC are valid (== O_NONBLOCK / O_CLOEXEC);
+    // unknown flag bits -> EINVAL (was previously ignored).
+    if (flags & ~(O_NONBLOCK_ | O_CLOEXEC_))
+        return _EINVAL;
     clockid_t real_clockid;
     if (clockid_to_real(clockid, &real_clockid)) return _EINVAL;
 

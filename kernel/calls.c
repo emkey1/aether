@@ -927,6 +927,7 @@ static syscall_t i386_syscall_table[] = {
     [102] = (syscall_t) sys_socketcall,
     [103] = (syscall_t) sys_syslog,
     [104] = (syscall_t) sys_setitimer,
+    [105] = (syscall_t) sys_getitimer,
     [106] = (syscall_t) sys_stat,
     [107] = (syscall_t) sys_lstat,
     [108] = (syscall_t) sys_fstat,
@@ -1243,6 +1244,7 @@ static syscall_t amd64_syscall_table[453] = {
     [33] = (syscall_t) sys_dup2,
     [34] = (syscall_t) sys_pause,
     [35] = (syscall_t) sys_nanosleep_amd64,
+    [36] = (syscall_t) sys_getitimer_amd64,
     [37] = (syscall_t) sys_alarm,
     [38] = (syscall_t) sys_setitimer_amd64,
     [39] = (syscall_t) sys_getpid,
@@ -1371,8 +1373,10 @@ static syscall_t amd64_syscall_table[453] = {
     [218] = (syscall_t) sys_set_tid_address,
     [221] = (syscall_t) syscall_success_stub, // fadvise64 (advisory; ignored)
     [222] = (syscall_t) sys_timer_create_amd64,
-    [223] = (syscall_t) sys_timer_settime,
-    [224] = (syscall_t) sys_timer_gettime,
+    // amd64 struct itimerspec uses 64-bit fields == the time64 layout; use the
+    // 64-bit settime/gettime so the value isn't read/written as 32-bit.
+    [223] = (syscall_t) sys_timer_settime64,
+    [224] = (syscall_t) sys_timer_gettime64,
     [225] = (syscall_t) sys_timer_getoverrun,
     [226] = (syscall_t) sys_timer_delete,
     [227] = (syscall_t) sys_clock_settime,
@@ -1421,8 +1425,10 @@ static syscall_t amd64_syscall_table[453] = {
     [283] = (syscall_t) sys_timerfd_create,
     [284] = (syscall_t) sys_eventfd,
     [285] = (syscall_t) sys_fallocate_amd64,
-    [286] = (syscall_t) sys_timerfd_settime,
-    [287] = (syscall_t) sys_timerfd_gettime,
+    // amd64 struct itimerspec is the 64-bit layout; route to the 64-bit timerfd
+    // settime/gettime so the timer value isn't marshalled as 32-bit.
+    [286] = (syscall_t) sys_timerfd_settime64,
+    [287] = (syscall_t) sys_timerfd_gettime64,
     [288] = (syscall_t) sys_accept4,
     [289] = (syscall_t) sys_signalfd4,
     [290] = (syscall_t) sys_eventfd2,
@@ -1716,6 +1722,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_nanosleep_amd64_guest(
                 raw_args[0], raw_args[1]));
         return true;
+    case 36:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getitimer_amd64_guest(
+                (int_t) raw_args[0], raw_args[1]));
+        return true;
     case 38:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setitimer_amd64_guest(
                 (int_t) raw_args[0], raw_args[1], raw_args[2]));
@@ -1981,11 +1991,12 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (dword_t) raw_args[0], raw_args[1], raw_args[2]));
         return true;
     case 223:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_settime_guest(
+        // amd64 itimerspec is the 64-bit layout -> use the 64-bit marshalling.
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_settime64_guest(
                 (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
     case 224:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_gettime_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_gettime64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 228:
@@ -2176,11 +2187,12 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3]));
         return true;
     case 286:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_settime_guest(
+        // amd64 itimerspec is the 64-bit layout -> use the 64-bit marshalling.
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_settime64_guest(
                 (fd_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
         return true;
     case 287:
-        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_gettime_guest(
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timerfd_gettime64_guest(
                 (fd_t) raw_args[0], raw_args[1]));
         return true;
     case 332:
@@ -2502,6 +2514,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 115: // getgroups
     case 116: // setgroups
     case 35:  // nanosleep
+    case 36:  // getitimer
     case 96:  // gettimeofday
     case 131: // sigaltstack
     case 140: // getpriority

@@ -44,7 +44,8 @@ CORPUS = HERE / "corpus"
 CONFORM = HERE / "corpus_signal"           # signal/syscall conformance vs REAL LINUX (mint)
 CORPUS_FS = HERE / "corpus_fs"             # filesystem/VFS conformance vs REAL LINUX (mint)
 CORPUS_PROC = HERE / "corpus_proc"         # process/thread lifecycle conformance vs REAL LINUX (mint)
-CONFORM_DIRS = [CONFORM, CORPUS_FS, CORPUS_PROC]  # all conformance corpora (same machinery, real-Linux oracle)
+CORPUS_TIME = HERE / "corpus_time"         # time/clock/timer conformance vs REAL LINUX (mint)
+CONFORM_DIRS = [CONFORM, CORPUS_FS, CORPUS_PROC, CORPUS_TIME]  # all conformance corpora (same machinery, real-Linux oracle)
 TESTS_MANUAL = REPO / "tests" / "manual"   # Tier 0: the self-checking regression suite
 WORK = HERE / ".work"
 TIMEOUT = 180  # seconds per cell; exceed => HANG
