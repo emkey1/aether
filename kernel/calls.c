@@ -2004,6 +2004,17 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_timer_gettime64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
         return true;
+    case 227:
+        // clock_settime: iSH cannot set host clocks, so sys_clock_settime
+        // validates only the clock id and ignores the timespec. Handle it
+        // natively like clock_gettime(228) so the legacy 32-bit arg marshaller
+        // does not reject the 64-bit guest timespec pointer with "needs
+        // full-width args" and raise SIGSYS (observed: a process that calls
+        // clock_settime dies with "Bad system call" instead of returning the
+        // EINVAL/EPERM the clock id warrants).
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_settime(
+                (dword_t) raw_args[0], 0));
+        return true;
     case 228:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_gettime_amd64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
