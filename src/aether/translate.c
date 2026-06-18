@@ -8238,6 +8238,110 @@ static char *expandInlineBlockLine(const char *body,
     return out.data ? out.data : dupCString("");
 }
 
+// Normalize the JSON-flavored builtin call-names that models reach for to their
+// canonical Aether spellings, before any other rewrite pass runs. Only rewrites
+// call-anchored identifiers (an identifier at a word boundary immediately
+// followed by '(') and never touches string/char literals or // comments, so
+// every downstream toon_* handler applies to the alias unchanged. Line structure
+// is preserved (no newlines added or removed), so the diagnostic line map stays
+// accurate.
+static char *rewriteAetherBuiltinAliases(const char *start, const char *end) {
+    static const struct { const char *from; size_t fromLen; const char *to; } kAliases[] = {
+        {"parse_json",    10, "toon_parse"},
+        {"root_node",      9, "toon_root"},
+        {"close_doc",      9, "toon_close"},
+        {"lookup_string", 13, "toon_get_text"},
+        {"lookup_int",    10, "toon_get_int"},
+    };
+    const char *cursor = start;
+    Buffer out = {0};
+
+    if (!start || !end || end < start) {
+        return NULL;
+    }
+    if (start == end) {
+        return dupCString("");
+    }
+
+    while (cursor < end) {
+        if (cursor + 1 < end && cursor[0] == '/' && cursor[1] == '/') {
+            const char *nl = cursor;
+            while (nl < end && *nl != '\n') {
+                nl++;
+            }
+            if (!bufferAppendN(&out, cursor, (size_t)(nl - cursor))) {
+                free(out.data);
+                return NULL;
+            }
+            cursor = nl;
+            continue;
+        }
+        if (*cursor == '"' || *cursor == '\'') {
+            char quote = *cursor;
+            if (!bufferAppendN(&out, cursor, 1)) {
+                free(out.data);
+                return NULL;
+            }
+            cursor++;
+            while (cursor < end) {
+                if (!bufferAppendN(&out, cursor, 1)) {
+                    free(out.data);
+                    return NULL;
+                }
+                if (*cursor == '\\' && cursor + 1 < end) {
+                    cursor++;
+                    if (!bufferAppendN(&out, cursor, 1)) {
+                        free(out.data);
+                        return NULL;
+                    }
+                } else if (*cursor == quote) {
+                    cursor++;
+                    break;
+                }
+                cursor++;
+            }
+            continue;
+        }
+        if ((cursor == start || !isIdentifierChar((unsigned char)cursor[-1])) &&
+            (isalpha((unsigned char)*cursor) || *cursor == '_')) {
+            const char *idEnd = cursor + 1;
+            size_t idLen;
+            const char *afterId;
+            int matched = 0;
+            while (idEnd < end && isIdentifierChar((unsigned char)*idEnd)) {
+                idEnd++;
+            }
+            idLen = (size_t)(idEnd - cursor);
+            afterId = skipSpacesInRange(idEnd, end);
+            if (afterId < end && *afterId == '(') {
+                for (size_t i = 0; i < sizeof(kAliases) / sizeof(kAliases[0]); ++i) {
+                    if (idLen == kAliases[i].fromLen &&
+                        strncmp(cursor, kAliases[i].from, idLen) == 0) {
+                        if (!bufferAppend(&out, kAliases[i].to)) {
+                            free(out.data);
+                            return NULL;
+                        }
+                        matched = 1;
+                        break;
+                    }
+                }
+            }
+            if (!matched && !bufferAppendN(&out, cursor, idLen)) {
+                free(out.data);
+                return NULL;
+            }
+            cursor = idEnd;
+            continue;
+        }
+        if (!bufferAppendN(&out, cursor, 1)) {
+            free(out.data);
+            return NULL;
+        }
+        cursor++;
+    }
+    return out.data ? out.data : dupCString("");
+}
+
 char *aetherRewriteSource(const char *source, const char *path) {
     char *preprocessed = NULL;
     const char *cursor;
@@ -8262,7 +8366,14 @@ char *aetherRewriteSource(const char *source, const char *path) {
         return NULL;
     }
     aetherClearRewriteLineMap();
-    preprocessed = preprocessToonBlocks(source, path);
+    {
+        char *aliasNormalized = rewriteAetherBuiltinAliases(source, source + strlen(source));
+        if (!aliasNormalized) {
+            return NULL;
+        }
+        preprocessed = preprocessToonBlocks(aliasNormalized, path);
+        free(aliasNormalized);
+    }
     if (!preprocessed) {
         return NULL;
     }
