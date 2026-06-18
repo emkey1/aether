@@ -12,9 +12,17 @@
 // This test passes garbage with high bits in the unused arg registers to force
 // the old failure; it must return cleanly (ENOSYS, or a success if ever
 // implemented), never be killed by SIGSYS. Arch-neutral.
+//
+// seccomp (#317 amd64 / #354 i386) is the same bug class with a twist: it is an
+// EOPNOTSUPP stub (man-db's sandbox probe calls it, then runs unconfined when it
+// fails), but the arg that tripped the marshaller is a *real* one -- the 3rd arg
+// is a sock_fprog* whose 64-bit guest address has high bits set on amd64. It was
+// likewise absent from amd64_syscall_legacy_arg_count, so it fell to default-6
+// and SIGSYS-killed mandb. We exercise it with a genuine on-stack pointer.
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <errno.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <sys/syscall.h>
@@ -27,6 +35,30 @@
 #  define SYS_pidfd_open 434 // "common" number on i386 and amd64
 # endif
 #endif
+
+#ifndef SYS_seccomp
+# ifdef __NR_seccomp
+#  define SYS_seccomp __NR_seccomp
+# elif defined(__x86_64__)
+#  define SYS_seccomp 317
+# else
+#  define SYS_seccomp 354 // i386
+# endif
+#endif
+
+#define SECCOMP_SET_MODE_FILTER 1
+
+#ifndef SYS_membarrier
+# ifdef __NR_membarrier
+#  define SYS_membarrier __NR_membarrier
+# elif defined(__x86_64__)
+#  define SYS_membarrier 324
+# else
+#  define SYS_membarrier 375 // i386
+# endif
+#endif
+
+#define MEMBARRIER_CMD_QUERY 0
 
 #define GARBAGE 0x1ffffffffULL // high bits set, not a sign-extended -1
 
@@ -52,6 +84,25 @@ int main(int argc, char **argv) {
 
     if (r >= 0)
         close((int) r);
+
+    // seccomp(SECCOMP_SET_MODE_FILTER, 0, &prog): arg3 is a real pointer whose
+    // amd64 guest address has high bits set -- the exact case that SIGSYS'd mandb.
+    // The stub ignores the program, so a zeroed stand-in is fine.
+    char prog[16] = {0}; // stand-in for struct sock_fprog
+    errno = 0;
+    r = syscall(SYS_seccomp, (long) SECCOMP_SET_MODE_FILTER, 0L,
+                (long) (intptr_t) prog, 0L, 0L, 0L);
+    check("seccomp", r, errno);
+
+    // membarrier: the same marshaller hazard from the other direction -- an
+    // over-count. Base ABI is (cmd, flags); the optional 3rd arg cpuid is unset
+    // garbage in liburcu's 2-arg syscall() calls (syslog-ng) and sys_membarrier
+    // ignores it. It was classified 3-arg, so the marshaller validated the
+    // garbage 3rd register and SIGSYS'd. Force the old failure with an explicit
+    // high-bits 3rd arg; QUERY must dispatch and report the supported mask.
+    errno = 0;
+    r = syscall(SYS_membarrier, (long) MEMBARRIER_CMD_QUERY, 0L, (long) GARBAGE, 0L, 0L, 0L);
+    check("membarrier", r, errno);
 
     return finish_suite("pidfd_open");
 }

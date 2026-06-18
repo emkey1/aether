@@ -2421,6 +2421,11 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     // unused upper arg registers (which hold caller garbage) and SIGSYS; an
     // under-count zero-fills a real arg. Same bug class as fchmod(91)/keyctl(250).
     case 200: // tkill(tid, sig) -- was grouped as 1, dropping the signal number
+    case 324: // membarrier -- base ABI is (cmd, flags); the optional 3rd arg cpuid is
+              // unset garbage in liburcu's 2-arg syscall(__NR_membarrier, cmd, flags)
+              // calls (glibc's syscall() varargs leaves rdx untouched), and
+              // sys_membarrier ignores flags+cpuid anyway. Over-counting to 3 made the
+              // marshaller validate the garbage rdx and SIGSYS syslog-ng.
         return 2;
     case 145: // sched_getscheduler(pid)
     case 146: // sched_get_priority_max(policy)
@@ -2450,6 +2455,8 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 253: // inotify_init
     case 303: // name_to_handle_at (EOPNOTSUPP stub; args ignored, and its
     case 304: // open_by_handle_at  pointer args are 64-bit guest addresses)
+    case 317: // seccomp (EOPNOTSUPP stub; arg3 is a 64-bit sock_fprog* -- man-db's
+              // sandbox probe; classify 0-arg so the pointer doesn't SIGSYS the marshaller)
     case 309: // getcpu stubbed
     case 424: // pidfd_send_signal (ENOSYS stub; callers fall back to kill)
     case 425: // io_uring_setup    (ENOSYS stub; callers use ordinary syscalls)
@@ -2614,7 +2621,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 59:  // execve
     case 169: // reboot
     case 292: // dup3
-    case 324: // membarrier
     case 274: // get_robust_list
     case 282: // signalfd
     case 334: // rseq
