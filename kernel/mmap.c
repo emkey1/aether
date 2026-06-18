@@ -407,9 +407,58 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
     return sys_mprotect_guest(addr, len, prot);
 }
 
-dword_t sys_madvise_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), dword_t UNUSED(advice)) {
-    // portable applications should not rely on linux's destructive semantics for MADV_DONTNEED.
-    return 0;
+#define MADV_DONTNEED_ 4
+
+dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice) {
+    STRACE("madvise(%#llx, %#llx, %d)", (unsigned long long) addr,
+           (unsigned long long) len, advice);
+    // MADV_DONTNEED is the one advice with destructive (zeroing) semantics that
+    // software actually depends on -- notably jemalloc, which probes it at
+    // startup and, finding it does nothing here, permanently falls back to
+    // memset ("<jemalloc>: MADV_DONTNEED does not work"). Honor it for private
+    // anonymous pages by discarding them so the next access reads back zero,
+    // matching Linux. Other advices, and file-backed or shared mappings, stay
+    // hints / no-ops (re-faulting a file mapping would mean re-reading the file,
+    // which MADV_DONTNEED does not require us to do here).
+    if (advice != MADV_DONTNEED_)
+        return 0;
+    if (PGOFFSET(addr) != 0)
+        return _EINVAL;
+    pages_t pages = PAGE_ROUND_UP(len);
+    if (pages == 0)
+        return 0;
+
+    struct mem *mem = current->mem;
+    int err = 0;
+    mem_write_lock_with_pokes(mem);
+    page_t start = PAGE(addr);
+    page_t end = start + pages;
+    if (end < start || end > mem->page_limit)
+        end = mem->page_limit; // clamp to the address space / guard overflow
+    for (page_t page = start; page < end; ) {
+        struct pt_entry *pt = mem_pt(mem, page);
+        if (pt == NULL || !(pt->flags & P_ANONYMOUS) || (pt->flags & P_SHARED)) {
+            page++; // skip holes, file-backed and shared mappings
+            continue;
+        }
+        // Coalesce a run of same-flag private anonymous pages and replace them
+        // with fresh zero-filled anonymous memory in one shot. pt_map_nothing
+        // unmaps the old mapping internally (and only after its own allocation
+        // succeeds), so there is no unmapped window on failure.
+        unsigned flags = pt->flags & ~P_COW;
+        page_t run = page;
+        do {
+            page++;
+        } while (page < end &&
+                 (pt = mem_pt(mem, page)) != NULL &&
+                 (pt->flags & P_ANONYMOUS) && !(pt->flags & P_SHARED) &&
+                 (pt->flags & ~P_COW) == flags);
+        err = pt_map_nothing(mem, run, page - run, flags);
+        if (err < 0)
+            break;
+    }
+    mem_write_unlock_with_pokes(mem);
+    return err < 0 ? err : 0;
 }
 
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
