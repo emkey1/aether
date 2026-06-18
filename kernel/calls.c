@@ -4190,6 +4190,19 @@ void handle_interrupt(int interrupt) {
         while (group->stopped)
             wait_for_ignore_signals(&group->stopped_cond, &group->lock, NULL);
         unlock(&group->lock);
+
+        // We were stopped and have just been resumed. If SIGCONT flagged a
+        // reportable continue, wake a parent blocked in wait4/waitid(WCONTINUED)
+        // (the flag itself is consumed by the parent's notify_if_continued).
+        // Done from our own context — never the signal sender's — so taking
+        // pids_lock here respects the pids_lock -> group->lock ordering.
+        if (group->continued) {
+            complex_lockt(&pids_lock, 0);
+            struct task *parent = current->group->leader->parent;
+            if (parent != NULL)
+                notify(&parent->group->child_exit);
+            unlock(&pids_lock);
+        }
     }
 }
 

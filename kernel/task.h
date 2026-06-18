@@ -224,6 +224,12 @@ struct tgroup {
     bool doing_group_exit;
     dword_t group_exit_code;
 
+    // Set under group->lock when SIGCONT resumes a stopped group; reported once
+    // to a parent waiting with WCONTINUED (then cleared). Enables the wait4/
+    // waitid pull path for the continue notification (the async SIGCHLD push for
+    // CLD_CONTINUED is not modeled). Lock: group->lock.
+    bool continued;
+
     struct rusage_ children_rusage;
     cond_t child_exit;
 

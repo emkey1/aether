@@ -879,6 +879,13 @@ static void send_signal_with_sighand(struct task *task, struct sighand *sighand,
 
     if (sig == SIGCONT_ || sig == SIGKILL_) {
         lock(&task->group->lock, 0);
+        // A SIGCONT that actually resumes a stopped group is a reportable
+        // "continued" event for a WCONTINUED waiter (man wait). SIGKILL also
+        // clears the stop but is not a continue. The parent is woken from the
+        // resumed task's own context (the group-stop loop), never from here, to
+        // avoid notifying across the signal-sender's locks.
+        if (sig == SIGCONT_ && task->group->stopped)
+            task->group->continued = true;
         task->group->stopped = false;
         notify(&task->group->stopped_cond);
         unlock(&task->group->lock);

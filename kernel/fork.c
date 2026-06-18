@@ -49,6 +49,7 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     }
     group->itimer = NULL;
     group->doing_group_exit = false;
+    group->continued = false;
     group->children_rusage = (struct rusage_) {};
     cond_init(&group->child_exit);
     cond_init(&group->stopped_cond);

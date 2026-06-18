@@ -34,5 +34,6 @@ epoll_mod_wake.c
 epoll_oneshot_rearm.c
 ptrace_exit_kill.c
 fs_conformance.c
+process_conformance.c
 amd64_jit_bench.sh
 setup-regressions.sh

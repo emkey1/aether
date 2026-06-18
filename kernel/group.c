@@ -12,6 +12,10 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
         id = current->pid;
     if (pgid == 0)
         pgid = id;
+    // a negative process-group id is invalid (checked before any task lookup,
+    // matching the kernel's early `if (pgid < 0) return -EINVAL`)
+    if (pgid < 0)
+        return _EINVAL;
     complex_lockt(&pids_lock, 0);
     bool group_locked = false;
     struct pid *pid = pid_get(id);
@@ -49,12 +53,17 @@ dword_t sys_setpgid(pid_t_ id, pid_t_ pgid) {
     err = _ESRCH;
     if (task != current && task->parent != current)
         goto out;
+    // you cannot change the process group of a child that has already exec'd
+    // (man setpgid: EACCES). Changing your *own* pgid post-exec is always
+    // allowed, so this only applies to a child. Checked before the
+    // session-leader EPERM to match the kernel's error precedence.
+    err = _EACCES;
+    if (task != current && task->did_exec)
+        goto out;
     // a session leader cannot create a process group
     err = _EPERM;
     if (tgroup->sid == tgroup->leader->pid)
         goto out;
-
-    // TODO cannot set process group of a child that has done exec
 
     if (tgroup->pgid != pgid) {
         list_remove(&tgroup->pgroup);

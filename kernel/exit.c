@@ -572,6 +572,20 @@ static bool notify_if_stopped(struct task *task, struct siginfo_ *info_out) {
     return true;
 }
 
+// Report a pending WCONTINUED notification once, then clear it. The status word
+// 0xffff is the WIFCONTINUED sentinel that decode_wait_status / __WIFCONTINUED
+// recognize (CLD_CONTINUED, si_status SIGCONT for the waitid path).
+static bool notify_if_continued(struct task *task, struct siginfo_ *info_out) {
+    complex_lockt(&task->group->lock, 0);
+    bool cont = task->group->continued;
+    task->group->continued = false;
+    unlock(&task->group->lock);
+    if (!cont)
+        return false;
+    info_out->child.status = 0xffff;
+    return true;
+}
+
 static bool notify_if_ptrace_stopped(struct task *task, struct siginfo_ *info_out) {
     lock(&task->ptrace.lock, 0);
     if (task->ptrace.stopped && task->ptrace.signal) {
@@ -589,7 +603,8 @@ static bool notify_if_ptrace_stopped(struct task *task, struct siginfo_ *info_ou
 static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct rusage_ *rusage_out, int options) {
     assert(task_is_leader(task));
     if ((options & WUNTRACED_ && notify_if_stopped(task, info_out)) ||
-        (options & WEXITED_ && reap_if_zombie(task, info_out, rusage_out, options))) {
+        (options & WEXITED_ && reap_if_zombie(task, info_out, rusage_out, options)) ||
+        (options & WCONTINUED_ && notify_if_continued(task, info_out))) {
         info_out->sig = SIGCHLD_;
         return true;
     }
@@ -741,7 +756,10 @@ dword_t sys_wait4(pid_t_ id, addr_t status_addr, dword_t options, addr_t rusage_
 
 dword_t sys_wait4_guest(pid_t_ id, guest_addr_t status_addr, dword_t options, guest_addr_t rusage_addr) {
     STRACE("wait4(%d, %#x, %#x, %#x)", id, status_addr, options, rusage_addr);
-    if (options & WNOWAIT_)
+    // WEXITED and WNOWAIT are waitid(2)-only flags; wait4/waitpid reject them
+    // with EINVAL (the kernel's wait4 allowed set excludes both). wait4 always
+    // waits for exited children, so WEXITED is implied (OR'd in below).
+    if (options & (WEXITED_ | WNOWAIT_))
         return _EINVAL;
 
     int idtype;
