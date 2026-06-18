@@ -979,6 +979,23 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             gen_amd64_defer_rip(state, next_ip);
             return true;
         }
+        // RDSSPD/RDSSPQ (F3 0F 1E /1, mod==11): read the CET shadow stack
+        // pointer into a register. iSH implements no shadow stack, so the
+        // architecturally-correct behavior when CET is disabled is a NOP that
+        // leaves the destination unchanged. glibc's exception/unwind and
+        // setjmp paths pre-zero the register and then test it, so NOP-ing this
+        // makes their "shadow stack disabled" branch be taken. Without this
+        // every C++ throw (and gdb, longjmp probes, ...) hit INT_UNDEFINED ->
+        // SIGILL. Register form only, so op3 is the whole ModRM (no SIB/disp).
+        if (((op3 >> 3) & 7) == 1 && (op3 >> 6) == 3) {
+            next_ip = state->amd64_ip + sizeof(op3);
+            state->amd64_ip = next_ip;
+            amd64_jit_debug("rdssp-nop ip=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) next_ip);
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
     }
 
     if (!insn.address_size_prefix && !insn.fs_prefix && !insn.lock_prefix &&

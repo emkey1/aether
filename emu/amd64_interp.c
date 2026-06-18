@@ -5247,6 +5247,14 @@ restart_prefix:
                 return INT_GPF;
             }
             if (op3 == 0xfa || op3 == 0xfb)
+                break;  // ENDBR64 / ENDBR32 -> NOP
+            // RDSSPD/RDSSPQ (F3 0F 1E /1, mod==11): read the CET shadow stack
+            // pointer. iSH has no shadow stack, so NOP it (op3 is the whole
+            // ModRM; the register form has no SIB/displacement). glibc
+            // pre-zeroes the destination before the rdssp, so its "shadow
+            // stack disabled" path is taken; without this, C++ throw/unwind,
+            // gdb, and longjmp probes hit INT_UNDEFINED -> SIGILL.
+            if (((op3 >> 3) & 7) == 1 && (op3 >> 6) == 3)
                 break;
             return INT_UNDEFINED;
         }
