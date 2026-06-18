@@ -53,6 +53,7 @@
 #define SIOCGIFCONF_ 0x8912
 #define SIOCGIFFLAGS_ 0x8913
 #define SIOCGIFINDEX_ 0x8933
+#define SIOCGIFTXQLEN_ 0x8942
 
 #define IFNAMSIZ_ 16
 
@@ -127,6 +128,7 @@ struct ifreq_ {
         struct sockaddr_ addr;
         int16_t flags;
         int32_t ifindex;
+        int32_t qlen;
         char pad[24];
     } ifr_ifru;
 };
@@ -889,6 +891,20 @@ static int sock_ifreq_flags_from_name(struct ifreq_ *ifreq) {
     }
     freeifaddrs(addrs);
     return err;
+}
+
+static int sock_ifreq_txqlen_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    if (if_nametoindex(ifreq->ifr_name) == 0)
+        return _ENODEV;
+    // iSH does not model per-interface queueing. BusyBox's `ip addr` always
+    // probes SIOCGIFTXQLEN rather than reading the IFLA_TXQLEN we already put
+    // in the RTM_NEWLINK dump, so without this it spams "ioctl 0x8942 failed:
+    // Not a tty" (ENOTTY from the realfs passthrough). Report the conventional
+    // Linux default, matching netlink_fill_link_info()'s txqlen.
+    ifreq->ifr_ifru.qlen = 1000;
+    return 0;
 }
 
 static int sock_ifconf(struct guest_ifconf_ *ifconf) {
@@ -5009,6 +5025,20 @@ static int sock_poll(struct fd *fd) {
 static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
     if (sock_is_initctl_sink(fd))
         return 0;
+    if (fd->socket.domain == AF_NETLINK_) {
+        // Mirror recvfrom()/recvmsg(): deliver the buffered netlink reply to a
+        // bare read()/readv() too. Returns _EAGAIN when no reply is queued, the
+        // same as the recvfrom() path.
+        struct iovec iov = {
+            .iov_base = buf,
+            .iov_len = size,
+        };
+        struct msghdr msg = {
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+        };
+        return netlink_handle_recvmsg(fd, &msg, 0);
+    }
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
     if (fd->socket.domain == AF_LOCAL_) {
@@ -5064,6 +5094,22 @@ out_read:
 static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     if (sock_is_devlog_sink(fd) || sock_is_initctl_sink(fd)) {
         return size;
+    }
+    if (fd->socket.domain == AF_NETLINK_) {
+        // Netlink sockets are emulated in-process (real_fd < 0), so route a bare
+        // write()/writev() through the same request handler as sendto()/sendmsg().
+        // BusyBox's `ip` (and other tools) issue the rtnetlink dump request with
+        // write() rather than send(); without this they hit the real_fd < 0 guard
+        // below and get EOPNOTSUPP ("ip: write error: Not supported").
+        struct iovec iov = {
+            .iov_base = (void *) buf,
+            .iov_len = size,
+        };
+        struct msghdr msg = {
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+        };
+        return netlink_handle_sendmsg(fd, &msg);
     }
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
@@ -5122,6 +5168,8 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
         return sock_ifreq_index_from_name(arg);
     if (cmd == SIOCGIFFLAGS_)
         return sock_ifreq_flags_from_name(arg);
+    if (cmd == SIOCGIFTXQLEN_)
+        return sock_ifreq_txqlen_from_name(arg);
     if (fd->real_fd < 0) {
         if (cmd == FIONREAD_)
             *(dword_t *) arg = (dword_t) (fd->socket.netlink_reply_len - fd->socket.netlink_reply_off);
@@ -5138,6 +5186,7 @@ static ssize_t sock_ioctl_size(int cmd) {
         case SIOCGIFCONF_:
         case SIOCGIFINDEX_:
         case SIOCGIFFLAGS_:
+        case SIOCGIFTXQLEN_:
             return cmd == SIOCGIFCONF_ ? sizeof(struct guest_ifconf_) : sizeof(struct ifreq_);
         default:
             return realfs_ioctl_size(cmd);
