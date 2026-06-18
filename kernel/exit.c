@@ -613,6 +613,25 @@ static bool reap_if_needed(struct task *task, struct siginfo_ *info_out, struct 
     return false;
 }
 
+// wait_for() can return _EINTR for a bare host-side SIGUSR1 poke that carries no
+// guest signal: mem-quiesce TLB invalidation (task_poke_shared_mem) when a
+// sibling thread mmaps/munmaps, a timer wakeup, etc. On Darwin pthread_cond_wait
+// returns spuriously on signal delivery, so such a poke pops do_wait's cond-wait
+// and wait_for reports EINTR even though nothing is deliverable. Treat the wait
+// as interrupted only when an unblocked guest signal is actually pending, exactly
+// as poll_wait() and the FUTEX_WAIT loop (futex_wait_has_pending_signal) already
+// do. Otherwise an SA_RESTART waitpid that has already restarted past its real
+// signal would be aborted with a spurious EINTR by an invisible poke.
+static bool wait_interrupted_by_signal(void) {
+    if (current == NULL)
+        return false;
+    __atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL);
+    lock(&current->sighand->lock, 0);
+    bool pending = !!(current->pending & ~current->blocked);
+    unlock(&current->sighand->lock);
+    return pending;
+}
+
 int do_wait(int idtype, pid_t_ id, struct siginfo_ *info, struct rusage_ *rusage, int options) {
     if (idtype != P_ALL_ && idtype != P_PID_ && idtype != P_PGID_)
         return _EINVAL;
@@ -700,9 +719,13 @@ retry:
 
     // no matching zombie found, wait for one
     if (wait_for(&current->group->child_exit, &pids_lock, NULL)) {
-        // maybe we got a SIGCHLD! go through the loop one more time to make
-        // sure the newly exited process is returned in that case.
-        got_signal = true;
+        // Woke from the wait. Only latch an interruption when a real guest
+        // signal is pending; a bare host-side poke (TLB invalidation, timer)
+        // must not surface as EINTR -- see wait_interrupted_by_signal(). On the
+        // next pass a newly exited child is still reaped first, so a real
+        // SIGCHLD-driven wake is handled by the zombie scan above.
+        if (wait_interrupted_by_signal())
+            got_signal = true;
         goto retry;
     }
     goto retry;
