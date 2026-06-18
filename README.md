@@ -24,3 +24,55 @@ cmake -S . -B build      # fetches rea (+ pscal-core) and builds aether
 cmake --build build -j
 ./build/aether --no-cache program.aether
 ```
+
+## Install
+
+```sh
+cmake --install build --prefix /usr/local
+```
+
+This puts the `aether` binary in `<prefix>/bin`, the example programs in
+`<prefix>/share/aether/examples`, and the language docs in
+`<prefix>/share/doc/aether`. The fetched dependencies (rea, pscal-core) declare
+no install rules, so only Aether's own artifacts are installed.
+
+## Test
+
+The `.aether` conformance corpus lives in [`tests/`](tests/) and runs under CTest:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+You can also run it directly against any binary by pointing `AETHER_BIN` at it
+(this is how the umbrella build exercises the same corpus):
+
+```sh
+AETHER_BIN=./build/aether tests/run.sh
+```
+
+## Examples
+
+Runnable programs live in [`examples/`](examples/), from `base/hello` through the
+`showcase/` agent demo:
+
+```sh
+./build/aether --no-cache examples/base/hello
+./build/aether --no-cache examples/showcase/agent_report
+```
+
+## Docs
+
+In-depth language documentation is in [`docs/`](docs/):
+
+- [`aether_architecture_and_rationale.md`](docs/aether_architecture_and_rationale.md): design and rationale
+- [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full language guide
+- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): a condensed guide
+
+See [`src/aether/DESIGN.md`](src/aether/DESIGN.md) for the front-end internals.
+
+## Models and benchmarks
+
+Training recipes, fine-tuning operations, and benchmark analyses for the language
+models that write Aether live in a companion repo:
+[**aether-infrastructure**](https://github.com/emkey1/aether-infrastructure).

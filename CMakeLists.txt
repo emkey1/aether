@@ -82,3 +82,23 @@ target_compile_definitions(aether PRIVATE
     PSCAL_FRONTEND_INSTALL_HOOKS=aetherInstallFrontendHooks
 )
 target_link_libraries(aether PRIVATE pscal_core_static Threads::Threads m)
+
+# ---- Install ----------------------------------------------------------------
+# `cmake --install build` puts `aether` on PATH and ships the examples and the
+# language docs beside it. The FetchContent deps (rea, pscal-core) declare no
+# install rules of their own, so only Aether's targets are installed here.
+include(GNUInstallDirs)
+install(TARGETS aether RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/aether/examples)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs/
+        DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+        DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+# ---- Test -------------------------------------------------------------------
+# `ctest` runs the .aether corpus in tests/ against the binary just built.
+enable_testing()
+add_test(NAME aether_tests COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh)
+set_tests_properties(aether_tests PROPERTIES
+    ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")

@@ -1,0 +1,8 @@
+fn main() -> Void {
+    let tag: Text = "Aether";
+    let answer = tag + 1;
+    fx {
+        println(answer);
+    }
+    ret;
+}
