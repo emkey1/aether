@@ -104,7 +104,7 @@ static void maybe_restore_login_binary(void) {
         return;
 
     if (!file_exists("/bin/login.aok-broken")) {
-        int rename_err = generic_renameat(AT_PWD, "/bin/login", AT_PWD, "/bin/login.aok-broken");
+        int rename_err = generic_renameat(AT_PWD, "/bin/login", AT_PWD, "/bin/login.aok-broken", 0);
         if (rename_err < 0 && rename_err != _ENOENT) {
             printk("WARNING: failed to back up /bin/login: %d\n", rename_err);
             return;

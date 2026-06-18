@@ -2246,7 +2246,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // mv current /run to /tmp/run-old/[timestamp], create new /run and link to /var/run
     generic_mkdirat(AT_PWD, "/tmp/old-run", 0755);
     const char *rename = getRenameRunDirString();
-    generic_renameat(AT_PWD, "/run", AT_PWD, rename);
+    generic_renameat(AT_PWD, "/run", AT_PWD, rename, 0);
     generic_mkdirat(AT_PWD, "/run", 0755);
     generic_unlinkat(AT_PWD, "/var/run");
     generic_symlinkat("/run", AT_PWD, "/var/run");
