@@ -1386,6 +1386,9 @@ void receive_signals(void) {
     if (!was_stopped) {
         lock(&current->group->lock, 0);
         bool now_stopped = current->group->stopped;
+        // group_exit_code is (stop_sig << 8 | 0x7f) while stopped; recover the
+        // bare stop signal for the SIGCHLD si_status.
+        int stop_sig = (current->group->group_exit_code >> 8) & 0xff;
         unlock(&current->group->lock);
         if (now_stopped) {
             struct task *parent = NULL;
@@ -1399,8 +1402,17 @@ void receive_signals(void) {
             }
             unlock(&pids_lock);
             if (parent != NULL) {
+                // The stop SIGCHLD must carry CLD_STOPPED + the stop signal and
+                // the child's pid/uid, not SIGINFO_NIL (which a SA_SIGINFO
+                // handler / sigwaitinfo would read as SI_KERNEL with no child).
+                struct siginfo_ info = {
+                    .code = CLD_STOPPED_,
+                    .child.pid = current->pid,
+                    .child.uid = current->uid,
+                    .child.status = stop_sig,
+                };
                 if (signal_no != 0)
-                    send_signal(parent, signal_no, SIGINFO_NIL);
+                    send_signal(parent, signal_no, info);
                 task_ref_cnt_mod(parent, -1);
             }
         }
