@@ -36,6 +36,7 @@ struct fd {
         } epollfd;
         struct {
             uint64_t val;
+            bool semaphore; // EFD_SEMAPHORE: read returns 1 and decrements by 1
         } eventfd;
         // fifo (named pipe): links fds open on the same FIFO inode. The shared
         // buffer (struct fifo) lives on the inode; locked by the fifo's fds_lock.
@@ -75,6 +76,7 @@ struct fd {
             bool unix_initctl_sink;
             bool reuseaddr;
             bool reuseport;
+            bool listening; // listen() called: SO_ACCEPTCONN (Darwin can't report it)
             dword_t ip_mtu_discover;
             dword_t ipv6_mtu_discover;
             dword_t ipv6_mtu;

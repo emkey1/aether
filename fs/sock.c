@@ -2640,6 +2640,7 @@ int_t sys_listen(fd_t sock_fd, int_t backlog) {
     int err = listen(sock->real_fd, backlog);
     if (err < 0)
         return errno_map();
+    sock->socket.listening = true;
     sock->sockrestart.backlog = backlog;
     sockrestart_begin_listen(sock);
     return err;
@@ -3027,6 +3028,12 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
             return _EAGAIN;
         }
         int mapped_err = errno_map();
+        // Linux returns ENOTCONN for a send() on an unconnected AF_UNIX
+        // datagram socket with no destination address; Darwin returns
+        // EDESTADDRREQ. (For AF_INET both kernels use EDESTADDRREQ.)
+        if (sock->socket.domain == AF_LOCAL_ && sockaddr_addr == 0 &&
+                mapped_err == _EDESTADDRREQ)
+            mapped_err = _ENOTCONN;
         // A /dev/log or initctl path whose socket exists but has no live reader
         // (e.g. a stale socket left by a dead daemon) falls back to discarding.
         if (sendto_devlog_fallback &&
@@ -3076,6 +3083,17 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     int real_flags = sock_flags_to_real(flags);
     if (real_flags < 0)
         return _EINVAL;
+    // MSG_TRUNC on a message-based (datagram/seqpacket/raw) socket must return
+    // the REAL datagram length, even though only `len` bytes are copied. Darwin
+    // ignores MSG_TRUNC as a recv input flag, so we measure the true length by
+    // receiving into a buffer large enough to hold the whole datagram and then
+    // copy back only what the caller asked for. (Netlink has its own MSG_TRUNC
+    // path.)
+    bool dgram_trunc = (flags & MSG_TRUNC_) &&
+        sock->socket.type != SOCK_STREAM_ && sock->socket.domain != AF_NETLINK_;
+    size_t recv_cap = len;
+    if (dgram_trunc && recv_cap < 65536)
+        recv_cap = 65536;
     uint_t sockaddr_len = 0;
     if (sockaddr_len_addr != 0)
         if (user_get(sockaddr_len_addr, sockaddr_len))
@@ -3088,7 +3106,7 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         return 0;
     }
 
-    char *buffer = malloc(len);
+    char *buffer = malloc(recv_cap);
     char sockaddr[sockaddr_len];
     if (sock->socket.domain == AF_NETLINK_) {
         struct iovec iov = {
@@ -3133,9 +3151,9 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
             }
             errno = 0;
             if (sockaddr_addr == 0 && sockaddr_len_addr == 0) {
-                res = recv(sock->real_fd, buffer, len, real_flags);
+                res = recv(sock->real_fd, buffer, recv_cap, real_flags);
             } else {
-                res = recvfrom(sock->real_fd, buffer, len, real_flags,
+                res = recvfrom(sock->real_fd, buffer, recv_cap, real_flags,
                                sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                                sockaddr_len_addr != 0 ? &sockaddr_len : NULL);
             }
@@ -3176,7 +3194,10 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         return mapped_err;
     }
 
-    if (res > 0 && user_write(buffer_addr, buffer, res)) {
+    // With MSG_TRUNC on a datagram the real length (res) can exceed the user
+    // buffer; copy only what fits but report the true length below.
+    size_t copy_len = (size_t) res < len ? (size_t) res : len;
+    if (copy_len > 0 && user_write(buffer_addr, buffer, copy_len)) {
         free(buffer);
         return _EFAULT;
     }
@@ -3504,16 +3525,10 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         }
         sockopt_store_value(value, user_value_len, &value_len, &passcred, sizeof(passcred));
     } else if (level == SOL_SOCKET_ && option == SO_ACCEPTCONN_) {
-        dword_t acceptconn = 0;
-        if (!(sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0)) {
-            int real_acceptconn = 0;
-            socklen_t real_acceptconn_len = sizeof(real_acceptconn);
-            int err = getsockopt(sock->real_fd, SOL_SOCKET, SO_ACCEPTCONN,
-                    &real_acceptconn, &real_acceptconn_len);
-            if (err < 0)
-                return errno_map();
-            acceptconn = real_acceptconn != 0;
-        }
+        // Report our own tracked listen() state. Darwin's getsockopt does not
+        // support querying SO_ACCEPTCONN (it returns ENOPROTOOPT), so passing
+        // it through leaked that error where Linux reports 0/1.
+        dword_t acceptconn = sock->socket.listening ? 1 : 0;
         sockopt_store_value(value, user_value_len, &value_len, &acceptconn, sizeof(acceptconn));
     } else if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0 && level == SOL_NETLINK_) {
         if (option == NETLINK_CAP_ACK_ || option == NETLINK_EXT_ACK_ || option == NETLINK_GET_STRICT_CHK_) {

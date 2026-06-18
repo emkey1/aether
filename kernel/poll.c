@@ -474,6 +474,7 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
 
     struct fd *files[nfds];
     int add_err = 0;
+    int nval_count = 0;
     for (unsigned i = 0; i < nfds; i++) {
         files[i] = f_get_retain(polls[i].fd);
         // clear revents, which is reused to mark whether a pollfd has been added or not
@@ -506,8 +507,15 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
 
     for (unsigned i = 0; i < nfds; i++) {
         polls[i].revents = 0;
-        if (f_get(polls[i].fd) == NULL)
+        // A negative fd is ignored entirely (revents stays 0, not counted) --
+        // Linux skips it. Only a non-negative but invalid (e.g. closed) fd is
+        // POLLNVAL, and that fd counts toward the return value.
+        if (polls[i].fd < 0)
+            continue;
+        if (f_get(polls[i].fd) == NULL) {
             polls[i].revents = POLL_NVAL;
+            nval_count++;
+        }
     }
     struct poll_context context = {polls, files, nfds};
     if (poll_trace_net_enabled()) {
@@ -533,11 +541,16 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
     }
     int res = 0;
     struct timespec mutable_timeout;
+    struct timespec zero_timeout = {0};
     struct timespec *poll_timeout = NULL;
     if (timeout_ts_ptr != NULL) {
         mutable_timeout = *timeout_ts_ptr;
         poll_timeout = &mutable_timeout;
     }
+    // An invalid fd (POLLNVAL) makes poll(2) return immediately rather than
+    // blocking on the valid fds -- match Linux by forcing a zero timeout.
+    if (nval_count > 0)
+        poll_timeout = &zero_timeout;
     TASK_MAY_BLOCK {
         res = poll_wait(poll, poll_event_callback, &context, poll_timeout);
     }
@@ -575,6 +588,9 @@ out:
         return add_err;
     if (res < 0)
         return res;
+    // Invalid (POLLNVAL) fds were pre-marked in revents but are never "ready"
+    // through poll_wait; count them toward the number of fds with events.
+    res += nval_count;
     if (fds != 0 || nfds != 0)
         if (user_write(fds, polls, sizeof(struct pollfd_) * nfds))
             return _EFAULT;

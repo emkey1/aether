@@ -133,6 +133,7 @@ need_file pidfd_open.c
 need_file fs_conformance.c
 need_file process_conformance.c
 need_file time_conformance.c
+need_file sock_conformance.c
 need_file amd64_regress.c
 
 if ! mkdir -p "$work_dir/bin"; then
@@ -346,7 +347,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance amd64_regress"
+all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance sock_conformance amd64_regress"
 
 test_selected() {
     name=$1

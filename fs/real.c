@@ -554,7 +554,13 @@ int realfs_poll(struct fd *fd) {
 #if defined(__APPLE__)
     // this is the "WTF is apple smoking" section
 
-    if (is_fifo && !fd->realfs_fifo_had_data && (p.revents & POLLHUP))
+    // Darwin reports a spurious POLLHUP on a pipe/FIFO read end that was opened
+    // before any writer connected; suppress that. But ONLY when there is no
+    // actual data: if POLLIN is set the readiness is real (e.g. a writer wrote
+    // then closed, leaving unread bytes), and scrubbing it hid readable data
+    // from poll/select -- a guest would see "not ready" with bytes waiting.
+    if (is_fifo && !fd->realfs_fifo_had_data &&
+            (p.revents & POLLHUP) && !(p.revents & POLLIN))
         p.revents &= ~(POLLIN | POLLHUP | POLLOUT);
 
     // https://github.com/apple/darwin-xnu/blob/a449c6a3b8014d9406c2ddbdc81795da24aa7443/bsd/kern/sys_generic.c#L1856

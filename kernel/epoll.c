@@ -60,6 +60,22 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
         return _EBADF;
     }
 
+    // Linux: targeting the epoll instance itself is EINVAL. (A *different*
+    // epoll fd may be nested, but an epoll cannot watch itself.)
+    if (fd == epoll) {
+        fd_close(fd);
+        fd_close(epoll);
+        return _EINVAL;
+    }
+    // Reject unknown ops up front. Without this an unknown op fell through to
+    // the MOD path below, so e.g. epoll_ctl(ep, 9999, fd) silently modified a
+    // registered fd (or returned ENOENT) instead of EINVAL.
+    if (op != EPOLL_CTL_ADD_ && op != EPOLL_CTL_DEL_ && op != EPOLL_CTL_MOD_) {
+        fd_close(fd);
+        fd_close(epoll);
+        return _EINVAL;
+    }
+
     if (op == EPOLL_CTL_DEL_) {
         int_t res = poll_del_fd(epoll->epollfd.poll, fd);
         fd_close(fd);
