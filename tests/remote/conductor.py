@@ -41,6 +41,7 @@ REPO = HERE.parent.parent
 ISH = REPO / "build" / "ish"
 FAKEFSIFY = REPO / "build" / "tools" / "fakefsify"
 CORPUS = HERE / "corpus"
+CONFORM = HERE / "corpus_signal"           # signal/syscall conformance vs REAL LINUX (mint)
 TESTS_MANUAL = REPO / "tests" / "manual"   # Tier 0: the self-checking regression suite
 WORK = HERE / ".work"
 TIMEOUT = 180  # seconds per cell; exceed => HANG
@@ -186,6 +187,59 @@ def build_fakefs(tests):
     r = sh([str(FAKEFSIFY), str(tar), str(fs)])
     if r.returncode != 0:
         raise SystemExit(f"fakefsify failed:\n{r.stderr}")
+    return fs
+
+
+# ------------------------------------------ conformance corpus (vs real Linux)
+#
+# Signal/syscall *semantics* are validated against a REAL LINUX kernel (mint's
+# Lima VM), not Rosetta: a macOS Mach-O has Darwin signal semantics and lacks
+# Linux-only APIs (signalfd, rt signals), so it is the wrong oracle. These tests
+# therefore build ONLY the two Linux musl ELFs (no macOS oracle build) and the
+# `conform` subcommand compares the iSH cells against mint:x86_64 / mint:i386.
+
+def discover_conform():
+    return sorted(p.stem for p in CONFORM.glob("*.c"))
+
+def build_conform_variants(test):
+    """Build i386 + x86_64 static musl ELFs (no macOS oracle — see above)."""
+    src = CONFORM / f"{test}.c"
+    out = {}
+    for arch, triple in ZIG_TARGET.items():
+        dst = WORK / "bin" / f"{test}.{arch}"
+        r = sh(["zig", "cc", "-target", triple, "-static", "-O2", "-pthread",
+                "-I", str(CONFORM), "-o", str(dst), str(src)])
+        if r.returncode != 0:
+            raise SystemExit(f"build {test}.{arch} failed:\n{r.stderr}")
+        out[arch] = dst
+    return out
+
+def build_conform_fakefs(tests):
+    """Stage the conformance binaries plus a /bin/true (per arch) and a writable
+    /tmp into a fakefs. fork/exec-based tests need a real child binary."""
+    stage = WORK / "stage_conform"
+    if stage.exists():
+        shutil.rmtree(stage)
+    (stage / "bin").mkdir(parents=True)
+    (stage / "tmp").mkdir()
+    true_c = WORK / "true.c"
+    true_c.write_text("int main(void){return 0;}\n")
+    for arch, triple in ZIG_TARGET.items():
+        sh(["zig", "cc", "-target", triple, "-static", "-O2",
+            "-o", str(stage / "bin" / f"true.{arch}"), str(true_c)])
+    shutil.copy(stage / "bin" / "true.x86_64", stage / "bin" / "true")
+    for test in tests:
+        for arch in ZIG_TARGET:
+            shutil.copy(WORK / "bin" / f"{test}.{arch}", stage / "bin" / f"{test}.{arch}")
+    tar = WORK / "conform.tar.gz"
+    with tarfile.open(tar, "w:gz") as t:
+        t.add(stage, arcname=".")
+    fs = WORK / "conformfs"
+    if fs.exists():
+        shutil.rmtree(fs)
+    r = sh([str(FAKEFSIFY), str(tar), str(fs)])
+    if r.returncode != 0:
+        raise SystemExit(f"conform fakefsify failed:\n{r.stderr}")
     return fs
 
 
@@ -680,6 +734,52 @@ def cmd_device(args):
             any_fail = True
     sys.exit(1 if any_fail else 0)
 
+def cmd_conform(args):
+    """Signal/syscall conformance vs REAL LINUX. Runs each conformance test
+    under every iSH cell and under mint's Linux VM (the oracle), then key-based
+    compares. A divergence between an iSH cell and mint is a candidate Linux
+    nonconformance (confirm against the man page before fixing — see the
+    cmpxchg lesson; some behavior is genuinely unspecified)."""
+    tests = args.tests.split(",") if args.tests else discover_conform()
+    default = [c for c, s in CELLS.items() if s["kind"] in ("ish", "mint")]
+    cells = args.cells.split(",") if args.cells else default
+    WORK.mkdir(exist_ok=True); (WORK / "bin").mkdir(exist_ok=True)
+
+    mint = None if args.no_mint else probe_mint()
+    if any(CELLS[c]["kind"] == "mint" for c in cells):
+        if mint:
+            print(f"oracle = mint real Linux: {mint['host']} lima/{mint['instance']}")
+        else:
+            print("mint unavailable — running iSH cells only "
+                  "(self-consistency across arch/engine, NOT real-Linux conformance)")
+            cells = [c for c in cells if CELLS[c]["kind"] != "mint"]
+
+    print(f"building {len(tests)} conformance test(s): {', '.join(tests)}")
+    binmap = {t: build_conform_variants(t) for t in tests}
+    fakefs = build_conform_fakefs(tests)
+    if mint and any(CELLS[c]["kind"] == "mint" for c in cells):
+        push_to_mint(tests, binmap, mint)
+
+    summary, any_fail = {}, False
+    for test in tests:
+        results = [run_cell(c, test, binmap[test], fakefs, mint=mint,
+                            extra=["--seed", str(args.seed)]) for c in cells]
+        mism, _ = compare(results)
+        report(test, results, mism)
+        bad = [r.cell for r in results if r.status in ("CRASH", "HANG", "TEST_ERR")]
+        if bad or mism:
+            any_fail = True
+        summary[test] = {
+            "cells": {r.cell: {"status": r.status, "rc": r.rc,
+                               "cases": len(parse(r.lines)), "secs": round(r.secs, 2)}
+                      for r in results},
+            "divergent_keys": len(mism),
+            "bad_cells": bad,
+        }
+    (WORK / "conform-results.json").write_text(json.dumps(summary, indent=2))
+    print(f"\nwrote {WORK / 'conform-results.json'}")
+    sys.exit(1 if any_fail else 0)
+
 def cmd_tier0(args):
     """Tier 0: build the tests/manual self-check suite and run it under iSH for
     each arch (i386 + amd64, default engine). Each test self-asserts '<name>:
@@ -734,6 +834,10 @@ def main():
     dv.add_argument("--device-bundle", default="com.ish.iSH-AOK", help="bundle id (devicectl)")
     dv.add_argument("--dry-run", action="store_true",
                     help="print ssh/scp/devicectl commands without executing")
+    cf = sub.add_parser("conform"); cf.set_defaults(fn=cmd_conform)
+    cf.add_argument("--tests"); cf.add_argument("--cells")
+    cf.add_argument("--seed", type=int, default=1)
+    cf.add_argument("--no-mint", action="store_true", help="skip the mint oracle (self-consistency only)")
     t0 = sub.add_parser("tier0"); t0.set_defaults(fn=cmd_tier0)
     t0.add_argument("--tests", help="comma-separated subset (default: all self-check tests)")
     for tool in (ISH, FAKEFSIFY):

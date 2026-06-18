@@ -38,6 +38,26 @@ static void amd64_decode_wait_status_exit(int status, char *buf, size_t size) {
              status & 0x7f, (status & 0x80) != 0, status);
 }
 
+// Decode a wait(2)-encoded status word into the SIGCHLD/waitid representation:
+// a CLD_* si_code and the *bare* si_status (exit code or signal number). Used at
+// the siginfo-marshalling boundary; do_wait keeps child.status as the raw word
+// for wait4's int *status, so this never mutates that path.
+static void decode_wait_status(dword_t status, int *code_out, int *status_out) {
+    if (status == 0xffff) {                     // WIFCONTINUED
+        *code_out = CLD_CONTINUED_;
+        *status_out = SIGCONT_;
+    } else if ((status & 0xff) == 0x7f) {       // WIFSTOPPED (group- or ptrace-stop)
+        *code_out = CLD_STOPPED_;
+        *status_out = (status >> 8) & 0xff;
+    } else if ((status & 0x7f) == 0) {          // WIFEXITED
+        *code_out = CLD_EXITED_;
+        *status_out = (status >> 8) & 0xff;
+    } else {                                    // WIFSIGNALED
+        *code_out = (status & 0x80) ? CLD_DUMPED_ : CLD_KILLED_;
+        *status_out = status & 0x7f;
+    }
+}
+
 static bool amd64_trace_task_or_parent_lineage(struct task *task) {
     if (task == NULL)
         return false;
@@ -308,11 +328,15 @@ noreturn void do_exit(struct task *task, int status) {
             signal_no = leader->exit_signal;
             leader->zombie = true;
             notify(&parent->group->child_exit);
+            // The SIGCHLD a handler/sigwaitinfo/signalfd sees must carry a CLD_*
+            // si_code and a bare si_status, not SI_KERNEL + the wait-encoded word.
+            int chld_code, chld_status;
+            decode_wait_status(task->exit_code, &chld_code, &chld_status);
             signal_info = (struct siginfo_) {
-                .code = SI_KERNEL_,
+                .code = chld_code,
                 .child.pid = task->pid,
                 .child.uid = task->uid,
-                .child.status = task->exit_code,
+                .child.status = chld_status,
                 .child.utime = clock_from_timeval(group_rusage.utime),
                 .child.stime = clock_from_timeval(group_rusage.stime),
             };
@@ -700,6 +724,12 @@ dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t 
         return _ERESTART;
     if (res < 0 || (res == 0 && info.child.pid == 0))
         return res;
+    // do_wait fills child.status with the raw wait(2)-encoded word (for wait4);
+    // waitid's siginfo wants a CLD_* si_code and a bare si_status instead.
+    int cld_code, cld_status;
+    decode_wait_status(info.child.status, &cld_code, &cld_status);
+    info.code = cld_code;
+    info.child.status = cld_status;
     if (info_addr != 0 && siginfo_to_user(current, info_addr, &info))
         return _EFAULT;
     return 0;

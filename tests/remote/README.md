@@ -9,10 +9,11 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 
 | Piece | State |
 |---|---|
-| `conductor.py` — 4 modes: `run` / `supervise` / `device` / `tier0` | **working** |
+| `conductor.py` — 5 modes: `run` / `supervise` / `device` / `tier0` / `conform` | **working** |
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
 | differential corpus — 11 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle, atomics) | **working** |
+| **conformance corpus** (`conform`) — 9 signal/syscall families vs **real Linux** (mint), Rosetta excluded | **working** (all green) |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
 | crash/hang classification + journal reconciliation (`supervise`) | **working** (local-validated) |
@@ -26,6 +27,8 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 python3 tests/remote/conductor.py run                  # differential corpus, all cells
 python3 tests/remote/conductor.py run --tests flags_alu --cells oracle,amd64:jit
 python3 tests/remote/conductor.py tier0                # tests/manual self-check suite, per arch
+python3 tests/remote/conductor.py conform              # signal/syscall conformance vs REAL LINUX (mint)
+python3 tests/remote/conductor.py conform --tests sig_rt_order
 python3 tests/remote/conductor.py supervise            # journaled batch (device crash model), local
 python3 tests/remote/conductor.py minimize --test flags_alu --cell amd64:jit
 python3 tests/remote/conductor.py run --cells mint:i386:jit   # corpus under iSH built in mint's VM
@@ -84,6 +87,35 @@ M5 runs standalone. Config: `ISH_MINT_HOST` (mint), `ISH_LIMA_INSTANCE` (ish),
 (value=res+flags)`. Cells are compared per key, so an i386 cell legitimately
 omitting 64-bit lines is not a false positive. Per-op **defined-flag masks**
 ensure undefined bits (e.g. AF after a logical op) are never compared.
+
+## Conformance mode (`conform`) — signal/syscall semantics vs real Linux
+
+The CPU-instruction corpus uses Rosetta as an oracle because it faithfully runs
+x86 *instructions*. For **OS / signal / syscall semantics** that is the wrong
+oracle: a macOS Mach-O has Darwin behavior and lacks Linux-only APIs (signalfd,
+real-time signals, `CLD_*` codes). iSH emulates *Linux*, so the ground truth is
+a **real Linux kernel** — mint's Lima VM (`mint:x86_64` / `mint:i386`).
+
+`conform` therefore builds the corpus in `corpus_signal/` as **only the two
+Linux musl ELFs** (no Mach-O), runs every iSH cell plus the mint cells, and
+key-compares with **mint as the oracle — Rosetta excluded**. Each test prints
+`<key> res=<value>` lines of *behavioral* state (si_code, signo, delivery order,
+errno symbol, masks) — arch-independent, never raw pointers. Same key-based
+compare, same crash classification. Without mint reachable it degrades to an
+iSH-only self-consistency run (arch × engine), which is *not* a conformance
+check — the divergences only show against real Linux.
+
+> **cmpxchg lesson** (see `project_remote_diff_harness`): assert only
+> spec-guaranteed invariants. Real-time signal order (lowest-numbered first,
+> same-number FIFO) is POSIX-guaranteed and asserted; *standard*-signal
+> cross-number order is unspecified, so the tests never scramble/assert it. One
+> intentional iSH deviation (i386 runs every handler on the altstack regardless
+> of `SA_ONSTACK`) is documented and the relevant check is gated to amd64.
+
+The 9 families (`sig_si_code`, `sig_rt_order`, `sig_deliver_order`,
+`sig_block_pending`, `sig_sigtimedwait`, `sig_child`, `sig_signalfd`,
+`sig_altstack`, `sig_restart`) found and locked regressions for five real Linux
+nonconformances — see the commit that introduced them.
 
 ## Crash resilience
 

@@ -482,19 +482,28 @@ static bool signal_still_pending_locked(struct task *task, int sig) {
 }
 
 static bool signal_take_next_locked(struct task *task, sigset_t_ mask, struct siginfo_ *info_out) {
+    // POSIX/signal(7): when several signals are pending, the lowest-numbered is
+    // delivered first; multiple instances of the same (real-time) signal are
+    // delivered FIFO. The queue is in FIFO insertion order, so scan for the
+    // lowest signal number and, using a strict <, keep the first (oldest)
+    // entry of that number. Matters for sigtimedwait/sigwaitinfo/signalfd.
     struct sigqueue *sigqueue;
+    struct sigqueue *best = NULL;
     list_for_each_entry(&task->queue, sigqueue, queue) {
         if (!sigset_has(mask, sigqueue->info.sig))
             continue;
-        *info_out = sigqueue->info;
-        int sig = sigqueue->info.sig;
-        list_remove(&sigqueue->queue);
-        if (!signal_still_pending_locked(task, sig))
-            sigset_del(&task->pending, sig);
-        free(sigqueue);
-        return true;
+        if (best == NULL || sigqueue->info.sig < best->info.sig)
+            best = sigqueue;
     }
-    return false;
+    if (best == NULL)
+        return false;
+    *info_out = best->info;
+    int sig = best->info.sig;
+    list_remove(&best->queue);
+    if (!signal_still_pending_locked(task, sig))
+        sigset_del(&task->pending, sig);
+    free(best);
+    return true;
 }
 
 static void siginfo_to_i386_user(struct i386_siginfo_ *out, const struct siginfo_ *info) {
@@ -1327,14 +1336,31 @@ void receive_signals(void) {
         current->blocked = current->saved_mask;
     }
 
-    struct sigqueue *sigqueue, *tmp;
-    list_for_each_entry_safe(&current->queue, sigqueue, tmp, queue) {
-        int sig = sigqueue->info.sig;
-        if (sigset_has(blocked, sig))
-            continue;
-        list_remove(&sigqueue->queue);
+    // Deliver pending unblocked signals LOWEST-NUMBERED-FIRST, matching Linux's
+    // dequeue order (next_signal). When several are deliverable at once (e.g. a
+    // sigprocmask that unblocks a whole set), each receive_signal stacks a frame
+    // on top of the previous one, so the handlers RUN highest-first (LIFO) and
+    // the per-frame saved mask is captured incrementally — bit-for-bit what real
+    // Linux does. Previously this drained the queue in FIFO insertion order, so
+    // a scrambled-order send ran the handlers in the wrong order.
+    for (;;) {
+        struct sigqueue *best = NULL;
+        struct sigqueue *sigqueue;
+        list_for_each_entry(&current->queue, sigqueue, queue) {
+            if (sigset_has(blocked, sigqueue->info.sig))
+                continue;
+            if (best == NULL || sigqueue->info.sig < best->info.sig)
+                best = sigqueue;
+        }
+        if (best == NULL)
+            break;
+
+        int sig = best->info.sig;
+        struct siginfo_ info = best->info;
+        list_remove(&best->queue);
         if (!signal_still_pending_locked(current, sig))
             sigset_del(&current->pending, sig);
+        free(best);
 
         if (current->ptrace.traced && sig != SIGKILL_ &&
                 sig != current->ptrace.deliver_sig) {
@@ -1342,7 +1368,7 @@ void receive_signals(void) {
             // parent to tell it to continue.
             // Any signals received while waiting are left on the queue, except
             // for SIGKILL_, which causes an immediate exit.
-            signal_delivery_stop(sig, &sigqueue->info);
+            signal_delivery_stop(sig, &info);
         } else {
             // A signal the tracer asked us to deliver (PTRACE_CONT with a
             // signal) is consumed and actually delivered exactly once, rather
@@ -1350,9 +1376,8 @@ void receive_signals(void) {
             // tracer re-inject it forever).
             if (sig == current->ptrace.deliver_sig)
                 current->ptrace.deliver_sig = 0;
-            receive_signal(sighand, &sigqueue->info);
+            receive_signal(sighand, &info);
         }
-        free(sigqueue);
     }
 
     unlock(&sighand->lock);
@@ -1882,7 +1907,13 @@ static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info
         return _EFAULT;
     struct timespec timeout;
     if (timeout_addr != 0) {
-        if (timeout_time64) {
+        // The amd64 ABI's native struct timespec is 64-bit (== timespec64_).
+        // Reading it as the 32-bit i386 struct timespec_ pulled tv_nsec out of
+        // the high half of tv_sec — always 0 for any sub-second timeout — so
+        // the EINVAL range check never fired and sub-second waits collapsed to
+        // an immediate EAGAIN. amd64 must always read the 64-bit layout.
+        bool read64 = timeout_time64 || current->abi == GUEST_ABI_AMD64;
+        if (read64) {
             struct timespec64_ fake_timeout;
             if (user_get(timeout_addr, fake_timeout))
                 return _EFAULT;
@@ -1952,7 +1983,7 @@ int_t sys_rt_sigtimedwait_time64_guest(guest_addr_t set_addr, guest_addr_t info_
     return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, true);
 }
 
-static int kill_task(struct task *task, dword_t sig) {
+static int kill_task(struct task *task, dword_t sig, int si_code) {
     // FIXME: Need to check references to kernel here to be sure they are zero
     if (!superuser() &&
             current->uid != task->uid &&
@@ -1961,8 +1992,11 @@ static int kill_task(struct task *task, dword_t sig) {
             current->euid != task->suid) {
         return _EPERM;
     }
+    // kill(2) reports SI_USER; tkill/tgkill(2) report SI_TKILL. A handler that
+    // inspects si_code (or si_pid, which is meaningless for SI_TKILL) must see
+    // the right one — glibc raise() routes through tgkill, so this is common.
     struct siginfo_ info = {
-        .code = SI_USER_,
+        .code = si_code,
         .kill.pid = current->pid,
         .kill.uid = current->uid,
     };
@@ -1988,7 +2022,7 @@ struct kill_target {
     struct task *task;
 };
 
-static int kill_group(pid_t_ pgid, dword_t sig) {
+static int kill_group(pid_t_ pgid, dword_t sig, int si_code) {
     struct kill_target stack_targets[32];
     struct kill_target *targets = stack_targets;
     size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
@@ -2034,7 +2068,7 @@ retry:
 
     int err = _EPERM;
     for (size_t i = 0; i < target_count; i++) {
-        int kill_err = kill_task(targets[i].task, sig);
+        int kill_err = kill_task(targets[i].task, sig, si_code);
         task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
@@ -2044,7 +2078,7 @@ retry:
     return err;
 }
 
-static int kill_everything(dword_t sig) {
+static int kill_everything(dword_t sig, int si_code) {
     struct kill_target stack_targets[64];
     struct kill_target *targets = stack_targets;
     size_t target_cap = sizeof(stack_targets) / sizeof(stack_targets[0]);
@@ -2084,7 +2118,7 @@ retry:
 
     int err = _EPERM;
     for (size_t i = 0; i < target_count; i++) {
-        int kill_err = kill_task(targets[i].task, sig);
+        int kill_err = kill_task(targets[i].task, sig, si_code);
         task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
@@ -2094,7 +2128,10 @@ retry:
     return err;
 }
 
-static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
+// si_code distinguishes the sender: SI_USER for kill(2), SI_TKILL for
+// tkill/tgkill(2). Linux forces this on the receiving side, so we thread it
+// down from the syscall entry point rather than letting kill_task assume SI_USER.
+static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid, int si_code) {
     STRACE("kill(%d, %d)", pid, sig);
     if (sig >= NUM_SIGS)
         return _EINVAL;
@@ -2107,10 +2144,10 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
     int err;
     if (pid == -1) {
         complex_lockt(&pids_lock, 0);
-        err = kill_everything(sig);
+        err = kill_everything(sig, si_code);
     } else if (pid < 0) {
         complex_lockt(&pids_lock, 0);
-        err = kill_group(-pid, sig);
+        err = kill_group(-pid, sig, si_code);
     } else {
         struct task *task = pid_get_task_ref(pid);
         if (task == NULL) {
@@ -2123,24 +2160,24 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid) {
             return _ESRCH;
         }
 
-        err = kill_task(task, sig);
+        err = kill_task(task, sig, si_code);
         task_ref_cnt_mod(task, -1);
     }
     return err;
 }
 
 dword_t sys_kill(pid_t_ pid, dword_t sig) {
-    return do_kill(pid, sig, 0);
+    return do_kill(pid, sig, 0, SI_USER_);
 }
 dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig) {
     if (tid <= 0 || tgid <= 0)
         return _EINVAL;
-    return do_kill(tid, sig, tgid);
+    return do_kill(tid, sig, tgid, SI_TKILL_);
 }
 dword_t sys_tkill(pid_t_ tid, dword_t sig) {
     if (tid <= 0)
         return _EINVAL;
-    return do_kill(tid, sig, 0);
+    return do_kill(tid, sig, 0, SI_TKILL_);
 }
 
 dword_t sys_rt_sigqueueinfo(pid_t_ pid, dword_t sig, addr_t uinfo_addr) {
