@@ -527,7 +527,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         if (vdso_page == BAD_PAGE)
             goto beyond_hope;
         vdso_page += 1;
-        if ((err = pt_map(save->mem, vdso_page, vdso_pages, (void *) vdso_data, 0, 0)) < 0)
+        // The vDSO is read and executed by the guest (the loader parses its ELF
+        // header; libc calls into it), so it must carry read+exec permission --
+        // r-xp on real Linux. It was mapped with no permission bits, which only
+        // worked while reads went unchecked; mem_ptr_nofault now faults a
+        // PROT_NONE page on read, as Linux does.
+        if ((err = pt_map(save->mem, vdso_page, vdso_pages, (void *) vdso_data, 0, P_READ | P_EXEC)) < 0)
             goto beyond_hope;
         mem_pt(save->mem, vdso_page)->data->name = "[vdso]";
         save->mm->vdso = vdso_page << PAGE_BITS;

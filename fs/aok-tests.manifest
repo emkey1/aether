@@ -36,6 +36,7 @@ ptrace_exit_kill.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c
+mem_conformance.c
 sock_conformance.c
 amd64_jit_bench.sh
 setup-regressions.sh

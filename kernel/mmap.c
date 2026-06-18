@@ -136,14 +136,25 @@ static guest_addr_t do_mmap(guest_addr_t addr, qword_t len, dword_t prot, dword_
     pages_t pages = PAGE_ROUND_UP(len);
     if (!pages) return _EINVAL;
     page_t page = 0;
-    if (addr != 0 && !guest_abi_range_valid(current->abi, addr, len))
-        return _ENOMEM;
+    bool fixed = flags & (MMAP_FIXED | MMAP_FIXED_NOREPLACE);
     if (addr != 0) {
-        if (PGOFFSET(addr) != 0)
-            return _EINVAL;
+        // A non-FIXED address is only a hint: Linux rounds an unaligned value
+        // down to a page boundary rather than rejecting it. MAP_FIXED and
+        // MAP_FIXED_NOREPLACE demand an exactly page-aligned address.
+        if (PGOFFSET(addr) != 0) {
+            if (fixed)
+                return _EINVAL;
+            addr -= PGOFFSET(addr);
+        }
+        if (!guest_abi_range_valid(current->abi, addr, len))
+            return _ENOMEM;
         page = PAGE(addr);
-        if (!(flags & MMAP_FIXED) && !pt_is_hole(current->mem, page, pages)) {
+        if (!fixed && !pt_is_hole(current->mem, page, pages)) {
+            // hint region is occupied -> let the kernel place it anywhere
             addr = 0;
+        } else if ((flags & MMAP_FIXED_NOREPLACE) && !pt_is_hole(current->mem, page, pages)) {
+            // MAP_FIXED_NOREPLACE must fail rather than clobber or relocate
+            return _EEXIST;
         }
     }
     if (addr == 0) {
@@ -184,6 +195,9 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
     if (prot & ~P_RWX)
         return _EINVAL;
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
+        return _EINVAL;
+    // exactly one of MAP_PRIVATE / MAP_SHARED is required
+    if (!(flags & (MMAP_PRIVATE | MMAP_SHARED)))
         return _EINVAL;
 
     mem_write_lock_with_pokes(current->mem);
@@ -409,9 +423,50 @@ int_t sys_mprotect(addr_t addr, uint_t len, int_t prot) {
 
 #define MADV_DONTNEED_ 4
 
+// Advices Linux's madvise() accepts. Linux validates the argument up front and
+// returns EINVAL for anything it does not recognize, independent of whether the
+// advice has any effect. iSH only acts on MADV_DONTNEED; the rest are accepted
+// as no-op hints so software that probes them does not see a spurious error.
+static bool madvise_advice_valid(dword_t advice) {
+    switch (advice) {
+        case 0:   // MADV_NORMAL
+        case 1:   // MADV_RANDOM
+        case 2:   // MADV_SEQUENTIAL
+        case 3:   // MADV_WILLNEED
+        case 4:   // MADV_DONTNEED
+        case 8:   // MADV_FREE
+        case 9:   // MADV_REMOVE
+        case 10:  // MADV_DONTFORK
+        case 11:  // MADV_DOFORK
+        case 12:  // MADV_MERGEABLE
+        case 13:  // MADV_UNMERGEABLE
+        case 14:  // MADV_HUGEPAGE
+        case 15:  // MADV_NOHUGEPAGE
+        case 16:  // MADV_DONTDUMP
+        case 17:  // MADV_DODUMP
+        case 18:  // MADV_WIPEONFORK
+        case 19:  // MADV_KEEPONFORK
+        case 20:  // MADV_COLD
+        case 21:  // MADV_PAGEOUT
+        case 25:  // MADV_COLLAPSE
+            return true;
+        default:
+            return false;
+    }
+}
+
 dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice) {
     STRACE("madvise(%#llx, %#llx, %d)", (unsigned long long) addr,
            (unsigned long long) len, advice);
+    // Linux validates the advice and the address up front for every advice.
+    if (!madvise_advice_valid(advice))
+        return _EINVAL;
+    if (PGOFFSET(addr) != 0)
+        return _EINVAL;
+    pages_t pages = PAGE_ROUND_UP(len);
+    if (pages == 0)
+        return 0;
+
     // MADV_DONTNEED is the one advice with destructive (zeroing) semantics that
     // software actually depends on -- notably jemalloc, which probes it at
     // startup and, finding it does nothing here, permanently falls back to
@@ -420,25 +475,28 @@ dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice) {
     // matching Linux. Other advices, and file-backed or shared mappings, stay
     // hints / no-ops (re-faulting a file mapping would mean re-reading the file,
     // which MADV_DONTNEED does not require us to do here).
-    if (advice != MADV_DONTNEED_)
-        return 0;
-    if (PGOFFSET(addr) != 0)
-        return _EINVAL;
-    pages_t pages = PAGE_ROUND_UP(len);
-    if (pages == 0)
-        return 0;
-
     struct mem *mem = current->mem;
     int err = 0;
+    bool saw_hole = false;
     mem_write_lock_with_pokes(mem);
     page_t start = PAGE(addr);
     page_t end = start + pages;
-    if (end < start || end > mem->page_limit)
-        end = mem->page_limit; // clamp to the address space / guard overflow
+    if (end < start || end > mem->page_limit) {
+        saw_hole = true;       // part of the range is outside the address space
+        end = mem->page_limit; // clamp the loop bound / guard overflow
+    }
     for (page_t page = start; page < end; ) {
         struct pt_entry *pt = mem_pt(mem, page);
-        if (pt == NULL || !(pt->flags & P_ANONYMOUS) || (pt->flags & P_SHARED)) {
-            page++; // skip holes, file-backed and shared mappings
+        if (pt == NULL) {
+            // A gap anywhere in the range makes the whole call ENOMEM on Linux,
+            // after the advice is still applied to the mapped portion.
+            saw_hole = true;
+            page++;
+            continue;
+        }
+        if (advice != MADV_DONTNEED_ ||
+                !(pt->flags & P_ANONYMOUS) || (pt->flags & P_SHARED)) {
+            page++; // file-backed / shared / non-DONTNEED: nothing to discard
             continue;
         }
         // Coalesce a run of same-flag private anonymous pages and replace them
@@ -458,7 +516,11 @@ dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice) {
             break;
     }
     mem_write_unlock_with_pokes(mem);
-    return err < 0 ? err : 0;
+    if (err < 0)
+        return err;
+    if (saw_hole)
+        return _ENOMEM;        // some address in the range was not mapped
+    return 0;
 }
 
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice) {
@@ -472,10 +534,9 @@ dword_t sys_mincore_guest(guest_addr_t addr, qword_t len, guest_addr_t vec_addr)
            (unsigned long long) vec_addr);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
-    if (len == 0)
-        return _EINVAL;
-
     pages_t pages = PAGE_ROUND_UP(len);
+    if (pages == 0)
+        return 0;       // Linux: mincore of a zero-length range is a no-op success
     page_t start = PAGE(addr);
 
     // Collect the result before touching guest memory: user_write re-enters
@@ -578,8 +639,47 @@ int_t sys_munlockall(void) {
     return sys_munlockall_guest();
 }
 
-int_t sys_msync_guest(guest_addr_t UNUSED(addr), qword_t UNUSED(len), int_t UNUSED(flags)) {
-    return 0;
+#define MS_ASYNC_      1
+#define MS_INVALIDATE_ 2
+#define MS_SYNC_       4
+
+int_t sys_msync_guest(guest_addr_t addr, qword_t len, int_t flags) {
+    STRACE("msync(%#llx, %#llx, 0x%x)", (unsigned long long) addr,
+           (unsigned long long) len, flags);
+    // iSH has no separate dirty-page write-back step (anonymous and shared
+    // mappings share their host pages), so the data side of msync is a no-op.
+    // But Linux still validates the arguments, and software checks those errors:
+    //   - an unknown flag bit -> EINVAL;
+    //   - MS_SYNC and MS_ASYNC together -> EINVAL (mutually exclusive);
+    //   - an unaligned address -> EINVAL;
+    //   - a range that is not fully mapped -> ENOMEM.
+    if (flags & ~(MS_ASYNC_ | MS_INVALIDATE_ | MS_SYNC_))
+        return _EINVAL;
+    if ((flags & MS_ASYNC_) && (flags & MS_SYNC_))
+        return _EINVAL;
+    if (PGOFFSET(addr) != 0)
+        return _EINVAL;
+    pages_t pages = PAGE_ROUND_UP(len);
+    if (pages == 0)
+        return 0;
+
+    struct mem *mem = current->mem;
+    page_t start = PAGE(addr);
+    page_t end = start + pages;
+    int err = 0;
+    mem_read_lock_quiesce_aware(mem);
+    if (end < start || end > mem->page_limit) {
+        err = _ENOMEM;     // range extends outside the address space
+    } else {
+        for (page_t page = start; page < end; page++) {
+            if (mem_pt(mem, page) == NULL) {
+                err = _ENOMEM;   // a gap in the range -> ENOMEM
+                break;
+            }
+        }
+    }
+    mem_read_unlock_quiesce_aware(mem);
+    return err;
 }
 
 int_t sys_msync(addr_t addr, dword_t len, int_t flags) {

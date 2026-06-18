@@ -1236,6 +1236,7 @@ static syscall_t amd64_syscall_table[453] = {
     [24] = (syscall_t) sys_sched_yield,
     [25] = (syscall_t) sys_mremap,
     [26] = (syscall_t) sys_msync,
+    [27] = (syscall_t) sys_mincore,
     [28] = (syscall_t) sys_madvise,
     [29] = (syscall_t) sys_shmget,
     [30] = (syscall_t) sys_shmat,
@@ -1778,6 +1779,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 26:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msync_guest(raw_args[0],
                 raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 27:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_mincore_guest(raw_args[0],
+                raw_args[1], raw_args[2]));
         return true;
     case 28:
         amd64_syscall_result_qword(cpu, sys_madvise_guest(raw_args[0], raw_args[1],

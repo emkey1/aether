@@ -658,6 +658,14 @@ static void *mem_ptr_nofault(struct mem *mem, guest_addr_t addr, int type) {
     struct pt_entry *entry = mem_pt(mem, PAGE(addr));
     if (entry == NULL)
         return NULL;
+    // PROT_NONE (no access bits set) must fault on EVERY access, including
+    // reads, even when the page still has live host backing -- e.g. an RW page
+    // later mprotect'd to PROT_NONE keeps its data pointer but must no longer be
+    // readable. Without this, guard pages (stack guards, sanitizer/JIT/runtime
+    // PROT_NONE regions) silently allowed reads where real Linux faults.
+    // MEM_WRITE_PTRACE intentionally bypasses guest protections (debugger poke).
+    if (type != MEM_WRITE_PTRACE && (entry->flags & P_RWX) == 0)
+        return NULL;
     if (type == MEM_WRITE && !P_WRITABLE(entry->flags))
         return NULL;
     if (entry->data->data == NULL)
