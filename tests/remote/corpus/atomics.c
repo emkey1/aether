@@ -75,13 +75,14 @@ static void run_cases(void) {
 #endif
     }
     /* lock cmpxchg: vary mem + accumulator (store fixed). We compare the memory
-     * result and ZF, but MASK OFF the other arith flags (FL_ZF only). Reason:
-     * Rosetta -- the macOS oracle -- is UNFAITHFUL for cmpxchg here. Real Intel
-     * (the mint cell) and iSH both set CF/PF/AF/SF/OF from (acc - dest), matching
-     * the Intel SDM ("CMP accumulator, dest"); Rosetta instead uses (dest - acc).
-     * ZF is order-symmetric, so it is the only cross-oracle-reliable flag. (This
-     * is why cmpxchg8b/16b are ZF-only by spec, and was caught only because mint
-     * provides a real-silicon cross-check against Rosetta.) */
+     * result and ZF, but MASK OFF the other arith flags (FL_ZF only). The arith
+     * sub-flags' operand order is not a dependable cross-implementation invariant:
+     * iSH, the real Intel mint cell, and the SDM's "CMP accumulator, dest" all use
+     * (acc - dest), while Rosetta uses (dest - acc). That does NOT make Rosetta
+     * "wrong" -- CPUs carry errata and generational/vendor quirks, and an emulator
+     * may faithfully model a different part -- it just means only ZF (which is
+     * order-symmetric) is reliable across oracles. (cmpxchg8b/16b are ZF-only by
+     * spec for the same reason.) */
     for (size_t i = 0; i < NV; i++) for (size_t j = 0; j < NV; j++) {
         uint64_t mo, ao; unsigned long fl;
         CMPXCHG(uint8_t,  VB[i], VB[j], mo, ao, fl);

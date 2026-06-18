@@ -154,15 +154,20 @@ amd64 LDMXCSR/STMXCSR; and i386 min/max returning the wrong operand on the
 compare-exchange was silently running as cmpxchg8b, mangling the result). Each
 confirmed against the oracle (Rosetta + real-Intel mint) and validated to green.
 
-### Oracle fidelity: Rosetta vs real silicon
+### Oracle fidelity: oracles can disagree
 
-`atomics` surfaced a case where the **Rosetta oracle is itself unfaithful**:
-after `cmpxchg`, real Intel (the `mint` cell), iSH, and the Intel SDM all set
-CF/PF/AF/SF/OF from `acc − dest`, but Rosetta sets them from `dest − acc`. Taking
-Rosetta as ground truth would have meant "fixing" iSH to be *wrong* — the mint
-real-silicon cross-check caught it. The test masks cmpxchg to ZF (the only
-order-symmetric flag); the episode is a concrete reason the second, real-hardware
-oracle pays for itself.
+`atomics` surfaced a case where the two oracles disagree. After `cmpxchg`, real
+Intel (the `mint` cell), iSH, and the Intel SDM (`CMP accumulator, dest`) all set
+CF/PF/AF/SF/OF from `acc − dest`, while Rosetta uses `dest − acc`. This is **not
+necessarily a Rosetta bug** — CPUs carry errata and generational/vendor quirks,
+and an emulator may faithfully model a different part — but it does show the
+arithmetic sub-flags of `cmpxchg` are not a dependable cross-implementation
+invariant. Treating *either* single oracle as absolute ground truth would have
+meant "correcting" iSH to match it; the disagreement only became visible because
+a second, real-silicon oracle (mint) sits alongside Rosetta. The test now
+compares only ZF (the order-symmetric flag) for cmpxchg. The episode is the
+clearest argument for the second oracle — not to crown a winner, but to flag
+where "ground truth" is implementation-defined.
 
 ## First validated finding (worked example)
 
