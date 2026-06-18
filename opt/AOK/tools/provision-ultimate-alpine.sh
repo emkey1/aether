@@ -90,7 +90,7 @@ PKGS="
   tzdata ca-certificates openssl
   man-db man-pages
   curl wget rsync bind-tools iproute2
-  git strace build-base gdb
+  git strace build-base gdb linux-headers
   python3 py3-pip
   vim neovim nano tmux
   htop btop ncdu lsof pv tree
