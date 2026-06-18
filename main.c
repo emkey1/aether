@@ -152,6 +152,17 @@ int main(int argc, char *const argv[]) {
     run_at_boot();
     configure_standalone_i386_safety(argc, argv);
     configure_standalone_amd64_jit();
+    // The iOS app defaults to multicore (UserPreferences shouldEnableMulticore =
+    // YES); the CLI defaults to single-core. Let development and local fakefs
+    // repro harnesses match the device's threading -- and so exercise the
+    // multicore-only races it has -- by setting ISH_MULTICORE=1.
+    {
+        extern bool doEnableMulticore;
+        const char *mc = getenv("ISH_MULTICORE");
+        if (mc != NULL && (strcmp(mc, "1") == 0 || strcasecmp(mc, "true") == 0 ||
+                           strcasecmp(mc, "yes") == 0 || strcasecmp(mc, "on") == 0))
+            doEnableMulticore = true;
+    }
     halt_hook = cli_halt;
 
     char *envp = build_envp_from_term();
