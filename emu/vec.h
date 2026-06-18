@@ -222,4 +222,53 @@ void vec_extract_w128(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t i
 void vec_avg_b128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
 void vec_avg_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
 
+// SSSE3 / SSE4.1 (three-byte 0F 38 / 0F 3A); see emu/vec.c and emu/decode.h.
+void vec_insert_d32(NO_CPU, const uint32_t *src, union xmm_reg *dst, uint8_t index);
+void vec_insert_b8(NO_CPU, const uint8_t *src, union xmm_reg *dst, uint8_t index);
+void vec_extract_d32(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index);
+void vec_extract_b8(NO_CPU, const union xmm_reg *src, uint8_t *dst, uint8_t index);
+void vec_extract_b_reg128(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index);
+void vec_extract_w_mem16(NO_CPU, const union xmm_reg *src, uint16_t *dst, uint8_t index);
+void vec_palignr128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t shift);
+void vec_pshufb128(NO_CPU, const union xmm_reg *control, union xmm_reg *dst);
+void vec_pabsb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pabsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pabsd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxbw64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxbw64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxbd32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxbd32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxbq16(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxbq16(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxwd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxwd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxwq32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxwq32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovzxdq64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmovsxdq64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmulld128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmuldq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pcmpeqq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pcmpgtq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_packusdw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pminsb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmaxsb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pminuw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmaxuw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pminsd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmaxsd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pminud128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmaxud128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_ptest128(struct cpu_state *cpu, const union xmm_reg *src, const union xmm_reg *dst);
+void vec_pblendvb128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst);
+void vec_blendvps128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst);
+void vec_blendvpd128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst);
+void vec_blend_ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_blend_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_blend_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_round_ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_round_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_round_ss32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_round_sd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+
 #endif

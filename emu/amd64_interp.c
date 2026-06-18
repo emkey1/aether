@@ -5280,8 +5280,14 @@ restart_prefix:
             bool is_pmulld = op3 == 0x40;
             bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
                             (op3 >= 0x30 && op3 <= 0x35);
+            // Additional xmm<-xmm/m128 ops handled via the shared vec.c helpers
+            // (validated bit-exact vs real Intel by tests/remote/corpus/sse4.c):
+            // pabsb/w/d (1c-1e), pmuldq (28), packusdw (2b), pcmpgtq (37),
+            // pmin/pmax sb/sd/uw/ud (38-3f).
+            bool is_vec38 = (op3 >= 0x1c && op3 <= 0x1e) || op3 == 0x28 ||
+                            op3 == 0x2b || op3 == 0x37 || (op3 >= 0x38 && op3 <= 0x3f);
             if ((!is_pshufb && !is_pblendvb && !is_blendvps && !is_blendvpd &&
-                    !is_ptest && !is_pcmpeqq && !is_pmulld && !is_pmovx) ||
+                    !is_ptest && !is_pcmpeqq && !is_pmulld && !is_pmovx && !is_vec38) ||
                     !operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             struct amd64_modrm modrm;
@@ -5409,6 +5415,36 @@ restart_prefix:
                 cpu->xmm[modrm.reg] = result;
                 break;
             }
+            if (is_vec38) {
+                // Read the source into a local copy (no aliasing with the
+                // destination) and dispatch to the shared vec.c helper, which
+                // modifies cpu->xmm[modrm.reg] in place.
+                union xmm_reg src;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                union xmm_reg *dst = &cpu->xmm[modrm.reg];
+                switch (op3) {
+                    case 0x1c: vec_pabsb128(cpu, &src, dst); break;
+                    case 0x1d: vec_pabsw128(cpu, &src, dst); break;
+                    case 0x1e: vec_pabsd128(cpu, &src, dst); break;
+                    case 0x28: vec_pmuldq128(cpu, &src, dst); break;
+                    case 0x2b: vec_packusdw128(cpu, &src, dst); break;
+                    case 0x37: vec_pcmpgtq128(cpu, &src, dst); break;
+                    case 0x38: vec_pminsb128(cpu, &src, dst); break;
+                    case 0x39: vec_pminsd128(cpu, &src, dst); break;
+                    case 0x3a: vec_pminuw128(cpu, &src, dst); break;
+                    case 0x3b: vec_pminud128(cpu, &src, dst); break;
+                    case 0x3c: vec_pmaxsb128(cpu, &src, dst); break;
+                    case 0x3d: vec_pmaxsd128(cpu, &src, dst); break;
+                    case 0x3e: vec_pmaxuw128(cpu, &src, dst); break;
+                    case 0x3f: vec_pmaxud128(cpu, &src, dst); break;
+                    default: return INT_UNDEFINED;
+                }
+                break;
+            }
             bool zero_extend = (op3 & 0xf0) == 0x30;
             unsigned src_elem_bytes, dst_elem_bytes;
             switch (op3 & 0x0f) {
@@ -5455,6 +5491,105 @@ restart_prefix:
                     result.qw[i] = (uint64_t) elem;
             }
             cpu->xmm[modrm.reg] = result;
+            break;
+        }
+        if (op2 == 0x3a) {
+            // Three-byte 0F 3A escape: SSSE3 palignr + SSE4.1 insert/extract,
+            // imm-blend and round. Mirrors the i386 JIT decode (emu/decode.h)
+            // and reuses the shared vec.c helpers; validated bit-exact vs real
+            // Intel by tests/remote/corpus/sse4.c. imm8 follows the ModRM (and
+            // any SIB/disp), so it is fetched BEFORE any memory operand read so
+            // a RIP-relative effective address is computed at the instruction
+            // end. pinsr/pextr take a GP/mem r/m (not xmm); REX.W selects the
+            // q forms (pinsrq/pextrq).
+            byte_t op3;
+            if (!amd64_fetch_u8(cpu, tlb, &op3)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            bool known = (op3 >= 0x08 && op3 <= 0x0f) ||
+                         (op3 >= 0x14 && op3 <= 0x17) ||
+                         op3 == 0x20 || op3 == 0x22;
+            if (!known || !operand_size_prefix || rep_mode != AMD64_REP_NONE)
+                return INT_UNDEFINED;
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            if (modrm.reg >= AMD64_XMM_COUNT)
+                return INT_UNDEFINED;
+            byte_t imm;
+            if (!amd64_fetch_u8(cpu, tlb, &imm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            union xmm_reg *xreg = &cpu->xmm[modrm.reg];
+            if (op3 >= 0x08 && op3 <= 0x0f) {
+                // round/blend/palignr: xmm/m source. Scalar rounds read only
+                // their m32/m64 lane so a narrow operand can't over-read a page.
+                unsigned src_bytes = (op3 == 0x0a) ? 4 : (op3 == 0x0b) ? 8 : 16;
+                union xmm_reg src = {0};
+                if (modrm.is_reg) {
+                    if (modrm.rm >= AMD64_XMM_COUNT)
+                        return INT_UNDEFINED;
+                    src = cpu->xmm[modrm.rm];
+                } else {
+                    qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                    if (!amd64_mem_read(cpu, tlb, addr, &src, src_bytes)) {
+                        cpu->amd64_rip = saved_rip;
+                        amd64_sync_legacy_regs(cpu);
+                        return INT_PF;
+                    }
+                }
+                switch (op3) {
+                    case 0x08: vec_round_ps128(cpu, &src, xreg, imm); break;
+                    case 0x09: vec_round_pd128(cpu, &src, xreg, imm); break;
+                    case 0x0a: vec_round_ss32(cpu, &src, xreg, imm); break;
+                    case 0x0b: vec_round_sd64(cpu, &src, xreg, imm); break;
+                    case 0x0c: vec_blend_ps128(cpu, &src, xreg, imm); break;
+                    case 0x0d: vec_blend_pd128(cpu, &src, xreg, imm); break;
+                    case 0x0e: vec_blend_w128(cpu, &src, xreg, imm); break;
+                    default:   vec_palignr128(cpu, &src, xreg, imm); break; // 0x0f
+                }
+                break;
+            }
+            if (op3 == 0x20 || op3 == 0x22) {
+                // pinsrb (m8) / pinsrd|pinsrq: insert a GP/mem r/m into a lane.
+                unsigned size = op3 == 0x20 ? 8 : (rex.w ? 64 : 32);
+                qword_t v;
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &v)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                if (op3 == 0x20)
+                    xreg->u8[imm & 15] = (uint8_t) v;
+                else if (rex.w)
+                    xreg->qw[imm & 1] = v;
+                else
+                    xreg->u32[imm & 3] = (uint32_t) v;
+                break;
+            }
+            // pextrb/pextrw/pextrd|pextrq/extractps: extract a lane to a GP/mem
+            // r/m. A register destination is zero-extended (write size 32/64).
+            qword_t v;
+            unsigned size;
+            switch (op3) {
+                case 0x14: v = xreg->u8[imm & 15]; size = modrm.is_reg ? 32 : 8;  break;
+                case 0x15: v = xreg->u16[imm & 7]; size = modrm.is_reg ? 32 : 16; break;
+                case 0x16: if (rex.w) { v = xreg->qw[imm & 1]; size = 64; }
+                           else       { v = xreg->u32[imm & 3]; size = 32; } break;
+                default:   v = xreg->u32[imm & 3]; size = 32; break; // 0x17 extractps
+            }
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, size, v)) {
+                cpu->amd64_rip = saved_rip;
+                amd64_sync_legacy_regs(cpu);
+                return INT_PF;
+            }
             break;
         }
         if (op2 >= 0x80 && op2 <= 0x8f) {

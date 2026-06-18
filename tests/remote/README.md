@@ -12,7 +12,7 @@ a repro. Built to push the edges of the 32- and 64-bit JIT.
 | `conductor.py` — 5 modes: `run` / `supervise` / `device` / `tier0` / `conform` | **working** |
 | local-fakefs backend (host `./build/ish`, device-identical aarch64 gadgets) | **working** (primary) |
 | Rosetta `arch -x86_64` + mint Lima-VM oracles (true i386 + real-Linux x86_64) | **working** |
-| differential corpus — 11 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle, atomics) | **working** |
+| differential corpus — 12 families (ALU, adc/sbb-mem, shifts, sign-ext, mul/div, mxcsr, bit-ops, rep-string, sse-cvt, sse-shuffle, sse4, atomics) | **working** |
 | **conformance corpus** (`conform`) — signal/syscall (`corpus_signal/`) + filesystem/VFS (`corpus_fs/`) families vs **real Linux** (mint), Rosetta excluded | **working** (all green) |
 | Tier 0 — the 21 `tests/manual` self-check tests | **working** (20/20 i386, 21/21 amd64) |
 | `mint:i386:jit` cell — iSH built in mint's VM (x86_64-host i386 JIT) | **working** |
@@ -163,7 +163,7 @@ Two test styles flow through the same matrix:
 
 - **Differential** (`run`, JIT-edge): `corpus/*.c` via `diff_common.h` print a
   canonical `result+flags` line per case; require byte-identical across cells +
-  oracle. Eleven families so far, each guarding a bug class this project has hit:
+  oracle. Twelve families so far, each guarding a bug class this project has hit:
   - `flags_alu` — integer ALU result + EFLAGS exactness
   - `adc_sbb_mem` — carry-in adc/sbb on the **native memory-operand gadget** (not
     just the bridged register path)
@@ -180,6 +180,13 @@ Two test styles flow through the same matrix:
     sign / saturation differences don't false-diverge
   - `sse_shuffle` — shufps/shufpd, unpck[lh]p[sd], pshufd/pshuflw/pshufhw, and the
     sign-mask extracts movmskps/movmskpd/pmovmskb; pure lane moves, byte-exact
+  - `sse4` — SSSE3 / SSE4.1 three-byte ops (0F 38 / 0F 3A): pinsr/pextr (d/b/w),
+    extractps, palignr, pshufb, pabs, pmovsx/pmovzx (all 12), pmulld/pmuldq,
+    pcmpeqq/pcmpgtq, packusdw, pmin/pmax (sb/uw/sd/ud), ptest (ZF/CF), the imm and
+    XMM0-variable blends, and round{ps,pd,ss,sd} (finite inputs). Found the i386
+    JIT had **no three-byte opcode map at all** (guest `pinsrd` → SIGILL, crashed
+    cmake); the amd64 engine had the same gap (no 0F 3A handler, partial 0F 38).
+    Both fixed — all 8 cells (i386 ×3, amd64 ×2, oracle, mint ×2) agree byte-exact.
   - `atomics` — lock xadd / cmpxchg / cmpxchg8b / cmpxchg16b / lock add·and·or·
     xor·sub·inc·dec / xchg; result + ZF (cmpxchg arith sub-flags masked — see the
     oracle-fidelity note below)

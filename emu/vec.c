@@ -707,3 +707,226 @@ void vec_muluu128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
         dst->u16[i] = ((res >> 16) & 0xffff);
     }
 }
+
+// ---------------------------------------------------------------------------
+// SSSE3 / SSE4.1 (three-byte 0F 38 / 0F 3A opcodes).
+//
+// These are the helpers behind the i386 JIT's three-byte vector dispatch (see
+// emu/decode.h). They are validated bit-exact against real Intel silicon via
+// tests/remote/corpus/sse4.c. The `z` numeric suffix is the memory-operand
+// access width the gadget uses for that op (the source width for the widening
+// pmovsx/pmovzx moves, the destination width for byte/word extracts), NOT the
+// xmm register width -- which is always 128.
+// ---------------------------------------------------------------------------
+
+// pinsrd: insert a dword (from r/m32) into lane (imm & 3). dst is always xmm.
+void vec_insert_d32(NO_CPU, const uint32_t *src, union xmm_reg *dst, uint8_t index) {
+    dst->u32[index & 3] = *src;
+}
+// pinsrb: insert the low byte of r/m into byte lane (imm & 15).
+void vec_insert_b8(NO_CPU, const uint8_t *src, union xmm_reg *dst, uint8_t index) {
+    dst->u8[index & 15] = *src;
+}
+// pextrd / extractps: extract dword lane (imm & 3) to r/m32 (4-byte write is
+// correct for both a memory destination and a full GP register).
+void vec_extract_d32(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index) {
+    *dst = src->u32[index & 3];
+}
+// pextrb to a *memory* destination (m8): write exactly one byte.
+void vec_extract_b8(NO_CPU, const union xmm_reg *src, uint8_t *dst, uint8_t index) {
+    *dst = src->u8[index & 15];
+}
+// pextrb to a *register* destination: the byte is zero-extended to 32 bits.
+void vec_extract_b_reg128(NO_CPU, const union xmm_reg *src, uint32_t *dst, uint8_t index) {
+    *dst = src->u8[index & 15];
+}
+// pextrw (0F 3A 15) to a *memory* destination (m16): write exactly two bytes.
+// (The register-destination form reuses vec_extract_w128, which zero-extends.)
+void vec_extract_w_mem16(NO_CPU, const union xmm_reg *src, uint16_t *dst, uint8_t index) {
+    *dst = src->u16[index & 7];
+}
+
+// palignr (SSSE3): concatenate dst:src (dst high, src low) into 32 bytes, shift
+// right by `shift` bytes, take the low 16 into dst. shift >= 32 -> all zero.
+void vec_palignr128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t shift) {
+    uint8_t tmp[32];
+    memcpy(&tmp[0], src->u8, 16);
+    memcpy(&tmp[16], dst->u8, 16);
+    union xmm_reg res;
+    for (int i = 0; i < 16; i++) {
+        int idx = i + shift;
+        res.u8[i] = idx < 32 ? tmp[idx] : 0;
+    }
+    *dst = res;
+}
+
+// pshufb (SSSE3): dst (=reg) is BOTH the byte source and the destination; the
+// control vector is r/m. result[i] = ctrl[i]&0x80 ? 0 : dst_orig[ctrl[i]&0xF].
+void vec_pshufb128(NO_CPU, const union xmm_reg *control, union xmm_reg *dst) {
+    union xmm_reg orig = *dst;
+    union xmm_reg res;
+    for (int i = 0; i < 16; i++)
+        res.u8[i] = (control->u8[i] & 0x80) ? 0 : orig.u8[control->u8[i] & 0x0f];
+    *dst = res;
+}
+
+// pabsb/w/d (SSSE3): dst = |src| per lane (signed).
+void vec_pabsb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 16; i++) { int8_t v = (int8_t)src->u8[i]; dst->u8[i] = v < 0 ? -v : v; }
+}
+void vec_pabsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 8; i++) { int16_t v = (int16_t)src->u16[i]; dst->u16[i] = v < 0 ? -v : v; }
+}
+void vec_pabsd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 4; i++) { int32_t v = (int32_t)src->u32[i]; dst->u32[i] = v < 0 ? -(uint32_t)v : (uint32_t)v; }
+}
+
+// pmovsx/pmovzx (SSE4.1): sign-/zero-extend the low packed elements of the
+// source. The `z` suffix is the source width consumed (so a memory source
+// reads exactly that many bytes).
+void vec_pmovzxbw64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 8; i++) r.u16[i] = src->u8[i]; *dst = r;
+}
+void vec_pmovsxbw64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 8; i++) r.u16[i] = (int16_t)(int8_t)src->u8[i]; *dst = r;
+}
+void vec_pmovzxbd32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 4; i++) r.u32[i] = src->u8[i]; *dst = r;
+}
+void vec_pmovsxbd32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 4; i++) r.u32[i] = (int32_t)(int8_t)src->u8[i]; *dst = r;
+}
+void vec_pmovzxbq16(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = src->u8[i]; *dst = r;
+}
+void vec_pmovsxbq16(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = (uint64_t)(int64_t)(int8_t)src->u8[i]; *dst = r;
+}
+void vec_pmovzxwd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 4; i++) r.u32[i] = src->u16[i]; *dst = r;
+}
+void vec_pmovsxwd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 4; i++) r.u32[i] = (int32_t)(int16_t)src->u16[i]; *dst = r;
+}
+void vec_pmovzxwq32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = src->u16[i]; *dst = r;
+}
+void vec_pmovsxwq32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = (uint64_t)(int64_t)(int16_t)src->u16[i]; *dst = r;
+}
+void vec_pmovzxdq64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = src->u32[i]; *dst = r;
+}
+void vec_pmovsxdq64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.qw[i] = (uint64_t)(int64_t)(int32_t)src->u32[i]; *dst = r;
+}
+
+// pmulld (SSE4.1): packed 32-bit low product.
+void vec_pmulld128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 4; i++) dst->u32[i] = (uint32_t)(dst->u32[i] * src->u32[i]);
+}
+// pmuldq (SSE4.1): signed 32x32 -> 64 on lanes 0 and 2 -> qwords 0 and 1.
+void vec_pmuldq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    int64_t r0 = (int64_t)(int32_t)dst->u32[0] * (int64_t)(int32_t)src->u32[0];
+    int64_t r1 = (int64_t)(int32_t)dst->u32[2] * (int64_t)(int32_t)src->u32[2];
+    dst->qw[0] = (uint64_t)r0; dst->qw[1] = (uint64_t)r1;
+}
+// pcmpeqq (SSE4.1) / pcmpgtq (SSE4.2): packed 64-bit compare -> all-ones/zero.
+void vec_pcmpeqq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 2; i++) dst->qw[i] = dst->qw[i] == src->qw[i] ? ~0ULL : 0;
+}
+void vec_pcmpgtq128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 2; i++) dst->qw[i] = (int64_t)dst->qw[i] > (int64_t)src->qw[i] ? ~0ULL : 0;
+}
+// packusdw (SSE4.1): pack signed dwords (dst then src) to unsigned words, sat.
+static inline uint16_t satusw(int32_t v) {
+    if (v < 0) return 0;
+    if (v > 0xffff) return 0xffff;
+    return (uint16_t)v;
+}
+void vec_packusdw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 4; i++) r.u16[i]     = satusw((int32_t)dst->u32[i]);
+    for (int i = 0; i < 4; i++) r.u16[4 + i] = satusw((int32_t)src->u32[i]);
+    *dst = r;
+}
+
+// pmin*/pmax* (SSE4.1): the variants SSE2 lacks (signed byte, signed/unsigned
+// dword, unsigned word). result keeps dst when the predicate holds, else src.
+#define VEC_MINMAX(name, lane, ctype, cmp) \
+    void vec_##name##128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) { \
+        for (unsigned i = 0; i < array_size(dst->lane); i++) \
+            dst->lane[i] = (ctype)dst->lane[i] cmp (ctype)src->lane[i] ? dst->lane[i] : src->lane[i]; \
+    }
+VEC_MINMAX(pminsb, u8,  int8_t,   <)
+VEC_MINMAX(pmaxsb, u8,  int8_t,   >)
+VEC_MINMAX(pminuw, u16, uint16_t, <)
+VEC_MINMAX(pmaxuw, u16, uint16_t, >)
+VEC_MINMAX(pminsd, u32, int32_t,  <)
+VEC_MINMAX(pmaxsd, u32, int32_t,  >)
+VEC_MINMAX(pminud, u32, uint32_t, <)
+VEC_MINMAX(pmaxud, u32, uint32_t, >)
+#undef VEC_MINMAX
+
+// ptest (SSE4.1): ZF = (DEST & SRC)==0; CF = (SRC & ~DEST)==0; clears the rest.
+// DEST is the reg operand (dst), SRC is r/m (src). Sets eager flags directly.
+void vec_ptest128(struct cpu_state *cpu, const union xmm_reg *src, const union xmm_reg *dst) {
+    unsigned __int128 s = src->u128, d = dst->u128;
+    cpu->zf_res = cpu->pf_res = cpu->sf_res = 0;
+    cpu->af_ops = 0;
+    cpu->zf = (d & s) == 0;
+    cpu->cf = (s & ~d) == 0;
+    cpu->pf = cpu->sf = cpu->af = cpu->of = 0;
+    cpu->cf_bit = cpu->cf;
+    cpu->of_bit = 0;
+}
+
+// pblendvb / blendvps / blendvpd (SSE4.1): variable blend, mask is implicit
+// XMM0 (high bit of each byte/dword/qword lane). Snapshot the mask first so a
+// destination that aliases XMM0 stays correct.
+void vec_pblendvb128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg mask = cpu->xmm[0];
+    for (int i = 0; i < 16; i++) if (mask.u8[i] & 0x80) dst->u8[i] = src->u8[i];
+}
+void vec_blendvps128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg mask = cpu->xmm[0];
+    for (int i = 0; i < 4; i++) if (mask.u32[i] & 0x80000000u) dst->u32[i] = src->u32[i];
+}
+void vec_blendvpd128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg mask = cpu->xmm[0];
+    for (int i = 0; i < 2; i++) if (mask.qw[i] & 0x8000000000000000ULL) dst->qw[i] = src->qw[i];
+}
+// blendps / blendpd / pblendw (SSE4.1): imm-controlled blend (set bit -> src).
+void vec_blend_ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    for (int i = 0; i < 4; i++) if (imm & (1 << i)) dst->u32[i] = src->u32[i];
+}
+void vec_blend_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    for (int i = 0; i < 2; i++) if (imm & (1 << i)) dst->qw[i] = src->qw[i];
+}
+void vec_blend_w128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    for (int i = 0; i < 8; i++) if (imm & (1 << i)) dst->u16[i] = src->u16[i];
+}
+
+// roundps/pd/ss/sd (SSE4.1): imm8[1:0] picks the mode when imm8[2]==0
+// (0 nearest-even, 1 floor, 2 ceil, 3 trunc); imm8[2]=1 means "use MXCSR",
+// which iSH models as round-nearest-even. Scalar forms leave the upper lanes.
+static inline float dc_round_f32(float x, uint8_t imm) {
+    if (imm & 0x4) return rintf(x);
+    switch (imm & 3) { case 1: return floorf(x); case 2: return ceilf(x); case 3: return truncf(x); default: return rintf(x); }
+}
+static inline double dc_round_f64(double x, uint8_t imm) {
+    if (imm & 0x4) return rint(x);
+    switch (imm & 3) { case 1: return floor(x); case 2: return ceil(x); case 3: return trunc(x); default: return rint(x); }
+}
+void vec_round_ps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    union xmm_reg r; for (int i = 0; i < 4; i++) r.f32[i] = dc_round_f32(src->f32[i], imm); *dst = r;
+}
+void vec_round_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    union xmm_reg r; for (int i = 0; i < 2; i++) r.f64[i] = dc_round_f64(src->f64[i], imm); *dst = r;
+}
+void vec_round_ss32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    dst->f32[0] = dc_round_f32(src->f32[0], imm);
+}
+void vec_round_sd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    dst->f64[0] = dc_round_f64(src->f64[0], imm);
+}
