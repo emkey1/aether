@@ -1,0 +1,14 @@
+# Files exposed read-only at /AOK/tools, embedded into the kernel by
+# tools/gen-aokfs.py at build time (see meson.build / fs/aok.c).
+#
+# Each line: <filename> [mode]
+#   <filename>  is read from opt/AOK/tools/<filename> and served at
+#               /AOK/tools/<filename>.
+#   [mode]      optional octal permission bits. Defaults: .sh -> 0555,
+#               everything else -> 0444.
+#
+# To add a tool to /AOK/tools, drop its source under opt/AOK/tools/ and list it
+# here -- the next build picks it up automatically. Order here is the order
+# shown by `ls /AOK/tools` (after the bundled iSH_benchmark entries).
+
+provision-ultimate-alpine.sh

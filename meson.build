@@ -63,6 +63,22 @@ aok_generated_tests = custom_target('aok_generated_tests',
     command: [python, '@INPUT0@', '@INPUT1@',
               meson.current_source_dir() / 'tests' / 'manual', '@OUTPUT@'])
 
+# Same mechanism for the /AOK/tools table, from fs/aok-tools.manifest with
+# sources under opt/AOK/tools/. Files are served read-only at /AOK/tools/<name>.
+aok_tool_srcs = []
+foreach line : fs_mod.read('fs/aok-tools.manifest').strip().split('\n')
+    entry = line.strip()
+    if entry != '' and not entry.startswith('#')
+        aok_tool_srcs += files('opt/AOK/tools' / entry.split()[0])
+    endif
+endforeach
+aok_generated_tools = custom_target('aok_generated_tools',
+    output: 'aok_generated_tools.inc',
+    input: [files('tools/gen-aokfs.py', 'fs/aok-tools.manifest')] + aok_tool_srcs,
+    command: [python, '@INPUT0@', '@INPUT1@',
+              meson.current_source_dir() / 'opt' / 'AOK' / 'tools', '@OUTPUT@',
+              '/tools', '_tools'])
+
 emu_src = [
     'emu/tlb.c',
     'emu/fpu.c',
@@ -132,7 +148,7 @@ if get_option('kernel') == 'ish'
 
         'kernel/fs.c',
         'kernel/fs_info.c',
-        'fs/aok.c', aok_generated_tests,
+        'fs/aok.c', aok_generated_tests, aok_generated_tools,
         'fs/mount.c',
         'fs/fd.c',
         'fs/inode.c',

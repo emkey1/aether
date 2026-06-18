@@ -40,18 +40,28 @@ static void *aokfs_encode_node(enum aokfs_node_kind node) {
     return (void *) (uintptr_t) node;
 }
 
-// The /tests/* files are generated at build time from fs/aok-tests.manifest by
-// tools/gen-aokfs.py. Each is addressed as a "generated node" whose id is
-// AOKFS_GEN_BASE + its index in aokfs_gen_files[]. This keeps the hand-written
-// enum machinery for directories, symlinks, and the bundled binary blobs, while
-// the (frequently-changing) regression sources are embedded automatically.
+// The /tests/* and /tools/* files are generated at build time from
+// fs/aok-tests.manifest and fs/aok-tools.manifest by tools/gen-aokfs.py. Each is
+// addressed as a "generated node" whose id is a per-table base plus its index in
+// the generated table. This keeps the hand-written enum machinery for
+// directories, symlinks, and the bundled binary blobs, while the (frequently-
+// changing) embedded sources are picked up automatically.
 #include "aok_generated_tests.inc"
+#include "aok_generated_tools.inc"
 #define AOKFS_GEN_BASE 0x10000
+#define AOKFS_GEN_TOOLS_BASE 0x20000
+static bool aokfs_node_is_gen_tools(enum aokfs_node_kind node) {
+    return (unsigned) node >= AOKFS_GEN_TOOLS_BASE &&
+        (unsigned) node < AOKFS_GEN_TOOLS_BASE + AOKFS_GEN_FILE_COUNT_tools;
+}
 static bool aokfs_node_is_gen(enum aokfs_node_kind node) {
-    return (unsigned) node >= AOKFS_GEN_BASE &&
-        (unsigned) node < AOKFS_GEN_BASE + AOKFS_GEN_FILE_COUNT;
+    return ((unsigned) node >= AOKFS_GEN_BASE &&
+            (unsigned) node < AOKFS_GEN_BASE + AOKFS_GEN_FILE_COUNT) ||
+        aokfs_node_is_gen_tools(node);
 }
 static const struct aokfs_gen_file *aokfs_gen_entry(enum aokfs_node_kind node) {
+    if (aokfs_node_is_gen_tools(node))
+        return &aokfs_gen_files_tools[(unsigned) node - AOKFS_GEN_TOOLS_BASE];
     return &aokfs_gen_files[(unsigned) node - AOKFS_GEN_BASE];
 }
 
@@ -170,6 +180,13 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
     for (size_t i = 0; i < AOKFS_GEN_FILE_COUNT; i++) {
         if (strcmp(path, aokfs_gen_files[i].path) == 0) {
             *node_out = (enum aokfs_node_kind) (AOKFS_GEN_BASE + i);
+            return true;
+        }
+    }
+    // Generated /tools/* files.
+    for (size_t i = 0; i < AOKFS_GEN_FILE_COUNT_tools; i++) {
+        if (strcmp(path, aokfs_gen_files_tools[i].path) == 0) {
+            *node_out = (enum aokfs_node_kind) (AOKFS_GEN_TOOLS_BASE + i);
             return true;
         }
     }
@@ -595,13 +612,19 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 default: return 0;
             }
             break;
-        case aokfs_tools_dir:
-            switch (fd->offset++) {
-                case 0: child = aokfs_tools_ish_benchmark; break;
-                case 1: child = aokfs_tools_setup_ish_benchmark; break;
-                default: return 0;
-            }
+        case aokfs_tools_dir: {
+            // The two bundled tool entries first, then generated /tools/* files.
+            size_t i = (size_t) fd->offset++;
+            if (i == 0)
+                child = aokfs_tools_ish_benchmark;
+            else if (i == 1)
+                child = aokfs_tools_setup_ish_benchmark;
+            else if (i - 2 < AOKFS_GEN_FILE_COUNT_tools)
+                child = (enum aokfs_node_kind) (AOKFS_GEN_TOOLS_BASE + (i - 2));
+            else
+                return 0;
             break;
+        }
         case aokfs_tests_dir: {
             // Generated /tests/* files first, then the audio subdirectory.
             size_t i = (size_t) fd->offset++;
