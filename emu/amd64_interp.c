@@ -5005,10 +5005,77 @@ static inline qword_t amd64_string_addr(const struct cpu_state *cpu, unsigned re
     return cpu->amd64_regs[reg];
 }
 
+// Forward, page-batched REP movs/stos -- the hot musl memcpy/memset path. Moves
+// whole runs within a page via memmove/memset on the host backing instead of one
+// guest element per TLB lookup (~15x on amd64 memset/memcpy). 64-bit addressing
+// only (what musl's str ops use); stops -- leaving rcx/rdi/rsi at the boundary
+// for the per-element loop to finish or fault -- on an inaccessible/COW page or a
+// forward-overlapping movs run. cpu->df == 0 (forward) is checked by the caller.
+static inline void amd64_rep_string_fast(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned elem_size, byte_t opcode) {
+    bool is_movs = (opcode == 0xa4 || opcode == 0xa5);
+    qword_t rcx = cpu->amd64_regs[amd64_rcx];
+    qword_t rdi = cpu->amd64_regs[amd64_rdi];
+    qword_t rsi = cpu->amd64_regs[amd64_rsi];
+    qword_t rax = cpu->amd64_regs[amd64_rax];
+
+    while (rcx != 0) {
+        qword_t run = (PAGE_SIZE - PGOFFSET(rdi)) / elem_size; // whole elems in dst page
+        if (run > rcx)
+            run = rcx;
+        if (is_movs) {
+            qword_t src_room = (PAGE_SIZE - PGOFFSET(rsi)) / elem_size;
+            if (run > src_room)
+                run = src_room;
+        }
+        // memmove matches x86 ascending semantics only when the run does not
+        // forward-overlap; defer those (and an element straddling a page, run==0)
+        // to the precise per-element loop.
+        bool overlap_smear = is_movs && rdi > rsi && (rdi - rsi) < run * elem_size;
+        if (run < 1 || overlap_smear)
+            break;
+        char *dst = (char *) __tlb_write_ptr(tlb, rdi);
+        if (dst == NULL)
+            break; // unmapped / read-only (COW): let amd64_mem_write fault it
+        if (is_movs) {
+            char *src = (char *) __tlb_read_ptr(tlb, rsi);
+            if (src == NULL)
+                break;
+            memmove(dst, src, (size_t) run * elem_size);
+            rsi += run * elem_size;
+        } else {
+            switch (elem_size) {
+            case 1: memset(dst, (int) (rax & 0xff), (size_t) run); break;
+            case 2: { uint16_t v = (uint16_t) rax; for (qword_t i = 0; i < run; i++) ((uint16_t *) dst)[i] = v; break; }
+            case 4: { uint32_t v = (uint32_t) rax; for (qword_t i = 0; i < run; i++) ((uint32_t *) dst)[i] = v; break; }
+            default: { uint64_t v = rax;            for (qword_t i = 0; i < run; i++) ((uint64_t *) dst)[i] = v; break; }
+            }
+        }
+        rdi += run * elem_size;
+        rcx -= run;
+    }
+    cpu->amd64_regs[amd64_rcx] = rcx;
+    cpu->amd64_regs[amd64_rdi] = rdi;
+    cpu->amd64_regs[amd64_rsi] = rsi;
+}
+
 static inline int amd64_string_op(struct cpu_state *cpu, struct tlb *tlb,
         qword_t saved_rip, byte_t opcode, unsigned size, enum amd64_rep_mode rep_mode) {
     unsigned count_size = cpu->amd64_address_size_prefix ? 32 : 64;
     qword_t count = rep_mode == AMD64_REP_NONE ? 1 : amd64_reg_get(cpu, amd64_rcx, count_size);
+
+    // Bulk fast path for forward 64-bit REP movs/stos; falls through to the
+    // per-element loop for any tail (overlap / page-straddle / fault element).
+    if (rep_mode != AMD64_REP_NONE && count > 1 && !cpu->df &&
+            !cpu->amd64_address_size_prefix &&
+            (opcode == 0xa4 || opcode == 0xa5 || opcode == 0xaa || opcode == 0xab)) {
+        amd64_rep_string_fast(cpu, tlb, size / 8, opcode);
+        count = amd64_reg_get(cpu, amd64_rcx, count_size);
+        if (count == 0) {
+            amd64_sync_legacy_regs(cpu);
+            return INT_NONE;
+        }
+    }
 
     while (count != 0) {
         qword_t value;
