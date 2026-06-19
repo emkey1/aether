@@ -460,7 +460,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [button addSubview:badge];
     self.floatingSettingsBadge = badge;
 
-    self.floatingSettingsBottomConstraint = [button.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-12];
+    // Anchor to the terminal's bottom (which is raised above the keyboard via bottomConstraint)
+    // so the gear floats just above the keyboard/accessory bar when the keyboard is up, and at
+    // the safe-area bottom when it isn't.
+    self.floatingSettingsBottomConstraint = [button.bottomAnchor constraintEqualToAnchor:self.termView.bottomAnchor constant:-12];
     [NSLayoutConstraint activateConstraints:@[
         [button.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
         self.floatingSettingsBottomConstraint,
@@ -688,16 +691,21 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     BOOL settingsEnabled = !self.embeddedInWorkspaceWindow;
     self.floatingWorkspaceButton.hidden = !(visible && showWorkspaceButtons);
     self.floatingWorkspaceButton.userInteractionEnabled = visible && showWorkspaceButtons;
-    self.floatingSettingsButton.hidden = !(visible && settingsEnabled);
-    self.floatingSettingsButton.userInteractionEnabled = visible && settingsEnabled;
+    // On phone the accessory bar's settings gear isn't reachable, so always float the settings
+    // button (it tracks the terminal's bottom, which sits above the keyboard) when settings are
+    // available, and hide the redundant in-bar gear so VoiceOver doesn't see two of them.
+    BOOL phone = (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone);
+    BOOL floatingSettingsVisible = settingsEnabled && (visible || phone);
+    self.floatingSettingsButton.hidden = !floatingSettingsVisible;
+    self.floatingSettingsButton.userInteractionEnabled = floatingSettingsVisible;
     self.floatingTerminalSwitcherButton.hidden = !visible;
     self.floatingTerminalSwitcherButton.userInteractionEnabled = visible;
     self.terminalSwitcherButton.hidden = visible;
     self.terminalSwitcherButton.userInteractionEnabled = !visible;
     self.workspaceButton.hidden = !showWorkspaceButtons || visible;
     self.workspaceButton.userInteractionEnabled = showWorkspaceButtons && !visible;
-    self.infoButton.alpha = settingsEnabled ? 1 : 0;
-    self.infoButton.userInteractionEnabled = settingsEnabled;
+    self.infoButton.alpha = (settingsEnabled && !phone) ? 1 : 0;
+    self.infoButton.userInteractionEnabled = settingsEnabled && !phone;
     self.floatingSettingsBottomConstraint.constant = -12;
 }
 
