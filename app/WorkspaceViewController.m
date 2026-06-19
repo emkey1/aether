@@ -84,7 +84,6 @@ static NSString *const ISHWorkspaceToolMonitorIdentifier = @"monitor";
 static NSString *const ISHWorkspaceToolNetworksIdentifier = @"networks";
 static NSString *const ISHWorkspaceToolStatusIdentifier = @"status";
 static NSString *const ISHWorkspaceToolWorkspacesIdentifier = @"workspaces";
-static NSString *const ISHWorkspaceToolProcessesIdentifier = @"processes";
 static NSString *const ISHWorkspaceToolSessionsIdentifier = @"sessions";
 static NSString *const ISHWorkspaceToolStorageIdentifier = @"storage";
 static NSString *const ISHWorkspaceToolShortcutsIdentifier = @"shortcuts";
@@ -548,8 +547,6 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(340, 248);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
             return CGSizeMake(220, 118);
-        if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-            return CGSizeMake(332, 224);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
             return CGSizeMake(332, 238);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -582,8 +579,6 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(460, 300);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return CGSizeMake(252, 138);
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-        return CGSizeMake(440, 268);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return CGSizeMake(460, 286);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -661,8 +656,6 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(300, 220);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
             return CGSizeMake(188, 96);
-        if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-            return CGSizeMake(272, 170);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
             return CGSizeMake(280, 176);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -694,8 +687,6 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(300, 156);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return CGSizeMake(216, 112);
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-        return CGSizeMake(340, 200);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return CGSizeMake(340, 208);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -737,8 +728,6 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Logs";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return @"Workspaces";
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-        return @"Processes";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return @"Sessions";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -1187,146 +1176,6 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceRootUsageRecords(voi
             @"directories": usage[@"directories"] ?: @0,
         }];
     }
-    return records;
-}
-
-static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceVisibleProcessRecords(NSUInteger limit) {
-    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
-    size_t bufferSize = 0;
-    if (sysctl(mib, 4, NULL, &bufferSize, NULL, 0) != 0 || bufferSize == 0)
-        return @[];
-    struct kinfo_proc *processes = malloc(bufferSize);
-    if (processes == NULL)
-        return @[];
-    if (sysctl(mib, 4, processes, &bufferSize, NULL, 0) != 0) {
-        free(processes);
-        return @[];
-    }
-
-    NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
-    NSUInteger processCount = bufferSize / sizeof(struct kinfo_proc);
-    pid_t currentPID = NSProcessInfo.processInfo.processIdentifier;
-    for (NSUInteger index = 0; index < processCount; index++) {
-        struct kinfo_proc process = processes[index];
-        pid_t pid = process.kp_proc.p_pid;
-        if (pid <= 0)
-            continue;
-        NSString *name = [NSString stringWithUTF8String:process.kp_proc.p_comm];
-        if (name.length == 0)
-            continue;
-        NSString *state = @"other";
-        switch (process.kp_proc.p_stat) {
-            case SRUN:
-                state = @"run";
-                break;
-            case SSLEEP:
-                state = @"sleep";
-                break;
-            case SSTOP:
-                state = @"stop";
-                break;
-            case SZOMB:
-                state = @"zombie";
-                break;
-            default:
-                break;
-        }
-        [records addObject:@{
-            @"pid": @(pid),
-            @"name": name,
-            @"state": state,
-            @"isCurrent": @(pid == currentPID),
-        }];
-    }
-    free(processes);
-
-    [records sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *, id> *left,
-                                                     NSDictionary<NSString *, id> *right) {
-        BOOL leftCurrent = [left[@"isCurrent"] boolValue];
-        BOOL rightCurrent = [right[@"isCurrent"] boolValue];
-        if (leftCurrent && !rightCurrent)
-            return NSOrderedAscending;
-        if (!leftCurrent && rightCurrent)
-            return NSOrderedDescending;
-        NSString *leftName = left[@"name"] ?: @"";
-        NSString *rightName = right[@"name"] ?: @"";
-        NSComparisonResult nameResult = [leftName compare:rightName];
-        if (nameResult != NSOrderedSame)
-            return nameResult;
-        if ([left[@"pid"] intValue] < [right[@"pid"] intValue])
-            return NSOrderedAscending;
-        if ([left[@"pid"] intValue] > [right[@"pid"] intValue])
-            return NSOrderedDescending;
-        return NSOrderedSame;
-    }];
-
-    if (limit > 0 && records.count > limit)
-        return [records subarrayWithRange:NSMakeRange(0, limit)];
-    return records;
-}
-
-static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceGuestProcessRecords(NSUInteger limit) {
-    NSMutableArray<NSDictionary<NSString *, id> *> *records = [NSMutableArray array];
-    struct task_snapshot snapshot = {};
-    if (task_snapshot_collect(&snapshot, true) < 0)
-        return records;
-
-    for (unsigned i = 0; i < snapshot.count; i++) {
-        struct task *task = snapshot.tasks[i];
-        bool zombie = false;
-        bool exiting = false;
-        bool ioBlock = false;
-
-        complex_lockt(&pids_lock, 0);
-        zombie = task->zombie;
-        exiting = task->exiting;
-        ioBlock = task->io_block;
-        unlock(&pids_lock);
-
-        lock(&task->general_lock, 0);
-        NSString *name = [NSString stringWithUTF8String:task->comm];
-        unlock(&task->general_lock);
-        if (name.length == 0)
-            name = @"task";
-
-        NSString *state = @"running";
-        if (zombie) {
-            state = @"zombie";
-        } else if (exiting) {
-            state = @"exiting";
-        } else if (ioBlock) {
-            state = @"blocked";
-        } else if (task->group != NULL) {
-            lock(&task->group->lock, 0);
-            bool stopped = task->group->stopped;
-            unlock(&task->group->lock);
-            if (stopped)
-                state = @"stopped";
-        }
-
-        [records addObject:@{
-            @"pid": @(task->pid),
-            @"tgid": @(task->tgid),
-            @"name": name,
-            @"state": state,
-            @"abi": @(task->abi),
-        }];
-    }
-    task_snapshot_release(&snapshot);
-
-    [records sortUsingComparator:^NSComparisonResult(NSDictionary<NSString *, id> *left,
-                                                     NSDictionary<NSString *, id> *right) {
-        int leftPID = [left[@"pid"] intValue];
-        int rightPID = [right[@"pid"] intValue];
-        if (leftPID < rightPID)
-            return NSOrderedAscending;
-        if (leftPID > rightPID)
-            return NSOrderedDescending;
-        return [left[@"name"] compare:right[@"name"]];
-    }];
-
-    if (limit > 0 && records.count > limit)
-        return [records subarrayWithRange:NSMakeRange(0, limit)];
     return records;
 }
 
@@ -2135,8 +1984,6 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceWorkspacesToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceProcessesToolViewController : WorkspaceThemedToolViewController
-@end
 
 @interface WorkspaceSessionsToolViewController : WorkspaceThemedToolViewController
 @end
@@ -2168,8 +2015,6 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceStatusToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return [WorkspaceWorkspacesToolViewController new];
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
-        return [WorkspaceProcessesToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return [WorkspaceSessionsToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -2209,8 +2054,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolStatusIdentifier;
     if ([viewController isKindOfClass:WorkspaceWorkspacesToolViewController.class])
         return ISHWorkspaceToolWorkspacesIdentifier;
-    if ([viewController isKindOfClass:WorkspaceProcessesToolViewController.class])
-        return ISHWorkspaceToolProcessesIdentifier;
     if ([viewController isKindOfClass:WorkspaceSessionsToolViewController.class])
         return ISHWorkspaceToolSessionsIdentifier;
     if ([viewController isKindOfClass:WorkspaceStorageToolViewController.class])
@@ -3988,7 +3831,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             @"items": @[
                 @{@"title": @"Clock", @"identifier": ISHWorkspaceToolClockIdentifier},
                 @{@"title": @"Monitor", @"identifier": ISHWorkspaceToolMonitorIdentifier},
-                @{@"title": @"Processes", @"identifier": ISHWorkspaceToolProcessesIdentifier},
                 @{@"title": @"Networks", @"identifier": ISHWorkspaceToolNetworksIdentifier},
                 @{@"title": @"Logs", @"identifier": ISHWorkspaceToolStatusIdentifier},
             ],
@@ -5644,158 +5486,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         _editorActionButtons[2].enabled = editingCustom;
         _editorActionButtons[2].alpha = editingCustom ? 1.0 : 0.45;
     }
-}
-
-@end
-
-@implementation WorkspaceProcessesToolViewController {
-    UIScrollView *_scrollView;
-    UIStackView *_contentStack;
-    UILabel *_summaryLabel;
-    UITextView *_detailsTextView;
-    NSTimer *_timer;
-    NSUInteger _refreshGeneration;
-}
-
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.title = @"Processes";
-
-    _scrollView = [UIScrollView new];
-    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    _scrollView.alwaysBounceVertical = YES;
-    [self.toolContentView addSubview:_scrollView];
-
-    _contentStack = [UIStackView new];
-    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
-    _contentStack.axis = UILayoutConstraintAxisVertical;
-    _contentStack.spacing = 8;
-    [_scrollView addSubview:_contentStack];
-
-    UIView *summaryCard = [self workspaceThemeCardView];
-    UIStackView *summaryStack = [UIStackView new];
-    summaryStack.translatesAutoresizingMaskIntoConstraints = NO;
-    summaryStack.axis = UILayoutConstraintAxisVertical;
-    summaryStack.spacing = 6;
-    [summaryCard addSubview:summaryStack];
-    UILabel *summaryTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    summaryTitle.text = @"VISIBLE PROCESSES";
-    summaryTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
-    _summaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
-    _summaryLabel.numberOfLines = 0;
-    [summaryStack addArrangedSubview:summaryTitle];
-    [summaryStack addArrangedSubview:_summaryLabel];
-    [NSLayoutConstraint activateConstraints:@[
-        [summaryStack.topAnchor constraintEqualToAnchor:summaryCard.topAnchor constant:12],
-        [summaryStack.leadingAnchor constraintEqualToAnchor:summaryCard.leadingAnchor constant:12],
-        [summaryStack.trailingAnchor constraintEqualToAnchor:summaryCard.trailingAnchor constant:-12],
-        [summaryStack.bottomAnchor constraintEqualToAnchor:summaryCard.bottomAnchor constant:-12],
-    ]];
-
-    UIView *detailsCard = [self workspaceThemeCardView];
-    _detailsTextView = [self workspaceThemeTextView];
-    [detailsCard addSubview:_detailsTextView];
-    [NSLayoutConstraint activateConstraints:@[
-        [detailsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 116.0 : 144.0)],
-        [_detailsTextView.topAnchor constraintEqualToAnchor:detailsCard.topAnchor constant:8],
-        [_detailsTextView.leadingAnchor constraintEqualToAnchor:detailsCard.leadingAnchor constant:8],
-        [_detailsTextView.trailingAnchor constraintEqualToAnchor:detailsCard.trailingAnchor constant:-8],
-        [_detailsTextView.bottomAnchor constraintEqualToAnchor:detailsCard.bottomAnchor constant:-8],
-    ]];
-
-    [_contentStack addArrangedSubview:summaryCard];
-    [_contentStack addArrangedSubview:detailsCard];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
-        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
-        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
-        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
-
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
-    ]];
-
-    [self refreshProcesses:nil];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    [_timer invalidate];
-    _timer = [NSTimer scheduledTimerWithTimeInterval:4.0
-                                              target:self
-                                            selector:@selector(refreshProcesses:)
-                                            userInfo:nil
-                                             repeats:YES];
-    [self refreshProcesses:nil];
-}
-
-- (void)viewDidDisappear:(BOOL)animated {
-    [super viewDidDisappear:animated];
-    [_timer invalidate];
-    _timer = nil;
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
-}
-
-- (void)refreshProcesses:(id)sender {
-    (void) sender;
-    NSUInteger generation = ++_refreshGeneration;
-    _detailsTextView.text = @"Refreshing process table…";
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray<NSDictionary<NSString *, id> *> *processes = ISHWorkspaceVisibleProcessRecords(8);
-        BOOL showingGuestProcesses = NO;
-        if (processes.count == 0) {
-            processes = ISHWorkspaceGuestProcessRecords(12);
-            showingGuestProcesses = YES;
-        }
-        uint64_t footprint = 0;
-        BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, NULL);
-        NSMutableArray<NSString *> *lines = [NSMutableArray array];
-        for (NSDictionary<NSString *, id> *process in processes) {
-            if (showingGuestProcesses) {
-                NSString *abiName = [NSString stringWithUTF8String:guest_abi_name([process[@"abi"] intValue])] ?: @"guest";
-                [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@  •  %@",
-                                  [process[@"pid"] intValue],
-                                  process[@"name"],
-                                  process[@"state"],
-                                  abiName]];
-            } else {
-                NSString *marker = [process[@"isCurrent"] boolValue] ? @"current app" : process[@"state"];
-                [lines addObject:[NSString stringWithFormat:@"%5d  %@\n       %@",
-                                  [process[@"pid"] intValue],
-                                  process[@"name"],
-                                  marker]];
-            }
-        }
-        NSString *processLabel = showingGuestProcesses ? @"guest tasks" : @"visible processes";
-        NSString *summary = hasMemory
-            ? [NSString stringWithFormat:@"App footprint %@  •  %lu %@",
-                                          ISHWorkspaceByteCountString(footprint),
-                                          (unsigned long) processes.count,
-                                          processLabel]
-            : [NSString stringWithFormat:@"%lu %@", (unsigned long) processes.count, processLabel];
-        NSString *details = lines.count > 0
-            ? [lines componentsJoinedByString:@"\n\n"]
-            : @"No active guest tasks were found. Start a shell or console, then refresh this view.";
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (generation != self->_refreshGeneration)
-                return;
-            self->_summaryLabel.text = summary;
-            self->_detailsTextView.text = details;
-        });
-    });
-}
-
-- (void)workspaceApplyTheme {
-    [super workspaceApplyTheme];
-    _summaryLabel.textColor = self.workspaceTheme[@"accent"];
 }
 
 @end
