@@ -1440,9 +1440,11 @@ static NSString *ISHWorkspaceSystemStatusText(void) {
 static NSString *const ISHWorkspaceToolThemePreferenceKey = @"ISHWorkspaceToolTheme";
 static NSString *const ISHWorkspaceCustomThemesDefaultsKey = @"ISHWorkspaceCustomThemes";
 static NSString *const ISHWorkspaceToolDensityPreferenceKey = @"ISHWorkspaceToolDensity";
+static NSString *const ISHWorkspaceGaugeStylePreferenceKey = @"ISHWorkspaceGaugeStyle";
 static NSString *const ISHWorkspaceBrowserHomePreferenceKey = @"ISHWorkspaceBrowserHome";
 static NSString *const ISHWorkspaceStartupLowMemoryWarningDisabledPreferenceKey = @"ISHWorkspaceStartupLowMemoryWarningDisabled";
 static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
+static NSString *const ISHWorkspaceGaugeStyleDidChangeNotification = @"ISHWorkspaceGaugeStyleDidChange";
 static NSString *const ISHWorkspaceToolThemeAuroraIdentifier = @"aurora";
 static NSString *const ISHWorkspaceToolThemeSolsticeIdentifier = @"solstice";
 static NSString *const ISHWorkspaceToolThemeGraphiteIdentifier = @"graphite";
@@ -1829,6 +1831,20 @@ static CGFloat ISHWorkspaceCurrentDensity(void) {
     if (![value isKindOfClass:NSNumber.class])
         return 0.0;
     return MAX(0.0, MIN(1.0, [value doubleValue]));
+}
+
+// Workspace-wide gauge style for the status applets. Defaults to ring gauges.
+static BOOL ISHWorkspaceUsesRingGauges(void) {
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:ISHWorkspaceGaugeStylePreferenceKey];
+    if (![value isKindOfClass:NSString.class])
+        return YES;
+    return ![value isEqualToString:@"bar"];
+}
+
+static void ISHWorkspaceSetUsesRingGauges(BOOL usesRings) {
+    [NSUserDefaults.standardUserDefaults setObject:(usesRings ? @"ring" : @"bar")
+                                            forKey:ISHWorkspaceGaugeStylePreferenceKey];
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceGaugeStyleDidChangeNotification object:nil];
 }
 
 static CGFloat ISHWorkspaceDensityValue(CGFloat compact, CGFloat roomy) {
@@ -4393,9 +4409,116 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 @end
 
+// A self-contained gauge that draws either a ring (default) or a horizontal bar, switching
+// live when the workspace gauge-style preference changes. Used by the status applets.
+@interface WorkspaceGaugeView : UIView
+@property (nonatomic) double progress;
+@property (nonatomic, copy, nullable) NSString *valueText;
+@property (nonatomic, strong, nullable) UIColor *fillColor;
+@property (nonatomic, strong, nullable) UIColor *trackColor;
+@property (nonatomic, strong, nullable) UIColor *valueColor;
+@end
+
+@implementation WorkspaceGaugeView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if (self = [super initWithFrame:frame]) {
+        self.backgroundColor = UIColor.clearColor;
+        self.contentMode = UIViewContentModeRedraw;
+        _progress = 0.0;
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(gaugeStyleDidChange)
+                                                   name:ISHWorkspaceGaugeStyleDidChangeNotification
+                                                 object:nil];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self name:ISHWorkspaceGaugeStyleDidChangeNotification object:nil];
+}
+
+- (void)gaugeStyleDidChange {
+    [self invalidateIntrinsicContentSize];
+    [self setNeedsDisplay];
+}
+
+- (void)setProgress:(double)progress { _progress = MAX(0.0, MIN(1.0, progress)); [self setNeedsDisplay]; }
+- (void)setValueText:(NSString *)valueText { _valueText = [valueText copy]; [self setNeedsDisplay]; }
+- (void)setFillColor:(UIColor *)fillColor { _fillColor = fillColor; [self setNeedsDisplay]; }
+- (void)setTrackColor:(UIColor *)trackColor { _trackColor = trackColor; [self setNeedsDisplay]; }
+- (void)setValueColor:(UIColor *)valueColor { _valueColor = valueColor; [self setNeedsDisplay]; }
+
+- (CGSize)intrinsicContentSize {
+    if (ISHWorkspaceUsesRingGauges())
+        return CGSizeMake(UIViewNoIntrinsicMetric, ISHWorkspaceUsesPhoneLayout() ? 76.0 : 88.0);
+    return CGSizeMake(UIViewNoIntrinsicMetric, 44.0);
+}
+
+- (void)drawRect:(CGRect)rect {
+    (void) rect;
+    UIColor *fill = self.fillColor ?: UIColor.systemTealColor;
+    UIColor *track = self.trackColor ?: [UIColor colorWithWhite:0.5 alpha:0.25];
+    UIColor *valueColor = self.valueColor ?: fill;
+    NSString *text = self.valueText ?: @"";
+    CGRect b = self.bounds;
+    double clamped = MAX(0.0, MIN(1.0, self.progress));
+
+    if (ISHWorkspaceUsesRingGauges()) {
+        CGFloat dim = MIN(CGRectGetWidth(b), CGRectGetHeight(b));
+        CGFloat lineWidth = MAX(6.0, dim * 0.11);
+        CGFloat radius = (dim - lineWidth) / 2.0 - 1.0;
+        if (radius <= 1.0)
+            return;
+        CGPoint center = CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b));
+        UIBezierPath *trackPath = [UIBezierPath bezierPathWithArcCenter:center radius:radius startAngle:0 endAngle:(2 * M_PI) clockwise:YES];
+        trackPath.lineWidth = lineWidth;
+        [track setStroke];
+        [trackPath stroke];
+        if (clamped > 0.0) {
+            CGFloat start = -M_PI_2;
+            UIBezierPath *progressPath = [UIBezierPath bezierPathWithArcCenter:center radius:radius startAngle:start endAngle:(start + (2 * M_PI * clamped)) clockwise:YES];
+            progressPath.lineWidth = lineWidth;
+            progressPath.lineCapStyle = kCGLineCapRound;
+            [fill setStroke];
+            [progressPath stroke];
+        }
+        if (text.length > 0) {
+            UIFont *font = [UIFont systemFontOfSize:MAX(13.0, radius * 0.6) weight:UIFontWeightBold];
+            NSMutableParagraphStyle *para = [NSMutableParagraphStyle new];
+            para.alignment = NSTextAlignmentCenter;
+            NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: valueColor, NSParagraphStyleAttributeName: para};
+            CGSize ts = [text sizeWithAttributes:attrs];
+            [text drawInRect:CGRectMake(CGRectGetMinX(b), center.y - (ts.height / 2.0), CGRectGetWidth(b), ts.height) withAttributes:attrs];
+        }
+        return;
+    }
+
+    CGFloat barHeight = 10.0;
+    CGFloat barY = CGRectGetMaxY(b) - barHeight;
+    if (text.length > 0) {
+        UIFont *font = [UIFont systemFontOfSize:22.0 weight:UIFontWeightBold];
+        NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: valueColor};
+        [text drawAtPoint:CGPointMake(CGRectGetMinX(b), CGRectGetMinY(b)) withAttributes:attrs];
+    }
+    UIBezierPath *barTrack = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(CGRectGetMinX(b), barY, CGRectGetWidth(b), barHeight) cornerRadius:(barHeight / 2.0)];
+    [track setFill];
+    [barTrack fill];
+    CGFloat fillWidth = CGRectGetWidth(b) * clamped;
+    if (fillWidth > 0.5) {
+        UIBezierPath *barFill = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(CGRectGetMinX(b), barY, MAX(barHeight, fillWidth), barHeight) cornerRadius:(barHeight / 2.0)];
+        [fill setFill];
+        [barFill fill];
+    }
+}
+
+@end
+
 @implementation WorkspaceThemedToolViewController {
     CAGradientLayer *_backgroundGradientLayer;
     UIView *_toolContentView;
+    NSMutableArray<UIImageView *> *_trackedAccentIconViews;
+    NSMutableArray<WorkspaceGaugeView *> *_trackedGaugeViews;
     NSMutableArray<UIView *> *_trackedCardViews;
     NSMutableArray<UILabel *> *_trackedPrimaryLabels;
     NSMutableArray<UILabel *> *_trackedSecondaryLabels;
@@ -4413,6 +4536,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _trackedAccentLabels = [NSMutableArray array];
     _trackedTextViews = [NSMutableArray array];
     _trackedProgressViews = [NSMutableArray array];
+    _trackedAccentIconViews = [NSMutableArray array];
+    _trackedGaugeViews = [NSMutableArray array];
 
     self.view.clipsToBounds = YES;
     self.view.backgroundColor = UIColor.blackColor;
@@ -4545,6 +4670,160 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     return progressView;
 }
 
+- (UIImageView *)workspaceThemeAccentIconNamed:(NSString *)symbolName pointSize:(CGFloat)pointSize {
+    UIImageView *iconView = [UIImageView new];
+    iconView.translatesAutoresizingMaskIntoConstraints = NO;
+    iconView.contentMode = UIViewContentModeScaleAspectFit;
+    iconView.tintColor = self.workspaceTheme[@"accent"];
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:pointSize weight:UIImageSymbolWeightSemibold];
+        UIImage *image = [UIImage systemImageNamed:symbolName withConfiguration:config];
+        iconView.image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    }
+    [iconView setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [iconView setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_trackedAccentIconViews addObject:iconView];
+    return iconView;
+}
+
+- (UIStackView *)workspaceTileHeaderRowWithIcon:(NSString *)symbolName caption:(NSString *)caption trailingLabel:(UILabel * __strong *)trailingLabel {
+    UIStackView *header = [UIStackView new];
+    header.axis = UILayoutConstraintAxisHorizontal;
+    header.spacing = 6;
+    header.alignment = UIStackViewAlignmentCenter;
+    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:16];
+    [icon.widthAnchor constraintEqualToConstant:20].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:20].active = YES;
+    UILabel *captionLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    captionLabel.text = caption;
+    captionLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    [header addArrangedSubview:icon];
+    [header addArrangedSubview:captionLabel];
+    if (trailingLabel != NULL) {
+        UILabel *trailing = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+        trailing.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
+        trailing.textAlignment = NSTextAlignmentRight;
+        [captionLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+        [header addArrangedSubview:trailing];
+        *trailingLabel = trailing;
+    }
+    return header;
+}
+
+- (UIView *)workspaceStatTileWithIcon:(NSString *)symbolName caption:(NSString *)caption valueLabel:(UILabel * __strong *)valueLabel {
+    UIView *card = [self workspaceThemeCardView];
+    UIStackView *outer = [UIStackView new];
+    outer.translatesAutoresizingMaskIntoConstraints = NO;
+    outer.axis = UILayoutConstraintAxisVertical;
+    outer.spacing = 6;
+    outer.alignment = UIStackViewAlignmentLeading;
+    [card addSubview:outer];
+
+    UILabel *value = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle2 monospaced:NO];
+    value.font = [UIFont systemFontOfSize:(ISHWorkspaceUsesPhoneLayout() ? 20.0 : 23.0) weight:UIFontWeightSemibold];
+    value.numberOfLines = 1;
+    value.adjustsFontSizeToFitWidth = YES;
+    value.minimumScaleFactor = 0.5;
+
+    [outer addArrangedSubview:[self workspaceTileHeaderRowWithIcon:symbolName caption:caption trailingLabel:NULL]];
+    [outer addArrangedSubview:value];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 72.0 : 84.0)],
+        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:11],
+        [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
+        [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
+        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-11],
+    ]];
+    if (valueLabel != NULL)
+        *valueLabel = value;
+    return card;
+}
+
+- (UIView *)workspaceGaugeTileWithIcon:(NSString *)symbolName caption:(NSString *)caption subtitleLabel:(UILabel * __strong *)subtitleLabel gauge:(WorkspaceGaugeView * __strong *)gauge {
+    UIView *card = [self workspaceThemeCardView];
+    UIStackView *outer = [UIStackView new];
+    outer.translatesAutoresizingMaskIntoConstraints = NO;
+    outer.axis = UILayoutConstraintAxisVertical;
+    outer.spacing = 8;
+    [card addSubview:outer];
+
+    UILabel *subtitle = nil;
+    UIStackView *header = [self workspaceTileHeaderRowWithIcon:symbolName caption:caption trailingLabel:&subtitle];
+
+    WorkspaceGaugeView *gaugeView = [[WorkspaceGaugeView alloc] initWithFrame:CGRectZero];
+    gaugeView.translatesAutoresizingMaskIntoConstraints = NO;
+    [_trackedGaugeViews addObject:gaugeView];
+
+    [outer addArrangedSubview:header];
+    [outer addArrangedSubview:gaugeView];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 96.0 : 110.0)],
+        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:11],
+        [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
+        [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
+        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-11],
+    ]];
+    if (subtitleLabel != NULL)
+        *subtitleLabel = subtitle;
+    if (gauge != NULL)
+        *gauge = gaugeView;
+    return card;
+}
+
+- (UIView *)workspaceIconRowWithIcon:(NSString *)symbolName title:(NSString *)title valueLabel:(UILabel * __strong *)valueLabel {
+    UIStackView *row = [UIStackView new];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 10;
+    row.alignment = UIStackViewAlignmentCenter;
+
+    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:15];
+    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:20].active = YES;
+
+    UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    titleLabel.text = title;
+    titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightRegular];
+
+    UILabel *value = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    value.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    value.textAlignment = NSTextAlignmentRight;
+    value.numberOfLines = 1;
+    value.adjustsFontSizeToFitWidth = YES;
+    value.minimumScaleFactor = 0.6;
+
+    [row addArrangedSubview:icon];
+    [row addArrangedSubview:titleLabel];
+    [row addArrangedSubview:value];
+    [titleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [titleLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [value setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+
+    if (valueLabel != NULL)
+        *valueLabel = value;
+    return row;
+}
+
+- (UIView *)workspaceRowsCardWithRows:(NSArray<UIView *> *)rows {
+    UIView *card = [self workspaceThemeCardView];
+    UIStackView *stack = [UIStackView new];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 2;
+    for (UIView *row in rows)
+        [stack addArrangedSubview:row];
+    [card addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:8],
+    ]];
+    return card;
+}
+
 - (void)workspaceThemeDidChange:(__unused NSNotification *)notification {
     [self workspaceApplyTheme];
 }
@@ -4587,6 +4866,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         progressView.trackTintColor = [theme[@"accentAlt"] colorWithAlphaComponent:0.18];
         progressView.progressTintColor = index % 2 == 0 ? theme[@"accent"] : theme[@"accentAlt"];
     }
+    for (UIImageView *iconView in _trackedAccentIconViews) {
+        iconView.tintColor = theme[@"accent"];
+    }
+    UIColor *gaugeTrack = [theme[@"secondary"] colorWithAlphaComponent:0.22];
+    for (WorkspaceGaugeView *gaugeView in _trackedGaugeViews) {
+        gaugeView.fillColor = theme[@"accent"];
+        gaugeView.trackColor = gaugeTrack;
+        gaugeView.valueColor = theme[@"primary"];
+    }
 }
 
 @end
@@ -4605,6 +4893,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIImageView *_backgroundPreviewImageView;
     UILabel *_densityValueLabel;
     UISlider *_densitySlider;
+    UISegmentedControl *_gaugeStyleControl;
     NSMutableDictionary<NSString *, UIView *> *_swatchViewsByKey;
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UISlider *> *> *_channelSlidersByKey;
     NSMutableDictionary<NSString *, NSMutableDictionary<NSString *, UILabel *> *> *_channelValueLabelsByKey;
@@ -4992,6 +5281,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _densityValueLabel.text = ISHWorkspaceCurrentDensityTitle();
 }
 
+- (void)gaugeStyleControlChanged:(UISegmentedControl *)sender {
+    ISHWorkspaceSetUsesRingGauges(sender.selectedSegmentIndex == 0);
+}
+
 - (void)generateThemeBackgroundImage:(id)sender {
     (void) sender;
     WorkspaceViewController *workspaceViewController = self.workspaceHostViewController;
@@ -5182,6 +5475,29 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [densityStack.bottomAnchor constraintEqualToAnchor:densityCard.bottomAnchor constant:-14],
     ]];
 
+    UIView *gaugeCard = [self workspaceThemeCardView];
+    UIStackView *gaugeStack = [UIStackView new];
+    gaugeStack.translatesAutoresizingMaskIntoConstraints = NO;
+    gaugeStack.axis = UILayoutConstraintAxisVertical;
+    gaugeStack.spacing = 6;
+    [gaugeCard addSubview:gaugeStack];
+    UILabel *gaugeTitle = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
+    gaugeTitle.text = @"Gauge Style";
+    _gaugeStyleControl = [[UISegmentedControl alloc] initWithItems:@[@"Rings", @"Bars"]];
+    _gaugeStyleControl.selectedSegmentIndex = ISHWorkspaceUsesRingGauges() ? 0 : 1;
+    [_gaugeStyleControl addTarget:self action:@selector(gaugeStyleControlChanged:) forControlEvents:UIControlEventValueChanged];
+    UILabel *gaugeSubtitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
+    gaugeSubtitle.text = @"How the status applets draw CPU, memory, battery, and storage.";
+    [gaugeStack addArrangedSubview:gaugeTitle];
+    [gaugeStack addArrangedSubview:_gaugeStyleControl];
+    [gaugeStack addArrangedSubview:gaugeSubtitle];
+    [NSLayoutConstraint activateConstraints:@[
+        [gaugeStack.topAnchor constraintEqualToAnchor:gaugeCard.topAnchor constant:14],
+        [gaugeStack.leadingAnchor constraintEqualToAnchor:gaugeCard.leadingAnchor constant:14],
+        [gaugeStack.trailingAnchor constraintEqualToAnchor:gaugeCard.trailingAnchor constant:-14],
+        [gaugeStack.bottomAnchor constraintEqualToAnchor:gaugeCard.bottomAnchor constant:-14],
+    ]];
+
     UIStackView *actionStack = [UIStackView new];
     actionStack.axis = UILayoutConstraintAxisVertical;
     actionStack.spacing = 8;
@@ -5211,6 +5527,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [editorStack addArrangedSubview:_editorThemeLabel];
     [editorStack addArrangedSubview:_previewSurfaceView];
     [editorStack addArrangedSubview:densityCard];
+    [editorStack addArrangedSubview:gaugeCard];
     [editorStack addArrangedSubview:actionStack];
     for (NSString *key in ISHWorkspaceThemeEditableColorKeys()) {
         [editorStack addArrangedSubview:[self sliderRowWithTitle:[self themeEditorTitleForKey:key] key:key]];
@@ -5295,6 +5612,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _densitySlider.minimumTrackTintColor = theme[@"accent"];
     _densitySlider.maximumTrackTintColor = [theme[@"accentAlt"] colorWithAlphaComponent:0.24];
     _densityValueLabel.text = ISHWorkspaceCurrentDensityTitle();
+    if (@available(iOS 13.0, *)) {
+        _gaugeStyleControl.selectedSegmentTintColor = theme[@"accent"];
+    } else {
+        _gaugeStyleControl.tintColor = theme[@"accent"];
+    }
+    [_gaugeStyleControl setTitleTextAttributes:@{NSForegroundColorAttributeName: theme[@"secondary"]} forState:UIControlStateNormal];
+    [_gaugeStyleControl setTitleTextAttributes:@{NSForegroundColorAttributeName: theme[@"card"]} forState:UIControlStateSelected];
     if (_editorActionButtons.count >= 3) {
         _editorActionButtons[1].enabled = editingCustom;
         _editorActionButtons[1].alpha = editingCustom ? 1.0 : 0.45;
@@ -7285,9 +7609,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIStackView *_contentStack;
     UIStackView *_topRow;
     UIStackView *_bottomRow;
-    UILabel *_batteryValueLabel;
+    WorkspaceGaugeView *_batteryGauge;
+    UILabel *_batterySubtitle;
+    WorkspaceGaugeView *_storageGauge;
+    UILabel *_storageSubtitle;
     UILabel *_rootValueLabel;
-    UILabel *_storageValueLabel;
     UILabel *_startupValueLabel;
     NSTimer *_timer;
 }
@@ -7350,15 +7676,15 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _topRow.axis = UILayoutConstraintAxisHorizontal;
     _topRow.spacing = 6;
     _topRow.distribution = UIStackViewDistributionFillEqually;
-    [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
-    [_topRow addArrangedSubview:[self infoMetricCardWithTitle:@"Root" valueLabel:&_rootValueLabel]];
+    [_topRow addArrangedSubview:[self workspaceGaugeTileWithIcon:@"battery.100" caption:@"Battery" subtitleLabel:&_batterySubtitle gauge:&_batteryGauge]];
+    [_topRow addArrangedSubview:[self workspaceGaugeTileWithIcon:@"internaldrive" caption:@"Storage" subtitleLabel:&_storageSubtitle gauge:&_storageGauge]];
 
     _bottomRow = [UIStackView new];
     _bottomRow.axis = UILayoutConstraintAxisHorizontal;
     _bottomRow.spacing = 6;
     _bottomRow.distribution = UIStackViewDistributionFillEqually;
-    [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Free Storage" valueLabel:&_storageValueLabel]];
-    [_bottomRow addArrangedSubview:[self infoMetricCardWithTitle:@"Startup" valueLabel:&_startupValueLabel]];
+    [_bottomRow addArrangedSubview:[self workspaceStatTileWithIcon:@"folder" caption:@"Root" valueLabel:&_rootValueLabel]];
+    [_bottomRow addArrangedSubview:[self workspaceStatTileWithIcon:@"bolt" caption:@"Startup" valueLabel:&_startupValueLabel]];
 
     [_contentStack addArrangedSubview:_topRow];
     [_contentStack addArrangedSubview:_bottomRow];
@@ -7413,24 +7739,21 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)refreshInfo:(id)sender {
     if (UIDevice.currentDevice.batteryState == UIDeviceBatteryStateUnknown || UIDevice.currentDevice.batteryLevel < 0) {
-        _batteryValueLabel.text = @"Unavailable";
+        _batteryGauge.progress = 0.0;
+        _batteryGauge.valueText = @"--";
+        _batterySubtitle.text = @"Unavailable";
     } else {
         NSString *stateDescription = @"On battery";
         switch (UIDevice.currentDevice.batteryState) {
-            case UIDeviceBatteryStateCharging:
-                stateDescription = @"Charging";
-                break;
-            case UIDeviceBatteryStateFull:
-                stateDescription = @"Fully charged";
-                break;
-            case UIDeviceBatteryStateUnplugged:
-                stateDescription = @"On battery";
-                break;
-            case UIDeviceBatteryStateUnknown:
-                break;
+            case UIDeviceBatteryStateCharging: stateDescription = @"Charging"; break;
+            case UIDeviceBatteryStateFull: stateDescription = @"Full"; break;
+            case UIDeviceBatteryStateUnplugged: stateDescription = @"On battery"; break;
+            case UIDeviceBatteryStateUnknown: break;
         }
-        NSInteger percent = (NSInteger) llround(UIDevice.currentDevice.batteryLevel * 100.0);
-        _batteryValueLabel.text = [NSString stringWithFormat:@"%ld%%\n%@", (long) percent, stateDescription];
+        double level = MAX(0.0, MIN(1.0, (double) UIDevice.currentDevice.batteryLevel));
+        _batteryGauge.progress = level;
+        _batteryGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(level * 100.0)];
+        _batterySubtitle.text = stateDescription;
     }
 
     NSString *defaultRoot = Roots.instance.defaultRoot;
@@ -7439,12 +7762,17 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     NSDictionary<NSFileAttributeKey, id> *attributes =
         [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:nil];
     NSNumber *freeSize = attributes[NSFileSystemFreeSize];
-    if (freeSize != nil) {
-        NSString *formattedSize = [NSByteCountFormatter stringFromByteCount:freeSize.longLongValue
-                                                                  countStyle:NSByteCountFormatterCountStyleFile];
-        _storageValueLabel.text = formattedSize;
+    NSNumber *totalSize = attributes[NSFileSystemSize];
+    if (freeSize != nil && totalSize != nil && totalSize.longLongValue > 0) {
+        double used = (double) (totalSize.longLongValue - freeSize.longLongValue) / (double) totalSize.longLongValue;
+        _storageGauge.progress = MAX(0.0, MIN(1.0, used));
+        _storageGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(used * 100.0)];
+        _storageSubtitle.text = [NSString stringWithFormat:@"%@ free",
+                                 [NSByteCountFormatter stringFromByteCount:freeSize.longLongValue countStyle:NSByteCountFormatterCountStyleFile]];
     } else {
-        _storageValueLabel.text = @"Unavailable";
+        _storageGauge.progress = 0.0;
+        _storageGauge.valueText = @"--";
+        _storageSubtitle.text = @"Unavailable";
     }
 
     _startupValueLabel.text = ISHInitialWindowTitle();
@@ -7452,9 +7780,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
-    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
-    _batteryValueLabel.textColor = theme[@"accent"];
-    _storageValueLabel.textColor = theme[@"accentAlt"];
+    _storageGauge.fillColor = self.workspaceTheme[@"accentAlt"];
 }
 
 @end
@@ -7462,11 +7788,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 @implementation WorkspaceMonitorToolViewController {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
-    UILabel *_heroSummaryLabel;
-    UIProgressView *_cpuProgressView;
-    UILabel *_cpuTitleLabel;
-    UIProgressView *_memoryProgressView;
-    UILabel *_memoryTitleLabel;
+    UIStackView *_gaugeRow;
+    WorkspaceGaugeView *_cpuGauge;
+    UILabel *_cpuSubtitle;
+    WorkspaceGaugeView *_memoryGauge;
+    UILabel *_memorySubtitle;
     UILabel *_uptimeValueLabel;
     UILabel *_batteryValueLabel;
     UILabel *_diskValueLabel;
@@ -7493,46 +7819,22 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _contentStack.spacing = 8;
     [_scrollView addSubview:_contentStack];
 
-    UIView *heroCard = [self workspaceThemeCardView];
-    UIStackView *heroStack = [UIStackView new];
-    heroStack.translatesAutoresizingMaskIntoConstraints = NO;
-    heroStack.axis = UILayoutConstraintAxisVertical;
-    heroStack.spacing = 6;
-    [heroCard addSubview:heroStack];
-    UILabel *heroLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    heroLabel.text = @"LIVE RUNTIME";
-    heroLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
-    _heroSummaryLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleTitle3 monospaced:NO];
-    _heroSummaryLabel.textAlignment = NSTextAlignmentLeft;
-    [heroStack addArrangedSubview:heroLabel];
-    [heroStack addArrangedSubview:_heroSummaryLabel];
-    [NSLayoutConstraint activateConstraints:@[
-        [heroStack.topAnchor constraintEqualToAnchor:heroCard.topAnchor constant:12],
-        [heroStack.leadingAnchor constraintEqualToAnchor:heroCard.leadingAnchor constant:12],
-        [heroStack.trailingAnchor constraintEqualToAnchor:heroCard.trailingAnchor constant:-12],
-        [heroStack.bottomAnchor constraintEqualToAnchor:heroCard.bottomAnchor constant:-12],
-    ]];
-    [_contentStack addArrangedSubview:heroCard];
+    _gaugeRow = [UIStackView new];
+    _gaugeRow.axis = UILayoutConstraintAxisHorizontal;
+    _gaugeRow.spacing = 8;
+    _gaugeRow.distribution = UIStackViewDistributionFillEqually;
+    [_gaugeRow addArrangedSubview:[self workspaceGaugeTileWithIcon:@"cpu" caption:@"CPU" subtitleLabel:&_cpuSubtitle gauge:&_cpuGauge]];
+    [_gaugeRow addArrangedSubview:[self workspaceGaugeTileWithIcon:@"memorychip" caption:@"Memory" subtitleLabel:&_memorySubtitle gauge:&_memoryGauge]];
+    [_contentStack addArrangedSubview:_gaugeRow];
 
-    [_contentStack addArrangedSubview:[self monitorBarCardWithTitle:@"CPU"
-                                                         titleLabel:&_cpuTitleLabel
-                                                       progressView:&_cpuProgressView
-                                                        detailLabel:NULL]];
-    [_contentStack addArrangedSubview:[self monitorBarCardWithTitle:@"Memory"
-                                                         titleLabel:&_memoryTitleLabel
-                                                       progressView:&_memoryProgressView
-                                                        detailLabel:NULL]];
-
-    UIStackView *factsStack = [UIStackView new];
-    factsStack.axis = UILayoutConstraintAxisVertical;
-    factsStack.spacing = 4;
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Live" valueLabel:&_liveValueLabel]];
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Uptime" valueLabel:&_uptimeValueLabel]];
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Battery" valueLabel:&_batteryValueLabel]];
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Storage" valueLabel:&_diskValueLabel]];
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Root" valueLabel:&_rootValueLabel]];
-    [factsStack addArrangedSubview:[self monitorKeyValueRowWithTitle:@"Network" valueLabel:&_networkValueLabel]];
-    [_contentStack addArrangedSubview:[self monitorCardWithContent:factsStack]];
+    [_contentStack addArrangedSubview:[self workspaceRowsCardWithRows:@[
+        [self workspaceIconRowWithIcon:@"clock" title:@"Uptime" valueLabel:&_uptimeValueLabel],
+        [self workspaceIconRowWithIcon:@"battery.100" title:@"Battery" valueLabel:&_batteryValueLabel],
+        [self workspaceIconRowWithIcon:@"internaldrive" title:@"Storage" valueLabel:&_diskValueLabel],
+        [self workspaceIconRowWithIcon:@"folder" title:@"Root" valueLabel:&_rootValueLabel],
+        [self workspaceIconRowWithIcon:@"network" title:@"Network" valueLabel:&_networkValueLabel],
+        [self workspaceIconRowWithIcon:@"square.grid.2x2" title:@"Live" valueLabel:&_liveValueLabel],
+    ]]];
 
     [NSLayoutConstraint activateConstraints:@[
         [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
@@ -7653,6 +7955,9 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 360;
+    _gaugeRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
+    _gaugeRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
     _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
@@ -7703,34 +8008,38 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     NSUInteger terminalCount = [Terminal activeTerminals].count;
 
     if (cpuRatio >= 0.0) {
-        _cpuProgressView.progress = (float) cpuRatio;
-        _cpuTitleLabel.text = [NSString stringWithFormat:@"CPU  %ld%%", (long) llround(cpuRatio * 100.0)];
+        _cpuGauge.progress = cpuRatio;
+        _cpuGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(cpuRatio * 100.0)];
+        _cpuSubtitle.text = @"load";
     } else {
-        _cpuProgressView.progress = 0.0f;
-        _cpuTitleLabel.text = @"CPU  unavailable";
+        _cpuGauge.progress = 0.0;
+        _cpuGauge.valueText = @"--";
+        _cpuSubtitle.text = @"unavailable";
     }
 
     if (hasMemory) {
-        _memoryProgressView.progress = (float) memoryRatio;
-        _memoryTitleLabel.text = [NSString stringWithFormat:@"Memory  %ld%%", (long) llround(memoryRatio * 100.0)];
+        _memoryGauge.progress = memoryRatio;
+        _memoryGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(memoryRatio * 100.0)];
+        _memorySubtitle.text = @"in use";
     } else {
-        _memoryProgressView.progress = 0.0f;
-        _memoryTitleLabel.text = @"Memory  unavailable";
+        _memoryGauge.progress = 0.0;
+        _memoryGauge.valueText = @"--";
+        _memorySubtitle.text = @"unavailable";
     }
 
     _uptimeValueLabel.text = ISHWorkspaceDurationString(NSProcessInfo.processInfo.systemUptime);
     _batteryValueLabel.text = ISHWorkspaceBatterySummaryText();
     _diskValueLabel.text = storageString;
     _rootValueLabel.text = defaultRoot.length > 0 ? defaultRoot : @"unavailable";
-    _liveValueLabel.text = [NSString stringWithFormat:@"%lu scenes   %lu roots   %lu terminals",
+    _liveValueLabel.text = [NSString stringWithFormat:@"%lu scenes · %lu terminals",
                             (unsigned long) sceneCount,
-                            (unsigned long) Roots.instance.roots.count,
                             (unsigned long) terminalCount];
-    _heroSummaryLabel.text = [NSString stringWithFormat:@"%lu scenes  •  %lu roots  •  %lu terminals",
-                              (unsigned long) sceneCount,
-                              (unsigned long) Roots.instance.roots.count,
-                              (unsigned long) terminalCount];
     _networkValueLabel.text = networkLine;
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    _memoryGauge.fillColor = self.workspaceTheme[@"accentAlt"];
 }
 
 @end
