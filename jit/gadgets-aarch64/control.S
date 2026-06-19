@@ -317,3 +317,15 @@
     bl NAME(helper_expand_flags)
     restore_c
     gret
+
+# LAHF (0x9f): AH = the low byte of EFLAGS (SF:ZF:0:AF:0:PF:1:CF). collapse_flags
+# materializes that byte (sets bit1=1, bits3/5=0); mirror of sahf in reverse. i386
+# had no lahf gadget at all -> guest lahf SIGILL'd.
+.gadget lahf
+    save_c
+    mov x0, _cpu
+    bl NAME(helper_collapse_flags)
+    restore_c
+    ldrb w8, [_cpu, CPU_eflags]
+    bfi eax, w8, 8, 8
+    gret

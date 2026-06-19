@@ -7767,6 +7767,22 @@ restart_prefix:
         expand_flags(cpu);
         break;
     }
+    case 0x9e: { // sahf: SF,ZF,AF,PF,CF <- AH; OF and the rest preserved.
+        byte_t ah = (cpu->amd64_regs[amd64_rax] >> 8) & 0xff;
+        cpu->cf = ah & 1;
+        cpu->pf = (ah >> 2) & 1;
+        cpu->af = (ah >> 4) & 1;
+        cpu->zf = (ah >> 6) & 1;
+        cpu->sf = (ah >> 7) & 1;
+        cpu->zf_res = cpu->sf_res = cpu->pf_res = cpu->af_ops = 0;
+        break;
+    }
+    case 0x9f: { // lahf: AH <- SF:ZF:0:AF:0:PF:1:CF (the low byte of EFLAGS).
+        byte_t ah = (SF << 7) | (ZF << 6) | (AF << 4) | (PF << 2) | (1 << 1) | (CF << 0);
+        cpu->amd64_regs[amd64_rax] =
+            (cpu->amd64_regs[amd64_rax] & ~0xff00ULL) | ((qword_t) ah << 8);
+        break;
+    }
     case 0x8f: {
         struct amd64_modrm modrm;
         qword_t value;

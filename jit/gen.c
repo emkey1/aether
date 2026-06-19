@@ -2506,6 +2506,29 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+#if defined(__aarch64__)
+    // Native SAHF (0x9e) / LAHF (0x9f). One byte, no operand, no memory; they only move
+    // bits between AH (rax bits 8-15) and the low-byte flags (SF/ZF/AF/PF/CF). Neither
+    // was implemented in the amd64 engine before -- the interp lacked case 0x9e/0x9f and
+    // the JIT had no gadget, so guest sahf/lahf SIGILL'd. Flush-style (like the rotate/
+    // shift-count gadgets): flush the reg cache so the gadget reads/writes rax + the
+    // eager flags straight from CPU state.
+    if (amd64_jit_one_byte_plain_prefixes(&insn) &&
+            (insn.opcode == 0x9e || insn.opcode == 0x9f)) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("flag-ah-op ip=%llx op=%02x next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode,
+                (unsigned long long) next_ip);
+        gen_amd64_flush_reg_cache(state);
+        extern void gadget_amd64_sahf(void), gadget_amd64_lahf(void);
+        gen(state, (unsigned long) (insn.opcode == 0x9e
+                    ? gadget_amd64_sahf : gadget_amd64_lahf));
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+#endif
+
     // Native carry-flag ops: CLC (0xf8), STC (0xf9), CMC (0xf5). One byte, no operand,
     // no memory, no register -- only CF changes. Cached-style (no flush): the gadget
     // rewrites CPU_cf + eflags bit0 and the reg cache stays live. Previously these
@@ -4245,6 +4268,7 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define PUSHF() g(pushf)
 #define POPF() g(popf)
 #define SAHF g(sahf)
+#define LAHF g(lahf)
 #define CMC g(cmc)
 #define CLC g(clc)
 #define STC g(stc)

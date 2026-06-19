@@ -4029,3 +4029,43 @@ amd64_gen_imm_cmp imm_cmp64, 8, 63
     gret 5
     amd64_vread_bullshit 1, byte_imm_mem_r
     amd64_vwrite_bullshit 1, byte_imm_mem_w
+
+# =====================================================================================
+# SAHF (0x9e) / LAHF (0x9f) -- AH<->flags. Neither was implemented in the amd64 engine
+# (interp lacked case 0x9e/0x9f; the JIT had no gadget), so guest sahf/lahf SIGILL'd.
+# Flush-style (gen.c flushes the reg cache first, like amd64_gen_rotate_count): operate
+# on rax (regs[0]) and the eager flags (CPU_eflags sf/zf/af/pf bits + the CPU_cf byte)
+# directly in CPU state. No memory access, no inline operands (gret 0).
+
+# LAHF: AH = SF:ZF:0:AF:0:PF:1:CF (= the low byte of a collapsed EFLAGS). The amd64 ALU
+# gadgets keep CPU_eflags' sf/zf/af/pf bits and the CPU_cf byte coherent (eager), so AH
+# is (eflags & {sf,zf,af,pf}) | (CF<<0) | (1<<1). The flags themselves are unchanged.
+.gadget amd64_lahf
+    ldr  w8, [_cpu, CPU_eflags]
+    mov  w12, (SF_FLAG | ZF_FLAG | AF_FLAG | PF_FLAG)   /* 0xd4 (not a valid AND imm) */
+    and  w8, w8, w12
+    ldrb w9, [_cpu, CPU_cf]
+    and  w9, w9, 1
+    orr  w8, w8, w9                  /* bit0 = CF */
+    orr  w8, w8, 2                   /* bit1 = 1 (reserved, always reads as 1) */
+    ldr  x10, [_cpu, CPU_amd64_regs] /* rax */
+    bfi  x10, x8, 8, 8               /* AH = bits 8-15; rest of rax preserved */
+    str  x10, [_cpu, CPU_amd64_regs]
+    gret 0
+
+# SAHF: load SF/ZF/AF/PF/CF from AH; OF (CPU_of + eflags bit 11) and the rest preserved.
+# Clear flags_res so the eager bitfields stay authoritative (a prior bridged interp op
+# may have left a lazy-flag valid bit set).
+.gadget amd64_sahf
+    ldr  x10, [_cpu, CPU_amd64_regs] /* rax */
+    ubfx w8, w10, 8, 8               /* AH */
+    and  w9, w8, 1
+    strb w9, [_cpu, CPU_cf]          /* eager CF = AH bit0 */
+    ldr  w11, [_cpu, CPU_eflags]
+    mov  w12, (1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG)   /* 0xd5: bits 0,2,4,6,7 */
+    bic  w11, w11, w12
+    and  w8, w8, w12                 /* AH's bits {0,2,4,6,7} (CF also into eflags bit0) */
+    orr  w11, w11, w8
+    str  w11, [_cpu, CPU_eflags]
+    strb wzr, [_cpu, CPU_flags_res]
+    gret 0

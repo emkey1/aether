@@ -1026,6 +1026,7 @@ restart:
         case 0x9c: TRACEI("pushf"); PUSHF(); break;
         case 0x9d: TRACEI("popf"); POPF(); break;
         case 0x9e: TRACEI("sahf\t\t"); SAHF; break;
+        case 0x9f: TRACEI("lahf\t\t"); LAHF; break;
 
         case 0xa0: TRACEI("mov mem, al\t");
                    READADDR; MOV(mem_addr, reg_a,8); break;
