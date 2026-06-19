@@ -4458,10 +4458,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (CGSize)intrinsicContentSize {
     if (ISHWorkspaceUsesRingGauges()) {
-        CGFloat dim = _compact ? 52.0 : (ISHWorkspaceUsesPhoneLayout() ? 64.0 : 86.0);
+        CGFloat dim = _compact ? 32.0 : (ISHWorkspaceUsesPhoneLayout() ? 42.0 : 54.0);
         return CGSizeMake(UIViewNoIntrinsicMetric, dim);
     }
-    return CGSizeMake(UIViewNoIntrinsicMetric, _compact ? 32.0 : 42.0);
+    return CGSizeMake(UIViewNoIntrinsicMetric, _compact ? 20.0 : 28.0);
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -4493,7 +4493,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             [progressPath stroke];
         }
         if (text.length > 0) {
-            UIFont *font = [UIFont systemFontOfSize:MAX(13.0, radius * 0.6) weight:UIFontWeightBold];
+            UIFont *font = [UIFont systemFontOfSize:MAX(8.5, radius * 0.66) weight:UIFontWeightBold];
             NSMutableParagraphStyle *para = [NSMutableParagraphStyle new];
             para.alignment = NSTextAlignmentCenter;
             NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: valueColor, NSParagraphStyleAttributeName: para};
@@ -4503,10 +4503,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
 
-    CGFloat barHeight = _compact ? 7.0 : 9.0;
+    CGFloat barHeight = _compact ? 5.0 : 7.0;
     CGFloat barY = CGRectGetMaxY(b) - barHeight;
     if (text.length > 0) {
-        UIFont *font = [UIFont systemFontOfSize:(_compact ? 16.0 : 20.0) weight:UIFontWeightBold];
+        UIFont *font = [UIFont systemFontOfSize:(_compact ? 11.0 : 14.0) weight:UIFontWeightBold];
         NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: valueColor};
         [text drawAtPoint:CGPointMake(CGRectGetMinX(b), CGRectGetMinY(b)) withAttributes:attrs];
     }
@@ -4705,12 +4705,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     header.axis = UILayoutConstraintAxisHorizontal;
     header.spacing = 6;
     header.alignment = UIStackViewAlignmentCenter;
-    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:16];
-    [icon.widthAnchor constraintEqualToConstant:20].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:20].active = YES;
+    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:13];
+    [icon.widthAnchor constraintEqualToConstant:16].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:16].active = YES;
     UILabel *captionLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
     captionLabel.text = caption;
-    captionLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    captionLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
     [header addArrangedSubview:icon];
     [header addArrangedSubview:captionLabel];
     if (trailingLabel != NULL) {
@@ -4734,7 +4734,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [card addSubview:outer];
 
     UILabel *value = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleTitle2 monospaced:NO];
-    value.font = [UIFont systemFontOfSize:(ISHWorkspaceUsesPhoneLayout() ? 20.0 : 23.0) weight:UIFontWeightSemibold];
+    value.font = [UIFont systemFontOfSize:(ISHWorkspaceUsesPhoneLayout() ? 15.0 : 17.0) weight:UIFontWeightSemibold];
     value.numberOfLines = 1;
     value.adjustsFontSizeToFitWidth = YES;
     value.minimumScaleFactor = 0.5;
@@ -4742,9 +4742,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [outer addArrangedSubview:[self workspaceTileHeaderRowWithIcon:symbolName caption:caption trailingLabel:NULL]];
     [outer addArrangedSubview:value];
 
-    CGFloat statInsetY = ISHWorkspaceUsesPhoneLayout() ? 8.0 : 11.0;
+    CGFloat statInsetY = ISHWorkspaceUsesPhoneLayout() ? 5.0 : 7.0;
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 56.0 : 84.0)],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 40.0 : 52.0)],
         [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:statInsetY],
         [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
@@ -4760,7 +4760,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIStackView *outer = [UIStackView new];
     outer.translatesAutoresizingMaskIntoConstraints = NO;
     outer.axis = UILayoutConstraintAxisVertical;
-    outer.spacing = 8;
+    outer.spacing = 5;
     [card addSubview:outer];
 
     UILabel *subtitle = nil;
@@ -4773,9 +4773,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [outer addArrangedSubview:header];
     [outer addArrangedSubview:gaugeView];
 
-    CGFloat gaugeInsetY = ISHWorkspaceUsesPhoneLayout() ? 8.0 : 11.0;
+    CGFloat gaugeInsetY = ISHWorkspaceUsesPhoneLayout() ? 5.0 : 7.0;
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 78.0 : 110.0)],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 50.0 : 64.0)],
         [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:gaugeInsetY],
         [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
@@ -4795,16 +4795,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     row.spacing = 10;
     row.alignment = UIStackViewAlignmentCenter;
 
-    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:15];
-    [icon.widthAnchor constraintEqualToConstant:22].active = YES;
-    [icon.heightAnchor constraintEqualToConstant:20].active = YES;
+    UIImageView *icon = [self workspaceThemeAccentIconNamed:symbolName pointSize:12];
+    [icon.widthAnchor constraintEqualToConstant:18].active = YES;
+    [icon.heightAnchor constraintEqualToConstant:16].active = YES;
 
     UILabel *titleLabel = [self workspaceThemePrimaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
     titleLabel.text = title;
-    titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightRegular];
+    titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
 
     UILabel *value = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleSubheadline monospaced:NO];
-    value.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    value.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
     value.textAlignment = NSTextAlignmentRight;
     value.numberOfLines = 1;
     value.adjustsFontSizeToFitWidth = YES;
