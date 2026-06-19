@@ -128,38 +128,6 @@ BOOL ISHLLMClientEnabled(void) {
     return UserPreferences.shared.shouldEnableLLMClient;
 }
 
-static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) API_AVAILABLE(ios(13.0));
-static UISceneSession *ISHFindExistingWorkspaceSceneSession(UISceneSession *excludedSession) {
-    NSArray<NSString *> *forgottenHiddenSessions = [NSUserDefaults.standardUserDefaults arrayForKey:@"ISHWorkspaceForgottenHiddenSessions"];
-    UISceneSession *bestSession = nil;
-    for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
-        if (session == nil || session == excludedSession)
-            continue;
-        if (![session.stateRestorationActivity.activityType isEqualToString:ISHSceneActivityTypeWorkspace])
-            continue;
-        UIScene *connectedScene = nil;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (scene.session == session) {
-                connectedScene = scene;
-                break;
-            }
-        }
-        if (connectedScene == nil && [forgottenHiddenSessions containsObject:session.persistentIdentifier])
-            continue;
-        if (connectedScene == nil && bestSession == nil) {
-            bestSession = session;
-            continue;
-        }
-        if (connectedScene == nil)
-            continue;
-        if (connectedScene.activationState == UISceneActivationStateForegroundActive)
-            return session;
-        if (bestSession == nil || connectedScene.activationState == UISceneActivationStateForegroundInactive)
-            bestSession = session;
-    }
-    return bestSession;
-}
-
 @interface AboutViewController ()
 @property (weak, nonatomic) IBOutlet UITableViewCell *capsLockMappingCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *themeCell;
@@ -1247,7 +1215,6 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
 }
 
 - (void)showExtractActions:(id)sender {
-    (void) sender;
     NSArray<NSDictionary<NSString *, NSString *> *> *blocks = [self extractCodeBlocksFromText:self.latestAssistantMessage];
     NSString *selectedText = [self selectedTranscriptText];
     NSString *savePath = @"/AOK/persist/llm-extracts";
@@ -1274,9 +1241,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    UIPopoverPresentationController *popover = alert.popoverPresentationController;
-    if (popover != nil)
-        popover.barButtonItem = sender;
+    [self anchorPopoverForAlertController:alert toSource:sender];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -1316,7 +1281,6 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
 }
 
 - (void)showPromptActions:(id)sender {
-    (void) sender;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Prompt Actions" message:@"Use terminal context or saved prompt templates." preferredStyle:UIAlertControllerStyleActionSheet];
     NSArray<NSDictionary<NSString *, NSString *> *> *actions = @[
         @{@"title": @"Explain terminal output", @"instruction": @"Explain the important details in this terminal output. If there is an error, identify the likely cause."},
@@ -1332,9 +1296,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         [self showPromptTemplatePickerFromSender:sender];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    UIPopoverPresentationController *popover = alert.popoverPresentationController;
-    if (popover != nil)
-        popover.barButtonItem = sender;
+    [self anchorPopoverForAlertController:alert toSource:sender];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -1358,9 +1320,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         [self appendRole:@"assistant" content:@"Created example prompt templates in /AOK/persist/llm-prompts."];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    UIPopoverPresentationController *popover = alert.popoverPresentationController;
-    if (popover != nil)
-        popover.barButtonItem = sender;
+    [self anchorPopoverForAlertController:alert toSource:sender];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -2318,6 +2278,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self anchorPopoverForAlertController:alert toSource:sourceView];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -2325,7 +2286,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return ISHLLMModelIdentifiersFromResponseData(data);
 }
 
-- (void)presentModelPickerWithModels:(NSArray<NSString *> *)models statusCode:(NSInteger)statusCode error:(NSError *)error {
+- (void)presentModelPickerWithModels:(NSArray<NSString *> *)models statusCode:(NSInteger)statusCode error:(NSError *)error fromView:(UIView *)sourceView {
     if (error != nil) {
         [self showConnectionResult:error.localizedDescription title:@"Model Query Failed"];
         return;
@@ -2353,10 +2314,11 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
                                                 handler:nil]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self anchorPopoverForAlertController:alert toSource:sourceView];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)queryAvailableModels {
+- (void)queryAvailableModelsFromView:(UIView *)sourceView {
     if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
         [self showConnectionResult:[NSString stringWithFormat:@"Current on-device model: %@\n%@", UserPreferences.shared.llmModel.length > 0 ? UserPreferences.shared.llmModel : @"system-language-model", ISHLLMAppleFoundationModelsUnavailableMessage()] title:@"Apple Foundation Models"];
         return;
@@ -2374,7 +2336,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
             NSData *data = ISHLLMDirectHTTPGet(url, apiKey, &statusCode, &error);
             NSArray<NSString *> *models = [self modelIdentifiersFromResponseData:data];
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self presentModelPickerWithModels:models statusCode:statusCode error:error];
+                [self presentModelPickerWithModels:models statusCode:statusCode error:error fromView:sourceView];
             });
         });
         return;
@@ -2386,7 +2348,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         NSArray<NSString *> *models = [self modelIdentifiersFromResponseData:data];
         NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *) response : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentModelPickerWithModels:models statusCode:http.statusCode error:error];
+            [self presentModelPickerWithModels:models statusCode:http.statusCode error:error fromView:sourceView];
         });
     }];
     [task resume];
@@ -2527,36 +2489,28 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (void)showWorkspace:(id)sender {
-    if (@available(iOS 13.0, *)) {
-        UISceneSession *currentSession = self.view.window.windowScene.session;
-        UISceneSession *workspaceSession = ISHFindExistingWorkspaceSceneSession(currentSession);
-        if (workspaceSession != nil) {
-            [UIApplication.sharedApplication requestSceneSessionActivation:workspaceSession
-                                                             userActivity:nil
-                                                                  options:nil
-                                                             errorHandler:^(__unused NSError *error) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
-                    [self presentViewController:navigationController animated:YES completion:nil];
-                });
-            }];
-            return;
-        }
-        NSUserActivity *activity = [[NSUserActivity alloc] initWithActivityType:ISHSceneActivityTypeWorkspace];
-        [UIApplication.sharedApplication requestSceneSessionActivation:nil
-                                                         userActivity:activity
-                                                              options:nil
-                                                         errorHandler:^(__unused NSError *error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
-                [self presentViewController:navigationController animated:YES completion:nil];
-            });
-        }];
+    (void) sender;
+    // Open the Workspace full screen in the current scene, the same way launch-at-startup does
+    // (SceneDelegate sets window.rootViewController to the workspace). The previous approach
+    // asked iPadOS to activate a *separate* scene, which opened split screen on some iPads and
+    // failed outright on others (Stage Manager / M4). Swapping the root sidesteps all of that,
+    // and the scene's state restoration still reports a workspace scene because its root is one.
+    UINavigationController *navigationController = ISHCreateWorkspaceNavigationControllerForTool(nil);
+    UIWindow *window = self.view.window;
+    if (window == nil) {
+        [self presentViewController:navigationController animated:YES completion:nil];
         return;
     }
-
-    UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
-    [self presentViewController:navigationController animated:YES completion:nil];
+    [UIView transitionWithView:window
+                      duration:0.3
+                       options:UIViewAnimationOptionTransitionCrossDissolve
+                    animations:^{
+        BOOL wereAnimationsEnabled = UIView.areAnimationsEnabled;
+        [UIView setAnimationsEnabled:NO];
+        window.rootViewController = navigationController;
+        [UIView setAnimationsEnabled:wereAnimationsEnabled];
+    }
+                    completion:nil];
 }
 
 - (void)_updateUI:(NSNotification *)notification {
