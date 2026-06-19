@@ -4441,6 +4441,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self workspaceApplyTheme];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    // Subclasses build their views after [super viewDidLoad] has already run workspaceApplyTheme,
+    // so re-apply it here, once every subclass view exists. Without this a tool's labels keep
+    // UILabel's default color until a theme-change notification happens to fire (the bug that
+    // left the Clock readout invisible on dark themes).
+    [self workspaceApplyTheme];
+}
+
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self
                                                   name:ISHWorkspaceToolThemeDidChangeNotification
@@ -7201,6 +7210,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_stackView.bottomAnchor constraintEqualToAnchor:_heroCard.bottomAnchor constant:-8],
     ]];
 
+    // super's viewDidLoad already ran workspaceApplyTheme, but that was before these labels
+    // existed, and nothing re-themes them until a theme-change notification fires. Apply the
+    // theme now that the labels are built so they pick up the theme colors immediately instead
+    // of keeping UILabel's default color (which is invisible against dark theme cards).
+    [self workspaceApplyTheme];
     [self refreshClock:nil];
 }
 
