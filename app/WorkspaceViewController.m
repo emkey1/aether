@@ -338,7 +338,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
         return;
 
     UIColor *strokeColor = active
-        ? [theme[@"accent"] colorWithAlphaComponent:0.92]
+        ? [(theme[@"focusRing"] ?: theme[@"accent"]) colorWithAlphaComponent:0.95]
         : [theme[@"stroke"] colorWithAlphaComponent:0.98];
     self.panelView.layer.borderWidth = active ? 1.6 : 1.0;
     self.panelView.layer.borderColor = strokeColor.CGColor;
@@ -360,8 +360,8 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     [self.utilityButton setTitleColor:theme[@"accent"] forState:UIControlStateNormal];
 
     self.resizeHandleView.backgroundColor = active
-        ? [theme[@"accent"] colorWithAlphaComponent:0.92]
-        : [theme[@"accentAlt"] colorWithAlphaComponent:0.76];
+        ? [(theme[@"focusRing"] ?: theme[@"accent"]) colorWithAlphaComponent:0.92]
+        : [(theme[@"focusRing"] ?: theme[@"accentAlt"]) colorWithAlphaComponent:0.55];
     self.layer.shadowColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.55].CGColor;
 }
 
@@ -1631,6 +1631,55 @@ static UIColor *ISHWorkspaceThemeColorAdjustedForContrast(UIColor *color, UIColo
     return best;
 }
 
+// The focus ring (active-window border / resize handle) is drawn on the workspace
+// background gradient, not on a card, so it must contrast with the background — reusing
+// the card-tuned accent makes it vanish on same-hue backgrounds (e.g. teal accent on a
+// teal gradient). Bias the adjustment toward white on dark backgrounds and black on light
+// ones so a focused window reads as a deliberate glow/outline. Uses the WCAG 1.4.11
+// minimum (3:1) for UI-component boundaries. Keeps any accent that already passes, so
+// well-chosen themes (and custom ones from the editor) are left untouched.
+static UIColor *ISHWorkspaceThemeFocusRingColor(UIColor *accent, UIColor *background) {
+    static const CGFloat minimumContrast = 3.0;
+    if (ISHWorkspaceThemeContrastRatio(accent, background) >= minimumContrast)
+        return accent;
+
+    UIColor *target = ISHWorkspaceThemeRelativeLuminance(background) < 0.45
+        ? UIColor.whiteColor
+        : UIColor.blackColor;
+    if (ISHWorkspaceThemeContrastRatio(target, background) < minimumContrast) {
+        // Mid-tone background: neither pole clears the bar comfortably, so take the better one.
+        target = ISHWorkspaceThemeContrastRatio(UIColor.blackColor, background) >=
+                 ISHWorkspaceThemeContrastRatio(UIColor.whiteColor, background)
+            ? UIColor.blackColor
+            : UIColor.whiteColor;
+    }
+
+    CGFloat accentRed = 0;
+    CGFloat accentGreen = 0;
+    CGFloat accentBlue = 0;
+    CGFloat targetRed = 0;
+    CGFloat targetGreen = 0;
+    CGFloat targetBlue = 0;
+    if (!ISHWorkspaceThemeRGBAComponents(accent, &accentRed, &accentGreen, &accentBlue, NULL) ||
+        !ISHWorkspaceThemeRGBAComponents(target, &targetRed, &targetGreen, &targetBlue, NULL)) {
+        return target;
+    }
+
+    UIColor *best = target;
+    for (NSInteger step = 1; step <= 24; step++) {
+        CGFloat amount = (CGFloat) step / 24.0;
+        UIColor *candidate = [UIColor colorWithRed:(accentRed + ((targetRed - accentRed) * amount))
+                                             green:(accentGreen + ((targetGreen - accentGreen) * amount))
+                                              blue:(accentBlue + ((targetBlue - accentBlue) * amount))
+                                             alpha:1.0];
+        if (ISHWorkspaceThemeContrastRatio(candidate, background) >= minimumContrast) {
+            best = candidate;
+            break;
+        }
+    }
+    return best;
+}
+
 static NSArray<NSString *> *ISHWorkspaceThemeEditableColorKeys(void) {
     return @[@"backgroundTop", @"backgroundBottom", @"card", @"primary", @"secondary", @"accent", @"accentAlt"];
 }
@@ -1657,23 +1706,23 @@ static NSDictionary<NSString *, NSDictionary<NSString *, NSNumber *> *> *ISHWork
     }
     if ([identifier isEqualToString:ISHWorkspaceToolThemeGraphiteIdentifier]) {
         return @{
-            @"backgroundTop": ISHWorkspaceThemeColorDescriptor(21, 29, 43),
-            @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(49, 63, 85),
-            @"card": ISHWorkspaceThemeColorDescriptor(33, 42, 58),
-            @"primary": ISHWorkspaceThemeColorDescriptor(239, 244, 255),
-            @"secondary": ISHWorkspaceThemeColorDescriptor(177, 189, 214),
-            @"accent": ISHWorkspaceThemeColorDescriptor(107, 226, 198),
-            @"accentAlt": ISHWorkspaceThemeColorDescriptor(125, 164, 255),
+            @"backgroundTop": ISHWorkspaceThemeColorDescriptor(15, 20, 32),
+            @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(26, 34, 50),
+            @"card": ISHWorkspaceThemeColorDescriptor(44, 55, 76),
+            @"primary": ISHWorkspaceThemeColorDescriptor(240, 244, 255),
+            @"secondary": ISHWorkspaceThemeColorDescriptor(182, 194, 218),
+            @"accent": ISHWorkspaceThemeColorDescriptor(112, 232, 204),
+            @"accentAlt": ISHWorkspaceThemeColorDescriptor(138, 176, 255),
         };
     }
     return @{
-        @"backgroundTop": ISHWorkspaceThemeColorDescriptor(13, 34, 70),
-        @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(44, 129, 167),
-        @"card": ISHWorkspaceThemeColorDescriptor(239, 251, 255),
-        @"primary": ISHWorkspaceThemeColorDescriptor(14, 39, 63),
-        @"secondary": ISHWorkspaceThemeColorDescriptor(55, 82, 112),
-        @"accent": ISHWorkspaceThemeColorDescriptor(0, 111, 147),
-        @"accentAlt": ISHWorkspaceThemeColorDescriptor(39, 122, 77),
+        @"backgroundTop": ISHWorkspaceThemeColorDescriptor(10, 26, 58),
+        @"backgroundBottom": ISHWorkspaceThemeColorDescriptor(22, 74, 104),
+        @"card": ISHWorkspaceThemeColorDescriptor(240, 251, 255),
+        @"primary": ISHWorkspaceThemeColorDescriptor(13, 38, 62),
+        @"secondary": ISHWorkspaceThemeColorDescriptor(52, 80, 110),
+        @"accent": ISHWorkspaceThemeColorDescriptor(0, 118, 156),
+        @"accentAlt": ISHWorkspaceThemeColorDescriptor(20, 128, 120),
     };
 }
 
@@ -1753,6 +1802,9 @@ static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptorFromEdita
         ISHWorkspaceThemeColorFromDescriptor(palette[@"accent"]), contrastSurface, 4.8);
     UIColor *accentAlt = ISHWorkspaceThemeColorAdjustedForContrast(
         ISHWorkspaceThemeColorFromDescriptor(palette[@"accentAlt"]), contrastSurface, 4.8);
+    // Focus ring is anchored to the background (where it's actually drawn), not the card.
+    UIColor *focusRing = ISHWorkspaceThemeFocusRingColor(
+        ISHWorkspaceThemeColorFromDescriptor(palette[@"accent"]), backgroundBottom);
     return @{
         @"backgroundTop": backgroundTop,
         @"backgroundBottom": backgroundBottom,
@@ -1762,7 +1814,8 @@ static NSDictionary<NSString *, UIColor *> *ISHWorkspaceThemeDescriptorFromEdita
         @"secondary": secondary,
         @"accent": accent,
         @"accentAlt": accentAlt,
-        @"stroke": [accent colorWithAlphaComponent:0.24],
+        @"focusRing": focusRing,
+        @"stroke": [focusRing colorWithAlphaComponent:0.28],
     };
 }
 
