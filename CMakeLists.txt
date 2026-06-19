@@ -85,8 +85,8 @@ target_link_libraries(aether PRIVATE pscal_core_static Threads::Threads m)
 
 # ---- Install ----------------------------------------------------------------
 # `cmake --install build` puts `aether` on PATH and ships the examples and the
-# language docs beside it. The FetchContent deps (rea, pscal-core) declare no
-# install rules of their own, so only Aether's targets are installed here.
+# language docs beside it. The FetchContent deps (rea, pscal-core) guard their
+# own install rules to standalone builds, so only Aether's targets install here.
 include(GNUInstallDirs)
 install(TARGETS aether RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/

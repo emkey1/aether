@@ -33,8 +33,9 @@ cmake --install build --prefix /usr/local
 
 This puts the `aether` binary in `<prefix>/bin`, the example programs in
 `<prefix>/share/aether/examples`, and the language docs in
-`<prefix>/share/doc/aether`. The fetched dependencies (rea, pscal-core) declare
-no install rules, so only Aether's own artifacts are installed.
+`<prefix>/share/doc/aether`. The fetched dependencies (rea, pscal-core) guard
+their install rules to standalone builds, so only Aether's own artifacts are
+installed.
 
 ## Test
 
