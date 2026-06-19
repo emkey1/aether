@@ -1455,8 +1455,10 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
             [text appendFormat:@"(ran %lu shell command%@)\n\n", (unsigned long) commandCount, commandCount == 1 ? @"" : @"s"];
     }
     if (text.length == 0) {
-        [text appendFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nServer: %@\nModel: %@\n",
-         UserPreferences.shared.llmServerURL, UserPreferences.shared.llmModel];
+        // Intentionally omit the server URL here -- it shows after Clear and may
+        // contain a private host/IP the user doesn't want on screen.
+        [text appendFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nModel: %@\n",
+         UserPreferences.shared.llmModel];
     }
     _transcriptView.text = text;
     NSRange bottom = NSMakeRange(_transcriptView.text.length, 0);
