@@ -16,6 +16,7 @@
 #include <mach/task_info.h>
 #include <net/if.h>
 #include <sys/sysctl.h>
+#include <string.h>
 
 @class ISHWorkspaceContainedWindowView;
 
@@ -733,7 +734,7 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return @"Networks";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
-        return @"System Status";
+        return @"Logs";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return @"Workspaces";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolProcessesIdentifier])
@@ -1030,11 +1031,14 @@ static NSString *ISHWorkspaceNetworkSummaryText(void) {
         if (inet_ntop(family, source, addressBuffer, sizeof(addressBuffer)) == NULL)
             continue;
 
+        if (family == AF_INET6 && strncmp(addressBuffer, "fe80", 4) == 0)
+            continue;  // IPv6 link-local (fe80::) is noise; humans want IPv4
         NSString *interfaceName = [NSString stringWithUTF8String:cursor->ifa_name];
         NSString *address = [NSString stringWithUTF8String:addressBuffer];
         BOOL isLoopback = (cursor->ifa_flags & IFF_LOOPBACK) != 0;
         if (isLoopback) {
-            if (loopbackLine == nil)
+            // Prefer the IPv4 loopback address (127.0.0.1) over ::1.
+            if (loopbackLine == nil || family == AF_INET)
                 loopbackLine = [NSString stringWithFormat:@"Loopback: %@ (%@)", interfaceName, address];
             continue;
         }
@@ -3983,11 +3987,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             @"message": @"Live clocks, runtime summaries, and process views.",
             @"items": @[
                 @{@"title": @"Clock", @"identifier": ISHWorkspaceToolClockIdentifier},
-                @{@"title": @"Info", @"identifier": ISHWorkspaceToolInfoIdentifier},
                 @{@"title": @"Monitor", @"identifier": ISHWorkspaceToolMonitorIdentifier},
                 @{@"title": @"Processes", @"identifier": ISHWorkspaceToolProcessesIdentifier},
                 @{@"title": @"Networks", @"identifier": ISHWorkspaceToolNetworksIdentifier},
-                @{@"title": @"System Status", @"identifier": ISHWorkspaceToolStatusIdentifier},
+                @{@"title": @"Logs", @"identifier": ISHWorkspaceToolStatusIdentifier},
             ],
         },
         @{
@@ -7805,16 +7808,20 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
     UIStackView *_gaugeRow;
+    UIStackView *_gaugeRow2;
     WorkspaceGaugeView *_cpuGauge;
     UILabel *_cpuSubtitle;
     WorkspaceGaugeView *_memoryGauge;
     UILabel *_memorySubtitle;
+    WorkspaceGaugeView *_batteryGauge;
+    UILabel *_batterySubtitle;
+    WorkspaceGaugeView *_storageGauge;
+    UILabel *_storageSubtitle;
     UILabel *_uptimeValueLabel;
-    UILabel *_batteryValueLabel;
-    UILabel *_diskValueLabel;
     UILabel *_rootValueLabel;
-    UILabel *_liveValueLabel;
     UILabel *_networkValueLabel;
+    UILabel *_startupValueLabel;
+    UILabel *_liveValueLabel;
     NSTimer *_timer;
     natural_t _previousCPUTicks[CPU_STATE_MAX];
     BOOL _hasPreviousCPUSample;
@@ -7843,12 +7850,19 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     [_gaugeRow addArrangedSubview:[self workspaceGaugeTileWithIcon:@"memorychip" caption:@"Memory" subtitleLabel:&_memorySubtitle gauge:&_memoryGauge]];
     [_contentStack addArrangedSubview:_gaugeRow];
 
+    _gaugeRow2 = [UIStackView new];
+    _gaugeRow2.axis = UILayoutConstraintAxisHorizontal;
+    _gaugeRow2.spacing = 8;
+    _gaugeRow2.distribution = UIStackViewDistributionFillEqually;
+    [_gaugeRow2 addArrangedSubview:[self workspaceGaugeTileWithIcon:@"battery.100" caption:@"Battery" subtitleLabel:&_batterySubtitle gauge:&_batteryGauge]];
+    [_gaugeRow2 addArrangedSubview:[self workspaceGaugeTileWithIcon:@"internaldrive" caption:@"Storage" subtitleLabel:&_storageSubtitle gauge:&_storageGauge]];
+    [_contentStack addArrangedSubview:_gaugeRow2];
+
     [_contentStack addArrangedSubview:[self workspaceRowsCardWithRows:@[
         [self workspaceIconRowWithIcon:@"clock" title:@"Uptime" valueLabel:&_uptimeValueLabel],
-        [self workspaceIconRowWithIcon:@"battery.100" title:@"Battery" valueLabel:&_batteryValueLabel],
-        [self workspaceIconRowWithIcon:@"internaldrive" title:@"Storage" valueLabel:&_diskValueLabel],
         [self workspaceIconRowWithIcon:@"folder" title:@"Root" valueLabel:&_rootValueLabel],
         [self workspaceIconRowWithIcon:@"network" title:@"Network" valueLabel:&_networkValueLabel],
+        [self workspaceIconRowWithIcon:@"bolt" title:@"Startup" valueLabel:&_startupValueLabel],
         [self workspaceIconRowWithIcon:@"square.grid.2x2" title:@"Live" valueLabel:&_liveValueLabel],
     ]]];
 
@@ -7972,8 +7986,12 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 240;
-    _gaugeRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
-    _gaugeRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
+    UILayoutConstraintAxis gaugeAxis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
+    UIStackViewDistribution gaugeDist = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
+    _gaugeRow.axis = gaugeAxis;
+    _gaugeRow.distribution = gaugeDist;
+    _gaugeRow2.axis = gaugeAxis;
+    _gaugeRow2.distribution = gaugeDist;
     _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
@@ -8005,24 +8023,6 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)refreshMonitor:(id)sender {
     double cpuRatio = [self sampleSystemCPURatio];
-
-    uint64_t footprint = 0;
-    uint64_t physical = 0;
-    BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, &physical);
-    double memoryRatio = (hasMemory && physical > 0) ? ((double) footprint / (double) physical) : 0.0;
-
-    NSString *storageString = [ISHWorkspaceStorageSummaryText() stringByReplacingOccurrencesOfString:@"Free storage: "
-                                                                                          withString:@""];
-    NSString *defaultRoot = Roots.instance.defaultRoot;
-    NSString *networkLine = ISHWorkspacePrimaryNetworkLine();
-
-    NSUInteger sceneCount = 0;
-    if (@available(iOS 13.0, *)) {
-        sceneCount = UIApplication.sharedApplication.connectedScenes.count;
-    }
-
-    NSUInteger terminalCount = [Terminal activeTerminals].count;
-
     if (cpuRatio >= 0.0) {
         _cpuGauge.progress = cpuRatio;
         _cpuGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(cpuRatio * 100.0)];
@@ -8030,32 +8030,75 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     } else {
         _cpuGauge.progress = 0.0;
         _cpuGauge.valueText = @"--";
-        _cpuSubtitle.text = @"unavailable";
+        _cpuSubtitle.text = @"n/a";
     }
 
-    if (hasMemory) {
+    uint64_t footprint = 0;
+    uint64_t physical = 0;
+    BOOL hasMemory = ISHWorkspaceMemoryUsage(&footprint, NULL, &physical);
+    if (hasMemory && physical > 0) {
+        double memoryRatio = (double) footprint / (double) physical;
         _memoryGauge.progress = memoryRatio;
         _memoryGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(memoryRatio * 100.0)];
         _memorySubtitle.text = @"in use";
     } else {
         _memoryGauge.progress = 0.0;
         _memoryGauge.valueText = @"--";
-        _memorySubtitle.text = @"unavailable";
+        _memorySubtitle.text = @"n/a";
     }
 
+    if (UIDevice.currentDevice.batteryState == UIDeviceBatteryStateUnknown || UIDevice.currentDevice.batteryLevel < 0) {
+        _batteryGauge.progress = 0.0;
+        _batteryGauge.valueText = @"--";
+        _batterySubtitle.text = @"n/a";
+    } else {
+        NSString *batteryState = @"on battery";
+        switch (UIDevice.currentDevice.batteryState) {
+            case UIDeviceBatteryStateCharging: batteryState = @"charging"; break;
+            case UIDeviceBatteryStateFull: batteryState = @"full"; break;
+            case UIDeviceBatteryStateUnplugged: batteryState = @"on battery"; break;
+            case UIDeviceBatteryStateUnknown: break;
+        }
+        double level = MAX(0.0, MIN(1.0, (double) UIDevice.currentDevice.batteryLevel));
+        _batteryGauge.progress = level;
+        _batteryGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(level * 100.0)];
+        _batterySubtitle.text = batteryState;
+    }
+
+    NSDictionary<NSFileAttributeKey, id> *fsAttributes =
+        [NSFileManager.defaultManager attributesOfFileSystemForPath:NSHomeDirectory() error:nil];
+    NSNumber *freeSize = fsAttributes[NSFileSystemFreeSize];
+    NSNumber *totalSize = fsAttributes[NSFileSystemSize];
+    if (freeSize != nil && totalSize != nil && totalSize.longLongValue > 0) {
+        double used = (double) (totalSize.longLongValue - freeSize.longLongValue) / (double) totalSize.longLongValue;
+        _storageGauge.progress = MAX(0.0, MIN(1.0, used));
+        _storageGauge.valueText = [NSString stringWithFormat:@"%ld%%", (long) llround(used * 100.0)];
+        _storageSubtitle.text = [NSString stringWithFormat:@"%@ free",
+                                 [NSByteCountFormatter stringFromByteCount:freeSize.longLongValue countStyle:NSByteCountFormatterCountStyleFile]];
+    } else {
+        _storageGauge.progress = 0.0;
+        _storageGauge.valueText = @"--";
+        _storageSubtitle.text = @"n/a";
+    }
+
+    NSUInteger sceneCount = 0;
+    if (@available(iOS 13.0, *)) {
+        sceneCount = UIApplication.sharedApplication.connectedScenes.count;
+    }
+    NSString *defaultRoot = Roots.instance.defaultRoot;
     _uptimeValueLabel.text = ISHWorkspaceDurationString(NSProcessInfo.processInfo.systemUptime);
-    _batteryValueLabel.text = ISHWorkspaceBatterySummaryText();
-    _diskValueLabel.text = storageString;
     _rootValueLabel.text = defaultRoot.length > 0 ? defaultRoot : @"unavailable";
+    _networkValueLabel.text = ISHWorkspacePrimaryNetworkLine();
+    _startupValueLabel.text = ISHInitialWindowTitle();
     _liveValueLabel.text = [NSString stringWithFormat:@"%lu scenes · %lu terminals",
                             (unsigned long) sceneCount,
-                            (unsigned long) terminalCount];
-    _networkValueLabel.text = networkLine;
+                            (unsigned long) [Terminal activeTerminals].count];
 }
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
     _memoryGauge.fillColor = self.workspaceTheme[@"accentAlt"];
+    _storageGauge.fillColor = self.workspaceTheme[@"accentAlt"];
 }
 
 @end
@@ -8172,18 +8215,30 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 @end
 
+// Guest log reads run /bin/sh in the guest via run_guest_command_capture, which repoints
+// the kernel's `current`, so they must run on a dedicated host thread (never a guest task
+// thread). Serialize them on one queue so overlapping refreshes can't race.
+static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("app.ish.workspace.logreader", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
+
 @implementation WorkspaceStatusToolViewController {
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
-    UILabel *_heroValueLabel;
-    UITextView *_runtimeTextView;
-    UITextView *_networkTextView;
-    UITextView *_eventsTextView;
+    UILabel *_sourceLabel;
+    UITextView *_logTextView;
+    NSTimer *_timer;
+    NSUInteger _refreshGeneration;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"System Status";
+    self.title = @"Logs";
 
     _scrollView = [UIScrollView new];
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -8196,63 +8251,27 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _contentStack.spacing = 8;
     [_scrollView addSubview:_contentStack];
 
-    UIView *heroCard = [self workspaceThemeCardView];
-    UIStackView *heroStack = [UIStackView new];
-    heroStack.translatesAutoresizingMaskIntoConstraints = NO;
-    heroStack.axis = UILayoutConstraintAxisVertical;
-    heroStack.spacing = 6;
-    [heroCard addSubview:heroStack];
-    UILabel *heroTitle = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleCaption1 monospaced:NO];
-    heroTitle.text = @"SYSTEM STATUS";
-    heroTitle.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
-    _heroValueLabel = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
-    _heroValueLabel.numberOfLines = 0;
-    [heroStack addArrangedSubview:heroTitle];
-    [heroStack addArrangedSubview:_heroValueLabel];
-    [NSLayoutConstraint activateConstraints:@[
-        [heroStack.topAnchor constraintEqualToAnchor:heroCard.topAnchor constant:12],
-        [heroStack.leadingAnchor constraintEqualToAnchor:heroCard.leadingAnchor constant:12],
-        [heroStack.trailingAnchor constraintEqualToAnchor:heroCard.trailingAnchor constant:-12],
-        [heroStack.bottomAnchor constraintEqualToAnchor:heroCard.bottomAnchor constant:-12],
-    ]];
+    UIView *card = [self workspaceThemeCardView];
+    UIStackView *cardStack = [UIStackView new];
+    cardStack.translatesAutoresizingMaskIntoConstraints = NO;
+    cardStack.axis = UILayoutConstraintAxisVertical;
+    cardStack.spacing = 6;
+    [card addSubview:cardStack];
 
-    UIView *runtimeCard = [self workspaceThemeCardView];
-    _runtimeTextView = [self workspaceThemeTextView];
-    [runtimeCard addSubview:_runtimeTextView];
-    [NSLayoutConstraint activateConstraints:@[
-        [runtimeCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 76.0 : 94.0)],
-        [_runtimeTextView.topAnchor constraintEqualToAnchor:runtimeCard.topAnchor constant:8],
-        [_runtimeTextView.leadingAnchor constraintEqualToAnchor:runtimeCard.leadingAnchor constant:8],
-        [_runtimeTextView.trailingAnchor constraintEqualToAnchor:runtimeCard.trailingAnchor constant:-8],
-        [_runtimeTextView.bottomAnchor constraintEqualToAnchor:runtimeCard.bottomAnchor constant:-8],
-    ]];
+    [cardStack addArrangedSubview:[self workspaceTileHeaderRowWithIcon:@"doc.text" caption:@"RECENT LOGS" trailingLabel:&_sourceLabel]];
+    _sourceLabel.textAlignment = NSTextAlignmentRight;
+    _logTextView = [self workspaceThemeTextView];
+    _logTextView.scrollEnabled = NO;
+    [cardStack addArrangedSubview:_logTextView];
 
-    UIView *networkCard = [self workspaceThemeCardView];
-    _networkTextView = [self workspaceThemeTextView];
-    [networkCard addSubview:_networkTextView];
     [NSLayoutConstraint activateConstraints:@[
-        [networkCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 68.0 : 82.0)],
-        [_networkTextView.topAnchor constraintEqualToAnchor:networkCard.topAnchor constant:8],
-        [_networkTextView.leadingAnchor constraintEqualToAnchor:networkCard.leadingAnchor constant:8],
-        [_networkTextView.trailingAnchor constraintEqualToAnchor:networkCard.trailingAnchor constant:-8],
-        [_networkTextView.bottomAnchor constraintEqualToAnchor:networkCard.bottomAnchor constant:-8],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 88.0 : 120.0)],
+        [cardStack.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
+        [cardStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
+        [cardStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
+        [cardStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
     ]];
-
-    UIView *eventsCard = [self workspaceThemeCardView];
-    _eventsTextView = [self workspaceThemeTextView];
-    [eventsCard addSubview:_eventsTextView];
-    [NSLayoutConstraint activateConstraints:@[
-        [eventsCard.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 74.0 : 90.0)],
-        [_eventsTextView.topAnchor constraintEqualToAnchor:eventsCard.topAnchor constant:8],
-        [_eventsTextView.leadingAnchor constraintEqualToAnchor:eventsCard.leadingAnchor constant:8],
-        [_eventsTextView.trailingAnchor constraintEqualToAnchor:eventsCard.trailingAnchor constant:-8],
-        [_eventsTextView.bottomAnchor constraintEqualToAnchor:eventsCard.bottomAnchor constant:-8],
-    ]];
-
-    [_contentStack addArrangedSubview:heroCard];
-    [_contentStack addArrangedSubview:runtimeCard];
-    [_contentStack addArrangedSubview:networkCard];
-    [_contentStack addArrangedSubview:eventsCard];
+    [_contentStack addArrangedSubview:card];
 
     [NSLayoutConstraint activateConstraints:@[
         [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
@@ -8267,57 +8286,78 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
-    [self refreshStatus:nil];
+    _sourceLabel.text = @"reading…";
+    _logTextView.text = @"Loading recent log entries…";
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self refreshStatus:nil];
+    [self refreshLogs];
+    [_timer invalidate];
+    _timer = [NSTimer scheduledTimerWithTimeInterval:20.0
+                                              target:self
+                                            selector:@selector(refreshLogs)
+                                            userInfo:nil
+                                             repeats:YES];
 }
 
-- (void)refreshStatus:(id)sender {
-    NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
-    NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"?";
-    _heroValueLabel.text = [NSString stringWithFormat:@"iSH-AOK %@ (%@)\n%@ • iOS %@",
-                            version,
-                            build,
-                            UIDevice.currentDevice.model ?: @"Unknown device",
-                            UIDevice.currentDevice.systemVersion ?: @"?"];
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [_timer invalidate];
+    _timer = nil;
+}
 
-    NSMutableArray<NSString *> *runtimeLines = [NSMutableArray array];
-    NSString *defaultRoot = Roots.instance.defaultRoot;
-    [runtimeLines addObject:[NSString stringWithFormat:@"Root: %@",
-                             defaultRoot.length > 0 ? defaultRoot : @"unavailable"]];
-    [runtimeLines addObject:ISHWorkspaceStorageSummaryText()];
-    [runtimeLines addObject:[NSString stringWithFormat:@"Startup: %@", ISHInitialWindowTitle()]];
-    [runtimeLines addObject:[NSString stringWithFormat:@"Installed roots: %lu",
-                             (unsigned long) Roots.instance.roots.count]];
-    [runtimeLines addObject:[NSString stringWithFormat:@"Active terminals: %lu",
-                             (unsigned long) Terminal.activeTerminals.count]];
-    if (@available(iOS 13.0, *)) {
-        [runtimeLines addObject:[NSString stringWithFormat:@"Open scenes: %lu",
-                                 (unsigned long) UIApplication.sharedApplication.connectedScenes.count]];
-    }
-    _runtimeTextView.text = [runtimeLines componentsJoinedByString:@"\n"];
-    _networkTextView.text = ISHWorkspaceNetworkSummaryText();
+- (void)refreshLogs {
+    NSUInteger generation = ++_refreshGeneration;
+    // Probe the conventional log locations across rootfs's (Alpine writes /var/log/messages,
+    // Devuan/Debian write /var/log/syslog), then fall back to the newest non-empty file in
+    // /var/log. Running it as a guest shell snippet keeps it rootfs-agnostic.
+    static NSString *const script =
+        @"for f in /var/log/messages /var/log/syslog /var/log/dmesg /var/log/auth.log; do "
+        @"[ -s \"$f\" ] && { printf '== %s ==\\n' \"$f\"; tail -n 8 \"$f\"; exit 0; }; done; "
+        @"for f in $(ls -1t /var/log 2>/dev/null); do p=\"/var/log/$f\"; "
+        @"[ -f \"$p\" ] && [ -s \"$p\" ] && { printf '== %s ==\\n' \"$p\"; tail -n 8 \"$p\"; exit 0; }; done; "
+        @"echo __NOLOGS__";
+    dispatch_async(ISHWorkspaceLogReaderQueue(), ^{
+        struct guest_command_result result;
+        memset(&result, 0, sizeof(result));
+        int rc = run_guest_command_capture(script.UTF8String, NULL, 5000, 16 * 1024, &result);
+        BOOL launched = (rc >= 0 && result.launched);
+        NSString *captured = nil;
+        if (launched && result.output != NULL && result.output_len > 0)
+            captured = [[NSString alloc] initWithBytes:result.output length:result.output_len encoding:NSUTF8StringEncoding];
+        if (result.output != NULL)
+            free(result.output);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self->_refreshGeneration)
+                return;
+            [self applyLogText:captured launched:launched];
+        });
+    });
+}
 
-    NSArray<NSDictionary<NSString *, id> *> *breadcrumbs = [ISHDiagnosticsStore recentBreadcrumbsWithLimit:5];
-    if (breadcrumbs.count == 0) {
-        _eventsTextView.text = @"Recent events:\nNo recent diagnostics breadcrumbs.";
+- (void)applyLogText:(NSString *)captured launched:(BOOL)launched {
+    if (!launched) {
+        _sourceLabel.text = @"guest";
+        _logTextView.text = @"The guest system isn't running yet. Start a shell or console, then recent log lines will appear here.";
         return;
     }
-    NSMutableArray<NSString *> *eventLines = [NSMutableArray arrayWithObject:@"Recent events:"];
-    for (NSDictionary<NSString *, id> *entry in breadcrumbs) {
-        NSString *event = entry[@"event"] ?: @"event";
-        NSString *timestamp = entry[@"timestamp"] ?: @"";
-        [eventLines addObject:[NSString stringWithFormat:@"%@  %@", timestamp, event]];
+    NSString *trimmed = [(captured ?: @"") stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length == 0 || [trimmed containsString:@"__NOLOGS__"]) {
+        _sourceLabel.text = @"/var/log";
+        _logTextView.text = @"No populated log files under /var/log. Many minimal rootfs's don't run a syslog daemon by default.";
+        return;
     }
-    _eventsTextView.text = [eventLines componentsJoinedByString:@"\n"];
-}
-
-- (void)workspaceApplyTheme {
-    [super workspaceApplyTheme];
-    _heroValueLabel.textColor = self.workspaceTheme[@"accentAlt"];
+    NSMutableArray<NSString *> *lines = [[trimmed componentsSeparatedByString:@"\n"] mutableCopy];
+    NSString *source = @"/var/log";
+    if (lines.count > 0 && [lines.firstObject hasPrefix:@"== "]) {
+        source = [[[lines.firstObject stringByReplacingOccurrencesOfString:@"== " withString:@""]
+                   stringByReplacingOccurrencesOfString:@" ==" withString:@""]
+                  stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        [lines removeObjectAtIndex:0];
+    }
+    _sourceLabel.text = source;
+    _logTextView.text = lines.count > 0 ? [lines componentsJoinedByString:@"\n"] : @"(log file is empty)";
 }
 
 - (void)viewDidLayoutSubviews {
