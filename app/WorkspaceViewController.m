@@ -7918,8 +7918,6 @@ static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
 }
 
 @implementation WorkspaceStatusToolViewController {
-    UIScrollView *_scrollView;
-    UIStackView *_contentStack;
     UILabel *_sourceLabel;
     UITextView *_logTextView;
     NSTimer *_timer;
@@ -7930,18 +7928,10 @@ static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
     [super viewDidLoad];
     self.title = @"Logs";
 
-    _scrollView = [UIScrollView new];
-    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    _scrollView.alwaysBounceVertical = YES;
-    [self.toolContentView addSubview:_scrollView];
-
-    _contentStack = [UIStackView new];
-    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
-    _contentStack.axis = UILayoutConstraintAxisVertical;
-    _contentStack.spacing = 8;
-    [_scrollView addSubview:_contentStack];
-
     UIView *card = [self workspaceThemeCardView];
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.toolContentView addSubview:card];
+
     UIStackView *cardStack = [UIStackView new];
     cardStack.translatesAutoresizingMaskIntoConstraints = NO;
     cardStack.axis = UILayoutConstraintAxisVertical;
@@ -7950,30 +7940,25 @@ static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
 
     [cardStack addArrangedSubview:[self workspaceTileHeaderRowWithIcon:@"doc.text" caption:@"RECENT LOGS" trailingLabel:&_sourceLabel]];
     _sourceLabel.textAlignment = NSTextAlignmentRight;
+
+    // The log text view fills the (resizable) window below the fixed header and scrolls
+    // internally, so resizing the window changes how much of the log is visible.
     _logTextView = [self workspaceThemeTextView];
-    _logTextView.scrollEnabled = NO;
+    _logTextView.scrollEnabled = YES;
+    _logTextView.alwaysBounceVertical = YES;
+    [_logTextView setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    [_logTextView setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
     [cardStack addArrangedSubview:_logTextView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 88.0 : 120.0)],
+        [card.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:6],
+        [card.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:6],
+        [card.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-6],
+        [card.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor constant:-6],
         [cardStack.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
         [cardStack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [cardStack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
         [cardStack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-10],
-    ]];
-    [_contentStack addArrangedSubview:card];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
-        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
-        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
-        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
-
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:6],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:6],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-6],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-6],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-12],
     ]];
 
     _sourceLabel.text = @"reading…";
@@ -8004,14 +7989,14 @@ static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
     // /var/log. Running it as a guest shell snippet keeps it rootfs-agnostic.
     static NSString *const script =
         @"for f in /var/log/messages /var/log/syslog /var/log/dmesg /var/log/auth.log; do "
-        @"[ -s \"$f\" ] && { printf '== %s ==\\n' \"$f\"; tail -n 8 \"$f\"; exit 0; }; done; "
+        @"[ -s \"$f\" ] && { printf '== %s ==\\n' \"$f\"; tail -n 200 \"$f\"; exit 0; }; done; "
         @"for f in $(ls -1t /var/log 2>/dev/null); do p=\"/var/log/$f\"; "
-        @"[ -f \"$p\" ] && [ -s \"$p\" ] && { printf '== %s ==\\n' \"$p\"; tail -n 8 \"$p\"; exit 0; }; done; "
+        @"[ -f \"$p\" ] && [ -s \"$p\" ] && { printf '== %s ==\\n' \"$p\"; tail -n 200 \"$p\"; exit 0; }; done; "
         @"echo __NOLOGS__";
     dispatch_async(ISHWorkspaceLogReaderQueue(), ^{
         struct guest_command_result result;
         memset(&result, 0, sizeof(result));
-        int rc = run_guest_command_capture(script.UTF8String, NULL, 5000, 16 * 1024, &result);
+        int rc = run_guest_command_capture(script.UTF8String, NULL, 6000, 64 * 1024, &result);
         BOOL launched = (rc >= 0 && result.launched);
         NSString *captured = nil;
         if (launched && result.output != NULL && result.output_len > 0)
@@ -8048,11 +8033,6 @@ static dispatch_queue_t ISHWorkspaceLogReaderQueue(void) {
     }
     _sourceLabel.text = source;
     _logTextView.text = lines.count > 0 ? [lines componentsJoinedByString:@"\n"] : @"(log file is empty)";
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
 }
 
 @end
