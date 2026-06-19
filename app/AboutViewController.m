@@ -21,7 +21,68 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <errno.h>
 #include "kernel/init.h" // run_guest_command_capture (guest-shell tool)
+
+// Connect to one of the resolved addresses with a bounded timeout (default
+// blocking connect can hang ~75s on an unreachable host). Returns a connected,
+// blocking socket fd, or -1 with *errnoOut set to the last failure reason.
+static int ISHLLMConnectWithTimeout(struct addrinfo *results, int timeoutMs, int *errnoOut) {
+    int lastErrno = ETIMEDOUT;
+    for (struct addrinfo *addr = results; addr != NULL; addr = addr->ai_next) {
+        int fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if (fd < 0) { lastErrno = errno; continue; }
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        if (connect(fd, addr->ai_addr, addr->ai_addrlen) == 0) {
+            fcntl(fd, F_SETFL, flags);
+            return fd;
+        }
+        if (errno != EINPROGRESS) { lastErrno = errno; close(fd); continue; }
+        struct pollfd pfd = {.fd = fd, .events = POLLOUT};
+        int pr = poll(&pfd, 1, timeoutMs);
+        if (pr == 0) { lastErrno = ETIMEDOUT; close(fd); continue; }
+        if (pr < 0) { lastErrno = errno; close(fd); continue; }
+        int soError = 0;
+        socklen_t soLen = sizeof(soError);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &soLen) < 0 || soError != 0) {
+            lastErrno = soError != 0 ? soError : errno;
+            close(fd);
+            continue;
+        }
+        fcntl(fd, F_SETFL, flags);
+        return fd;
+    }
+    if (errnoOut != NULL)
+        *errnoOut = lastErrno;
+    return -1;
+}
+
+// Build a user-facing NSError for a failed connection that names the host:port and
+// the reason, so timeouts/refusals are obvious instead of a bare errno.
+static NSError *ISHLLMConnectionError(NSString *host, NSString *port, int errnoValue) {
+    NSString *reason = [NSString stringWithUTF8String:strerror(errnoValue)] ?: @"connection failed";
+    NSString *message = [NSString stringWithFormat:@"Could not connect to %@:%@ — %@. The model server must be reachable from this device (check the URL/port, that the server is listening on all interfaces, and any VPN/firewall between them).", host, port, reason];
+    return [NSError errorWithDomain:NSPOSIXErrorDomain code:errnoValue userInfo:@{NSLocalizedDescriptionKey: message}];
+}
+
+// Dedicated serial queue for guest-shell tool execution. run_guest_command_capture
+// runs emulated guest code (spawns a task, manipulates kernel signal/`current`
+// state) and must be kept OFF the shared libdispatch global pool that the HTTP
+// requests run on -- otherwise running a tool command can leave a pooled worker
+// thread in a state that wedges later network requests (observed as connect()
+// timeouts after a tool ran). A private queue gives guest commands their own,
+// isolated worker thread.
+static dispatch_queue_t ISHLLMGuestCommandQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("aok.llm.guest-shell", DISPATCH_QUEUE_SERIAL);
+    });
+    return queue;
+}
 
 NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunch";
 
@@ -448,20 +509,12 @@ static NSData *ISHLLMDirectHTTPPost(NSURL *url, NSData *body, NSString *apiKey, 
         return nil;
     }
 
-    int fd = -1;
-    for (struct addrinfo *addr = results; addr != NULL; addr = addr->ai_next) {
-        fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if (fd < 0)
-            continue;
-        if (connect(fd, addr->ai_addr, addr->ai_addrlen) == 0)
-            break;
-        close(fd);
-        fd = -1;
-    }
+    int connectErrno = 0;
+    int fd = ISHLLMConnectWithTimeout(results, 15000, &connectErrno);
     freeaddrinfo(results);
     if (fd < 0) {
         if (errorOut != nil)
-            *errorOut = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            *errorOut = ISHLLMConnectionError(host, portString, connectErrno);
         return nil;
     }
 
@@ -555,20 +608,12 @@ static NSData *ISHLLMDirectHTTPGet(NSURL *url, NSString *apiKey, NSInteger *stat
         }
         return nil;
     }
-    int fd = -1;
-    for (struct addrinfo *addr = results; addr != NULL; addr = addr->ai_next) {
-        fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if (fd < 0)
-            continue;
-        if (connect(fd, addr->ai_addr, addr->ai_addrlen) == 0)
-            break;
-        close(fd);
-        fd = -1;
-    }
+    int connectErrno = 0;
+    int fd = ISHLLMConnectWithTimeout(results, 15000, &connectErrno);
     freeaddrinfo(results);
     if (fd < 0) {
         if (errorOut != nil)
-            *errorOut = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            *errorOut = ISHLLMConnectionError(host, portString, connectErrno);
         return nil;
     }
     NSString *path = url.path.length > 0 ? url.path : @"/";
@@ -675,20 +720,12 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         return NO;
     }
 
-    int fd = -1;
-    for (struct addrinfo *addr = results; addr != NULL; addr = addr->ai_next) {
-        fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-        if (fd < 0)
-            continue;
-        if (connect(fd, addr->ai_addr, addr->ai_addrlen) == 0)
-            break;
-        close(fd);
-        fd = -1;
-    }
+    int connectErrno = 0;
+    int fd = ISHLLMConnectWithTimeout(results, 15000, &connectErrno);
     freeaddrinfo(results);
     if (fd < 0) {
         if (errorOut != nil)
-            *errorOut = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            *errorOut = ISHLLMConnectionError(host, portString, connectErrno);
         return NO;
     }
 
@@ -786,6 +823,13 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
 
 // MARK: - Guest-shell tool support (OpenAI-compatible function calling)
 
+typedef NS_ENUM(NSInteger, ISHLLMToolRunDecision) {
+    ISHLLMToolRunDecline = 0,
+    ISHLLMToolRunOnce,
+    ISHLLMToolRunAllowReply, // run this and auto-run the rest of this reply
+    ISHLLMToolRunAllowChat,  // run this and auto-run for the rest of the chat
+};
+
 // The single tool exposed to the model: run a command in the iSH Linux shell and
 // return its combined stdout+stderr. This makes "web search" just `curl`/`wget`
 // in the environment iSH already is, with no extra API key.
@@ -794,13 +838,13 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHLLMChatToolDefinitions(void) 
         @"type": @"function",
         @"function": @{
             @"name": @"run_shell",
-            @"description": @"Run a command in the local iSH Linux shell (/bin/sh -c) and return its combined stdout and stderr. Use this to search the web with curl or wget, fetch URLs, read files, or run any Linux command available in this environment. Output is capped at 64 KB and the command is killed after 30 seconds.",
+            @"description": @"Run a command in the local iSH Linux shell (/bin/sh -c) and return its combined stdout and stderr. Use this to fetch web pages or APIs, read files, or run any Linux command available in this environment. The userland varies by distro -- it may be a minimal BusyBox/Alpine system or a full Debian/Devuan/glibc one -- so use the tools that are actually present (a per-session environment note lists what was detected) and try an alternative if a command reports 'not found'. Output is capped at 64 KB and the command is killed after 30 seconds.",
             @"parameters": @{
                 @"type": @"object",
                 @"properties": @{
                     @"command": @{
                         @"type": @"string",
-                        @"description": @"The shell command line to execute, e.g. curl -fsSL 'https://duckduckgo.com/html/?q=current+weather'",
+                        @"description": @"The shell command line to execute, e.g. curl -fsSL 'https://wttr.in/Paris?format=3' (or wget -qO- on BusyBox systems)",
                     },
                 },
                 @"required": @[@"command"],
@@ -879,13 +923,19 @@ static NSData *ISHLLMSynchronousChatPost(NSURL *url, NSData *body, NSString *api
 }
 
 // Run one command in the guest and format stdout+stderr plus a status note for
-// feeding back to the model. Blocks; call from a background queue (the primitive
-// repoints the kernel's `current`, so it must not run on a guest task thread).
-static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
+// feeding back to the model. summaryOut (optional) gets a compact one-line status
+// for the transcript, so the verbose output stays out of the user's view while the
+// model still receives the full result. Blocks; call from a background queue (the
+// primitive repoints the kernel's `current`, so it must not run on a guest task
+// thread).
+static NSString *ISHLLMRunGuestShellCommand(NSString *command, NSString **summaryOut) {
     struct guest_command_result result;
     int rc = run_guest_command_capture(command.UTF8String, NULL, 30000, 64 * 1024, &result);
-    if (rc < 0)
+    if (rc < 0) {
+        if (summaryOut != NULL)
+            *summaryOut = @"failed to start";
         return [NSString stringWithFormat:@"Could not start the command (error %d). Is the guest system booted?", rc];
+    }
 
     NSString *captured = @"";
     if (result.output != NULL && result.output_len > 0)
@@ -899,6 +949,20 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
         [notes addObject:[NSString stringWithFormat:@"exit code %d", result.exit_code]];
     else if (result.term_signal)
         [notes addObject:[NSString stringWithFormat:@"killed by signal %d", result.term_signal]];
+
+    if (summaryOut != NULL) {
+        NSMutableArray<NSString *> *bits = [NSMutableArray array];
+        if (result.exited)
+            [bits addObject:[NSString stringWithFormat:@"exit %d", result.exit_code]];
+        else if (result.term_signal)
+            [bits addObject:[NSString stringWithFormat:@"signal %d", result.term_signal]];
+        if (result.timed_out)
+            [bits addObject:@"timed out"];
+        [bits addObject:result.output_len > 0
+            ? [NSString stringWithFormat:@"%zu bytes%@", result.output_len, result.truncated ? @"+" : @""]
+            : @"no output"];
+        *summaryOut = [bits componentsJoinedByString:@" · "];
+    }
     free(result.output);
 
     NSMutableString *out = [NSMutableString stringWithString:captured.length > 0 ? captured : @"(no output)"];
@@ -910,6 +974,76 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     return out;
 }
 
+// Probe the guest once per chat session to learn the distro and which common
+// tools are installed, so the tool guidance is distro-accurate (iSH-AOK runs
+// Alpine/BusyBox, Debian/Devuan, and others). Returns a system-message note, or
+// nil if the guest could not be probed. This is a fixed, read-only probe -- not a
+// model-generated command -- so it runs without the per-command confirmation.
+static NSString *ISHLLMDetectGuestEnvironmentNote(void) {
+    const char *probe =
+        ". /etc/os-release 2>/dev/null; "
+        "printf 'distro=%s %s\\n' \"${NAME:-Linux}\" \"${VERSION_ID:-}\"; "
+        "for t in curl wget jq python3 python git; do "
+        "command -v \"$t\" >/dev/null 2>&1 && printf 'have=%s\\n' \"$t\"; done";
+    struct guest_command_result result;
+    int rc = run_guest_command_capture(probe, NULL, 10000, 16 * 1024, &result);
+    if (rc < 0)
+        return nil;
+    NSString *raw = (result.output != NULL && result.output_len > 0)
+        ? ([[NSString alloc] initWithBytes:result.output length:result.output_len encoding:NSUTF8StringEncoding] ?: @"")
+        : @"";
+    free(result.output);
+    if (raw.length == 0)
+        return nil;
+
+    NSString *distro = nil;
+    NSMutableArray<NSString *> *tools = [NSMutableArray array];
+    for (NSString *line in [raw componentsSeparatedByString:@"\n"]) {
+        if ([line hasPrefix:@"distro="])
+            distro = [[line substringFromIndex:7] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        else if ([line hasPrefix:@"have="])
+            [tools addObject:[line substringFromIndex:5]];
+    }
+
+    BOOL hasCurl = [tools containsObject:@"curl"];
+    BOOL hasWget = [tools containsObject:@"wget"];
+    NSMutableString *note = [NSMutableString stringWithString:
+        @"You can run shell commands in this iSH Linux guest with the run_shell tool; it returns combined stdout+stderr (capped at 64 KB, killed after 30s)."];
+    if (distro.length > 0)
+        [note appendFormat:@" Detected distro: %@.", distro];
+    if (hasCurl && hasWget)
+        [note appendString:@" Both curl and wget are installed (e.g. curl -fsSL URL or wget -qO- URL)."];
+    else if (hasCurl)
+        [note appendString:@" curl is installed (e.g. curl -fsSL URL); wget was not found."];
+    else if (hasWget)
+        [note appendString:@" wget is installed (e.g. wget -qO- URL); curl was not found."];
+    else
+        [note appendString:@" Neither curl nor wget was detected; use another approach for HTTP if needed."];
+    if (tools.count > 0)
+        [note appendFormat:@" Detected tools: %@.", [tools componentsJoinedByString:@", "]];
+    [note appendString:@" Use only tools that are present; if a command reports 'not found', try an alternative."];
+    return note;
+}
+
+// Build the tool-loop system message: the cached distro/tool note plus a fresh
+// current-time anchor. The time anchor matters because time/date questions
+// otherwise lead the model to guess or reuse a stale timestamp from an earlier
+// turn (especially when a network tool call fails).
+static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    formatter.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"UTC"];
+    formatter.dateFormat = @"EEEE yyyy-MM-dd HH:mm:ss";
+    NSString *now = [formatter stringFromDate:[NSDate date]];
+    NSMutableString *note = [NSMutableString string];
+    if (environmentNote.length > 0)
+        [note appendString:environmentNote];
+    if (note.length > 0)
+        [note appendString:@" "];
+    [note appendFormat:@"The current date and time is %@ UTC -- treat this as the authoritative clock and convert to other time zones from it, rather than guessing or reusing a time from an earlier message.", now];
+    return note;
+}
+
 @implementation LLMClientViewController {
     UIStackView *_toolbarStackView;
     UITextView *_transcriptView;
@@ -917,6 +1051,11 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     UIButton *_sendButton;
     NSMutableArray<NSDictionary<NSString *, id> *> *_messages;
     NSURLSessionDataTask *_activeTask;
+    BOOL _autoRunCommandsThisReply; // skip per-command confirm for the current reply
+    BOOL _autoRunCommandsThisChat;  // skip per-command confirm until the chat is cleared
+    NSString *_guestEnvironmentNote; // cached distro/tool probe for the tool system prompt
+    UILabel *_statusLabel;
+    UIActivityIndicatorView *_activityIndicator;
 }
 
 - (void)viewDidLoad {
@@ -995,6 +1134,27 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
         [[UIBarButtonItem alloc] initWithTitle:@"Clear" style:UIBarButtonItemStylePlain target:self action:@selector(clearTranscript:)],
     ];
 
+    // Status row: a spinner + label so the connection/work state is always visible
+    // (and so a stall is obvious instead of looking like a silent hang).
+    if (@available(iOS 13.0, *))
+        _activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    else
+        _activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+    _activityIndicator.hidesWhenStopped = YES;
+    _statusLabel = [UILabel new];
+    _statusLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    _statusLabel.numberOfLines = 1;
+    _statusLabel.adjustsFontSizeToFitWidth = YES;
+    _statusLabel.minimumScaleFactor = 0.8;
+    if (@available(iOS 13.0, *))
+        _statusLabel.textColor = UIColor.secondaryLabelColor;
+    UIStackView *statusRow = [[UIStackView alloc] initWithArrangedSubviews:@[_activityIndicator, _statusLabel]];
+    statusRow.translatesAutoresizingMaskIntoConstraints = NO;
+    statusRow.axis = UILayoutConstraintAxisHorizontal;
+    statusRow.alignment = UIStackViewAlignmentCenter;
+    statusRow.spacing = 6.0;
+    [self.view addSubview:statusRow];
+
     UILayoutGuide *safeArea = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [_toolbarStackView.topAnchor constraintEqualToAnchor:safeArea.topAnchor constant:6.0],
@@ -1005,7 +1165,11 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
         [_transcriptView.topAnchor constraintEqualToAnchor:_toolbarStackView.bottomAnchor constant:4.0],
         [_transcriptView.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor],
         [_transcriptView.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor],
-        [_transcriptView.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
+        [_transcriptView.bottomAnchor constraintEqualToAnchor:statusRow.topAnchor constant:-2.0],
+
+        [statusRow.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor constant:12.0],
+        [statusRow.trailingAnchor constraintLessThanOrEqualToAnchor:safeArea.trailingAnchor constant:-12.0],
+        [statusRow.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor constant:-2.0],
 
         [inputBar.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor constant:10.0],
         [inputBar.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor constant:-10.0],
@@ -1022,6 +1186,7 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     ]];
 
     [self refreshTranscript];
+    [self setStatus:[self idleStatusText] busy:NO];
     if (self.initialPrompt.length > 0)
         _promptField.text = self.initialPrompt;
 }
@@ -1045,6 +1210,7 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
 - (void)clearTranscript:(id)sender {
     (void) sender;
     [_messages removeAllObjects];
+    _autoRunCommandsThisChat = NO; // a fresh chat re-arms per-command confirmation
     [self saveTranscript];
     [self refreshTranscript];
 }
@@ -1271,24 +1437,22 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     for (NSDictionary<NSString *, id> *message in _messages) {
         NSString *messageRole = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
         NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
-        if ([messageRole isEqualToString:@"tool"]) {
-            NSString *name = [message[@"name"] isKindOfClass:NSString.class] ? message[@"name"] : @"shell";
-            [text appendFormat:@"Tool (%@):\n%@\n\n", name, content];
-            continue;
-        }
+        if ([messageRole isEqualToString:@"tool"])
+            continue; // tool output is hidden from the transcript (the model still gets it)
         NSString *role = [messageRole isEqualToString:@"assistant"] ? @"Assistant" : @"You";
         if (content.length > 0)
             [text appendFormat:@"%@: %@\n\n", role, content];
-        // Show the command(s) an assistant turn asked to run, so the tool activity
-        // is visible in the transcript even when the turn has no prose content.
+        // Don't show the commands or their output in the transcript -- only a small
+        // note that the model ran tools. The full command and output are still kept
+        // in the saved transcript file and sent to the model.
         NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+        NSUInteger commandCount = 0;
         for (NSDictionary *toolCall in toolCalls) {
-            if (![toolCall isKindOfClass:NSDictionary.class])
-                continue;
-            NSString *command = ISHLLMToolCallCommand(toolCall);
-            if (command.length > 0)
-                [text appendFormat:@"Assistant → run_shell:\n$ %@\n\n", command];
+            if ([toolCall isKindOfClass:NSDictionary.class] && ISHLLMToolCallCommand(toolCall).length > 0)
+                commandCount++;
         }
+        if (commandCount > 0)
+            [text appendFormat:@"(ran %lu shell command%@)\n\n", (unsigned long) commandCount, commandCount == 1 ? @"" : @"s"];
     }
     if (text.length == 0) {
         [text appendFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nServer: %@\nModel: %@\n",
@@ -1304,6 +1468,29 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     _promptField.enabled = !sending;
     [_sendButton setTitle:(sending ? @"..." : @"Send") forState:UIControlStateNormal];
     _sendButton.accessibilityLabel = sending ? @"Sending" : @"Send";
+    if (sending)
+        [self setStatus:@"Working…" busy:YES];
+    else
+        [self setStatus:[self idleStatusText] busy:NO];
+}
+
+// Status row driver. busy spins the indicator; the text names the current phase
+// so the connection state is always visible and a stall is obvious.
+- (void)setStatus:(NSString *)text busy:(BOOL)busy {
+    _statusLabel.text = text ?: @"";
+    if (busy)
+        [_activityIndicator startAnimating];
+    else
+        [_activityIndicator stopAnimating];
+}
+
+- (NSString *)idleStatusText {
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels)
+        return @"Apple Foundation Models";
+    NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (model.length == 0)
+        return @"Set a model in Settings";
+    return [NSString stringWithFormat:@"Ready · %@", model];
 }
 
 - (void)handleLLMResponseData:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
@@ -1584,7 +1771,13 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
     // Guest-shell tool use (OpenAI-compatible only): runs a non-streaming
     // function-calling loop so the model can run commands in the iSH shell.
     if (!ISHLLMUsesGeminiAPI() && UserPreferences.shared.llmToolsEnabled) {
-        [self runToolLoopRound:0 model:model apiKey:apiKey];
+        _autoRunCommandsThisReply = NO; // a new prompt re-arms confirmation for this reply
+        __weak typeof(self) weakSelf = self;
+        [self prepareGuestEnvironmentNoteThen:^{
+            typeof(self) self = weakSelf;
+            if (self != nil)
+                [self runToolLoopRound:0 model:model apiKey:apiKey];
+        }];
         return;
     }
 
@@ -1721,6 +1914,30 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
 
 static const NSInteger kISHLLMMaxToolRounds = 6;
 
+// Run the distro/tool probe at most once per chat session, then continue. The
+// note is injected as a system message so the model's tool use matches the
+// actual guest (Alpine/BusyBox vs Debian/Devuan/glibc, curl vs wget, ...).
+- (void)prepareGuestEnvironmentNoteThen:(void (^)(void))continuation {
+    // Kick the distro/tool probe off in the background but DON'T block the model
+    // request on it. A slow or wedged guest probe must never delay or hang the
+    // chat -- the first request may go without the env note; later requests pick
+    // it up once it's ready. (The current-time anchor is added separately, so the
+    // request always has that regardless of the probe.)
+    if (_guestEnvironmentNote == nil) {
+        _guestEnvironmentNote = @""; // mark in-flight so we only probe once per chat
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(ISHLLMGuestCommandQueue(), ^{
+            NSString *note = ISHLLMDetectGuestEnvironmentNote();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                typeof(self) self = weakSelf;
+                if (self != nil && note.length > 0)
+                    self->_guestEnvironmentNote = note;
+            });
+        });
+    }
+    continuation();
+}
+
 - (void)runToolLoopRound:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
     NSURL *url = [NSURL URLWithString:ISHLLMChatEndpoint()];
     if (url == nil) {
@@ -1735,9 +1952,15 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         return;
     }
 
+    [self setStatus:(round == 0 ? @"Contacting model…" : @"Thinking…") busy:YES];
+    NSMutableArray<NSDictionary<NSString *, id> *> *messages = [NSMutableArray array];
+    NSString *systemNote = ISHLLMToolSystemNote(_guestEnvironmentNote);
+    if (systemNote.length > 0)
+        [messages addObject:@{@"role": @"system", @"content": systemNote}];
+    [messages addObjectsFromArray:[self providerMessages]];
     NSDictionary *body = @{
         @"model": model,
-        @"messages": [self providerMessages],
+        @"messages": messages,
         @"stream": @NO,
         @"tools": ISHLLMChatToolDefinitions(),
         @"stop": @[@"<file_sep>"],
@@ -1821,7 +2044,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     NSString *command = ISHLLMToolCallCommand(toolCall);
 
     __weak typeof(self) weakSelf = self;
-    void (^recordResultAndContinue)(NSString *) = ^(NSString *resultText) {
+    void (^recordResultAndContinue)(NSString *, NSString *) = ^(NSString *resultText, NSString *summary) {
         typeof(self) self = weakSelf;
         if (self == nil)
             return;
@@ -1830,6 +2053,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
             @"tool_call_id": toolCallID ?: @"",
             @"name": name ?: @"run_shell",
             @"content": resultText ?: @"",
+            @"summary": summary.length > 0 ? summary : (resultText ?: @""),
         }];
         [self refreshTranscript];
         [self saveTranscript];
@@ -1837,35 +2061,79 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     };
 
     if (![name isEqualToString:@"run_shell"] || command.length == 0) {
-        recordResultAndContinue([NSString stringWithFormat:@"Tool '%@' is not supported or the command was empty. Only run_shell with a non-empty \"command\" is available.", name ?: @"(unnamed)"]);
+        recordResultAndContinue([NSString stringWithFormat:@"Tool '%@' is not supported or the command was empty. Only run_shell with a non-empty \"command\" is available.", name ?: @"(unnamed)"], @"unsupported tool call");
         return;
     }
 
-    [self confirmRunCommand:command completion:^(BOOL run) {
-        if (!run) {
-            recordResultAndContinue(@"The user declined to run this command.");
-            return;
-        }
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            NSString *output = ISHLLMRunGuestShellCommand(command);
+    void (^runApprovedCommand)(void) = ^{
+        typeof(self) self = weakSelf;
+        if (self != nil)
+            [self setStatus:@"Running command…" busy:YES];
+        dispatch_async(ISHLLMGuestCommandQueue(), ^{
+            NSString *summary = nil;
+            NSString *output = ISHLLMRunGuestShellCommand(command, &summary);
             dispatch_async(dispatch_get_main_queue(), ^{
-                recordResultAndContinue(output);
+                recordResultAndContinue(output, summary);
             });
         });
+    };
+
+    // Skip the per-command prompt if the user already approved auto-run for this
+    // reply or for the whole chat.
+    if (_autoRunCommandsThisChat || _autoRunCommandsThisReply) {
+        runApprovedCommand();
+        return;
+    }
+
+    [self setStatus:@"Waiting for approval…" busy:YES];
+    [self confirmRunCommand:command completion:^(ISHLLMToolRunDecision decision) {
+        typeof(self) self = weakSelf;
+        if (self == nil)
+            return;
+        if (decision == ISHLLMToolRunDecline) {
+            recordResultAndContinue(@"The user declined to run this command.", @"declined by user");
+            return;
+        }
+        if (decision == ISHLLMToolRunAllowReply)
+            self->_autoRunCommandsThisReply = YES;
+        else if (decision == ISHLLMToolRunAllowChat)
+            self->_autoRunCommandsThisChat = YES;
+        runApprovedCommand();
     }];
 }
 
-- (void)confirmRunCommand:(NSString *)command completion:(void (^)(BOOL run))completion {
+// The view controller to present alerts from. When this chat is embedded in a
+// workspace tool window it is a deeply nested child VC, and presenting directly
+// from it can silently fail (the modal never appears) -- which would stall the
+// tool loop forever waiting on a confirmation. Presenting from the top of our own
+// window works in both the embedded and the modal (terminal) cases.
+- (UIViewController *)ish_presentationViewController {
+    UIViewController *presenter = self;
+    UIWindow *window = self.viewIfLoaded.window;
+    if (window.rootViewController != nil)
+        presenter = window.rootViewController;
+    while (presenter.presentedViewController != nil && !presenter.presentedViewController.isBeingDismissed)
+        presenter = presenter.presentedViewController;
+    return presenter ?: self;
+}
+
+- (void)confirmRunCommand:(NSString *)command completion:(void (^)(ISHLLMToolRunDecision decision))completion {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Run shell command?"
         message:[NSString stringWithFormat:@"The model wants to run this in the iSH shell:\n\n%@", command]
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Run" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        completion(YES);
+        completion(ISHLLMToolRunOnce);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Run, don't ask again this reply" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        completion(ISHLLMToolRunAllowReply);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Run, allow all this chat" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        completion(ISHLLMToolRunAllowChat);
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Don't Run" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        completion(NO);
+        completion(ISHLLMToolRunDecline);
     }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    [[self ish_presentationViewController] presentViewController:alert animated:YES completion:nil];
 }
 
 @end

@@ -44,6 +44,7 @@
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier;
 - (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
 - (void)ensureDefaultWorkspaceUtilitiesOpen;
+- (void)ensureDefaultLLMChatWindowOpenIfNeeded;
 - (void)persistDefaultWorkspaceUtilityFrames;
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
@@ -3383,6 +3384,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (!self.didEnsureDefaultWorkspaceUtilities) {
         self.didEnsureDefaultWorkspaceUtilities = YES;
         [self ensureDefaultWorkspaceUtilitiesOpen];
+        [self ensureDefaultLLMChatWindowOpenIfNeeded];
     }
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
@@ -3709,6 +3711,24 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if ([self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] != nil)
         return;
     [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+}
+
+// When the LLM client is enabled, open the chat as a desktop window by default so
+// it's a first-class workspace tile rather than something you must summon from the
+// dock menu each time. Skipped if it's already on the desktop (e.g. restored from a
+// saved layout), and the user can still close it for the session.
+- (void)ensureDefaultLLMChatWindowOpenIfNeeded {
+    if (!ISHLLMClientEnabled())
+        return;
+    if ([self desktopWindowForToolIdentifier:ISHWorkspaceToolLLMIdentifier] != nil)
+        return;
+    [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolLLMIdentifier];
+    // Bring it to the front so it isn't hidden behind the default Workspaces
+    // window that was just opened above.
+    ISHWorkspaceContainedWindowView *window =
+        [self desktopWindowForToolIdentifier:ISHWorkspaceToolLLMIdentifier];
+    if (window != nil)
+        [self focusDesktopWindow:window];
 }
 
 - (void)persistDefaultWorkspaceUtilityFrames {
