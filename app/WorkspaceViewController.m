@@ -2163,8 +2163,11 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFilesystemsIdentifier])
         return ISHCreateRootsViewController();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier]) {
-        UINavigationController *navigationController = ISHCreateAboutNavigationController(NO, NO);
-        return navigationController.topViewController;
+        // Embed the whole navigation controller (like Filesystems/Roots above), not just its
+        // top view controller. AboutViewController drills into sub-pages with
+        // "if (self.navigationController) push; else present fullscreen;" — stripping the nav
+        // controller forced the fullscreen-modal branch, which had no way back to the workspace.
+        return ISHCreateAboutNavigationController(NO, NO);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
         return ISHCreateDiagnosticsViewController();
@@ -2901,10 +2904,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGSize preferredSize = ISHWorkspacePreferredToolContentSize(toolIdentifier);
     viewController.preferredContentSize = preferredSize;
     BOOL workspacesTool = [toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier];
+    // Settings embeds its own navigation bar and gets a "Done" item there instead (see below),
+    // so suppress the redundant chrome × that would otherwise sit right above that bar.
+    BOOL settingsTool = [toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier];
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:ISHWorkspaceToolTitle(toolIdentifier)
                              preferredSize:preferredSize
-                          showsCloseButton:YES
+                          showsCloseButton:!settingsTool
                     appliesInitialPlacement:!workspacesTool];
     windowView.workspaceToolIdentifier = toolIdentifier;
     CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);
@@ -2919,12 +2925,31 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         };
     }
     [self attachViewController:viewController toDesktopWindow:windowView];
+    if (settingsTool && [viewController isKindOfClass:UINavigationController.class]) {
+        // Give the embedded Settings screen a real, labelled dismiss control in its own
+        // navigation bar. AboutViewController's own buttons ("Workspace"/"Done") assume it was
+        // presented modally or owns a scene, so they don't close a tool window; this routes
+        // through the same teardown the chrome × uses.
+        UIViewController *settingsRoot = ((UINavigationController *) viewController).viewControllers.firstObject;
+        settingsRoot.navigationItem.leftBarButtonItem =
+            [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                                          target:self
+                                                          action:@selector(dismissSettingsToolWindow:)];
+    }
     if (workspacesTool) {
         [self applyInitialPlacementToWorkspacesWindow:windowView];
         [self.desktopSurfaceView bringSubviewToFront:windowView];
     }
     [self refreshDockButtons];
     return windowView;
+}
+
+- (void)dismissSettingsToolWindow:(id)sender {
+    (void) sender;
+    ISHWorkspaceContainedWindowView *windowView =
+        [self desktopWindowForToolIdentifier:ISHWorkspaceToolSettingsIdentifier];
+    if (windowView.closeHandler != nil)
+        windowView.closeHandler();
 }
 
 - (void)openDashboardWindow:(id)sender {
