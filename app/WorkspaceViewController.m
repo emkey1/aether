@@ -685,6 +685,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(300, 150);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return CGSizeMake(300, 156);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
+        return CGSizeMake(360, 220);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
         return CGSizeMake(216, 112);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
