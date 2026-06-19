@@ -4144,6 +4144,7 @@ void helper_rdtsc(struct cpu_state *cpu);
 #define FLDM(val,z) h_read(fpu_ldm, z)
 #define FSTM(dst,z) h_write(fpu_stm, z)
 #define FIST(dst,z) h_write(fpu_ist, z)
+#define FISTT(dst,z) h_write(fpu_istt, z)
 #define FXCH() hh(fpu_xch, st_i)
 #define FCOM() hh(fpu_com, st_i)
 #define FCOMM(val,z) h_read(fpu_comm, z)

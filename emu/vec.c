@@ -930,3 +930,442 @@ void vec_round_ss32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_
 void vec_round_sd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
     dst->f64[0] = dc_round_f64(src->f64[0], imm);
 }
+
+// ---------------------------------------------------------------------------
+// SSSE3 horizontal add/subtract, multiply-add, multiply-high-round, and sign.
+// Completes the SSSE3 set begun above (pshufb/pabs/palignr). All forms are the
+// 128-bit xmm variants; the deprecated MMX-register forms remain undefined, as
+// elsewhere in this engine. Validated bit-exact vs real Intel (corpus/ssse3.c).
+// ---------------------------------------------------------------------------
+
+// signed saturate to 16 bits.
+static inline uint16_t sat_i16(int32_t v) {
+    if (v > 32767) return (uint16_t) 32767;
+    if (v < -32768) return (uint16_t) -32768;
+    return (uint16_t) v;
+}
+
+// phaddw (38 01): horizontal add of adjacent 16-bit pairs, wrap-around. The low
+// 4 results come from dst's four pairs, the high 4 from src's four pairs.
+void vec_phaddw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 4; i++) r.u16[i]     = (uint16_t) (dst->u16[2*i] + dst->u16[2*i+1]);
+    for (int i = 0; i < 4; i++) r.u16[4 + i] = (uint16_t) (src->u16[2*i] + src->u16[2*i+1]);
+    *dst = r;
+}
+// phaddd (38 02): horizontal add of adjacent 32-bit pairs.
+void vec_phaddd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.u32[0] = dst->u32[0] + dst->u32[1];
+    r.u32[1] = dst->u32[2] + dst->u32[3];
+    r.u32[2] = src->u32[0] + src->u32[1];
+    r.u32[3] = src->u32[2] + src->u32[3];
+    *dst = r;
+}
+// phaddsw (38 03): horizontal add of adjacent signed 16-bit pairs, signed sat.
+void vec_phaddsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 4; i++)
+        r.u16[i]     = sat_i16((int32_t)(int16_t)dst->u16[2*i] + (int32_t)(int16_t)dst->u16[2*i+1]);
+    for (int i = 0; i < 4; i++)
+        r.u16[4 + i] = sat_i16((int32_t)(int16_t)src->u16[2*i] + (int32_t)(int16_t)src->u16[2*i+1]);
+    *dst = r;
+}
+// pmaddubsw (38 04): dst bytes are UNSIGNED, src bytes SIGNED. Multiply, then
+// add adjacent products and saturate to signed 16-bit. 8 word results.
+void vec_pmaddubsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 8; i++) {
+        int32_t lo = (int32_t)(uint8_t)dst->u8[2*i]     * (int32_t)(int8_t)src->u8[2*i];
+        int32_t hi = (int32_t)(uint8_t)dst->u8[2*i + 1] * (int32_t)(int8_t)src->u8[2*i + 1];
+        r.u16[i] = sat_i16(lo + hi);
+    }
+    *dst = r;
+}
+// phsubw (38 05): horizontal subtract of adjacent 16-bit pairs (a[0]-a[1]).
+void vec_phsubw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 4; i++) r.u16[i]     = (uint16_t) (dst->u16[2*i] - dst->u16[2*i+1]);
+    for (int i = 0; i < 4; i++) r.u16[4 + i] = (uint16_t) (src->u16[2*i] - src->u16[2*i+1]);
+    *dst = r;
+}
+// phsubd (38 06): horizontal subtract of adjacent 32-bit pairs.
+void vec_phsubd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.u32[0] = dst->u32[0] - dst->u32[1];
+    r.u32[1] = dst->u32[2] - dst->u32[3];
+    r.u32[2] = src->u32[0] - src->u32[1];
+    r.u32[3] = src->u32[2] - src->u32[3];
+    *dst = r;
+}
+// phsubsw (38 07): horizontal subtract of adjacent signed 16-bit pairs, sat.
+void vec_phsubsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    for (int i = 0; i < 4; i++)
+        r.u16[i]     = sat_i16((int32_t)(int16_t)dst->u16[2*i] - (int32_t)(int16_t)dst->u16[2*i+1]);
+    for (int i = 0; i < 4; i++)
+        r.u16[4 + i] = sat_i16((int32_t)(int16_t)src->u16[2*i] - (int32_t)(int16_t)src->u16[2*i+1]);
+    *dst = r;
+}
+// psignb/w/d (38 08/09/0a): for each lane, negate dst when the src lane is
+// negative, zero it when src is zero, leave it when src is positive. Unsigned
+// negation avoids signed-overflow UB on the most-negative lane (matches HW).
+void vec_psignb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 16; i++) {
+        int8_t s = (int8_t) src->u8[i];
+        if (s < 0) dst->u8[i] = (uint8_t) (- (uint32_t) dst->u8[i]);
+        else if (s == 0) dst->u8[i] = 0;
+    }
+}
+void vec_psignw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 8; i++) {
+        int16_t s = (int16_t) src->u16[i];
+        if (s < 0) dst->u16[i] = (uint16_t) (- (uint32_t) dst->u16[i]);
+        else if (s == 0) dst->u16[i] = 0;
+    }
+}
+void vec_psignd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 4; i++) {
+        int32_t s = (int32_t) src->u32[i];
+        if (s < 0) dst->u32[i] = (uint32_t) (- (uint32_t) dst->u32[i]);
+        else if (s == 0) dst->u32[i] = 0;
+    }
+}
+// pmulhrsw (38 0b): signed 16-bit multiply, take bits [30:15] of the product,
+// add 1, shift right 1 (round-to-nearest of the high word). Per lane.
+void vec_pmulhrsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    for (int i = 0; i < 8; i++) {
+        int32_t p = (int32_t)(int16_t)dst->u16[i] * (int32_t)(int16_t)src->u16[i];
+        dst->u16[i] = (uint16_t) (((p >> 14) + 1) >> 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SSE4.1 completion: insertps, dpps/dppd, mpsadbw, phminposuw. (movntdqa is a
+// plain aligned 128-bit load and is wired directly in the decoders, no helper.)
+// Validated bit-exact vs real Intel (corpus/sse4.c). The dot products use only
+// finite test inputs and compute each multiply/add as a separate statement so
+// no a*b+c is contracted into an FMA (which would round differently from x86).
+// ---------------------------------------------------------------------------
+
+// insertps, register source (66 0F 3A 21, mod==3): imm[7:6] picks the source
+// dword, imm[5:4] the destination lane, imm[3:0] is a per-lane zero mask.
+void vec_insertps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    uint32_t v = src->u32[(imm >> 6) & 3];
+    dst->u32[(imm >> 4) & 3] = v;
+    for (int i = 0; i < 4; i++)
+        if (imm & (1 << i)) dst->u32[i] = 0;
+}
+// insertps, memory source (m32): the loaded dword is the value (imm[7:6] is
+// ignored for the memory form); imm[5:4] dest lane, imm[3:0] zero mask.
+void vec_insertps32(NO_CPU, const uint32_t *src, union xmm_reg *dst, uint8_t imm) {
+    dst->u32[(imm >> 4) & 3] = *src;
+    for (int i = 0; i < 4; i++)
+        if (imm & (1 << i)) dst->u32[i] = 0;
+}
+
+// dpps (66 0F 3A 40): dot product of packed singles. imm[4..7] select which
+// lane products enter the sum; imm[0..3] select which result lanes get it.
+// Tree reduction order ((p0+p1)+(p2+p3)) matches Intel's documented pseudocode.
+void vec_dpps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    float p0 = (imm & 0x10) ? dst->f32[0] * src->f32[0] : 0.0f;
+    float p1 = (imm & 0x20) ? dst->f32[1] * src->f32[1] : 0.0f;
+    float p2 = (imm & 0x40) ? dst->f32[2] * src->f32[2] : 0.0f;
+    float p3 = (imm & 0x80) ? dst->f32[3] * src->f32[3] : 0.0f;
+    float t01 = p0 + p1;
+    float t23 = p2 + p3;
+    float sum = t01 + t23;
+    for (int j = 0; j < 4; j++)
+        dst->f32[j] = (imm & (1 << j)) ? sum : 0.0f;
+}
+// dppd (66 0F 3A 41): dot product of packed doubles. imm[4..5] select the lane
+// products; imm[0..1] select result lanes.
+void vec_dppd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    double p0 = (imm & 0x10) ? dst->f64[0] * src->f64[0] : 0.0;
+    double p1 = (imm & 0x20) ? dst->f64[1] * src->f64[1] : 0.0;
+    double sum = p0 + p1;
+    for (int j = 0; j < 2; j++)
+        dst->f64[j] = (imm & (1 << j)) ? sum : 0.0;
+}
+
+// mpsadbw (66 0F 3A 42): eight sums of 4-byte absolute differences. The reg
+// operand (dst, SRC1) supplies the sliding 11-byte window at offset imm[2]*4;
+// the r/m operand (src, SRC2) supplies the fixed 4-byte block at imm[1:0]*4.
+void vec_mpsadbw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    unsigned src_off = (imm & 3) * 4;
+    unsigned dst_off = ((imm >> 2) & 1) * 4;
+    union xmm_reg r;
+    for (int i = 0; i < 8; i++) {
+        int sum = 0;
+        for (int j = 0; j < 4; j++) {
+            int a = (int) dst->u8[dst_off + i + j];
+            int b = (int) src->u8[src_off + j];
+            sum += a > b ? a - b : b - a;
+        }
+        r.u16[i] = (uint16_t) sum;
+    }
+    *dst = r;
+}
+
+// phminposuw (66 0F 38 41): result word0 = the minimum unsigned word of src,
+// word1 = its (leftmost) lane index, words 2..7 = 0. Unary (src -> dst).
+void vec_phminposuw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    uint16_t min = src->u16[0];
+    uint16_t idx = 0;
+    for (int i = 1; i < 8; i++)
+        if (src->u16[i] < min) { min = src->u16[i]; idx = (uint16_t) i; }
+    union xmm_reg r = {0};
+    r.u16[0] = min;
+    r.u16[1] = idx;
+    *dst = r;
+}
+
+// ---------------------------------------------------------------------------
+// SSE3 (PNI): duplicating moves and horizontal/alternating add-subtract. The
+// add/sub ops are plain IEEE operations (no FMA contraction) so finite results
+// match x86 bit-for-bit. Validated vs real Intel (corpus/sse3.c).
+// ---------------------------------------------------------------------------
+
+// movsldup (F3 0F 12): duplicate the even-indexed singles -> [s0,s0,s2,s2].
+void vec_movsldup128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.u32[0] = src->u32[0]; r.u32[1] = src->u32[0];
+    r.u32[2] = src->u32[2]; r.u32[3] = src->u32[2];
+    *dst = r;
+}
+// movshdup (F3 0F 16): duplicate the odd-indexed singles -> [s1,s1,s3,s3].
+void vec_movshdup128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.u32[0] = src->u32[1]; r.u32[1] = src->u32[1];
+    r.u32[2] = src->u32[3]; r.u32[3] = src->u32[3];
+    *dst = r;
+}
+// movddup (F2 0F 12): duplicate the low double into both lanes. The `64` suffix
+// is the memory-source access width (m64); for a register source only qw[0] is
+// read. dst's upper lane is overwritten, so this is not a partial-merge move.
+void vec_movddup64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    uint64_t lo = src->qw[0];
+    dst->qw[0] = lo;
+    dst->qw[1] = lo;
+}
+// addsubps/pd (F2/66 0F D0): subtract the even lanes, add the odd lanes.
+void vec_addsubps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    dst->f32[0] = dst->f32[0] - src->f32[0];
+    dst->f32[1] = dst->f32[1] + src->f32[1];
+    dst->f32[2] = dst->f32[2] - src->f32[2];
+    dst->f32[3] = dst->f32[3] + src->f32[3];
+}
+void vec_addsubpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    dst->f64[0] = dst->f64[0] - src->f64[0];
+    dst->f64[1] = dst->f64[1] + src->f64[1];
+}
+// haddps/pd (F2/66 0F 7C): horizontal add. Low results come from dst's adjacent
+// pairs, high results from src's pairs.
+void vec_haddps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.f32[0] = dst->f32[0] + dst->f32[1];
+    r.f32[1] = dst->f32[2] + dst->f32[3];
+    r.f32[2] = src->f32[0] + src->f32[1];
+    r.f32[3] = src->f32[2] + src->f32[3];
+    *dst = r;
+}
+void vec_haddpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.f64[0] = dst->f64[0] + dst->f64[1];
+    r.f64[1] = src->f64[0] + src->f64[1];
+    *dst = r;
+}
+// hsubps/pd (F2/66 0F 7D): horizontal subtract (a[even]-a[odd]).
+void vec_hsubps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.f32[0] = dst->f32[0] - dst->f32[1];
+    r.f32[1] = dst->f32[2] - dst->f32[3];
+    r.f32[2] = src->f32[0] - src->f32[1];
+    r.f32[3] = src->f32[2] - src->f32[3];
+    *dst = r;
+}
+void vec_hsubpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst) {
+    union xmm_reg r;
+    r.f64[0] = dst->f64[0] - dst->f64[1];
+    r.f64[1] = src->f64[0] - src->f64[1];
+    *dst = r;
+}
+
+// ---------------------------------------------------------------------------
+// SSE4.2: crc32 (CRC32C / Castagnoli) and the pcmp{e,i}str{i,m} string ops.
+// Validated bit-exact vs real Intel (corpus/sse42.c).
+// ---------------------------------------------------------------------------
+
+// CRC32C accumulates with the reflected Castagnoli polynomial 0x82F63B78.
+static inline uint32_t crc32c_step(uint32_t crc, uint8_t b) {
+    crc ^= b;
+    for (int i = 0; i < 8; i++)
+        crc = (crc >> 1) ^ (0x82f63b78u & (uint32_t) -(int32_t)(crc & 1));
+    return crc;
+}
+// crc32 r32, r/m8/16/32 (and r64,r/m64): fold the source bytes (low to high)
+// into the 32-bit accumulator held in the low bits of dst. The 64-bit dst form
+// zero-extends, which the caller handles by writing through a uint64_t.
+void vec_crc32_8(NO_CPU, const uint8_t *src, uint32_t *dst) {
+    *dst = crc32c_step(*dst, src[0]);
+}
+void vec_crc32_16(NO_CPU, const uint16_t *src, uint32_t *dst) {
+    uint32_t c = *dst;
+    c = crc32c_step(c, (uint8_t) src[0]);
+    c = crc32c_step(c, (uint8_t) (src[0] >> 8));
+    *dst = c;
+}
+void vec_crc32_32(NO_CPU, const uint32_t *src, uint32_t *dst) {
+    uint32_t c = *dst, v = src[0];
+    for (int i = 0; i < 4; i++) c = crc32c_step(c, (uint8_t) (v >> (i * 8)));
+    *dst = c;
+}
+void vec_crc32_64(NO_CPU, const uint64_t *src, uint64_t *dst) {
+    uint32_t c = (uint32_t) *dst; uint64_t v = src[0];
+    for (int i = 0; i < 8; i++) c = crc32c_step(c, (uint8_t) (v >> (i * 8)));
+    *dst = c; // zero-extended into the 64-bit destination
+}
+
+// pcmpstr core. s1 is the reg operand (xmm1), s2 the r/m operand (xmm2/m128).
+// len1/len2 are the valid element counts (explicit forms pass EAX/EDX, implicit
+// forms pass the index of the first null element). Writes ECX (index forms) or
+// XMM0 (mask forms) and sets EFLAGS exactly as the hardware does.
+static void pcmpstr_core(struct cpu_state *cpu, const union xmm_reg *s2,
+        const union xmm_reg *s1, uint8_t imm, int len1, int len2, bool mask_out) {
+    bool word = imm & 1;            // element size: 0=byte, 1=word
+    bool sign = (imm >> 1) & 1;     // 0=unsigned, 1=signed
+    int agg = (imm >> 2) & 3;       // 0=any, 1=ranges, 2=each, 3=ordered
+    int pol = (imm >> 4) & 3;       // polarity
+    bool msb = (imm >> 6) & 1;      // index: MSB vs LSB; mask: expanded vs bit
+    int n = word ? 8 : 16;
+    if (len1 < 0) len1 = -len1;
+    if (len2 < 0) len2 = -len2;
+    if (len1 > n) len1 = n;
+    if (len2 > n) len2 = n;
+
+    int e1[16], e2[16];
+    for (int i = 0; i < n; i++) {
+        if (word) {
+            e1[i] = sign ? (int)(int16_t) s1->u16[i] : (int) s1->u16[i];
+            e2[i] = sign ? (int)(int16_t) s2->u16[i] : (int) s2->u16[i];
+        } else {
+            e1[i] = sign ? (int)(int8_t) s1->u8[i] : (int) s1->u8[i];
+            e2[i] = sign ? (int)(int8_t) s2->u8[i] : (int) s2->u8[i];
+        }
+    }
+
+    int IntRes1 = 0;
+    for (int j = 0; j < n; j++) {
+        bool r = false;
+        switch (agg) {
+            case 0: // EqualAny: src2[j] matches any valid src1[i]
+                for (int i = 0; i < n; i++)
+                    if (i < len1 && j < len2 && e1[i] == e2[j]) r = true;
+                break;
+            case 1: // Ranges: src1 holds (low,high) pairs
+                for (int i = 0; i + 1 < n; i += 2)
+                    if (i < len1 && (i + 1) < len1 && j < len2 &&
+                            e2[j] >= e1[i] && e2[j] <= e1[i + 1]) r = true;
+                break;
+            case 2: { // EqualEach: element-wise src1[j]==src2[j]
+                bool v1 = j < len1, v2 = j < len2;
+                if (v1 && v2) r = (e1[j] == e2[j]);
+                else if (!v1 && !v2) r = true;   // both invalid -> equal
+                else r = false;
+                break;
+            }
+            default: { // EqualOrdered: substring of src1 starting at src2[j]
+                r = true;
+                for (int i = 0; i + j < n; i++) {
+                    bool v1 = i < len1, v2 = (i + j) < len2;
+                    if (!v1) break;              // needle exhausted -> still a match
+                    if (v1 && !v2) { r = false; break; } // needle longer than tail
+                    if (e1[i] != e2[i + j]) { r = false; break; }
+                }
+                break;
+            }
+        }
+        if (r) IntRes1 |= (1 << j);
+    }
+
+    // polarity -> IntRes2
+    int valid_mask = (n == 16) ? 0xffff : 0xff;
+    int IntRes2;
+    switch (pol) {
+        case 1: IntRes2 = (~IntRes1) & valid_mask; break;            // negate all
+        case 3: { // negate only where src2 element is valid
+            int m = (len2 >= n) ? valid_mask : ((1 << len2) - 1);
+            IntRes2 = (IntRes1 ^ m) & valid_mask;
+            break;
+        }
+        default: IntRes2 = IntRes1 & valid_mask; break;              // 0,2: positive
+    }
+
+    // outputs
+    if (mask_out) {
+        union xmm_reg res = {0};
+        if (msb) {
+            // expanded mask: each element all-ones if its IntRes2 bit is set
+            for (int j = 0; j < n; j++) {
+                if (IntRes2 & (1 << j)) {
+                    if (word) res.u16[j] = 0xffff;
+                    else res.u8[j] = 0xff;
+                }
+            }
+        } else {
+            res.u16[0] = (uint16_t) (IntRes2 & 0xffff); // bit mask, zero-extended
+        }
+        cpu->xmm[0] = res;
+    } else {
+        int idx;
+        if (IntRes2 == 0) {
+            idx = n;
+        } else if (msb) {
+            idx = 0;
+            for (int j = 0; j < n; j++) if (IntRes2 & (1 << j)) idx = j;
+        } else {
+            idx = 0;
+            while (!(IntRes2 & (1 << idx))) idx++;
+        }
+        cpu->ecx = (dword_t) idx;
+    }
+
+    // flags: CF=IntRes2!=0, ZF=len2<n, SF=len1<n, OF=IntRes2[0]; AF=PF=0.
+    cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+    cpu->af_ops = 0;
+    cpu->cf = IntRes2 != 0;
+    cpu->zf = len2 < n;
+    cpu->sf = len1 < n;
+    cpu->of = IntRes2 & 1;
+    cpu->af = 0;
+    cpu->pf = 0;
+    cpu->cf_bit = cpu->cf;
+    cpu->of_bit = cpu->of;
+}
+
+// Implicit length: number of valid elements before the first null element.
+static int pcmpstr_implicit_len(const union xmm_reg *x, bool word) {
+    int n = word ? 8 : 16;
+    for (int i = 0; i < n; i++) {
+        if (word) { if (x->u16[i] == 0) return i; }
+        else { if (x->u8[i] == 0) return i; }
+    }
+    return n;
+}
+
+// pcmpestrm/estri (explicit length in EAX=src1, EDX=src2) and pcmpistrm/istri
+// (implicit length). src = xmm2/m128 (the r/m operand), dst = xmm1 (the reg).
+void vec_pcmpestrm128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    pcmpstr_core(cpu, src, dst, imm, (int)(int32_t) cpu->eax, (int)(int32_t) cpu->edx, true);
+}
+void vec_pcmpestri128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    pcmpstr_core(cpu, src, dst, imm, (int)(int32_t) cpu->eax, (int)(int32_t) cpu->edx, false);
+}
+void vec_pcmpistrm128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    bool word = imm & 1;
+    pcmpstr_core(cpu, src, dst, imm, pcmpstr_implicit_len(dst, word), pcmpstr_implicit_len(src, word), true);
+}
+void vec_pcmpistri128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm) {
+    bool word = imm & 1;
+    pcmpstr_core(cpu, src, dst, imm, pcmpstr_implicit_len(dst, word), pcmpstr_implicit_len(src, word), false);
+}

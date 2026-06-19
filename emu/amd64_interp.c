@@ -4500,6 +4500,14 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
             fpu_ild32(cpu, &value);
             break;
         }
+        case 0xdb1: {
+            int32_t value;
+            fpu_istt32(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
         case 0xdb2: {
             int32_t value;
             fpu_ist32(cpu, &value);
@@ -4594,6 +4602,14 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
             fpu_ldm64(cpu, &value);
             break;
         }
+        case 0xdd1: {
+            int64_t value;
+            fpu_istt64(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
+            break;
+        }
         case 0xdd2: {
             double value;
             fpu_stm64(cpu, &value);
@@ -4685,6 +4701,14 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
             if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
                 goto amd64_fpu_gpf_restore;
             fpu_ild16(cpu, &value);
+            break;
+        }
+        case 0xdf1: {
+            int16_t value;
+            fpu_istt16(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            fpu_pop(cpu);
             break;
         }
         case 0xdf2: {
@@ -5347,6 +5371,36 @@ restart_prefix:
                 cpu->segfault_addr = saved_rip;
                 return INT_GPF;
             }
+            // crc32 (F2 0F 38 F0/F1): accumulate CRC32C of the r/m source into the
+            // GP reg dest. A GP op (not xmm), so handle it before the xmm prefix
+            // guard. F0 = r/m8; F1 = r/m16 (66) / r/m32 / r/m64 (REX.W).
+            if ((op3 == 0xf0 || op3 == 0xf1) && rep_mode == AMD64_REPNZ) {
+                struct amd64_modrm cmodrm;
+                if (!amd64_decode_modrm(cpu, tlb, rex, &cmodrm)) {
+                    cpu->amd64_rip = saved_rip;
+                    cpu->segfault_addr = saved_rip;
+                    return INT_GPF;
+                }
+                unsigned src_size = (op3 == 0xf0) ? 8 : (rex.w ? 64 : (operand_size_prefix ? 16 : 32));
+                qword_t srcv;
+                if (!amd64_read_rm(cpu, tlb, &cmodrm, fs_prefix, src_size, &srcv)) {
+                    cpu->amd64_rip = saved_rip;
+                    amd64_sync_legacy_regs(cpu);
+                    return INT_PF;
+                }
+                if (op3 == 0xf1 && rex.w) {
+                    uint64_t acc = (uint32_t) amd64_reg_get(cpu, cmodrm.reg, 32);
+                    vec_crc32_64(NULL, &srcv, &acc);
+                    amd64_reg_set(cpu, cmodrm.reg, 64, acc);
+                } else {
+                    uint32_t acc = (uint32_t) amd64_reg_get(cpu, cmodrm.reg, 32);
+                    if (op3 == 0xf0) { uint8_t b = (uint8_t) srcv; vec_crc32_8(NULL, &b, &acc); }
+                    else if (operand_size_prefix) { uint16_t w = (uint16_t) srcv; vec_crc32_16(NULL, &w, &acc); }
+                    else { uint32_t d = (uint32_t) srcv; vec_crc32_32(NULL, &d, &acc); }
+                    amd64_reg_set(cpu, cmodrm.reg, 32, acc); // zero-extends to 64
+                }
+                break;
+            }
             bool is_pshufb = op3 == 0x00;
             bool is_pblendvb = op3 == 0x10;
             bool is_blendvps = op3 == 0x14;
@@ -5357,11 +5411,17 @@ restart_prefix:
             bool is_pmovx = (op3 >= 0x20 && op3 <= 0x25) ||
                             (op3 >= 0x30 && op3 <= 0x35);
             // Additional xmm<-xmm/m128 ops handled via the shared vec.c helpers
-            // (validated bit-exact vs real Intel by tests/remote/corpus/sse4.c):
-            // pabsb/w/d (1c-1e), pmuldq (28), packusdw (2b), pcmpgtq (37),
-            // pmin/pmax sb/sd/uw/ud (38-3f).
-            bool is_vec38 = (op3 >= 0x1c && op3 <= 0x1e) || op3 == 0x28 ||
-                            op3 == 0x2b || op3 == 0x37 || (op3 >= 0x38 && op3 <= 0x3f);
+            // (validated bit-exact vs real Intel by tests/remote/corpus):
+            // SSSE3 phaddw/d/sw, pmaddubsw, phsubw/d/sw, psignb/w/d, pmulhrsw
+            // (01-0b); pabsb/w/d (1c-1e); pmuldq (28), packusdw (2b),
+            // pcmpgtq (37), pmin/pmax sb/sd/uw/ud (38-3f).
+            // movntdqa (2a) is a plain aligned 128-bit load (copy); phminposuw
+            // (41) reduces src to its min unsigned word + index. Both read r/m
+            // into the local src and write the reg, so they share this path.
+            bool is_vec38 = (op3 >= 0x01 && op3 <= 0x0b) ||
+                            (op3 >= 0x1c && op3 <= 0x1e) || op3 == 0x28 ||
+                            op3 == 0x2a || op3 == 0x2b || op3 == 0x37 ||
+                            op3 == 0x41 || (op3 >= 0x38 && op3 <= 0x3f);
             if ((!is_pshufb && !is_pblendvb && !is_blendvps && !is_blendvpd &&
                     !is_ptest && !is_pcmpeqq && !is_pmulld && !is_pmovx && !is_vec38) ||
                     !operand_size_prefix || rep_mode != AMD64_REP_NONE)
@@ -5503,6 +5563,17 @@ restart_prefix:
                 }
                 union xmm_reg *dst = &cpu->xmm[modrm.reg];
                 switch (op3) {
+                    case 0x01: vec_phaddw128(cpu, &src, dst); break;
+                    case 0x02: vec_phaddd128(cpu, &src, dst); break;
+                    case 0x03: vec_phaddsw128(cpu, &src, dst); break;
+                    case 0x04: vec_pmaddubsw128(cpu, &src, dst); break;
+                    case 0x05: vec_phsubw128(cpu, &src, dst); break;
+                    case 0x06: vec_phsubd128(cpu, &src, dst); break;
+                    case 0x07: vec_phsubsw128(cpu, &src, dst); break;
+                    case 0x08: vec_psignb128(cpu, &src, dst); break;
+                    case 0x09: vec_psignw128(cpu, &src, dst); break;
+                    case 0x0a: vec_psignd128(cpu, &src, dst); break;
+                    case 0x0b: vec_pmulhrsw128(cpu, &src, dst); break;
                     case 0x1c: vec_pabsb128(cpu, &src, dst); break;
                     case 0x1d: vec_pabsw128(cpu, &src, dst); break;
                     case 0x1e: vec_pabsd128(cpu, &src, dst); break;
@@ -5517,6 +5588,8 @@ restart_prefix:
                     case 0x3d: vec_pmaxsd128(cpu, &src, dst); break;
                     case 0x3e: vec_pmaxuw128(cpu, &src, dst); break;
                     case 0x3f: vec_pmaxud128(cpu, &src, dst); break;
+                    case 0x2a: *dst = src; break; // movntdqa (aligned 128-bit load)
+                    case 0x41: vec_phminposuw128(cpu, &src, dst); break;
                     default: return INT_UNDEFINED;
                 }
                 break;
@@ -5586,7 +5659,9 @@ restart_prefix:
             }
             bool known = (op3 >= 0x08 && op3 <= 0x0f) ||
                          (op3 >= 0x14 && op3 <= 0x17) ||
-                         op3 == 0x20 || op3 == 0x22;
+                         op3 == 0x20 || op3 == 0x21 || op3 == 0x22 ||
+                         (op3 >= 0x40 && op3 <= 0x42) ||
+                         (op3 >= 0x60 && op3 <= 0x63);
             if (!known || !operand_size_prefix || rep_mode != AMD64_REP_NONE)
                 return INT_UNDEFINED;
             struct amd64_modrm modrm;
@@ -5631,6 +5706,81 @@ restart_prefix:
                     case 0x0e: vec_blend_w128(cpu, &src, xreg, imm); break;
                     default:   vec_palignr128(cpu, &src, xreg, imm); break; // 0x0f
                 }
+                break;
+            }
+            if (op3 == 0x21) {
+                // insertps: register source selects a dword via imm[7:6]; a
+                // memory source is a single m32 (imm[7:6] ignored). imm[5:4]
+                // picks the dest lane, imm[3:0] is a per-lane zero mask.
+                uint32_t v;
+                if (modrm.is_reg) {
+                    if (modrm.rm >= AMD64_XMM_COUNT)
+                        return INT_UNDEFINED;
+                    v = cpu->xmm[modrm.rm].u32[(imm >> 6) & 3];
+                } else {
+                    qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                    if (!amd64_mem_read(cpu, tlb, addr, &v, 4)) {
+                        cpu->amd64_rip = saved_rip;
+                        amd64_sync_legacy_regs(cpu);
+                        return INT_PF;
+                    }
+                }
+                xreg->u32[(imm >> 4) & 3] = v;
+                for (int i = 0; i < 4; i++)
+                    if (imm & (1 << i)) xreg->u32[i] = 0;
+                break;
+            }
+            if (op3 >= 0x40 && op3 <= 0x42) {
+                // dpps/dppd/mpsadbw: xmm/m128 source, imm8, dst in/out.
+                union xmm_reg src = {0};
+                if (modrm.is_reg) {
+                    if (modrm.rm >= AMD64_XMM_COUNT)
+                        return INT_UNDEFINED;
+                    src = cpu->xmm[modrm.rm];
+                } else {
+                    qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                    if (!amd64_mem_read(cpu, tlb, addr, &src, 16)) {
+                        cpu->amd64_rip = saved_rip;
+                        amd64_sync_legacy_regs(cpu);
+                        return INT_PF;
+                    }
+                }
+                switch (op3) {
+                    case 0x40: vec_dpps128(cpu, &src, xreg, imm); break;
+                    case 0x41: vec_dppd128(cpu, &src, xreg, imm); break;
+                    default:   vec_mpsadbw128(cpu, &src, xreg, imm); break; // 0x42
+                }
+                break;
+            }
+            if (op3 >= 0x60 && op3 <= 0x63) {
+                // pcmp{e,i}str{m,i}: xmm2/m128 source, xmm1 reg = dst. The shared
+                // helpers read EAX/EDX (explicit lengths) and write ECX (index
+                // forms) / XMM0 (mask forms) / EFLAGS via the legacy register
+                // views, so mirror them into the amd64 registers around the call.
+                union xmm_reg src = {0};
+                if (modrm.is_reg) {
+                    if (modrm.rm >= AMD64_XMM_COUNT)
+                        return INT_UNDEFINED;
+                    src = cpu->xmm[modrm.rm];
+                } else {
+                    qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                    if (!amd64_mem_read(cpu, tlb, addr, &src, 16)) {
+                        cpu->amd64_rip = saved_rip;
+                        amd64_sync_legacy_regs(cpu);
+                        return INT_PF;
+                    }
+                }
+                cpu->eax = (dword_t) cpu->amd64_regs[amd64_rax];
+                cpu->edx = (dword_t) cpu->amd64_regs[amd64_rdx];
+                switch (op3) {
+                    case 0x60: vec_pcmpestrm128(cpu, &src, xreg, imm); break;
+                    case 0x61: vec_pcmpestri128(cpu, &src, xreg, imm); break;
+                    case 0x62: vec_pcmpistrm128(cpu, &src, xreg, imm); break;
+                    default:   vec_pcmpistri128(cpu, &src, xreg, imm); break; // 0x63
+                }
+                if (op3 == 0x61 || op3 == 0x63)
+                    cpu->amd64_regs[amd64_rcx] = (uint32_t) cpu->ecx; // index -> RCX (zero-extend)
+                collapse_flags(cpu);
                 break;
             }
             if (op3 == 0x20 || op3 == 0x22) {
@@ -6093,12 +6243,12 @@ restart_prefix:
                 op2 == 0x5f ||
                 op2 == 0x56 || op2 == 0x57 || op2 == 0x60 || op2 == 0x61 ||
                 op2 == 0x62 || op2 == 0x63 || op2 == 0x67 || op2 == 0x68 || op2 == 0x69 || op2 == 0x6a || op2 == 0x6b || op2 == 0x6c || op2 == 0x6d ||
-                op2 == 0x6f || op2 == 0x70 || op2 == 0x7e || op2 == 0x7f ||
+                op2 == 0x6f || op2 == 0x70 || op2 == 0x7c || op2 == 0x7d || op2 == 0x7e || op2 == 0x7f ||
                 op2 == 0x64 || op2 == 0x65 || op2 == 0x66 || op2 == 0x74 || op2 == 0x75 || op2 == 0x76 || op2 == 0xc2 || op2 == 0xc4 || op2 == 0xc5 || op2 == 0xc6 ||
-                op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 ||
+                op2 == 0xd0 || op2 == 0xd4 || op2 == 0xd6 || op2 == 0xd7 ||
                 op2 == 0xd8 || op2 == 0xd9 || op2 == 0xda || op2 == 0xdb || op2 == 0xdc || op2 == 0xdd || op2 == 0xde || op2 == 0xdf ||
                 op2 == 0xeb || op2 == 0xef ||
-                op2 == 0xf4 || op2 == 0xf6 ||
+                op2 == 0xf0 || op2 == 0xf4 || op2 == 0xf6 ||
                 op2 == 0xf8 || op2 == 0xf9 || op2 == 0xfa || op2 == 0xfb ||
                 op2 == 0xfc || op2 == 0xfd || op2 == 0xfe) {
             struct amd64_modrm modrm;
@@ -6177,19 +6327,35 @@ restart_prefix:
                         goto amd64_gpf_restore;
                 }
             } else if (op2 == 0x12) {
-                if (rep_mode != AMD64_REP_NONE)
-                    return INT_UNDEFINED;
-                if (operand_size_prefix && modrm.is_reg)
-                    return INT_UNDEFINED;
-                value = cpu->xmm[modrm.reg];
-                if (modrm.is_reg) {
-                    value.qw[0] = cpu->xmm[modrm.rm].qw[1];
-                } else {
-                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                if (rep_mode == AMD64_REPZ) {
+                    // movsldup (F3 0F 12): duplicate even singles [s0,s0,s2,s2].
+                    if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                         goto amd64_gpf_restore;
-                    value.qw[0] = src_scalar;
+                    vec_movsldup128(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+                } else if (rep_mode == AMD64_REPNZ) {
+                    // movddup (F2 0F 12): duplicate the low double; mem reads m64.
+                    if (modrm.is_reg) {
+                        src_xmm = cpu->xmm[modrm.rm];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                        src_xmm.qw[0] = src_scalar;
+                    }
+                    vec_movddup64(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+                } else {
+                    // movhlps (reg form) / movlps / movlpd (mem form).
+                    if (operand_size_prefix && modrm.is_reg)
+                        return INT_UNDEFINED;
+                    value = cpu->xmm[modrm.reg];
+                    if (modrm.is_reg) {
+                        value.qw[0] = cpu->xmm[modrm.rm].qw[1];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                        value.qw[0] = src_scalar;
+                    }
+                    cpu->xmm[modrm.reg] = value;
                 }
-                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x13) {
                 if (operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
                     return INT_UNDEFINED;
@@ -6420,22 +6586,54 @@ restart_prefix:
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x16) {
-                if (operand_size_prefix && modrm.is_reg)
-                    return INT_UNDEFINED;
-                value = cpu->xmm[modrm.reg];
-                if (modrm.is_reg) {
-                    value.qw[1] = cpu->xmm[modrm.rm].qw[0];
-                } else {
-                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                if (rep_mode == AMD64_REPZ) {
+                    // movshdup (F3 0F 16): duplicate odd singles [s1,s1,s3,s3].
+                    if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                         goto amd64_gpf_restore;
-                    value.qw[1] = src_scalar;
+                    vec_movshdup128(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+                } else if (rep_mode != AMD64_REP_NONE) {
+                    return INT_UNDEFINED;
+                } else {
+                    // movlhps (reg form) / movhps / movhpd (mem form).
+                    if (operand_size_prefix && modrm.is_reg)
+                        return INT_UNDEFINED;
+                    value = cpu->xmm[modrm.reg];
+                    if (modrm.is_reg) {
+                        value.qw[1] = cpu->xmm[modrm.rm].qw[0];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                        value.qw[1] = src_scalar;
+                    }
+                    cpu->xmm[modrm.reg] = value;
                 }
-                cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0x17) {
                 if (operand_size_prefix || modrm.is_reg)
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[1]))
                     goto amd64_gpf_restore;
+            } else if (op2 == 0x7c || op2 == 0x7d || op2 == 0xd0) {
+                // SSE3 alternating/horizontal add-sub: F2 -> *ps, 66 -> *pd.
+                bool is_ps = (rep_mode == AMD64_REPNZ && !operand_size_prefix);
+                bool is_pd = (rep_mode == AMD64_REP_NONE && operand_size_prefix);
+                if (!is_ps && !is_pd)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                union xmm_reg *d = &cpu->xmm[modrm.reg];
+                if (op2 == 0x7c)
+                    is_ps ? vec_haddps128(NULL, &src_xmm, d) : vec_haddpd128(NULL, &src_xmm, d);
+                else if (op2 == 0x7d)
+                    is_ps ? vec_hsubps128(NULL, &src_xmm, d) : vec_hsubpd128(NULL, &src_xmm, d);
+                else
+                    is_ps ? vec_addsubps128(NULL, &src_xmm, d) : vec_addsubpd128(NULL, &src_xmm, d);
+            } else if (op2 == 0xf0) {
+                // lddqu (F2 0F F0): unaligned 128-bit load (behaves like movdqu).
+                if (rep_mode != AMD64_REPNZ || operand_size_prefix)
+                    return INT_UNDEFINED;
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                    goto amd64_gpf_restore;
+                cpu->xmm[modrm.reg] = src_xmm;
             } else if (op2 == 0x60 || op2 == 0x61 || op2 == 0x62 ||
                        op2 == 0x68 || op2 == 0x69 || op2 == 0x6a ||
                        op2 == 0x6c || op2 == 0x6d) {
@@ -11661,19 +11859,34 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x12) {
-            if (rep_mode != AMD64_REP_NONE)
-                return INT_UNDEFINED;
-            if (operand_size_prefix && modrm.is_reg)
-                return INT_UNDEFINED;
-            value = cpu->xmm[modrm.reg];
-            if (modrm.is_reg) {
-                value.qw[0] = cpu->xmm[modrm.rm].qw[1];
-            } else {
-                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+            if (rep_mode == AMD64_REPZ) {
+                // movsldup (F3 0F 12)
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                     goto amd64_0f_vec_rm_pf;
-                value.qw[0] = src_scalar;
+                vec_movsldup128(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+            } else if (rep_mode == AMD64_REPNZ) {
+                // movddup (F2 0F 12), mem reads m64
+                if (modrm.is_reg) {
+                    src_xmm = cpu->xmm[modrm.rm];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    src_xmm.qw[0] = src_scalar;
+                }
+                vec_movddup64(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+            } else {
+                if (operand_size_prefix && modrm.is_reg)
+                    return INT_UNDEFINED;
+                value = cpu->xmm[modrm.reg];
+                if (modrm.is_reg) {
+                    value.qw[0] = cpu->xmm[modrm.rm].qw[1];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    value.qw[0] = src_scalar;
+                }
+                cpu->xmm[modrm.reg] = value;
             }
-            cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x13) {
             if (operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
                 return INT_UNDEFINED;
@@ -11702,17 +11915,26 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             }
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x16) {
-            if (operand_size_prefix && modrm.is_reg)
-                return INT_UNDEFINED;
-            value = cpu->xmm[modrm.reg];
-            if (modrm.is_reg) {
-                value.qw[1] = cpu->xmm[modrm.rm].qw[0];
-            } else {
-                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+            if (rep_mode == AMD64_REPZ) {
+                // movshdup (F3 0F 16)
+                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
                     goto amd64_0f_vec_rm_pf;
-                value.qw[1] = src_scalar;
+                vec_movshdup128(NULL, &src_xmm, &cpu->xmm[modrm.reg]);
+            } else if (rep_mode != AMD64_REP_NONE) {
+                return INT_UNDEFINED;
+            } else {
+                if (operand_size_prefix && modrm.is_reg)
+                    return INT_UNDEFINED;
+                value = cpu->xmm[modrm.reg];
+                if (modrm.is_reg) {
+                    value.qw[1] = cpu->xmm[modrm.rm].qw[0];
+                } else {
+                    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                        goto amd64_0f_vec_rm_pf;
+                    value.qw[1] = src_scalar;
+                }
+                cpu->xmm[modrm.reg] = value;
             }
-            cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0x17) {
             if (operand_size_prefix || modrm.is_reg)
                 return INT_UNDEFINED;

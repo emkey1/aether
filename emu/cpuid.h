@@ -20,6 +20,16 @@ static inline dword_t cpuid_extended_max_leaf(void) {
 
 static inline dword_t cpuid_leaf1_ecx_features(void) {
     dword_t features = 0;
+    // SSE3, SSSE3, SSE4.1, and SSE4.2 are fully implemented in both the i386
+    // and amd64 engines (interp + JIT) and validated bit-exact against real
+    // Intel silicon (tests/remote/corpus/sse3.c, sse4.c, sse42.c). Advertise
+    // them so feature-detecting software (glibc string ifuncs, codecs, hashers)
+    // selects these paths instead of a slower SSE2/scalar fallback. POPCNT
+    // (bit 23) is a separate feature and is intentionally not advertised here.
+    features |= (1 << 0);   // sse3 (pni)
+    features |= (1 << 9);   // ssse3
+    features |= (1 << 19);  // sse4.1
+    features |= (1 << 20);  // sse4.2
     // cmpxchg16b is implemented for the amd64 (long-mode) guest, so advertise it
     // -- feature-detecting software (glibc, C++ 128-bit lock-free CAS) checks
     // this bit before emitting the instruction. It is a long-mode-only op, so it

@@ -271,4 +271,46 @@ void vec_round_pd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8
 void vec_round_ss32(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
 void vec_round_sd64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
 
+// SSSE3 horizontal/sign/multiply completion (three-byte 0F 38).
+void vec_phaddw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_phaddd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_phaddsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmaddubsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_phsubw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_phsubd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_phsubsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_psignb128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_psignw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_psignd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_pmulhrsw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+
+// SSE4.1 completion (three-byte 0F 38 / 0F 3A).
+void vec_insertps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_insertps32(NO_CPU, const uint32_t *src, union xmm_reg *dst, uint8_t imm);
+void vec_dpps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_dppd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_mpsadbw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_phminposuw128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+
+// SSE3 (two-byte 0F with 66/F2/F3 prefix).
+void vec_movsldup128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_movshdup128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_movddup64(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_addsubps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_addsubpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_haddps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_haddpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_hsubps128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+void vec_hsubpd128(NO_CPU, const union xmm_reg *src, union xmm_reg *dst);
+
+// SSE4.2: crc32 (CRC32C) and the pcmp{e,i}str{i,m} string compares.
+void vec_crc32_8(NO_CPU, const uint8_t *src, uint32_t *dst);
+void vec_crc32_16(NO_CPU, const uint16_t *src, uint32_t *dst);
+void vec_crc32_32(NO_CPU, const uint32_t *src, uint32_t *dst);
+void vec_crc32_64(NO_CPU, const uint64_t *src, uint64_t *dst);
+void vec_pcmpestrm128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_pcmpestri128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_pcmpistrm128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+void vec_pcmpistri128(struct cpu_state *cpu, const union xmm_reg *src, union xmm_reg *dst, uint8_t imm);
+
 #endif

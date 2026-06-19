@@ -81,6 +81,34 @@ void fpu_ist64(struct cpu_state *cpu, int64_t *i) {
     *i = f80_to_int(ST(0));
 }
 
+// fisttp (SSE3): store ST(0) as an integer with truncation toward zero,
+// regardless of the control-word rounding mode (the caller then pops). gcc
+// -msse3 emits this for float/double -> int casts.
+void fpu_istt16(struct cpu_state *cpu, int16_t *i) {
+    enum f80_rounding_mode old_mode = f80_rounding_mode;
+    f80_rounding_mode = round_chop;
+    int64_t res = f80_to_int(ST(0));
+    f80_rounding_mode = old_mode;
+    if (res < INT16_MIN || res > INT16_MAX)
+        res = INT16_MIN;
+    *i = (int16_t) res;
+}
+void fpu_istt32(struct cpu_state *cpu, int32_t *i) {
+    enum f80_rounding_mode old_mode = f80_rounding_mode;
+    f80_rounding_mode = round_chop;
+    int64_t res = f80_to_int(ST(0));
+    f80_rounding_mode = old_mode;
+    if (res < INT32_MIN || res > INT32_MAX)
+        res = INT32_MIN;
+    *i = (int32_t) res;
+}
+void fpu_istt64(struct cpu_state *cpu, int64_t *i) {
+    enum f80_rounding_mode old_mode = f80_rounding_mode;
+    f80_rounding_mode = round_chop;
+    *i = f80_to_int(ST(0));
+    f80_rounding_mode = old_mode;
+}
+
 void fpu_stm32(struct cpu_state *cpu, float32 *f) {
     *f = f80_to_double(ST(0));
 }

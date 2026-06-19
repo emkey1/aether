@@ -27,6 +27,18 @@ static const uint32_t XPAT[][4] = {
 };
 #define NX (sizeof XPAT / sizeof XPAT[0])
 
+/* finite float/double inputs for the dot products (dpps/dppd): no NaN/inf so
+ * the result is exact and identical across arm64 and x86 (no payload to
+ * canonicalize), exactly like the round{ps,pd} inputs below. */
+static const float DPF[][4] = {
+    {1.0f, 2.0f, 3.0f, 4.0f}, {0.5f, -1.5f, 2.25f, -0.75f},
+    {10.0f, 20.0f, 30.0f, 40.0f}, {-1.0f, -2.0f, -3.0f, -4.0f},
+};
+static const double DPD[][2] = {
+    {1.0, 2.0}, {0.5, -1.5}, {10.0, -20.0}, {-3.25, 4.75},
+};
+#define ND 4
+
 static void emit_xmm(const char *op, uint64_t key, const void *xmm) {
     const uint32_t *o = (const uint32_t *)xmm;
     for (int k = 0; k < 4; k++)
@@ -59,6 +71,28 @@ static void emit_xmm(const char *op, uint64_t key, const void *xmm) {
             : [d] "+x"(d_) : [s] "x"(s_), [m] "i"(IMM));                       \
         memcpy(o, &d_, 16);                                                    \
         emit_xmm(OP, ((uint64_t)(IMM) << 8) | (i << 4) | j, o);                \
+    } } while (0)
+
+/* dpps: finite float inputs, imm is a compile-time literal */
+#define RUN_DPPS(IMM) do {                                                     \
+    for (size_t i = 0; i < ND; i++) for (size_t j = 0; j < ND; j++) {          \
+        v4sf d_, s_; uint32_t o[4];                                           \
+        memcpy(&d_, DPF[i], 16); memcpy(&s_, DPF[j], 16);                     \
+        __asm__ volatile("dpps $%c[m], %[s], %[d]"                            \
+            : [d] "+x"(d_) : [s] "x"(s_), [m] "i"(IMM));                      \
+        memcpy(o, &d_, 16);                                                   \
+        emit_xmm("dpps", ((uint64_t)(IMM) << 8) | (i << 4) | j, o);           \
+    } } while (0)
+
+/* dppd: finite double inputs, imm is a compile-time literal */
+#define RUN_DPPD(IMM) do {                                                     \
+    for (size_t i = 0; i < ND; i++) for (size_t j = 0; j < ND; j++) {          \
+        v2df d_, s_; uint32_t o[4];                                           \
+        memcpy(&d_, DPD[i], 16); memcpy(&s_, DPD[j], 16);                     \
+        __asm__ volatile("dppd $%c[m], %[s], %[d]"                            \
+            : [d] "+x"(d_) : [s] "x"(s_), [m] "i"(IMM));                      \
+        memcpy(o, &d_, 16);                                                   \
+        emit_xmm("dppd", ((uint64_t)(IMM) << 8) | (i << 4) | j, o);           \
     } } while (0)
 
 __attribute__((target("sse4.1")))
@@ -114,6 +148,12 @@ static void run_cases(void) {
     RUN_BIN_IMM("palignr", "palignr", 11); RUN_BIN_IMM("palignr", "palignr", 16);
     RUN_BIN_IMM("palignr", "palignr", 20);
     RUN_UN("pabsb", "pabsb"); RUN_UN("pabsw", "pabsw"); RUN_UN("pabsd", "pabsd");
+
+    /* ---- SSSE3 completion: horizontal add/sub, multiply-add, sign ---- */
+    RUN_BIN("phaddw", "phaddw"); RUN_BIN("phaddd", "phaddd"); RUN_BIN("phaddsw", "phaddsw");
+    RUN_BIN("phsubw", "phsubw"); RUN_BIN("phsubd", "phsubd"); RUN_BIN("phsubsw", "phsubsw");
+    RUN_BIN("pmaddubsw", "pmaddubsw"); RUN_BIN("pmulhrsw", "pmulhrsw");
+    RUN_BIN("psignb", "psignb"); RUN_BIN("psignw", "psignw"); RUN_BIN("psignd", "psignd");
 
     /* ---- SSE4.1 widening moves ---- */
     RUN_UN("pmovsxbw", "pmovsxbw"); RUN_UN("pmovzxbw", "pmovzxbw");
@@ -227,5 +267,40 @@ static void run_cases(void) {
         memcpy(so, &sfd, 16); emit_xmm("roundss", mode, so);
         memcpy(so, &sdd, 16); emit_xmm("roundsd", mode, so);
     }
+
+    /* ---- SSE4.1 completion: phminposuw / insertps / mpsadbw / movntdqa ---- */
+    RUN_UN("phminposuw", "phminposuw");
+
+    /* insertps register form: imm[7:6]=src lane, [5:4]=dst lane, [3:0]=zero mask */
+    RUN_BIN_IMM("insertps", "insertps", 0x00); RUN_BIN_IMM("insertps", "insertps", 0x4e);
+    RUN_BIN_IMM("insertps", "insertps", 0xb1); RUN_BIN_IMM("insertps", "insertps", 0x27);
+    RUN_BIN_IMM("insertps", "insertps", 0xff);
+    /* insertps memory form (m32 source; imm[7:6] ignored) */
+    for (size_t i = 0; i < NX; i++) {
+        v4si d_; uint32_t o[4]; uint32_t mv = 0x0a0b0c0du;
+        memcpy(&d_, XPAT[i], 16);
+        __asm__ volatile("insertps $0x20, %[s], %[d]" : [d] "+x"(d_) : [s] "m"(mv));
+        memcpy(o, &d_, 16); emit_xmm("insertpsm", i, o);
+    }
+
+    /* mpsadbw: imm[1:0]=src block offset, imm[2]=dst window offset */
+    RUN_BIN_IMM("mpsadbw", "mpsadbw", 0); RUN_BIN_IMM("mpsadbw", "mpsadbw", 1);
+    RUN_BIN_IMM("mpsadbw", "mpsadbw", 2); RUN_BIN_IMM("mpsadbw", "mpsadbw", 3);
+    RUN_BIN_IMM("mpsadbw", "mpsadbw", 4); RUN_BIN_IMM("mpsadbw", "mpsadbw", 5);
+    RUN_BIN_IMM("mpsadbw", "mpsadbw", 6); RUN_BIN_IMM("mpsadbw", "mpsadbw", 7);
+
+    /* movntdqa (aligned 128-bit load); v4si is 16-byte aligned */
+    for (size_t i = 0; i < NX; i++) {
+        v4si buf, d_; uint32_t o[4];
+        memcpy(&buf, XPAT[i], 16);
+        __asm__ volatile("movntdqa %[s], %[d]" : [d] "=x"(d_) : [s] "m"(buf));
+        memcpy(o, &d_, 16); emit_xmm("movntdqa", i, o);
+    }
+
+    /* ---- SSE4.1 dot products (finite inputs -> exact, arch-independent) ---- */
+    RUN_DPPS(0x00); RUN_DPPS(0xf1); RUN_DPPS(0xff); RUN_DPPS(0x31);
+    RUN_DPPS(0x71); RUN_DPPS(0x1f); RUN_DPPS(0xa3);
+    RUN_DPPD(0x00); RUN_DPPD(0x31); RUN_DPPD(0x33); RUN_DPPD(0x11); RUN_DPPD(0x23);
+
     (void)sizeof(v2di);
 }
