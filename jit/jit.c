@@ -244,11 +244,26 @@ void dump_amd64_cc1_jit_trace(const struct cpu_state *cpu) {
     }
 }
 
-static bool amd64_jit_debug_enabled(void) {
+// forceinline: this gates ~5 amd64_jit_debug() points per executed block in the
+// hottest emulator loop. As a plain (un-inlined) call the cached check still cost
+// a measurable slice; inlined it is a single static load + compare.
+static inline __attribute__((always_inline)) bool amd64_jit_debug_enabled(void) {
     static int enabled = -1;
     if (enabled == -1)
         enabled = getenv("ISH_TRACE_AMD64_JIT") != NULL ? 1 : 0;
     return enabled == 1;
+}
+
+// Single cached gate for the per-block debug machinery in the amd64 frontend
+// (force-interp ranges, cc1 JIT trace). All off by default; when so, the frontend
+// skips amd64_cc1_force_interp_block() and the cc1 cpu_state snapshot entirely
+// rather than calling them on every executed block (the hottest loop in the emu).
+static inline bool amd64_frontend_debug_active(void) {
+    static int active = -1;
+    if (active == -1)
+        active = (getenv("ISH_AMD64_FORCE_INTERP_HI") != NULL ||
+                  getenv("ISH_AMD64_CC1_TRACE") != NULL) ? 1 : 0;
+    return active == 1;
 }
 
 static void amd64_jit_debug_impl(const char *fmt, ...) {
@@ -1108,7 +1123,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // off unless the guest is amd64 'cc1'. Copying the whole cpu_state every
         // block otherwise is pure overhead on the hottest loop in the emulator,
         // so take the snapshot only when the trace is actually enabled.
-        bool cc1_trace = amd64_cc1_jit_trace_enabled();
+        bool cc1_trace = amd64_frontend_debug_active() && amd64_cc1_jit_trace_enabled();
         struct cpu_state before_block_cpu;
         if (cc1_trace)
             before_block_cpu = frame->cpu;
@@ -1289,7 +1304,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
 
         fallback_to_interp = false;
         ip = frame->cpu.amd64_rip;
-        if (amd64_cc1_force_interp_block(ip)) {
+        if (unlikely(amd64_frontend_debug_active()) && amd64_cc1_force_interp_block(ip)) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
             *cpu = frame->cpu;
