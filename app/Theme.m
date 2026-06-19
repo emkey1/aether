@@ -111,7 +111,7 @@ char *get_documents_directory_impl(void) {
     if (colorPaletteOverrides) {
         if ([colorPaletteOverrides isKindOfClass:NSArray.class]) {
             for (id color in colorPaletteOverrides) {
-                validColorPalette = validColorPalette || VALID_COLOR(color);
+                validColorPalette = validColorPalette && VALID_COLOR(color);
             }
         } else {
             validColorPalette = NO;
