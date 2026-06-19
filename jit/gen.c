@@ -2995,6 +2995,27 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             gen_amd64_defer_rip(state, next_ip);
             return true;
         }
+        // Native 16-bit ALU r/m16, imm16 (0x81) / imm8-sign-ext (0x83), mod==3, ARITH
+        // ADD/SUB/CMP (groups 0/5/7). The 32/64 arith clause below gates on size 32/64
+        // (its CF/OF come from the host's 32-bit flags); 16-bit needs the by-hand width-16
+        // flag math in gadget_amd64_w16_alu_reg_imm. 16-bit OR/AND/XOR (1/4/6) are already
+        // native via the size-agnostic logic-reg-imm clause; ADC/SBB (2/3) bridge.
+        if ((insn.opcode == 0x81 || insn.opcode == 0x83) && size == 16 &&
+                (group == 0 || group == 5 || group == 7)) {
+            unsigned long wpacked = (unsigned long) group | ((unsigned long) rm_id << 4);
+            amd64_jit_debug("w16-alu-reg-imm-direct ip=%llx group=%u rm=%u value=%llx next=%llx",
+                    (unsigned long long) insn.start_ip, group, rm_id,
+                    (unsigned long long) value, (unsigned long long) next_ip);
+            extern void gadget_amd64_w16_alu_reg_imm(void);
+            gen_amd64_ensure_reg_cache(state);
+            gen(state, (unsigned long) gadget_amd64_w16_alu_reg_imm);
+            gen(state, wpacked);
+            gen(state, value);
+            if (group != 7)
+                gen_amd64_mark_reg_cache_dirty(state);
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
 #endif
         if (insn.opcode == 0xc6) {
             if (!insn.rex.present && amd64_modrm_rm(insn.modrm) >= 4)
@@ -3388,6 +3409,35 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 gen_amd64_defer_rip(state, next_ip);
                 return true;
             }
+#if defined(__aarch64__)
+            // Native 16-bit ALU reg-reg ADD/SUB/CMP (0x01/03/29/2b/39/3b, mod==3). The
+            // 32/64 arith clause below gates on size 32/64 (its CF/OF come from the host's
+            // 32-bit flags); 16-bit needs the by-hand width-16 flag math in
+            // gadget_amd64_w16_alu_reg_reg. 16-bit OR/AND/XOR reg-reg are already native
+            // (the logic clause above is size-agnostic), as are TEST (0x85) and xor-zero.
+            if (size == 16 &&
+                    (insn.opcode <= 0x03 ||
+                     (insn.opcode >= 0x28 && insn.opcode <= 0x2b) ||
+                     (insn.opcode >= 0x38 && insn.opcode <= 0x3b))) {
+                unsigned op = (insn.opcode >> 3) & 7;   /* 0=ADD, 5=SUB, 7=CMP */
+                bool d = (insn.opcode & 2) != 0;        /* opcode bit1: dst=reg vs dst=rm */
+                unsigned dst_id = d ? reg_id : rm_id;
+                unsigned src_id = d ? rm_id : reg_id;
+                unsigned long wpacked = (unsigned long) op |
+                    ((unsigned long) dst_id << 4) | ((unsigned long) src_id << 8);
+                amd64_jit_debug("w16-alu-reg-reg-direct ip=%llx opcode=%02x dst=%u src=%u next=%llx",
+                        (unsigned long long) insn.start_ip, insn.opcode,
+                        dst_id, src_id, (unsigned long long) next_ip);
+                extern void gadget_amd64_w16_alu_reg_reg(void);
+                gen_amd64_ensure_reg_cache(state);
+                gen(state, (unsigned long) gadget_amd64_w16_alu_reg_reg);
+                gen(state, wpacked);
+                if (op != 7)
+                    gen_amd64_mark_reg_cache_dirty(state);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+#endif
             if ((insn.opcode <= 0x03 ||
                      (insn.opcode >= 0x28 && insn.opcode <= 0x2b) ||
                      (insn.opcode >= 0x38 && insn.opcode <= 0x3b)) &&

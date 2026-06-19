@@ -4069,3 +4069,102 @@ amd64_gen_imm_cmp imm_cmp64, 8, 63
     str  w11, [_cpu, CPU_eflags]
     strb wzr, [_cpu, CPU_flags_res]
     gret 0
+
+# =====================================================================================
+# amd64 16-bit (operand-size 0x66) integer ALU on REGISTER operands (mod==3). Previously
+# every 16-bit ALU bridged: the native arith/logic reg gadgets gate on size 32/64 only,
+# because their CF/OF come from the host's 32-bit ARM flags (wrong at width 16 -- CF is
+# bit 16, OF is bit 15). This family computes the 16-bit flags by hand, exactly like the
+# byte family but width 16 and with NO high-byte cases (16-bit regs are always the low 16
+# of the register; the upper 48 bits are preserved on write). Memory operands still bridge
+# (a 2-byte access can straddle a page, unlike the 1-byte forms). ADC/SBB (groups 2/3)
+# still bridge. Register map mirrors the byte gadgets: x8=packed, x9=full dst, x10=rhs,
+# x13=lhs, x15=result; the called flag macros clobber x11/x12/x14/x16/x17.
+
+# Compute one 16-bit ALU op: x8 bits0-3=group (0=ADD,1=OR,4=AND,5=SUB,6=XOR,7=CMP),
+# x13=lhs (0-65535), x10=rhs (0-65535) -> x15 = 16-bit result + eager flags. Does NOT
+# write the result back. Clobbers x11/x12/x14/x15/x16/x17 (x8/x9/x10/x13 preserved).
+.macro amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 1
+    b.eq .Lwc_or_\@
+    cmp  x12, 4
+    b.eq .Lwc_and_\@
+    cmp  x12, 6
+    b.eq .Lwc_xor_\@
+    cmp  x12, 0
+    b.eq .Lwc_add_\@
+    /* SUB (5) / CMP (7): 0-65535 operands so the 32-bit borrow == the 16-bit borrow */
+    subs w15, w13, w10
+    cset w14, cc                     /* CF (borrow) */
+    and  w15, w15, 0xffff
+    eor  w12, w13, w10               /* OF(sub) = (lhs^rhs) & (lhs^res) & 0x8000 */
+    eor  w17, w13, w15
+    and  w12, w12, w17
+    tst  w12, 0x8000
+    cset w16, ne
+    amd64_cached_set_addsub_flags 15
+    b    .Lwc_done_\@
+.Lwc_add_\@:
+    add  w15, w13, w10               /* 0-131070 */
+    ubfx w14, w15, 16, 1             /* CF = carry out of bit 15 */
+    and  w15, w15, 0xffff
+    eor  w12, w13, w10               /* OF(add) = ~(lhs^rhs) & (lhs^res) & 0x8000 */
+    eor  w17, w13, w15
+    bic  w12, w17, w12
+    tst  w12, 0x8000
+    cset w16, ne
+    amd64_cached_set_addsub_flags 15
+    b    .Lwc_done_\@
+.Lwc_or_\@:  orr  w15, w13, w10
+    b    .Lwc_logic_\@
+.Lwc_and_\@: and  w15, w13, w10
+    b    .Lwc_logic_\@
+.Lwc_xor_\@: eor  w15, w13, w10
+.Lwc_logic_\@:
+    and  w15, w15, 0xffff
+    mov  x11, 16
+    amd64_cached_set_logic_flags x15, x11
+.Lwc_done_\@:
+.endm
+
+# op r/m16, imm16 (0x81 /0,1,4,5,6,7) or imm8-sign-extended (0x83), mod==3. gen.c puts the
+# (already sign-extended for 0x83) immediate in operand 8. packed: group(0-3) | dst_id(4-7).
+.gadget amd64_w16_alu_reg_imm
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]
+    and  w10, w10, 0xffff            /* rhs = imm (low 16) */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full dst register */
+    and  x13, x9, 0xffff             /* lhs = low 16 */
+    amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: flags only, no write */
+    b.eq 1f
+    bfi  x9, x15, 0, 16              /* replace low 16, preserve upper 48 */
+    ubfx x13, x8, 4, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x9, x10
+1:  gret 2
+
+# op r/m16,r16 + r16,r/m16 (0x01/03/09/0b/21/23/29/2b/31/33/39/3b) + TEST r/m16,r16 (0x85),
+# mod==3. gen.c resolves direction to dst (lhs) and src (rhs). packed: op(0-3) | dst_id(4-7)
+# | src_id(8-11) | nowrite(12). TEST encodes op=4 (AND) with nowrite set.
+.gadget amd64_w16_alu_reg_reg
+    ldr  x8, [_ip]
+    ubfx x11, x8, 8, 4               /* src id */
+    amd64_read_low_or_mem x11, x10
+    and  x10, x10, 0xffff            /* rhs = src low 16 */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9
+    and  x13, x9, 0xffff             /* lhs = dst low 16 */
+    amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: no write */
+    b.eq 1f
+    tbnz x8, 12, 1f                  /* TEST: no write (unused -- gen.c routes only arith) */
+    bfi  x9, x15, 0, 16
+    ubfx x13, x8, 4, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x9, x10
+1:  gret 1
