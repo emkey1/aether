@@ -1,6 +1,12 @@
 #include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 #include "fs/devices.h"
 #include "fs/fd.h"
 #include "fs/real.h"
@@ -8,6 +14,8 @@
 #include "kernel/calls.h"
 #include "kernel/init.h"
 #include "kernel/personality.h"
+#include "kernel/signal.h"
+#include "kernel/task.h"
 
 int mount_root(const struct fs_ops *fs, const char *source) {
     char source_realpath[MAX_PATH + 1];
@@ -216,6 +224,239 @@ int create_piped_stdio(void) {
     }
     if (!(current->files->files[2] = open_fd_from_actual_fd(STDERR_FILENO))) {
         return -1;
+    }
+    return 0;
+}
+
+static long ish_monotonic_ms_since(const struct timespec *start) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (now.tv_sec - start->tv_sec) * 1000L +
+           (now.tv_nsec - start->tv_nsec) / 1000000L;
+}
+
+int run_guest_command_capture(const char *command, const char *env,
+                              int timeout_ms, size_t max_output,
+                              struct guest_command_result *result) {
+    if (result == NULL || command == NULL)
+        return _EINVAL;
+    memset(result, 0, sizeof(*result));
+    if (max_output == 0)
+        max_output = 64 * 1024;
+
+    // Host pipe: the guest writes stdout/stderr into the write ends, we drain the
+    // read end. Two write ends (one dup'd) so guest fd 1 and fd 2 each own an
+    // independent host descriptor and close()ing one never closes the other.
+    int pipefd[2];
+    if (pipe(pipefd) < 0)
+        return -errno;
+    int read_fd = pipefd[0];
+    int write_fd = pipefd[1];
+    int write_fd2 = dup(write_fd);
+    if (write_fd2 < 0) {
+        int saved_errno = errno;
+        close(read_fd);
+        close(write_fd);
+        return -saved_errno;
+    }
+    int null_fd = open("/dev/null", O_RDONLY); // guest stdin -> immediate EOF
+
+    struct task *saved = current;
+
+    intptr_t spawn_err = become_new_init_child();
+    if (spawn_err < 0) {
+        close(read_fd);
+        close(write_fd);
+        close(write_fd2);
+        if (null_fd >= 0)
+            close(null_fd);
+        current = saved;
+        return (int) spawn_err;
+    }
+    struct task *child = current;
+    dword_t child_pid = child->pid;
+
+    // Pack argv as do_execve expects: "/bin/sh\0-c\0<command>\0\0", argc = 3.
+    // Note the trailing double-NUL: args_size() walks `count` strings and then
+    // asserts the next byte is '\0' (see exec.c), so the buffer needs one extra
+    // terminator after the last argument -- exactly what xX_main_Xx writes.
+    static const char shell_path[] = "/bin/sh";
+    size_t command_len = strlen(command);
+    char *argv = malloc(sizeof(shell_path) + sizeof("-c") + command_len + 1 + 1);
+    const char *envp = (env != NULL && env[0] != '\0') ? env
+        : "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\0"
+          "HOME=/root\0TERM=dumb\0";
+    int launch_err = argv != NULL ? 0 : _ENOMEM;
+    if (argv != NULL) {
+        size_t off = 0;
+        memcpy(argv + off, shell_path, sizeof(shell_path)); off += sizeof(shell_path);
+        memcpy(argv + off, "-c", sizeof("-c")); off += sizeof("-c");
+        memcpy(argv + off, command, command_len + 1); off += command_len + 1;
+        argv[off] = '\0'; // trailing terminator required by args_size()
+        // Load the program image first, then wire stdio (matches the xX_main_Xx
+        // bootstrap order; do_execve does not need an fd table to be present).
+        launch_err = do_execve(shell_path, 3, argv, envp);
+        free(argv);
+    }
+    if (launch_err < 0) {
+        close(read_fd);
+        close(write_fd);
+        close(write_fd2);
+        if (null_fd >= 0)
+            close(null_fd);
+        current = saved;
+        return launch_err;
+    }
+
+    struct fd *in_fd = null_fd >= 0 ? open_fd_from_actual_fd(null_fd) : NULL;
+    struct fd *out_fd = open_fd_from_actual_fd(write_fd);
+    struct fd *err_fd = open_fd_from_actual_fd(write_fd2);
+    child->files->files[0] = in_fd;
+    child->files->files[1] = out_fd;
+    child->files->files[2] = err_fd;
+    // Each wrapped guest fd now owns its host descriptor and will close() it when
+    // the guest exits, which is what finally delivers EOF to read_fd. Only close
+    // directly here for any wrap that failed (otherwise the write end would leak
+    // and read_fd would never see EOF).
+    if (out_fd == NULL) close(write_fd);
+    if (err_fd == NULL) close(write_fd2);
+    if (in_fd == NULL && null_fd >= 0) close(null_fd);
+
+    result->launched = 1;
+    task_start(child);
+    current = saved; // the child runs on its own thread now; stop impersonating it
+
+    // Drain the pipe until EOF (guest exit closes both write ends), bounding total
+    // bytes and wall-clock time. On timeout, SIGKILL the child by pid and keep
+    // draining briefly so any final buffered output is still captured.
+    size_t cap = 4096;
+    char *buf = malloc(cap);
+    size_t len = 0;
+    int killed = 0;
+    int got_eof = 0;
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (buf != NULL) {
+        int wait_ms = -1;
+        if (timeout_ms > 0) {
+            long remaining = timeout_ms - ish_monotonic_ms_since(&start);
+            if (remaining <= 0) {
+                if (!killed) {
+                    struct task *ct = pid_get_task_ref(child_pid);
+                    if (ct != NULL) {
+                        send_signal(ct, SIGKILL_, SIGINFO_NIL);
+                        task_ref_cnt_mod(ct, -1);
+                    }
+                    killed = 1;
+                    result->timed_out = 1;
+                }
+                wait_ms = 200; // grace period to collect final output, then EOF
+            } else {
+                wait_ms = (int) remaining;
+            }
+        }
+        struct pollfd pfd = {.fd = read_fd, .events = POLLIN};
+        int pr = poll(&pfd, 1, wait_ms);
+        if (pr < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (pr == 0) {
+            if (killed)
+                break; // already SIGKILLed and gave it a grace period
+            continue;  // timeout tick; top of loop re-evaluates the deadline
+        }
+        if (!(pfd.revents & (POLLIN | POLLHUP | POLLERR)))
+            continue;
+        if (cap - len < 2) { // keep at least one spare byte for the trailing NUL
+            size_t newcap = cap < max_output ? cap * 2 : cap;
+            if (newcap > max_output + 1)
+                newcap = max_output + 1;
+            if (newcap <= cap) {
+                result->truncated = 1;
+                break;
+            }
+            char *grown = realloc(buf, newcap);
+            if (grown == NULL)
+                break;
+            buf = grown;
+            cap = newcap;
+        }
+        ssize_t n = read(read_fd, buf + len, cap - len - 1);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (n == 0) {
+            got_eof = 1;
+            break; // EOF: every write end is closed, the guest is done writing
+        }
+        len += (size_t) n;
+        if (len >= max_output) {
+            result->truncated = 1;
+            break;
+        }
+    }
+    close(read_fd);
+    if (buf != NULL) {
+        buf[len] = '\0'; // room reserved by the cap-len<2 growth guard above
+        result->output = buf;
+        result->output_len = len;
+    }
+
+    // If we stopped reading for any reason other than clean EOF (truncation,
+    // read error, timeout), the child may still be alive and could otherwise
+    // wedge the reap below forever (e.g. a command that ignores SIGPIPE), so make
+    // sure it dies. On clean EOF we leave it alone to preserve its real exit code.
+    if (!got_eof && !killed) {
+        struct task *ct = pid_get_task_ref(child_pid);
+        if (ct != NULL) {
+            send_signal(ct, SIGKILL_, SIGINFO_NIL);
+            task_ref_cnt_mod(ct, -1);
+        }
+    }
+
+    // Reap for the exit status, bounded so it can never hang the caller's thread:
+    // poll with WNOHANG, escalate to SIGKILL if the child lingers, and give up
+    // after a short grace. The captured output does not depend on this -- if the
+    // guest's real init wins the reap race we just lose the exit code, not output.
+    struct task *init = pid_get_task_ref(1);
+    if (init != NULL) {
+        current = init;
+        int status = 0;
+        int reaped = 0;
+        int escalated = 0;
+        struct timespec reap_start;
+        clock_gettime(CLOCK_MONOTONIC, &reap_start);
+        for (;;) {
+            reaped = wait_child_status(child_pid, &status, true /*nonblock*/);
+            if (reaped != 0)
+                break; // reaped > 0: collected; < 0: ECHILD/error (already gone)
+            long waited = ish_monotonic_ms_since(&reap_start);
+            if (!escalated && waited > 200) {
+                struct task *ct = pid_get_task_ref(child_pid);
+                if (ct != NULL) {
+                    send_signal(ct, SIGKILL_, SIGINFO_NIL);
+                    task_ref_cnt_mod(ct, -1);
+                }
+                escalated = 1;
+            }
+            if (waited > 3000)
+                break; // give up; output is still valid, exit code stays unknown
+            nanosleep(&(struct timespec){.tv_nsec = 5 * 1000 * 1000}, NULL);
+        }
+        current = saved;
+        task_ref_cnt_mod(init, -1);
+        if (reaped > 0) {
+            if ((status & 0x7f) == 0) {
+                result->exited = 1;
+                result->exit_code = (status >> 8) & 0xff;
+            } else {
+                result->term_signal = status & 0x7f;
+            }
+        }
     }
     return 0;
 }

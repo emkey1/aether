@@ -53,6 +53,7 @@ noreturn void do_exit_group(int status);
 dword_t sys_exit_group(dword_t status);
 dword_t sys_wait4(pid_t_ pid, addr_t status_addr, dword_t options, addr_t rusage_addr);
 dword_t sys_wait4_guest(pid_t_ pid, guest_addr_t status_addr, dword_t options, guest_addr_t rusage_addr);
+int wait_child_status(pid_t_ pid, int *status_out, bool nonblock);
 dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options);
 dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t options);
 dword_t sys_waitpid(pid_t_ pid, addr_t status_addr, dword_t options);

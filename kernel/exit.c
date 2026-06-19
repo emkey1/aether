@@ -818,6 +818,23 @@ dword_t sys_wait4_guest(pid_t_ id, guest_addr_t status_addr, dword_t options, gu
     return info.child.pid;
 }
 
+// Host-side reap of a single child by pid, returning the raw wait(2) status word
+// through status_out (no guest memory involved). Used by
+// run_guest_command_capture() so the app can run a one-shot guest command and
+// learn its exit code. Waits for the specific pid only, so it never reaps a
+// child some other waiter (e.g. real init) is expecting. With nonblock set, uses
+// WNOHANG and returns 0 immediately when the child has not exited yet.
+int wait_child_status(pid_t_ pid, int *status_out, bool nonblock) {
+    struct siginfo_ info = {.child.pid = 0};
+    struct rusage_ rusage;
+    int res = do_wait(P_PID_, pid, &info, &rusage, WEXITED_ | (nonblock ? WNOHANG_ : 0));
+    if (res < 0)
+        return res;
+    if (status_out != NULL)
+        *status_out = info.child.status;
+    return info.child.pid; // 0 when WNOHANG and the child is still running
+}
+
 dword_t sys_waitpid(pid_t_ pid, addr_t status_addr, dword_t options) {
     return sys_wait4(pid, status_addr, options, 0);
 }

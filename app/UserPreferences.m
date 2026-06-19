@@ -35,6 +35,7 @@ static NSString *const kPreferenceLLMProviderKey = @"LLM Provider";
 static NSString *const kPreferenceLLMServerURLKey = @"LLM Server URL";
 static NSString *const kPreferenceLLMModelKey = @"LLM Model";
 static NSString *const kPreferenceLLMAPIKeyKey = @"LLM API Key";
+static NSString *const kPreferenceLLMToolsEnabledKey = @"LLM Tools Enabled";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -182,6 +183,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMServerURLKey: @"https://openrouter.ai/api/v1",
             kPreferenceLLMModelKey: @"openrouter/free",
             kPreferenceLLMAPIKeyKey: @"",
+            kPreferenceLLMToolsEnabledKey: @(NO),
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -230,6 +232,7 @@ bool (*remove_user_default)(const char *name);
             @"llm_server_url": kPreferenceLLMServerURLKey,
             @"llm_model": kPreferenceLLMModelKey,
             @"llm_api_key": kPreferenceLLMAPIKeyKey,
+            @"llm_tools_enabled": kPreferenceLLMToolsEnabledKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"cursor_style": kPreferenceCursorStyleKey,
@@ -262,6 +265,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMServerURLKey: property(llmServerURL),
             kPreferenceLLMModelKey: property(llmModel),
             kPreferenceLLMAPIKeyKey: property(llmAPIKey),
+            kPreferenceLLMToolsEnabledKey: property(llmToolsEnabled),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceCursorStyleKey: property(cursorStyle),
@@ -547,6 +551,19 @@ bool (*remove_user_default)(const char *name);
 
 - (BOOL)validateLlmAPIKey:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSString.class];
+}
+
+// MARK: llmToolsEnabled
+- (BOOL)llmToolsEnabled {
+    return [_defaults boolForKey:kPreferenceLLMToolsEnabledKey];
+}
+
+- (void)setLlmToolsEnabled:(BOOL)llmToolsEnabled {
+    [_defaults setBool:llmToolsEnabled forKey:kPreferenceLLMToolsEnabledKey];
+}
+
+- (BOOL)validateLlmToolsEnabled:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
 }
 
 // MARK: ShouldEnablemulticore

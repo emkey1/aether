@@ -21,6 +21,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "kernel/init.h" // run_guest_command_capture (guest-shell tool)
 
 NSString *const kPreferenceOpenDiagnosticsOnLaunchKey = @"openDiagnosticsOnLaunch";
 
@@ -783,6 +784,132 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     return YES;
 }
 
+// MARK: - Guest-shell tool support (OpenAI-compatible function calling)
+
+// The single tool exposed to the model: run a command in the iSH Linux shell and
+// return its combined stdout+stderr. This makes "web search" just `curl`/`wget`
+// in the environment iSH already is, with no extra API key.
+static NSArray<NSDictionary<NSString *, id> *> *ISHLLMChatToolDefinitions(void) {
+    return @[@{
+        @"type": @"function",
+        @"function": @{
+            @"name": @"run_shell",
+            @"description": @"Run a command in the local iSH Linux shell (/bin/sh -c) and return its combined stdout and stderr. Use this to search the web with curl or wget, fetch URLs, read files, or run any Linux command available in this environment. Output is capped at 64 KB and the command is killed after 30 seconds.",
+            @"parameters": @{
+                @"type": @"object",
+                @"properties": @{
+                    @"command": @{
+                        @"type": @"string",
+                        @"description": @"The shell command line to execute, e.g. curl -fsSL 'https://duckduckgo.com/html/?q=current+weather'",
+                    },
+                },
+                @"required": @[@"command"],
+            },
+        },
+    }];
+}
+
+static NSString *ISHLLMToolCallID(NSDictionary *toolCall) {
+    return [toolCall[@"id"] isKindOfClass:NSString.class] ? toolCall[@"id"] : nil;
+}
+
+static NSString *ISHLLMToolCallName(NSDictionary *toolCall) {
+    NSDictionary *function = [toolCall[@"function"] isKindOfClass:NSDictionary.class] ? toolCall[@"function"] : nil;
+    return [function[@"name"] isKindOfClass:NSString.class] ? function[@"name"] : nil;
+}
+
+// The OpenAI tool-call "arguments" field is a JSON *string*; pull the command out.
+static NSString *ISHLLMToolCallCommand(NSDictionary *toolCall) {
+    NSDictionary *function = [toolCall[@"function"] isKindOfClass:NSDictionary.class] ? toolCall[@"function"] : nil;
+    NSString *arguments = [function[@"arguments"] isKindOfClass:NSString.class] ? function[@"arguments"] : nil;
+    if (arguments.length == 0)
+        return nil;
+    NSData *data = [arguments dataUsingEncoding:NSUTF8StringEncoding];
+    id json = data != nil ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![json isKindOfClass:NSDictionary.class])
+        return nil;
+    NSString *command = [json[@"command"] isKindOfClass:NSString.class] ? json[@"command"] : nil;
+    if (command.length == 0)
+        command = [json[@"cmd"] isKindOfClass:NSString.class] ? json[@"cmd"] : nil;
+    return command.length > 0 ? command : nil;
+}
+
+// Pick out the well-formed tool calls (those with an id) from a response message.
+static NSArray<NSDictionary *> *ISHLLMValidToolCalls(NSDictionary *message) {
+    NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+    NSMutableArray<NSDictionary *> *valid = [NSMutableArray array];
+    for (id toolCall in toolCalls) {
+        if ([toolCall isKindOfClass:NSDictionary.class] && ISHLLMToolCallID(toolCall).length > 0)
+            [valid addObject:toolCall];
+    }
+    return valid;
+}
+
+// Synchronous chat POST that works for both http (ATS-blocked, so hand-rolled
+// socket) and https (NSURLSession). Blocks; call from a background queue.
+static NSData *ISHLLMSynchronousChatPost(NSURL *url, NSData *body, NSString *apiKey,
+                                         NSInteger *statusCodeOut, NSError **errorOut) {
+    if ([url.scheme.lowercaseString isEqualToString:@"http"])
+        return ISHLLMDirectHTTPPost(url, body, apiKey, statusCodeOut, errorOut);
+
+    __block NSData *resultData = nil;
+    __block NSInteger statusCode = 0;
+    __block NSError *resultError = nil;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    if (apiKey.length > 0)
+        [request setValue:[@"Bearer " stringByAppendingString:apiKey] forHTTPHeaderField:@"Authorization"];
+    request.HTTPBody = body;
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        resultData = data;
+        resultError = error;
+        if ([response isKindOfClass:NSHTTPURLResponse.class])
+            statusCode = ((NSHTTPURLResponse *) response).statusCode;
+        dispatch_semaphore_signal(semaphore);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+    if (statusCodeOut != NULL)
+        *statusCodeOut = statusCode;
+    if (errorOut != NULL)
+        *errorOut = resultError;
+    return resultData;
+}
+
+// Run one command in the guest and format stdout+stderr plus a status note for
+// feeding back to the model. Blocks; call from a background queue (the primitive
+// repoints the kernel's `current`, so it must not run on a guest task thread).
+static NSString *ISHLLMRunGuestShellCommand(NSString *command) {
+    struct guest_command_result result;
+    int rc = run_guest_command_capture(command.UTF8String, NULL, 30000, 64 * 1024, &result);
+    if (rc < 0)
+        return [NSString stringWithFormat:@"Could not start the command (error %d). Is the guest system booted?", rc];
+
+    NSString *captured = @"";
+    if (result.output != NULL && result.output_len > 0)
+        captured = [[NSString alloc] initWithBytes:result.output length:result.output_len encoding:NSUTF8StringEncoding] ?: @"";
+    NSMutableArray<NSString *> *notes = [NSMutableArray array];
+    if (result.timed_out)
+        [notes addObject:@"timed out after 30s"];
+    if (result.truncated)
+        [notes addObject:@"output truncated to 64 KB"];
+    if (result.exited)
+        [notes addObject:[NSString stringWithFormat:@"exit code %d", result.exit_code]];
+    else if (result.term_signal)
+        [notes addObject:[NSString stringWithFormat:@"killed by signal %d", result.term_signal]];
+    free(result.output);
+
+    NSMutableString *out = [NSMutableString stringWithString:captured.length > 0 ? captured : @"(no output)"];
+    if (notes.count > 0) {
+        if (![out hasSuffix:@"\n"])
+            [out appendString:@"\n"];
+        [out appendFormat:@"[%@]", [notes componentsJoinedByString:@", "]];
+    }
+    return out;
+}
+
 @implementation LLMClientViewController {
     UIStackView *_toolbarStackView;
     UITextView *_transcriptView;
@@ -1103,14 +1230,30 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     return NO;
 }
 
-- (NSArray<NSDictionary<NSString *, NSString *> *> *)providerMessages {
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *messages = [NSMutableArray array];
+- (NSArray<NSDictionary<NSString *, id> *> *)providerMessages {
+    NSMutableArray<NSDictionary<NSString *, id> *> *messages = [NSMutableArray array];
     for (NSDictionary<NSString *, id> *message in _messages) {
         if ([self messageIsLocalOnly:message])
             continue;
         NSString *role = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : nil;
-        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : nil;
-        if (role.length > 0 && content.length > 0)
+        if (role.length == 0)
+            continue;
+        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+        // A tool result: the model needs the matching tool_call_id to thread it.
+        if ([role isEqualToString:@"tool"]) {
+            NSString *toolCallID = [message[@"tool_call_id"] isKindOfClass:NSString.class] ? message[@"tool_call_id"] : nil;
+            if (toolCallID.length > 0)
+                [messages addObject:@{@"role": @"tool", @"tool_call_id": toolCallID, @"content": content}];
+            continue;
+        }
+        // An assistant turn that requested tools: keep tool_calls; content may be
+        // empty, which is valid alongside tool_calls and must not be dropped.
+        NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+        if (toolCalls.count > 0) {
+            [messages addObject:@{@"role": role, @"content": content, @"tool_calls": toolCalls}];
+            continue;
+        }
+        if (content.length > 0)
             [messages addObject:@{@"role": role, @"content": content}];
     }
     return messages;
@@ -1127,9 +1270,25 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     NSMutableString *text = [NSMutableString string];
     for (NSDictionary<NSString *, id> *message in _messages) {
         NSString *messageRole = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
-        NSString *role = [messageRole isEqualToString:@"assistant"] ? @"Assistant" : @"You";
         NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
-        [text appendFormat:@"%@: %@\n\n", role, content];
+        if ([messageRole isEqualToString:@"tool"]) {
+            NSString *name = [message[@"name"] isKindOfClass:NSString.class] ? message[@"name"] : @"shell";
+            [text appendFormat:@"Tool (%@):\n%@\n\n", name, content];
+            continue;
+        }
+        NSString *role = [messageRole isEqualToString:@"assistant"] ? @"Assistant" : @"You";
+        if (content.length > 0)
+            [text appendFormat:@"%@: %@\n\n", role, content];
+        // Show the command(s) an assistant turn asked to run, so the tool activity
+        // is visible in the transcript even when the turn has no prose content.
+        NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+        for (NSDictionary *toolCall in toolCalls) {
+            if (![toolCall isKindOfClass:NSDictionary.class])
+                continue;
+            NSString *command = ISHLLMToolCallCommand(toolCall);
+            if (command.length > 0)
+                [text appendFormat:@"Assistant → run_shell:\n$ %@\n\n", command];
+        }
     }
     if (text.length == 0) {
         [text appendFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nServer: %@\nModel: %@\n",
@@ -1422,6 +1581,13 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     [self appendRole:@"user" content:prompt];
     [self setSending:YES];
 
+    // Guest-shell tool use (OpenAI-compatible only): runs a non-streaming
+    // function-calling loop so the model can run commands in the iSH shell.
+    if (!ISHLLMUsesGeminiAPI() && UserPreferences.shared.llmToolsEnabled) {
+        [self runToolLoopRound:0 model:model apiKey:apiKey];
+        return;
+    }
+
     if (ISHLLMUsesGeminiAPI()) {
         NSURL *geminiURL = [NSURL URLWithString:ISHLLMGeminiGenerateEndpoint()];
         if (geminiURL == nil) {
@@ -1430,9 +1596,9 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
             return;
         }
         NSMutableArray<NSDictionary<NSString *, id> *> *contents = [NSMutableArray array];
-        for (NSDictionary<NSString *, NSString *> *message in [self providerMessages]) {
+        for (NSDictionary<NSString *, id> *message in [self providerMessages]) {
             NSString *role = [message[@"role"] isEqualToString:@"assistant"] ? @"model" : @"user";
-            NSString *content = message[@"content"] ?: @"";
+            NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
             if (content.length > 0)
                 [contents addObject:@{@"role": role, @"parts": @[@{@"text": content}]}];
         }
@@ -1546,6 +1712,162 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     return YES;
 }
 
+// MARK: - Guest-shell tool loop
+//
+// One "round" = one non-streaming chat request that advertises the run_shell
+// tool. If the model answers with tool calls we run each command in the guest,
+// append the results as `tool` messages, and start another round; otherwise the
+// round's content is the final answer. Bounded by kISHLLMMaxToolRounds.
+
+static const NSInteger kISHLLMMaxToolRounds = 6;
+
+- (void)runToolLoopRound:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    NSURL *url = [NSURL URLWithString:ISHLLMChatEndpoint()];
+    if (url == nil) {
+        [self appendRole:@"assistant" content:@"Invalid LLM server URL."];
+        [self setSending:NO];
+        return;
+    }
+    if (round >= kISHLLMMaxToolRounds) {
+        [self appendRole:@"assistant" content:@"Stopped after too many tool calls in a row. Send another message to continue."];
+        [self setSending:NO];
+        [self saveTranscript];
+        return;
+    }
+
+    NSDictionary *body = @{
+        @"model": model,
+        @"messages": [self providerMessages],
+        @"stream": @NO,
+        @"tools": ISHLLMChatToolDefinitions(),
+        @"stop": @[@"<file_sep>"],
+    };
+    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    if (bodyData == nil) {
+        [self appendRole:@"assistant" content:@"Could not encode the request."];
+        [self setSending:NO];
+        return;
+    }
+
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSInteger statusCode = 0;
+        NSError *error = nil;
+        NSData *data = ISHLLMSynchronousChatPost(url, bodyData, apiKey, &statusCode, &error);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) self = weakSelf;
+            if (self == nil)
+                return;
+            [self handleToolRoundData:data statusCode:statusCode error:error round:round model:model apiKey:apiKey];
+        });
+    });
+}
+
+- (void)handleToolRoundData:(NSData *)data statusCode:(NSInteger)statusCode error:(NSError *)error round:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    if (error != nil) {
+        [self appendRole:@"assistant" content:[NSString stringWithFormat:@"Request failed: %@", error.localizedDescription]];
+        [self setSending:NO];
+        return;
+    }
+    id json = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSDictionary *dict = [json isKindOfClass:NSDictionary.class] ? json : nil;
+    NSArray *choices = [dict[@"choices"] isKindOfClass:NSArray.class] ? dict[@"choices"] : nil;
+    NSDictionary *choice = choices.count > 0 && [choices[0] isKindOfClass:NSDictionary.class] ? choices[0] : nil;
+    NSDictionary *message = [choice[@"message"] isKindOfClass:NSDictionary.class] ? choice[@"message"] : nil;
+    if (message == nil) {
+        NSString *errorMessage = [dict[@"error"] isKindOfClass:NSDictionary.class] && [dict[@"error"][@"message"] isKindOfClass:NSString.class]
+            ? dict[@"error"][@"message"] : nil;
+        if (errorMessage.length == 0) {
+            NSString *raw = data.length > 0 ? ([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"") : @"";
+            errorMessage = [NSString stringWithFormat:@"Unexpected response%@%@",
+                statusCode > 0 ? [NSString stringWithFormat:@" (%ld)", (long) statusCode] : @"",
+                raw.length > 0 ? [@": " stringByAppendingString:(raw.length > 400 ? [raw substringToIndex:400] : raw)] : @"."];
+        }
+        [self appendRole:@"assistant" content:errorMessage];
+        [self setSending:NO];
+        return;
+    }
+
+    NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+    NSArray<NSDictionary *> *toolCalls = ISHLLMValidToolCalls(message);
+    if (toolCalls.count == 0) {
+        NSString *finalText = ISHLLMSanitizedAssistantContent(content);
+        [self appendRole:@"assistant" content:finalText.length > 0 ? finalText : @"(The model returned an empty response.)"];
+        [self setSending:NO];
+        [self saveTranscript];
+        return;
+    }
+
+    // Record the assistant turn (provider needs it paired with the tool results),
+    // then execute each requested command.
+    [_messages addObject:@{
+        @"role": @"assistant",
+        @"content": ISHLLMSanitizedAssistantContent(content),
+        @"tool_calls": toolCalls,
+    }];
+    [self refreshTranscript];
+    [self saveTranscript];
+    [self runToolCalls:toolCalls index:0 round:round model:model apiKey:apiKey];
+}
+
+- (void)runToolCalls:(NSArray<NSDictionary *> *)toolCalls index:(NSUInteger)index round:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    if (index >= toolCalls.count) {
+        [self runToolLoopRound:round + 1 model:model apiKey:apiKey];
+        return;
+    }
+    NSDictionary *toolCall = toolCalls[index];
+    NSString *toolCallID = ISHLLMToolCallID(toolCall);
+    NSString *name = ISHLLMToolCallName(toolCall);
+    NSString *command = ISHLLMToolCallCommand(toolCall);
+
+    __weak typeof(self) weakSelf = self;
+    void (^recordResultAndContinue)(NSString *) = ^(NSString *resultText) {
+        typeof(self) self = weakSelf;
+        if (self == nil)
+            return;
+        [self->_messages addObject:@{
+            @"role": @"tool",
+            @"tool_call_id": toolCallID ?: @"",
+            @"name": name ?: @"run_shell",
+            @"content": resultText ?: @"",
+        }];
+        [self refreshTranscript];
+        [self saveTranscript];
+        [self runToolCalls:toolCalls index:index + 1 round:round model:model apiKey:apiKey];
+    };
+
+    if (![name isEqualToString:@"run_shell"] || command.length == 0) {
+        recordResultAndContinue([NSString stringWithFormat:@"Tool '%@' is not supported or the command was empty. Only run_shell with a non-empty \"command\" is available.", name ?: @"(unnamed)"]);
+        return;
+    }
+
+    [self confirmRunCommand:command completion:^(BOOL run) {
+        if (!run) {
+            recordResultAndContinue(@"The user declined to run this command.");
+            return;
+        }
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSString *output = ISHLLMRunGuestShellCommand(command);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                recordResultAndContinue(output);
+            });
+        });
+    }];
+}
+
+- (void)confirmRunCommand:(NSString *)command completion:(void (^)(BOOL run))completion {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Run shell command?"
+        message:[NSString stringWithFormat:@"The model wants to run this in the iSH shell:\n\n%@", command]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Run" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        completion(YES);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Don't Run" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        completion(NO);
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 @end
 
 @implementation LLMSettingsViewController
@@ -1581,7 +1903,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     (void) tableView;
     if (section == 0)
         return 1;
-    return 7;
+    return 8;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -1590,7 +1912,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         return nil;
     if (ISHLLMUsesAppleFoundationModels())
         return @"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend. This build exposes the provider setting, but runtime calls require building with an SDK that includes FoundationModels.framework. Chat history is saved in /AOK/persist/llm-chat.json.";
-    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nChat history is saved in /AOK/persist/llm-chat.json.";
+    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -1626,10 +1948,14 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         cell.textLabel.text = @"Query Models";
         cell.detailTextLabel.text = @"/models";
         cell.accessoryType = UITableViewCellAccessoryNone;
-    } else {
+    } else if (indexPath.row == 6) {
         cell.textLabel.text = @"Test Connection";
         cell.detailTextLabel.text = @"";
         cell.accessoryType = UITableViewCellAccessoryNone;
+    } else {
+        cell.textLabel.text = @"Shell Tools";
+        cell.detailTextLabel.text = UserPreferences.shared.llmToolsEnabled ? @"On" : @"Off";
+        cell.accessoryType = UserPreferences.shared.llmToolsEnabled ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     }
     return cell;
 }
@@ -1641,7 +1967,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         return;
     }
     if (indexPath.row == 0) {
-        [self showProviderPicker];
+        [self showProviderPickerFromView:[tableView cellForRowAtIndexPath:indexPath]];
         return;
     }
     if (indexPath.row == 3)
@@ -1649,11 +1975,15 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     if (ISHLLMUsesAppleFoundationModels() && (indexPath.row == 1 || indexPath.row == 4))
         return;
     if (indexPath.row == 5) {
-        [self queryAvailableModels];
+        [self queryAvailableModelsFromView:[tableView cellForRowAtIndexPath:indexPath]];
         return;
     }
     if (indexPath.row == 6) {
         [self testConnection];
+        return;
+    }
+    if (indexPath.row == 7) {
+        [self toggleShellToolsFromView:[tableView cellForRowAtIndexPath:indexPath]];
         return;
     }
     NSString *title = indexPath.row == 1 ? @"Server URL" : (indexPath.row == 2 ? @"Model" : @"API Key");
@@ -1682,7 +2012,25 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)showProviderPicker {
+- (void)toggleShellToolsFromView:(UIView *)sourceView {
+    (void) sourceView;
+    if (UserPreferences.shared.llmToolsEnabled) {
+        UserPreferences.shared.llmToolsEnabled = NO;
+        [self.tableView reloadData];
+        return;
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Enable shell tools?"
+        message:@"The model will be able to request shell commands that run in the iSH Linux environment — for web search via curl/wget, reading files, or running programs. You confirm each command before it runs, output is capped at 64 KB, and commands are killed after 30 seconds. Only enable this with a model and server you trust."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Enable" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        UserPreferences.shared.llmToolsEnabled = YES;
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showProviderPickerFromView:(UIView *)sourceView {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"LLM Provider"
                                                                    message:@"Choose a provider preset. Custom values can still be edited afterward."
                                                             preferredStyle:UIAlertControllerStyleActionSheet];

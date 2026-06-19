@@ -63,6 +63,7 @@ extern NSString *const kThemeBackgroundColor;
 @property (nonatomic) NSString *llmServerURL;
 @property (nonatomic) NSString *llmModel;
 @property (nonatomic) NSString *llmAPIKey;
+@property BOOL llmToolsEnabled;
 @property (null_resettable) NSString *fontFamily;
 @property (readonly) NSString *fontFamilyUserFacingName;
 @property (readonly) UIFont *approximateFont;

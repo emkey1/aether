@@ -183,5 +183,25 @@ int main(int argc, char *const argv[]) {
     }
 
     setup_host_mounts();
+
+    // Dev harness for the LLM-Chat guest-shell tool primitive. With
+    // ISH_TEST_GUEST_CMD set, run that command in the guest via
+    // run_guest_command_capture(), print the captured result, and exit -- a way
+    // to validate the primitive against a local fakefs without the iOS app.
+    // e.g. ISH_TEST_GUEST_CMD='echo out; echo err >&2; exit 7' ./ish -f alpinex86 /bin/sh
+    const char *test_cmd = getenv("ISH_TEST_GUEST_CMD");
+    if (test_cmd != NULL) {
+        struct guest_command_result r;
+        int rc = run_guest_command_capture(test_cmd, NULL, 10000, 0, &r);
+        fprintf(stderr,
+                "[guest-cmd] rc=%d launched=%d exited=%d code=%d sig=%d timed_out=%d truncated=%d len=%zu\n",
+                rc, r.launched, r.exited, r.exit_code, r.term_signal,
+                r.timed_out, r.truncated, r.output_len);
+        fprintf(stderr, "[guest-cmd] ---output---\n%s\n[guest-cmd] ---end---\n",
+                r.output != NULL ? r.output : "(null)");
+        free(r.output);
+        _exit(0);
+    }
+
     task_run_current();
 }
