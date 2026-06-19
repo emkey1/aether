@@ -9,9 +9,9 @@ fn main() -> Void {
 
     fx {
         if sum > 5 {
-            writeln("running sum = ", sum);
+            println("running sum = ", sum);
         } else {
-            writeln("unexpected sum");
+            println("unexpected sum");
         }
     }
 

@@ -484,7 +484,13 @@ Core safe `Text` surface for generated code:
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
 if status == "ready" { ... }           // canonical; string_eq(a,b) accepted
 let s: Text = "ab" + "cd";             // concatenation of Text operands
+let label: Text = int_to_text(count);  // Int -> Text (canonical surface for IntToStr)
 ```
+
+`int_to_text(n)` is the canonical Int-to-`Text` conversion (it lowers to the
+backend `IntToStr`). Reach for it when you need a `Text` *value* — for
+concatenation, a field, or a return — not merely to print a number
+(`println(n)` already prints an `Int` directly).
 
 Do not invent richer string helpers. If the prompt explicitly depends on
 additional text builtins, use `builtin_info(...)` or prompt-supplied

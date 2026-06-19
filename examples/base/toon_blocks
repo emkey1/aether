@@ -5,8 +5,8 @@ fn main() -> Void {
         2,Bob,user
 
     fx {
-        writeln("official TOON payload:");
-        writeln(payload);
+        println("official TOON payload:");
+        println(payload);
     }
     ret;
 }

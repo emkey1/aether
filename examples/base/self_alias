@@ -15,8 +15,8 @@ fn main() -> Void {
     let point: Point = Point { x: 20, y: 22 };
 
     fx {
-        writeln("point sum = ", point.sum());
-        writeln("shifted = ", point.shifted(1, -1));
+        println("point sum = ", point.sum());
+        println("shifted = ", point.shifted(1, -1));
     }
     ret;
 }

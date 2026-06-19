@@ -1,7 +1,7 @@
 fn main() -> Void {
     if !has_toon() {
         fx {
-            writeln("yyjson unavailable");
+            println("yyjson unavailable");
         }
         ret;
     }
@@ -13,9 +13,9 @@ fn main() -> Void {
     let name: ToonNode = toon_key(first, "name");
 
     fx {
-        writeln("items = ", toon_len(items));
-        writeln("first = ", toon_text_value(name));
-        writeln("count = ", toon_int_value(toon_key(root, "count")));
+        println("items = ", toon_len(items));
+        println("first = ", toon_text_value(name));
+        println("count = ", toon_int_value(toon_key(root, "count")));
     }
 
     toon_free(name);

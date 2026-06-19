@@ -1,7 +1,7 @@
 fn main() -> Void {
     if !has_toon() {
         fx {
-            writeln("yyjson unavailable");
+            println("yyjson unavailable");
         }
         ret;
     }

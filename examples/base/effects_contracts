@@ -11,7 +11,7 @@ fn clampToHundred(value: Int) -> Int {
 fn reportScore(value: Int) -> Void {
     let safe: Int = clampToHundred(value);
     fx {
-        writeln("score = ", safe);
+        println("score = ", safe);
     }
     ret;
 }

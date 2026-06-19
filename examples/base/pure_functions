@@ -11,7 +11,7 @@ fn answerSeed() -> Int {
 fn main() -> Void {
     let answer: Int = answerSeed();
     fx {
-        writeln("answer = ", answer);
+        println("answer = ", answer);
     }
     ret;
 }

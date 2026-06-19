@@ -1,13 +1,13 @@
 fn workerA() -> Void {
     fx {
-        writeln("worker A");
+        println("worker A");
     }
     ret;
 }
 
 fn workerB() -> Void {
     fx {
-        writeln("worker B");
+        println("worker B");
     }
     ret;
 }
