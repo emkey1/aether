@@ -4,6 +4,7 @@
 #include <stdatomic.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <sched.h>
 #include "emu/mmu.h"
 #include "util/list.h"
 #include "util/sync.h"
@@ -16,6 +17,12 @@ struct pt_directory_chunk;
 
 struct mem {
     _Atomic(struct pt_directory_chunk *) *pgdir_root;
+    // Set-only bitmap (one bit per pgdir_root entry) of which roots have a
+    // chunk. Page-table chunks are never freed until mem_destroy, so this only
+    // ever gains bits. mem_next_allocated_leaf_base() bit-scans it to skip empty
+    // roots in bulk instead of linearly probing the (32 KiB) pgdir_root array --
+    // the dominant pt_find_hole cost on a large/sparse amd64 address space.
+    _Atomic uint64_t *pgdir_root_bitmap;
     page_t page_limit;
     page_t mmap_floor;
     page_t mmap_ceiling;
@@ -31,19 +38,43 @@ struct mem {
     } reference;
 
     wrlock_t lock;
+    // Serializes every structural page-table mutation (map/unmap/protect/COW).
+    // Evicting writers hold this *and* take `lock` in write mode + poke siblings.
+    // The growth-mmap fast path holds ONLY this: adding never-mapped pages needs
+    // no reader eviction (no stale TLB entry) and no rwlock (entry publication is
+    // atomic), just mutual exclusion against a concurrent unmap freeing chunks.
+    pthread_mutex_t pt_alloc_lock;
 };
+
+extern _Atomic long quiesce_reader_naps;
+
+// Wait out a writer holding the mem-quiesce barrier. sched_yield() for the first
+// burst hands the CPU straight to the writer so the barrier (a brief page-table
+// edit) clears in microseconds instead of waiting out nanosleep's ~13us floor;
+// only a long hold (e.g. fork COW of a big address space) falls through to
+// nanosleep so it can't hot-spin a core. `spins` is threaded across both the
+// inner and outer waits of a single acquire.
+static inline void mem_quiesce_backoff(int *spins) {
+    if ((*spins)++ < 256) {
+        sched_yield();
+    } else {
+        atomic_fetch_add_explicit(&quiesce_reader_naps, 1, memory_order_relaxed);
+        nanosleep(&lock_pause, NULL);
+    }
+}
 
 static inline void mem_read_lock_quiesce_aware(struct mem *mem) {
     if (mem == NULL)
         return;
+    int spins = 0;
     while (true) {
         while (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0)
-            nanosleep(&lock_pause, NULL);
+            mem_quiesce_backoff(&spins);
         read_lock(&mem->lock);
         if (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) == 0)
             return;
         read_unlock(&mem->lock);
-        nanosleep(&lock_pause, NULL);
+        mem_quiesce_backoff(&spins);
     }
 }
 

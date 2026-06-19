@@ -32,7 +32,7 @@ void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type);
 void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr);
 
 forceinline __no_instrument void *__tlb_read_ptr(struct tlb *tlb, guest_addr_t addr) {
-    if (unlikely(tlb->mem_changes != tlb->mmu->changes))
+    if (unlikely(tlb->mem_changes != atomic_load_explicit(&tlb->mmu->changes, memory_order_relaxed)))
         tlb_flush(tlb);
     struct tlb_entry entry = tlb->entries[TLB_INDEX(addr)];
     if (entry.page == TLB_PAGE(addr)) {
@@ -54,7 +54,7 @@ forceinline __no_instrument bool tlb_read(struct tlb *tlb, guest_addr_t addr, vo
 }
 
 forceinline __no_instrument void *__tlb_write_ptr(struct tlb *tlb, guest_addr_t addr) {
-    if (unlikely(tlb->mem_changes != tlb->mmu->changes))
+    if (unlikely(tlb->mem_changes != atomic_load_explicit(&tlb->mmu->changes, memory_order_relaxed)))
         tlb_flush(tlb);
     struct tlb_entry *entry = &tlb->entries[TLB_INDEX(addr)];
     if (entry->page_if_writable == TLB_PAGE(addr)) {

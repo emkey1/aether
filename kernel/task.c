@@ -408,12 +408,21 @@ void run_at_boot(void) {  // Stuff we run only once, at boot time.
     //printk("Seconds since January 1, 1970 = %ld\n", boot_time);
 }
 
+extern _Atomic long quiesce_poke_calls;
+extern _Atomic long quiesce_poke_noop;
+extern _Atomic long quiesce_pokes_sent;
+extern _Atomic long quiesce_pokes_skipped;
+extern _Atomic long quiesce_reader_naps;
+
 void task_poke_shared_mem(struct task *task, struct mem *mem) {
     if (task == NULL || mem == NULL)
         return;
 
-    if (trylock(&pids_lock) != 0)
+    atomic_fetch_add_explicit(&quiesce_poke_calls, 1, memory_order_relaxed);
+    if (trylock(&pids_lock) != 0) {
+        atomic_fetch_add_explicit(&quiesce_poke_noop, 1, memory_order_relaxed);
         return;
+    }
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         struct task *other = pid_entry->task;
@@ -423,7 +432,20 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
             continue;
         if (other->zombie || other->exiting)
             continue;
+        // Only readers executing guest code hold the mem read lock and must be
+        // evicted. A sibling parked in a blocking syscall (io_block) holds no
+        // read lock, so poking it is pure waste -- the SIGUSR1 just bounces it
+        // out of poll/futex for nothing (the real git/daemon storm: most
+        // siblings sit in poll). Skip it. The race where it leaves io_block and
+        // enters JIT right after this check is covered by mem_write_lock_with_
+        // pokes re-poking every 64 attempts: by then io_block is clear and the
+        // trylockw it now blocks forces another poke round that catches it.
+        if (other->io_block) {
+            atomic_fetch_add_explicit(&quiesce_pokes_skipped, 1, memory_order_relaxed);
+            continue;
+        }
         pthread_kill(other->thread, SIGUSR1);
+        atomic_fetch_add_explicit(&quiesce_pokes_sent, 1, memory_order_relaxed);
         if (other->cpu.poked_ptr == NULL)
             continue;
         cpu_poke(&other->cpu);
@@ -433,9 +455,10 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
 
 static void task_wait_for_mem_quiesce(struct task *task) {
     struct mem *mem = task != NULL ? task->mem : NULL;
+    int spins = 0;
     while (mem != NULL &&
            atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0) {
-        nanosleep(&lock_pause, NULL);
+        mem_quiesce_backoff(&spins);
     }
 }
 

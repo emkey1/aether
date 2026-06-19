@@ -24,6 +24,34 @@ extern pthread_mutex_t multicore_lock;
 // Time to wait between non blocking lock attempts
 struct timespec lock_pause = {0 /*secs*/, WAIT_SLEEP /*nanosecs*/};
 
+// --- mem-quiesce barrier instrumentation (dumped at exit if ISH_QUIESCE_STATS) ---
+// Counts the stop-the-world barrier that every mmap/munmap/mprotect/brk/fork
+// triggers. Relaxed atomics: cheap, identical overhead on baseline and fixed
+// builds, so the A/B comparison stays honest.
+_Atomic long quiesce_barriers;     // mem_write_lock_with_pokes entries
+_Atomic long quiesce_writer_naps;  // writer-side nanosleep iterations
+_Atomic long quiesce_reader_naps;  // reader-side nanosleep iterations (both sites)
+_Atomic long quiesce_poke_calls;   // task_poke_shared_mem invocations
+_Atomic long quiesce_poke_noop;    // ...that did nothing (pids_lock trylock failed)
+_Atomic long quiesce_pokes_sent;   // SIGUSR1s actually delivered to siblings
+_Atomic long quiesce_pokes_skipped;// siblings skipped because parked in a syscall
+_Atomic long quiesce_growth_fast;  // pure-growth mmaps that skipped the barrier entirely
+
+void quiesce_stats_dump(const char *tag) {
+    fprintf(stderr,
+        "[quiesce %s] barriers=%ld growth_fast=%ld writer_naps=%ld reader_naps=%ld "
+        "poke_calls=%ld poke_noop=%ld pokes_sent=%ld pokes_skipped=%ld\n",
+        tag ? tag : "",
+        atomic_load_explicit(&quiesce_barriers, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_growth_fast, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_writer_naps, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_reader_naps, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_poke_calls, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_poke_noop, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_pokes_sent, memory_order_relaxed),
+        atomic_load_explicit(&quiesce_pokes_skipped, memory_order_relaxed));
+}
+
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
@@ -47,6 +75,11 @@ static _Atomic uint64_t next_mem_change_id = 1;
 
 struct pt_directory_chunk {
     _Atomic(struct pt_entry *) leaves[MEM_PGDIR_MID_SIZE];
+    // Set-only bitmap of which leaves[] slots are populated, scanned the same way
+    // as the root bitmap: the mid directory is the second sparse level (8192
+    // slots/chunk), and a high mapping (e.g. an amd64 PIE at mid ~5461) would
+    // otherwise make mem_next_allocated_leaf_base probe thousands of empty slots.
+    _Atomic uint64_t leaf_bitmap[MEM_PGDIR_MID_SIZE / 64];
 };
 
 static struct pt_directory_chunk *mem_pgdir_chunk_get(struct mem *mem, page_t page) {
@@ -63,7 +96,12 @@ static struct pt_directory_chunk *mem_pgdir_chunk_new(struct mem *mem, page_t pa
     chunk = calloc(1, sizeof(*chunk));
     if (chunk == NULL)
         return NULL;
-    atomic_store_explicit(&mem->pgdir_root[PGDIR_ROOT_INDEX(page)], chunk, memory_order_release);
+    page_t root = PGDIR_ROOT_INDEX(page);
+    atomic_store_explicit(&mem->pgdir_root[root], chunk, memory_order_release);
+    // Record the root in the scan bitmap (after publishing the chunk, so any
+    // observer that sees the bit and then loads the entry finds it non-NULL).
+    atomic_fetch_or_explicit(&mem->pgdir_root_bitmap[root / 64],
+            (uint64_t) 1 << (root % 64), memory_order_release);
     return chunk;
 }
 
@@ -87,7 +125,10 @@ static struct pt_entry *mem_pt_leaf_new(struct mem *mem, page_t page) {
     entries = calloc(MEM_PTDIR_SIZE, sizeof(*entries));
     if (entries == NULL)
         return NULL;
+    page_t mid = PGDIR_MID_INDEX(page);
     atomic_store_explicit(slot, entries, memory_order_release);
+    atomic_fetch_or_explicit(&chunk->leaf_bitmap[mid / 64],
+            (uint64_t) 1 << (mid % 64), memory_order_release);
     return entries;
 }
 
@@ -185,27 +226,62 @@ static int mem_ensure_host_writable(struct pt_entry *entry) {
     return mem_mirror_host_page_protection(entry, P_READ | P_WRITE);
 }
 
+// Lowest root index >= `from` whose pgdir_root entry has a chunk, read from the
+// set-only bitmap so empty roots are skipped 64 at a time (one word, branch on
+// zero) rather than probed one 8-byte pointer at a time across 32 KiB. Returns
+// MEM_PGDIR_ROOT_SIZE when there is none.
+static page_t mem_next_chunk_root(struct mem *mem, page_t from) {
+    if (from >= MEM_PGDIR_ROOT_SIZE)
+        return MEM_PGDIR_ROOT_SIZE;
+    page_t w = from / 64;
+    uint64_t bits = atomic_load_explicit(&mem->pgdir_root_bitmap[w], memory_order_acquire)
+            & ~(((uint64_t) 1 << (from % 64)) - 1); // ignore roots below `from`
+    while (bits == 0) {
+        if (++w >= MEM_PGDIR_ROOT_SIZE / 64)
+            return MEM_PGDIR_ROOT_SIZE;
+        bits = atomic_load_explicit(&mem->pgdir_root_bitmap[w], memory_order_acquire);
+    }
+    return w * 64 + (page_t) __builtin_ctzll(bits);
+}
+
+// Lowest mid index >= `from` whose leaves[] slot is populated, per the chunk's
+// leaf bitmap (same bulk-skip as mem_next_chunk_root). MEM_PGDIR_MID_SIZE if none.
+static page_t mem_next_leaf_mid(struct pt_directory_chunk *chunk, page_t from) {
+    if (from >= MEM_PGDIR_MID_SIZE)
+        return MEM_PGDIR_MID_SIZE;
+    page_t w = from / 64;
+    uint64_t bits = atomic_load_explicit(&chunk->leaf_bitmap[w], memory_order_acquire)
+            & ~(((uint64_t) 1 << (from % 64)) - 1);
+    while (bits == 0) {
+        if (++w >= MEM_PGDIR_MID_SIZE / 64)
+            return MEM_PGDIR_MID_SIZE;
+        bits = atomic_load_explicit(&chunk->leaf_bitmap[w], memory_order_acquire);
+    }
+    return w * 64 + (page_t) __builtin_ctzll(bits);
+}
+
 static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
     if (page >= mem->page_limit)
         return BAD_PAGE;
 
-    page_t root = PGDIR_ROOT_INDEX(page);
-    page_t mid = PGDIR_MID_INDEX(page);
-    for (; root < MEM_PGDIR_ROOT_SIZE; root++) {
-        // Nothing at or beyond page_limit is mapped, so stop rather than walk
-        // the (mostly empty) high directory. A 32-bit address space populates
-        // only root 0 and mid < 1024 of the 4096x8192 directory; without this
-        // bound the terminating scan after the last mapped page visits ~11000
-        // empty slots on every fork's copy-on-write pass.
+    // Jump straight to the next root that actually has a chunk. `mid` only keeps
+    // the page's offset when we land on the page's own root; any root we skip to
+    // is searched from its first leaf.
+    page_t want_root = PGDIR_ROOT_INDEX(page);
+    page_t root = mem_next_chunk_root(mem, want_root);
+    page_t mid = (root == want_root) ? PGDIR_MID_INDEX(page) : 0;
+    for (; root < MEM_PGDIR_ROOT_SIZE;
+            root = mem_next_chunk_root(mem, root + 1), mid = 0) {
+        // Nothing at or beyond page_limit is mapped (a 32-bit address space only
+        // populates root 0), so stop rather than walk the high directory.
         if (PGDIR_LEAF_BASE(root, 0) >= mem->page_limit)
             return BAD_PAGE;
         struct pt_directory_chunk *chunk =
             atomic_load_explicit(&mem->pgdir_root[root], memory_order_acquire);
-        if (chunk == NULL) {
-            mid = 0;
-            continue;
-        }
-        for (; mid < MEM_PGDIR_MID_SIZE; mid++) {
+        if (chunk == NULL)
+            continue; // bitmap bit set just ahead of the chunk store (proc/maps race)
+        for (mid = mem_next_leaf_mid(chunk, mid); mid < MEM_PGDIR_MID_SIZE;
+                mid = mem_next_leaf_mid(chunk, mid + 1)) {
             page_t base = PGDIR_LEAF_BASE(root, mid);
             if (base >= mem->page_limit)
                 return BAD_PAGE;
@@ -215,7 +291,6 @@ static page_t mem_next_allocated_leaf_base(struct mem *mem, page_t page) {
                 continue;
             return base;
         }
-        mid = 0;
     }
     return BAD_PAGE;
 }
@@ -262,6 +337,9 @@ void mem_init(struct mem *mem) {
     mem->pgdir_root = calloc(MEM_PGDIR_ROOT_SIZE, sizeof(*mem->pgdir_root));
     if (mem->pgdir_root == NULL)
         die("calloc pgdir_root failed");
+    mem->pgdir_root_bitmap = calloc(MEM_PGDIR_ROOT_SIZE / 64, sizeof(*mem->pgdir_root_bitmap));
+    if (mem->pgdir_root_bitmap == NULL)
+        die("calloc pgdir_root_bitmap failed");
     mem->page_limit = MEM_DEFAULT_PAGE_LIMIT;
     mem->mmap_floor = MEM_DEFAULT_MMAP_FLOOR;
     mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
@@ -273,8 +351,11 @@ void mem_init(struct mem *mem) {
 #endif
     // Seed each new address space with a unique change id so a per-thread TLB
     // flushes even if malloc reuses the same mmu address after exec/exit.
-    mem->mmu.changes = atomic_fetch_add_explicit(&next_mem_change_id, 1, memory_order_relaxed);
+    atomic_store_explicit(&mem->mmu.changes,
+            atomic_fetch_add_explicit(&next_mem_change_id, 1, memory_order_relaxed),
+            memory_order_relaxed);
     wrlock_init(&mem->lock);
+    pthread_mutex_init(&mem->pt_alloc_lock, NULL);
     strlcpy(mem->lock.lname, "mem", sizeof(mem->lock.lname));
     atomic_store_explicit(&mem->reference.count, 0, memory_order_relaxed);
     mem->reference.ready_to_be_freed = false;
@@ -301,8 +382,11 @@ void mem_destroy(struct mem *mem) {
     }
     free(mem->pgdir_root);
     mem->pgdir_root = NULL;
+    free(mem->pgdir_root_bitmap);
+    mem->pgdir_root_bitmap = NULL;
 
     write_unlock_and_destroy(&mem->lock);
+    pthread_mutex_destroy(&mem->pt_alloc_lock);
 }
 
 void mem_set_page_limit(struct mem *mem, page_t limit) {
@@ -649,7 +733,7 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
 }
 
 static void mem_changed(struct mem *mem) {
-    mem->mmu.changes++;
+    atomic_fetch_add_explicit(&mem->mmu.changes, 1, memory_order_relaxed);
 }
 
 // This version will return NULL instead of making necessary pagetable changes.

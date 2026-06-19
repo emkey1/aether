@@ -2,6 +2,7 @@
 #define EMU_CPU_MEM_H
 
 #include "misc.h"
+#include <stdatomic.h>
 
 // Guest page numbers are internal MM bookkeeping. Keep them wide enough for
 // future 64-bit address spaces even while guest-visible addr_t stays 32-bit.
@@ -22,7 +23,13 @@ typedef qword_t pages_t;
 struct mmu {
     struct mmu_ops *ops;
     struct jit *jit;
-    uint64_t changes;
+    // Bumped on every page-table change; each per-thread TLB compares its cached
+    // copy and flushes on mismatch. Atomic (relaxed) because the lock-free
+    // growth-mmap fast path bumps it without the write lock while readers
+    // concurrently load it in the TLB hot path. Relaxed is sufficient: ordering
+    // of the actual entry writes is provided by the rwlock (evicting writers) or
+    // by app-level synchronization when a freshly-mmap'd pointer is shared.
+    _Atomic uint64_t changes;
     bool requires_write_revalidate;
 };
 

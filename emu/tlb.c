@@ -4,17 +4,18 @@
 #include "kernel/task.h"
 
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
-    if (tlb->mmu == mmu && tlb->mem_changes == mmu->changes) {
+    if (tlb->mmu == mmu &&
+            tlb->mem_changes == atomic_load_explicit(&mmu->changes, memory_order_relaxed)) {
         return;
     }
     tlb->mmu = mmu;
     tlb->dirty_page = TLB_PAGE_EMPTY;
-    tlb->mem_changes = mmu->changes;
+    tlb->mem_changes = atomic_load_explicit(&mmu->changes, memory_order_relaxed);
     tlb_flush(tlb);
 }
 
 void tlb_flush(struct tlb *tlb) {
-    tlb->mem_changes = tlb->mmu->changes;
+    tlb->mem_changes = atomic_load_explicit(&tlb->mmu->changes, memory_order_relaxed);
     for (unsigned i = 0; i < TLB_SIZE; i++)
         tlb->entries[i] = (struct tlb_entry) {.page = 1, .page_if_writable = 1};
 }
@@ -57,7 +58,7 @@ bool __tlb_write_cross_page(struct tlb *tlb, guest_addr_t addr, const char *valu
 
 __no_instrument void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type) {
     char *ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
-    if (tlb->mmu->changes != tlb->mem_changes)
+    if (atomic_load_explicit(&tlb->mmu->changes, memory_order_relaxed) != tlb->mem_changes)
         tlb_flush(tlb);
     if (ptr == NULL) {
         tlb->segfault_addr = addr;

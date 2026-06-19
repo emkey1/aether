@@ -12,13 +12,60 @@
 extern bool doEnableExtraLocking;
 extern struct timespec lock_pause;
 
+extern _Atomic long quiesce_barriers;
+extern _Atomic long quiesce_writer_naps;
+
+// Structural-writer serialization, held as the outer lock by the full evicting
+// barrier below and by the growth fast path. It serializes growth-vs-growth and
+// growth-vs-(unmap/protect/COW barrier) without evicting readers.
+static void mem_struct_lock(struct mem *mem) {
+    pthread_mutex_lock(&mem->pt_alloc_lock);
+}
+static void mem_struct_unlock(struct mem *mem) {
+    pthread_mutex_unlock(&mem->pt_alloc_lock);
+}
+
+// Lock set for the pure-growth mmap fast path. pt_alloc_lock serializes against
+// other structural writers that take it (other growth mmaps, and the evicting
+// barrier used by unmap/mprotect/COW). The read lock additionally serializes
+// against mem_ptr_fault(), which mutates the page table under write_lock WITHOUT
+// taking pt_alloc_lock (stack-growth and COW faults) -- its write_lock excludes
+// our read_lock, so the two never mutate the structure concurrently. Crucially,
+// taking the *read* lock (not write) means we run concurrently with the sibling
+// reader threads instead of evicting them: that is the whole point of the fast
+// path. Growth only publishes new chunks/entries atomically and frees nothing,
+// so concurrent readers are safe.
+static void mem_growth_lock(struct mem *mem) {
+    pthread_mutex_lock(&mem->pt_alloc_lock);
+    read_lock(&mem->lock);
+}
+static void mem_growth_unlock(struct mem *mem) {
+    read_unlock(&mem->lock);
+    pthread_mutex_unlock(&mem->pt_alloc_lock);
+}
+
 static void mem_write_lock_with_pokes(struct mem *mem) {
+    mem_struct_lock(mem);
+    atomic_fetch_add_explicit(&quiesce_barriers, 1, memory_order_relaxed);
     atomic_fetch_add_explicit(&mem->quiesce_requested, 1, memory_order_acq_rel);
-    for (int attempts = 0; attempts < 64; attempts++) {
-        task_poke_shared_mem(current, mem);
+    // Once quiesce_requested is up, no new reader can enter (they wait in
+    // mem_*_quiesce_aware); we only need the readers already mid-block to drain.
+    // cpu_poke sets a sticky flag they check at the next block boundary, so a
+    // poke up front + periodic re-pokes (covering a sibling that raced in just
+    // before the bump) suffice -- no need to re-signal every spin. sched_yield()
+    // hands the core to those readers so they release in microseconds; only a
+    // stubborn hold falls through to nanosleep, then to a blocking write_lock.
+    for (int attempts = 0; attempts < 1024; attempts++) {
+        if ((attempts & 63) == 0)
+            task_poke_shared_mem(current, mem);
         if (trylockw(&mem->lock) == 0)
             return;
-        nanosleep(&lock_pause, NULL);
+        if (attempts < 256) {
+            sched_yield();
+        } else {
+            atomic_fetch_add_explicit(&quiesce_writer_naps, 1, memory_order_relaxed);
+            nanosleep(&lock_pause, NULL);
+        }
     }
 
     task_poke_shared_mem(current, mem);
@@ -28,6 +75,7 @@ static void mem_write_lock_with_pokes(struct mem *mem) {
 static void mem_write_unlock_with_pokes(struct mem *mem) {
     write_unlock(&mem->lock);
     atomic_fetch_sub_explicit(&mem->quiesce_requested, 1, memory_order_acq_rel);
+    mem_struct_unlock(mem);
 }
 
 static bool amd64_vm_failure_trace_enabled(void) {
@@ -186,6 +234,29 @@ static guest_addr_t do_mmap(guest_addr_t addr, qword_t len, dword_t prot, dword_
     return mapped_addr;
 }
 
+extern _Atomic long quiesce_growth_fast;
+
+static bool mmap_growth_fast_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *off = getenv("ISH_NO_MMAP_GROWTH_FAST");
+        enabled = (off != NULL && off[0] != '\0' && off[0] != '0') ? 0 : 1;
+    }
+    return enabled == 1;
+}
+
+// A pure-growth mmap only adds never-before-mapped pages. Anonymous (no fd
+// backing to wire up) and not MAP_FIXED* means do_mmap always lands on a hole --
+// a non-fixed hint that collides is relocated to a fresh hole, so the whole
+// target range is unmapped and do_mmap unmaps nothing. Adding hole pages needs
+// no reader eviction: those pages were never mapped, so no sibling holds a TLB
+// entry for them, and the page-table chunk/leaf publication is already atomic
+// (acquire/release). Only writer-vs-writer exclusion is required.
+static bool mmap_is_pure_growth(dword_t flags) {
+    return (flags & MMAP_ANONYMOUS) &&
+           !(flags & (MMAP_FIXED | MMAP_FIXED_NOREPLACE));
+}
+
 static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t prot, dword_t flags, fd_t fd_no, qword_t offset) {
     STRACE("mmap(%#llx, %#llx, 0x%x, 0x%x, %d, %#llx)",
            (unsigned long long) addr, (unsigned long long) len, prot, flags, fd_no,
@@ -199,6 +270,20 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
     // exactly one of MAP_PRIVATE / MAP_SHARED is required
     if (!(flags & (MMAP_PRIVATE | MMAP_SHARED)))
         return _EINVAL;
+
+    // Fast path: a pure-growth mmap (the musl mallocng hot path) skips the
+    // stop-the-world poke barrier entirely -- it serializes only against other
+    // structural writers and never evicts the running sibling threads.
+    if (mmap_growth_fast_enabled() && mmap_is_pure_growth(flags)) {
+        mem_growth_lock(current->mem);
+        guest_addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);
+        mem_growth_unlock(current->mem);
+        if ((sqword_t) res == _ENOMEM)
+            amd64_vm_failure_trace("mmap", res, addr, len, prot, flags, (qword_t) fd_no, offset);
+        else
+            atomic_fetch_add_explicit(&quiesce_growth_fast, 1, memory_order_relaxed);
+        return res;
+    }
 
     mem_write_lock_with_pokes(current->mem);
     guest_addr_t res = do_mmap(addr, len, prot, flags, fd_no, offset);

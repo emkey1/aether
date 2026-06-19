@@ -121,6 +121,10 @@ static char *build_envp_from_term(void) {
 // and lets the OS reclaim every lingering guest pthread cleanly instead of the
 // pthread_kill(SIGKILL) sweep that would otherwise kill us with signal 9.
 static noreturn void cli_halt(int status) {
+    if (getenv("ISH_QUIESCE_STATS") != NULL) {
+        extern void quiesce_stats_dump(const char *tag);
+        quiesce_stats_dump("exit");
+    }
     fflush(NULL);
     if ((status & 0x7f) == 0)          // WIFEXITED
         _exit((status >> 8) & 0xff);
