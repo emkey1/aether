@@ -3980,6 +3980,58 @@ amd64_gen_imm_cmp imm_cmp64, 8, 63
     amd64_write_low_or_mem x13, x9, x10
     gret 1
 
+# NOT (0xf7 /2) / NEG (0xf7 /3) reg, 32/64-bit, mod==3 -- the wider siblings of
+# amd64_byte_grp3 (the byte 0xf6 form). NOT = ~src (no flags); NEG = 0 - src with sub
+# flags matching the interp amd64_set_sub_flags(0, src, res): CF=(src!=0), OF=(src&res)
+# at the sign bit, ZF/SF/PF/AF via cached_set_addsub_flags (lhs=0, rhs=src). Cache-aware
+# (read/write_low_or_mem). 16-bit + memory operands keep bridging. packed: rm(0-3) |
+# is_neg(4). The 32-bit result is upper-zeroed (x86 32-bit ops clear bits 32-63).
+.macro amd64_gen_negnot name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    ubfx x11, x8, 0, 4               /* rm reg id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full reg */
+.if \vbytes == 8
+    mov  x13, x9                     /* src = full 64 */
+    tbnz x8, 4, .Lnn_neg_\name
+    mvn  x15, x13                    /* NOT: ~src */
+    b    .Lnn_write_\name
+.Lnn_neg_\name:
+    neg  x15, x13                    /* NEG: 0 - src */
+    mov  x10, x13                    /* rhs = src (for AF = 0^src^res bit4) */
+    subs xzr, xzr, x13               /* CF = (src != 0) */
+    cset w14, cc
+    and  x12, x13, x15               /* OF(sub,lhs=0) = (src & res) & sign */
+    tst  x12, (1 << 63)
+    cset w16, ne
+    mov  x13, 0                      /* lhs = 0 */
+    amd64_cached_set_addsub_flags 63
+.else
+    mov  w13, w9                     /* src = low 32 */
+    tbnz x8, 4, .Lnn_neg_\name
+    mvn  w15, w13                    /* NOT (w-op zero-extends x15) */
+    b    .Lnn_write_\name
+.Lnn_neg_\name:
+    neg  w15, w13                    /* NEG (w-op zero-extends x15) */
+    mov  w10, w13                    /* rhs = src */
+    subs wzr, wzr, w13               /* CF = (src != 0) */
+    cset w14, cc
+    and  w12, w13, w15               /* OF = (src & res) & sign */
+    tst  w12, 0x80000000
+    cset w16, ne
+    mov  x13, 0                      /* lhs = 0 */
+    amd64_cached_set_addsub_flags 31
+.endif
+.Lnn_write_\name:
+    /* write the full result: 64-bit = the value; 32-bit = upper already zeroed */
+    ubfx x13, x8, 0, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x15, x10
+    gret 1
+.endm
+amd64_gen_negnot negnot32, 4
+amd64_gen_negnot negnot64, 8
+
 # =====================================================================================
 # amd64 BYTE (8-bit) ALU on MEMORY operands (mod!=3) -- the other half of the cc1 byte
 # hot path. TEST byte [mem],imm8 (0xf6 /0) was the #2 byte bridge (testb $imm,mem); the

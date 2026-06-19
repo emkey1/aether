@@ -2160,6 +2160,30 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             gen_amd64_defer_rip(state, next_ip);
             return true;
         }
+        // Native 32/64-bit NOT (0xf7 /2) / NEG (0xf7 /3), mod==3 -- the wider siblings of
+        // byte_grp3. Bridged before (ending the JIT block). 16-bit + memory keep bridging.
+        if (insn.opcode == 0xf7 && !insn.fs_prefix &&
+                amd64_modrm_mod(insn.modrm) == 3 &&
+                (amd64_modrm_reg(insn.modrm) == 2 || amd64_modrm_reg(insn.modrm) == 3)) {
+            unsigned size = insn.rex.w ? 64 : (insn.operand_size_prefix ? 16 : 32);
+            if (size == 32 || size == 64) {
+                unsigned rm_id = amd64_modrm_rm(insn.modrm) | (insn.rex.b ? 8 : 0);
+                bool is_neg = amd64_modrm_reg(insn.modrm) == 3;
+                unsigned long packed = (unsigned long) rm_id |
+                    ((unsigned long) (is_neg ? 1 : 0) << 4);
+                amd64_jit_debug("grp3-negnot-direct ip=%llx neg=%u rm=%u size=%u next=%llx",
+                        (unsigned long long) insn.start_ip, is_neg, rm_id, size,
+                        (unsigned long long) next_ip);
+                extern void gadget_amd64_negnot32(void), gadget_amd64_negnot64(void);
+                gen_amd64_ensure_reg_cache(state);
+                gen(state, (unsigned long) (size == 64
+                            ? gadget_amd64_negnot64 : gadget_amd64_negnot32));
+                gen(state, packed);
+                gen_amd64_mark_reg_cache_dirty(state);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+        }
 #endif
         amd64_jit_debug("grp3-op-helper ip=%llx opcode=%02x modrm=%02x next=%llx",
                 (unsigned long long) insn.start_ip,
