@@ -406,6 +406,25 @@ static NSString *ISHLLMSanitizedAssistantContent(NSString *content) {
     return [content stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
+// Streaming-safe accumulator. Unlike ISHLLMSanitizedAssistantContent, this must
+// NOT trim trailing whitespace: it runs on the whole running message after every
+// streamed delta, so a token-boundary space that lands at the tail of the buffer
+// between two deltas (e.g. delta "Hello! " followed by "How") would be stripped,
+// gluing the next word on ("Hello!How", "helpyou"). We only cut at the <file_sep>
+// stop marker and trim *leading* whitespace, which is idempotent once real text
+// has arrived and never touches interior or trailing spaces. Call
+// ISHLLMSanitizedAssistantContent once at end-of-stream for the final cleanup.
+static NSString *ISHLLMStreamingAssistantContent(NSString *content) {
+    NSRange fileSeparator = [content rangeOfString:@"<file_sep>"];
+    if (fileSeparator.location != NSNotFound)
+        content = [content substringToIndex:fileSeparator.location];
+    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSUInteger start = 0;
+    while (start < content.length && [whitespace characterIsMember:[content characterAtIndex:start]])
+        start++;
+    return start > 0 ? [content substringFromIndex:start] : content;
+}
+
 static NSData *ISHLLMDirectHTTPPost(NSURL *url, NSData *body, NSString *apiKey, NSInteger *statusCodeOut, NSError **errorOut) {
     NSString *host = url.host;
     if (host.length == 0) {
@@ -1191,8 +1210,22 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
     if (index >= _messages.count || chunk.length == 0)
         return;
     NSMutableDictionary<NSString *, NSString *> *message = [_messages[index] mutableCopy];
-    NSString *content = ISHLLMSanitizedAssistantContent([message[@"content"] ?: @"" stringByAppendingString:chunk]);
+    NSString *content = ISHLLMStreamingAssistantContent([message[@"content"] ?: @"" stringByAppendingString:chunk]);
     message[@"content"] = content;
+    _messages[index] = message;
+    [self refreshTranscript];
+}
+
+// End-of-stream cleanup: collapse trailing whitespace the streaming accumulator
+// intentionally preserved, so the saved transcript matches the non-streaming path.
+- (void)finalizeStreamingAssistantMessageAtIndex:(NSUInteger)index {
+    if (index >= _messages.count)
+        return;
+    NSMutableDictionary<NSString *, NSString *> *message = [_messages[index] mutableCopy];
+    NSString *finalized = ISHLLMSanitizedAssistantContent(message[@"content"] ?: @"");
+    if ([finalized isEqualToString:message[@"content"]])
+        return;
+    message[@"content"] = finalized;
     _messages[index] = message;
     [self refreshTranscript];
 }
@@ -1482,6 +1515,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
                 if (self == nil)
                     return;
                 if (streamed && receivedChunk && directError == nil) {
+                    [self finalizeStreamingAssistantMessageAtIndex:streamingIndex];
                     [self setSending:NO];
                     [self saveTranscript];
                     return;
