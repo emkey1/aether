@@ -3165,6 +3165,28 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             return true;
 #endif
         }
+#if defined(__aarch64__)
+        // Native register adc/sbb reg-imm (0x81 /2,/3 + 0x83 sign-ext), mod==3, 32/64.
+        // Group 2=ADC, 3=SBB bridged before (the arith clause above is groups 0/5/7).
+        // Flush-style, ARM carry trick. 16-bit + byte (0x80) keep bridging.
+        if ((insn.opcode == 0x81 || insn.opcode == 0x83) &&
+                (group == 2 || group == 3) && (size == 32 || size == 64)) {
+            bool is_sbb = group == 3;
+            unsigned long packed2 = (unsigned long) (is_sbb ? 1 : 0) |
+                ((unsigned long) rm_id << 4);
+            amd64_jit_debug("adcsbb-ri-direct ip=%llx grp=%u rm=%u size=%u value=%llx next=%llx",
+                    (unsigned long long) insn.start_ip, group, rm_id, size,
+                    (unsigned long long) value, (unsigned long long) next_ip);
+            extern void gadget_amd64_adcsbb_ri32(void), gadget_amd64_adcsbb_ri64(void);
+            gen_amd64_flush_reg_cache(state);
+            gen(state, (unsigned long) (size == 64
+                        ? gadget_amd64_adcsbb_ri64 : gadget_amd64_adcsbb_ri32));
+            gen(state, packed2);
+            gen(state, value);
+            gen_amd64_defer_rip(state, next_ip);
+            return true;
+        }
+#endif
         if ((insn.opcode == 0xc0 || insn.opcode == 0xc1) &&
                 (group == 4 || group == 5 || group == 7) &&
                 (size == 32 || size == 64)) {
@@ -3527,6 +3549,33 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 return true;
 #endif
             }
+#if defined(__aarch64__)
+            // Native register adc/sbb reg-reg (0x11/13 adc, 0x19/1b sbb), mod==3, 32/64.
+            // The memory forms were native (loadop/opstore_addc); the register forms
+            // bridged (ending the block) -- multi-precision arith + the sbb-reg-reg
+            // carry-materialize idiom. Flush-style, ARM carry trick. Byte (0x10/12/18/1a)
+            // + 16-bit keep bridging.
+            if ((size == 32 || size == 64) &&
+                    (insn.opcode == 0x11 || insn.opcode == 0x13 ||
+                     insn.opcode == 0x19 || insn.opcode == 0x1b)) {
+                bool is_sbb = insn.opcode >= 0x18;
+                bool d = (insn.opcode & 2) != 0;     /* dst=reg vs dst=rm */
+                unsigned dst_id = d ? reg_id : rm_id;
+                unsigned src_id = d ? rm_id : reg_id;
+                unsigned long packed2 = (unsigned long) (is_sbb ? 1 : 0) |
+                    ((unsigned long) dst_id << 4) | ((unsigned long) src_id << 8);
+                amd64_jit_debug("adcsbb-rr-direct ip=%llx opcode=%02x dst=%u src=%u size=%u next=%llx",
+                        (unsigned long long) insn.start_ip, insn.opcode, dst_id, src_id,
+                        size, (unsigned long long) next_ip);
+                extern void gadget_amd64_adcsbb_rr32(void), gadget_amd64_adcsbb_rr64(void);
+                gen_amd64_flush_reg_cache(state);
+                gen(state, (unsigned long) (size == 64
+                            ? gadget_amd64_adcsbb_rr64 : gadget_amd64_adcsbb_rr32));
+                gen(state, packed2);
+                gen_amd64_defer_rip(state, next_ip);
+                return true;
+            }
+#endif
             amd64_jit_debug("reg-reg-helper ip=%llx opcode=%02x reg=%u rm=%u size=%u next=%llx",
                     (unsigned long long) insn.start_ip,
                     insn.opcode,

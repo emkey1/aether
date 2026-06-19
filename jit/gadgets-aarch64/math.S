@@ -3621,6 +3621,112 @@ amd64_gen_loadop_addc loadop_addc64, 8, 63
 amd64_gen_opstore_addc opstore_addc32, 4, 31
 amd64_gen_opstore_addc opstore_addc64, 8, 63
 
+# amd64 REGISTER adc/sbb -- reg-reg (0x11/13 adc, 0x19/1b sbb) + reg-imm (0x81/83 /2 adc,
+# /3 sbb), mod==3, 32/64. The memory forms were already native (loadop/opstore_addc); the
+# register forms bridged (ending the block) -- they appear in multi-precision arithmetic
+# and the `sbb reg,reg` carry-materialize idiom. Same ARM carry trick as loadop_addc: set
+# ARM C from CPU_cf (cmp cf,1 => C=cf for adc; subs xzr,xzr,cf => C=!cf for sbb), then
+# adcs/sbcs gives result + CF + V(=OF). AF from the ORIGINAL rhs (x10), never rhs+cf.
+# Flush-style (gen.c flushes the reg cache; lhs/rhs/dst are in CPU_amd64_regs).
+# reg-reg packed: is_sbb(0) | dst_id(4-7) | src_id(8-11).
+.macro amd64_gen_adcsbb_rr name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4                /* dst id */
+    ldr  x13, [x12, x9, lsl 3]       /* lhs = dst */
+    ubfx x11, x8, 8, 4               /* src id */
+    ldr  x10, [x12, x11, lsl 3]      /* rhs = src */
+    ldrb w12, [_cpu, CPU_cf]         /* carry-in */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    tbnz x8, 0, 1f                   /* SBB? */
+    cmp  x12, 1                      /* ADC: ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs xzr, xzr, x12               /* SBB: ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc
+    cset w16, vs
+2:
+.if \vbytes == 4
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4
+.if \vbytes == 4
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x9, lsl 3]
+.else
+    str  x15, [x12, x9, lsl 3]
+.endif
+    gret 1
+.endm
+amd64_gen_adcsbb_rr adcsbb_rr32, 4, 31
+amd64_gen_adcsbb_rr adcsbb_rr64, 8, 63
+
+# reg-imm adc/sbb. packed: is_sbb(0) | rm_id(4-7); imm (sign-extended by gen.c) operand 1.
+.macro amd64_gen_adcsbb_ri name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]               /* rhs = imm */
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4                /* rm id */
+    ldr  x13, [x12, x9, lsl 3]       /* lhs = rm */
+    ldrb w12, [_cpu, CPU_cf]         /* carry-in */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    tbnz x8, 0, 1f
+    cmp  x12, 1                      /* ADC: ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs xzr, xzr, x12               /* SBB: ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc
+    cset w16, vs
+2:
+.if \vbytes == 4
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4
+.if \vbytes == 4
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x9, lsl 3]
+.else
+    str  x15, [x12, x9, lsl 3]
+.endif
+    gret 2
+.endm
+amd64_gen_adcsbb_ri adcsbb_ri32, 4, 31
+amd64_gen_adcsbb_ri adcsbb_ri64, 8, 63
+
 # amd64 imm-to-mem arith RMW: [mem] <op>= imm for ADD (group /0) and SUB (group /5),
 # mod!=3, 32/64. The immediate (sign-extended to 64 by gen.c) is operand 3; the group
 # (0=add, 5=sub) is operand 4. Same dual-prep RMW frame as opstore_arith (addr in x0,
