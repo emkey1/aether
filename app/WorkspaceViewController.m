@@ -4413,6 +4413,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 // live when the workspace gauge-style preference changes. Used by the status applets.
 @interface WorkspaceGaugeView : UIView
 @property (nonatomic) double progress;
+@property (nonatomic) BOOL compact;
 @property (nonatomic, copy, nullable) NSString *valueText;
 @property (nonatomic, strong, nullable) UIColor *fillColor;
 @property (nonatomic, strong, nullable) UIColor *trackColor;
@@ -4448,11 +4449,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)setFillColor:(UIColor *)fillColor { _fillColor = fillColor; [self setNeedsDisplay]; }
 - (void)setTrackColor:(UIColor *)trackColor { _trackColor = trackColor; [self setNeedsDisplay]; }
 - (void)setValueColor:(UIColor *)valueColor { _valueColor = valueColor; [self setNeedsDisplay]; }
+- (void)setCompact:(BOOL)compact {
+    if (_compact == compact) return;
+    _compact = compact;
+    [self invalidateIntrinsicContentSize];
+    [self setNeedsDisplay];
+}
 
 - (CGSize)intrinsicContentSize {
-    if (ISHWorkspaceUsesRingGauges())
-        return CGSizeMake(UIViewNoIntrinsicMetric, ISHWorkspaceUsesPhoneLayout() ? 76.0 : 88.0);
-    return CGSizeMake(UIViewNoIntrinsicMetric, 44.0);
+    if (ISHWorkspaceUsesRingGauges()) {
+        CGFloat dim = _compact ? 52.0 : (ISHWorkspaceUsesPhoneLayout() ? 64.0 : 86.0);
+        return CGSizeMake(UIViewNoIntrinsicMetric, dim);
+    }
+    return CGSizeMake(UIViewNoIntrinsicMetric, _compact ? 32.0 : 42.0);
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -4494,10 +4503,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     }
 
-    CGFloat barHeight = 10.0;
+    CGFloat barHeight = _compact ? 7.0 : 9.0;
     CGFloat barY = CGRectGetMaxY(b) - barHeight;
     if (text.length > 0) {
-        UIFont *font = [UIFont systemFontOfSize:22.0 weight:UIFontWeightBold];
+        UIFont *font = [UIFont systemFontOfSize:(_compact ? 16.0 : 20.0) weight:UIFontWeightBold];
         NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: valueColor};
         [text drawAtPoint:CGPointMake(CGRectGetMinX(b), CGRectGetMinY(b)) withAttributes:attrs];
     }
@@ -4584,6 +4593,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     _backgroundGradientLayer.frame = self.view.bounds;
+    CGFloat width = CGRectGetWidth(_toolContentView.bounds);
+    BOOL compact = (width > 0.0 && width < 330.0);
+    for (WorkspaceGaugeView *gaugeView in _trackedGaugeViews) {
+        gaugeView.compact = compact;
+    }
 }
 
 - (UIView *)toolContentView {
@@ -4728,12 +4742,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [outer addArrangedSubview:[self workspaceTileHeaderRowWithIcon:symbolName caption:caption trailingLabel:NULL]];
     [outer addArrangedSubview:value];
 
+    CGFloat statInsetY = ISHWorkspaceUsesPhoneLayout() ? 8.0 : 11.0;
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 72.0 : 84.0)],
-        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:11],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 56.0 : 84.0)],
+        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:statInsetY],
         [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
-        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-11],
+        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-statInsetY],
     ]];
     if (valueLabel != NULL)
         *valueLabel = value;
@@ -4758,12 +4773,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [outer addArrangedSubview:header];
     [outer addArrangedSubview:gaugeView];
 
+    CGFloat gaugeInsetY = ISHWorkspaceUsesPhoneLayout() ? 8.0 : 11.0;
     [NSLayoutConstraint activateConstraints:@[
-        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 96.0 : 110.0)],
-        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:11],
+        [card.heightAnchor constraintGreaterThanOrEqualToConstant:(ISHWorkspaceUsesPhoneLayout() ? 78.0 : 110.0)],
+        [outer.topAnchor constraintEqualToAnchor:card.topAnchor constant:gaugeInsetY],
         [outer.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [outer.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
-        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-11],
+        [outer.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-gaugeInsetY],
     ]];
     if (subtitleLabel != NULL)
         *subtitleLabel = subtitle;
@@ -7707,7 +7723,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 420;
+    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 240;
     _topRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
     _bottomRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
     _topRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
@@ -7955,7 +7971,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 360;
+    BOOL compactWidth = CGRectGetWidth(self.toolContentView.bounds) < 240;
     _gaugeRow.axis = compactWidth ? UILayoutConstraintAxisVertical : UILayoutConstraintAxisHorizontal;
     _gaugeRow.distribution = compactWidth ? UIStackViewDistributionFill : UIStackViewDistributionFillEqually;
     _contentStack.spacing = ISHWorkspaceDensityValue(4, 8);
