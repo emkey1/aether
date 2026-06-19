@@ -412,6 +412,25 @@ static void gen_amd64_jcc(struct gen_state *state, unsigned cc,
 #endif
 }
 
+// LOOP (0xe2) / LOOPE (0xe1) / LOOPNE (0xe0): decrement RCX + conditional branch, like
+// a jcc with an extra counter step. Native gadget (flush-style; the gadget exits the
+// block via b jit_ret). operand 0 = taken target, operand 1 = else (fall-through).
+static void gen_amd64_loop(struct gen_state *state, unsigned opcode,
+        guest_addr_t target_ip, guest_addr_t next_ip) {
+#if defined(__aarch64__)
+    extern void gadget_amd64_loop(void), gadget_amd64_loope(void),
+            gadget_amd64_loopne(void);
+    gen_amd64_flush_reg_cache(state);
+    state->amd64_deferred_rip_valid = false;
+    gen(state, (unsigned long) (opcode == 0xe2 ? gadget_amd64_loop
+                : opcode == 0xe1 ? gadget_amd64_loope : gadget_amd64_loopne));
+    gen(state, (unsigned long) target_ip);   // operand 0: taken
+    gen(state, (unsigned long) next_ip);      // operand 1: else (fall-through)
+#else
+    (void) state; (void) opcode; (void) target_ip; (void) next_ip;
+#endif
+}
+
 __attribute__((unused)) static bool amd64_jit_low8_reg(unsigned reg) {
     return reg < 8;
 }
@@ -913,6 +932,27 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
                 (unsigned long long) target_ip,
                 (unsigned long long) next_ip);
         gen_amd64_jcc(state, insn.opcode & 0xf, target_ip, next_ip);
+        return false;
+    }
+
+    // Native LOOP/LOOPE/LOOPNE (0xe0-0xe2), rel8, no address-size prefix (RCX counter --
+    // the 0x67/ECX form, like operand-size, falls through to the interp, which now
+    // implements all of them). Were unimplemented in BOTH engines -> SIGILL; the interp
+    // cases were added alongside this. Mirrors the jcc rel8 path.
+    if (amd64_jit_one_byte_branch_prefixes(&insn) &&
+            (insn.opcode == 0xe0 || insn.opcode == 0xe1 || insn.opcode == 0xe2)) {
+        if (!tlb_read(tlb, state->amd64_ip, &rel8, sizeof(rel8))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        next_ip = state->amd64_ip + sizeof(rel8);
+        target_ip = next_ip + rel8;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("loop ip=%llx op=%02x target=%llx next=%llx",
+                (unsigned long long) insn.start_ip, insn.opcode,
+                (unsigned long long) target_ip, (unsigned long long) next_ip);
+        gen_amd64_loop(state, insn.opcode, target_ip, next_ip);
         return false;
     }
 

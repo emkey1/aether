@@ -280,6 +280,40 @@
         b jit_ret
 .endr
 
+# amd64 LOOP (0xe2) / LOOPE/LOOPZ (0xe1) / LOOPNE/LOOPNZ (0xe0), no address-size prefix
+# (RCX counter; the 0x67/ECX form bridges). Decrement RCX (regs[1], 64-bit) -- LOOP does
+# NOT touch flags -- then branch to the taken target if RCX!=0 [LOOPE: && ZF==1; LOOPNE:
+# && ZF==0], else fall through. Like the jcc gadgets: set rip + exit to the main loop (no
+# static link). gen.c flushes the reg cache, so RCX is read/written straight from
+# CPU_amd64_regs. operand 0 = taken target, operand 1 = else (fall-through). Label 1.
+.macro amd64_gen_loop name, ztest
+    .gadget amd64_\name
+        ldr x8, [_cpu, (CPU_amd64_regs + 8)]   /* RCX */
+        sub x8, x8, 1
+        str x8, [_cpu, (CPU_amd64_regs + 8)]   /* write decremented count back */
+        cbz x8, 1f                              /* count==0 -> fall through */
+        .ifc \ztest,e
+            ldr w9, [_cpu, CPU_eflags]
+            tbz w9, 6, 1f                        /* LOOPE: ZF==0 -> fall through */
+        .endif
+        .ifc \ztest,ne
+            ldr w9, [_cpu, CPU_eflags]
+            tbnz w9, 6, 1f                       /* LOOPNE: ZF==1 -> fall through */
+        .endif
+        ldr x10, [_ip]                           /* taken target */
+        str x10, [_cpu, CPU_amd64_rip]
+        str w10, [_cpu, CPU_eip]
+        b jit_ret
+    1:
+        ldr x10, [_ip, 8]                        /* else (fall-through) target */
+        str x10, [_cpu, CPU_amd64_rip]
+        str w10, [_cpu, CPU_eip]
+        b jit_ret
+.endm
+amd64_gen_loop loop, none
+amd64_gen_loop loope, e
+amd64_gen_loop loopne, ne
+
 .gadget pushf
     save_c
     mov x0, _cpu
