@@ -3507,10 +3507,19 @@ static inline bool amd64_mem_write(struct cpu_state *cpu, struct tlb *tlb, qword
         cpu->segfault_was_write = true;
         return false;
     }
-    amd64_trace_cc1_slot_write_probe(cpu, guest_addr, value, size);
-    amd64_trace_htop_field_write(cpu, tlb, guest_addr, value, size);
-    amd64_trace_htop_r13_block_write(cpu, tlb, guest_addr, value, size);
-    amd64_trace_as_state_write(cpu, guest_addr, value, size);
+    // These per-write debug probes are all disabled by default. Gate each on its
+    // own (cached) enable check at the call site so the common path skips them
+    // entirely -- amd64_trace_as_state_write in particular is a non-inlined,
+    // two-call-deep chain that otherwise ran on every guest write (~8% of an
+    // amd64 string-op/memset under profiling).
+    if (unlikely(amd64_cc1_trace_enabled()))
+        amd64_trace_cc1_slot_write_probe(cpu, guest_addr, value, size);
+    if (amd64_htop_legacy_trace_enabled) {
+        amd64_trace_htop_field_write(cpu, tlb, guest_addr, value, size);
+        amd64_trace_htop_r13_block_write(cpu, tlb, guest_addr, value, size);
+    }
+    if (unlikely(amd64_as_trace_enabled()))
+        amd64_trace_as_state_write(cpu, guest_addr, value, size);
     if (amd64_verbose_boot_trace_enabled() && amd64_trace_intersects_busybox_slot(guest_addr, size)) {
         qword_t observed = 0;
         memcpy(&observed, value, size < sizeof(observed) ? size : sizeof(observed));
