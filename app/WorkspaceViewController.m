@@ -7251,9 +7251,17 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
-    _timeLabel.textColor = theme[@"accent"];
-    _zoneLabel.textColor = theme[@"accentAlt"];
-    _heroCard.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.88];
+    UIColor *cardColor = theme[@"card"];
+    // Render the hero card effectively opaque. At 0.88 the background gradient bled through the
+    // card and dragged the readout's contrast below the descriptor's guarantee on darker themes;
+    // the rest of the workspace's surfaces sit at ~0.95-0.98, so the clock was the odd one out.
+    _heroCard.backgroundColor = [cardColor colorWithAlphaComponent:0.98];
+    // The time is the focal readout and auto-shrinks in small windows, so hold it to a firmer
+    // contrast floor than the shared 4.8 accent default. Re-correcting against the actual card
+    // (not the averaged tool surface) keeps the date/zone legible on every theme too.
+    _timeLabel.textColor = ISHWorkspaceThemeColorAdjustedForContrast(theme[@"accent"], cardColor, 5.5);
+    _dateLabel.textColor = ISHWorkspaceThemeColorAdjustedForContrast(theme[@"primary"], cardColor, 7.0);
+    _zoneLabel.textColor = ISHWorkspaceThemeColorAdjustedForContrast(theme[@"accentAlt"], cardColor, 4.6);
 }
 
 @end
