@@ -174,13 +174,17 @@ negative past roughly four epochs, which is where we sit). The 3x sweep settles
 the open question: the dense corpus-optimum is **bounded** and **shifts right with
 model size** — the 7B peaks at 1x, the 14B at 2x — but past its own ceiling each
 model *dilutes*. The 14B drops 30→24 at 3x, the same interference the 7B showed
-going 1x→2x. The 24B then **bounds** it: a different family at a larger size, it
-*also* peaks at 2x (29→27 at 3x), so the optimum plateaus rather than marching
-right indefinitely; with more total parameters, though, it dilutes far more gently
-(−2 vs the 14B's −6) — robustness past the peak, not a higher peak. So the
-Chinchilla *direction* holds from 7B to 14B and then stops; "bigger always wants
-more" does not; this is squarely the LIMA / data-constrained regime, not
-compute-optimal pretraining.
+going 1x→2x. The 24B then **sharpens** it: a different family at a larger size, it *also* peaks
+at 2x, but its 3x penalty is far smaller (29→27, down 2, against the 14B's 6). Read
+across the three sizes, the **3x penalty shrinks as the model grows**, so the
+optimum is still creeping right, just coarsely. Neither the 14B nor the 24B is large
+enough to *want* 3x, but the 24B is measurably closer to it; the size at which 3x
+first becomes the optimum is therefore **larger than 24B**, not absent. (Two points
+make a thin trend, so a >24B dense run would confirm it.) So the Chinchilla
+*direction* keeps holding: bigger models do want more data, the optimum just
+advances a corpus-doubling at a time and needs a real jump in scale to move. That is
+the LIMA / data-constrained regime's slow version of the law, not compute-optimal
+pretraining's linear one.
 
 ### 3.2 Letting the model co-design the language
 
@@ -297,8 +301,11 @@ part of the measurement, and it drifts if you let it.
 - **Mistral-24B is resolved.** The §3.3 space-dropping was a vLLM/Tekken serving
   bug, not the weights; serving with the native tokenizer gives a clean 27/30 (1x)
   and 29/30 (2x), in-band with the Qwen dense models.
-- **The 3x sweep is done** (§3.1): the dense corpus-optimum is bounded at 2x for
-  the 14B (it dilutes to 24 at 3x), so 4x is not worth running on this model.
+- **The 3x sweep is done** (§3.1): the 14B and 24B both peak at 2x, but the 3x
+  penalty shrinks with size (the 14B falls 6 points, the 24B only 2), so the
+  corpus-optimum is still creeping right. **Open question:** a dense model larger
+  than 24B should be the first to actually prefer 3x; one >24B run would tell us
+  whether the optimum reaches 3x before any 3x/4x corpus is worth building.
 - **Best model to date** is the 14B at 2x with the §3.2 language additions, at
   **30/30** on the no-guide benchmark.
 
