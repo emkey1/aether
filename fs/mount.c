@@ -110,6 +110,8 @@ int do_mount(const struct fs_ops *fs, const char *source, const char *point, con
     new_mount->fs = fs;
     new_mount->data = NULL;
     new_mount->refcount = 0;
+    new_mount->bind_origin = NULL;
+    new_mount->bind_prefix = NULL;
     if (fs->mount) {
         int err = fs->mount(new_mount);
         if (err < 0) {
@@ -135,8 +137,15 @@ int mount_remove(struct mount *mount) {
     if (mount->refcount != 0)
         return _EBUSY;
 
-    if (mount->fs->umount)
+    if (mount->bind_origin != NULL) {
+        // A bind owns one reference on its origin. We hold mounts_lock here
+        // (do_umount / exit unmount), so drop it directly rather than via
+        // mount_release, which would re-acquire the same non-recursive lock.
+        mount->bind_origin->refcount--;
+        free((void *) mount->bind_prefix);
+    } else if (mount->fs->umount) {
         mount->fs->umount(mount);
+    }
     list_remove(&mount->mounts);
     free((void *) mount->info);
     free((void *) mount->source);
@@ -177,6 +186,71 @@ bool mount_param_flag(const char *info, const char *flag) {
 #define MS_SUPPORTED (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_REMOUNT_|MS_NOATIME_|MS_NODIRATIME_|MS_SILENT_|MS_RELATIME_|MS_STRICTATIME_)
 #define MS_FLAGS (MS_READONLY_|MS_NOSUID_|MS_NODEV_|MS_NOEXEC_|MS_NOATIME_|MS_NODIRATIME_|MS_RELATIME_|MS_STRICTATIME_)
 
+// Operation-selector bits: like Linux's do_mount(), these pick *what* the call
+// does rather than acting as plain mount options.
+#define MS_PROPAGATION (MS_SHARED_|MS_PRIVATE_|MS_SLAVE_|MS_UNBINDABLE_)
+#define MS_OP (MS_REMOUNT_|MS_BIND_|MS_MOVE_|MS_PROPAGATION)
+// Flags iSH accepts but does not act on: durability/atime/symlink-resolution
+// niceties plus the recursive-bind modifier. Without mount namespaces these are
+// effectively no-ops, so we strip them rather than reject the whole mount.
+#define MS_IGNORED (MS_SYNCHRONOUS_|MS_MANDLOCK_|MS_DIRSYNC_|MS_NOSYMFOLLOW_|MS_REC_|MS_POSIXACL_|MS_I_VERSION_|MS_KERNMOUNT_|MS_LAZYTIME_)
+
+// Create a bind mount at `point` aliasing the already-normalized guest path
+// `norm_source`. The bind carries no backing of its own: it shares the source's
+// real mount via bind_origin/bind_prefix, and find_mount_and_trim_path() does the
+// redirect for every path operation.
+static int do_bind_mount(const char *norm_source, const char *point, const char *info, int flags) {
+    char src[MAX_PATH];
+    if (strlen(norm_source) >= sizeof(src))
+        return _ENAMETOOLONG;
+    strcpy(src, norm_source);
+
+    // Resolve the source to its real backing mount and the path relative to that
+    // mount. find_mount_and_trim_path applies any existing bind redirect, so the
+    // origin captured here is always a real (non-bind) mount and `src` becomes the
+    // source path relative to it. The returned reference is handed to the bind.
+    struct mount *origin = find_mount_and_trim_path(src);
+    if (origin == NULL)
+        return _EINVAL;
+
+    struct mount *bind = malloc(sizeof(struct mount));
+    if (bind == NULL) {
+        mount_release(origin);
+        return _ENOMEM;
+    }
+    bind->point = strdup(point);
+    bind->point_len = strlen(point);
+    bind->source = strdup(norm_source);
+    bind->info = strdup(info);
+    bind->bind_prefix = strdup(src);
+    if (bind->point == NULL || bind->source == NULL || bind->info == NULL || bind->bind_prefix == NULL) {
+        free((void *) bind->point);
+        free((void *) bind->source);
+        free((void *) bind->info);
+        free((void *) bind->bind_prefix);
+        free(bind);
+        mount_release(origin);
+        return _ENOMEM;
+    }
+    bind->flags = flags;
+    bind->fs = origin->fs;
+    bind->refcount = 0;
+    bind->root_fd = -1;
+    bind->data = NULL;
+    bind->bind_origin = origin; // keeps the reference returned above
+
+    lock(&mounts_lock, 0);
+    // keep the mounts list ordered by descending mount-point length
+    struct mount *after;
+    list_for_each_entry(&mounts, after, mounts) {
+        if (after->point_len <= bind->point_len)
+            break;
+    }
+    list_add_before(&after->mounts, &bind->mounts);
+    unlock(&mounts_lock);
+    return 0;
+}
+
 dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest_addr_t type_addr, dword_t flags, guest_addr_t data_addr) {
     // source/data/type are copy_mount_string() args in Linux (strndup_user,
     // EINVAL when over-long), NOT getname() pathnames -- so they keep the plain
@@ -199,10 +273,18 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
         printk("INFO: elogind mount pid=%d comm=%s source=%s target=%s type=%s flags=%#x data=%s\n",
                current->pid, current->comm, source, point_raw, type, flags, data_addr != 0 ? data : "");
 
-    if (flags & ~MS_SUPPORTED) {
-        FIXME("missing mount flags %#x", flags & ~MS_SUPPORTED);
+    dword_t unhandled = flags & ~MS_SUPPORTED & ~MS_OP & ~MS_IGNORED;
+    if (unhandled) {
+        FIXME("missing mount flags %#x", unhandled);
         return _EINVAL;
     }
+
+    // A propagation-type change (mount --make-[r]private/shared/slave/unbindable)
+    // is its own operation that carries no new filesystem. iSH has no mount
+    // namespaces or peer groups, so the change has no observable effect -- accept
+    // it as a no-op rather than rejecting the caller (systemd issues these at boot).
+    if ((flags & MS_PROPAGATION) && !(flags & MS_BIND_))
+        return 0;
 
     struct statbuf stat;
     int err = generic_statat(AT_PWD, point_raw, &stat, 0);
@@ -216,7 +298,54 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
     if (err < 0)
         return err;
 
+    // MS_MOVE and MS_BIND name an existing path as their "source"; resolve it
+    // before taking mounts_lock (path_normalize / find_mount_and_trim_path
+    // re-enter mount_find, which takes the lock).
+    char op_source[MAX_PATH];
+    if (flags & (MS_MOVE_ | MS_BIND_)) {
+        err = path_normalize(AT_PWD, source, op_source, N_SYMLINK_FOLLOW);
+        if (err < 0)
+            return err;
+    }
+
+    // A bind shares the source mount's backing; do_bind_mount resolves the source
+    // and takes mounts_lock itself, so dispatch it before we lock here.
+    if (flags & MS_BIND_)
+        return do_bind_mount(op_source, point, data, flags & MS_FLAGS);
+
     lock(&mounts_lock, 0);
+    if (flags & MS_MOVE_) {
+        struct mount *mount, *found = NULL;
+        list_for_each_entry(&mounts, mount, mounts) {
+            if (strcmp(mount->point, op_source) == 0) {
+                found = mount;
+                break;
+            }
+        }
+        if (found == NULL) {
+            unlock(&mounts_lock);
+            return _EINVAL;
+        }
+        const char *new_point = strdup(point);
+        if (new_point == NULL) {
+            unlock(&mounts_lock);
+            return _ENOMEM;
+        }
+        free((void *) found->point);
+        found->point = new_point;
+        found->point_len = strlen(new_point);
+        // keep the mounts list ordered by descending mount-point length
+        list_remove(&found->mounts);
+        struct mount *after;
+        list_for_each_entry(&mounts, after, mounts) {
+            if (after->point_len <= found->point_len)
+                break;
+        }
+        list_add_before(&after->mounts, &found->mounts);
+        unlock(&mounts_lock);
+        return 0;
+    }
+
     if (flags & MS_REMOUNT_) {
         struct mount *mount;
         bool found = false;

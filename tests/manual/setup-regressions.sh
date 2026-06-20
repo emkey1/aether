@@ -145,6 +145,7 @@ need_file time_conformance.c
 need_file mem_conformance.c
 need_file sock_conformance.c
 need_file netlink_route.c
+need_file mount_flags.c
 need_file random_seed.c
 if [ "$is_amd64_guest" -eq 1 ]; then
     need_file amd64_regress.c
@@ -361,7 +362,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route random_seed"
+all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags random_seed"
 if [ "$is_amd64_guest" -eq 1 ]; then
     all_tests="$all_tests amd64_regress"
 fi

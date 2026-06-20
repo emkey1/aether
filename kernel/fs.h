@@ -92,6 +92,14 @@ struct mount {
         void *data;
         struct fakefs_db fakefs;
     };
+
+    // Bind mounts (MS_BIND): a bind has no backing of its own. bind_origin is the
+    // real mount whose storage it aliases (held with a reference for the bind's
+    // lifetime), and bind_prefix is the source path relative to bind_origin->point.
+    // find_mount_and_trim_path() rewrites a bound path to bind_prefix + remainder
+    // and resolves it against bind_origin. NULL for ordinary mounts.
+    struct mount *bind_origin;
+    const char *bind_prefix;
 };
 extern lock_t mounts_lock;
 

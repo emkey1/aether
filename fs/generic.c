@@ -113,6 +113,27 @@ struct mount *find_mount_and_trim_path(char *path) {
     while (*src != '\0')
         *dst++ = *src++;
     *dst = '\0';
+
+    // Bind mount: it has no backing of its own, so redirect to the origin mount.
+    // Rewrite the (now mount-relative) path to bind_prefix + path and return the
+    // origin instead. bind_origin/bind_prefix are immutable for the mount's life,
+    // and the reference taken by mount_find keeps the bind alive (and thus those
+    // fields valid) while we read them. The caller's buffer is MAX_PATH (every
+    // caller normalizes into one), so a redirect that fits is safe to copy back;
+    // an over-long result resolves to "not found" rather than overflowing.
+    if (mount->bind_origin != NULL) {
+        struct mount *origin = mount->bind_origin;
+        char redirected[MAX_PATH];
+        int n = snprintf(redirected, sizeof(redirected), "%s%s", mount->bind_prefix, path);
+        if (n < 0 || (size_t) n >= sizeof(redirected)) {
+            mount_release(mount);
+            return NULL;
+        }
+        strcpy(path, redirected);
+        mount_retain(origin);
+        mount_release(mount);
+        return origin;
+    }
     return mount;
 }
 
