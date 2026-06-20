@@ -1,0 +1,32 @@
+// Number formatting: fixed-precision output, real division, and a real mean.
+// `value:width:precision` formats a Real; width 0 means "precision only".
+
+fn mean(xs: Int[]) -> Real {
+    let total: Int = 0;
+    loop i in 0..length(xs) {
+        total = total + xs[i];
+    }
+    ret total * 1.0 / length(xs);
+}
+
+fn main() -> Void {
+    let scores: Int[] = [82, 91, 77, 100];
+    let avg: Real = mean(scores);
+
+    let passed: Int = 3;
+    let attempted: Int = 4;
+    let rate: Real = passed * 100.0 / attempted;
+
+    let price: Real = 19.5;
+    let qty: Int = 3;
+    let lineTotal: Real = qty * price;
+
+    fx {
+        println("average:     ", avg:0:2);
+        println("pass rate:   ", rate:0:1, "%");
+        println("line total:  $", lineTotal:0:2);
+        println("default real:", avg);
+        println("right-align: [", avg:8:2, "]");
+    }
+    ret;
+}

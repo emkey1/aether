@@ -1,0 +1,30 @@
+// Dynamic arrays: empty literal, append, indexed read/write, length, iterate.
+// Use length(xs) for dynamic arrays (never toon_len, which is for TOON nodes).
+
+fn sumOf(xs: Int[]) -> Int {
+    let total: Int = 0;
+    loop i in 0..length(xs) {
+        total = total + xs[i];
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [];
+    xs = xs + [4];          // append pattern
+    xs = xs + [8];
+    xs = xs + [15];
+    xs[0] = 5;              // indexed write
+
+    let ys: Int[] = [1, 2, 3];   // multi-element literal
+
+    fx {
+        println("xs length: ", length(xs));
+        println("xs[0]: ", xs[0], "  xs[2]: ", xs[2]);
+        println("xs sum: ", sumOf(xs));
+        loop i in 0..length(ys) {
+            println("ys[", i, "] = ", ys[i]);
+        }
+    }
+    ret;
+}

@@ -3,47 +3,53 @@
 This directory contains small Aether programs that run with the current
 bootstrap frontend:
 
-For a larger multi-file example, see `Examples/aether/showcase`.
+For a larger multi-file example, see `examples/showcase`.
 
 ```sh
-./build/bin/aether Examples/aether/base/hello
-./build/bin/aether Examples/aether/base/control_flow
-./build/bin/aether Examples/aether/base/effects_contracts
-./build/bin/aether Examples/aether/base/contracts
-./build/bin/aether Examples/aether/base/contract_layouts
-./build/bin/aether Examples/aether/base/pure_functions
-./build/bin/aether Examples/aether/base/parallel_calls
-./build/bin/aether Examples/aether/base/task_helpers
-./build/bin/aether Examples/aether/base/ai_helpers
-./build/bin/aether Examples/aether/base/inferred_decls
-./build/bin/aether Examples/aether/base/function_inference
-./build/bin/aether Examples/aether/base/object_inference
-./build/bin/aether Examples/aether/base/for_range
-./build/bin/aether Examples/aether/base/loop_forms
-./build/bin/aether Examples/aether/base/module_demo
-./build/bin/aether Examples/aether/base/module_consts_demo
-./build/bin/aether Examples/aether/base/toon_blocks
-./build/bin/aether Examples/aether/base/toon_access
-./build/bin/aether Examples/aether/base/toon_handles
-./build/bin/aether Examples/aether/base/toon_typed_handles
-./build/bin/aether Examples/aether/base/toon_rebind
-./build/bin/aether Examples/aether/base/toon_scalar_bindings
-./build/bin/aether Examples/aether/base/toon_scalar_rebind
-./build/bin/aether Examples/aether/base/toon_scalar_alias
-./build/bin/aether Examples/aether/base/toon_key_vars
-./build/bin/aether Examples/aether/base/toon_parse_payloads
-./build/bin/aether Examples/aether/base/toon_parse_file
-./build/bin/aether Examples/aether/base/toon_shape_scalars
-./build/bin/aether Examples/aether/base/toon_real_scalars
-./build/bin/aether Examples/aether/base/toon_type_checks
-./build/bin/aether Examples/aether/base/toon_presence_checks
-./build/bin/aether Examples/aether/base/toon_defaults
-./build/bin/aether Examples/aether/base/cost_annotations
-./build/bin/aether Examples/aether/base/toon_variable_parse
-./build/bin/aether Examples/aether/base/type_blocks
-./build/bin/aether Examples/aether/base/type_init
-./build/bin/aether Examples/aether/base/self_alias
-./build/bin/aether Examples/aether/base/self_mutation
+./build/bin/aether examples/base/hello
+./build/bin/aether examples/base/control_flow
+./build/bin/aether examples/base/effects_contracts
+./build/bin/aether examples/base/contracts
+./build/bin/aether examples/base/contract_layouts
+./build/bin/aether examples/base/pure_functions
+./build/bin/aether examples/base/parallel_calls
+./build/bin/aether examples/base/task_helpers
+./build/bin/aether examples/base/ai_helpers
+./build/bin/aether examples/base/inferred_decls
+./build/bin/aether examples/base/function_inference
+./build/bin/aether examples/base/object_inference
+./build/bin/aether examples/base/for_range
+./build/bin/aether examples/base/loop_forms
+./build/bin/aether examples/base/module_demo
+./build/bin/aether examples/base/module_consts_demo
+./build/bin/aether examples/base/toon_blocks
+./build/bin/aether examples/base/toon_access
+./build/bin/aether examples/base/toon_handles
+./build/bin/aether examples/base/toon_typed_handles
+./build/bin/aether examples/base/toon_rebind
+./build/bin/aether examples/base/toon_scalar_bindings
+./build/bin/aether examples/base/toon_scalar_rebind
+./build/bin/aether examples/base/toon_scalar_alias
+./build/bin/aether examples/base/toon_key_vars
+./build/bin/aether examples/base/toon_parse_payloads
+./build/bin/aether examples/base/toon_parse_file
+./build/bin/aether examples/base/toon_shape_scalars
+./build/bin/aether examples/base/toon_real_scalars
+./build/bin/aether examples/base/toon_type_checks
+./build/bin/aether examples/base/toon_presence_checks
+./build/bin/aether examples/base/toon_defaults
+./build/bin/aether examples/base/cost_annotations
+./build/bin/aether examples/base/toon_variable_parse
+./build/bin/aether examples/base/type_blocks
+./build/bin/aether examples/base/type_init
+./build/bin/aether examples/base/self_alias
+./build/bin/aether examples/base/self_mutation
+./build/bin/aether examples/base/number_formatting
+./build/bin/aether examples/base/strings
+./build/bin/aether examples/base/dynamic_arrays
+./build/bin/aether examples/base/parsing
+./build/bin/aether examples/base/clamp_minmax
+./build/bin/aether examples/base/recursion
 ```
 
 These examples stay within the currently supported Aether Core subset:
@@ -160,5 +166,15 @@ These examples stay within the currently supported Aether Core subset:
   `@post`, `@pure`, and `@cost` must all decorate the next function
 - `@cost` is now frontend-validated: it must be a positive integer budget with
   an optional unit such as `ns`, `us`, `ms`, `s`, `op`/`ops`, or `step`/`steps`
+
+- `number_formatting`: fixed-precision Real output (`value:width:precision`),
+  real division, and a real mean over an `Int[]`
+- `strings`: `Text` concatenation, `string_len`, `int_to_text`, and `==` equality
+- `dynamic_arrays`: empty literal, append (`xs = xs + [v]`), indexed read/write,
+  `length`, and iteration
+- `parsing`: `parse_int` / `parse_bool` / `parse_float`, and `split` into a `Text[]`
+- `clamp_minmax`: `clamp(x, lo, hi)` plus `min` / `max` as accumulators instead
+  of if-chains
+- `recursion`: base-case + recursive-case helpers (factorial, summation)
 
 The backend remains the shared PSCAL compiler and VM.

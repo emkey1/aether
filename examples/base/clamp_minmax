@@ -1,0 +1,26 @@
+// Bounding and selecting with clamp / min / max instead of if-chains.
+// clamp(x, lo, hi) returns Int for all-Int args (Real if any arg is Real),
+// mirroring min and max.
+
+fn main() -> Void {
+    let raw: Int = 137;
+    let bounded: Int = clamp(raw, 0, 100);
+
+    let lo: Int = min(12, 9);
+    let hi: Int = max(12, 9);
+
+    let temps: Int[] = [18, 25, 31, 22];
+    let coldest: Int = temps[0];
+    let hottest: Int = temps[0];
+    loop i in 1..length(temps) {
+        coldest = min(coldest, temps[i]);
+        hottest = max(hottest, temps[i]);
+    }
+
+    fx {
+        println("clamp(137, 0, 100) = ", bounded);
+        println("min(12, 9) = ", lo, "   max(12, 9) = ", hi);
+        println("coldest = ", coldest, "   hottest = ", hottest);
+    }
+    ret;
+}

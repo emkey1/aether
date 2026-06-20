@@ -1,0 +1,22 @@
+// Parsing text into values: parse_int, parse_bool, parse_float, and split.
+// split returns a dynamic Text[] you can index and iterate.
+
+fn main() -> Void {
+    let count: Int = parse_int("42");
+    let enabled: Bool = parse_bool("true");
+    let ratio: Real = parse_float("0.75");
+
+    let csv: Text = "alice,bob,carol";
+    let names: Text[] = split(csv, ",");
+
+    fx {
+        println("count: ", count);
+        println("enabled: ", enabled);
+        println("ratio: ", ratio:0:2);
+        println("names: ", length(names));
+        loop i in 0..length(names) {
+            println("  ", i, ": ", names[i]);
+        }
+    }
+    ret;
+}

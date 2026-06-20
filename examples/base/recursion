@@ -1,0 +1,23 @@
+// Recursion: a base case plus a recursive case, using sequential if + ret.
+
+fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        ret 1;
+    }
+    ret n * factorial(n - 1);
+}
+
+fn sumTo(n: Int) -> Int {
+    if n <= 0 {
+        ret 0;
+    }
+    ret n + sumTo(n - 1);
+}
+
+fn main() -> Void {
+    fx {
+        println("5! = ", factorial(5));
+        println("sum 1..10 = ", sumTo(10));
+    }
+    ret;
+}

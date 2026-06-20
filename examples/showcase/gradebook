@@ -1,0 +1,54 @@
+// Compositional example: a record with methods, a helper that takes the
+// record, parallel arrays, accumulation, a real average, and formatted output.
+
+type Student {
+    name: Text;
+    total: Int;
+    count: Int;
+
+    fn average() -> Real {
+        ret self.total * 1.0 / self.count;
+    }
+
+    fn passed() -> Bool {
+        ret self.average() >= 60.0;
+    }
+}
+
+fn grade(student: Student) -> Text {
+    if student.passed() {
+        ret "pass";
+    }
+    ret "fail";
+}
+
+fn main() -> Void {
+    let names: Text[] = ["Ana", "Ben", "Cy"];
+    let totals: Int[] = [255, 168, 290];
+    let counts: Int[] = [3, 3, 3];
+
+    let classTotal: Int = 0;
+    let classCount: Int = 0;
+
+    loop i in 0..length(names) {
+        let student: Student = new Student();
+        student.name = names[i];
+        student.total = totals[i];
+        student.count = counts[i];
+
+        classTotal = classTotal + student.total;
+        classCount = classCount + student.count;
+
+        let avg: Real = student.average();
+        let status: Text = grade(student);
+        fx {
+            println(student.name, ": avg ", avg:0:2, " (", status, ")");
+        }
+    }
+
+    let classAvg: Real = classTotal * 1.0 / classCount;
+    fx {
+        println("class average: ", classAvg:0:2);
+    }
+    ret;
+}

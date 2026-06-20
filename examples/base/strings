@@ -1,0 +1,24 @@
+// Text basics: concatenation, string_len, int_to_text, and equality.
+// int_to_text builds a Text value from an Int (use it when you need the
+// value, not merely to print a number).
+
+fn label(name: Text, count: Int) -> Text {
+    ret name + ": " + int_to_text(count);
+}
+
+fn main() -> Void {
+    let greeting: Text = "Hello" + ", " + "Aether";
+    let n: Int = string_len(greeting);
+    let widgets: Text = label("widgets", 7);
+    let status: Text = "ready";
+
+    fx {
+        println(greeting);
+        println("length: ", n);
+        println(widgets);
+        if status == "ready" {
+            println("status is ready");
+        }
+    }
+    ret;
+}
