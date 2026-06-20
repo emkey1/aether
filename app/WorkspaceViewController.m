@@ -95,6 +95,7 @@ static NSString *const ISHWorkspaceToolFilesystemsIdentifier = @"filesystems";
 static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
+static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -130,6 +131,7 @@ static BOOL ISHWorkspaceUsesModernStyle(void) {
 // User-defined launcher shortcuts: each is @{@"name", @"command"}; the command is
 // run in a fresh terminal. Stored in NSUserDefaults.
 static NSString *const ISHWorkspaceLauncherShortcutsKey = @"ISHWorkspaceLauncherShortcuts";
+static NSString *const ISHWorkspaceLauncherShortcutsDidChangeNotification = @"ISHWorkspaceLauncherShortcutsDidChangeNotification";
 
 static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceLauncherShortcuts(void) {
     NSArray *stored = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceLauncherShortcutsKey];
@@ -138,6 +140,8 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceLauncherShor
 
 static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts) {
     [NSUserDefaults.standardUserDefaults setObject:shortcuts forKey:ISHWorkspaceLauncherShortcutsKey];
+    // Live-update any open Launcher applet (and the menu next time it's built).
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceLauncherShortcutsDidChangeNotification object:nil];
 }
 
 static BOOL ISHWorkspaceSupportsSceneWindows(void) {
@@ -634,6 +638,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(352, 620);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(352, 560);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+            return CGSizeMake(300, 300);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -666,6 +672,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(760, 760);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(560, 620);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+        return CGSizeMake(360, 380);
     return CGSizeMake(720, 640);
 }
 
@@ -743,6 +751,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(320, 420);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(300, 360);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+            return CGSizeMake(240, 180);
         return CGSizeMake(300, 220);
     }
 
@@ -770,6 +780,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(520, 560);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(420, 420);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+        return CGSizeMake(280, 220);
     return CGSizeZero;
 }
 
@@ -817,6 +829,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Settings";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return @"LLM Chat";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+        return @"Launcher";
     return @"Window";
 }
 
@@ -2065,6 +2079,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceShortcutsToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceLauncherToolViewController : WorkspaceThemedToolViewController
+@end
+
 @interface WorkspaceBrowserToolViewController : WorkspaceThemedToolViewController <UITextFieldDelegate, WKNavigationDelegate, WKUIDelegate>
 @end
 
@@ -2107,6 +2124,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDiagnosticsIdentifier])
         return ISHCreateDiagnosticsViewController();
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+        return [WorkspaceLauncherToolViewController new];
     return nil;
 }
 
@@ -2131,6 +2150,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolStorageIdentifier;
     if ([viewController isKindOfClass:WorkspaceShortcutsToolViewController.class])
         return ISHWorkspaceToolShortcutsIdentifier;
+    if ([viewController isKindOfClass:WorkspaceLauncherToolViewController.class])
+        return ISHWorkspaceToolLauncherIdentifier;
     if ([viewController isKindOfClass:WorkspaceBrowserToolViewController.class])
         return ISHWorkspaceToolBrowserIdentifier;
     if ([viewController isKindOfClass:WorkspaceThemesToolViewController.class])
@@ -3280,6 +3301,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             [self launchTerminalWithCommand:command];
         }]];
     }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
@@ -4216,6 +4242,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [workspaceItems addObject:@{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
     }
     [workspaceItems addObjectsFromArray:@[
+        @{@"title": @"Launcher", @"identifier": ISHWorkspaceToolLauncherIdentifier},
         @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
@@ -6455,6 +6482,183 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     _refreshButton.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.96];
     _refreshButton.layer.borderColor = theme[@"stroke"].CGColor;
     [_refreshButton setTitleColor:theme[@"accentAlt"] forState:UIControlStateNormal];
+}
+
+@end
+
+@implementation WorkspaceLauncherToolViewController {
+    UIScrollView *_scrollView;
+    UIStackView *_contentStack;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Launcher";
+
+    _scrollView = [UIScrollView new];
+    _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.toolContentView addSubview:_scrollView];
+
+    _contentStack = [UIStackView new];
+    _contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _contentStack.axis = UILayoutConstraintAxisVertical;
+    _contentStack.spacing = 8;
+    [_scrollView addSubview:_contentStack];
+
+    CGFloat inset = ISHWorkspaceUsesPhoneLayout() ? 12.0 : 16.0;
+    [NSLayoutConstraint activateConstraints:@[
+        [_scrollView.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor],
+        [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.topAnchor constant:inset],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.leadingAnchor constant:inset],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.trailingAnchor constant:-inset],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.bottomAnchor constant:-inset],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.widthAnchor constant:-(inset * 2.0)],
+    ]];
+
+    [self rebuildLauncherList];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(rebuildLauncherList)
+                                               name:ISHWorkspaceLauncherShortcutsDidChangeNotification
+                                             object:nil];
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (UIColor *)launcherColorForKey:(NSString *)key fallback:(UIColor *)fallback {
+    UIColor *color = self.workspaceTheme[key];
+    return color != nil ? color : fallback;
+}
+
+- (void)rebuildLauncherList {
+    for (UIView *view in [_contentStack.arrangedSubviews copy]) {
+        [_contentStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+
+    UILabel *header = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
+    header.text = @"Launcher";
+    [_contentStack addArrangedSubview:header];
+
+    UILabel *detail = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+    detail.numberOfLines = 0;
+    detail.text = @"Tap to run a command in a fresh terminal.";
+    [_contentStack addArrangedSubview:detail];
+
+    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    if (shortcuts.count == 0) {
+        UILabel *empty = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
+        empty.numberOfLines = 0;
+        empty.text = @"No shortcuts yet. Add one with the button below (for example: ssh myhost).";
+        [_contentStack addArrangedSubview:empty];
+    } else {
+        NSUInteger index = 0;
+        for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
+            [_contentStack addArrangedSubview:[self launcherRowForShortcut:shortcut index:index]];
+            index++;
+        }
+    }
+
+    [_contentStack addArrangedSubview:[self launcherAddButton]];
+}
+
+- (UIView *)launcherRowForShortcut:(NSDictionary<NSString *, NSString *> *)shortcut index:(NSUInteger)index {
+    NSString *command = shortcut[@"command"] ?: @"";
+    NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : command;
+
+    UIStackView *row = [UIStackView new];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 6;
+    row.alignment = UIStackViewAlignmentFill;
+
+    UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
+    run.translatesAutoresizingMaskIntoConstraints = NO;
+    run.tag = (NSInteger)index;
+    run.contentEdgeInsets = UIEdgeInsetsMake(8, 10, 8, 10);
+    run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    run.titleLabel.numberOfLines = 0;
+    run.layer.cornerRadius = 12;
+    run.layer.borderWidth = 1;
+    run.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
+    run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
+    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 46.0 : 52.0;
+    [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
+    [run setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+
+    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
+    style.alignment = NSTextAlignmentLeft;
+    UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
+    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.grayColor];
+    NSMutableAttributedString *label = [[NSMutableAttributedString alloc] initWithString:name attributes:@{
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold],
+        NSForegroundColorAttributeName: primary,
+        NSParagraphStyleAttributeName: style,
+    }];
+    if (![command isEqualToString:name]) {
+        [label appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:command] attributes:@{
+            NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) weight:UIFontWeightRegular],
+            NSForegroundColorAttributeName: secondary,
+            NSParagraphStyleAttributeName: style,
+        }]];
+    }
+    [run setAttributedTitle:label forState:UIControlStateNormal];
+    [run addTarget:self action:@selector(runShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+    UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
+    remove.translatesAutoresizingMaskIntoConstraints = NO;
+    remove.tag = (NSInteger)index;
+    if (@available(iOS 13.0, *)) {
+        [remove setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+    } else {
+        [remove setTitle:@"Remove" forState:UIControlStateNormal];
+    }
+    remove.tintColor = UIColor.systemRedColor;
+    remove.accessibilityLabel = [NSString stringWithFormat:@"Remove %@", name];
+    [remove addTarget:self action:@selector(removeShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [remove setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [remove.widthAnchor constraintEqualToConstant:40.0].active = YES;
+
+    [row addArrangedSubview:run];
+    [row addArrangedSubview:remove];
+    return row;
+}
+
+- (UIButton *)launcherAddButton {
+    UIButton *add = [UIButton buttonWithType:UIButtonTypeSystem];
+    add.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *accent = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
+    [add setTitle:@"Add Shortcut…" forState:UIControlStateNormal];
+    [add setTitleColor:accent forState:UIControlStateNormal];
+    add.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
+    add.layer.cornerRadius = 12;
+    add.layer.borderWidth = 1;
+    add.layer.borderColor = accent.CGColor;
+    [add.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 40.0 : 44.0].active = YES;
+    [add addTarget:self action:@selector(addShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return add;
+}
+
+- (void)runShortcutTapped:(UIButton *)sender {
+    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    if ((NSUInteger)sender.tag >= shortcuts.count)
+        return;
+    NSString *command = shortcuts[(NSUInteger)sender.tag][@"command"];
+    [(id)self.workspaceHostViewController launchTerminalWithCommand:command];
+}
+
+- (void)removeShortcutTapped:(UIButton *)sender {
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+    if ((NSUInteger)sender.tag < updated.count)
+        [updated removeObjectAtIndex:(NSUInteger)sender.tag];
+    ISHWorkspaceSetLauncherShortcuts(updated);
+}
+
+- (void)addShortcutTapped:(__unused UIButton *)sender {
+    [(id)self.workspaceHostViewController presentAddLauncherShortcut];
 }
 
 @end
