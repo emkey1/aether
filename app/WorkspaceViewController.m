@@ -3186,6 +3186,44 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentDesktopRootMenuFromView:sender sourceRect:sender.bounds];
 }
 
+- (void)presentIconManagerFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Windows"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSUInteger listed = 0;
+    for (ISHWorkspaceContainedWindowView *windowView in self.desktopWindows.copy) {
+        if (![windowView isKindOfClass:ISHWorkspaceContainedWindowView.class] || windowView.hidden)
+            continue;
+        if (windowView == self.dashboardWindow || windowView == self.dockWindow)
+            continue;
+        NSString *name = windowView.titleLabel.text.length > 0 ? windowView.titleLabel.text : @"Window";
+        __weak typeof(self) weakSelf = self;
+        __weak typeof(windowView) weakWindow = windowView;
+        [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [weakSelf focusDesktopWindow:weakWindow];
+        }]];
+        listed++;
+    }
+    if (listed == 0) {
+        UIAlertAction *empty = [UIAlertAction actionWithTitle:@"No open windows" style:UIAlertActionStyleDefault handler:nil];
+        empty.enabled = NO;
+        [sheet addAction:empty];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceRect;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
 - (void)presentDesktopRootMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Workspace"
@@ -3207,7 +3245,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Icon Manager"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolSessionsIdentifier];
+        [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
                                               style:UIAlertActionStyleDefault
