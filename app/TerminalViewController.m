@@ -205,6 +205,8 @@ static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *c
 @property (strong, nonatomic) UIButton *terminalSwitcherButton;
 @property (strong, nonatomic) BarButton *dotKey;
 @property (strong, nonatomic) BarButton *slashKey;
+@property (strong, nonatomic) BarButton *dashKey;
+@property (strong, nonatomic) BarButton *colonKey;
 @property (weak, nonatomic) IBOutlet UIButton *pasteButton;
 @property (weak, nonatomic) IBOutlet UIButton *hideKeyboardButton;
 @property (strong, nonatomic) UIButton *floatingWorkspaceButton;
@@ -604,11 +606,13 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     return button;
 }
 
-// Two extra keys ('.' and '/') centered on the accessory bar -- the characters a
-// shell user reaches for constantly (./  ../  /usr  *.c). They straddle the bar's
-// horizontal center (one just left, one just right) with flexible space on either
-// side, so the left keys and right controls keep their own edges. Present on both
-// the plain and Workspace bars.
+// Up to four extra keys centered on the accessory bar -- characters a shell user
+// reaches for constantly. '.' and '/' (./  ../  /usr  *.c) are always present and
+// straddle the bar's horizontal center; '-' and ':' (command flags, host:path,
+// time strings) flank them but only when there's room -- hidden on an iPhone in
+// portrait, where the bar is already full, and shown in landscape and on iPad.
+// Flexible space on either side keeps the left keys and right controls on their own
+// edges. Present on both the plain and Workspace bars.
 - (void)_installCenterKeys {
     // The storyboard bar has a single flexible spacer (a plain, childless UIView)
     // between the left keys and the right controls; reuse it as the left spacer and
@@ -623,20 +627,30 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     if (leftSpacer == nil)
         return;
 
+    self.dashKey = [self _makeCenterKeyWithTitle:@"-" action:@selector(pressDash:)];
+    self.dashKey.accessibilityLabel = @"Hyphen";
+    self.dashKey.accessibilityHint = @"Sends a hyphen.";
     self.dotKey = [self _makeCenterKeyWithTitle:@"." action:@selector(pressPeriod:)];
     self.dotKey.accessibilityLabel = @"Period";
     self.dotKey.accessibilityHint = @"Sends a period.";
     self.slashKey = [self _makeCenterKeyWithTitle:@"/" action:@selector(pressSlash:)];
     self.slashKey.accessibilityLabel = @"Slash";
     self.slashKey.accessibilityHint = @"Sends a forward slash.";
+    self.colonKey = [self _makeCenterKeyWithTitle:@":" action:@selector(pressColon:)];
+    self.colonKey.accessibilityLabel = @"Colon";
+    self.colonKey.accessibilityHint = @"Sends a colon.";
 
     UIView *rightSpacer = [[UIView alloc] init];
     rightSpacer.translatesAutoresizingMaskIntoConstraints = NO;
 
+    // Order across the center: dash dot slash colon, with the dot/slash gap pinned
+    // to the bar center below.
     NSUInteger spacerIndex = [self.bar.arrangedSubviews indexOfObject:leftSpacer];
-    [self.bar insertArrangedSubview:self.dotKey atIndex:spacerIndex + 1];
-    [self.bar insertArrangedSubview:self.slashKey atIndex:spacerIndex + 2];
-    [self.bar insertArrangedSubview:rightSpacer atIndex:spacerIndex + 3];
+    [self.bar insertArrangedSubview:self.dashKey atIndex:spacerIndex + 1];
+    [self.bar insertArrangedSubview:self.dotKey atIndex:spacerIndex + 2];
+    [self.bar insertArrangedSubview:self.slashKey atIndex:spacerIndex + 3];
+    [self.bar insertArrangedSubview:self.colonKey atIndex:spacerIndex + 4];
+    [self.bar insertArrangedSubview:rightSpacer atIndex:spacerIndex + 5];
 
     // Both spacers yield their width freely so the keys can reach the center; the
     // >= 0 floor keeps a very narrow bar from forcing them (and the keys) to overlap.
@@ -646,7 +660,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         [spacer.widthAnchor constraintGreaterThanOrEqualToConstant:0].active = YES;
     }
 
-    // Pin the gap between the two keys to the bar's center. Just-breakable priority
+    // Pin the gap between '.' and '/' to the bar's center. Just-breakable priority
     // so an extremely narrow bar degrades to "as centered as fits" instead of
     // breaking a required constraint.
     NSLayoutConstraint *center = [self.dotKey.trailingAnchor constraintEqualToAnchor:self.bar.centerXAnchor constant:-(self.bar.spacing / 2.0)];
@@ -655,6 +669,26 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
     [self.dotKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
     [self.slashKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
+    // '-' and ':' match the other keys' width, but just-breakable so UIStackView can
+    // collapse them to zero width when hidden (portrait iPhone) without a conflict.
+    NSLayoutConstraint *dashWidth = [self.dashKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor];
+    NSLayoutConstraint *colonWidth = [self.colonKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor];
+    dashWidth.priority = UILayoutPriorityRequired - 1;
+    colonWidth.priority = UILayoutPriorityRequired - 1;
+    dashWidth.active = YES;
+    colonWidth.active = YES;
+
+    [self _updateCenterKeyVisibility];
+}
+
+// '-' and ':' only appear when the accessory bar has room: hidden on an iPhone in
+// portrait (regular height, compact width), shown in landscape and on iPad. A hidden
+// UIStackView arranged subview is collapsed, so '.' and '/' stay centered either way.
+- (void)_updateCenterKeyVisibility {
+    BOOL phonePortrait = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone &&
+        self.traitCollection.verticalSizeClass == UIUserInterfaceSizeClassRegular;
+    self.dashKey.hidden = phonePortrait;
+    self.colonKey.hidden = phonePortrait;
 }
 
 - (void)_installTerminalSwitcherGestureOnView:(UIView *)view {
@@ -1095,6 +1129,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         }
         self.dotKey.keyAppearance = keyAppearance;
         self.slashKey.keyAppearance = keyAppearance;
+        self.dashKey.keyAppearance = keyAppearance;
+        self.colonKey.keyAppearance = keyAppearance;
         UIColor *tintColor = keyAppearance == UIKeyboardAppearanceLight ? UIColor.blackColor : UIColor.whiteColor;
         // Give the in-bar control buttons a key-like background so they stay visible on any terminal
         // theme. Without it they are bare glyphs that vanish on a dark terminal (they only showed in
@@ -1280,6 +1316,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
             UserPreferences.shared.colorScheme = UserPreferences.shared.colorScheme;
         }
     }
+    // Rotating between portrait and landscape flips the vertical size class; re-evaluate
+    // whether the '-' and ':' keys fit.
+    if (previousTraitCollection.verticalSizeClass != self.traitCollection.verticalSizeClass)
+        [self _updateCenterKeyVisibility];
 }
 
 #pragma mark Bar
@@ -1468,6 +1508,12 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 - (IBAction)pressSlash:(id)sender {
     [self pressKey:@"/"];
+}
+- (IBAction)pressDash:(id)sender {
+    [self pressKey:@"-"];
+}
+- (IBAction)pressColon:(id)sender {
+    [self pressKey:@":"];
 }
 - (void)pressKey:(NSString *)key {
     [self.termView insertText:key];
