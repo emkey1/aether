@@ -68,7 +68,11 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootIdentifierKey: @"alpine3233x8664",
                 kBundledRootDisplayNameKey: @"Alpine3.23.3(x86_64)",
                 kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
-                kBundledRootImportNameKey: @"Alpine3.23.3(x86_64)",
+                // importName becomes a directory name and the whitespace-delimited
+                // mount "source" string parsed by guest init scripts, so it must
+                // pass RootNameIsValid (no shell/path metacharacters). The pretty
+                // parenthesized form lives in displayName, which is all the UI shows.
+                kBundledRootImportNameKey: @"Alpine3.23.3-x86_64",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"amd64",
             },
@@ -374,7 +378,7 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
         if (baseName.length == 0 || choiceGuestABI.length == 0)
             continue;
         if ([name isEqualToString:baseName] ||
-                [name hasPrefix:[baseName stringByAppendingString:@" "]]) {
+                [name hasPrefix:[baseName stringByAppendingString:@"_"]]) {
             return choiceGuestABI;
         }
     }
@@ -561,7 +565,8 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     NSString *importName = baseName;
     unsigned suffix = 2;
     while ([self.roots containsObject:importName]) {
-        importName = [NSString stringWithFormat:@"%@ %u", baseName, suffix++];
+        // Use '_' (not a space) so the deduped name also passes RootNameIsValid.
+        importName = [NSString stringWithFormat:@"%@_%u", baseName, suffix++];
     }
 
     BOOL ok = [self importRootFromArchive:archive
