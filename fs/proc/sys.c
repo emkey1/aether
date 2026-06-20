@@ -5,6 +5,7 @@
 #endif
 #include <inttypes.h>
 #include "kernel/calls.h"
+#include "kernel/random.h"
 #include "fs/proc.h"
 #include "platform/platform.h"
 #include <sys/utsname.h>
@@ -160,10 +161,39 @@ static int sys_show_kernel_cap_last_cap(struct proc_entry *UNUSED(entry), struct
     return 0;
 }
 
+static int sys_show_kernel_random_poolsize(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", RANDOM_POOL_BITS);
+    return 0;
+}
+
+static int sys_show_kernel_random_entropy_avail(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // Randomness is host-backed, so the pool always reads as full.
+    proc_printf(buf, "%d\n", RANDOM_POOL_BITS);
+    return 0;
+}
+
+struct proc_dir_entry proc_sys_kernel_random[] = {
+    {"entropy_avail", .show = sys_show_kernel_random_entropy_avail},
+    {"poolsize", .show = sys_show_kernel_random_poolsize},
+};
+
+#define PROC_SYS_KERNEL_RANDOM_LEN sizeof(proc_sys_kernel_random)/sizeof(proc_sys_kernel_random[0])
+
+static bool proc_sys_kernel_random_readdir(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index < PROC_SYS_KERNEL_RANDOM_LEN) {
+        *next_entry = (struct proc_entry) {&proc_sys_kernel_random[*index], *index, NULL, NULL, 0, 0, NULL};
+        (*index)++;
+        return true;
+    }
+
+    return false;
+}
+
 struct proc_dir_entry proc_sys_kernel[] = {
     {"cap_last_cap", .show = sys_show_kernel_cap_last_cap},
     {"hostname", .show = sys_show_net_unix_hostname},
     {"osrelease", .show = sys_show_kernel_osrelease},
+    {"random", S_IFDIR, .readdir = proc_sys_kernel_random_readdir},
     {"version", .show = sys_show_net_version},
 };
 
@@ -238,8 +268,11 @@ void proc_sys_init(struct proc_dir_entry *root_entry) {
     }
 
     kernel_dir = proc_children_find(&proc_sys_children, "kernel");
-    if (kernel_dir != NULL)
+    if (kernel_dir != NULL) {
         proc_set_entries_parent(proc_sys_kernel, PROC_SYS_KERNEL_LEN, kernel_dir);
+        proc_set_entries_parent(proc_sys_kernel_random, PROC_SYS_KERNEL_RANDOM_LEN,
+                proc_find_entry(proc_sys_kernel, PROC_SYS_KERNEL_LEN, "random"));
+    }
 
     net_dir = proc_children_find(&proc_sys_children, "net");
     if (net_dir != NULL) {

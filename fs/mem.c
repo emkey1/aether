@@ -100,12 +100,48 @@ static ssize_t random_read(struct fd *UNUSED(fd), void *buf, size_t bufsize) {
     get_random(buf, bufsize);
     return bufsize;
 }
+
+static ssize_t random_ioctl_size(int cmd) {
+    switch (cmd) {
+        case RNDGETENTCNT_: case RNDADDTOENTCNT_:
+            return sizeof(dword_t);
+        case RNDADDENTROPY_:
+            // struct rand_pool_info header { int entropy_count; int buf_size; };
+            // the variable-length entropy payload that follows is ignored.
+            return 2 * sizeof(dword_t);
+        case RNDZAPENTCNT_: case RNDCLEARPOOL_: case RNDRESEEDCRNG_:
+            return 0;
+    }
+    return -1;
+}
+
+// iSH has no real entropy pool — randomness comes from the host CSPRNG, so the
+// pool is always full and crediting/reseeding are no-ops. We only answer the
+// "how much entropy is available" query so callers (seedrng's RNDADDENTROPY,
+// rng-tools) succeed instead of getting ENOTTY and reporting a seeding error.
+static int random_ioctl(struct fd *UNUSED(fd), int cmd, void *arg) {
+    switch (cmd) {
+        case RNDGETENTCNT_:
+            *(dword_t *) arg = RANDOM_POOL_BITS;
+            return 0;
+        case RNDADDTOENTCNT_:
+        case RNDADDENTROPY_:
+        case RNDZAPENTCNT_:
+        case RNDCLEARPOOL_:
+        case RNDRESEEDCRNG_:
+            return 0;
+    }
+    return _ENOTTY;
+}
+
 struct dev_ops random_dev = {
     .open = null_open,
     .fd.read = random_read,
     .fd.write = null_write,
     .fd.lseek = null_lseek,
     .fd.poll = ready_poll,
+    .fd.ioctl_size = random_ioctl_size,
+    .fd.ioctl = random_ioctl,
 };
 
 static ssize_t kmsg_read(struct fd *fd, void *buf, size_t bufsize) {

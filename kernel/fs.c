@@ -8,6 +8,7 @@
 #include "kernel/task.h"
 #include "kernel/fs.h"
 #include "kernel/inotify.h"
+#include "kernel/random.h"
 #include "fs/fd.h"
 #include "fs/inode.h"
 #include "fs/path.h"
@@ -1137,6 +1138,7 @@ static bool ioctl_user_arg_needs_read(dword_t cmd) {
         case TIOCGPTN_:
         case TIOCGPKT_:
         case FIONREAD_:
+        case RNDGETENTCNT_:
             return false;
         default:
             return true;
