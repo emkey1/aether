@@ -322,6 +322,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.termView.terminal = _terminal;
 }
 
+- (void)focusTerminal {
+    [self.termView becomeFirstResponder];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self _installTerminalStartupOverlay];

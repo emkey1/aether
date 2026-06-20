@@ -23,6 +23,7 @@ typedef NS_ENUM(NSInteger, ISHFreshSessionTerminalDisplayMode) {
 - (void)showSystemConsoleForCurrentSession;
 - (void)showSessionShellForCurrentSession;
 - (void)reconnectSessionFromTerminalUUID:(NSUUID *)uuid;
+- (void)focusTerminal;
 @property (readonly) NSUUID *sessionTerminalUUID; // 0 means invalid
 @property UISceneSession *sceneSession API_AVAILABLE(ios(13.0));
 @property (nonatomic) BOOL showsWorkspaceDashboardButton;

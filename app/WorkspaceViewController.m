@@ -381,36 +381,43 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 }
 
 - (void)applyModernWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active {
-    UIColor *card = theme[@"card"];
+    BOOL dark = UserPreferences.shared.requestingDarkAppearance;
     UIColor *accent = theme[@"accent"];
     UIColor *focusRing = theme[@"focusRing"] ?: accent;
-    UIColor *stroke = theme[@"stroke"];
 
-    // Flat surfaces: the window body and content share one card color. The focused
-    // window's title bar is a solid accent bar with light text — the strong focus cue.
+    // Modern uses neutral light/dark surfaces (the chrome theme only supplies the
+    // accent), so the windows stay coherent with the flat desktop in both appearances.
+    UIColor *card = dark ? [UIColor colorWithRed:0.13 green:0.14 blue:0.17 alpha:1.0]
+                         : UIColor.whiteColor;
+    UIColor *titleText = dark ? [UIColor colorWithWhite:0.92 alpha:1.0]
+                              : [UIColor colorWithRed:0.11 green:0.13 blue:0.18 alpha:1.0];
+    UIColor *hairline = dark ? [UIColor colorWithWhite:1.0 alpha:0.14]
+                             : [UIColor colorWithWhite:0.0 alpha:0.10];
+    UIColor *mutedGlyph = dark ? [UIColor colorWithWhite:0.62 alpha:1.0]
+                               : [UIColor colorWithWhite:0.42 alpha:1.0];
+
     self.panelView.backgroundColor = card;
     self.contentContainerView.backgroundColor = card;
+    // Focused window: solid accent title bar with white text. Otherwise the flat card.
     self.titleBarView.backgroundColor = active ? accent : card;
-    self.titleLabel.textColor = active ? UIColor.whiteColor : theme[@"primary"];
+    self.titleLabel.textColor = active ? UIColor.whiteColor : titleText;
 
     // Hairline border in repose; a crisp accent ring marks focus.
-    self.panelView.layer.borderWidth = active ? 1.5 : 0.5;
-    self.panelView.layer.borderColor = (active ? focusRing : stroke).CGColor;
+    self.panelView.layer.borderWidth = active ? 1.5 : 1.0;
+    self.panelView.layer.borderColor = (active ? focusRing : hairline).CGColor;
 
     // Quiet, flat window controls: tinted glyphs, no filled chips or borders.
     self.closeButton.backgroundColor = UIColor.clearColor;
     self.closeButton.layer.borderWidth = 0.0;
-    [self.closeButton setTitleColor:(active ? UIColor.whiteColor : theme[@"accentAlt"]) forState:UIControlStateNormal];
+    [self.closeButton setTitleColor:(active ? UIColor.whiteColor : mutedGlyph) forState:UIControlStateNormal];
     self.utilityButton.backgroundColor = UIColor.clearColor;
     self.utilityButton.layer.borderWidth = 0.0;
-    [self.utilityButton setTitleColor:(active ? UIColor.whiteColor : theme[@"accentAlt"]) forState:UIControlStateNormal];
+    [self.utilityButton setTitleColor:(active ? UIColor.whiteColor : mutedGlyph) forState:UIControlStateNormal];
 
-    self.resizeHandleView.backgroundColor = active
-        ? [focusRing colorWithAlphaComponent:0.9]
-        : [stroke colorWithAlphaComponent:0.5];
+    self.resizeHandleView.backgroundColor = active ? [focusRing colorWithAlphaComponent:0.9] : hairline;
 
-    // Flatter elevation than Classic.
-    self.layer.shadowColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.32].CGColor;
+    // Neutral flat elevation in both appearances.
+    self.layer.shadowColor = UIColor.blackColor.CGColor;
 }
 
 - (void)layoutSubviews {
@@ -2572,7 +2579,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self.desktopSurfaceView bringSubviewToFront:windowView];
     }
     __weak typeof(self) weakSelf = self;
+    __weak typeof(windowView) weakWindowView = windowView;
     windowView.didBecomeFrontmostHandler = ^{
+        [weakWindowView.hostedTerminalViewController focusTerminal];
         [weakSelf refreshDockButtons];
     };
     return windowView;
@@ -3115,6 +3124,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (windowView == nil)
         return;
     [self.desktopSurfaceView bringSubviewToFront:windowView];
+    [windowView.hostedTerminalViewController focusTerminal];
     [self refreshDockButtons];
 }
 
@@ -3333,7 +3343,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  object:nil];
     }
 
-    [UserPreferences.shared observe:@[@"workspaceStyle"]
+    [UserPreferences.shared observe:@[@"workspaceStyle", @"colorScheme"]
                             options:0 owner:self usingBlock:^(typeof(self) self) {
         // Re-skin every open window and the desktop when the Classic/Modern style is
         // switched from anywhere (Settings, the dock menu, or the guest `defaults` tool).
