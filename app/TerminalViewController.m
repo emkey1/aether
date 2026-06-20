@@ -680,10 +680,13 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         [spacer.widthAnchor constraintGreaterThanOrEqualToConstant:0].active = YES;
     }
 
-    // Pin the gap between '.' and '/' to the bar's center. Just-breakable priority
-    // so an extremely narrow bar degrades to "as centered as fits" instead of
-    // breaking a required constraint.
-    NSLayoutConstraint *center = [self.dotKey.trailingAnchor constraintEqualToAnchor:self.bar.centerXAnchor constant:-(self.bar.spacing / 2.0)];
+    // Center the whole key cluster by making the flexible space on each side equal, so
+    // the gap to the left controls matches the gap to the right controls no matter how
+    // many keys are shown (and when they collapse on iPhone portrait). Pinning one
+    // interior gap to the bar center instead left the cluster visibly lopsided once more
+    // keys sat to its right than to its left. Just-breakable so a very narrow bar still
+    // degrades gracefully.
+    NSLayoutConstraint *center = [leftSpacer.widthAnchor constraintEqualToAnchor:rightSpacer.widthAnchor];
     center.priority = UILayoutPriorityRequired - 1;
     center.active = YES;
 
