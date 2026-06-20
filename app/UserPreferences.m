@@ -44,6 +44,7 @@ static NSString *const kPreferenceCursorStyleKey = @"Cursor Style";
 static NSString *const kPreferenceBlinkCursorKey = @"Blink Cursor";
 NSString *const kPreferenceHideStatusBarKey = @"Status Bar";
 static NSString *const kPreferenceColorSchemeKey = @"Color Scheme";
+static NSString *const kPreferenceWorkspaceStyleKey = @"Workspace Style";
 
 NSDictionary<NSString *, NSString *> *friendlyPreferenceMapping;
 NSDictionary<NSString *, NSString *> *friendlyPreferenceReverseMapping;
@@ -196,6 +197,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceCursorStyleKey: @(CursorStyleBlock),
             kPreferenceHideStatusBarKey: @(NO),
             kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
+            kPreferenceWorkspaceStyleKey: @(WorkspaceStyleClassic),
             kPreferenceThemeKey: @"Solarized",
         }];
         // https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/
@@ -239,6 +241,7 @@ bool (*remove_user_default)(const char *name);
             @"blink_cursor": kPreferenceBlinkCursorKey,
             @"hide_status_bar": kPreferenceHideStatusBarKey,
             @"color_scheme": kPreferenceColorSchemeKey,
+            @"workspace_style": kPreferenceWorkspaceStyleKey,
             @"theme": kPreferenceThemeKey,
         };
         NSMutableDictionary <NSString *, NSString *> *reverseMapping = [NSMutableDictionary new];
@@ -272,6 +275,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceBlinkCursorKey: property(blinkCursor),
             kPreferenceHideStatusBarKey: property(hideStatusBar),
             kPreferenceColorSchemeKey: property(colorScheme),
+            kPreferenceWorkspaceStyleKey: property(workspaceStyle),
             // This one is a little bit special, so it needs extra handling.
             // The backing property for this is intentionally underscored.
             kPreferenceThemeKey: @"userTheme",
@@ -718,6 +722,23 @@ bool (*remove_user_default)(const char *name);
     }
     int _value = [(NSNumber *)(*value) intValue];
     return _value >= __ColorSchemeLast && value < __ColorSchemeFirst;
+}
+
+// MARK: workspaceStyle
+- (WorkspaceStyle)workspaceStyle {
+    return [_defaults integerForKey:kPreferenceWorkspaceStyleKey];
+}
+
+- (void)setWorkspaceStyle:(WorkspaceStyle)workspaceStyle {
+    [_defaults setInteger:workspaceStyle forKey:kPreferenceWorkspaceStyleKey];
+}
+
+- (BOOL)validateWorkspaceStyle:(id *)value error:(NSError **)error {
+    if (![*value isKindOfClass:NSNumber.class]) {
+        return NO;
+    }
+    int _value = [(NSNumber *)(*value) intValue];
+    return _value >= __WorkspaceStyleFirst && _value < __WorkspaceStyleLast;
 }
 
 + (BOOL)systemThemeIsDark {

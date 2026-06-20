@@ -39,6 +39,13 @@ typedef NS_ENUM(NSInteger, ColorScheme) {
     __ColorSchemeLast,
 };
 
+typedef NS_ENUM(NSInteger, WorkspaceStyle) {
+    __WorkspaceStyleFirst = 0,
+    WorkspaceStyleClassic = 0,
+    WorkspaceStyleModern,
+    __WorkspaceStyleLast,
+};
+
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const kThemeForegroundColor;
@@ -54,6 +61,7 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL hideStatusBar;
 @property (nonatomic) Theme *theme;
 @property (nonatomic) Palette *palette;
+@property WorkspaceStyle workspaceStyle;
 @property BOOL shouldDisableDimming;
 @property BOOL shouldEnableMulticore;
 @property BOOL shouldEnableExtraLocking;
