@@ -3153,7 +3153,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"New Terminal"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self openTerminalHerePreferringConsole:NO];
+        [self openDesktopTerminalHerePreferringConsole:NO
+                                         reuseExisting:NO
+                                       trackPrimaryRole:NO];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"New System Console"
                                               style:UIAlertActionStyleDefault
