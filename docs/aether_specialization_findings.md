@@ -135,7 +135,7 @@ no-guide score moves in opposite directions depending on model size:
 | Qwen2.5-Coder-7B dense (r32/a64/3ep) | 28 | 25 | — | **1x** |
 | Qwen2.5-Coder-14B dense (r64/a128/4ep) | 26 | **30** | 24 | **2x** |
 | Qwen3-Coder-30B-A3B MoE, 3B active (r32/a64/3ep) | 29 | 29 | — | flat |
-| Mistral-Small-24B dense (r64/a128/4ep) | 27 | 29 | — | 2x |
+| Mistral-Small-24B dense (r64/a128/4ep) | 27 | 29 | 27 | 2x |
 
 *(Scores re-scored on the current compiler; see §3.5. The MoE and 7B-2x run-ok
 moved with exact-match — 84→75 for the diluting 7B, ~flat for the others — so the
@@ -174,9 +174,13 @@ negative past roughly four epochs, which is where we sit). The 3x sweep settles
 the open question: the dense corpus-optimum is **bounded** and **shifts right with
 model size** — the 7B peaks at 1x, the 14B at 2x — but past its own ceiling each
 model *dilutes*. The 14B drops 30→24 at 3x, the same interference the 7B showed
-going 1x→2x. So the Chinchilla *direction* holds, but "bigger always wants more"
-does not; this is squarely the LIMA / data-constrained regime, not compute-optimal
-pretraining.
+going 1x→2x. The 24B then **bounds** it: a different family at a larger size, it
+*also* peaks at 2x (29→27 at 3x), so the optimum plateaus rather than marching
+right indefinitely; with more total parameters, though, it dilutes far more gently
+(−2 vs the 14B's −6) — robustness past the peak, not a higher peak. So the
+Chinchilla *direction* holds from 7B to 14B and then stops; "bigger always wants
+more" does not; this is squarely the LIMA / data-constrained regime, not
+compute-optimal pretraining.
 
 ### 3.2 Letting the model co-design the language
 
