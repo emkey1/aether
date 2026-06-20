@@ -15,4 +15,19 @@
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)anchorPopoverForAlertController:(UIAlertController *)alertController toSource:(id)source {
+    UIPopoverPresentationController *popover = alertController.popoverPresentationController;
+    if (popover == nil)
+        return; // Not presented as a popover (e.g. iPhone) — no anchor required.
+    if ([source isKindOfClass:UIBarButtonItem.class]) {
+        popover.barButtonItem = source;
+    } else if ([source isKindOfClass:UIView.class]) {
+        popover.sourceView = source;
+        popover.sourceRect = ((UIView *) source).bounds;
+    } else {
+        popover.sourceView = self.view;
+        popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    }
+}
+
 @end
