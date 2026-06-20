@@ -207,6 +207,7 @@ static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *c
 @property (strong, nonatomic) BarButton *slashKey;
 @property (strong, nonatomic) BarButton *dashKey;
 @property (strong, nonatomic) BarButton *colonKey;
+@property (strong, nonatomic) BarButton *bangKey;
 @property (weak, nonatomic) IBOutlet UIButton *pasteButton;
 @property (weak, nonatomic) IBOutlet UIButton *hideKeyboardButton;
 @property (strong, nonatomic) UIButton *floatingWorkspaceButton;
@@ -615,11 +616,11 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     return button;
 }
 
-// Up to four extra keys centered on the accessory bar -- characters a shell user
+// Up to five extra keys centered on the accessory bar -- characters a shell user
 // reaches for constantly. '.' and '/' (./  ../  /usr  *.c) are always present and
-// straddle the bar's horizontal center; '-' and ':' (command flags, host:path,
-// time strings) flank them but only when there's room -- hidden on an iPhone in
-// portrait, where the bar is already full, and shown in landscape and on iPad.
+// straddle the bar's horizontal center; '-', ':' and '!' (command flags, host:path,
+// time strings, history !!/!$) flank them but only when there's room -- hidden on an
+// iPhone in portrait, where the bar is already full, and shown in landscape and on iPad.
 // Flexible space on either side keeps the left keys and right controls on their own
 // edges. Present on both the plain and Workspace bars.
 - (void)_installCenterKeys {
@@ -648,18 +649,22 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.colonKey = [self _makeCenterKeyWithTitle:@":" action:@selector(pressColon:)];
     self.colonKey.accessibilityLabel = @"Colon";
     self.colonKey.accessibilityHint = @"Sends a colon.";
+    self.bangKey = [self _makeCenterKeyWithTitle:@"!" action:@selector(pressBang:)];
+    self.bangKey.accessibilityLabel = @"Exclamation mark";
+    self.bangKey.accessibilityHint = @"Sends an exclamation mark.";
 
     UIView *rightSpacer = [[UIView alloc] init];
     rightSpacer.translatesAutoresizingMaskIntoConstraints = NO;
 
-    // Order across the center: dash dot slash colon, with the dot/slash gap pinned
-    // to the bar center below.
+    // Order across the center: dash dot slash colon bang, with the dot/slash gap
+    // pinned to the bar center below.
     NSUInteger spacerIndex = [self.bar.arrangedSubviews indexOfObject:leftSpacer];
     [self.bar insertArrangedSubview:self.dashKey atIndex:spacerIndex + 1];
     [self.bar insertArrangedSubview:self.dotKey atIndex:spacerIndex + 2];
     [self.bar insertArrangedSubview:self.slashKey atIndex:spacerIndex + 3];
     [self.bar insertArrangedSubview:self.colonKey atIndex:spacerIndex + 4];
-    [self.bar insertArrangedSubview:rightSpacer atIndex:spacerIndex + 5];
+    [self.bar insertArrangedSubview:self.bangKey atIndex:spacerIndex + 5];
+    [self.bar insertArrangedSubview:rightSpacer atIndex:spacerIndex + 6];
 
     // Both spacers yield their width freely so the keys can reach the center; the
     // >= 0 floor keeps a very narrow bar from forcing them (and the keys) to overlap.
@@ -678,19 +683,22 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 
     [self.dotKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
     [self.slashKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
-    // '-' and ':' match the other keys' width, but just-breakable so UIStackView can
-    // collapse them to zero width when hidden (portrait iPhone) without a conflict.
+    // '-', ':' and '!' match the other keys' width, but just-breakable so UIStackView
+    // can collapse them to zero width when hidden (portrait iPhone) without a conflict.
     NSLayoutConstraint *dashWidth = [self.dashKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor];
     NSLayoutConstraint *colonWidth = [self.colonKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor];
+    NSLayoutConstraint *bangWidth = [self.bangKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor];
     dashWidth.priority = UILayoutPriorityRequired - 1;
     colonWidth.priority = UILayoutPriorityRequired - 1;
+    bangWidth.priority = UILayoutPriorityRequired - 1;
     dashWidth.active = YES;
     colonWidth.active = YES;
+    bangWidth.active = YES;
 
     [self _updateCenterKeyVisibility];
 }
 
-// '-' and ':' only appear when the accessory bar has room: hidden on an iPhone in
+// '-', ':' and '!' only appear when the accessory bar has room: hidden on an iPhone in
 // portrait (regular height, compact width), shown in landscape and on iPad. A hidden
 // UIStackView arranged subview is collapsed, so '.' and '/' stay centered either way.
 - (void)_updateCenterKeyVisibility {
@@ -698,6 +706,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         self.traitCollection.verticalSizeClass == UIUserInterfaceSizeClassRegular;
     self.dashKey.hidden = phonePortrait;
     self.colonKey.hidden = phonePortrait;
+    self.bangKey.hidden = phonePortrait;
 }
 
 - (void)_installTerminalSwitcherGestureOnView:(UIView *)view {
@@ -1140,6 +1149,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         self.slashKey.keyAppearance = keyAppearance;
         self.dashKey.keyAppearance = keyAppearance;
         self.colonKey.keyAppearance = keyAppearance;
+        self.bangKey.keyAppearance = keyAppearance;
         UIColor *tintColor = keyAppearance == UIKeyboardAppearanceLight ? UIColor.blackColor : UIColor.whiteColor;
         // Give the in-bar control buttons a key-like background so they stay visible on any terminal
         // theme. Without it they are bare glyphs that vanish on a dark terminal (they only showed in
@@ -1546,6 +1556,9 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 - (IBAction)pressColon:(id)sender {
     [self pressKey:@":"];
+}
+- (IBAction)pressBang:(id)sender {
+    [self pressKey:@"!"];
 }
 - (void)pressKey:(NSString *)key {
     [self.termView insertText:key];
