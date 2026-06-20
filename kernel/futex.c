@@ -4,6 +4,7 @@
 #include "kernel/time.h"
 #include "util/timer.h"
 #include "util/sync.h"
+#include <stdlib.h>
 // Apple doesn't implement futex, so we have to fake it
 #define FUTEX_WAIT_ 0
 #define FUTEX_WAKE_ 1
@@ -167,6 +168,24 @@ static bool futex_wait_has_pending_signal(void) {
     return pending;
 }
 
+// Temporary diagnostic for the SA_RESTART futex lost-wake race (gated off by
+// default; set ISH_TRACE_FUTEX=1). Logs queue enter/exit and wake events with a
+// monotonic-ms timestamp + tid so we can see, for a futex_core signal-restart
+// failure, whether the signal is noticed promptly (prompt-wake works) or only
+// at the ~50ms slice boundary, and whether a FUTEX_WAKE lands in the off-queue
+// restart window (woke=0).
+static bool futex_trace_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_TRACE_FUTEX") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+static long long futex_trace_ms(void) {
+    struct timespec ts = timespec_now(CLOCK_MONOTONIC);
+    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct timespec *timeout, dword_t bitset) {
     struct futex *futex = futex_get(uaddr, op);
     int err = 0;
@@ -190,6 +209,9 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
         wait.thread = pthread_self();
         wait.bitset = bitset;
         list_add_tail(&futex->queue, &wait.queue);
+        if (futex_trace_enabled())
+            printk("FUTEXTRACE %d enter uaddr=%#llx t=%lld\n",
+                   current ? current->pid : -1, (unsigned long long) uaddr, futex_trace_ms());
         for (;;) {
             struct timespec remaining = wait_slice;
             if (timeout != NULL) {
@@ -234,6 +256,9 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
             if (err != _ETIMEDOUT)
                 break;
         }
+        if (futex_trace_enabled())
+            printk("FUTEXTRACE %d exit uaddr=%#llx err=%d t=%lld\n",
+                   current ? current->pid : -1, (unsigned long long) uaddr, err, futex_trace_ms());
         futex = wait.futex;
         list_remove_safe(&wait.queue);
     }
@@ -296,6 +321,9 @@ static int futex_wakelike(int op, guest_addr_t uaddr, dword_t wake_max, dword_t 
         woken += requeued;
     }
 
+    if (futex_trace_enabled())
+        printk("FUTEXTRACE %d wake uaddr=%#llx woke=%u t=%lld\n",
+               current ? current->pid : -1, (unsigned long long) uaddr, woken, futex_trace_ms());
     futex_put(futex);
     return woken;
 }
