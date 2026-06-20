@@ -352,7 +352,7 @@ static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
         proc_put_task(task);
         return _ESRCH;
     }
-    // FIXME: Increment task->reference.count
+    // task is ref-pinned by proc_get_task() above and dropped by proc_put_task() below
     int err = 0;
     struct mm *mm = NULL;
     addr_t start = 0;
@@ -370,13 +370,11 @@ static int proc_pid_auxv_show(struct proc_entry *entry, struct proc_data *buf) {
     err = proc_pid_copy_user_range(task, &mm->mem, start, size, buf);
     mm_release(mm);
     proc_put_task(task);
-    // FIXME: Decrement task->reference.count
     return err;
 
 out_free_task:
     unlock(&task->general_lock);
     proc_put_task(task);
-    // FIXME: Decrement task->reference.count
     return err;
 }
 
