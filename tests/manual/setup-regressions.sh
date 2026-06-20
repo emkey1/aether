@@ -103,6 +103,15 @@ if ! command -v cc >/dev/null 2>&1; then
     fi
 fi
 
+# amd64_regress.c uses x86-64-only inline asm (r8-r15, movq/popq) and exercises
+# the amd64 JIT; it cannot assemble on an i686 guest. Require, build, and run it
+# only on a 64-bit guest. Every other test is portable across i386 and amd64.
+guest_arch=$(uname -m 2>/dev/null || echo unknown)
+case "$guest_arch" in
+    x86_64|amd64) is_amd64_guest=1 ;;
+    *) is_amd64_guest=0 ;;
+esac
+
 need_file atomic_common.h
 need_file test_common.h
 need_file atomic_xadd32.c
@@ -137,7 +146,9 @@ need_file mem_conformance.c
 need_file sock_conformance.c
 need_file netlink_route.c
 need_file random_seed.c
-need_file amd64_regress.c
+if [ "$is_amd64_guest" -eq 1 ]; then
+    need_file amd64_regress.c
+fi
 
 if ! mkdir -p "$work_dir/bin"; then
     echo "failed to create work directory: $work_dir" >&2
@@ -350,7 +361,10 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route random_seed amd64_regress"
+all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route random_seed"
+if [ "$is_amd64_guest" -eq 1 ]; then
+    all_tests="$all_tests amd64_regress"
+fi
 
 test_selected() {
     name=$1
