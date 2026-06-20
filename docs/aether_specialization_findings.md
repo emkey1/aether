@@ -130,11 +130,16 @@ this `docs/` folder, and the conformance programs in [`../tests/`](../tests).
 Holding the recipe fixed per model and varying only the corpus (1x vs 2x), the
 no-guide score moves in opposite directions depending on model size:
 
-| model (recipe) | 1x | 2x | Δ | run-ok 1x→2x |
+| model (recipe) | 1x | 2x | 3x | peak |
 |---|---|---|---|---|
-| Qwen2.5-Coder-7B dense (r32/a64/3ep) | 28/30 | 24/30 | **−4** | 84→75 |
-| Qwen2.5-Coder-14B dense (r64/a128/4ep) | 26/30 | **29/30** | **+3** | 87→87 |
-| Qwen3-Coder-30B-A3B MoE, 3B active (r32/a64/3ep) | 28/30 | 28/30 | **0** | 84→86 |
+| Qwen2.5-Coder-7B dense (r32/a64/3ep) | 28 | 25 | — | **1x** |
+| Qwen2.5-Coder-14B dense (r64/a128/4ep) | 26 | **30** | 24 | **2x** |
+| Qwen3-Coder-30B-A3B MoE, 3B active (r32/a64/3ep) | 29 | 29 | — | flat |
+| Mistral-Small-24B dense (r64/a128/4ep) | 27 | 29 | — | 2x |
+
+*(Scores re-scored on the current compiler; see §3.5. The MoE and 7B-2x run-ok
+moved with exact-match — 84→75 for the diluting 7B, ~flat for the others — so the
+dense degradation is real, not a metric artifact.)*
 
 The small dense model is **hurt** by more data, the large dense model is
 **helped**, and the sparse MoE is **inert**. The per-task diffs make the
@@ -165,10 +170,13 @@ multi-epoch SFT on a tiny corpus measured in exact-match, where it plainly does.
 The better-matched references for our regime are LIMA (Zhou et al., 2023, quality
 over quantity for instruction tuning) and the data-constrained scaling work
 (Muennighoff et al., 2023, where repeated-data returns flatten and then go
-negative past roughly four epochs, which is where we sit). The open follow-up is
-a 3x/4x corpus sweep to test whether the dense corpus-optimum keeps climbing
-with model size; we expect the same *direction*, not Chinchilla's linear
-constant.
+negative past roughly four epochs, which is where we sit). The 3x sweep settles
+the open question: the dense corpus-optimum is **bounded** and **shifts right with
+model size** — the 7B peaks at 1x, the 14B at 2x — but past its own ceiling each
+model *dilutes*. The 14B drops 30→24 at 3x, the same interference the 7B showed
+going 1x→2x. So the Chinchilla *direction* holds, but "bigger always wants more"
+does not; this is squarely the LIMA / data-constrained regime, not compute-optimal
+pretraining.
 
 ### 3.2 Letting the model co-design the language
 
@@ -241,6 +249,22 @@ The honest bridge between this program and the grokking/emergence story is the
 one in §1: **exact-match metrics make everything look more sudden than it is**,
 in both directions.
 
+### 3.5 The eval binary is part of the measurement too
+
+A subtler version of §3.3 bit us directly. For a stretch the benchmark harness
+built its Aether compiler from a **stale source** — the old monorepo, weeks behind
+the split repo where the language actually evolves — so recently added constructs
+(a missing TOON accessor among them) silently *could not compile*, and every model
+that reached for them lost the task. The scores were real, but they measured a
+**compiler that no longer existed**, not the models. The fix has two halves:
+rebuild the eval compiler from the canonical source before each run, and — because
+every generation is stored — **re-score** old runs by recompiling them with the
+current compiler, no re-inference needed (recompiling is CPU-cheap; serving the
+models is not). Re-scoring recovered exactly the affected tasks (the 14B-2x 29→30
+above) and nothing else. The lesson generalizes §1 one more level: not just the
+metric and the tokenizer, but the **toolchain that runs the generated code** is
+part of the measurement, and it drifts if you let it.
+
 ---
 
 ## 4. Methodological takeaways
@@ -257,20 +281,22 @@ in both directions.
    corpus-insensitive.
 4. **The tokenizer is part of the measurement.** A family-specific surface
    behavior can masquerade as incompetence under exact-match.
+5. **So is the toolchain.** Pin the eval compiler to the canonical source and
+   rebuild it before each run; a stale compiler silently caps scores. Because
+   generations are stored, re-score against a fixed compiler rather than
+   re-running the models.
 
 ---
 
 ## 5. Status and open questions
 
-- **Mistral-24B is not yet a clean data point.** Its raw 8/30 (and a not-yet-final
-  2x number) are dominated by the §3.3 space-dropping artifact; the clean score
-  awaits the staged diagnostic and, if needed, a re-serve or corrected training
-  config (no retraining of the merge required).
-- **The 3x/4x corpus sweep is pending.** It tests whether the dense
-  corpus-optimum keeps rising with model size (the §3.1 direction), with the
-  explicit caveat that we expect direction, not Chinchilla's linear ratio.
-- **Best clean model to date** is the 14B at 2x with the §3.2 language additions,
-  at 30/30 on the no-guide benchmark.
+- **Mistral-24B is resolved.** The §3.3 space-dropping was a vLLM/Tekken serving
+  bug, not the weights; serving with the native tokenizer gives a clean 27/30 (1x)
+  and 29/30 (2x), in-band with the Qwen dense models.
+- **The 3x sweep is done** (§3.1): the dense corpus-optimum is bounded at 2x for
+  the 14B (it dilutes to 24 at 3x), so 4x is not worth running on this model.
+- **Best model to date** is the 14B at 2x with the §3.2 language additions, at
+  **30/30** on the no-guide benchmark.
 
 ---
 
