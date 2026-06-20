@@ -81,7 +81,7 @@ note "timezone=$TZ_NAME  login=${TARGET_USER:-<none>}  hostname=${NEW_HOSTNAME:-
 log "Installing packages (this is the slow part under emulation)"
 # ===========================================================================
 PKGS="
-  bash bash-completion
+  bash bash-completion cmake
   coreutils findutils grep sed gawk diffutils util-linux-misc
   procps-ng shadow file less
   openrc openssh openssh-server sudo
