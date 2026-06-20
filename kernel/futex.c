@@ -4,7 +4,6 @@
 #include "kernel/time.h"
 #include "util/timer.h"
 #include "util/sync.h"
-#include <stdlib.h>
 // Apple doesn't implement futex, so we have to fake it
 #define FUTEX_WAIT_ 0
 #define FUTEX_WAKE_ 1
@@ -168,24 +167,6 @@ static bool futex_wait_has_pending_signal(void) {
     return pending;
 }
 
-// Temporary diagnostic for the SA_RESTART futex lost-wake race (gated off by
-// default; set ISH_TRACE_FUTEX=1). Logs queue enter/exit and wake events with a
-// monotonic-ms timestamp + tid so we can see, for a futex_core signal-restart
-// failure, whether the signal is noticed promptly (prompt-wake works) or only
-// at the ~50ms slice boundary, and whether a FUTEX_WAKE lands in the off-queue
-// restart window (woke=0).
-static bool futex_trace_enabled(void) {
-    static int enabled = -1;
-    if (enabled == -1)
-        enabled = getenv("ISH_TRACE_FUTEX") != NULL ? 1 : 0;
-    return enabled == 1;
-}
-
-static long long futex_trace_ms(void) {
-    struct timespec ts = timespec_now(CLOCK_MONOTONIC);
-    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
 static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct timespec *timeout, dword_t bitset) {
     struct futex *futex = futex_get(uaddr, op);
     int err = 0;
@@ -209,9 +190,6 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
         wait.thread = pthread_self();
         wait.bitset = bitset;
         list_add_tail(&futex->queue, &wait.queue);
-        if (futex_trace_enabled())
-            printk("FUTEXTRACE %d enter uaddr=%#llx t=%lld\n",
-                   current ? current->pid : -1, (unsigned long long) uaddr, futex_trace_ms());
         for (;;) {
             struct timespec remaining = wait_slice;
             if (timeout != NULL) {
@@ -233,23 +211,6 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
                 err = wait_for(&wait.cond, &futex_lock, &remaining);
                 should_mark_wait_interrupted = false;
             }
-            // Check "were we dequeued by a FUTEX_WAKE" BEFORE the interrupt
-            // check. A wake that removed us from the queue woke us, and a wake
-            // that dequeues a waiter is never lost: Linux returns 0, and the
-            // pending signal (if any) is delivered on the syscall-return path.
-            // Testing wait.interrupted first dropped the wake whenever a signal
-            // raced it -- the SA_RESTART lost-wake bug: the signal sets
-            // wait.interrupted, then a FUTEX_WAKE dequeues us before the signal
-            // is noticed (notice can be deferred to the wait-slice boundary), so
-            // we returned EINTR and discarded the wake; SA_RESTART then re-blocked
-            // with no wake left to receive and ran to ETIMEDOUT. This also covers
-            // the wake firing between wait_for iterations, where the cond
-            // notification is lost and the next wait_for would otherwise time out
-            // (returning ETIMEDOUT here would trip glibc's futex_fatal_error()).
-            if (list_null(&wait.queue)) {
-                err = 0;
-                break;
-            }
             if (__atomic_load_n(&wait.interrupted, __ATOMIC_ACQUIRE) || futex_wait_has_pending_signal()) {
                 err = _EINTR;
                 break;
@@ -259,12 +220,20 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
             // Keep waiting instead of leaking a spurious EINTR to the guest.
             if (err == _EINTR)
                 continue;
+            if (list_null(&wait.queue)) {
+                // FUTEX_WAKE removed us from the queue. The wake may have
+                // fired while we were between wait_for iterations (not
+                // sleeping), so the cond notification was lost and the next
+                // wait_for timed out. Regardless of what wait_for returned
+                // last, the semantic result is "woken" (0), not ETIMEDOUT.
+                // Returning ETIMEDOUT here would trigger glibc's
+                // futex_fatal_error() from futex_wait_simple().
+                err = 0;
+                break;
+            }
             if (err != _ETIMEDOUT)
                 break;
         }
-        if (futex_trace_enabled())
-            printk("FUTEXTRACE %d exit uaddr=%#llx err=%d t=%lld\n",
-                   current ? current->pid : -1, (unsigned long long) uaddr, err, futex_trace_ms());
         futex = wait.futex;
         list_remove_safe(&wait.queue);
     }
@@ -327,9 +296,6 @@ static int futex_wakelike(int op, guest_addr_t uaddr, dword_t wake_max, dword_t 
         woken += requeued;
     }
 
-    if (futex_trace_enabled())
-        printk("FUTEXTRACE %d wake uaddr=%#llx woke=%u t=%lld\n",
-               current ? current->pid : -1, (unsigned long long) uaddr, woken, futex_trace_ms());
     futex_put(futex);
     return woken;
 }
