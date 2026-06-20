@@ -107,6 +107,34 @@ static void run_cases(void) {
         uint32_t v = safe_f64_i32(a) ? (uint32_t)r : MARK_I32;
         dc_emit("ttsd2si", 64, F64[i], 0, v, 0, 0);
     }
+    for (size_t i = 0; i < NF32; i++) {              /* cvtss2si: f32 -> int (round, 0F 2D) */
+        float a = b2f(F32[i]); int32_t r;
+        __asm__ volatile("cvtss2si %[a], %[r]" : [r]"=r"(r) : [a]"x"(a));
+        uint32_t v = safe_f32_i32(a) ? (uint32_t)r : MARK_I32;
+        dc_emit("ss2si", 32, F32[i], 0, v, 0, 0);
+    }
+    for (size_t i = 0; i < NF64; i++) {              /* cvtsd2si: f64 -> int (round, 0F 2D) */
+        double a = b2d(F64[i]); int32_t r;
+        __asm__ volatile("cvtsd2si %[a], %[r]" : [r]"=r"(r) : [a]"x"(a));
+        uint32_t v = safe_f64_i32(a) ? (uint32_t)r : MARK_I32;
+        dc_emit("sd2si", 64, F64[i], 0, v, 0, 0);
+    }
+    /* round-to-nearest-even ties + values where rounding differs from truncation,
+     * to lock in 0F 2D semantics (cvt*2si was unimplemented on amd64 -> SIGILL,
+     * the mosh-client crash; cvtt*2si above never exercised the rounding path). */
+    {
+        static const double RND[] = {
+            0.5, 1.5, 2.5, 3.5, -0.5, -1.5, -2.5, 2.4, 2.6, -2.4, -2.6, 500.0,
+        };
+        for (size_t i = 0; i < sizeof RND / sizeof RND[0]; i++) {
+            double ad = RND[i]; float af = (float)RND[i]; int32_t rd, rf;
+            __asm__ volatile("cvtsd2si %[a], %[r]" : [r]"=r"(rd) : [a]"x"(ad));
+            __asm__ volatile("cvtss2si %[a], %[r]" : [r]"=r"(rf) : [a]"x"(af));
+            dc_emit("sd2si", 64, d2b(ad), 0, (uint32_t)rd, 0, 0);
+            dc_emit("ss2si", 32, f2b(af), 0, (uint32_t)rf, 0, 0);
+        }
+    }
+
     for (size_t i = 0; i < NF32; i++) {              /* cvtss2sd: f32 -> f64 (widen) */
         float a = b2f(F32[i]); double r;
         __asm__ volatile("cvtss2sd %[a], %[r]" : [r]"=x"(r) : [a]"x"(a));

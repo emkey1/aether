@@ -91,6 +91,7 @@ static bool amd64_opcode_needs_modrm(const struct amd64_jit_insn *insn) {
         case 0x17:
         case 0x2a:
         case 0x2c:
+        case 0x2d:
         case 0x2e:
         case 0x2f:
         case 0x28:
@@ -1858,6 +1859,7 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
             (insn.op2 == 0x10 ||
              insn.op2 == 0x2a ||
              insn.op2 == 0x2c ||
+             insn.op2 == 0x2d ||
              insn.op2 == 0x2e ||
              insn.op2 == 0x2f ||
              insn.op2 == 0x11 ||

@@ -2165,6 +2165,25 @@ static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     return (qword_t) (uint32_t) (int32_t) value;
 }
 
+// CVTSD2SI/CVTSS2SI (0F 2D): like the truncating cvtt form above, but rounds to
+// the nearest integer using the current rounding mode. iSH does not model the
+// MXCSR rounding-control bits, so we use rint(), which honors the host FP
+// rounding mode -- round-to-nearest-even, the x86/SSE default. Out-of-range and
+// NaN inputs yield the "integer indefinite" value, exactly like the cvtt form.
+static inline qword_t amd64_cvt_scalar_to_int(double value, bool wide) {
+    if (isnan(value))
+        return wide ? (qword_t) INT64_MIN : (qword_t) (uint32_t) INT32_MIN;
+    double rounded = rint(value);
+    if (wide) {
+        if (rounded < -9223372036854775808.0 || rounded >= 9223372036854775808.0)
+            return (qword_t) INT64_MIN;
+        return (qword_t) (sqword_t) rounded;
+    }
+    if (rounded < (double) INT32_MIN || rounded >= 2147483648.0)
+        return (qword_t) (uint32_t) INT32_MIN;
+    return (qword_t) (uint32_t) (int32_t) rounded;
+}
+
 static inline void amd64_set_fp_compare_flags(struct cpu_state *cpu, int cmp_result, bool unordered) {
     cpu->of = 0;
     cpu->sf = 0;
@@ -6042,7 +6061,7 @@ restart_prefix:
             }
             break;
         }
-        if (op2 == 0x2c && (rep_mode == AMD64_REPZ || rep_mode == AMD64_REPNZ)) {
+        if ((op2 == 0x2c || op2 == 0x2d) && (rep_mode == AMD64_REPZ || rep_mode == AMD64_REPNZ)) {
             struct amd64_modrm modrm;
             qword_t src_scalar;
             qword_t result;
@@ -6064,7 +6083,8 @@ restart_prefix:
                         goto amd64_gpf_restore;
                     src_double = *(double *) &src_scalar;
                 }
-                result = amd64_cvtt_scalar_to_int(src_double, rex.w);
+                result = (op2 == 0x2d) ? amd64_cvt_scalar_to_int(src_double, rex.w)
+                                       : amd64_cvtt_scalar_to_int(src_double, rex.w);
             } else {
                 float src_float;
                 uint32_t src_word;
@@ -6078,7 +6098,8 @@ restart_prefix:
                     src_word = (uint32_t) src_scalar;
                     src_float = *(float *) &src_word;
                 }
-                result = amd64_cvtt_scalar_to_int((double) src_float, rex.w);
+                result = (op2 == 0x2d) ? amd64_cvt_scalar_to_int((double) src_float, rex.w)
+                                       : amd64_cvtt_scalar_to_int((double) src_float, rex.w);
             }
             amd64_reg_set(cpu, modrm.reg, rex.w ? 64 : 32, result);
             break;
@@ -11404,7 +11425,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
 
     if (op2 != 0x10 && op2 != 0x11 && op2 != 0x12 && op2 != 0x13 &&
             op2 != 0x14 && op2 != 0x15 && op2 != 0x16 && op2 != 0x17 &&
-            op2 != 0x2a && op2 != 0x2c && op2 != 0x2e && op2 != 0x2f &&
+            op2 != 0x2a && op2 != 0x2c && op2 != 0x2d && op2 != 0x2e && op2 != 0x2f &&
             op2 != 0x28 &&
             op2 != 0x29 && op2 != 0x50 && !(op2 >= 0x51 && op2 <= 0x5b) &&
             !(op2 >= 0x5c && op2 <= 0x5f) &&
@@ -11582,7 +11603,7 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                                      : (float) (int32_t) src_scalar;
             }
             cpu->xmm[modrm.reg] = value;
-        } else if (op2 == 0x2c) {
+        } else if (op2 == 0x2c || op2 == 0x2d) {
             qword_t result;
             if (operand_size_prefix ||
                     (rep_mode != AMD64_REPZ && rep_mode != AMD64_REPNZ))
@@ -11596,7 +11617,8 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                         goto amd64_0f_vec_rm_pf;
                     src_double = *(double *) &src_scalar;
                 }
-                result = amd64_cvtt_scalar_to_int(src_double, rex.w);
+                result = (op2 == 0x2d) ? amd64_cvt_scalar_to_int(src_double, rex.w)
+                                       : amd64_cvtt_scalar_to_int(src_double, rex.w);
             } else {
                 float src_float;
                 uint32_t src_word;
@@ -11608,7 +11630,8 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                     src_word = (uint32_t) src_scalar;
                     src_float = *(float *) &src_word;
                 }
-                result = amd64_cvtt_scalar_to_int((double) src_float, rex.w);
+                result = (op2 == 0x2d) ? amd64_cvt_scalar_to_int((double) src_float, rex.w)
+                                       : amd64_cvtt_scalar_to_int((double) src_float, rex.w);
             }
             amd64_reg_set(cpu, modrm.reg, rex.w ? 64 : 32, result);
         } else if (op2 == 0x2e || op2 == 0x2f) {
