@@ -117,6 +117,14 @@ static BOOL ISHWorkspaceUsesPhoneLayout(void) {
     return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
 }
 
+// The Workspace ships two coexisting experiences, selected by the "Workspace Style"
+// preference: Classic (the long-standing look) and Modern (the flat, ctwm-inspired
+// reskin). Modern currently mirrors Classic; each rung fills in its divergences behind
+// this gate so the Classic experience is never disturbed.
+static BOOL ISHWorkspaceUsesModernStyle(void) {
+    return UserPreferences.shared.workspaceStyle == WorkspaceStyleModern;
+}
+
 static BOOL ISHWorkspaceSupportsSceneWindows(void) {
     if (ISHWorkspaceUsesPhoneLayout())
         return NO;
@@ -166,6 +174,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 - (instancetype)initWithTitle:(NSString *)title showsCloseButton:(BOOL)showsCloseButton;
 - (void)setUtilityButtonTitle:(nullable NSString *)title handler:(nullable dispatch_block_t)handler;
 - (void)applyWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active;
+- (void)applyModernWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active;
 
 @end
 
@@ -337,6 +346,11 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     if (![theme isKindOfClass:NSDictionary.class])
         return;
 
+    if (ISHWorkspaceUsesModernStyle()) {
+        [self applyModernWorkspaceChromeTheme:theme active:active];
+        return;
+    }
+
     UIColor *strokeColor = active
         ? [(theme[@"focusRing"] ?: theme[@"accent"]) colorWithAlphaComponent:0.95]
         : [theme[@"stroke"] colorWithAlphaComponent:0.98];
@@ -363,6 +377,39 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
         ? [(theme[@"focusRing"] ?: theme[@"accent"]) colorWithAlphaComponent:0.92]
         : [(theme[@"focusRing"] ?: theme[@"accentAlt"]) colorWithAlphaComponent:0.55];
     self.layer.shadowColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.55].CGColor;
+}
+
+- (void)applyModernWorkspaceChromeTheme:(NSDictionary<NSString *, UIColor *> *)theme active:(BOOL)active {
+    UIColor *card = theme[@"card"];
+    UIColor *accent = theme[@"accent"];
+    UIColor *focusRing = theme[@"focusRing"] ?: accent;
+    UIColor *stroke = theme[@"stroke"];
+
+    // Flat surfaces: the window body, content, and title bar all share one card color.
+    // The title bar takes a light accent wash only while the window is focused.
+    self.panelView.backgroundColor = card;
+    self.contentContainerView.backgroundColor = card;
+    self.titleBarView.backgroundColor = active ? [accent colorWithAlphaComponent:0.16] : card;
+    self.titleLabel.textColor = active ? accent : theme[@"primary"];
+
+    // Hairline border in repose; a crisp accent ring marks focus.
+    self.panelView.layer.borderWidth = active ? 1.5 : 0.5;
+    self.panelView.layer.borderColor = (active ? focusRing : stroke).CGColor;
+
+    // Quiet, flat window controls: tinted glyphs, no filled chips or borders.
+    self.closeButton.backgroundColor = UIColor.clearColor;
+    self.closeButton.layer.borderWidth = 0.0;
+    [self.closeButton setTitleColor:(active ? accent : theme[@"accentAlt"]) forState:UIControlStateNormal];
+    self.utilityButton.backgroundColor = UIColor.clearColor;
+    self.utilityButton.layer.borderWidth = 0.0;
+    [self.utilityButton setTitleColor:(active ? accent : theme[@"accentAlt"]) forState:UIControlStateNormal];
+
+    self.resizeHandleView.backgroundColor = active
+        ? [focusRing colorWithAlphaComponent:0.9]
+        : [stroke colorWithAlphaComponent:0.5];
+
+    // Flatter elevation than Classic.
+    self.layer.shadowColor = [theme[@"backgroundTop"] colorWithAlphaComponent:0.32].CGColor;
 }
 
 - (void)layoutSubviews {
@@ -3927,9 +3974,58 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         }]];
     }
 
+    NSString *workspaceStyleTitle = ISHWorkspaceUsesModernStyle() ? @"Modern" : @"Classic";
+    [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Workspace Style: %@", workspaceStyleTitle]
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentWorkspaceStyleChooserFromView:sourceView];
+    }]];
+
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
+
+    UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
+    if (popoverPresentationController != nil) {
+        popoverPresentationController.sourceView = sourceView ?: self.dockUtilsButton;
+        popoverPresentationController.sourceRect = sourceView != nil ? sourceView.bounds : self.dockUtilsButton.bounds;
+        popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentWorkspaceStyleChooserFromView:(UIView *)sourceView {
+    UserPreferences *preferences = UserPreferences.shared;
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Workspace Style"
+                                            message:@"Pick the Classic or Modern workspace experience. Both stay available; this only changes how the desktop and its windows look and behave."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSArray<NSNumber *> *styles = @[@(WorkspaceStyleClassic), @(WorkspaceStyleModern)];
+    NSDictionary<NSNumber *, NSString *> *styleTitles = @{
+        @(WorkspaceStyleClassic): @"Classic",
+        @(WorkspaceStyleModern): @"Modern",
+    };
+    for (NSNumber *style in styles) {
+        BOOL selected = preferences.workspaceStyle == (WorkspaceStyle) style.integerValue;
+        NSString *actionTitle = selected
+            ? [NSString stringWithFormat:@"✓ %@", styleTitles[style]]
+            : styleTitles[style];
+        [sheet addAction:[UIAlertAction actionWithTitle:actionTitle
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            preferences.workspaceStyle = (WorkspaceStyle) style.integerValue;
+            // Re-skin every open window immediately. Modern currently mirrors Classic, so
+            // this is a no-op visual change until the Modern skin rung lands.
+            [self refreshDockButtons];
+        }]];
+    }
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Back"
+                                              style:UIAlertActionStyleCancel
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentUtilsDockActionsFromView:sourceView];
+    }]];
 
     UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
     if (popoverPresentationController != nil) {
