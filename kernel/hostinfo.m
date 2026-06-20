@@ -63,14 +63,14 @@ NSString* translateDeviceIdentifier(NSString *identifier) {
         @"iPhone15,5": @"iPhone 15 Plus",
         @"iPhone16,1": @"iPhone 15 Pro",
         @"iPhone16,2": @"iPhone 15 Pro Max",
-        @"iPhone17,1": @"iPhone 16 Pro / Pro Max",
-        @"iPhone17,2": @"iPhone 16 Pro / Pro Max",
-        @"iPhone17,3": @"iPhone 16 / 16 Plus",
-        @"iPhone17,4": @"iPhone 16 / 16 Plus",
+        @"iPhone17,1": @"iPhone 16 Pro",
+        @"iPhone17,2": @"iPhone 16 Pro Max",
+        @"iPhone17,3": @"iPhone 16",
+        @"iPhone17,4": @"iPhone 16 Plus",
         @"iPhone17,5": @"iPhone 16e",
-        @"iPhone18,1": @"iPhone 17 / 17 Pro / 17 Pro Max",
-        @"iPhone18,2": @"iPhone 17 / 17 Pro / 17 Pro Max",
-        @"iPhone18,3": @"iPhone 17 / 17 Pro / 17 Pro Max",
+        @"iPhone18,1": @"iPhone 17 Pro",
+        @"iPhone18,2": @"iPhone 17 Pro Max",
+        @"iPhone18,3": @"iPhone 17",
         @"iPhone18,4": @"iPhone Air",
         @"iPhone18,5": @"iPhone 17e",
         // iPads with 64-bit Processors
@@ -91,6 +91,8 @@ NSString* translateDeviceIdentifier(NSString *identifier) {
         @"iPad6,4": @"iPad Pro (9.7 inch, WiFi+LTE)",
         @"iPad6,7": @"iPad Pro (12.9 inch, WiFi)",
         @"iPad6,8": @"iPad Pro (12.9 inch, WiFi+LTE)",
+        @"iPad7,1": @"iPad Pro 12.9-inch 2nd Gen (WiFi)",
+        @"iPad7,2": @"iPad Pro 12.9-inch 2nd Gen (WiFi+Cellular)",
         @"iPad7,3": @"iPad Pro 10.5-inch 2nd Gen",
         @"iPad7,4": @"iPad Pro 10.5-inch 2nd Gen",
         @"iPad7,5": @"iPad 6th Gen (WiFi)",
@@ -141,14 +143,23 @@ NSString* translateDeviceIdentifier(NSString *identifier) {
         @"iPad14,9": @"iPad Air (11-inch, M2)",
         @"iPad14,10": @"iPad Air (13-inch, M2)",
         @"iPad14,11": @"iPad Air (13-inch, M2)",
+        @"iPad15,3": @"iPad Air (11-inch, M3)",
+        @"iPad15,4": @"iPad Air (11-inch, M3)",
+        @"iPad15,5": @"iPad Air (13-inch, M3)",
+        @"iPad15,6": @"iPad Air (13-inch, M3)",
+        @"iPad15,7": @"iPad (A16)",
+        @"iPad15,8": @"iPad (A16)",
         @"iPad16,1": @"iPad mini (A17 Pro)",
         @"iPad16,2": @"iPad mini (A17 Pro)",
         @"iPad16,3": @"iPad Pro 11-inch (M4)",
         @"iPad16,4": @"iPad Pro 11-inch (M4)",
         @"iPad16,5": @"iPad Pro 13-inch (M4)",
         @"iPad16,6": @"iPad Pro 13-inch (M4)",
+        // iPod touch with 64-bit Processors
+        @"iPod7,1": @"iPod touch 6th Gen",
+        @"iPod9,1": @"iPod touch 7th Gen",
     };
-    
+
     NSString *deviceName = deviceNames[identifier];
     if (deviceName) {
         return deviceName;
@@ -201,6 +212,16 @@ static NSString *hostChipIdentifier(NSString *identifier) {
         @"iPhone15,5": @"A16",
         @"iPhone16,1": @"A17 Pro",
         @"iPhone16,2": @"A17 Pro",
+        @"iPhone17,1": @"A18 Pro",
+        @"iPhone17,2": @"A18 Pro",
+        @"iPhone17,3": @"A18",
+        @"iPhone17,4": @"A18",
+        @"iPhone17,5": @"A18",
+        @"iPhone18,1": @"A19 Pro",
+        @"iPhone18,2": @"A19 Pro",
+        @"iPhone18,3": @"A19",
+        @"iPhone18,4": @"A19 Pro",
+        @"iPhone18,5": @"A19",
         @"iPad4,1": @"A7",
         @"iPad4,2": @"A7",
         @"iPad4,3": @"A7",
@@ -218,6 +239,8 @@ static NSString *hostChipIdentifier(NSString *identifier) {
         @"iPad6,4": @"A9X",
         @"iPad6,7": @"A9X",
         @"iPad6,8": @"A9X",
+        @"iPad7,1": @"A10X",
+        @"iPad7,2": @"A10X",
         @"iPad7,3": @"A10X",
         @"iPad7,4": @"A10X",
         @"iPad7,5": @"A10",
@@ -268,12 +291,20 @@ static NSString *hostChipIdentifier(NSString *identifier) {
         @"iPad14,9": @"M2",
         @"iPad14,10": @"M2",
         @"iPad14,11": @"M2",
+        @"iPad15,3": @"M3",
+        @"iPad15,4": @"M3",
+        @"iPad15,5": @"M3",
+        @"iPad15,6": @"M3",
+        @"iPad15,7": @"A16",
+        @"iPad15,8": @"A16",
         @"iPad16,1": @"A17 Pro",
         @"iPad16,2": @"A17 Pro",
         @"iPad16,3": @"M4",
         @"iPad16,4": @"M4",
         @"iPad16,5": @"M4",
         @"iPad16,6": @"M4",
+        @"iPod7,1": @"A8",
+        @"iPod9,1": @"A10",
     };
 
     return chipNames[identifier];
@@ -323,6 +354,16 @@ static NSDictionary<NSString *, NSNumber *> *hostFallbackCoreTopology(NSString *
         @"iPhone15,5": @{@"performance": @2, @"efficiency": @4},
         @"iPhone16,1": @{@"performance": @2, @"efficiency": @4},
         @"iPhone16,2": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone17,1": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone17,2": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone17,3": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone17,4": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone17,5": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone18,1": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone18,2": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone18,3": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone18,4": @{@"performance": @2, @"efficiency": @4},
+        @"iPhone18,5": @{@"performance": @2, @"efficiency": @4},
         @"iPad4,1": @{@"performance": @2, @"efficiency": @0},
         @"iPad4,2": @{@"performance": @2, @"efficiency": @0},
         @"iPad4,3": @{@"performance": @2, @"efficiency": @0},
@@ -340,6 +381,8 @@ static NSDictionary<NSString *, NSNumber *> *hostFallbackCoreTopology(NSString *
         @"iPad6,4": @{@"performance": @2, @"efficiency": @0},
         @"iPad6,7": @{@"performance": @2, @"efficiency": @0},
         @"iPad6,8": @{@"performance": @2, @"efficiency": @0},
+        @"iPad7,1": @{@"performance": @3, @"efficiency": @3},
+        @"iPad7,2": @{@"performance": @3, @"efficiency": @3},
         @"iPad7,3": @{@"performance": @3, @"efficiency": @3},
         @"iPad7,4": @{@"performance": @3, @"efficiency": @3},
         @"iPad7,5": @{@"performance": @2, @"efficiency": @2},
@@ -390,8 +433,24 @@ static NSDictionary<NSString *, NSNumber *> *hostFallbackCoreTopology(NSString *
         @"iPad14,9": @{@"performance": @4, @"efficiency": @4},
         @"iPad14,10": @{@"performance": @4, @"efficiency": @4},
         @"iPad14,11": @{@"performance": @4, @"efficiency": @4},
+        @"iPad15,3": @{@"performance": @4, @"efficiency": @4},
+        @"iPad15,4": @{@"performance": @4, @"efficiency": @4},
+        @"iPad15,5": @{@"performance": @4, @"efficiency": @4},
+        @"iPad15,6": @{@"performance": @4, @"efficiency": @4},
+        @"iPad15,7": @{@"performance": @2, @"efficiency": @4},
+        @"iPad15,8": @{@"performance": @2, @"efficiency": @4},
         @"iPad16,1": @{@"performance": @2, @"efficiency": @4},
         @"iPad16,2": @{@"performance": @2, @"efficiency": @4},
+        // M4 iPad Pro ships as a 10-core (4P+6E) die; the 256/512 GB models are
+        // binned to 9 cores (3P+6E). The live hw.perflevel sysctls report the
+        // real per-unit count, so this fallback only applies if those are absent.
+        @"iPad16,3": @{@"performance": @4, @"efficiency": @6},
+        @"iPad16,4": @{@"performance": @4, @"efficiency": @6},
+        @"iPad16,5": @{@"performance": @4, @"efficiency": @6},
+        @"iPad16,6": @{@"performance": @4, @"efficiency": @6},
+        // iPod touch (A8 has no efficiency cluster; A10 is a 2+2 Fusion part)
+        @"iPod7,1": @{@"performance": @2, @"efficiency": @0},
+        @"iPod9,1": @{@"performance": @2, @"efficiency": @2},
     };
 
     return topologies[identifier];
@@ -572,6 +631,34 @@ char *copyHostDeviceName(void) {
 }
 
 char *copyHostCoreTopology(void) {
+    // A10 and A10X are first-generation "Fusion" SoCs: the die carries two core
+    // clusters (e.g. the A10X's 3 performance + 3 efficiency cores) but the
+    // hardware runs only ONE cluster at a time -- it switches between them
+    // rather than scheduling all of them together. iOS therefore exposes only
+    // half the physical cores through hw.ncpu, and the live perf-level sysctls
+    // collapse to a single homogeneous tier. Report the true die from the static
+    // table and spell out how many actually run at once. Every Apple SoC from
+    // the A11 on can run all cores simultaneously, so this stays a closed set.
+    NSString *machineIdentifier = hostMachineIdentifier();
+    NSString *chip = hostChipIdentifier(machineIdentifier);
+    if ([chip isEqualToString:@"A10"] || [chip isEqualToString:@"A10X"]) {
+        NSDictionary<NSString *, NSNumber *> *die = hostFallbackCoreTopology(machineIdentifier);
+        if (die != nil) {
+            NSInteger performance = die[@"performance"].integerValue;
+            NSInteger efficiency = die[@"efficiency"].integerValue;
+            NSInteger total = performance + efficiency;
+
+            unsigned usable = 0;
+            if (!readSysctlUnsigned("hw.ncpu", &usable) || usable == 0 || (NSInteger) usable >= total)
+                usable = (unsigned) (total / 2); // two equal clusters; one runs at a time
+
+            NSString *summary = [NSString stringWithFormat:
+                @"performance=%ld efficiency=%ld (%ld cores, only %u run simultaneously)",
+                (long) performance, (long) efficiency, (long) total, usable];
+            return strdup([summary UTF8String]);
+        }
+    }
+
     NSDictionary<NSString *, NSNumber *> *topology = hostCoreTopology();
     if (topology == nil)
         return strdup("unknown");
