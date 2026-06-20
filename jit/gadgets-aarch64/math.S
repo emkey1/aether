@@ -3621,6 +3621,112 @@ amd64_gen_loadop_addc loadop_addc64, 8, 63
 amd64_gen_opstore_addc opstore_addc32, 4, 31
 amd64_gen_opstore_addc opstore_addc64, 8, 63
 
+# amd64 REGISTER adc/sbb -- reg-reg (0x11/13 adc, 0x19/1b sbb) + reg-imm (0x81/83 /2 adc,
+# /3 sbb), mod==3, 32/64. The memory forms were already native (loadop/opstore_addc); the
+# register forms bridged (ending the block) -- they appear in multi-precision arithmetic
+# and the `sbb reg,reg` carry-materialize idiom. Same ARM carry trick as loadop_addc: set
+# ARM C from CPU_cf (cmp cf,1 => C=cf for adc; subs xzr,xzr,cf => C=!cf for sbb), then
+# adcs/sbcs gives result + CF + V(=OF). AF from the ORIGINAL rhs (x10), never rhs+cf.
+# Flush-style (gen.c flushes the reg cache; lhs/rhs/dst are in CPU_amd64_regs).
+# reg-reg packed: is_sbb(0) | dst_id(4-7) | src_id(8-11).
+.macro amd64_gen_adcsbb_rr name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4                /* dst id */
+    ldr  x13, [x12, x9, lsl 3]       /* lhs = dst */
+    ubfx x11, x8, 8, 4               /* src id */
+    ldr  x10, [x12, x11, lsl 3]      /* rhs = src */
+    ldrb w12, [_cpu, CPU_cf]         /* carry-in */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    tbnz x8, 0, 1f                   /* SBB? */
+    cmp  x12, 1                      /* ADC: ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs xzr, xzr, x12               /* SBB: ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc
+    cset w16, vs
+2:
+.if \vbytes == 4
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4
+.if \vbytes == 4
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x9, lsl 3]
+.else
+    str  x15, [x12, x9, lsl 3]
+.endif
+    gret 1
+.endm
+amd64_gen_adcsbb_rr adcsbb_rr32, 4, 31
+amd64_gen_adcsbb_rr adcsbb_rr64, 8, 63
+
+# reg-imm adc/sbb. packed: is_sbb(0) | rm_id(4-7); imm (sign-extended by gen.c) operand 1.
+.macro amd64_gen_adcsbb_ri name, vbytes, sbit
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]               /* rhs = imm */
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4                /* rm id */
+    ldr  x13, [x12, x9, lsl 3]       /* lhs = rm */
+    ldrb w12, [_cpu, CPU_cf]         /* carry-in */
+.if \vbytes == 4
+    mov  w13, w13
+    mov  w10, w10
+.endif
+    tbnz x8, 0, 1f
+    cmp  x12, 1                      /* ADC: ARM C = cf */
+.if \vbytes == 4
+    adcs w15, w13, w10
+.else
+    adcs x15, x13, x10
+.endif
+    cset w14, cs
+    cset w16, vs
+    b    2f
+1:  subs xzr, xzr, x12               /* SBB: ARM C = !cf */
+.if \vbytes == 4
+    sbcs w15, w13, w10
+.else
+    sbcs x15, x13, x10
+.endif
+    cset w14, cc
+    cset w16, vs
+2:
+.if \vbytes == 4
+    mov  w15, w15
+.endif
+    amd64_cached_set_addsub_flags \sbit
+    add  x12, _cpu, CPU_amd64_regs
+    ubfx x9, x8, 4, 4
+.if \vbytes == 4
+    ubfx x13, x15, 0, 32
+    str  x13, [x12, x9, lsl 3]
+.else
+    str  x15, [x12, x9, lsl 3]
+.endif
+    gret 2
+.endm
+amd64_gen_adcsbb_ri adcsbb_ri32, 4, 31
+amd64_gen_adcsbb_ri adcsbb_ri64, 8, 63
+
 # amd64 imm-to-mem arith RMW: [mem] <op>= imm for ADD (group /0) and SUB (group /5),
 # mod!=3, 32/64. The immediate (sign-extended to 64 by gen.c) is operand 3; the group
 # (0=add, 5=sub) is operand 4. Same dual-prep RMW frame as opstore_arith (addr in x0,
@@ -3795,3 +3901,428 @@ amd64_gen_imm_cmp imm_cmp64, 8, 63
     amd64_cached_set_addsub_flags 7
     gret 4
     amd64_vread_bullshit 1, imm_cmp8
+
+# =====================================================================================
+# amd64 BYTE (8-bit) integer ALU on REGISTER operands (mod==3) -- the cc1 hot path.
+# These were the top remaining C bridges for cc1 (op byte r/m8,imm8 = amd64_jit_reg_imm_op
+# /modrm_imm; byte op r/m8,r8 = amd64_jit_reg_reg_op). All are CACHE-AWARE (no flush):
+# they read the FULL 64-bit register (cache-aware via amd64_read_low_or_mem), operate on
+# one byte, and write the full modified value back (amd64_write_low_or_mem size 64). This
+# uniformly handles low bytes (AL-DIL, R8B-R15B) AND the legacy high bytes (AH/CH/DH/BH):
+# gen.c passes a corrected register id plus a is_high flag (bit shift 0 or 8). Flags are
+# computed at 8-bit width: SUB/CMP CF via the 0-255-operand borrow (cc), ADD CF via bit 8,
+# OF by hand at bit 7, and ZF/SF/PF/AF via amd64_cached_set_addsub_flags with sign_bit=7
+# (the same byte rule proven by gadget_amd64_imm_cmp8). Register map (non-prep gadgets, so
+# x8-x17 are free except where the called macros clobber): x8=packed operand word (stable),
+# x9=full dst reg, x10=rhs byte, x13=lhs byte, x14=CF, x15=result byte, x16=OF; the macros
+# clobber x11/x12/x17. ADC/SBB (groups 2/3) keep bridging (rare in compiler code).
+
+# Compute one byte ALU op. Reads: x8 bits0-3 = group (0=ADD,1=OR,4=AND,5=SUB,6=XOR,7=CMP),
+# x13 = lhs byte (0-255), x10 = rhs byte (0-255). Produces: x15 = 8-bit result and sets the
+# eager flags (addsub flags for ADD/SUB/CMP, logic flags for OR/AND/XOR). Does NOT write the
+# result back to the register. Clobbers x11/x12/x14/x15/x16/x17 (x8/x9/x10/x13 preserved).
+.macro amd64_byte_compute
+    and  x12, x8, 0xf                /* group */
+    cmp  x12, 1
+    b.eq .Lbc_or_\@
+    cmp  x12, 4
+    b.eq .Lbc_and_\@
+    cmp  x12, 6
+    b.eq .Lbc_xor_\@
+    cmp  x12, 0
+    b.eq .Lbc_add_\@
+    /* SUB (5) / CMP (7): 0-255 operands so the 32-bit borrow == the 8-bit borrow */
+    subs w15, w13, w10
+    cset w14, cc                     /* CF (borrow) */
+    and  w15, w15, 0xff              /* 8-bit result */
+    eor  w12, w13, w10               /* OF(sub) = (lhs^rhs) & (lhs^res) & 0x80 */
+    eor  w17, w13, w15
+    and  w12, w12, w17
+    tst  w12, 0x80
+    cset w16, ne
+    amd64_cached_set_addsub_flags 7
+    b    .Lbc_done_\@
+.Lbc_add_\@:
+    add  w15, w13, w10               /* 0-510 */
+    ubfx w14, w15, 8, 1              /* CF = carry out of bit 7 */
+    and  w15, w15, 0xff
+    eor  w12, w13, w10               /* OF(add) = ~(lhs^rhs) & (lhs^res) & 0x80 */
+    eor  w17, w13, w15
+    bic  w12, w17, w12               /* (lhs^res) & ~(lhs^rhs) */
+    tst  w12, 0x80
+    cset w16, ne
+    amd64_cached_set_addsub_flags 7
+    b    .Lbc_done_\@
+.Lbc_or_\@:  orr  w15, w13, w10
+    b    .Lbc_logic_\@
+.Lbc_and_\@: and  w15, w13, w10
+    b    .Lbc_logic_\@
+.Lbc_xor_\@: eor  w15, w13, w10
+.Lbc_logic_\@:
+    and  w15, w15, 0xff
+    mov  x11, 8
+    amd64_cached_set_logic_flags x15, x11
+.Lbc_done_\@:
+.endm
+
+# Insert the 8-bit result (x15) into the full register value (x9) at the operand's byte
+# offset (is_high at x8 bit 8 -> shift 0 or 8), preserving all other bits, then write the
+# full value back cache-aware. dst register id at x8 bits 4-7. Clobbers x11/x12/x13/x15/x17.
+.macro amd64_byte_writeback
+    ubfx x11, x8, 8, 1               /* is_high */
+    lsl  x11, x11, 3                 /* byte shift: 0 or 8 */
+    mov  x12, 0xff
+    lsl  x12, x12, x11               /* mask for the target byte */
+    bic  x9, x9, x12                 /* clear target byte */
+    lsl  x17, x15, x11               /* result << shift */
+    and  x17, x17, x12
+    orr  x9, x9, x17                 /* x9 = full reg with the byte replaced */
+    ubfx x13, x8, 4, 4               /* dst register id */
+    mov  x10, 64                     /* write_low_or_mem needs size in a register */
+    amd64_write_low_or_mem x13, x9, x10
+.endm
+
+# byte op r/m8, imm8 (0x80 /0,/1,/4,/5,/6,/7), mod==3. Operands: packed(0)/imm(8).
+# packed: group(0-3) | dst_id(4-7) | is_high(8).  gret 2.
+.gadget amd64_byte_alu_reg_imm
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]
+    and  w10, w10, 0xff              /* rhs = imm8 */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full dst register */
+    ubfx x11, x8, 8, 1               /* is_high */
+    lsl  x11, x11, 3
+    lsr  x13, x9, x11
+    and  x13, x13, 0xff              /* lhs byte */
+    amd64_byte_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: flags only, no write */
+    b.eq 1f
+    amd64_byte_writeback
+1:  gret 2
+
+# byte op r/m8, r8 / r8, r/m8 (0x00/02/08/0a/20/22/28/2a/30/32/38/3a) + TEST r/m8,r8 (0x84),
+# mod==3. gen.c resolves the direction to dst (lhs) and src (rhs). Operands: packed(0).
+# packed: op(0-3) | dst_id(4-7) | dst_high(8) | src_id(9-12) | src_high(13) | nowrite(16).
+# op uses the group code (0/1/4/5/6/7); TEST is encoded as op=4 (AND) with nowrite set. gret 1.
+.gadget amd64_byte_alu_reg_reg
+    ldr  x8, [_ip]
+    ubfx x11, x8, 9, 4               /* src id */
+    amd64_read_low_or_mem x11, x10   /* x10 = full src */
+    ubfx x11, x8, 13, 1              /* src_high */
+    lsl  x11, x11, 3
+    lsr  x10, x10, x11
+    and  x10, x10, 0xff              /* rhs byte */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full dst */
+    ubfx x11, x8, 8, 1               /* dst_high */
+    lsl  x11, x11, 3
+    lsr  x13, x9, x11
+    and  x13, x13, 0xff              /* lhs byte */
+    amd64_byte_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: no write */
+    b.eq 1f
+    tbnz x8, 16, 1f                  /* TEST: no write */
+    amd64_byte_writeback
+1:  gret 1
+
+# TEST r/m8, imm8 (0xf6 /0,/1), mod==3 -- the high-byte/r8-r15 case (low-byte regs are
+# already handled natively by gadget_amd64_cached_test_reg_imm). AND, logic flags, no write.
+# Operands: packed(0)/imm(8). packed: rm_id(0-3 corrected) | is_high(4). gret 2.
+.gadget amd64_byte_test_imm_reg
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]
+    and  w10, w10, 0xff
+    ubfx x11, x8, 0, 4
+    amd64_read_low_or_mem x11, x9
+    ubfx x11, x8, 4, 1
+    lsl  x11, x11, 3
+    lsr  x13, x9, x11
+    and  x13, x13, 0xff
+    and  w15, w13, w10
+    and  w15, w15, 0xff
+    mov  x11, 8
+    amd64_cached_set_logic_flags x15, x11
+    gret 2
+
+# NOT (0xf6 /2) / NEG (0xf6 /3) r/m8, mod==3. packed: rm_id(0-3) | is_high(4) | is_neg(5).
+# NOT: result = ~src, no flags. NEG: result = 0 - src, sub flags (lhs=0, rhs=src). gret 1.
+.gadget amd64_byte_grp3
+    ldr  x8, [_ip]
+    ubfx x11, x8, 0, 4
+    amd64_read_low_or_mem x11, x9    /* x9 = full reg */
+    ubfx x11, x8, 4, 1
+    lsl  x11, x11, 3
+    lsr  x13, x9, x11
+    and  x13, x13, 0xff              /* src byte */
+    tbnz x8, 5, .Lbg_neg
+    mvn  w15, w13                    /* NOT: ~src */
+    and  w15, w15, 0xff
+    b    .Lbg_write
+.Lbg_neg:
+    neg  w15, w13                    /* NEG: 0 - src */
+    and  w15, w15, 0xff
+    mov  w10, w13                    /* rhs = src (for AF = 0^src^res bit4) */
+    subs wzr, wzr, w13               /* CF: 0<src borrows */
+    cset w14, cc                     /* CF = (src != 0) */
+    and  w12, w13, w15               /* OF(sub,lhs=0) = (src & res) & 0x80 */
+    tst  w12, 0x80
+    cset w16, ne
+    mov  x13, 0                      /* lhs = 0 for the macro's AF */
+    amd64_cached_set_addsub_flags 7
+.Lbg_write:
+    /* writeback at the byte offset, preserving the rest of the register */
+    ubfx x11, x8, 4, 1
+    lsl  x11, x11, 3
+    mov  x12, 0xff
+    lsl  x12, x12, x11
+    bic  x9, x9, x12
+    lsl  x17, x15, x11
+    and  x17, x17, x12
+    orr  x9, x9, x17
+    ubfx x13, x8, 0, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x9, x10
+    gret 1
+
+# NOT (0xf7 /2) / NEG (0xf7 /3) reg, 32/64-bit, mod==3 -- the wider siblings of
+# amd64_byte_grp3 (the byte 0xf6 form). NOT = ~src (no flags); NEG = 0 - src with sub
+# flags matching the interp amd64_set_sub_flags(0, src, res): CF=(src!=0), OF=(src&res)
+# at the sign bit, ZF/SF/PF/AF via cached_set_addsub_flags (lhs=0, rhs=src). Cache-aware
+# (read/write_low_or_mem). 16-bit + memory operands keep bridging. packed: rm(0-3) |
+# is_neg(4). The 32-bit result is upper-zeroed (x86 32-bit ops clear bits 32-63).
+.macro amd64_gen_negnot name, vbytes
+.gadget amd64_\name
+    ldr  x8, [_ip]
+    ubfx x11, x8, 0, 4               /* rm reg id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full reg */
+.if \vbytes == 8
+    mov  x13, x9                     /* src = full 64 */
+    tbnz x8, 4, .Lnn_neg_\name
+    mvn  x15, x13                    /* NOT: ~src */
+    b    .Lnn_write_\name
+.Lnn_neg_\name:
+    neg  x15, x13                    /* NEG: 0 - src */
+    mov  x10, x13                    /* rhs = src (for AF = 0^src^res bit4) */
+    subs xzr, xzr, x13               /* CF = (src != 0) */
+    cset w14, cc
+    and  x12, x13, x15               /* OF(sub,lhs=0) = (src & res) & sign */
+    tst  x12, (1 << 63)
+    cset w16, ne
+    mov  x13, 0                      /* lhs = 0 */
+    amd64_cached_set_addsub_flags 63
+.else
+    mov  w13, w9                     /* src = low 32 */
+    tbnz x8, 4, .Lnn_neg_\name
+    mvn  w15, w13                    /* NOT (w-op zero-extends x15) */
+    b    .Lnn_write_\name
+.Lnn_neg_\name:
+    neg  w15, w13                    /* NEG (w-op zero-extends x15) */
+    mov  w10, w13                    /* rhs = src */
+    subs wzr, wzr, w13               /* CF = (src != 0) */
+    cset w14, cc
+    and  w12, w13, w15               /* OF = (src & res) & sign */
+    tst  w12, 0x80000000
+    cset w16, ne
+    mov  x13, 0                      /* lhs = 0 */
+    amd64_cached_set_addsub_flags 31
+.endif
+.Lnn_write_\name:
+    /* write the full result: 64-bit = the value; 32-bit = upper already zeroed */
+    ubfx x13, x8, 0, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x15, x10
+    gret 1
+.endm
+amd64_gen_negnot negnot32, 4
+amd64_gen_negnot negnot64, 8
+
+# =====================================================================================
+# amd64 BYTE (8-bit) ALU on MEMORY operands (mod!=3) -- the other half of the cc1 byte
+# hot path. TEST byte [mem],imm8 (0xf6 /0) was the #2 byte bridge (testb $imm,mem); the
+# op byte [mem],imm8 (0x80 /0,/1,/4,/5,/6) RMW forms bridged via amd64_jit_modrm_imm.
+# These reuse the proven TLB machinery (amd64_vmem_addr + vread_prep/vwrite_prep) and the
+# 8-bit flag rule (amd64_cached_set_addsub_flags 7 / set_logic_flags), exactly like
+# gadget_amd64_imm_cmp8 / gadget_amd64_opstore_arith. A 1-byte access never crosses a
+# page. CMP (/7) stays on imm_cmp8; ADC/SBB (/2,/3) bridge.
+
+# TEST byte [mem], imm8 (0xf6 /0,/1), mod!=3: AND for flags, no store, logic flag rule.
+# Operands: meta(0)/disp(8)/next_ip(16)/imm(24). gret 4.
+.gadget amd64_byte_test_imm_mem
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = effective address */
+    amd64_vread_prep 1, byte_test_imm_mem
+    ldrb w13, [x9]                   /* lhs = [mem] byte */
+    ldr  x10, [_ip, 24]             /* imm */
+    and  w15, w13, w10               /* AND (rhs already < 256 via imm8) */
+    and  w15, w15, 0xff
+    mov  x11, 8
+    amd64_cached_set_logic_flags x15, x11
+    gret 4
+    amd64_vread_bullshit 1, byte_test_imm_mem
+
+# op byte [mem], imm8 (0x80 /0,/1,/4,/5,/6 = ADD/OR/AND/SUB/XOR), mod!=3. RMW: vread the
+# old byte, run amd64_byte_compute (group from x8 bits0-3 -- reloaded from the group
+# operand), vwrite the result. Dual-prep on one address: guest addr stays in x0 across
+# both preps, result -> x10 before the write (only x0-x13 survive a prep slow-path bl).
+# Operands: meta(0)/disp(8)/next_ip(16)/imm(24)/group(32). gret 5.
+.gadget amd64_byte_imm_mem
+    ldr  x8, [_ip]                   /* meta */
+    ldr  x9, [_ip, 8]                /* disp */
+    amd64_vmem_addr                  /* x9 = guest effective address */
+    mov  x0, x9                      /* x0 = guest addr (survives both preps) */
+    amd64_vread_prep 1, byte_imm_mem_r
+    ldrb w13, [x9]                   /* lhs = [mem] byte */
+    ldr  x10, [_ip, 24]             /* rhs = imm8 */
+    and  w10, w10, 0xff
+    ldr  x8, [_ip, 32]              /* x8 = group (for amd64_byte_compute) */
+    amd64_byte_compute               /* x15 = result byte + eager flags */
+    mov  x10, x15                    /* result -> x10 (survives the write prep) */
+    mov  x9, x0                      /* guest addr -> x9 */
+    amd64_vwrite_prep 1, byte_imm_mem_w
+    strb w10, [x9]
+    amd64_vwrite_done 1, byte_imm_mem_w
+    gret 5
+    amd64_vread_bullshit 1, byte_imm_mem_r
+    amd64_vwrite_bullshit 1, byte_imm_mem_w
+
+# =====================================================================================
+# SAHF (0x9e) / LAHF (0x9f) -- AH<->flags. Neither was implemented in the amd64 engine
+# (interp lacked case 0x9e/0x9f; the JIT had no gadget), so guest sahf/lahf SIGILL'd.
+# Flush-style (gen.c flushes the reg cache first, like amd64_gen_rotate_count): operate
+# on rax (regs[0]) and the eager flags (CPU_eflags sf/zf/af/pf bits + the CPU_cf byte)
+# directly in CPU state. No memory access, no inline operands (gret 0).
+
+# LAHF: AH = SF:ZF:0:AF:0:PF:1:CF (= the low byte of a collapsed EFLAGS). The amd64 ALU
+# gadgets keep CPU_eflags' sf/zf/af/pf bits and the CPU_cf byte coherent (eager), so AH
+# is (eflags & {sf,zf,af,pf}) | (CF<<0) | (1<<1). The flags themselves are unchanged.
+.gadget amd64_lahf
+    ldr  w8, [_cpu, CPU_eflags]
+    mov  w12, (SF_FLAG | ZF_FLAG | AF_FLAG | PF_FLAG)   /* 0xd4 (not a valid AND imm) */
+    and  w8, w8, w12
+    ldrb w9, [_cpu, CPU_cf]
+    and  w9, w9, 1
+    orr  w8, w8, w9                  /* bit0 = CF */
+    orr  w8, w8, 2                   /* bit1 = 1 (reserved, always reads as 1) */
+    ldr  x10, [_cpu, CPU_amd64_regs] /* rax */
+    bfi  x10, x8, 8, 8               /* AH = bits 8-15; rest of rax preserved */
+    str  x10, [_cpu, CPU_amd64_regs]
+    gret 0
+
+# SAHF: load SF/ZF/AF/PF/CF from AH; OF (CPU_of + eflags bit 11) and the rest preserved.
+# Clear flags_res so the eager bitfields stay authoritative (a prior bridged interp op
+# may have left a lazy-flag valid bit set).
+.gadget amd64_sahf
+    ldr  x10, [_cpu, CPU_amd64_regs] /* rax */
+    ubfx w8, w10, 8, 8               /* AH */
+    and  w9, w8, 1
+    strb w9, [_cpu, CPU_cf]          /* eager CF = AH bit0 */
+    ldr  w11, [_cpu, CPU_eflags]
+    mov  w12, (1 | PF_FLAG | AF_FLAG | ZF_FLAG | SF_FLAG)   /* 0xd5: bits 0,2,4,6,7 */
+    bic  w11, w11, w12
+    and  w8, w8, w12                 /* AH's bits {0,2,4,6,7} (CF also into eflags bit0) */
+    orr  w11, w11, w8
+    str  w11, [_cpu, CPU_eflags]
+    strb wzr, [_cpu, CPU_flags_res]
+    gret 0
+
+# =====================================================================================
+# amd64 16-bit (operand-size 0x66) integer ALU on REGISTER operands (mod==3). Previously
+# every 16-bit ALU bridged: the native arith/logic reg gadgets gate on size 32/64 only,
+# because their CF/OF come from the host's 32-bit ARM flags (wrong at width 16 -- CF is
+# bit 16, OF is bit 15). This family computes the 16-bit flags by hand, exactly like the
+# byte family but width 16 and with NO high-byte cases (16-bit regs are always the low 16
+# of the register; the upper 48 bits are preserved on write). Memory operands still bridge
+# (a 2-byte access can straddle a page, unlike the 1-byte forms). ADC/SBB (groups 2/3)
+# still bridge. Register map mirrors the byte gadgets: x8=packed, x9=full dst, x10=rhs,
+# x13=lhs, x15=result; the called flag macros clobber x11/x12/x14/x16/x17.
+
+# Compute one 16-bit ALU op: x8 bits0-3=group (0=ADD,1=OR,4=AND,5=SUB,6=XOR,7=CMP),
+# x13=lhs (0-65535), x10=rhs (0-65535) -> x15 = 16-bit result + eager flags. Does NOT
+# write the result back. Clobbers x11/x12/x14/x15/x16/x17 (x8/x9/x10/x13 preserved).
+.macro amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 1
+    b.eq .Lwc_or_\@
+    cmp  x12, 4
+    b.eq .Lwc_and_\@
+    cmp  x12, 6
+    b.eq .Lwc_xor_\@
+    cmp  x12, 0
+    b.eq .Lwc_add_\@
+    /* SUB (5) / CMP (7): 0-65535 operands so the 32-bit borrow == the 16-bit borrow */
+    subs w15, w13, w10
+    cset w14, cc                     /* CF (borrow) */
+    and  w15, w15, 0xffff
+    eor  w12, w13, w10               /* OF(sub) = (lhs^rhs) & (lhs^res) & 0x8000 */
+    eor  w17, w13, w15
+    and  w12, w12, w17
+    tst  w12, 0x8000
+    cset w16, ne
+    amd64_cached_set_addsub_flags 15
+    b    .Lwc_done_\@
+.Lwc_add_\@:
+    add  w15, w13, w10               /* 0-131070 */
+    ubfx w14, w15, 16, 1             /* CF = carry out of bit 15 */
+    and  w15, w15, 0xffff
+    eor  w12, w13, w10               /* OF(add) = ~(lhs^rhs) & (lhs^res) & 0x8000 */
+    eor  w17, w13, w15
+    bic  w12, w17, w12
+    tst  w12, 0x8000
+    cset w16, ne
+    amd64_cached_set_addsub_flags 15
+    b    .Lwc_done_\@
+.Lwc_or_\@:  orr  w15, w13, w10
+    b    .Lwc_logic_\@
+.Lwc_and_\@: and  w15, w13, w10
+    b    .Lwc_logic_\@
+.Lwc_xor_\@: eor  w15, w13, w10
+.Lwc_logic_\@:
+    and  w15, w15, 0xffff
+    mov  x11, 16
+    amd64_cached_set_logic_flags x15, x11
+.Lwc_done_\@:
+.endm
+
+# op r/m16, imm16 (0x81 /0,1,4,5,6,7) or imm8-sign-extended (0x83), mod==3. gen.c puts the
+# (already sign-extended for 0x83) immediate in operand 8. packed: group(0-3) | dst_id(4-7).
+.gadget amd64_w16_alu_reg_imm
+    ldr  x8, [_ip]
+    ldr  x10, [_ip, 8]
+    and  w10, w10, 0xffff            /* rhs = imm (low 16) */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9    /* x9 = full dst register */
+    and  x13, x9, 0xffff             /* lhs = low 16 */
+    amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: flags only, no write */
+    b.eq 1f
+    bfi  x9, x15, 0, 16              /* replace low 16, preserve upper 48 */
+    ubfx x13, x8, 4, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x9, x10
+1:  gret 2
+
+# op r/m16,r16 + r16,r/m16 (0x01/03/09/0b/21/23/29/2b/31/33/39/3b) + TEST r/m16,r16 (0x85),
+# mod==3. gen.c resolves direction to dst (lhs) and src (rhs). packed: op(0-3) | dst_id(4-7)
+# | src_id(8-11) | nowrite(12). TEST encodes op=4 (AND) with nowrite set.
+.gadget amd64_w16_alu_reg_reg
+    ldr  x8, [_ip]
+    ubfx x11, x8, 8, 4               /* src id */
+    amd64_read_low_or_mem x11, x10
+    and  x10, x10, 0xffff            /* rhs = src low 16 */
+    ubfx x11, x8, 4, 4               /* dst id */
+    amd64_read_low_or_mem x11, x9
+    and  x13, x9, 0xffff             /* lhs = dst low 16 */
+    amd64_w16_compute
+    and  x12, x8, 0xf
+    cmp  x12, 7                      /* CMP: no write */
+    b.eq 1f
+    tbnz x8, 12, 1f                  /* TEST: no write (unused -- gen.c routes only arith) */
+    bfi  x9, x15, 0, 16
+    ubfx x13, x8, 4, 4
+    mov  x10, 64
+    amd64_write_low_or_mem x13, x9, x10
+1:  gret 1

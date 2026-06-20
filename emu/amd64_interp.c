@@ -7965,6 +7965,22 @@ restart_prefix:
         expand_flags(cpu);
         break;
     }
+    case 0x9e: { // sahf: SF,ZF,AF,PF,CF <- AH; OF and the rest preserved.
+        byte_t ah = (cpu->amd64_regs[amd64_rax] >> 8) & 0xff;
+        cpu->cf = ah & 1;
+        cpu->pf = (ah >> 2) & 1;
+        cpu->af = (ah >> 4) & 1;
+        cpu->zf = (ah >> 6) & 1;
+        cpu->sf = (ah >> 7) & 1;
+        cpu->zf_res = cpu->sf_res = cpu->pf_res = cpu->af_ops = 0;
+        break;
+    }
+    case 0x9f: { // lahf: AH <- SF:ZF:0:AF:0:PF:1:CF (the low byte of EFLAGS).
+        byte_t ah = (SF << 7) | (ZF << 6) | (AF << 4) | (PF << 2) | (1 << 1) | (CF << 0);
+        cpu->amd64_regs[amd64_rax] =
+            (cpu->amd64_regs[amd64_rax] & ~0xff00ULL) | ((qword_t) ah << 8);
+        break;
+    }
     case 0x8f: {
         struct amd64_modrm modrm;
         qword_t value;
@@ -8784,6 +8800,48 @@ restart_prefix:
                 return target_interrupt;
             cpu->amd64_rip = target;
         }
+        break;
+    }
+    case 0xe0:   // loopne/loopnz: dec (R|E)CX; branch if count!=0 && ZF==0
+    case 0xe1:   // loope/loopz:   dec (R|E)CX; branch if count!=0 && ZF==1
+    case 0xe2: { // loop:          dec (R|E)CX; branch if count!=0
+        int8_t rel8;
+        if (!amd64_fetch(cpu, tlb, &rel8, sizeof(rel8))) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = saved_rip;
+            return INT_GPF;
+        }
+        unsigned csize = cpu->amd64_address_size_prefix ? 32 : 64;
+        qword_t count = amd64_reg_get(cpu, amd64_rcx, csize);
+        count = (csize == 32) ? (qword_t) (dword_t) (count - 1) : (count - 1);
+        amd64_reg_set(cpu, amd64_rcx, csize, count);  // loop does NOT touch flags
+        bool take = count != 0;
+        if (opcode == 0xe1)
+            take = take && ZF;
+        else if (opcode == 0xe0)
+            take = take && !ZF;
+        if (take) {
+            qword_t target = cpu->amd64_rip + rel8;
+            int ti = amd64_validate_transfer_target(cpu, tlb, saved_rip, target, "loop");
+            if (ti != INT_NONE)
+                return ti;
+            cpu->amd64_rip = target;
+        }
+        break;
+    }
+    case 0xd7: { // xlatb: AL = [(R|E)BX + AL]
+        qword_t base = cpu->amd64_address_size_prefix
+                ? amd64_reg_get(cpu, amd64_rbx, 32)
+                : amd64_reg_get(cpu, amd64_rbx, 64);
+        qword_t addr = base + (amd64_reg_get(cpu, amd64_rax, 64) & 0xff);
+        qword_t value;
+        if (!amd64_mem_read_value(cpu, tlb, addr, 8, &value)) {
+            cpu->amd64_rip = saved_rip;
+            amd64_sync_legacy_regs(cpu);
+            return INT_PF;
+        }
+        cpu->amd64_regs[amd64_rax] =
+            (cpu->amd64_regs[amd64_rax] & ~0xffULL) | (value & 0xff);
         break;
     }
     case 0xfe: {
