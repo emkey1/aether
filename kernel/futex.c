@@ -437,26 +437,26 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             return futex_wakelike(op, uaddr, val, timeout_or_val2, uaddr2, ~0u);
         case FUTEX_FD_: // Deprecated, little need to support
             STRACE("Unimplemented futex(FUTEX_FD, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_FD) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_FD) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_CMP_REQUEUE_:
             STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE, %#x, %d, %#x)", uaddr, val, uaddr2);
             return futex_cmp_requeue(uaddr, op, val, uaddr2, timeout_or_val2, val3);
         case FUTEX_WAKE_OP_:
             STRACE("Unimplemented futex(FUTEX_WAKE_OP, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex FUTEX_WAKE_OP(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAKE_OP) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex FUTEX_WAKE_OP(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAKE_OP) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_LOCK_PI_:
             STRACE("Unimplemented futex(FUTEX_LOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex FUTEX_LOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_LOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex FUTEX_LOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_LOCK_PI) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_UNLOCK_PI_:
             STRACE("Unimplemented futex(FUTEX_UNLOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex FUTEX_UNLOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_UNLOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex FUTEX_UNLOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_UNLOCK_PI) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_TRYLOCK_PI_:
             STRACE("Unimplemented futex(FUTEX_TRYLOCK_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex FUTEX_TRYLOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_TRYLOCK_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex FUTEX_TRYLOCK_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_TRYLOCK_PI) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_WAIT_BITSET_:
             STRACE("futex(FUTEX_WAIT_BITSET, %#x, %d, timeout=%#x, bitset=%#x)", uaddr, val, timeout_or_val2, val3);
@@ -475,14 +475,14 @@ dword_t sys_futex_common(guest_addr_t uaddr, dword_t op, dword_t val, guest_addr
             return futex_wakelike(op, uaddr, val, 0, 0, val3);
         case FUTEX_WAIT_REQUEUE_PI_:
             STRACE("Unimplemented futex(FUTEX_WAIT_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
-            FIXME("Unsupported futex FUTEX_WAIT_REQUEUE_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAIT_REQUEUE_PI) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+            FIXME("Unsupported futex FUTEX_WAIT_REQUEUE_PI(%#x, %d, %d, timeout=%#x, %#x, %d) (FUTEX_WAIT_REQUEUE_PI) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
             return _ENOSYS;
         case FUTEX_CMP_REQUEUE_PI_:
             STRACE("Unimplemented futex(FUTEX_CMP_REQUEUE_PI, %#x, %d, %#x)", uaddr, val, uaddr2);
             return futex_cmp_requeue_pi(uaddr, op, val, uaddr2, timeout_or_val2, val3);
     }
-    STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
-    FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) ", uaddr, op, val, timeout_or_val2, uaddr2, val3);
+    STRACE("futex(%#x, %d, %d, timeout=%#x, %#x, %d) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
+    FIXME("Unsupported futex(%#x, %d, %d, timeout=%#x, %#x, %d) from %s[%d]", uaddr, op, val, timeout_or_val2, uaddr2, val3, current->comm, current->pid);
     return _ENOSYS;
 }
 
