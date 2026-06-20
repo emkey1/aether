@@ -21,7 +21,7 @@
 
 @class ISHWorkspaceContainedWindowView;
 
-@interface WorkspaceViewController ()
+@interface WorkspaceViewController () <UIGestureRecognizerDelegate>
 
 @property (nonatomic, copy) NSString *initialToolIdentifier;
 @property (nonatomic) BOOL didOpenInitialTool;
@@ -3128,6 +3128,59 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self refreshDockButtons];
 }
 
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    // The desktop root menu only fires on the bare desktop, never on a window.
+    if (gestureRecognizer.view == self.desktopSurfaceView)
+        return touch.view == self.desktopSurfaceView || touch.view == self.desktopWallpaperView;
+    return YES;
+}
+
+- (void)handleDesktopLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    // Modern-only: the root menu is part of the ctwm-style experience; Classic stays bare.
+    if (!ISHWorkspaceUsesModernStyle())
+        return;
+    [self presentDesktopRootMenuAtPoint:[recognizer locationInView:self.desktopSurfaceView]];
+}
+
+- (void)presentDesktopRootMenuAtPoint:(CGPoint)point {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Workspace"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    [sheet addAction:[UIAlertAction actionWithTitle:@"New Terminal"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self openTerminalHerePreferringConsole:NO];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"New System Console"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self openTerminalHerePreferringConsole:YES];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentUtilsDockActionsFromView:self.desktopSurfaceView];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Workspace Style…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentWorkspaceStyleChooserFromView:self.desktopSurfaceView];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = self.desktopSurfaceView;
+        popover.sourceRect = CGRectMake(point.x, point.y, 1.0, 1.0);
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
 - (ISHWorkspaceContainedWindowView *)desktopWindowHostingTerminalUUID:(NSUUID *)terminalUUID {
     if (terminalUUID == nil)
         return nil;
@@ -3222,6 +3275,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.desktopSurfaceView.translatesAutoresizingMaskIntoConstraints = NO;
     [self applyWorkspaceDesktopBackground];
     [self.view addSubview:self.desktopSurfaceView];
+
+    UILongPressGestureRecognizer *desktopRootMenuRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleDesktopLongPress:)];
+    desktopRootMenuRecognizer.minimumPressDuration = 0.4;
+    desktopRootMenuRecognizer.delegate = self;
+    [self.desktopSurfaceView addGestureRecognizer:desktopRootMenuRecognizer];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.desktopSurfaceView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
