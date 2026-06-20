@@ -113,8 +113,15 @@ int get_cpu_count(void) {
              ncpu = (int) forced;
      }
  #if TARGET_OS_OSX && defined(__aarch64__)
-     else if (ncpu > 2)
-         ncpu = 2;
+     // Standalone CLI / macOS dev harness: default to 4 emulated CPUs so local
+     // and fakefs repro runs reproduce the concurrency -- and the TLB/COW/futex/
+     // heap races -- of a multi-core device, instead of the old 2-core cap that
+     // hid that whole class of bug. 4 exposes real parallelism without
+     // oversubscribing a big host (this branch is macOS-only; the iOS app is not
+     // TARGET_OS_OSX and keeps the true hw.ncpu). Override with
+     // ISH_GUEST_CPU_COUNT=N (e.g. =6 to match a device, =1 to force serial).
+     else
+         ncpu = 4;
  #endif
      if (ncpu < 1)
          ncpu = 1;

@@ -7,6 +7,7 @@
 
 #include "fs/fd.h"
 #include "fs/path.h"
+#include "fs/real.h"
 #include "jit/jit.h"
 #include "kernel/calls.h"
 #include "kernel/fs.h"
@@ -150,22 +151,33 @@ static void setup_host_mounts(void) {
     ignore_eexist(do_mount(&procfs, "proc", "/proc", "", 0));
     ignore_eexist(do_mount(&sysfs, "sysfs", "/sys", "", 0));
     ignore_eexist(do_mount(&devptsfs, "devpts", "/dev/pts", "", 0));
+
+    // Dev-only: mount a host directory as realfs at /realmnt to reproduce
+    // real-fs-backed behavior (e.g. /AOK/persist) against a local fakefs root.
+    const char *real_mnt = getenv("ISH_REAL_MNT");
+    if (real_mnt != NULL && real_mnt[0] != '\0') {
+        ignore_eexist(generic_mkdirat(AT_PWD, "/realmnt", 0755));
+        ignore_eexist(do_mount(&realfs, real_mnt, "/realmnt", "", 0));
+    }
 }
 
 int main(int argc, char *const argv[]) {
     run_at_boot();
     configure_standalone_i386_safety(argc, argv);
     configure_standalone_amd64_jit();
-    // The iOS app defaults to multicore (UserPreferences shouldEnableMulticore =
-    // YES); the CLI defaults to single-core. Let development and local fakefs
-    // repro harnesses match the device's threading -- and so exercise the
-    // multicore-only races it has -- by setting ISH_MULTICORE=1.
+    // The CLI now defaults to multicore (like the iOS app), so local and fakefs
+    // repro runs exercise the same concurrency -- and the same races -- as a
+    // multi-core device. The effective lever is the emulated CPU count
+    // (get_cpu_count(), >= 4 on the CLI; see platform/darwin.c); doEnableMulticore
+    // is a legacy toggle kept in sync for clarity. Set ISH_MULTICORE=0 to flip
+    // the toggle back, or ISH_GUEST_CPU_COUNT=1 to actually run a serial guest.
     {
         extern bool doEnableMulticore;
+        doEnableMulticore = true;
         const char *mc = getenv("ISH_MULTICORE");
-        if (mc != NULL && (strcmp(mc, "1") == 0 || strcasecmp(mc, "true") == 0 ||
-                           strcasecmp(mc, "yes") == 0 || strcasecmp(mc, "on") == 0))
-            doEnableMulticore = true;
+        if (mc != NULL && (strcmp(mc, "0") == 0 || strcasecmp(mc, "false") == 0 ||
+                           strcasecmp(mc, "no") == 0 || strcasecmp(mc, "off") == 0))
+            doEnableMulticore = false;
     }
     halt_hook = cli_halt;
 
