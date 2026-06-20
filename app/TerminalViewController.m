@@ -203,6 +203,8 @@ static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *c
 @property (weak, nonatomic) IBOutlet UIButton *infoButton;
 @property (strong, nonatomic) UIButton *workspaceButton;
 @property (strong, nonatomic) UIButton *terminalSwitcherButton;
+@property (strong, nonatomic) BarButton *dotKey;
+@property (strong, nonatomic) BarButton *slashKey;
 @property (weak, nonatomic) IBOutlet UIButton *pasteButton;
 @property (weak, nonatomic) IBOutlet UIButton *hideKeyboardButton;
 @property (strong, nonatomic) UIButton *floatingWorkspaceButton;
@@ -370,7 +372,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [self _installFloatingTerminalSwitcherButton];
     [self _installWorkspaceButton];
     [self _installTerminalSwitcherButton];
-    
+    [self _installCenterKeys];
+
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
         self.barHeight.constant = 36;
     } else {
@@ -581,6 +584,75 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [self _installTerminalSwitcherGestureOnView:button];
 }
 
+- (BarButton *)_makeCenterKeyWithTitle:(NSString *)title action:(SEL)action {
+    BarButton *button = [BarButton buttonWithType:UIButtonTypeCustom];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [button setTitle:title forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont systemFontOfSize:20];
+    // Replicate BarButton's -awakeFromNib, which only runs for storyboard instances.
+    button.layer.cornerRadius = 5;
+    button.layer.shadowOffset = CGSizeMake(0, 1);
+    button.layer.shadowOpacity = 0.4;
+    button.layer.shadowRadius = 0;
+    button.accessibilityTraits |= UIAccessibilityTraitKeyboardKey;
+    button.keyAppearance = UIKeyboardAppearanceLight; // setter applies background/tint/title color
+    [button addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
+    return button;
+}
+
+// Two extra keys ('.' and '/') centered on the accessory bar -- the characters a
+// shell user reaches for constantly (./  ../  /usr  *.c). They straddle the bar's
+// horizontal center (one just left, one just right) with flexible space on either
+// side, so the left keys and right controls keep their own edges. Present on both
+// the plain and Workspace bars.
+- (void)_installCenterKeys {
+    // The storyboard bar has a single flexible spacer (a plain, childless UIView)
+    // between the left keys and the right controls; reuse it as the left spacer and
+    // add a matching one to the right of the new keys.
+    UIView *leftSpacer = nil;
+    for (UIView *view in self.bar.arrangedSubviews) {
+        if ([view isMemberOfClass:UIView.class] && view.subviews.count == 0) {
+            leftSpacer = view;
+            break;
+        }
+    }
+    if (leftSpacer == nil)
+        return;
+
+    self.dotKey = [self _makeCenterKeyWithTitle:@"." action:@selector(pressPeriod:)];
+    self.dotKey.accessibilityLabel = @"Period";
+    self.dotKey.accessibilityHint = @"Sends a period.";
+    self.slashKey = [self _makeCenterKeyWithTitle:@"/" action:@selector(pressSlash:)];
+    self.slashKey.accessibilityLabel = @"Slash";
+    self.slashKey.accessibilityHint = @"Sends a forward slash.";
+
+    UIView *rightSpacer = [[UIView alloc] init];
+    rightSpacer.translatesAutoresizingMaskIntoConstraints = NO;
+
+    NSUInteger spacerIndex = [self.bar.arrangedSubviews indexOfObject:leftSpacer];
+    [self.bar insertArrangedSubview:self.dotKey atIndex:spacerIndex + 1];
+    [self.bar insertArrangedSubview:self.slashKey atIndex:spacerIndex + 2];
+    [self.bar insertArrangedSubview:rightSpacer atIndex:spacerIndex + 3];
+
+    // Both spacers yield their width freely so the keys can reach the center; the
+    // >= 0 floor keeps a very narrow bar from forcing them (and the keys) to overlap.
+    for (UIView *spacer in @[leftSpacer, rightSpacer]) {
+        [spacer setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+        [spacer setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+        [spacer.widthAnchor constraintGreaterThanOrEqualToConstant:0].active = YES;
+    }
+
+    // Pin the gap between the two keys to the bar's center. Just-breakable priority
+    // so an extremely narrow bar degrades to "as centered as fits" instead of
+    // breaking a required constraint.
+    NSLayoutConstraint *center = [self.dotKey.trailingAnchor constraintEqualToAnchor:self.bar.centerXAnchor constant:-(self.bar.spacing / 2.0)];
+    center.priority = UILayoutPriorityRequired - 1;
+    center.active = YES;
+
+    [self.dotKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
+    [self.slashKey.widthAnchor constraintEqualToAnchor:self.infoButton.widthAnchor].active = YES;
+}
+
 - (void)_installTerminalSwitcherGestureOnView:(UIView *)view {
     UILongPressGestureRecognizer *recognizer =
         [[UILongPressGestureRecognizer alloc] initWithTarget:self
@@ -681,7 +753,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)_updateFloatingSettingsButtonVisibility {
     BOOL visible = [self _shouldShowFloatingSettingsButton];
     BOOL showWorkspaceButtons = self.showsWorkspaceDashboardButton;
-    BOOL settingsEnabled = !self.embeddedInWorkspaceWindow;
+    BOOL settingsEnabled = YES; // settings gear lives in the bar everywhere, including the Workspace
     self.floatingWorkspaceButton.hidden = !(visible && showWorkspaceButtons);
     self.floatingWorkspaceButton.userInteractionEnabled = visible && showWorkspaceButtons;
     self.floatingSettingsButton.hidden = !(visible && settingsEnabled);
@@ -1017,6 +1089,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         for (BarButton *button in self.barButtons) {
             button.keyAppearance = keyAppearance;
         }
+        self.dotKey.keyAppearance = keyAppearance;
+        self.slashKey.keyAppearance = keyAppearance;
         UIColor *tintColor = keyAppearance == UIKeyboardAppearanceLight ? UIColor.blackColor : UIColor.whiteColor;
         // Give the in-bar control buttons a key-like background so they stay visible on any terminal
         // theme. Without it they are bare glyphs that vanish on a dark terminal (they only showed in
@@ -1384,6 +1458,12 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 - (IBAction)pressTab:(id)sender {
     [self pressKey:@"\t"];
+}
+- (IBAction)pressPeriod:(id)sender {
+    [self pressKey:@"."];
+}
+- (IBAction)pressSlash:(id)sender {
+    [self pressKey:@"/"];
 }
 - (void)pressKey:(NSString *)key {
     [self.termView insertText:key];
