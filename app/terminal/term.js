@@ -180,6 +180,9 @@ exports.getCharacterSize = () => {
 
 exports.clearScrollback = () => term.clearScrollback();
 exports.setUserGesture = () => term.accessibilityReader_.hasUserGesture = true;
+// Padding between the terminal text and the webview edge. Native lowers this to 0
+// when "Maximize Screen Space" is on with an external keyboard to reclaim edge space.
+exports.setScreenPaddingSize = (size) => term.getPrefs().set('screen-padding-size', size);
 
 hterm.openUrl = (url) => native.openLink(url);
 
