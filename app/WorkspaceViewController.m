@@ -3476,8 +3476,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)applyWorkspaceDesktopBackground {
     self.modernMenuPip.hidden = !ISHWorkspaceUsesModernStyle();
-    // Modern hides the dock entirely — the root menu (pip / two-finger / window menu) replaces it.
+    // Modern hides the dock and the standalone Layout Manager — replaced by the root menu
+    // and the Workspaces applet (which now carries Save/Restore).
     self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
+    if (ISHWorkspaceUsesModernStyle())
+        self.dashboardWindow.hidden = YES;
     if (ISHWorkspaceUsesModernStyle()) {
         // Modern: a calm flat desktop that follows the user's light/dark choice,
         // so the whole canvas changes — not just the window frames.
@@ -3563,6 +3566,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     };
     [self createDockWindow];
     self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
+    if (ISHWorkspaceUsesModernStyle())
+        self.dashboardWindow.hidden = YES;
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -6694,6 +6699,31 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     return button;
 }
 
+- (UIButton *)workspacesIconButtonWithSymbol:(NSString *)symbol fallback:(NSString *)fallback action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        [button setImage:[UIImage systemImageNamed:symbol] forState:UIControlStateNormal];
+    } else {
+        [button setTitle:fallback forState:UIControlStateNormal];
+    }
+    button.accessibilityLabel = fallback;
+    button.layer.cornerRadius = 12;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 36.0 : 40.0].active = YES;
+    return button;
+}
+
+- (void)saveLayoutFromApplet:(id)sender {
+    (void) sender;
+    [(id)self.workspaceHostViewController saveWorkspaceLayout:nil];
+}
+
+- (void)restoreLayoutFromApplet:(id)sender {
+    (void) sender;
+    [(id)self.workspaceHostViewController restoreWorkspaceLayout:nil];
+}
+
 - (UIImage *)scenePreviewImageForDescriptor:(NSDictionary<NSString *, id> *)descriptor size:(CGSize)size {
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     UIColor *backgroundTop = [theme[@"backgroundTop"] colorWithAlphaComponent:0.94];
@@ -6871,6 +6901,15 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_contentStack addArrangedSubview:_newWorkspaceButton];
         _closeHiddenButton = [self workspacesActionButtonWithTitle:@"Close Hidden Windows" action:@selector(confirmCloseHiddenWindows:)];
         [_contentStack addArrangedSubview:_closeHiddenButton];
+    } else {
+        // Modern folds the Layout Manager into this applet as two icons.
+        UIStackView *layoutRow = [UIStackView new];
+        layoutRow.axis = UILayoutConstraintAxisHorizontal;
+        layoutRow.distribution = UIStackViewDistributionFillEqually;
+        layoutRow.spacing = 6;
+        [layoutRow addArrangedSubview:[self workspacesIconButtonWithSymbol:@"square.and.arrow.down" fallback:@"Save" action:@selector(saveLayoutFromApplet:)]];
+        [layoutRow addArrangedSubview:[self workspacesIconButtonWithSymbol:@"arrow.clockwise" fallback:@"Restore" action:@selector(restoreLayoutFromApplet:)]];
+        [_contentStack addArrangedSubview:layoutRow];
     }
     [NSLayoutConstraint activateConstraints:@[
         [_rowsStack.topAnchor constraintEqualToAnchor:listCard.topAnchor constant:8],
