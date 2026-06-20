@@ -3162,6 +3162,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self openTerminalHerePreferringConsole:YES];
     }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Icon Manager"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolSessionsIdentifier];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
