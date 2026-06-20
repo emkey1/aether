@@ -3566,8 +3566,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     };
     [self createDockWindow];
     self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
-    if (ISHWorkspaceUsesModernStyle())
+    if (ISHWorkspaceUsesModernStyle()) {
         self.dashboardWindow.hidden = YES;
+        [self scheduleHiddenWorkspaceWindowAutoClose];
+    }
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -4608,6 +4610,32 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         }
     } else {
         [self presentSceneActivationError:nil title:@"Unable to close workspace"];
+    }
+}
+
+// Modern replaces the manual "Close Hidden Windows" button with a one-shot sweep a couple
+// seconds after launch: any Workspace scene session with no connected scene is a leftover
+// phantom window from a previous run. The delay lets co-visible windows (Split View) reconnect
+// first so we never destroy a window that's merely mid-reconnect.
+- (void)scheduleHiddenWorkspaceWindowAutoClose {
+    if (!ISHWorkspaceUsesModernStyle() || !ISHWorkspaceSupportsSceneWindows())
+        return;
+    if (@available(iOS 13.0, *)) {
+        static dispatch_once_t onceToken;
+        __weak typeof(self) weakSelf = self;
+        dispatch_once(&onceToken, ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                typeof(self) strongSelf = weakSelf;
+                if (strongSelf == nil)
+                    return;
+                for (UISceneSession *session in [strongSelf hiddenWorkspaceSceneSessions]) {
+                    ISHWorkspaceForgetHiddenSession(session);
+                    [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                                            options:nil
+                                                                       errorHandler:^(__unused NSError *error) {}];
+                }
+            });
+        });
     }
 }
 
