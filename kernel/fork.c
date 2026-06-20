@@ -169,11 +169,50 @@ fail_free_mem:
     return err;
 }
 
+// Decode unimplemented clone flags into a readable '|'-joined list. The runtime
+// FIXME below is the primary signal for prioritizing clone-flag support from
+// real-world logs, so it should report *which* feature a program wanted (e.g.
+// CLONE_NEWUSER|CLONE_NEWPID = unprivileged container setup) instead of a bare
+// hex residual. Any bit we have no name for is appended as hex.
+static void clone_flag_names(dword_t flags, char *buf, size_t bufsize) {
+    static const struct { dword_t bit; const char *name; } table[] = {
+        {CLONE_PIDFD_, "CLONE_PIDFD"},
+        {CLONE_PTRACE_, "CLONE_PTRACE"},
+        {CLONE_PARENT_, "CLONE_PARENT"},
+        {CLONE_NEWNS_, "CLONE_NEWNS"},
+        {CLONE_UNTRACED_, "CLONE_UNTRACED"},
+        {CLONE_NEWCGROUP_, "CLONE_NEWCGROUP"},
+        {CLONE_NEWUTS_, "CLONE_NEWUTS"},
+        {CLONE_NEWIPC_, "CLONE_NEWIPC"},
+        {CLONE_NEWUSER_, "CLONE_NEWUSER"},
+        {CLONE_NEWPID_, "CLONE_NEWPID"},
+        {CLONE_NEWNET_, "CLONE_NEWNET"},
+        {CLONE_IO_, "CLONE_IO"},
+    };
+    size_t len = 0;
+    buf[0] = '\0';
+    for (size_t i = 0; i < sizeof(table)/sizeof(table[0]); i++) {
+        if (!(flags & table[i].bit))
+            continue;
+        int n = snprintf(buf + len, bufsize - len, "%s%s", len ? "|" : "", table[i].name);
+        if (n < 0 || (size_t) n >= bufsize - len)
+            return;
+        len += (size_t) n;
+        flags &= ~table[i].bit;
+    }
+    if (flags != 0)
+        snprintf(buf + len, bufsize - len, "%s%#x", len ? "|" : "", flags);
+}
+
 static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t ptid,
         guest_addr_t tls, guest_addr_t ctid) {
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
-    if (flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS) {
-        FIXME("unimplemented clone flags 0x%x", flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS);
+    dword_t unimpl_flags = flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS;
+    if (unimpl_flags) {
+        char names[256];
+        clone_flag_names(unimpl_flags, names, sizeof(names));
+        FIXME("unimplemented clone flags %s (requested %#x) from %s[%d]",
+              names, flags, current->comm, current->pid);
         return _EINVAL;
     }
     if (flags & CLONE_SIGHAND_ && !(flags & CLONE_VM_))
