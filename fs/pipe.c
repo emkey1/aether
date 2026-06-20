@@ -20,7 +20,7 @@ static fd_t pipe_f_create(int pipe_fd, int flags) {
 int_t sys_pipe2(guest_addr_t pipe_addr, int_t flags) {
     STRACE("pipe2(%#llx, %#x)", (unsigned long long) pipe_addr, flags);
     if (flags & ~(O_CLOEXEC_|O_NONBLOCK_)) {
-        FIXME("unsupported pipe2 flags");
+        FIXME("unsupported pipe2 flags %#x from %s[%d]", flags & ~(O_CLOEXEC_|O_NONBLOCK_), current->comm, current->pid);
         return _EINVAL;
     }
 
