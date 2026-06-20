@@ -233,6 +233,23 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
                 err = wait_for(&wait.cond, &futex_lock, &remaining);
                 should_mark_wait_interrupted = false;
             }
+            // Check "were we dequeued by a FUTEX_WAKE" BEFORE the interrupt
+            // check. A wake that removed us from the queue woke us, and a wake
+            // that dequeues a waiter is never lost: Linux returns 0, and the
+            // pending signal (if any) is delivered on the syscall-return path.
+            // Testing wait.interrupted first dropped the wake whenever a signal
+            // raced it -- the SA_RESTART lost-wake bug: the signal sets
+            // wait.interrupted, then a FUTEX_WAKE dequeues us before the signal
+            // is noticed (notice can be deferred to the wait-slice boundary), so
+            // we returned EINTR and discarded the wake; SA_RESTART then re-blocked
+            // with no wake left to receive and ran to ETIMEDOUT. This also covers
+            // the wake firing between wait_for iterations, where the cond
+            // notification is lost and the next wait_for would otherwise time out
+            // (returning ETIMEDOUT here would trip glibc's futex_fatal_error()).
+            if (list_null(&wait.queue)) {
+                err = 0;
+                break;
+            }
             if (__atomic_load_n(&wait.interrupted, __ATOMIC_ACQUIRE) || futex_wait_has_pending_signal()) {
                 err = _EINTR;
                 break;
@@ -242,17 +259,6 @@ static int futex_wait_masked(guest_addr_t uaddr, dword_t op, dword_t val, struct
             // Keep waiting instead of leaking a spurious EINTR to the guest.
             if (err == _EINTR)
                 continue;
-            if (list_null(&wait.queue)) {
-                // FUTEX_WAKE removed us from the queue. The wake may have
-                // fired while we were between wait_for iterations (not
-                // sleeping), so the cond notification was lost and the next
-                // wait_for timed out. Regardless of what wait_for returned
-                // last, the semantic result is "woken" (0), not ETIMEDOUT.
-                // Returning ETIMEDOUT here would trigger glibc's
-                // futex_fatal_error() from futex_wait_simple().
-                err = 0;
-                break;
-            }
             if (err != _ETIMEDOUT)
                 break;
         }
