@@ -3167,10 +3167,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     pip.tintColor = UIColor.whiteColor;
     [pip setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    pip.backgroundColor = [UIColor colorWithRed:0.16 green:0.18 blue:0.24 alpha:0.92];
+    NSDictionary<NSString *, UIColor *> *pipTheme = ISHWorkspaceThemeDescriptor();
+    pip.backgroundColor = pipTheme[@"accent"] ?: [UIColor colorWithRed:0.20 green:0.48 blue:0.96 alpha:1.0];
     pip.layer.cornerRadius = 22.0;
-    pip.layer.borderWidth = 1.0;
-    pip.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.20].CGColor;
+    pip.layer.borderWidth = 1.5;
+    pip.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.85].CGColor;
+    pip.layer.shadowColor = UIColor.blackColor.CGColor;
+    pip.layer.shadowOpacity = 0.35;
+    pip.layer.shadowRadius = 6.0;
+    pip.layer.shadowOffset = CGSizeMake(0.0, 2.0);
     pip.accessibilityLabel = @"Workspace menu";
     [pip addTarget:self action:@selector(menuPipTapped:) forControlEvents:UIControlEventTouchUpInside];
     pip.hidden = !ISHWorkspaceUsesModernStyle();
@@ -3194,10 +3199,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                          reuseExisting:NO
                                        trackPrimaryRole:NO];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"New System Console"
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Terminal…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self openTerminalHerePreferringConsole:YES];
+        [self presentTerminalDockActionsFromView:sourceView];
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Icon Manager"
                                               style:UIAlertActionStyleDefault
@@ -3806,6 +3811,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             continue;
         BOOL activeWindow = windowView == self.desktopSurfaceView.subviews.lastObject;
         [windowView applyWorkspaceChromeTheme:theme active:activeWindow];
+        if (ISHWorkspaceUsesModernStyle()) {
+            // In Modern, the window's upper-right utility button becomes the ☰ menu —
+            // a per-window way to summon the root menu (the dock replacement).
+            __weak typeof(self) weakSelf = self;
+            __weak typeof(windowView) weakWindow = windowView;
+            [windowView setUtilityButtonTitle:@"☰" handler:^{
+                [weakSelf presentDesktopRootMenuFromView:weakWindow.utilityButton
+                                              sourceRect:weakWindow.utilityButton.bounds];
+            }];
+        } else {
+            [windowView setUtilityButtonTitle:nil handler:nil];
+        }
     }
 }
 
