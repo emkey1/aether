@@ -279,7 +279,16 @@ static int realfs_wait_readable(int real_fd) {
                 errno = EINTR;
                 return errno_map();
             }
-            continue;
+            // Darwin's poll() does not report POLLHUP on a FIFO/pipe read end
+            // after the last writer closes, so a reader blocked here would spin
+            // on poll timeouts forever and never observe EOF. Return on the
+            // timeout so realfs_read() attempts a read(): on a writer-closed,
+            // empty FIFO that read returns 0 (EOF); if a writer is still present
+            // it returns EAGAIN and realfs_read loops back here. This unwedges
+            // GNU make's jobserver_acquire_all(), which closes the FIFO write
+            // end and then blocking-reads until EOF to reclaim every token (a
+            // parallel `make -jN` on a fakefs/realfs /tmp hung forever otherwise).
+            return 0;
         }
         if (errno == EINTR && !realfs_guest_signal_pending())
             continue;
@@ -536,7 +545,14 @@ off_t realfs_lseek(struct fd *fd, off_t offset, int whence) {
 int realfs_poll(struct fd *fd) {
     struct pollfd p = {.fd = fd->real_fd, .events = 0};
 #if defined(__APPLE__)
-    bool is_fifo = is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode);
+    // Anonymous pipes (adhoc fds) and named FIFOs (realfs-backed, e.g. a GNU
+    // make jobserver on a fakefs/realfs /tmp) are both S_IFIFO host objects
+    // subject to Darwin's FIFO poll quirks below: requesting POLLPRI makes the
+    // kernel report a spurious POLLIN|POLLPRI even when empty, and it reports a
+    // spurious POLLHUP on a read end opened before any writer. Gating on
+    // is_adhoc_fd() excluded named FIFOs, so a guest poll/select/pselect on one
+    // could see bogus readiness. Cover every FIFO host object.
+    bool is_fifo = S_ISFIFO(fd->stat.mode);
     if (!is_fifo)
         p.events |= POLLPRI;
 #else
