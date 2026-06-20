@@ -1,4 +1,6 @@
 build/
+*.o
+.cache/
 xcuserdata/
 .floo
 
