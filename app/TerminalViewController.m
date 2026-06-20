@@ -371,10 +371,6 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [self _installWorkspaceButton];
     [self _installTerminalSwitcherButton];
     
-    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
-        [self.bar removeArrangedSubview:self.hideKeyboardButton];
-        [self.hideKeyboardButton removeFromSuperview];
-    }
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
         self.barHeight.constant = 36;
     } else {
@@ -460,10 +456,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     [button addSubview:badge];
     self.floatingSettingsBadge = badge;
 
-    // Anchor to the terminal's bottom (which is raised above the keyboard via bottomConstraint)
-    // so the gear floats just above the keyboard/accessory bar when the keyboard is up, and at
-    // the safe-area bottom when it isn't.
-    self.floatingSettingsBottomConstraint = [button.bottomAnchor constraintEqualToAnchor:self.termView.bottomAnchor constant:-12];
+    self.floatingSettingsBottomConstraint = [button.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-12];
     [NSLayoutConstraint activateConstraints:@[
         [button.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-12],
         self.floatingSettingsBottomConstraint,
@@ -691,21 +684,16 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     BOOL settingsEnabled = !self.embeddedInWorkspaceWindow;
     self.floatingWorkspaceButton.hidden = !(visible && showWorkspaceButtons);
     self.floatingWorkspaceButton.userInteractionEnabled = visible && showWorkspaceButtons;
-    // On phone the accessory bar's settings gear isn't reachable, so always float the settings
-    // button (it tracks the terminal's bottom, which sits above the keyboard) when settings are
-    // available, and hide the redundant in-bar gear so VoiceOver doesn't see two of them.
-    BOOL phone = (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone);
-    BOOL floatingSettingsVisible = settingsEnabled && (visible || phone);
-    self.floatingSettingsButton.hidden = !floatingSettingsVisible;
-    self.floatingSettingsButton.userInteractionEnabled = floatingSettingsVisible;
+    self.floatingSettingsButton.hidden = !(visible && settingsEnabled);
+    self.floatingSettingsButton.userInteractionEnabled = visible && settingsEnabled;
     self.floatingTerminalSwitcherButton.hidden = !visible;
     self.floatingTerminalSwitcherButton.userInteractionEnabled = visible;
     self.terminalSwitcherButton.hidden = visible;
     self.terminalSwitcherButton.userInteractionEnabled = !visible;
     self.workspaceButton.hidden = !showWorkspaceButtons || visible;
     self.workspaceButton.userInteractionEnabled = showWorkspaceButtons && !visible;
-    self.infoButton.alpha = (settingsEnabled && !phone) ? 1 : 0;
-    self.infoButton.userInteractionEnabled = settingsEnabled && !phone;
+    self.infoButton.alpha = settingsEnabled ? 1 : 0;
+    self.infoButton.userInteractionEnabled = settingsEnabled;
     self.floatingSettingsBottomConstraint.constant = -12;
 }
 
@@ -1030,15 +1018,30 @@ static const NSInteger kMaximumTerminalFontSize = 72;
             button.keyAppearance = keyAppearance;
         }
         UIColor *tintColor = keyAppearance == UIKeyboardAppearanceLight ? UIColor.blackColor : UIColor.whiteColor;
+        // Give the in-bar control buttons a key-like background so they stay visible on any terminal
+        // theme. Without it they are bare glyphs that vanish on a dark terminal (they only showed in
+        // the Workspace because they sat over the lighter desktop, not the black terminal).
+        UIColor *controlBackground = keyAppearance == UIKeyboardAppearanceLight ?
+            [UIColor colorWithWhite:1.0 alpha:0.9] :
+            [UIColor colorWithWhite:1.0 alpha:0.18];
         for (UIControl *control in self.barControls) {
             control.tintColor = tintColor;
+            control.backgroundColor = controlBackground;
+            control.layer.cornerRadius = 6;
+            control.layer.masksToBounds = YES;
         }
         self.terminalSwitcherButton.tintColor = tintColor;
+        self.terminalSwitcherButton.backgroundColor = controlBackground;
+        self.terminalSwitcherButton.layer.cornerRadius = 6;
+        self.terminalSwitcherButton.layer.masksToBounds = YES;
         self.floatingTerminalSwitcherButton.tintColor = tintColor;
         self.floatingTerminalSwitcherButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
             [UIColor colorWithWhite:1 alpha:0.78] :
             [UIColor colorWithWhite:0 alpha:0.45];
         self.workspaceButton.tintColor = tintColor;
+        self.workspaceButton.backgroundColor = controlBackground;
+        self.workspaceButton.layer.cornerRadius = 6;
+        self.workspaceButton.layer.masksToBounds = YES;
         self.floatingWorkspaceButton.tintColor = tintColor;
         self.floatingWorkspaceButton.backgroundColor = keyAppearance == UIKeyboardAppearanceLight ?
             [UIColor colorWithWhite:1 alpha:0.78] :
