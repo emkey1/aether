@@ -8,6 +8,7 @@
 #include "kernel/init.h"
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
+#import "NSObject+SaneKVO.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
@@ -385,12 +386,12 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     UIColor *focusRing = theme[@"focusRing"] ?: accent;
     UIColor *stroke = theme[@"stroke"];
 
-    // Flat surfaces: the window body, content, and title bar all share one card color.
-    // The title bar takes a light accent wash only while the window is focused.
+    // Flat surfaces: the window body and content share one card color. The focused
+    // window's title bar is a solid accent bar with light text — the strong focus cue.
     self.panelView.backgroundColor = card;
     self.contentContainerView.backgroundColor = card;
-    self.titleBarView.backgroundColor = active ? [accent colorWithAlphaComponent:0.16] : card;
-    self.titleLabel.textColor = active ? accent : theme[@"primary"];
+    self.titleBarView.backgroundColor = active ? accent : card;
+    self.titleLabel.textColor = active ? UIColor.whiteColor : theme[@"primary"];
 
     // Hairline border in repose; a crisp accent ring marks focus.
     self.panelView.layer.borderWidth = active ? 1.5 : 0.5;
@@ -399,10 +400,10 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     // Quiet, flat window controls: tinted glyphs, no filled chips or borders.
     self.closeButton.backgroundColor = UIColor.clearColor;
     self.closeButton.layer.borderWidth = 0.0;
-    [self.closeButton setTitleColor:(active ? accent : theme[@"accentAlt"]) forState:UIControlStateNormal];
+    [self.closeButton setTitleColor:(active ? UIColor.whiteColor : theme[@"accentAlt"]) forState:UIControlStateNormal];
     self.utilityButton.backgroundColor = UIColor.clearColor;
     self.utilityButton.layer.borderWidth = 0.0;
-    [self.utilityButton setTitleColor:(active ? accent : theme[@"accentAlt"]) forState:UIControlStateNormal];
+    [self.utilityButton setTitleColor:(active ? UIColor.whiteColor : theme[@"accentAlt"]) forState:UIControlStateNormal];
 
     self.resizeHandleView.backgroundColor = active
         ? [focusRing colorWithAlphaComponent:0.9]
@@ -3183,6 +3184,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self.bodyStack addArrangedSubview:self.windowCard];
 }
 
+- (void)applyWorkspaceDesktopBackground {
+    if (ISHWorkspaceUsesModernStyle()) {
+        // Modern: a calm flat desktop that follows the user's light/dark choice,
+        // so the whole canvas changes — not just the window frames.
+        self.desktopSurfaceView.backgroundColor = UserPreferences.shared.requestingDarkAppearance
+            ? [UIColor colorWithRed:0.07 green:0.08 blue:0.11 alpha:1.0]
+            : [UIColor colorWithRed:0.92 green:0.93 blue:0.96 alpha:1.0];
+    } else if (@available(iOS 13.0, *)) {
+        self.desktopSurfaceView.backgroundColor = [UIColor.systemGroupedBackgroundColor colorWithAlphaComponent:1.0];
+    } else {
+        self.desktopSurfaceView.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
+    }
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Desktop";
@@ -3195,11 +3210,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     self.desktopSurfaceView = [UIView new];
     self.desktopSurfaceView.translatesAutoresizingMaskIntoConstraints = NO;
-    if (@available(iOS 13.0, *)) {
-        self.desktopSurfaceView.backgroundColor = [UIColor.systemGroupedBackgroundColor colorWithAlphaComponent:1.0];
-    } else {
-        self.desktopSurfaceView.backgroundColor = [UIColor colorWithWhite:0.92 alpha:1.0];
-    }
+    [self applyWorkspaceDesktopBackground];
     [self.view addSubview:self.desktopSurfaceView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -3321,6 +3332,16 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                    name:UISceneDidDisconnectNotification
                                                  object:nil];
     }
+
+    [UserPreferences.shared observe:@[@"workspaceStyle"]
+                            options:0 owner:self usingBlock:^(typeof(self) self) {
+        // Re-skin every open window and the desktop when the Classic/Modern style is
+        // switched from anywhere (Settings, the dock menu, or the guest `defaults` tool).
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self applyWorkspaceDesktopBackground];
+            [self refreshDockButtons];
+        });
+    }];
 
     [self refreshWorkspaceStatus];
     [self refreshDockButtons];
