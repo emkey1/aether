@@ -137,17 +137,17 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
         } else {
             err = task_set_thread_area(task, (addr_t) tls_addr);
             if (err < 0)
-                goto fail_free_sighand;
+                goto fail_unlink_group;
         }
     }
 
     err = _EFAULT;
     if (flags & CLONE_CHILD_SETTID_)
         if (user_put_task(task, ctid_addr, task->pid))
-            goto fail_free_sighand;
+            goto fail_unlink_group;
     if (flags & CLONE_PARENT_SETTID_)
         if (user_put(ptid_addr, task->pid))
-            goto fail_free_sighand;
+            goto fail_unlink_group;
     if (flags & CLONE_CHILD_CLEARTID_)
         task->clear_tid = ctid_addr;
     task->exit_signal = flags & CSIGNAL_;
@@ -155,6 +155,22 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
     // remember to do CLONE_SYSVSEM
     return 0;
 
+fail_unlink_group:
+    // Undo the session/pgroup/threads linkage performed above before the task is
+    // destroyed. The normal exit path unlinks these (kernel/exit.c:73,552-554)
+    // before the group object is freed; skipping it here lets task_free_final()
+    // free new_group while its pgroup/session nodes are still linked into the
+    // live pid-rooted lists -- a use-after-free. Reached only from failures that
+    // occur after the linkage (CLONE_SETTLS / CLONE_*_SETTID above).
+    complex_lockt(&pids_lock, 0);
+    lock(&old_group->lock, 0);
+    list_remove(&task->group_links);
+    if (new_group != NULL) {
+        list_remove(&new_group->pgroup);
+        list_remove(&new_group->session);
+    }
+    unlock(&old_group->lock);
+    unlock(&pids_lock);
 fail_free_sighand:
     while(task_ref_cnt_get(task, 0)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
