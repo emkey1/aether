@@ -20,6 +20,7 @@
 #import "WorkspaceViewController.h"
 #import "SceneDelegate.h"
 #import "LinuxInterop.h"
+#import <GameController/GameController.h>
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -1313,7 +1314,18 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         return;
     CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
     keyboardFrame = intersection;
-    self.hasExternalKeyboard = keyboardFrame.size.height < 100;
+    // A short keyboard frame usually means a hardware keyboard is attached (only the
+    // shortcut/assistant bar shows). But on iPad the *software* keyboard can also report
+    // a short intersected frame in portrait, which used to mark it "external" and strip
+    // the accessory bar entirely (hideAccessoryBar fires for hasExternalKeyboard && iPad,
+    // so the bar vanished on iPad portrait). Only trust the height heuristic when
+    // GameController confirms a hardware keyboard is actually connected.
+    BOOL smallKeyboard = keyboardFrame.size.height < 100;
+    BOOL hardwareKeyboardPresent = smallKeyboard; // pre-iOS 14 fallback: old heuristic
+    if (@available(iOS 14.0, *)) {
+        hardwareKeyboardPresent = GCKeyboard.coalescedKeyboard != nil;
+    }
+    self.hasExternalKeyboard = smallKeyboard && hardwareKeyboardPresent;
     CGFloat pad = [self _externalKeyboardBottomInset];
     if (!self.hasExternalKeyboard) {
         pad = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(keyboardFrame);
