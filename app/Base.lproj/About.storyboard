@@ -637,6 +637,39 @@
                                     </tableViewCell>
                                 </cells>
                             </tableViewSection>
+                            <tableViewSection footerTitle="Extends the terminal into the home-indicator strip at the bottom of the screen. Only takes effect with an external keyboard connected and “Hide with external keyboard” turned on above." id="Mss-01-sec">
+                                <cells>
+                                    <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="none" indentationWidth="10" id="Mss-02-cel" userLabel="Maximize Screen Space">
+                                        <rect key="frame" x="0.0" y="523.5" width="320" height="43.5"/>
+                                        <autoresizingMask key="autoresizingMask"/>
+                                        <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="Mss-02-cel" id="Mss-03-cnt">
+                                            <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <label opaque="NO" multipleTouchEnabled="YES" contentMode="left" insetsLayoutMarginsFromSafeArea="NO" text="Maximize Screen Space" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Mss-04-lbl">
+                                                    <rect key="frame" x="16" y="11.5" width="212" height="21"/>
+                                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                    <nil key="textColor"/>
+                                                    <nil key="highlightedColor"/>
+                                                </label>
+                                                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" on="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Mss-05-swt">
+                                                    <rect key="frame" x="255" y="6.5" width="51" height="31"/>
+                                                    <connections>
+                                                        <action selector="maximizeScreenSpaceToggle:" destination="Zzy-IN-laJ" eventType="valueChanged" id="Mss-11-act"/>
+                                                    </connections>
+                                                </switch>
+                                            </subviews>
+                                            <constraints>
+                                                <constraint firstItem="Mss-04-lbl" firstAttribute="leading" secondItem="Mss-03-cnt" secondAttribute="leadingMargin" id="Mss-06-c01"/>
+                                                <constraint firstItem="Mss-04-lbl" firstAttribute="centerY" secondItem="Mss-03-cnt" secondAttribute="centerY" id="Mss-07-c02"/>
+                                                <constraint firstAttribute="trailingMargin" secondItem="Mss-05-swt" secondAttribute="trailing" id="Mss-08-c03"/>
+                                                <constraint firstItem="Mss-05-swt" firstAttribute="centerY" secondItem="Mss-03-cnt" secondAttribute="centerY" id="Mss-09-c04"/>
+                                                <constraint firstItem="Mss-05-swt" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="Mss-04-lbl" secondAttribute="trailing" constant="8" symbolic="YES" id="Mss-10-c05"/>
+                                            </constraints>
+                                        </tableViewCellContentView>
+                                    </tableViewCell>
+                                </cells>
+                            </tableViewSection>
                         </sections>
                         <connections>
                             <outlet property="dataSource" destination="Zzy-IN-laJ" id="NPA-6F-jMj"/>
@@ -647,6 +680,7 @@
                     <connections>
                         <outlet property="backtickEscapeSwitch" destination="8xc-Rx-eue" id="jkl-oc-V9N"/>
                         <outlet property="hideExtraKeysWithExternalKeyboardSwitch" destination="IcN-9M-x1K" id="Lw3-4l-9R6"/>
+                        <outlet property="maximizeScreenSpaceSwitch" destination="Mss-05-swt" id="Mss-12-out"/>
                         <outlet property="optionMetaSwitch" destination="OEG-YY-LTw" id="b2K-Ug-Jij"/>
                         <outlet property="overrideControlSpaceSwitch" destination="554-OF-h41" id="js8-8D-1Ua"/>
                     </connections>

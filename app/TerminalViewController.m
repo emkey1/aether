@@ -424,6 +424,15 @@ static const NSInteger kMaximumTerminalFontSize = 72;
             [self _updateStyleFromPreferences:YES];
         });
     }];
+    [UserPreferences.shared observe:@[@"maximizeScreenSpace", @"hideExtraKeysWithExternalKeyboard"]
+                            options:0 owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _updateSafeAreaCompensation];
+            [self _applyScreenPadding];
+            [self.view setNeedsUpdateConstraints];
+            [self.view setNeedsLayout];
+        });
+    }];
     [self _updateBadge];
 }
 
@@ -1204,6 +1213,26 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     return UserPreferences.shared.hideStatusBar;
 }
 
+// When "Maximize Screen Space" is enabled together with "Hide extra keys with external
+// keyboard", drop the bottom safe-area inset so the terminal extends into the
+// home-indicator strip. Only consulted on the external-keyboard layout paths, where the
+// on-screen keyboard isn't covering the bottom of the screen.
+- (CGFloat)_externalKeyboardBottomInset {
+    if (UserPreferences.shared.maximizeScreenSpace &&
+        UserPreferences.shared.hideExtraKeysWithExternalKeyboard)
+        return 0;
+    return self.view.safeAreaInsets.bottom;
+}
+
+// Mirror that decision into hterm's internal screen padding: with an external keyboard
+// and maximize enabled, drop the 4pt edge padding too. No-op if the terminal webview
+// hasn't loaded yet; a later keyboard-frame change re-applies it.
+- (void)_applyScreenPadding {
+    int padding = (UserPreferences.shared.maximizeScreenSpace && self.hasExternalKeyboard) ? 0 : 4;
+    NSString *script = [NSString stringWithFormat:@"exports.setScreenPaddingSize(%d)", padding];
+    [self.termView.terminal.webView evaluateJavaScript:script completionHandler:nil];
+}
+
 - (void)_updateSafeAreaCompensation {
     if (self.embeddedInWorkspaceWindow) {
         if (!UIEdgeInsetsEqualToEdgeInsets(self.additionalSafeAreaInsets, UIEdgeInsetsZero)) {
@@ -1234,7 +1263,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     }
 
     if (self.hasExternalKeyboard) {
-        self.bottomConstraint.constant = self.view.safeAreaInsets.bottom;
+        self.bottomConstraint.constant = [self _externalKeyboardBottomInset];
     }
     [self _updateFloatingSettingsButtonVisibility];
 }
@@ -1264,7 +1293,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
     keyboardFrame = intersection;
     self.hasExternalKeyboard = keyboardFrame.size.height < 100;
-    CGFloat pad = self.view.safeAreaInsets.bottom;
+    CGFloat pad = [self _externalKeyboardBottomInset];
     if (!self.hasExternalKeyboard) {
         pad = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(keyboardFrame);
         // The keyboard appears to be undocked. This means it can either be split or
@@ -1296,8 +1325,11 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)setHasExternalKeyboard:(BOOL)hasExternalKeyboard {
+    BOOL changed = _hasExternalKeyboard != hasExternalKeyboard;
     _hasExternalKeyboard = hasExternalKeyboard;
     [self _updateStyleFromPreferences:YES];
+    if (changed)
+        [self _applyScreenPadding];
 }
 
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {

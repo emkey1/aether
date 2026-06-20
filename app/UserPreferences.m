@@ -22,6 +22,7 @@ static NSString *const kPreferenceCapsLockMappingKey = @"Caps Lock Mapping";
 static NSString *const kPreferenceOptionMappingKey = @"Option Mapping";
 static NSString *const kPreferenceBacktickEscapeKey = @"Backtick Mapping Escape";
 static NSString *const kPreferenceHideExtraKeysWithExternalKeyboardKey = @"Hide Extra Keys With External Keyboard";
+static NSString *const kPreferenceMaximizeScreenSpaceKey = @"Maximize Screen Space";
 static NSString *const kPreferenceOverrideControlSpaceKey = @"Override Control Space";
 static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
@@ -224,6 +225,7 @@ bool (*remove_user_default)(const char *name);
             @"option_mapping": kPreferenceOptionMappingKey,
             @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
+            @"maximize_screen_space": kPreferenceMaximizeScreenSpaceKey,
             @"override_control_space": kPreferenceOverrideControlSpaceKey,
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
@@ -258,6 +260,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceOptionMappingKey: property(optionMapping),
             kPreferenceBacktickEscapeKey: property(backtickMapEscape),
             kPreferenceHideExtraKeysWithExternalKeyboardKey: property(hideExtraKeysWithExternalKeyboard),
+            kPreferenceMaximizeScreenSpaceKey: property(maximizeScreenSpace),
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
@@ -350,6 +353,15 @@ bool (*remove_user_default)(const char *name);
 
 - (BOOL)validateHideExtraKeysWithExternalKeyboard:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: maximizeScreenSpace
+- (BOOL)maximizeScreenSpace {
+    return [_defaults boolForKey:kPreferenceMaximizeScreenSpaceKey];
+}
+
+- (void)setMaximizeScreenSpace:(BOOL)maximizeScreenSpace {
+    [_defaults setBool:maximizeScreenSpace forKey:kPreferenceMaximizeScreenSpaceKey];
 }
 
 // MARK: overrideControlSpace
