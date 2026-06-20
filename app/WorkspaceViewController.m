@@ -3336,6 +3336,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)applyWorkspaceDesktopBackground {
     self.modernMenuPip.hidden = !ISHWorkspaceUsesModernStyle();
+    // Modern hides the dock entirely — the root menu (pip / two-finger / window menu) replaces it.
+    self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
     if (ISHWorkspaceUsesModernStyle()) {
         // Modern: a calm flat desktop that follows the user's light/dark choice,
         // so the whole canvas changes — not just the window frames.
@@ -3420,6 +3422,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [weakSelf refreshDockButtons];
     };
     [self createDockWindow];
+    self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -3440,7 +3443,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                                     selector:@selector(saveWorkspaceLayout:)]];
     [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"Restore Saved Layout"
                                                                    selector:@selector(restoreWorkspaceLayout:)]];
-    if (ISHWorkspaceSupportsSceneWindows()) {
+    if (ISHWorkspaceSupportsSceneWindows() && !ISHWorkspaceUsesModernStyle()) {
         [windowCardStack addArrangedSubview:[self workspaceActionButtonWithTitle:@"New Workspace Window"
                                                                        selector:@selector(openNewWorkspaceWindow:)]];
     }
@@ -6723,10 +6726,12 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _rowsStack.spacing = 6;
     [listCard addSubview:_rowsStack];
 
-    _newWorkspaceButton = [self workspacesActionButtonWithTitle:@"New Workspace" action:@selector(openNewWorkspaceFromApplet:)];
-    [_contentStack addArrangedSubview:_newWorkspaceButton];
-    _closeHiddenButton = [self workspacesActionButtonWithTitle:@"Close Hidden Windows" action:@selector(confirmCloseHiddenWindows:)];
-    [_contentStack addArrangedSubview:_closeHiddenButton];
+    if (!ISHWorkspaceUsesModernStyle()) {
+        _newWorkspaceButton = [self workspacesActionButtonWithTitle:@"New Workspace" action:@selector(openNewWorkspaceFromApplet:)];
+        [_contentStack addArrangedSubview:_newWorkspaceButton];
+        _closeHiddenButton = [self workspacesActionButtonWithTitle:@"Close Hidden Windows" action:@selector(confirmCloseHiddenWindows:)];
+        [_contentStack addArrangedSubview:_closeHiddenButton];
+    }
     [NSLayoutConstraint activateConstraints:@[
         [_rowsStack.topAnchor constraintEqualToAnchor:listCard.topAnchor constant:8],
         [_rowsStack.leadingAnchor constraintEqualToAnchor:listCard.leadingAnchor constant:8],
