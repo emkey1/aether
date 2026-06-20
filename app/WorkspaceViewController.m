@@ -25,6 +25,7 @@
 
 @property (nonatomic, copy) NSString *initialToolIdentifier;
 @property (nonatomic) BOOL didOpenInitialTool;
+@property (nonatomic, strong) UIButton *modernMenuPip;
 @property (nonatomic) BOOL didEnsureDefaultWorkspaceUtilities;
 @property (nonatomic, strong) UIView *desktopSurfaceView;
 @property (nonatomic, strong) UIImageView *desktopWallpaperView;
@@ -3141,10 +3142,46 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     // Modern-only: the root menu is part of the ctwm-style experience; Classic stays bare.
     if (!ISHWorkspaceUsesModernStyle())
         return;
-    [self presentDesktopRootMenuAtPoint:[recognizer locationInView:self.desktopSurfaceView]];
+    CGPoint point = [recognizer locationInView:self.desktopSurfaceView];
+    [self presentDesktopRootMenuFromView:self.desktopSurfaceView sourceRect:CGRectMake(point.x, point.y, 1.0, 1.0)];
 }
 
-- (void)presentDesktopRootMenuAtPoint:(CGPoint)point {
+- (void)handleDesktopTwoFingerLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    if (!ISHWorkspaceUsesModernStyle())
+        return;
+    // Two fingers work anywhere, including on top of a window, so the menu is always
+    // reachable even when windows cover the whole desktop.
+    CGPoint point = [recognizer locationInView:self.desktopSurfaceView];
+    [self presentDesktopRootMenuFromView:self.desktopSurfaceView sourceRect:CGRectMake(point.x, point.y, 1.0, 1.0)];
+}
+
+- (UIButton *)makeModernMenuPip {
+    UIButton *pip = [UIButton buttonWithType:UIButtonTypeSystem];
+    pip.translatesAutoresizingMaskIntoConstraints = NO;
+    if (@available(iOS 13.0, *)) {
+        [pip setImage:[UIImage systemImageNamed:@"line.3.horizontal"] forState:UIControlStateNormal];
+    } else {
+        [pip setTitle:@"☰" forState:UIControlStateNormal];
+    }
+    pip.tintColor = UIColor.whiteColor;
+    [pip setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    pip.backgroundColor = [UIColor colorWithRed:0.16 green:0.18 blue:0.24 alpha:0.92];
+    pip.layer.cornerRadius = 22.0;
+    pip.layer.borderWidth = 1.0;
+    pip.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.20].CGColor;
+    pip.accessibilityLabel = @"Workspace menu";
+    [pip addTarget:self action:@selector(menuPipTapped:) forControlEvents:UIControlEventTouchUpInside];
+    pip.hidden = !ISHWorkspaceUsesModernStyle();
+    return pip;
+}
+
+- (void)menuPipTapped:(UIButton *)sender {
+    [self presentDesktopRootMenuFromView:sender sourceRect:sender.bounds];
+}
+
+- (void)presentDesktopRootMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Workspace"
                                             message:nil
@@ -3181,8 +3218,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
     if (popover != nil) {
-        popover.sourceView = self.desktopSurfaceView;
-        popover.sourceRect = CGRectMake(point.x, point.y, 1.0, 1.0);
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceRect;
         popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
     }
     [self presentViewController:sheet animated:YES completion:nil];
@@ -3255,6 +3292,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)applyWorkspaceDesktopBackground {
+    self.modernMenuPip.hidden = !ISHWorkspaceUsesModernStyle();
     if (ISHWorkspaceUsesModernStyle()) {
         // Modern: a calm flat desktop that follows the user's light/dark choice,
         // so the whole canvas changes — not just the window frames.
@@ -3288,6 +3326,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     desktopRootMenuRecognizer.minimumPressDuration = 0.4;
     desktopRootMenuRecognizer.delegate = self;
     [self.desktopSurfaceView addGestureRecognizer:desktopRootMenuRecognizer];
+
+    UILongPressGestureRecognizer *desktopTwoFingerMenuRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleDesktopTwoFingerLongPress:)];
+    desktopTwoFingerMenuRecognizer.minimumPressDuration = 0.4;
+    desktopTwoFingerMenuRecognizer.numberOfTouchesRequired = 2;
+    [self.view addGestureRecognizer:desktopTwoFingerMenuRecognizer];
+
+    self.modernMenuPip = [self makeModernMenuPip];
+    [self.view addSubview:self.modernMenuPip];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.modernMenuPip.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16.0],
+        [self.modernMenuPip.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16.0],
+        [self.modernMenuPip.widthAnchor constraintEqualToConstant:44.0],
+        [self.modernMenuPip.heightAnchor constraintEqualToConstant:44.0],
+    ]];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.desktopSurfaceView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
