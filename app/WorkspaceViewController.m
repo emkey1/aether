@@ -127,6 +127,19 @@ static BOOL ISHWorkspaceUsesModernStyle(void) {
     return UserPreferences.shared.workspaceStyle == WorkspaceStyleModern;
 }
 
+// User-defined launcher shortcuts: each is @{@"name", @"command"}; the command is
+// run in a fresh terminal. Stored in NSUserDefaults.
+static NSString *const ISHWorkspaceLauncherShortcutsKey = @"ISHWorkspaceLauncherShortcuts";
+
+static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceLauncherShortcuts(void) {
+    NSArray *stored = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceLauncherShortcutsKey];
+    return [stored isKindOfClass:NSArray.class] ? stored : @[];
+}
+
+static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts) {
+    [NSUserDefaults.standardUserDefaults setObject:shortcuts forKey:ISHWorkspaceLauncherShortcutsKey];
+}
+
 static BOOL ISHWorkspaceSupportsSceneWindows(void) {
     if (ISHWorkspaceUsesPhoneLayout())
         return NO;
@@ -3224,6 +3237,128 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+- (void)launchTerminalWithCommand:(NSString *)command {
+    if (command.length == 0)
+        return;
+    TerminalViewController *terminalViewController = [self createDesktopTerminalViewController];
+    if (terminalViewController == nil) {
+        [self presentSceneActivationError:nil];
+        return;
+    }
+    terminalViewController.freshSessionTerminalDisplayMode = ISHFreshSessionTerminalDisplayModeSessionShell;
+    ISHWorkspaceContainedWindowView *windowView =
+        [self openDesktopTerminalWindowWithTitle:command terminalViewController:terminalViewController];
+    [terminalViewController startNewSession];
+    [terminalViewController showSessionShellForCurrentSession];
+    windowView.workspaceTerminalRole = ISHWorkspaceTerminalRoleGeneric;
+    windowView.titleLabel.text = command;
+    [self refreshDockButtons];
+
+    // Inject the command once the shell has had a moment to come up. The pty buffers
+    // it, so the shell runs it as soon as it starts reading.
+    Terminal *terminal = terminalViewController.terminal;
+    NSData *line = [[command stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [terminal sendInput:line];
+    });
+}
+
+- (void)presentLauncherFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
+    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Launcher"
+                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command in a new terminal." : nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
+        NSString *command = shortcut[@"command"];
+        if (command.length == 0)
+            continue;
+        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : command;
+        [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self launchTerminalWithCommand:command];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentAddLauncherShortcut];
+    }]];
+    if (shortcuts.count > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Remove a Shortcut…"
+                                                  style:UIAlertActionStyleDestructive
+                                                handler:^(__unused UIAlertAction *action) {
+            [self presentRemoveLauncherShortcutFromView:sourceView sourceRect:sourceRect];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceRect;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentAddLauncherShortcut {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Add Shortcut"
+                                            message:@"A name and a command to run in a new terminal."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Name (e.g. skippy)";
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Command (e.g. ssh skippy)";
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        NSString *command = alert.textFields[1].text;
+        if (command.length == 0)
+            return;
+        NSString *name = alert.textFields[0].text.length > 0 ? alert.textFields[0].text : command;
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+        [shortcuts addObject:@{@"name": name, @"command": command}];
+        ISHWorkspaceSetLauncherShortcuts(shortcuts);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)presentRemoveLauncherShortcutFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Remove Shortcut"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    [ISHWorkspaceLauncherShortcuts() enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSString *> *shortcut, NSUInteger idx, __unused BOOL *stop) {
+        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : shortcut[@"command"];
+        [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                  style:UIAlertActionStyleDestructive
+                                                handler:^(__unused UIAlertAction *action) {
+            NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+            if (idx < updated.count)
+                [updated removeObjectAtIndex:idx];
+            ISHWorkspaceSetLauncherShortcuts(updated);
+        }]];
+    }];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceRect;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
 - (void)presentDesktopRootMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Workspace"
@@ -3242,7 +3377,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self presentTerminalDockActionsFromView:sourceView];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Icon Manager"
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Launcher"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentLauncherFromView:sourceView sourceRect:sourceRect];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Windows"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
