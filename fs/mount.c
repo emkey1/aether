@@ -275,7 +275,7 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
 
     dword_t unhandled = flags & ~MS_SUPPORTED & ~MS_OP & ~MS_IGNORED;
     if (unhandled) {
-        FIXME("missing mount flags %#x", unhandled);
+        FIXME("missing mount flags %#x from %s[%d]", unhandled, current->comm, current->pid);
         return _EINVAL;
     }
 
