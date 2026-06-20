@@ -92,7 +92,12 @@ struct fdtable *fdtable_retain(struct fdtable *table) {
 
 static int fdtable_close(struct fdtable *table, fd_t f);
 
-// FIXME this looks like it has the classic refcount UAF
+// Not the UAF it resembles in isolation: refcount is atomic, and every
+// fdtable_retain() runs under the owning task's general_lock -- which do_exit
+// also holds while it releases task->files and nulls the slot (kernel/exit.c).
+// So a concurrent retain either precedes teardown (its +1 keeps this release
+// from reaching 0) or sees task->files == NULL and skips. See the cross-task
+// *_task_files_retain wrappers in fs/proc, fs/sock, and kernel/signal.
 void fdtable_release(struct fdtable *table) {
     lock(&table->lock, 0);
     if (--table->refcount == 0) {
