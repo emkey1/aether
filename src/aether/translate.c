@@ -2106,6 +2106,8 @@ static const char *inferHelperReturnTypeName(const char *nameStart, size_t nameL
     }
     if ((nameLen == 9 && strncmp(nameStart, "toon_root", 9) == 0) ||
         (nameLen == 8 && strncmp(nameStart, "toon_key", 8) == 0) ||
+        (nameLen == 11 && strncmp(nameStart, "toon_key_or", 11) == 0) ||
+        (nameLen == 9 && strncmp(nameStart, "toon_null", 9) == 0) ||
         (nameLen == 7 && strncmp(nameStart, "toon_at", 7) == 0)) {
         return "ToonNode";
     }
@@ -3756,6 +3758,36 @@ static int appendToonScalarAlias(Buffer *out,
     return 1;
 }
 
+static int appendToonNullAlias(Buffer *out,
+                               const char *nameStart,
+                               size_t nameLen,
+                               const char *openParen,
+                               const char **outCursor,
+                               JsonAliasState *jsonState) {
+    const char *closeParen;
+
+    if (!out || !nameStart || !openParen || *openParen != '(' || !outCursor ||
+        !jsonState) {
+        return 0;
+    }
+    if (!(nameLen == 9 && strncmp(nameStart, "toon_null", nameLen) == 0)) {
+        return 0;
+    }
+    closeParen = skipSpaces(openParen + 1);
+    if (*closeParen != ')') {
+        return 0;
+    }
+    /* toon_null() yields a real JSON-null node: parse the literal "null" and
+     * take its root. toon_is_null() is true for it and toon_len() degrades to 0,
+     * so it is a valid stand-in default for the node-returning toon_key_or. */
+    jsonState->needed = 1;
+    if (!bufferAppend(out, "YyjsonGetRoot(YyjsonRead(\"null\"))")) {
+        return 0;
+    }
+    *outCursor = closeParen + 1;
+    return 1;
+}
+
 static int appendToonQueryAlias(Buffer *out,
                                 const char *nameStart,
                                 size_t nameLen,
@@ -3769,10 +3801,13 @@ static int appendToonQueryAlias(Buffer *out,
     const char *arg1End = NULL;
     const char *arg2Start = NULL;
     const char *arg2End = NULL;
+    const char *arg3Start = NULL;
+    const char *arg3End = NULL;
     int depth = 0;
     int inString = 0;
     char quote = '\0';
     int keyHelper = 0;
+    int keyOrHelper = 0;
 
     if (!out || !nameStart || !openParen || *openParen != '(' || !outCursor) {
         return 0;
@@ -3780,6 +3815,14 @@ static int appendToonQueryAlias(Buffer *out,
     if (nameLen == 8 && strncmp(nameStart, "toon_key", nameLen) == 0) {
         replacement = "YyjsonGetKey";
         keyHelper = 1;
+    } else if (nameLen == 11 && strncmp(nameStart, "toon_key_or", nameLen) == 0) {
+        /* toon_key_or(node, key, default) returns a sub-node like toon_key, but
+         * falls back to the third argument (itself a ToonNode) when the key is
+         * absent. Mirrors the defaulted scalar helpers (toon_get_text_or, ...),
+         * just without the scalar value getter wrapping the node. */
+        replacement = "YyjsonGetKey";
+        keyHelper = 1;
+        keyOrHelper = 1;
     } else if (nameLen == 12 && strncmp(nameStart, "toon_has_key", nameLen) == 0) {
         replacement = "YyjsonHasKey";
         keyHelper = 1;
@@ -3816,21 +3859,50 @@ static int appendToonQueryAlias(Buffer *out,
             depth++;
         } else if (*cursor == ')' || *cursor == ']' || *cursor == '}') {
             if (depth == 0) {
-                arg2End = cursor;
+                if (arg3Start) {
+                    arg3End = cursor;
+                } else {
+                    arg2End = cursor;
+                }
                 break;
             }
             depth--;
         } else if (*cursor == ',' && depth == 0 && !arg1End) {
             arg1End = cursor;
             arg2Start = cursor + 1;
+        } else if (*cursor == ',' && depth == 0 && keyOrHelper && !arg2End) {
+            arg2End = cursor;
+            arg3Start = cursor + 1;
         }
         cursor++;
     }
     if (!arg1End || !arg2Start || !arg2End) {
         return 0;
     }
+    if (keyOrHelper && (!arg3Start || !arg3End)) {
+        return 0;
+    }
 
     jsonState->needed = 1;
+    if (keyOrHelper) {
+        /* (YyjsonHasKey(node, key) ? YyjsonGetKey(node, key) : default) */
+        if (!bufferAppend(out, "(YyjsonHasKey(") ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !bufferAppend(out, ", ") ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !bufferAppend(out, ") ? YyjsonGetKey(") ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !bufferAppend(out, ", ") ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !bufferAppend(out, ") : ") ||
+            !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState, toonTable) ||
+            !bufferAppend(out, ")")) {
+            return 0;
+        }
+        *outCursor = cursor + 1;
+        return 1;
+    }
+
     if (!bufferAppend(out, replacement) ||
         !bufferAppend(out, "(") ||
         !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
@@ -4026,6 +4098,16 @@ static char *applyJsonAliasesToLine(const char *line,
                                             (size_t)(nameEnd - nameStart),
                                             afterName,
                                             &advancedCursor)) {
+                cursor = advancedCursor;
+                continue;
+            }
+            if (*afterName == '(' &&
+                appendToonNullAlias(&out,
+                                    nameStart,
+                                    (size_t)(nameEnd - nameStart),
+                                    afterName,
+                                    &advancedCursor,
+                                    jsonState)) {
                 cursor = advancedCursor;
                 continue;
             }

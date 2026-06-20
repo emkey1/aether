@@ -1251,6 +1251,7 @@ static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) 
         return 1;
     }
     if ((len == 8 && strncmp(name, "toon_key", len) == 0) ||
+        (len == 11 && strncmp(name, "toon_key_or", len) == 0) ||
         (len == 12 && strncmp(name, "toon_has_key", len) == 0) ||
         (len == 7 && strncmp(name, "toon_at", len) == 0) ||
         (len == 11 && strncmp(name, "toon_has_at", len) == 0) ||
@@ -1285,6 +1286,7 @@ static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) 
 
 static const char *expectedSecondaryArgTypeName(const char *name, size_t len) {
     if ((len == 8 && strncmp(name, "toon_key", len) == 0) ||
+        (len == 11 && strncmp(name, "toon_key_or", len) == 0) ||
         (len == 12 && strncmp(name, "toon_has_key", len) == 0) ||
         (len == 13 && strncmp(name, "toon_get_text", len) == 0) ||
         (len == 16 && strncmp(name, "toon_get_text_or", len) == 0) ||
@@ -1324,6 +1326,8 @@ static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsDo
     }
     if ((len == 9 && strncmp(name, "toon_root", len) == 0) ||
         (len == 8 && strncmp(name, "toon_key", len) == 0) ||
+        (len == 11 && strncmp(name, "toon_key_or", len) == 0) ||
+        (len == 9 && strncmp(name, "toon_null", len) == 0) ||
         (len == 7 && strncmp(name, "toon_at", len) == 0)) {
         *returnsDoc = 0;
         return 1;
