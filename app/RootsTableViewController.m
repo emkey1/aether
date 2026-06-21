@@ -325,7 +325,7 @@
         return self.choosesRootOnSelection ? @"Choose a Filesystem" : nil;
     }
     if ([self sectionShowsCachedRoots:section]) {
-        return @"Root Cached Filesystems";
+        return @"Root Cached Filesystems (/AOK/persist/roots)";
     }
     if ([self sectionShowsBundledChoices:section]) {
         if (self.showsInstalledRootsSection || self.showsCachedRootsSection)
