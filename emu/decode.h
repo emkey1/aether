@@ -824,6 +824,8 @@ restart:
                            READMODRM_NOMEM; V_OP(movmask_b, mm_modrm_val, modrm_reg,64); break;
                 case 0xdb: TRACEI("pand mm:modrm, mm");
                            READMODRM; V_OP(and_q, mm_modrm_val, mm_modrm_reg,64); break;
+                case 0xdf: TRACEI("pandn mm:modrm, mm");
+                           READMODRM; V_OP(andn, mm_modrm_val, mm_modrm_reg,64); break;
                 case 0xe1: TRACEI("psraw mm:modrm, mm");
                            READMODRM; V_OP(shiftrs_w, mm_modrm_val, mm_modrm_reg,64); break;
                 case 0xe2: TRACEI("psrad mm:modrm, mm");

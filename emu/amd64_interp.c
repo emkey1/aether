@@ -7080,14 +7080,34 @@ restart_prefix:
                 value.qw[1] &= src_xmm.qw[1];
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xdf) {
-                if (!operand_size_prefix)
+                if (operand_size_prefix) {
+                    // 66 0F DF: pandn xmm (existing).
+                    if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
+                        goto amd64_gpf_restore;
+                    value = cpu->xmm[modrm.reg];
+                    value.qw[0] = ~value.qw[0] & src_xmm.qw[0];
+                    value.qw[1] = ~value.qw[1] & src_xmm.qw[1];
+                    cpu->xmm[modrm.reg] = value;
+                } else if (rep_mode == AMD64_REP_NONE) {
+                    // 0F DF (no prefix): pandn mm — MMX (dst = ~dst & src). The
+                    // JIT bridge handles this; mirror it for the interpreter
+                    // fallback. mm[] has 8 entries, so guard the index <8.
+                    if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                        return INT_UNDEFINED;
+                    union mm_reg src_mm, dst_mm;
+                    if (modrm.is_reg) {
+                        src_mm = cpu->mm[modrm.rm];
+                    } else {
+                        if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                            goto amd64_gpf_restore;
+                        src_mm.qw = src_scalar;
+                    }
+                    dst_mm = cpu->mm[modrm.reg];
+                    vec_andn64(NULL, &src_mm, &dst_mm);
+                    cpu->mm[modrm.reg] = dst_mm;
+                } else {
                     return INT_UNDEFINED;
-                if (!amd64_read_xmm_rm(cpu, tlb, &modrm, fs_prefix, &src_xmm))
-                    goto amd64_gpf_restore;
-                value = cpu->xmm[modrm.reg];
-                value.qw[0] = ~value.qw[0] & src_xmm.qw[0];
-                value.qw[1] = ~value.qw[1] & src_xmm.qw[1];
-                cpu->xmm[modrm.reg] = value;
+                }
             } else if (op2 == 0xeb) {
                 if (!operand_size_prefix)
                     return INT_UNDEFINED;
@@ -12515,7 +12535,12 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
             cpu->xmm[modrm.reg] = value;
         } else if (packed_xmm_misc) {
             if (!operand_size_prefix && rep_mode == AMD64_REP_NONE &&
-                    (op2 == 0xdb || op2 == 0xe5 || op2 == 0xeb)) {
+                    (op2 == 0xdb || op2 == 0xdf || op2 == 0xe5 || op2 == 0xeb)) {
+                // MMX (no-prefix) pand (0xdb) / pandn (0xdf) / pmulhw (0xe5) /
+                // por (0xeb). mm[] has only 8 entries; a REX.R/REX.B-extended
+                // index is an invalid MMX encoding (matches the logic_mm guard).
+                if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                    return INT_UNDEFINED;
                 if (modrm.is_reg) {
                     src_mm = cpu->mm[modrm.rm];
                 } else {
@@ -12526,6 +12551,8 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 value_mm = cpu->mm[modrm.reg];
                 if (op2 == 0xdb)
                     vec_and_q64(NULL, &src_mm, &value_mm);
+                else if (op2 == 0xdf)
+                    vec_andn64(NULL, &src_mm, &value_mm);
                 else if (op2 == 0xe5)
                     vec_mulu64(NULL, &src_mm, &value_mm);
                 else

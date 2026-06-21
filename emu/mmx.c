@@ -75,6 +75,13 @@ VEC_MMX_OP(and, q, &, 64)
 VEC_MMX_OP(or,  q, |, 64)
 VEC_MMX_OP(xor, q, ^, 64)
 
+// pandn (0F DF): dst = ~dst & src. Unlike pand/por/pxor this is not a plain
+// accumulate, so it can't use VEC_MMX_OP; mirror the 128-bit vec_andn128 at
+// 64-bit MMX width. (libgcrypt SHA uses MMX pandn -> gpgv SIGILL without it.)
+void vec_andn64(NO_CPU, const union mm_reg *src, union mm_reg *dst) {
+    dst->qw = ~dst->qw & src->qw;
+}
+
 VEC_MMX_CMPD(eqb, ==,  8)
 VEC_MMX_CMPD(eqw, ==, 16)
 VEC_MMX_CMPD(eqd, ==, 32)

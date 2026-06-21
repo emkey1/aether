@@ -118,6 +118,7 @@ void vec_andn128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_or_q64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 void vec_and_q64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 void vec_xor_q64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_andn64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 
 void vec_min_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_mins_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
