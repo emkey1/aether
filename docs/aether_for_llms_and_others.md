@@ -1,5 +1,7 @@
 # Aether for Humans and LLMs
 
+*Guide version: 2026-06-21-1*
+
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
