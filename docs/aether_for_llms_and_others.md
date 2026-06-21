@@ -932,27 +932,49 @@ Larger examples: `Examples/aether/showcase/agent_report`,
 
 ## Repair rules
 
-Map compiler complaints to fixes.
+The compiler tags every rejection with a stable code in brackets, and on newer
+builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
+The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
+SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, MUT-001, and FIELD-002; the
+finer rule names below map onto them.
 
-- mentions `println` / `print` / task helpers / `ai_chat` → wrap in `fx` (FX-001)
-- mentions `return` → replace with `ret` (SYN-001)
-- mentions `class` → replace with `type` and Aether field syntax (SYN-001)
-- mentions unknown import → remove `use` unless verified (IMP-001)
-- mentions unknown function → it does not exist; inline the logic (BUILT-001)
-- mentions `not in scope` → declare the name earlier, pass it as a parameter,
-  or rename the local you actually meant (SCOPE-001)
-- mentions `Unknown field` → use the exact declared field name, or extend the
-  type explicitly if the prompt really requires that field (FIELD-002)
-- mentions `ToonDoc` / `ToonNode` → check handle types; do not mix (TOON-001)
-- mentions a tuple → destructure a direct top-level call only (TUP-001)
-- mentions annotation placement → move above the function (ANN-001)
-- mentions fallthrough/no return value → add an explicit final `ret ...` on
-  every reachable top-level path in the non-`Void` helper (FLOW-001)
-- integer result where decimals expected → introduce a `Real` operand (`100.0`)
-- unstable decimal output → use `value:0:precision`
-- wrong receiver spelling → `self`, never `Self`
-- iterating an object root → extract the array with `toon_key` first (ROOT-001)
-- fallback didn't save a nested lookup → guard the intermediate node (NEST-001)
+- **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
+  → wrap it in `fx { ... }`.
+- **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` (with Aether field
+  syntax) not `class`, `loop` not `for`/`while`; drop `var`, `def`, `=>`.
+- **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
+  - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
+  - an export called by a guessed name → use the exact exported name (MOD-001)
+  - a type or helper used before it is defined → define it earlier (ORDER-001)
+  - a method reaching an outer local → pass it in as a parameter (METH-001)
+  - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
+    or rename the local you actually meant (SCOPE-001)
+- **`duplicate variable` (NAME-001)** — a local redeclared in the same scope;
+  currently printed without a bracketed code. Pick a fresh name.
+- **[IMP-001]** an invented or malformed import → remove the `use` unless
+  verified, or write `use "module_name";` and call exports directly (MOD-002).
+- **[TYPE-001]** a type cannot be inferred → annotate it. Also covers
+  `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
+  not mix, do arithmetic on, or cross-assign them.
+- **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
+  the type explicitly if the prompt really requires that field.
+- **[FLOW-001]** a fallthrough path with no return value → add an explicit final
+  `ret ...` on every reachable top-level path in the non-`Void` helper.
+- **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
+  move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call only.
+- **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+
+The compiler cannot check *output correctness*. If the program compiles but the
+result is wrong, no code is printed — these are authoring rules: integer result
+where decimals are expected → introduce a `Real` operand (`100.0`); unstable
+decimal output → `value:0:precision`; wrong receiver spelling → `self`, never
+`Self`; iterating an object root → extract the array with `toon_key` first
+(ROOT-001); a fallback that didn't save a nested lookup → guard the intermediate
+node (NEST-001); exact-output mismatch → match spacing, casing, and precision
+(FMT-001); Markdown fences in the answer → return raw Aether source only
+(OUT-001); flattened or renamed JSON keys → copy them exactly (KEY-001).
 
 ## Validation Checklist
 

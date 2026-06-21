@@ -55,6 +55,16 @@ mixed-type `+`; explicit types for TOON values and non-trivial helper results;
 real logic, never hard-coded expected output; preserve provided export names
 exactly.
 
+Not every rule above is a *compiler* check. The compiler emits a stable code —
+FX-001, SYN-001, ANN-001, IMP-001, SCOPE-001, TOON-001, TYPE-001, TUP-001,
+FLOW-001, MUT-001, FIELD-002 — and, on newer builds, a `help:` line citing it.
+The others surface differently: BUILT-001, MOD-001, ORDER-001, METH-001,
+MOD-002, and LEN-001 are reported under a broader code (mostly SCOPE-001);
+NAME-001 (redeclaration) currently prints as a bare `duplicate variable`
+message; and OUT-001, FMT-001, FIELD-001, KEY-001, NEST-001, ROOT-001 are
+authoring rules the compiler cannot check at all. The **Repair rules** section
+maps each emitted code to its fix.
+
 ## Core syntax
 
 - Comments: prefer `// line comment`. Block comments are accepted, but models
@@ -459,24 +469,42 @@ Large-report recipe:
 
 ## Repair rules
 
-- error mentions `println`/`print`/task/`ai_chat` → wrap in `fx` (FX-001)
-- mentions `return` → `ret`; mentions `class` → `type` (SYN-001)
-- mentions unknown function → it does not exist; inline the logic (BUILT-001)
-- mentions unknown import → remove `use` (IMP-001)
-- mentions `not in scope` → declare the name earlier or pass it explicitly
-  (SCOPE-001)
-- mentions `Unknown field` → use the exact declared field name, or add the
-  field to the type if the prompt truly requires it (FIELD-002)
-- mentions fallthrough/no return value → add an explicit final `ret ...`
-  on every reachable top-level path (FLOW-001)
-- mentions `ToonDoc` where a node is expected → add `let root: ToonNode = toon_root(doc);`
-- mentions wrong output or mismatch → remove extra headings/labels and match
-  punctuation, spacing, and decimal precision exactly
-- mentions `ToonDoc`/`ToonNode` → check handle types (TOON-001)
-- mentions a tuple → destructure a direct call only (TUP-001)
-- mentions annotation placement → move above the function (ANN-001)
-- integer result where decimals expected → add a `Real` operand (`100.0`)
-- iterating an object root → `toon_key` the array first (ROOT-001)
+The compiler prints a stable code in brackets, and on newer builds a
+`help: see <CODE> ...` line. Read the code, then apply the fix:
+
+- **[FX-001]** an output, task, or `ai_chat` call outside an effect block → wrap
+  it in `fx { ... }`.
+- **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`,
+  `loop` not `for`/`while`; drop `var`, `def`, `=>`.
+- **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
+  - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
+  - an export called by a guessed name → use the exact exported name (MOD-001)
+  - a type or helper used before it is defined → define it earlier (ORDER-001)
+  - a method reaching an outer local → pass it in as a parameter (METH-001)
+  - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
+- **`duplicate variable` (NAME-001)** — a local redeclared in the same scope;
+  currently printed without a bracketed code. Pick a fresh name.
+- **[IMP-001]** an invented or malformed import → remove the `use`, or write
+  `use "module_name";` and call the exports directly (MOD-002).
+- **[TYPE-001]** a type cannot be inferred → annotate it. Also covers
+  `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
+  `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
+- **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
+  to the type if the prompt truly requires it).
+- **[FLOW-001]** a fallthrough path with no return value → add a final `ret ...`
+  on every reachable top-level path.
+- **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
+  move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
+- **[TUP-001]** tuple misuse → destructure a direct call only, `let (a, b) = pair();`.
+- **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+
+If the program *compiles* but the output is wrong — extra headings, wrong
+spacing or precision (an integer where decimals are expected → add a `Real`
+operand such as `100.0`), wrong JSON keys, an unguarded nested lookup, or
+iterating an object root — no code is printed: these are authoring rules the
+compiler cannot check (FMT-001, OUT-001, KEY-001, NEST-001, ROOT-001,
+FIELD-001). Re-read the prompt and match it exactly.
 
 ## Validation checklist
 
