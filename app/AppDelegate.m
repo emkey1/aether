@@ -718,7 +718,7 @@ static NSString *BootExecRecovery(intptr_t err, NSString *guestABI) {
     }
     if (err == _ENOEXEC) {
         if ([guestABI isEqualToString:@"amd64"]) {
-            return @"This root is marked x86_64/amd64. amd64 support is still experimental, so early exec or decode failures are expected with some binaries.";
+            return @"This root is marked x86_64/amd64, but the boot command is not a supported x86_64 executable or script. Check Settings -> Boot Command or reimport the filesystem.";
         }
         return @"The configured boot command is not a supported Linux executable or script. Check Settings -> Boot Command.";
     }

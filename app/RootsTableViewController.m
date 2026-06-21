@@ -41,7 +41,7 @@
 
 - (NSString *)_bundledChoiceSubtitle:(NSDictionary<NSString *, NSString *> *)choice {
     if ([self _bundledChoiceRequiresAMD64Bringup:choice]) {
-        return @"Experimental x86_64 guest rootfs for amd64 bring-up.";
+        return @"x86_64 (amd64) guest rootfs.";
     }
     return @"i386 guest rootfs.";
 }
@@ -51,24 +51,8 @@
 }
 
 - (void)_confirmBundledImportChoiceIfNeeded:(NSDictionary<NSString *, NSString *> *)choice {
-    if (![self _bundledChoiceRequiresAMD64Bringup:choice]) {
-        [self _beginBundledImportChoice:choice];
-        return;
-    }
-
-    UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Import x86_64 Filesystem?"
-                                            message:@"This rootfs is for experimental amd64 bring-up. It may fail early or boot only partially."
-                                     preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
-                                              style:UIAlertActionStyleCancel
-                                            handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Import Anyway"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(__unused UIAlertAction *action) {
-        [self _beginBundledImportChoice:choice];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    // x86_64/amd64 roots import directly now, like i386 — no experimental confirmation prompt.
+    [self _beginBundledImportChoice:choice];
 }
 
 - (void)_completeRootSelectionWithName:(NSString *)rootName {
@@ -360,7 +344,7 @@
     }
     if ([self sectionShowsBundledChoices:section]) {
         if (!self.showsInstalledRootsSection)
-            return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive. x86_64 roots are experimental amd64 bring-up targets right now.";
+            return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive.";
         return @"These bundled filesystems can be imported again at any time.";
     }
     return nil;
