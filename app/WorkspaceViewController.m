@@ -34,6 +34,7 @@
 @property (nonatomic, strong) NSMutableArray<UIView *> *desktopWindows;
 @property (nonatomic) NSInteger activeDesktopIndex;
 @property (nonatomic) NSInteger desktopCount;
+@property (nonatomic, strong) NSMutableIndexSet *lockedDesktopIndices;
 @property (nonatomic, weak) UILabel *desktopIndicatorLabel;
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
@@ -52,6 +53,8 @@
 - (void)switchToDesktopIndex:(NSInteger)index;
 - (void)createNewDesktop;
 - (void)removeDesktopAtIndex:(NSInteger)index;
+- (BOOL)isDesktopLockedAtIndex:(NSInteger)index;
+- (void)toggleDesktopLockAtIndex:(NSInteger)index;
 - (void)ensureDefaultWorkspaceUtilitiesOpen;
 - (void)ensureDefaultLLMChatWindowOpenIfNeeded;
 - (void)persistDefaultWorkspaceUtilityFrames;
@@ -678,7 +681,7 @@ static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
     CGFloat cardPadding = 16.0;
     CGFloat actionsHeight = phone ? 40.0 : 44.0;
     CGFloat chrome = phone ? 28.0 : 32.0;
-    CGFloat width = phone ? 200.0 : 220.0;
+    CGFloat width = phone ? 234.0 : 254.0;
     CGFloat rowsHeight = n * rowHeight + n * spacing + newDesktopHeight;
     CGFloat height = rowsHeight + cardPadding + actionsHeight + chrome;
     return CGSizeMake(width, height);
@@ -3704,6 +3707,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (self.desktopCount <= 1)
         return;
     indexToRemove = MAX((NSInteger)0, MIN(indexToRemove, self.desktopCount - 1));
+    // A locked Desktop can't be removed.
+    if ([self isDesktopLockedAtIndex:indexToRemove])
+        return;
     // Close the removed Desktop's windows; shift higher Desktops down. Global tools stay put.
     for (UIView *view in self.desktopWindows.copy) {
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
@@ -3720,12 +3726,44 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             windowView.workspaceDesktopIndex -= 1;
         }
     }
+    // Renumber locked Desktops to match the shift (the removed index is never locked).
+    if (_lockedDesktopIndices.count > 0) {
+        NSMutableIndexSet *shifted = [NSMutableIndexSet indexSet];
+        [_lockedDesktopIndices enumerateIndexesUsingBlock:^(NSUInteger i, BOOL *stop) {
+            (void) stop;
+            if ((NSInteger)i > indexToRemove)
+                [shifted addIndex:i - 1];
+            else if ((NSInteger)i < indexToRemove)
+                [shifted addIndex:i];
+        }];
+        _lockedDesktopIndices = shifted;
+    }
     self.desktopCount -= 1;
     if (self.activeDesktopIndex >= self.desktopCount)
         self.activeDesktopIndex = self.desktopCount - 1;
     else if (self.activeDesktopIndex > indexToRemove)
         self.activeDesktopIndex -= 1;
     [self applyDesktopVisibility];
+    [self postDesktopsDidChange];
+}
+
+- (NSMutableIndexSet *)lockedDesktopIndices {
+    if (_lockedDesktopIndices == nil)
+        _lockedDesktopIndices = [NSMutableIndexSet indexSet];
+    return _lockedDesktopIndices;
+}
+
+- (BOOL)isDesktopLockedAtIndex:(NSInteger)index {
+    return index >= 0 && [self.lockedDesktopIndices containsIndex:(NSUInteger)index];
+}
+
+- (void)toggleDesktopLockAtIndex:(NSInteger)index {
+    if (index < 0 || index >= self.desktopCount)
+        return;
+    if ([self.lockedDesktopIndices containsIndex:(NSUInteger)index])
+        [self.lockedDesktopIndices removeIndex:(NSUInteger)index];
+    else
+        [self.lockedDesktopIndices addIndex:(NSUInteger)index];
     [self postDesktopsDidChange];
 }
 
@@ -7453,11 +7491,34 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 - (UIView *)desktopRowForIndex:(NSInteger)index active:(BOOL)active removable:(BOOL)removable {
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     UIColor *accent = theme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *muted = [(theme[@"primary"] ?: UIColor.grayColor) colorWithAlphaComponent:0.5];
+    BOOL locked = [self.workspaceHostViewController isDesktopLockedAtIndex:index];
 
     UIStackView *row = [UIStackView new];
     row.axis = UILayoutConstraintAxisHorizontal;
     row.spacing = 6;
     row.alignment = UIStackViewAlignmentFill;
+
+    // Lock / unlock toggle, left of the card. A locked Desktop can't be removed.
+    UIButton *lock = [UIButton buttonWithType:UIButtonTypeSystem];
+    lock.translatesAutoresizingMaskIntoConstraints = NO;
+    lock.tag = index;
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *config =
+            [UIImageSymbolConfiguration configurationWithPointSize:13.0 weight:UIImageSymbolWeightSemibold];
+        [lock setImage:[UIImage systemImageNamed:(locked ? @"lock.fill" : @"lock.open")
+                               withConfiguration:config]
+              forState:UIControlStateNormal];
+    } else {
+        [lock setTitle:(locked ? @"🔒" : @"🔓") forState:UIControlStateNormal];
+    }
+    lock.tintColor = locked ? accent : muted;
+    lock.accessibilityLabel =
+        [NSString stringWithFormat:@"%@ Desktop %ld", locked ? @"Unlock" : @"Lock", (long)(index + 1)];
+    [lock setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [lock.widthAnchor constraintEqualToConstant:28.0].active = YES;
+    [lock addTarget:self action:@selector(toggleLockFromApplet:) forControlEvents:UIControlEventTouchUpInside];
+    [row addArrangedSubview:lock];
 
     UIButton *jump = [UIButton buttonWithType:UIButtonTypeSystem];
     jump.translatesAutoresizingMaskIntoConstraints = NO;
@@ -7480,14 +7541,20 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
         remove.translatesAutoresizingMaskIntoConstraints = NO;
         remove.tag = index;
-        if (@available(iOS 13.0, *))
-            [remove setImage:[UIImage systemImageNamed:@"xmark"] forState:UIControlStateNormal];
-        else
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *config =
+                [UIImageSymbolConfiguration configurationWithPointSize:11.0 weight:UIImageSymbolWeightSemibold];
+            [remove setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:config]
+                    forState:UIControlStateNormal];
+        } else {
             [remove setTitle:@"x" forState:UIControlStateNormal];
-        remove.tintColor = UIColor.systemRedColor;
+        }
+        // Locked Desktops show the x disabled/dimmed so it's clear why deletion is blocked.
+        remove.tintColor = locked ? muted : UIColor.systemRedColor;
+        remove.enabled = !locked;
         remove.accessibilityLabel = [NSString stringWithFormat:@"Remove Desktop %ld", (long)(index + 1)];
         [remove setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-        [remove.widthAnchor constraintEqualToConstant:34.0].active = YES;
+        [remove.widthAnchor constraintEqualToConstant:28.0].active = YES;
         [remove addTarget:self action:@selector(removeDesktopFromApplet:) forControlEvents:UIControlEventTouchUpInside];
         [row addArrangedSubview:remove];
     }
@@ -7505,6 +7572,10 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)removeDesktopFromApplet:(UIButton *)sender {
     [self.workspaceHostViewController removeDesktopAtIndex:sender.tag];
+}
+
+- (void)toggleLockFromApplet:(UIButton *)sender {
+    [self.workspaceHostViewController toggleDesktopLockAtIndex:sender.tag];
 }
 
 - (void)viewDidLoad {
