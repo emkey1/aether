@@ -110,8 +110,16 @@ enum {
     CursorSection,
     StatusBarSection,
     TerminalButtonsSection,
+    WorkspaceLaunchSection,
     NumberOfSections,
 };
+
+// The "Workspaces at Launch" count only applies where the app can open multiple windows (iPad).
+- (BOOL)supportsWorkspaceLaunchCount {
+    if (@available(iOS 13.0, *))
+        return UIApplication.sharedApplication.supportsMultipleScenes;
+    return NO;
+}
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
     return NumberOfSections;
@@ -126,6 +134,7 @@ enum {
         case CursorSection: return 2;
         case StatusBarSection: return 1;
         case TerminalButtonsSection: return 1;
+        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? 4 : 0;
         default: NSAssert(NO, @"unhandled section"); return 0;
     }
 }
@@ -138,6 +147,7 @@ enum {
         case CursorSection: return @"Cursor";
         case StatusBarSection: return @"Status Bar";
         case TerminalButtonsSection: return @"Terminal Buttons";
+        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"Workspaces at Launch" : nil;
         default: return nil;
     }
 }
@@ -147,6 +157,7 @@ enum {
         case PreviewSection: return @"Change the color scheme used for the preview.";
         case WorkspaceStyleSection: return @"Modern is a flat, redesigned desktop; Classic keeps the original look. Both stay available and only restyle the Workspace.";
         case TerminalButtonsSection: return @"Show the settings (gear) and terminal-switcher buttons on the terminal. Turn this off for a cleaner terminal.";
+        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"How many workspace windows to open automatically at launch." : nil;
         default: return nil;
     }
 }
@@ -160,6 +171,7 @@ enum {
         case CursorSection: return @[@"Cursor Style", @"Blink Cursor"][indexPath.row];
         case StatusBarSection: return @"Status Bar";
         case TerminalButtonsSection: return @"Color Scheme";
+        case WorkspaceLaunchSection: return @"Color Scheme";
         default: return nil;
     }
 }
@@ -266,6 +278,19 @@ enum {
             }
             break;
 
+        case WorkspaceLaunchSection: {
+            NSInteger count = indexPath.row + 1;
+            cell.textLabel.text = count == 1 ? @"1 workspace" : [NSString stringWithFormat:@"%ld workspaces", (long)count];
+            if (count == UserPreferences.shared.workspaceLaunchCount) {
+                cell.accessoryType = UITableViewCellAccessoryCheckmark;
+                cell.accessibilityTraits |= UIAccessibilityTraitSelected;
+            } else {
+                cell.accessoryType = UITableViewCellAccessoryNone;
+                cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+            }
+            break;
+        }
+
         case CursorSection:
         case StatusBarSection:
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -300,6 +325,10 @@ enum {
         case TerminalButtonsSection:
             UserPreferences.shared.showTerminalQuickButtons = !UserPreferences.shared.showTerminalQuickButtons;
             [tableView reloadSections:[NSIndexSet indexSetWithIndex:TerminalButtonsSection] withRowAnimation:UITableViewRowAnimationNone];
+            break;
+        case WorkspaceLaunchSection:
+            UserPreferences.shared.workspaceLaunchCount = indexPath.row + 1;
+            [tableView reloadSections:[NSIndexSet indexSetWithIndex:WorkspaceLaunchSection] withRowAnimation:UITableViewRowAnimationNone];
             break;
     }
 }

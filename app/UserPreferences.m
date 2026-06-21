@@ -24,6 +24,7 @@ static NSString *const kPreferenceBacktickEscapeKey = @"Backtick Mapping Escape"
 static NSString *const kPreferenceHideExtraKeysWithExternalKeyboardKey = @"Hide Extra Keys With External Keyboard";
 static NSString *const kPreferenceMaximizeScreenSpaceKey = @"Maximize Screen Space";
 static NSString *const kPreferenceShowTerminalQuickButtonsKey = @"Show Terminal Quick Buttons";
+static NSString *const kPreferenceWorkspaceLaunchCountKey = @"Workspaces At Launch";
 static NSString *const kPreferenceOverrideControlSpaceKey = @"Override Control Space";
 static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
@@ -201,6 +202,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
             kPreferenceWorkspaceStyleKey: @(WorkspaceStyleClassic),
             kPreferenceShowTerminalQuickButtonsKey: @(YES),
+            kPreferenceWorkspaceLaunchCountKey: @(1),
             kPreferenceThemeKey: @"Solarized",
         }];
         // https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/
@@ -229,6 +231,7 @@ bool (*remove_user_default)(const char *name);
             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
             @"maximize_screen_space": kPreferenceMaximizeScreenSpaceKey,
             @"show_terminal_quick_buttons": kPreferenceShowTerminalQuickButtonsKey,
+            @"workspace_launch_count": kPreferenceWorkspaceLaunchCountKey,
             @"override_control_space": kPreferenceOverrideControlSpaceKey,
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
@@ -265,6 +268,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceHideExtraKeysWithExternalKeyboardKey: property(hideExtraKeysWithExternalKeyboard),
             kPreferenceMaximizeScreenSpaceKey: property(maximizeScreenSpace),
             kPreferenceShowTerminalQuickButtonsKey: property(showTerminalQuickButtons),
+            kPreferenceWorkspaceLaunchCountKey: property(workspaceLaunchCount),
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
@@ -375,6 +379,17 @@ bool (*remove_user_default)(const char *name);
 
 - (void)setShowTerminalQuickButtons:(BOOL)showTerminalQuickButtons {
     [_defaults setBool:showTerminalQuickButtons forKey:kPreferenceShowTerminalQuickButtonsKey];
+}
+
+// MARK: workspaceLaunchCount
+- (NSInteger)workspaceLaunchCount {
+    NSInteger value = [_defaults integerForKey:kPreferenceWorkspaceLaunchCountKey];
+    return MIN(MAX(value, (NSInteger)1), (NSInteger)4);
+}
+
+- (void)setWorkspaceLaunchCount:(NSInteger)workspaceLaunchCount {
+    [_defaults setInteger:MIN(MAX(workspaceLaunchCount, (NSInteger)1), (NSInteger)4)
+                   forKey:kPreferenceWorkspaceLaunchCountKey];
 }
 
 // MARK: overrideControlSpace

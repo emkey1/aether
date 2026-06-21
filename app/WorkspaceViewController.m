@@ -3817,10 +3817,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     };
     [self createDockWindow];
     self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
-    if (ISHWorkspaceUsesModernStyle()) {
+    if (ISHWorkspaceUsesModernStyle())
         self.dashboardWindow.hidden = YES;
-        [self scheduleHiddenWorkspaceWindowAutoClose];
-    }
+    [self scheduleWorkspaceLaunchCount];
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -4889,29 +4888,46 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 }
 
-// Modern replaces the manual "Close Hidden Windows" button with a one-shot sweep a couple
-// seconds after launch: any Workspace scene session with no connected scene is a leftover
-// phantom window from a previous run. The delay lets co-visible windows (Split View) reconnect
-// first so we never destroy a window that's merely mid-reconnect.
-- (void)scheduleHiddenWorkspaceWindowAutoClose {
-    if (!ISHWorkspaceUsesModernStyle() || !ISHWorkspaceSupportsSceneWindows())
+// Bring the workspace count to the user's "Workspaces at Launch" setting a couple seconds after
+// launch (the delay lets iOS reconnect restored scenes first so the count is accurate). Opens
+// more windows if there are fewer than the setting; trims surplus *background* windows if there
+// are more. At the default of 1 this matches the old "close leftover windows on startup" sweep,
+// but a higher setting keeps that many workspaces instead of destroying the backgrounded ones.
+- (void)scheduleWorkspaceLaunchCount {
+    if (!ISHWorkspaceSupportsSceneWindows())
         return;
     if (@available(iOS 13.0, *)) {
         static dispatch_once_t onceToken;
         __weak typeof(self) weakSelf = self;
         dispatch_once(&onceToken, ^{
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                typeof(self) strongSelf = weakSelf;
-                if (strongSelf == nil)
-                    return;
-                for (UISceneSession *session in [strongSelf hiddenWorkspaceSceneSessions]) {
-                    ISHWorkspaceForgetHiddenSession(session);
-                    [UIApplication.sharedApplication requestSceneSessionDestruction:session
-                                                                            options:nil
-                                                                       errorHandler:^(__unused NSError *error) {}];
-                }
+                [weakSelf ensureWorkspaceLaunchCount];
             });
         });
+    }
+}
+
+- (void)ensureWorkspaceLaunchCount {
+    if (!ISHWorkspaceSupportsSceneWindows())
+        return;
+    if (@available(iOS 13.0, *)) {
+        NSUInteger desired = (NSUInteger)UserPreferences.shared.workspaceLaunchCount;
+        NSUInteger current = ISHWorkspaceSceneDescriptors(self.view.window.windowScene).count;
+        if (current < desired) {
+            for (NSUInteger i = current; i < desired; i++)
+                [self openNewWorkspaceWindow:nil];
+        } else if (current > desired) {
+            NSUInteger surplus = current - desired;
+            for (UISceneSession *session in [self hiddenWorkspaceSceneSessions]) {
+                if (surplus == 0)
+                    break;
+                ISHWorkspaceForgetHiddenSession(session);
+                [UIApplication.sharedApplication requestSceneSessionDestruction:session
+                                                                        options:nil
+                                                                   errorHandler:^(__unused NSError *error) {}];
+                surplus--;
+            }
+        }
     }
 }
 

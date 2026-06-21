@@ -61,6 +61,7 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL overrideControlSpace;
 @property BOOL hideStatusBar;
 @property BOOL showTerminalQuickButtons;
+@property NSInteger workspaceLaunchCount;
 @property (nonatomic) Theme *theme;
 @property (nonatomic) Palette *palette;
 @property WorkspaceStyle workspaceStyle;
