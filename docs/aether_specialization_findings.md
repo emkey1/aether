@@ -5,7 +5,9 @@ whether a model has "learned" a language.* This is a findings note, not a
 reference guide. For how to actually write Aether see
 [`aether_for_llms_and_others.md`](aether_for_llms_and_others.md); for why the
 language is shaped the way it is see
-[`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md).
+[`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md). For
+the complementary measurement — *untrained* models writing Aether from the guide
+in context — see [`aether_guided_benchmark.md`](aether_guided_benchmark.md).
 
 ---
 

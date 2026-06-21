@@ -1,0 +1,98 @@
+# The Guide Is Enough: In-Context (Untrained) Results for Aether
+
+*Companion to [`aether_specialization_findings.md`](aether_specialization_findings.md).*
+
+That note measures one half of "can a language model write Aether": a model
+**fine-tuned** on an Aether corpus, writing with **no guide** in the prompt,
+scored by exact-match. This note measures the other half — a model with **no
+Aether-specific training at all**, handed the guide **in its context window**,
+asked to solve the same benchmark. The two bracket the question from both sides.
+
+The short answer: for capable models, **the guide is enough.** No fine-tuning, no
+worked examples beyond the document itself — just the condensed or full guide in
+the prompt — and a frontier-scale model writes *every* program on the benchmark
+correctly.
+
+---
+
+## Setup
+
+- **Instrument.** The v2 benchmark: 30 positive, decontaminated tasks
+  (`Tests/aether_doc_bench/tasks_v2_pos.json`) spanning effects, pure helpers,
+  records and methods, tuples, dynamic arrays, contracts, module imports, real
+  formatting, recursion, and the TOON access cluster. Each generated program is
+  compiled and run with the current `aether` binary and its stdout compared
+  byte-for-byte against an oracle.
+- **Conditions.** The guide is placed in the prompt, in one of two sizes:
+  - **full** — [`aether_for_llms_and_others.md`](aether_for_llms_and_others.md) (~980 lines)
+  - **small** — [`aether_for_llms_with_small_contexts.md`](aether_for_llms_with_small_contexts.md) (~500 lines)
+  There is no `none` condition here — that is the no-guide note's department.
+- **Metrics, paired.** Following the companion note's rule we never report
+  exact-match alone. **exact** (stdout matches the oracle) is paired with
+  **run-ok** (the program compiled and ran). The gap between the two is where
+  competence hides.
+- **No training.** Every model below is used as released. The only Aether it
+  ever sees is the guide in its context.
+- **Harness honesty.** Local models are served by LM Studio (one resident at a
+  time, unloaded between runs to bound memory); the 122B is served by vLLM on a
+  separate host. The harness issues the benchmark's tasks concurrently and gives
+  models a generous output budget, so a model that reasons at length is never
+  truncated mid-thought — a real failure mode that, left unfixed, makes a capable
+  model look incompetent for a purely mechanical reason.
+
+## Headline result
+
+| model | class | small (exact / run-ok) | full (exact / run-ok) |
+|---|---|---|---|
+| Qwen3.5-122B-A10B (NVFP4) | 122B MoE | 29/30 · 30/30 | **30/30 · 30/30** |
+| Qwen3.6-35B-A3B | 35B MoE | **30/30 · 30/30** | *(running)* |
+
+Qwen3.5-122B with the full guide scores a **clean 30/30** — every task, exact.
+With the condensed guide it scores 29/30, and the single "miss" still **compiled
+and ran**: a valid program whose output differed only in formatting. That is the
+companion note's thesis surfacing on the other side of the ledger — **100% of
+what it wrote was valid Aether**, and exact-match's one-point dock is a
+formatting artifact, not a competence gap. The 35B MoE reaches 30/30 on the
+condensed guide on its own.
+
+For models in this class the README's deliberately-cautious phrasing — "valid,
+correct Aether a surprising fraction of the time" — understates the outcome. It
+is not a fraction. It is all of it.
+
+## The capability gradient (in progress)
+
+The headline is the *ceiling*. The more interesting question this sweep answers
+is **where the floor is** — how far down the capability ladder the guide keeps
+working, and where it stops. A sweep across ~49 locally-served models (2B → ~45B,
+the ≥60B models served separately) is filling that gradient in on the v2/30
+instrument; the table here will be completed as it lands. Early, robust shape:
+
+- **A guide carries reasoning, not "code-model-ness."** A small *general thinking*
+  model writes valid, correct Aether for a real share of tasks with the guide,
+  while a 3B model specialized for code but without a reasoning step scored zero.
+  The guide rewards a model that can *follow* it, not one merely fluent in
+  mainstream languages.
+- **The full guide meets or beats the condensed guide**, and the margin should
+  widen as models weaken — more context buys the most exactly where in-context
+  learning is hardest.
+- **Thinking is not required at the top.** The 122B is served with thinking
+  disabled and still scores 30/30; reasoning helps weaker models climb but the
+  ceiling is reachable without it.
+
+## What this does and does not show
+
+- It shows that **adoption does not require fine-tuning.** A capable model plus
+  the guide is a working Aether programmer today — which is the practical case
+  for most users.
+- It does **not** retire the no-guide program. A model that writes Aether with
+  *nothing* in the prompt is a different, harder bar, and the place where the
+  language's regularity is actually stress-tested.
+- The README's compiler↔guide loop closes here too: when a guided model does
+  slip, the compiler's coded diagnostic (`FX-001`, `ANN-001`, …) points back into
+  the same guide section, so a second pass can self-correct.
+
+## Status
+
+Sweep in progress on v2/30. The two large MoEs are in (above); the local sweep is
+working down from ~35B toward 2B. This note's gradient table is completed from the
+per-model result JSONs as they accumulate.
