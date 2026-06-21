@@ -2958,6 +2958,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                           showsCloseButton:!settingsTool
                     appliesInitialPlacement:!workspacesTool];
     windowView.workspaceToolIdentifier = toolIdentifier;
+    if ([self isGlobalToolIdentifier:toolIdentifier])
+        windowView.workspaceDesktopIndex = 0;  // global singletons live on the first Desktop
     CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);
     if (!CGSizeEqualToSize(minimumSize, CGSizeZero)) {
         windowView.resizable = YES;
@@ -3134,6 +3136,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindTool]) {
             NSString *toolIdentifier = descriptor[@"toolIdentifier"];
             if (toolIdentifier.length == 0)
+                continue;
+            // Global singletons (Desktops/Launcher): restore only the first occurrence, ignoring
+            // any saved copies on later Desktops.
+            if ([self isGlobalToolIdentifier:toolIdentifier] && [self desktopWindowForToolIdentifier:toolIdentifier] != nil)
                 continue;
             ISHWorkspaceContainedWindowView *windowView = [self openWorkspaceToolWindowWithIdentifier:toolIdentifier];
             [self applySavedFrameDescriptor:frameDescriptor
@@ -3639,6 +3645,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)assignRestoredWindow:(ISHWorkspaceContainedWindowView *)windowView toDesktopFromDescriptor:(NSDictionary<NSString *, id> *)descriptor {
     if (windowView == nil)
         return;
+    if ([self isGlobalToolIdentifier:windowView.workspaceToolIdentifier]) {
+        windowView.workspaceDesktopIndex = 0;  // global singletons aren't tied to a Desktop
+        return;
+    }
     NSInteger index = MAX((NSInteger)0, [descriptor[@"desktopIndex"] integerValue]);
     windowView.workspaceDesktopIndex = index;
     if (index + 1 > self.desktopCount)
