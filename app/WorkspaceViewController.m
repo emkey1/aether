@@ -606,6 +606,22 @@ static UIViewController *ISHCreateRootsViewController(void) {
     return [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
 }
 
+// The Launcher applet sizes itself to its item count: header-less list of shortcut buttons
+// plus the "Edit Shortcuts" button, with insets. Used both as its preferred open size and by
+// -autosizeLauncherWindow when shortcuts are added/removed.
+static CGSize ISHWorkspaceLauncherContentSize(void) {
+    BOOL phone = ISHWorkspaceUsesPhoneLayout();
+    NSUInteger count = ISHWorkspaceLauncherShortcuts().count;
+    CGFloat inset = phone ? 12.0 : 16.0;
+    CGFloat spacing = 8.0;
+    CGFloat rowHeight = phone ? 46.0 : 52.0;
+    CGFloat editHeight = phone ? 40.0 : 44.0;
+    CGFloat width = phone ? 280.0 : 340.0;
+    CGFloat rowsHeight = count > 0 ? (count * rowHeight + (count - 1) * spacing) : (phone ? 28.0 : 32.0);
+    CGFloat height = inset + rowsHeight + spacing + editHeight + inset;
+    return CGSizeMake(width, height);
+}
+
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if (ISHWorkspaceUsesPhoneLayout()) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -639,7 +655,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(352, 560);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-            return CGSizeMake(300, 300);
+            return ISHWorkspaceLauncherContentSize();
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -673,7 +689,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(560, 620);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-        return CGSizeMake(360, 380);
+        return ISHWorkspaceLauncherContentSize();
     return CGSizeMake(720, 640);
 }
 
@@ -752,7 +768,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(300, 360);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-            return CGSizeMake(240, 180);
+            return CGSizeMake(200, 80);
         return CGSizeMake(300, 220);
     }
 
@@ -781,7 +797,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(420, 420);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-        return CGSizeMake(280, 220);
+        return CGSizeMake(220, 96);
     return CGSizeZero;
 }
 
@@ -3259,8 +3275,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)launchTerminalWithCommand:(NSString *)command {
-    if (command.length == 0)
-        return;
+    [self launchTerminalWithCommand:command title:nil];
+}
+
+// An empty command just opens a fresh terminal (so a shortcut named "terminal" with no
+// command gives you a plain shell); a non-empty command is injected once the shell is up.
+- (void)launchTerminalWithCommand:(NSString *)command title:(NSString *)title {
+    NSString *windowTitle = title.length > 0 ? title : (command.length > 0 ? command : @"Terminal");
     TerminalViewController *terminalViewController = [self createDesktopTerminalViewController];
     if (terminalViewController == nil) {
         [self presentSceneActivationError:nil];
@@ -3268,12 +3289,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     terminalViewController.freshSessionTerminalDisplayMode = ISHFreshSessionTerminalDisplayModeSessionShell;
     ISHWorkspaceContainedWindowView *windowView =
-        [self openDesktopTerminalWindowWithTitle:command terminalViewController:terminalViewController];
+        [self openDesktopTerminalWindowWithTitle:windowTitle terminalViewController:terminalViewController];
     [terminalViewController startNewSession];
     [terminalViewController showSessionShellForCurrentSession];
     windowView.workspaceTerminalRole = ISHWorkspaceTerminalRoleGeneric;
-    windowView.titleLabel.text = command;
+    windowView.titleLabel.text = windowTitle;
     [self refreshDockButtons];
+
+    if (command.length == 0)
+        return;
 
     // Inject the command once the shell has had a moment to come up. The pty buffers
     // it, so the shell runs it as soon as it starts reading.
@@ -3291,14 +3315,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             message:shortcuts.count == 0 ? @"Add a shortcut to run a command in a new terminal." : nil
                                      preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
-        NSString *command = shortcut[@"command"];
-        if (command.length == 0)
-            continue;
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : command;
+        NSString *command = shortcut[@"command"] ?: @"";
+        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
+                       : (command.length > 0 ? command : @"Terminal");
         [sheet addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self launchTerminalWithCommand:command];
+            [self launchTerminalWithCommand:command title:name];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
@@ -3306,18 +3329,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
     }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Edit Shortcuts…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentAddLauncherShortcut];
+        [self presentLauncherEditorFromView:sourceView];
     }]];
-    if (shortcuts.count > 0) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"Remove a Shortcut…"
-                                                  style:UIAlertActionStyleDestructive
-                                                handler:^(__unused UIAlertAction *action) {
-            [self presentRemoveLauncherShortcutFromView:sourceView sourceRect:sourceRect];
-        }]];
-    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
@@ -3332,24 +3348,25 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)presentAddLauncherShortcut {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Add Shortcut"
-                                            message:@"A name and a command to run in a new terminal."
+                                            message:@"A name, and a command to run in a new terminal. Leave the command blank to just open a terminal."
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Name (e.g. skippy)";
+        textField.placeholder = @"Name (e.g. skippy or terminal)";
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     }];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Command (e.g. ssh skippy)";
+        textField.placeholder = @"Command (e.g. ssh skippy — blank for a shell)";
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
     }];
     [alert addAction:[UIAlertAction actionWithTitle:@"Save"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        NSString *command = alert.textFields[1].text;
-        if (command.length == 0)
+        NSString *command = alert.textFields[1].text ?: @"";
+        NSString *nameField = alert.textFields[0].text ?: @"";
+        if (command.length == 0 && nameField.length == 0)
             return;
-        NSString *name = alert.textFields[0].text.length > 0 ? alert.textFields[0].text : command;
+        NSString *name = nameField.length > 0 ? nameField : command;
         NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
         [shortcuts addObject:@{@"name": name, @"command": command}];
         ISHWorkspaceSetLauncherShortcuts(shortcuts);
@@ -3358,31 +3375,90 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)presentRemoveLauncherShortcutFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
+// "Edit Shortcuts" entry point: pick a shortcut to edit/delete, or add a new one. Replaces
+// the old separate Add/Remove sheets and is shared by the root-menu Launcher and the applet.
+- (void)presentLauncherEditorFromView:(UIView *)sourceView {
+    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
     UIAlertController *sheet =
-        [UIAlertController alertControllerWithTitle:@"Remove Shortcut"
-                                            message:nil
+        [UIAlertController alertControllerWithTitle:@"Edit Shortcuts"
+                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command — or just open a terminal." : @"Pick a shortcut to rename, change, or delete."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
-    [ISHWorkspaceLauncherShortcuts() enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSString *> *shortcut, NSUInteger idx, __unused BOOL *stop) {
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : shortcut[@"command"];
+    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSString *> *shortcut, NSUInteger idx, __unused BOOL *stop) {
+        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
+                       : (shortcut[@"command"].length > 0 ? shortcut[@"command"] : @"Terminal");
         [sheet addAction:[UIAlertAction actionWithTitle:name
-                                                  style:UIAlertActionStyleDestructive
+                                                  style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-            if (idx < updated.count)
-                [updated removeObjectAtIndex:idx];
-            ISHWorkspaceSetLauncherShortcuts(updated);
+            [self presentEditLauncherShortcutAtIndex:idx];
         }]];
     }];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentAddLauncherShortcut];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
     if (popover != nil) {
         popover.sourceView = sourceView;
-        popover.sourceRect = sourceRect;
+        popover.sourceRect = sourceView.bounds;
         popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
     }
     [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentEditLauncherShortcutAtIndex:(NSUInteger)index {
+    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    if (index >= shortcuts.count)
+        return;
+    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[index];
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Edit Shortcut"
+                                            message:@"Leave the command blank to just open a terminal."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Name";
+        textField.text = shortcut[@"name"];
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Command (blank for a shell)";
+        textField.text = shortcut[@"command"];
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        NSString *command = alert.textFields[1].text ?: @"";
+        NSString *nameField = alert.textFields[0].text ?: @"";
+        if (command.length == 0 && nameField.length == 0)
+            return;
+        NSString *name = nameField.length > 0 ? nameField : command;
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+        if (index < updated.count)
+            updated[index] = @{@"name": name, @"command": command};
+        ISHWorkspaceSetLauncherShortcuts(updated);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Delete"
+                                              style:UIAlertActionStyleDestructive
+                                            handler:^(__unused UIAlertAction *action) {
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+        if (index < updated.count)
+            [updated removeObjectAtIndex:index];
+        ISHWorkspaceSetLauncherShortcuts(updated);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+// Resize the open Launcher applet to match its current item count (auto-size to content).
+- (void)autosizeLauncherWindow {
+    ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+    if (window == nil)
+        return;
+    [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize() animated:YES];
 }
 
 - (void)presentDesktopRootMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
@@ -6520,13 +6596,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
     [self rebuildLauncherList];
     [NSNotificationCenter.defaultCenter addObserver:self
-                                           selector:@selector(rebuildLauncherList)
+                                           selector:@selector(launcherShortcutsDidChange)
                                                name:ISHWorkspaceLauncherShortcutsDidChangeNotification
                                              object:nil];
 }
 
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)launcherShortcutsDidChange {
+    [self rebuildLauncherList];
+    // Grow/shrink the window to match the new item count.
+    [(id)self.workspaceHostViewController autosizeLauncherWindow];
 }
 
 - (UIColor *)launcherColorForKey:(NSString *)key fallback:(UIColor *)fallback {
@@ -6540,45 +6622,32 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [view removeFromSuperview];
     }
 
-    UILabel *header = [self workspaceThemeAccentLabelWithTextStyle:UIFontTextStyleHeadline monospaced:NO];
-    header.text = @"Launcher";
-    [_contentStack addArrangedSubview:header];
-
-    UILabel *detail = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-    detail.numberOfLines = 0;
-    detail.text = @"Tap to run a command in a fresh terminal.";
-    [_contentStack addArrangedSubview:detail];
-
     NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
     if (shortcuts.count == 0) {
         UILabel *empty = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
         empty.numberOfLines = 0;
-        empty.text = @"No shortcuts yet. Add one with the button below (for example: ssh myhost).";
+        empty.text = @"No shortcuts yet.";
         [_contentStack addArrangedSubview:empty];
     } else {
         NSUInteger index = 0;
         for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
-            [_contentStack addArrangedSubview:[self launcherRowForShortcut:shortcut index:index]];
+            [_contentStack addArrangedSubview:[self launcherButtonForShortcut:shortcut index:index]];
             index++;
         }
     }
 
-    [_contentStack addArrangedSubview:[self launcherAddButton]];
+    [_contentStack addArrangedSubview:[self launcherEditButton]];
 }
 
-- (UIView *)launcherRowForShortcut:(NSDictionary<NSString *, NSString *> *)shortcut index:(NSUInteger)index {
+- (UIButton *)launcherButtonForShortcut:(NSDictionary<NSString *, NSString *> *)shortcut index:(NSUInteger)index {
     NSString *command = shortcut[@"command"] ?: @"";
-    NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"] : command;
-
-    UIStackView *row = [UIStackView new];
-    row.axis = UILayoutConstraintAxisHorizontal;
-    row.spacing = 6;
-    row.alignment = UIStackViewAlignmentFill;
+    NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
+                   : (command.length > 0 ? command : @"Terminal");
 
     UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
     run.translatesAutoresizingMaskIntoConstraints = NO;
     run.tag = (NSInteger)index;
-    run.contentEdgeInsets = UIEdgeInsetsMake(8, 10, 8, 10);
+    run.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 12);
     run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     run.titleLabel.numberOfLines = 0;
     run.layer.cornerRadius = 12;
@@ -6587,7 +6656,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
     CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 46.0 : 52.0;
     [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
-    [run setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
     style.alignment = NSTextAlignmentLeft;
@@ -6598,7 +6666,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         NSForegroundColorAttributeName: primary,
         NSParagraphStyleAttributeName: style,
     }];
-    if (![command isEqualToString:name]) {
+    if (command.length > 0 && ![command isEqualToString:name]) {
         [label appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:command] attributes:@{
             NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) weight:UIFontWeightRegular],
             NSForegroundColorAttributeName: secondary,
@@ -6607,58 +6675,34 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     [run setAttributedTitle:label forState:UIControlStateNormal];
     [run addTarget:self action:@selector(runShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
-
-    UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
-    remove.translatesAutoresizingMaskIntoConstraints = NO;
-    remove.tag = (NSInteger)index;
-    if (@available(iOS 13.0, *)) {
-        [remove setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
-    } else {
-        [remove setTitle:@"Remove" forState:UIControlStateNormal];
-    }
-    remove.tintColor = UIColor.systemRedColor;
-    remove.accessibilityLabel = [NSString stringWithFormat:@"Remove %@", name];
-    [remove addTarget:self action:@selector(removeShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
-    [remove setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [remove.widthAnchor constraintEqualToConstant:40.0].active = YES;
-
-    [row addArrangedSubview:run];
-    [row addArrangedSubview:remove];
-    return row;
+    return run;
 }
 
-- (UIButton *)launcherAddButton {
-    UIButton *add = [UIButton buttonWithType:UIButtonTypeSystem];
-    add.translatesAutoresizingMaskIntoConstraints = NO;
+- (UIButton *)launcherEditButton {
+    UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
+    edit.translatesAutoresizingMaskIntoConstraints = NO;
     UIColor *accent = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
-    [add setTitle:@"Add Shortcut…" forState:UIControlStateNormal];
-    [add setTitleColor:accent forState:UIControlStateNormal];
-    add.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
-    add.layer.cornerRadius = 12;
-    add.layer.borderWidth = 1;
-    add.layer.borderColor = accent.CGColor;
-    [add.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 40.0 : 44.0].active = YES;
-    [add addTarget:self action:@selector(addShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
-    return add;
+    [edit setTitle:@"Edit Shortcuts" forState:UIControlStateNormal];
+    [edit setTitleColor:accent forState:UIControlStateNormal];
+    edit.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
+    edit.layer.cornerRadius = 12;
+    edit.layer.borderWidth = 1;
+    edit.layer.borderColor = accent.CGColor;
+    [edit.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 40.0 : 44.0].active = YES;
+    [edit addTarget:self action:@selector(editShortcutsTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return edit;
 }
 
 - (void)runShortcutTapped:(UIButton *)sender {
     NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
     if ((NSUInteger)sender.tag >= shortcuts.count)
         return;
-    NSString *command = shortcuts[(NSUInteger)sender.tag][@"command"];
-    [(id)self.workspaceHostViewController launchTerminalWithCommand:command];
+    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[(NSUInteger)sender.tag];
+    [(id)self.workspaceHostViewController launchTerminalWithCommand:shortcut[@"command"] title:shortcut[@"name"]];
 }
 
-- (void)removeShortcutTapped:(UIButton *)sender {
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-    if ((NSUInteger)sender.tag < updated.count)
-        [updated removeObjectAtIndex:(NSUInteger)sender.tag];
-    ISHWorkspaceSetLauncherShortcuts(updated);
-}
-
-- (void)addShortcutTapped:(__unused UIButton *)sender {
-    [(id)self.workspaceHostViewController presentAddLauncherShortcut];
+- (void)editShortcutsTapped:(UIButton *)sender {
+    [(id)self.workspaceHostViewController presentLauncherEditorFromView:sender];
 }
 
 @end
