@@ -30,6 +30,22 @@ benchmark, not opinion, is the instrument: see the
 [findings](docs/aether_specialization_findings.md) and the
 [design rationale](docs/aether_architecture_and_rationale.md).
 
+## You don't have to fine-tune a model to use it
+
+Fine-tuning is the research frontier, but it isn't the cost of entry. The
+condensed guide
+([`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md),
+~500 lines) pasted into the prompt gets a frontier model that has *never seen
+Aether* writing valid, correct programs a surprising fraction of the time — the
+grammar is small and regular enough to pick up in-context.
+
+And the loop closes. When a model slips, the compiler doesn't just reject the
+code: it names the mistake and tags it with a stable error code — `FX-001` for an
+effect used outside an `fx` block, `ANN-001` for a misplaced contract, `TOON-001`
+for a malformed TOON handle, and so on. Those same codes are section headings in
+the guide, so the diagnostic points straight back to the paragraph that explains
+the fix. A model can read its own error and correct the program on a second pass.
+
 ## How it runs
 
 Aether is a contract- and effect-typed front end for the **PSCAL** VM. It lowers
