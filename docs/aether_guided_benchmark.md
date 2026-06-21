@@ -75,7 +75,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*8 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16 runtime, vLLM = vLLM 0.20.2 (claw1).*
+*11 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16 runtime, vLLM = vLLM 0.20.2 (claw1).*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -83,8 +83,11 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 |---|---|---|---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | 1/30 · 1✓ | 0/16 · 0✓ |
-| `yi-coder-9b-chat@q4_k_m` | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 0/20 · 0✓ |
+| `mistralai/devstral-small-2507` | 4bit | MLX | 2025-07 | 7/18 · 8✓ | — |
+| `mistral-7b-instruct-v0.3` | Q8_0 | GGUF | 2024-05 | 14/30 · 21✓ | — |
+| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | — | — |
+| `gemma-4-e4b-it-mlx@4bit` | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
+| `yi-coder-9b-chat@q4_k_m` | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 19/30 · 20✓ |
 | `deepseek-r1-distill-qwen-7b` | Q4_K_M | GGUF | 2025-01 | 0/30 · 3✓ | 0/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
