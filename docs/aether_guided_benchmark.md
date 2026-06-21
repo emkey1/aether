@@ -73,13 +73,14 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*4 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran.*
+*5 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran.*
 
 | model | quant | small | full |
 |---|---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 8bit | 30/30 · 30✓ | 30/30 · 30✓ |
-| `stable-code-instruct-3b` | Q8_0 | 0/30 · 0✓ | 0/0 · 0✓ |
+| `starcoder2-7b` | Q8_0 | 0/29 · 0✓ | — |
+| `stable-code-instruct-3b` | Q8_0 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen3.5-2b-mlx` | 4bit | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1bit | *load-failed* | |
 <!-- LEADERBOARD:END -->
