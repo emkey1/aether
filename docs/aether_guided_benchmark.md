@@ -45,15 +45,15 @@ correctly.
 | model | class | small (exact / run-ok) | full (exact / run-ok) |
 |---|---|---|---|
 | Qwen3.5-122B-A10B (NVFP4) | 122B MoE | 29/30 · 30/30 | **30/30 · 30/30** |
-| Qwen3.6-35B-A3B | 35B MoE | **30/30 · 30/30** | *(running)* |
+| Qwen3.6-35B-A3B | 35B MoE | **30/30 · 30/30** | **30/30 · 30/30** |
 
 Qwen3.5-122B with the full guide scores a **clean 30/30** — every task, exact.
 With the condensed guide it scores 29/30, and the single "miss" still **compiled
 and ran**: a valid program whose output differed only in formatting. That is the
 companion note's thesis surfacing on the other side of the ledger — **100% of
 what it wrote was valid Aether**, and exact-match's one-point dock is a
-formatting artifact, not a competence gap. The 35B MoE reaches 30/30 on the
-condensed guide on its own.
+formatting artifact, not a competence gap. The 35B MoE matches it outright — a
+clean **30/30 on both guides** — so the result is not a single-model fluke.
 
 For models in this class the README's deliberately-cautious phrasing — "valid,
 correct Aether a surprising fraction of the time" — understates the outcome. It
