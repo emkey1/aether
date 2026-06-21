@@ -114,11 +114,9 @@ enum {
     NumberOfSections,
 };
 
-// The "Workspaces at Launch" count only applies where the app can open multiple windows (iPad).
+// In-app Desktops work on every device, so the launch count always applies.
 - (BOOL)supportsWorkspaceLaunchCount {
-    if (@available(iOS 13.0, *))
-        return UIApplication.sharedApplication.supportsMultipleScenes;
-    return NO;
+    return YES;
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -147,7 +145,7 @@ enum {
         case CursorSection: return @"Cursor";
         case StatusBarSection: return @"Status Bar";
         case TerminalButtonsSection: return @"Terminal Buttons";
-        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"Workspaces at Launch" : nil;
+        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"Desktops at Launch" : nil;
         default: return nil;
     }
 }
@@ -157,7 +155,7 @@ enum {
         case PreviewSection: return @"Change the color scheme used for the preview.";
         case WorkspaceStyleSection: return @"Modern is a flat, redesigned desktop; Classic keeps the original look. Both stay available and only restyle the Workspace.";
         case TerminalButtonsSection: return @"Show the settings (gear) and terminal-switcher buttons on the terminal. Turn this off for a cleaner terminal.";
-        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"How many workspace windows to open automatically at launch." : nil;
+        case WorkspaceLaunchSection: return [self supportsWorkspaceLaunchCount] ? @"How many in-app Desktops to open automatically at launch." : nil;
         default: return nil;
     }
 }
@@ -280,7 +278,7 @@ enum {
 
         case WorkspaceLaunchSection: {
             NSInteger count = indexPath.row + 1;
-            cell.textLabel.text = count == 1 ? @"1 workspace" : [NSString stringWithFormat:@"%ld workspaces", (long)count];
+            cell.textLabel.text = count == 1 ? @"1 desktop" : [NSString stringWithFormat:@"%ld desktops", (long)count];
             if (count == UserPreferences.shared.workspaceLaunchCount) {
                 cell.accessoryType = UITableViewCellAccessoryCheckmark;
                 cell.accessibilityTraits |= UIAccessibilityTraitSelected;
