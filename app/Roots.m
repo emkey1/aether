@@ -76,9 +76,47 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"amd64",
             },
+            @{
+                kBundledRootIdentifierKey: @"devuan6x86",
+                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur)",
+                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86",
+                kBundledRootImportNameKey: @"Devuan6",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"i386",
+            },
+            @{
+                kBundledRootIdentifierKey: @"devuan6x8664",
+                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, x86_64)",
+                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86_64",
+                kBundledRootImportNameKey: @"Devuan6-x86_64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"amd64",
+            },
         ];
     });
     return choices;
+}
+
+// Bundled root archives may ship in any container format libarchive (and thus
+// fakefs_import) can read -- gzip, xz, zstd, bzip2, ... -- so resolve the
+// bundled resource by trying each supported extension instead of assuming
+// .tar.gz. (Keep the extension list in sync with the cached-archive suffixes in
+// cachedRootArchiveURLs and the filters in fakefs_import / tools/fakefs.c.)
+static NSURL *BundledRootArchiveURL(NSString *archiveName) {
+    if (archiveName.length == 0)
+        return nil;
+    static NSArray<NSString *> *extensions;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        extensions = @[@"tar.xz", @"tar.zst", @"tar.gz", @"tar.bz2",
+                       @"tar.lz", @"tar.lzma", @"txz", @"tzst", @"tgz", @"tar"];
+    });
+    for (NSString *ext in extensions) {
+        NSURL *url = [NSBundle.mainBundle URLForResource:archiveName withExtension:ext];
+        if (url != nil)
+            return url;
+    }
+    return nil;
 }
 
 static NSURL *RootMetadataURL(NSURL *rootURL) {
@@ -550,8 +588,7 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
         return NO;
     }
 
-    NSURL *archive = [NSBundle.mainBundle URLForResource:selectedChoice[kBundledRootArchiveNameKey]
-                                           withExtension:@"tar.gz"];
+    NSURL *archive = BundledRootArchiveURL(selectedChoice[kBundledRootArchiveNameKey]);
     if (archive == nil) {
         if (error != NULL) {
             *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{

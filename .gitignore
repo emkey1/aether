@@ -21,7 +21,8 @@ fastlane/test_output
 e2e_out/
 root.tar.gz
 foo.tgz
-alpine-minirootfs-*.tar.gz
+alpine-minirootfs-*.tar.*
+devuan-minirootfs-*.tar.*
 
 .tmp*
 com.apple.DeveloperTools/

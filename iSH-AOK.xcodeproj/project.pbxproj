@@ -2015,17 +2015,21 @@
 			files = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
-				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.xz",
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-x86.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-x86_64.tar.xz",
 			);
 			name = "Download Root";
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86_64.tar.xz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\" 2>/dev/null || true\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" 2>/dev/null || true\n";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2075,17 +2079,21 @@
 			files = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
-				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.gz",
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86_64.tar.xz",
+				"$(SRCROOT)/alpine-minirootfs-3.23.3-x86.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-x86.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-x86_64.tar.xz",
 			);
 			name = "Download Root";
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.gz",
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.gz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86_64.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.23.3-x86.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86_64.tar.xz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.gz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.gz\" 2>/dev/null || true\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" 2>/dev/null || true\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
