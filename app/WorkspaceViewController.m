@@ -7537,7 +7537,8 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     [jump addTarget:self action:@selector(jumpToDesktopFromApplet:) forControlEvents:UIControlEventTouchUpInside];
     [row addArrangedSubview:jump];
 
-    if (removable) {
+    // The delete x is hidden entirely while the Desktop is locked; unlock to remove it.
+    if (removable && !locked) {
         UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
         remove.translatesAutoresizingMaskIntoConstraints = NO;
         remove.tag = index;
@@ -7549,9 +7550,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         } else {
             [remove setTitle:@"x" forState:UIControlStateNormal];
         }
-        // Locked Desktops show the x disabled/dimmed so it's clear why deletion is blocked.
-        remove.tintColor = locked ? muted : UIColor.systemRedColor;
-        remove.enabled = !locked;
+        remove.tintColor = UIColor.systemRedColor;
         remove.accessibilityLabel = [NSString stringWithFormat:@"Remove Desktop %ld", (long)(index + 1)];
         [remove setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
         [remove.widthAnchor constraintEqualToConstant:28.0].active = YES;
