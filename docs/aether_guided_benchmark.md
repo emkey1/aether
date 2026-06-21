@@ -79,7 +79,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 |---|---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 8bit | 30/30 · 30✓ | 30/30 · 30✓ |
-| `stable-code-instruct-3b` | Q8_0 | 0/0 · 0✓ | — |
+| `stable-code-instruct-3b` | Q8_0 | 0/30 · 0✓ | 0/0 · 0✓ |
 | `qwen3.5-2b-mlx` | 4bit | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1bit | *load-failed* | |
 <!-- LEADERBOARD:END -->
