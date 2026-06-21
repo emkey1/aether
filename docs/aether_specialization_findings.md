@@ -156,7 +156,10 @@ Two readings worth keeping:
   *active* parameters than the 7B, so dilution-resistance tracks **total**
   parameters; but it does not gain like the dense 14B, so generalization-gain
   tracks **active** parameters. "Scale the corpus to the model" is a *dense*
-  rule; the MoE is corpus-insensitive (the stable, if unspectacular, pick).
+  rule; the MoE is corpus-insensitive (the stable, if unspectacular, pick). That
+  inertia is on near-distribution tasks only: §3.6 finds the *same* breadth makes
+  the MoE the *best* generalizer to novel hard shapes, so "corpus-insensitive" is
+  not the same as "unremarkable."
 - **The metric caveat applies here too, and the data survives it.** Unlike the
   Mistral case, the 7B's run-ok drops alongside exact-match, so this is *real*
   degradation, not a metric artifact. The pairing in §1.2 is what lets us say so
@@ -204,6 +207,20 @@ and does not exist yet. When that happens we treat it as evidence about the
   [`../src/aether/translate.c`](../src/aether/translate.c) (search `toon_key_or`,
   `toon_null`), and adding it took the best dense model to **30/30** on the clean
   sweep.
+- **Integer division and modulo** (`n / 2`, `n % 2`) — surfaced by the hard-task
+  probe of §3.6, and a different flavor of the same signal: not a *missing*
+  construct but a *broken* one. Every model that wrote the natural recursion
+  `if n % 2 == 0 { ret 1 + f(n / 2); }` failed to compile, with
+  `Operands for 'mod' must be integers. Got REAL and INTEGER`. The cause was a
+  coercion asymmetry in the shared backend: `/` returns Real (deliberately,
+  Pascal-style), an Int *assignment* truncates that Real, but passing it as an
+  Int *argument* did not — so the Real leaked into the recursive Int parameter
+  and broke the following `%`. The fix coerces Real→Int at the argument boundary
+  exactly as assignment already does, leaving `/` untouched (real-valued ratios
+  are unaffected). The discipline of §3.2 still held: the *unanimous, identical*
+  failure across capable models was the bug report, and the compile-fail vs
+  wrong-output split in the failure log (§3.6) is what marked it a language bug
+  rather than a model error.
 
 This is the thesis of the architecture doc in practice: when the benchmark says
 the language is wrong, change the language. The discipline is to do it only when
@@ -273,6 +290,102 @@ above) and nothing else. The lesson generalizes §1 one more level: not just the
 metric and the tokenizer, but the **toolchain that runs the generated code** is
 part of the measurement, and it drifts if you let it.
 
+### 3.6 Did the model learn the language, or the corpus's shapes?
+
+The no-guide KPI asks whether a model can write Aether for tasks drawn like the
+training corpus. That leaves a deeper question open: did the model learn the
+*language*, or did it learn the corpus's program *shapes*? A model that only
+memorized our templates would score well near the training distribution and
+collapse on genuinely novel programs; a model that learned the language would
+transfer.
+
+We tested this with a held-out **hard set**: eight oracle-verified programs
+whose *control-flow shapes* are novel relative to the corpus — not merely larger
+versions of it. They include a two-pass cross-record statistic (compute a mean,
+then flag each record by its deviation from it), a stateful sequential
+simulation with rejection and clamping, nested traversal of an array inside an
+array, an explicit two-state machine, adjacent-pair analysis with a running
+streak, recursion, grouping with an argmax, and bucketing that returns the
+winning *element* rather than a count. The scenarios are disjoint from both the
+corpus and the easy benchmark, and there is **no retraining** — we ran the
+existing fine-tunes unchanged, so this measures what they had already learned.
+
+| model | hard (any-rep /8) | easy (/30) |
+|---|---|---|
+| Qwen3-Coder-30B-A3B MoE | **6/8** (1x), **7/8** (2x) | 29 |
+| Qwen2.5-Coder-14B | 4/8 | 30 |
+| Qwen2.5-Coder-7B | 4/8 | 28 |
+| Mistral-Small-24B | 4/8 (1x), 3/8 (2x) | 29 |
+
+Three findings.
+
+1. **Generalization is real but partial.** Scores fall from ~93-100% on the easy
+   benchmark to 38-88% on the hard set. They do *not* fall to zero — which pure
+   template memorization would predict — so the models learned genuine,
+   transferable Aether. They are simply brittle on the shapes that sit farthest
+   from the corpus.
+2. **The MoE generalizes best, and parameter count does not drive it.** The A3B,
+   which was merely *inert* on the easy corpus-scaling law (§3.1, neither
+   diluting nor gaining), is the *strongest* generalizer to novel shapes (6-7/8);
+   the largest dense model, the 24B, is the *weakest* (3-4/8). This sharpens the
+   active-versus-total reading of §3.1: total parameters buy both
+   dilution-resistance *and* breadth of transfer, while active parameters buy
+   easy-benchmark gain. Compositional generalization tracks breadth, not size.
+3. **The instrument is well-calibrated.** Every hard task is solved by at least
+   one model and missed by at least one; none is trivial and none is impossible.
+   The hardest shapes for the whole cohort (adjacent-pair streak detection, and
+   the bucket task that must return an element) are precisely the ones farthest
+   from the corpus's habitual classify-and-accumulate shape.
+
+This is the §1 observation raised to the level of the whole program: a single
+in-distribution KPI cannot separate "learned the language" from "learned our
+shapes," but a disjoint, harder instrument can, and it says the competence is
+real with a brittle frontier. Whether *training* on hard shapes pushes that
+frontier out is the live question in §5.
+
+### 3.7 Reasoning before coding hurts a compact DSL
+
+Reasoning ("thinking") models are now the dominant paradigm — the present, not the
+future — so whether a model can be trained to *reason* its way to correct Aether is a
+question the program has to answer. We fine-tuned a hybrid Qwen3-8B to emit a
+reasoning block before its code, and evaluated it both with thinking enabled and
+disabled, at matched sampling, across corpus sizes.
+
+| corpus | thinking on | thinking off |
+|---|---|---|
+| 1x | 24 | 29 |
+| 2x | 26 | 28 |
+| 3x | 23 | 26 |
+
+Thinking is worse at every corpus size, and more corpus does not rescue it: the
+thinking-on scores do not trend upward (24, 26, 23). The hard set agrees (1/8
+with thinking, 2/8 without).
+
+The graded signal that explains *why* is a new one, in the spirit of §1.
+Alongside any-rep score (does a task pass on *any* of three samples) we read
+**all-rep consistency** (does it pass on *all* three). Thinking-off: 24/20/23 of
+30. Thinking-on: 5/9/10. Thinking does not merely score lower — it
+*destabilizes* the output. At temperature the model reasons its way to a
+*different*, often non-compiling program on each sample, and run-ok confirms it
+(thinking-on 52-61 of 90, thinking-off 75-84). Beyond run-ok, the spread between
+any-rep and all-rep localizes a failure mode a single number hides: variance
+injected by the reasoning itself.
+
+The diagnosis is that our thinking-SFT taught the *form* of reasoning without
+the *function*. The training traces were a base model rationalizing
+already-correct code, which is reasoning theater rather than reasoning that
+improves the program; we never trained the block to actually help, so it fills
+with per-sample noise that derails the code.
+
+The scope matters. This is a verdict on a *naive training approach* — not on
+thinking models. Because reasoning models are the present, being able to train
+them to write Aether well is a requirement the program has not yet met, not a
+closed door. The unsolved version needs a better teacher (traces distilled from
+a model that genuinely reasons about code, not the base rationalizing a known
+answer) and outcome-shaped reasoning (reinforcement on the real signal, compile
+and exact-match, so the reasoning is rewarded only when it helps), paired with
+tasks hard enough to be worth reasoning about (§3.6).
+
 ---
 
 ## 4. Methodological takeaways
@@ -293,6 +406,11 @@ part of the measurement, and it drifts if you let it.
    rebuild it before each run; a stale compiler silently caps scores. Because
    generations are stored, re-score against a fixed compiler rather than
    re-running the models.
+6. **Graded signals beyond run-ok localize distinct failures.** Run-ok separates
+   a surface defect from capability loss (§1); all-rep consistency separates
+   stable competence from reasoning-injected variance (§3.7); transfer to a
+   disjoint hard set separates a learned language from learned templates (§3.6).
+   Each is a different lens on the gap exact-match hides; collect more than one.
 
 ---
 
@@ -308,6 +426,20 @@ part of the measurement, and it drifts if you let it.
   whether the optimum reaches 3x before any 3x/4x corpus is worth building.
 - **Best model to date** is the 14B at 2x with the §3.2 language additions, at
   **30/30** on the no-guide benchmark.
+- **The generalization frontier is mapped (§3.6).** Existing fine-tunes transfer
+  to novel hard shapes only partially (38-88% against 93-100% on the easy set),
+  and the MoE, not the largest dense model, transfers best. The live experiment
+  is **capability injection**: retraining the 24B and the A3B on the corpus plus
+  ~30 oracle-verified hard examples (in scenarios disjoint from the hard
+  benchmark) to test whether training on hard shapes pushes the frontier out
+  without diluting the easy bench. **Open question:** does the gap close, and
+  does the MoE's generalization edge survive once both models see hard examples?
+- **Reasoning-before-coding is net-negative under our current training (§3.7),
+  and that is an open problem, not a closed one.** Thinking hurts at every corpus
+  size and on the hard set, and the all-rep consistency collapse shows it injects
+  variance. Training reasoning models to write Aether well still needs a better
+  teacher and outcome-shaped reinforcement; it stays a required capability
+  because reasoning models are the present paradigm, not a discarded direction.
 
 ---
 
