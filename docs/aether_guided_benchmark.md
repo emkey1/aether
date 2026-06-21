@@ -37,9 +37,11 @@ correctly.
   competence hides.
 - **No training.** Every model below is used as released. The only Aether it
   ever sees is the guide in its context.
-- **Harness honesty.** Local models are served by LM Studio (one resident at a
-  time, unloaded between runs to bound memory); the 122B is served by vLLM on a
-  separate host. The harness issues the benchmark's tasks concurrently and gives
+- **Serving.** Local models are served by **LM Studio 0.4.16** — MLX runtime for
+  MLX builds, llama.cpp for GGUF (`served` column per row); the 122B by **vLLM
+  0.20.2** on claw1. Local models run one resident at a time, unloaded between
+  runs to bound memory.
+- **Harness honesty.** The harness issues the benchmark's tasks concurrently and gives
   models a generous output budget, so a model that reasons at length is never
   truncated mid-thought — a real failure mode that, left unfixed, makes a capable
   model look incompetent for a purely mechanical reason.
@@ -73,20 +75,20 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*8 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM (release announcements; ? = unfilled).*
+*8 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16 runtime, vLLM = vLLM 0.20.2 (claw1).*
 
-| model | quant | released | small | full |
-|---|---|---|---|---|
-| `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
-| `qwen/qwen3.6-35b-a3b` | 8bit | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.5-4b-mlx` | 8bit | 2026-02 | 6/30 · 6✓ | 5/8 · 5✓ |
-| `deepseek-r1-distill-qwen-7b` | Q4_K_M | 2025-01 | 0/30 · 3✓ | 0/30 · 3✓ |
-| `ibm/granite-4-h-tiny` | Q4_K_M | 2025-10 | 12/30 · 15✓ | 18/30 · 22✓ |
-| `starcoder2-7b` | Q8_0 | 2024-02 | 0/30 · 0✓ | 0/30 · 0✓ |
-| `stable-code-instruct-3b` | Q8_0 | 2024-03 | 0/30 · 0✓ | 0/30 · 0✓ |
-| `qwen3.5-2b-mlx` | 4bit | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
-| `bonsai-8b-mlx` | 1bit | 2026-04 | *load-failed* | |
-| `gemma-4-e2b-it` | Q6_K | 2026-04 | *load-failed* | |
+| model | quant | served | released | small | full |
+|---|---|---|---|---|---|
+| `qwen3.5-122b-a10b-nvfp4` | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
+| `qwen/qwen3.6-35b-a3b` | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
+| `qwen3.5-4b-mlx` | 8bit | MLX | 2026-02 | 6/30 · 6✓ | 5/8 · 5✓ |
+| `deepseek-r1-distill-qwen-7b` | Q4_K_M | GGUF | 2025-01 | 0/30 · 3✓ | 0/30 · 3✓ |
+| `ibm/granite-4-h-tiny` | Q4_K_M | GGUF | 2025-10 | 12/30 · 15✓ | 18/30 · 22✓ |
+| `starcoder2-7b` | Q8_0 | GGUF | 2024-02 | 0/30 · 0✓ | 0/30 · 0✓ |
+| `stable-code-instruct-3b` | Q8_0 | GGUF | 2024-03 | 0/30 · 0✓ | 0/30 · 0✓ |
+| `qwen3.5-2b-mlx` | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
+| `bonsai-8b-mlx` | 1bit | MLX | 2026-04 | *load-failed* | |
+| `gemma-4-e2b-it` | Q6_K | GGUF | 2026-04 | *load-failed* | |
 <!-- LEADERBOARD:END -->
 
 Early, robust shape:
