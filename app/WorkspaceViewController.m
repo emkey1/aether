@@ -4918,7 +4918,22 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                 [self openNewWorkspaceWindow:nil];
         } else if (current > desired) {
             NSUInteger surplus = current - desired;
-            for (UISceneSession *session in [self hiddenWorkspaceSceneSessions]) {
+            UISceneSession *currentSession = self.view.window.windowScene.session;
+            // Close the surplus, never the current window. Prefer disconnected/background windows,
+            // but include other *visible* workspaces (e.g. a Split View pane) if we still need to
+            // reap more — otherwise lowering the count never takes effect on a non-Stage-Manager
+            // iPad, where the extra workspace is a connected split pane rather than a hidden session.
+            NSMutableArray<UISceneSession *> *candidates = [[self hiddenWorkspaceSceneSessions] mutableCopy];
+            for (UISceneSession *session in UIApplication.sharedApplication.openSessions) {
+                if (session == currentSession || [candidates containsObject:session])
+                    continue;
+                if (![ISHWorkspaceSceneRoleDescription(session) isEqualToString:@"Workspace"])
+                    continue;
+                if (ISHWorkspaceHiddenSessionIsForgotten(session))
+                    continue;
+                [candidates addObject:session];
+            }
+            for (UISceneSession *session in candidates) {
                 if (surplus == 0)
                     break;
                 ISHWorkspaceForgetHiddenSession(session);
