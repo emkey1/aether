@@ -200,7 +200,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceCursorStyleKey: @(CursorStyleBlock),
             kPreferenceHideStatusBarKey: @(NO),
             kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
-            kPreferenceWorkspaceStyleKey: @(WorkspaceStyleClassic),
+            kPreferenceWorkspaceStyleKey: @(WorkspaceStyleModern),
             kPreferenceShowTerminalQuickButtonsKey: @(YES),
             kPreferenceWorkspaceLaunchCountKey: @(1),
             kPreferenceThemeKey: @"Solarized",

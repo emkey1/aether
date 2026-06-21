@@ -3860,9 +3860,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  terminalViewController:(TerminalViewController *)terminalViewController {
     CGSize preferredSize = ISHWorkspacePreferredTerminalContentSize();
     terminalViewController.preferredContentSize = preferredSize;
-    // Default open: a compact window scaled to orientation so terminals don't dominate and
-    // several fit — at most 1/4 the usable width in landscape, 1/4 the usable height in portrait
-    // (the other axis a half), on both iPad and iPhone. Clamped/placed by
+    // Default open: a window scaled to orientation so terminals don't dominate. In landscape,
+    // half the usable width x half the height (a quadrant); in portrait, the full usable width
+    // x 1/4 the height (a wide strip). Both iPad and iPhone. Clamped/placed by
     // desktopFrameForWindowWithPreferredSize; the window stays user-resizable down to
     // ISHWorkspaceMinimumTerminalContentSize.
     CGSize windowSize = preferredSize;
@@ -3870,8 +3870,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (CGRectGetWidth(usable) > 1.0 && CGRectGetHeight(usable) > 1.0) {
         BOOL landscape = CGRectGetWidth(usable) >= CGRectGetHeight(usable);
         windowSize = landscape
-            ? CGSizeMake(CGRectGetWidth(usable) / 4.0, CGRectGetHeight(usable) / 2.0)
-            : CGSizeMake(CGRectGetWidth(usable) / 2.0, CGRectGetHeight(usable) / 4.0);
+            ? CGSizeMake(CGRectGetWidth(usable) / 2.0, CGRectGetHeight(usable) / 2.0)
+            : CGSizeMake(CGRectGetWidth(usable), CGRectGetHeight(usable) / 4.0);
     }
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:title
