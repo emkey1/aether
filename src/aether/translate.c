@@ -667,6 +667,7 @@ static void reportAetherRewriteError(const char *path,
     if (hint && *hint) {
         fprintf(stderr, "hint: %s\n", hint);
     }
+    aetherReportGuideHelp(code);
 }
 
 static void reportAetherCompatibilityWarning(const char *path,

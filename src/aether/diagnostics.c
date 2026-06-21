@@ -1,5 +1,6 @@
 #include "aether/diagnostics.h"
 
+#include <stdio.h>
 #include <string.h>
 
 const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
@@ -82,4 +83,19 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
     }
 
     return NULL;
+}
+
+// Emits a one-line pointer back into the language guide for a diagnostic code,
+// so the compiler↔guide self-correction loop does not depend on the model
+// already knowing that, e.g., FX-001 maps to the "Effects (FX-001)" section.
+// No-op when code is NULL (an uncoded diagnostic). The named file is the
+// condensed guide every section heading and the troubleshooting table key on.
+void aetherReportGuideHelp(const char *code) {
+    if (!code) {
+        return;
+    }
+    fprintf(stderr,
+            "help: see %s in the Aether guide "
+            "(aether_for_llms_with_small_contexts.md)\n",
+            code);
 }

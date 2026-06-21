@@ -1406,6 +1406,7 @@ static void reportAetherError(const char *kind, int line, const char *detail) {
                 kind,
                 detail ? detail : "unknown error");
     }
+    aetherReportGuideHelp(code);
     pascal_semantic_error_count++;
 }
 
