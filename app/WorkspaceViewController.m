@@ -49,6 +49,9 @@
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier;
 - (void)openOrFocusWorkspaceToolIdentifier:(NSString *)toolIdentifier;
+- (void)switchToDesktopIndex:(NSInteger)index;
+- (void)createNewDesktop;
+- (void)removeDesktopAtIndex:(NSInteger)index;
 - (void)ensureDefaultWorkspaceUtilitiesOpen;
 - (void)ensureDefaultLLMChatWindowOpenIfNeeded;
 - (void)persistDefaultWorkspaceUtilityFrames;
@@ -106,6 +109,7 @@ static NSString *const ISHWorkspacePersistentDockWindowDescriptorDefaultsKey = @
 static NSString *const ISHWorkspaceForgottenHiddenSessionsDefaultsKey = @"ISHWorkspaceForgottenHiddenSessions";
 static NSString *const ISHWorkspaceDockFrameDidChangeNotification = @"ISHWorkspaceDockFrameDidChange";
 static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
+static NSString *const ISHWorkspaceDesktopsDidChangeNotification = @"ISHWorkspaceDesktopsDidChange";
 static NSString *const ISHWorkspaceSavedLayoutKindDashboard = @"dashboard";
 static NSString *const ISHWorkspaceSavedLayoutKindDock = @"dock";
 static NSString *const ISHWorkspaceSavedLayoutKindTool = @"tool";
@@ -662,23 +666,21 @@ static CGSize ISHWorkspaceLauncherContentSize(void) {
     return CGSizeMake(width, height);
 }
 
-// The Workspaces applet sizes itself to the scene count: one narrow column for a single
-// workspace, two columns once there are more. Used as its preferred/fallback size and by
-// -autosizeWorkspacesWindow when scenes come and go.
+// The Desktops applet sizes itself to the Desktop count: a vertical list of "Desktop N" rows
+// plus the "New Desktop" button and the Save/Restore row. Used as its preferred/fallback size
+// and by -autosizeWorkspacesWindow when Desktops are added/removed.
 static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
     BOOL phone = ISHWorkspaceUsesPhoneLayout();
     NSUInteger n = MAX(count, (NSUInteger)1);
-    BOOL twoColumns = n > 1;
-    NSUInteger columns = twoColumns ? 2 : 1;
-    NSUInteger rows = twoColumns ? (n + 1) / 2 : n;
-    CGFloat buttonHeight = phone ? 54.0 : 62.0;
-    CGFloat columnWidth = phone ? 108.0 : 122.0;
+    CGFloat rowHeight = phone ? 34.0 : 38.0;
+    CGFloat newDesktopHeight = phone ? 36.0 : 40.0;
     CGFloat spacing = 6.0;
     CGFloat cardPadding = 16.0;
     CGFloat actionsHeight = phone ? 40.0 : 44.0;
-    CGFloat chrome = phone ? 26.0 : 30.0;
-    CGFloat width = columns * columnWidth + (columns - 1) * spacing + cardPadding;
-    CGFloat height = rows * buttonHeight + (rows - 1) * spacing + cardPadding + actionsHeight + chrome;
+    CGFloat chrome = phone ? 28.0 : 32.0;
+    CGFloat width = phone ? 200.0 : 220.0;
+    CGFloat rowsHeight = n * rowHeight + n * spacing + newDesktopHeight;
+    CGFloat height = rowsHeight + cardPadding + actionsHeight + chrome;
     return CGSizeMake(width, height);
 }
 
@@ -3632,6 +3634,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         self.desktopCount = index + 1;
 }
 
+- (void)postDesktopsDidChange {
+    [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceDesktopsDidChangeNotification object:self];
+}
+
 - (void)switchToDesktopIndex:(NSInteger)index {
     index = MAX((NSInteger)0, MIN(index, self.desktopCount - 1));
     if (index == self.activeDesktopIndex)
@@ -3639,11 +3645,44 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.activeDesktopIndex = index;
     [self applyDesktopVisibility];
     [self showDesktopIndicator];
+    [self postDesktopsDidChange];
 }
 
 - (void)createNewDesktop {
     self.desktopCount += 1;
     [self switchToDesktopIndex:self.desktopCount - 1];
+    [self postDesktopsDidChange];
+}
+
+- (void)removeDesktopAtIndex:(NSInteger)indexToRemove {
+    if (self.desktopCount <= 1)
+        return;
+    indexToRemove = MAX((NSInteger)0, MIN(indexToRemove, self.desktopCount - 1));
+    // Close the removed Desktop's windows; shift higher Desktops down. Global tools stay put.
+    for (UIView *view in self.desktopWindows.copy) {
+        if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+            continue;
+        ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
+        if (windowView == self.dockWindow || windowView == self.dashboardWindow)
+            continue;
+        NSString *toolId = windowView.workspaceToolIdentifier;
+        if ([toolId isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
+            [toolId isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+            continue;
+        if (windowView.workspaceDesktopIndex == indexToRemove) {
+            if (windowView.closeHandler != nil)
+                windowView.closeHandler();
+        } else if (windowView.workspaceDesktopIndex > indexToRemove) {
+            windowView.workspaceDesktopIndex -= 1;
+        }
+    }
+    self.desktopCount -= 1;
+    if (self.activeDesktopIndex >= self.desktopCount)
+        self.activeDesktopIndex = self.desktopCount - 1;
+    else if (self.activeDesktopIndex > indexToRemove)
+        self.activeDesktopIndex -= 1;
+    [self applyDesktopVisibility];
+    [self postDesktopsDidChange];
 }
 
 - (void)handleDesktopSwitchSwipe:(UISwipeGestureRecognizer *)recognizer {
@@ -4534,15 +4573,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 }
 
-// Resize the open Workspaces applet to match the live scene count (keeps its restored origin).
+// Resize the open Desktops applet to match the Desktop count (keeps its restored origin).
 - (void)autosizeWorkspacesWindow {
     ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
     if (window == nil)
         return;
-    NSUInteger count = 0;
-    if (@available(iOS 13.0, *))
-        count = ISHWorkspaceSceneDescriptors(self.view.window.windowScene).count;
-    [self resizeDesktopWindow:window toSize:ISHWorkspaceWorkspacesContentSize(count) animated:NO];
+    [self resizeDesktopWindow:window
+                       toSize:ISHWorkspaceWorkspacesContentSize((NSUInteger)MAX((NSInteger)1, self.desktopCount))
+                     animated:NO];
 }
 
 - (void)openDiagnostics:(id)sender {
@@ -7409,6 +7447,8 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     return button;
 }
 
+// Renders the Desktop list: one row per Desktop (active one highlighted, tap to jump, remove
+// when there's more than one), then a "New Desktop" button. Refreshed on every Desktop change.
 - (void)rebuildSceneButtons {
     NSArray<UIView *> *existingRows = _rowsStack.arrangedSubviews.copy;
     for (UIView *view in existingRows) {
@@ -7418,42 +7458,77 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     [_trackedButtons removeAllObjects];
     [_previewImageViewsByIdentifier removeAllObjects];
 
-    // Size the window to the workspace count (narrow for one, wider for more). Deferred so it
-    // runs after the host's initial placement, which would otherwise restore a stale frame.
+    WorkspaceViewController *host = self.workspaceHostViewController;
+    NSInteger count = MAX((NSInteger)1, host.desktopCount);
+    NSInteger active = host.activeDesktopIndex;
+    for (NSInteger i = 0; i < count; i++) {
+        [_rowsStack addArrangedSubview:[self desktopRowForIndex:i active:(i == active) removable:(count > 1)]];
+    }
+    [_rowsStack addArrangedSubview:[self workspacesActionButtonWithTitle:@"New Desktop" action:@selector(addDesktopFromApplet:)]];
+
+    // Size the window to the Desktop count. Deferred so it runs after the host's initial
+    // placement, which would otherwise restore a stale frame.
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         [(id)weakSelf.workspaceHostViewController autosizeWorkspacesWindow];
     });
+}
 
-    if (_sceneDescriptors.count == 0) {
-        UILabel *emptyLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
-        emptyLabel.text = @"No other windows detected yet.";
-        [_rowsStack addArrangedSubview:emptyLabel];
-        return;
-    }
+- (UIView *)desktopRowForIndex:(NSInteger)index active:(BOOL)active removable:(BOOL)removable {
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    UIColor *accent = theme[@"accent"] ?: UIColor.systemBlueColor;
 
-    BOOL twoColumns = _sceneDescriptors.count > 1;
-    if (twoColumns) {
-        for (NSUInteger index = 0; index < _sceneDescriptors.count; index += 2) {
-            UIStackView *row = [UIStackView new];
-            row.axis = UILayoutConstraintAxisHorizontal;
-            row.spacing = ISHWorkspaceDensityValue(4, 6);
-            row.distribution = UIStackViewDistributionFillEqually;
-            [row addArrangedSubview:[self workspaceSceneButtonWithDescriptor:_sceneDescriptors[index]]];
-            if (index + 1 < _sceneDescriptors.count) {
-                [row addArrangedSubview:[self workspaceSceneButtonWithDescriptor:_sceneDescriptors[index + 1]]];
-            } else {
-                UIView *spacer = [UIView new];
-                spacer.translatesAutoresizingMaskIntoConstraints = NO;
-                [row addArrangedSubview:spacer];
-            }
-            [_rowsStack addArrangedSubview:row];
-        }
-    } else {
-        for (NSDictionary<NSString *, id> *descriptor in _sceneDescriptors) {
-            [_rowsStack addArrangedSubview:[self workspaceSceneButtonWithDescriptor:descriptor]];
-        }
+    UIStackView *row = [UIStackView new];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 6;
+    row.alignment = UIStackViewAlignmentFill;
+
+    UIButton *jump = [UIButton buttonWithType:UIButtonTypeSystem];
+    jump.translatesAutoresizingMaskIntoConstraints = NO;
+    jump.tag = index;
+    jump.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    jump.contentEdgeInsets = UIEdgeInsetsMake(4, 12, 4, 12);
+    jump.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline)
+                                             weight:active ? UIFontWeightSemibold : UIFontWeightRegular];
+    jump.layer.cornerRadius = 10;
+    jump.layer.borderWidth = 1;
+    jump.layer.borderColor = (theme[@"stroke"] ?: [UIColor colorWithWhite:0.5 alpha:0.35]).CGColor;
+    jump.backgroundColor = active ? [accent colorWithAlphaComponent:0.22] : nil;
+    [jump setTitle:[NSString stringWithFormat:@"Desktop %ld", (long)(index + 1)] forState:UIControlStateNormal];
+    [jump setTitleColor:active ? accent : (theme[@"primary"] ?: UIColor.darkTextColor) forState:UIControlStateNormal];
+    [jump.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 34.0 : 38.0].active = YES;
+    [jump addTarget:self action:@selector(jumpToDesktopFromApplet:) forControlEvents:UIControlEventTouchUpInside];
+    [row addArrangedSubview:jump];
+
+    if (removable) {
+        UIButton *remove = [UIButton buttonWithType:UIButtonTypeSystem];
+        remove.translatesAutoresizingMaskIntoConstraints = NO;
+        remove.tag = index;
+        if (@available(iOS 13.0, *))
+            [remove setImage:[UIImage systemImageNamed:@"xmark"] forState:UIControlStateNormal];
+        else
+            [remove setTitle:@"x" forState:UIControlStateNormal];
+        remove.tintColor = UIColor.systemRedColor;
+        remove.accessibilityLabel = [NSString stringWithFormat:@"Remove Desktop %ld", (long)(index + 1)];
+        [remove setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+        [remove.widthAnchor constraintEqualToConstant:34.0].active = YES;
+        [remove addTarget:self action:@selector(removeDesktopFromApplet:) forControlEvents:UIControlEventTouchUpInside];
+        [row addArrangedSubview:remove];
     }
+    return row;
+}
+
+- (void)jumpToDesktopFromApplet:(UIButton *)sender {
+    [self.workspaceHostViewController switchToDesktopIndex:sender.tag];
+}
+
+- (void)addDesktopFromApplet:(id)sender {
+    (void) sender;
+    [self.workspaceHostViewController createNewDesktop];
+}
+
+- (void)removeDesktopFromApplet:(UIButton *)sender {
+    [self.workspaceHostViewController removeDesktopAtIndex:sender.tag];
 }
 
 - (void)viewDidLoad {
@@ -7534,6 +7609,10 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
                                                    name:UISceneDidDisconnectNotification
                                                  object:nil];
     }
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(rebuildSceneButtons)
+                                               name:ISHWorkspaceDesktopsDidChangeNotification
+                                             object:nil];
 
     [self refreshWorkspaceScenes];
 }
