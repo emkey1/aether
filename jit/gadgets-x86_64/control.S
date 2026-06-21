@@ -223,3 +223,19 @@
     call NAME(helper_expand_flags)
     restore_c
     gret
+
+# LAHF (0x9f): AH = low byte of EFLAGS (SF:ZF:0:AF:0:PF:1:CF). collapse_flags
+# materializes that byte from the lazy flag state; mirror of sahf in reverse.
+# i386 had no lahf gadget at all -> guest lahf SIGILL'd, and this x86_64-host twin
+# of sahf was missing entirely -> link error (undefined gadget_lahf). Route the
+# flags byte through %al (not %ah) because %_cpu is an extended register and %ah
+# cannot be encoded alongside a REX prefix -- same dance sahf uses.
+.gadget lahf
+    save_c
+    movq %_cpu, %rdi
+    call NAME(helper_collapse_flags)
+    restore_c
+    xchgb %ah, %al
+    movb CPU_eflags(%_cpu), %al
+    xchgb %ah, %al
+    gret
