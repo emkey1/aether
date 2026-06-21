@@ -32,6 +32,9 @@
 @property (nonatomic, copy) NSString *appliedWallpaperThemeIdentifier;
 @property (nonatomic) CGSize appliedWallpaperImageSize;
 @property (nonatomic, strong) NSMutableArray<UIView *> *desktopWindows;
+@property (nonatomic) NSInteger activeDesktopIndex;
+@property (nonatomic) NSInteger desktopCount;
+@property (nonatomic, weak) UILabel *desktopIndicatorLabel;
 @property (nonatomic) NSInteger desktopWindowCascadeIndex;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dashboardWindow;
 @property (nonatomic, weak) ISHWorkspaceContainedWindowView *dockWindow;
@@ -216,6 +219,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @property (nonatomic, copy, nullable) dispatch_block_t didBecomeFrontmostHandler;
 @property (nonatomic, copy, nullable) dispatch_block_t frameDidChangeHandler;
 @property (nonatomic, weak) TerminalViewController *hostedTerminalViewController;
+@property (nonatomic) NSInteger workspaceDesktopIndex;
 @property (nonatomic, copy) NSString *workspaceToolIdentifier;
 @property (nonatomic, copy) NSString *workspaceTerminalRole;
 @property (nonatomic) BOOL pinnedToBottomCenter;
@@ -2681,6 +2685,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  MAX(1, preferredSize.height)));
     [self.desktopSurfaceView addSubview:windowView];
     [self.desktopWindows addObject:windowView];
+    windowView.workspaceDesktopIndex = self.activeDesktopIndex;
     if (appliesInitialPlacement) {
         [self applyInitialFrameIfNeededToDesktopWindow:windowView];
         [self.desktopSurfaceView bringSubviewToFront:windowView];
@@ -3589,6 +3594,66 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize() animated:YES];
 }
 
+// In-app Desktops: a Desktop is a set of contained windows sharing a workspaceDesktopIndex.
+// Only the active Desktop's windows are visible; switching just shows/hides by index (the dock
+// and Layout Manager are global chrome and stay put). Terminals keep running while hidden.
+- (void)switchToDesktopIndex:(NSInteger)index {
+    index = MAX((NSInteger)0, MIN(index, self.desktopCount - 1));
+    if (index == self.activeDesktopIndex)
+        return;
+    self.activeDesktopIndex = index;
+    for (UIView *view in self.desktopWindows) {
+        if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+            continue;
+        ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
+        if (windowView == self.dockWindow || windowView == self.dashboardWindow)
+            continue;
+        windowView.hidden = (windowView.workspaceDesktopIndex != index);
+    }
+    [self showDesktopIndicator];
+}
+
+- (void)createNewDesktop {
+    self.desktopCount += 1;
+    [self switchToDesktopIndex:self.desktopCount - 1];
+}
+
+- (void)handleDesktopSwitchSwipe:(UISwipeGestureRecognizer *)recognizer {
+    NSInteger delta = recognizer.direction == UISwipeGestureRecognizerDirectionLeft ? 1 : -1;
+    [self switchToDesktopIndex:self.activeDesktopIndex + delta];
+}
+
+// A brief "Desktop N / M" toast so the swipe-only switch stays oriented.
+- (void)showDesktopIndicator {
+    if (self.desktopIndicatorLabel == nil) {
+        UILabel *label = [UILabel new];
+        label.translatesAutoresizingMaskIntoConstraints = NO;
+        label.textAlignment = NSTextAlignmentCenter;
+        label.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+        label.textColor = UIColor.whiteColor;
+        label.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
+        label.layer.cornerRadius = 14.0;
+        label.layer.masksToBounds = YES;
+        label.userInteractionEnabled = NO;
+        [self.view addSubview:label];
+        [NSLayoutConstraint activateConstraints:@[
+            [label.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+            [label.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:12.0],
+            [label.heightAnchor constraintEqualToConstant:28.0],
+            [label.widthAnchor constraintGreaterThanOrEqualToConstant:130.0],
+        ]];
+        self.desktopIndicatorLabel = label;
+    }
+    self.desktopIndicatorLabel.text =
+        [NSString stringWithFormat:@"  Desktop %ld / %ld  ", (long)(self.activeDesktopIndex + 1), (long)self.desktopCount];
+    [self.view bringSubviewToFront:self.desktopIndicatorLabel];
+    self.desktopIndicatorLabel.hidden = NO;
+    self.desktopIndicatorLabel.alpha = 1.0;
+    [UIView animateWithDuration:0.3 delay:0.7 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        self.desktopIndicatorLabel.alpha = 0.0;
+    } completion:nil];
+}
+
 - (void)presentDesktopRootMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Workspace"
@@ -3617,13 +3682,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
     }]];
-    if (ISHWorkspaceSupportsSceneWindows()) {
-        [sheet addAction:[UIAlertAction actionWithTitle:@"New Workspace"
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(__unused UIAlertAction *action) {
-            [self openNewWorkspaceWindow:nil];
-        }]];
-    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"New Desktop"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self createNewDesktop];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
@@ -3754,6 +3817,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         self.view.backgroundColor = UIColor.whiteColor;
     }
     self.desktopWindows = [NSMutableArray array];
+    self.activeDesktopIndex = 0;
+    self.desktopCount = MAX((NSInteger)1, UserPreferences.shared.workspaceLaunchCount);
 
     self.desktopSurfaceView = [UIView new];
     self.desktopSurfaceView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -3771,6 +3836,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     desktopTwoFingerMenuRecognizer.minimumPressDuration = 0.4;
     desktopTwoFingerMenuRecognizer.numberOfTouchesRequired = 2;
     [self.view addGestureRecognizer:desktopTwoFingerMenuRecognizer];
+
+    // Two-finger horizontal swipe switches between in-app Desktops.
+    for (NSNumber *direction in @[@(UISwipeGestureRecognizerDirectionLeft), @(UISwipeGestureRecognizerDirectionRight)]) {
+        UISwipeGestureRecognizer *swipe =
+            [[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(handleDesktopSwitchSwipe:)];
+        swipe.direction = (UISwipeGestureRecognizerDirection) direction.unsignedIntegerValue;
+        swipe.numberOfTouchesRequired = 2;
+        [self.view addGestureRecognizer:swipe];
+    }
 
     self.modernMenuPip = [self makeModernMenuPip];
     [self.view addSubview:self.modernMenuPip];
@@ -3819,7 +3893,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     self.dockWindow.hidden = ISHWorkspaceUsesModernStyle();
     if (ISHWorkspaceUsesModernStyle())
         self.dashboardWindow.hidden = YES;
-    [self scheduleWorkspaceLaunchCount];
 
     UIScrollView *scrollView = [UIScrollView new];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
