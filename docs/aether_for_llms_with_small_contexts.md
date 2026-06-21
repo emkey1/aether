@@ -12,7 +12,7 @@ compiler, and VM. It is not a separate runtime.
    `def`, `func`, `=>`.
 3. **BUILT-001.** The helpers named in this document are the complete callable
    surface. If a function is not listed here, it does not exist. Do not invent
-   helpers (`substring`, `to_upper`, `parse_int`, ...).
+   helpers (`substring`, `to_upper`, `replace`, ...).
 4. **IMP-001.** Never invent `use "..."` imports. Only import verified modules.
 5. **MOD-001.** If a module exports `getFortyTwo`, call `getFortyTwo`. Do not
    rename exports to `get_forty_two`, `AetherName`, `APP_NAME`, or other guesses.
@@ -192,10 +192,18 @@ Exact-output discipline:
 ```aether
 if name == "Aether" { ... }            // canonical; string_eq(a,b) accepted
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
+
+// turning text into scalars — these exist, call them (do not inline):
+let parts: Text[] = split("12,7,5", ",");  // Text -> Text[]  ["12","7","5"]
+let n: Int = parse_int(parts[0]);          // Text -> Int
+let r: Real = parse_float("3.5");          // Text -> Real
+let ok: Bool = parse_bool("true");         // Text -> Bool
+let s: Text = itoa(99);                    // Int  -> Text  (int_to_text alias)
 ```
 
-Treat this as the safe Text surface for generated code. Do not invent richer
-helpers.
+The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
+`parse_float`, `parse_bool`, `itoa`/`int_to_text`. Do not invent richer helpers
+(`substring`, `to_upper`, `replace`).
 
 ## Dynamic arrays
 

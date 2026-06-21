@@ -41,7 +41,7 @@ If you only read one part of this document, read **Highest-Value Rules** and
     No Markdown fences.
 12. **BUILT-001.** The helpers and builtins listed in this document are the
     complete callable surface. If a function is not listed here, it does not
-    exist. Do not invent helpers (`substring`, `to_upper`, `parse_int`, ...).
+    exist. Do not invent helpers (`substring`, `to_upper`, `replace`, ...).
 13. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
     object-shaped, extract the named array with `toon_key(...)` before
     iterating; never iterate an object root as if it were the array.
@@ -98,6 +98,11 @@ Generate the canonical form unless preserving existing code.
 | Output | variadic `println(a, b)` in `fx` | text-only `+` concatenation | `Text + Int` guessing |
 | Text equality | `a == b` | `string_eq(a, b)` | inventing `.equals(...)` |
 | Text length | `string_len(t)` | `t.len` | inventing `strlen(...)` |
+| Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
+| Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
+| Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
+| Int → Text | `itoa(n)` | `int_to_text(n)` | inventing `n.toString()` |
+| Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
 | TOON array length | `toon_len(node)` | — | `length(node)` |
 | Method call | `counter.bump()` | `bump(counter)` if receiver obvious | class syntax |
