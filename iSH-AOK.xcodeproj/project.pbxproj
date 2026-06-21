@@ -201,6 +201,7 @@
 		BB9C7B87240A2B1E00F5D4F0 /* AppGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = BB9C7B84240A240E00F5D4F0 /* AppGroup.m */; };
 		BBA8E2C1236FF5EA00515F76 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
 		BBAEE339249B58E80069EBB5 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBAEE338249B58E80069EBB5 /* libbz2.tbd */; };
+		BBA110ED2A1B2C3D4E5F0002 /* liblzma.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA110ED2A1B2C3D4E5F0001 /* liblzma.tbd */; };
 		BBBCE7E321D2F02200CA00B3 /* About.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = BBBCE7E521D2F02200CA00B3 /* About.storyboard */; };
 		BBBD741426B7BE2E00321AC5 /* libfakefs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB21A16F2689041500BD19B4 /* libfakefs.a */; };
 		BBBF7B5C2415CDBB00EC4C14 /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = BBBF7B5B2415CDBB00EC4C14 /* Settings.bundle */; };
@@ -223,6 +224,7 @@
 		BBEF1974268066D1001225BD /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB235536235D49B300139E00 /* CoreLocation.framework */; };
 		BBEF1975268066D1001225BD /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */; };
 		BBEF1976268066D1001225BD /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBAEE338249B58E80069EBB5 /* libbz2.tbd */; };
+		BBA110ED2A1B2C3D4E5F0003 /* liblzma.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBA110ED2A1B2C3D4E5F0001 /* liblzma.tbd */; };
 		BBEF1977268066D1001225BD /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BB6DB260216435330047A611 /* libiconv.tbd */; };
 		BBEF1978268066D1001225BD /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = BBFB55652158644C00DFE6DE /* libresolv.tbd */; };
 		BBEF197D268066D1001225BD /* 3d.png in Resources */ = {isa = PBXBuildFile; fileRef = BB4A923124EDA560002F5A96 /* 3d.png */; };
@@ -742,6 +744,7 @@
 		BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UpgradeRootViewController.m; sourceTree = "<group>"; };
 		BBA8E2C0236FF5EA00515F76 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		BBAEE338249B58E80069EBB5 /* libbz2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
+		BBA110ED2A1B2C3D4E5F0001 /* liblzma.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = liblzma.tbd; path = usr/lib/liblzma.tbd; sourceTree = SDKROOT; };
 		BBAEE33A249BDADC0069EBB5 /* ProgressReportViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ProgressReportViewController.h; sourceTree = "<group>"; };
 		BBAEE33B249BDADC0069EBB5 /* ProgressReportViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ProgressReportViewController.m; sourceTree = "<group>"; };
 		BBBCE7E421D2F02200CA00B3 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/About.storyboard; sourceTree = "<group>"; };
@@ -827,6 +830,7 @@
 				BE6DA95A2C0D243E00A7A001 /* MetricKit.framework in Frameworks */,
 				BBA8E2C1236FF5EA00515F76 /* SystemConfiguration.framework in Frameworks */,
 				BBAEE339249B58E80069EBB5 /* libbz2.tbd in Frameworks */,
+				BBA110ED2A1B2C3D4E5F0002 /* liblzma.tbd in Frameworks */,
 				BB6DB261216435340047A611 /* libiconv.tbd in Frameworks */,
 				BBFB55662158644C00DFE6DE /* libresolv.tbd in Frameworks */,
 			);
@@ -855,6 +859,7 @@
 				BBEF1974268066D1001225BD /* CoreLocation.framework in Frameworks */,
 				BBEF1975268066D1001225BD /* SystemConfiguration.framework in Frameworks */,
 				BBEF1976268066D1001225BD /* libbz2.tbd in Frameworks */,
+				BBA110ED2A1B2C3D4E5F0003 /* liblzma.tbd in Frameworks */,
 				BBEF1977268066D1001225BD /* libiconv.tbd in Frameworks */,
 				BBEF1978268066D1001225BD /* libresolv.tbd in Frameworks */,
 			);
