@@ -177,5 +177,5 @@ cat <<EOF
           (cd build && ./tools/fakefsify $OUT_DIR/devuan-minirootfs-$VERSION-x86.$COMP_EXT devuan-x86)
           ./build/ish -f build/devuan-x86 /bin/sh
       * Provision into a full system from inside the guest:
-          sh /opt/AOK/tools/provision-ultimate-devuan.sh
+          sh /AOK/tools/provision-ultimate-devuan.sh
 EOF
