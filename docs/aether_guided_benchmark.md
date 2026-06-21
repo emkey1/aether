@@ -83,8 +83,8 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 |---|---|---|---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | 0/0 · 0✓ | — |
-| `qwen3.5-4b-mlx` | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 6/8 · 7✓ |
+| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | — | — |
+| `qwen3.5-4b-mlx` | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 8/10 · 9✓ |
 | `deepseek-r1-distill-qwen-7b` | Q4_K_M | GGUF | 2025-01 | 0/30 · 3✓ | 0/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3.5-2b-mlx` | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
