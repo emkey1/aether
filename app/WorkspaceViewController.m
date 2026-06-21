@@ -886,7 +886,7 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return @"Logs";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-        return @"Workspaces";
+        return @"Desktops";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return @"Sessions";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -3609,8 +3609,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
         if (windowView == self.dockWindow || windowView == self.dashboardWindow)
             continue;
-        // The Workspaces applet is global chrome — keep it visible on every Desktop.
-        if ([windowView.workspaceToolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+        // The Desktops applet and the Launcher are global chrome — when shown, they appear on
+        // every Desktop (one window, so it keeps whatever position it was last left at).
+        NSString *toolIdentifier = windowView.workspaceToolIdentifier;
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
+            [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier]) {
             windowView.hidden = NO;
             continue;
         }
@@ -4584,7 +4587,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (NSArray<NSDictionary<NSString *, id> *> *)dockUtilityGroupDescriptors {
     NSMutableArray<NSDictionary<NSString *, id> *> *workspaceItems = [NSMutableArray arrayWithObject:@{@"title": @"Layout Manager", @"identifier": @"dashboard"}];
     if (ISHWorkspaceSupportsSceneWindows()) {
-        [workspaceItems addObject:@{@"title": @"Workspaces", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
+        [workspaceItems addObject:@{@"title": @"Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
     }
     [workspaceItems addObjectsFromArray:@[
         @{@"title": @"Launcher", @"identifier": ISHWorkspaceToolLauncherIdentifier},
@@ -7074,7 +7077,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         rows = @[
             @[
                 @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
-                @{@"title": @"Workspaces", @"subtitle": @"Tiny scene switcher", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
+                @{@"title": @"Desktops", @"subtitle": @"Manage in-app Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
             ],
             @[
                 @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
@@ -7450,7 +7453,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Workspaces";
+    self.title = @"Desktops";
     _trackedButtons = [NSMutableArray array];
     _previewImageViewsByIdentifier = [NSMutableDictionary dictionary];
 
