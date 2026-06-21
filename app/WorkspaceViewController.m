@@ -4216,10 +4216,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
     }
-    ISHWorkspaceContainedWindowView *workspacesWindow =
-        [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
-    if (workspacesWindow != nil) {
-        [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    // Pinned placement is iPad-only; on phone the Desktops applet keeps its normal placement.
+    if (!ISHWorkspaceUsesPhoneLayout()) {
+        ISHWorkspaceContainedWindowView *workspacesWindow =
+            [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+        if (workspacesWindow != nil) {
+            [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+        }
     }
     [self presentStartupLowMemoryWarningIfNeeded];
 }
@@ -4386,10 +4389,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
     }
-    ISHWorkspaceContainedWindowView *workspacesWindow =
-        [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
-    if (workspacesWindow != nil) {
-        [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+    // The Desktops applet is a pinned utility only on iPad. On phone it uses normal cascade
+    // placement, so re-pinning it here would yank it off-screen on every scene activation
+    // (which is why it "vanished" after interacting). Leave the phone applet where it is.
+    if (!ISHWorkspaceUsesPhoneLayout()) {
+        ISHWorkspaceContainedWindowView *workspacesWindow =
+            [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+        if (workspacesWindow != nil) {
+            [self applyInitialPlacementToWorkspacesWindow:workspacesWindow];
+        }
     }
 }
 
@@ -4403,6 +4411,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)workspaceWorkspacesFrameDidChange:(NSNotification *)notification {
     if (notification.object == self)
+        return;
+    // iPad-only pinned-utility frame sync across scenes; on phone the applet isn't pinned, so
+    // re-placing it here would push it off-screen.
+    if (ISHWorkspaceUsesPhoneLayout())
         return;
     ISHWorkspaceContainedWindowView *workspacesWindow =
         [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
