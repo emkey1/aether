@@ -3230,8 +3230,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
             continue;
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
-        if (windowView.hidden)
-            continue;
+        // Don't skip hidden windows: in the Desktop model a tool on another Desktop is hidden,
+        // not closed, and is still "open" — skipping it makes openOrFocus spawn a duplicate.
         if ([windowView.workspaceToolIdentifier isEqualToString:toolIdentifier])
             return windowView;
     }
@@ -3615,6 +3615,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
             [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier]) {
             windowView.hidden = NO;
+            [self.desktopSurfaceView bringSubviewToFront:windowView];
             continue;
         }
         windowView.hidden = (windowView.workspaceDesktopIndex != self.activeDesktopIndex);
@@ -4578,6 +4579,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
     if (existingWindow != nil) {
+        // Summon the existing tool to the current Desktop and reveal it (it may have been on
+        // another Desktop, i.e. hidden) instead of spawning a duplicate.
+        existingWindow.workspaceDesktopIndex = self.activeDesktopIndex;
+        existingWindow.hidden = NO;
         [self focusDesktopWindow:existingWindow];
         return;
     }
