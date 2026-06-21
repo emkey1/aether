@@ -1502,6 +1502,11 @@ restart:
                                    READMODRM; VMOV_MERGE_REG(xmm_modrm_reg, xmm_modrm_val,64); break;
                         case 0x12: TRACEI("movddup xmm:modrm, xmm");
                                    READMODRM; V_OP(movddup, xmm_modrm_val, xmm_modrm_reg,64); break;
+                        // F2 0F D6: movdq2q mm, xmm — move the low qword of the
+                        // XMM register into the 64-bit MMX register. Register-
+                        // only (#UD on mem). Mirror of movq2dq above.
+                        case 0xd6: TRACEI("movdq2q xmm:modrm, mm");
+                                   READMODRM_NOMEM; VMOV(xmm_modrm_val, mm_modrm_reg,64); break;
                         case 0x7c: TRACEI("haddps xmm:modrm, xmm");
                                    READMODRM; V_OP(haddps, xmm_modrm_val, xmm_modrm_reg,128); break;
                         case 0x7d: TRACEI("hsubps xmm:modrm, xmm");
@@ -1634,6 +1639,14 @@ restart:
 
                         case 0x7e: TRACEI("movq xmm:modrm, xmm");
                                    READMODRM; VMOV(xmm_modrm_val, xmm_modrm_reg,64); break;
+
+                        // F3 0F D6: movq2dq xmm, mm — move the 64-bit MMX
+                        // register into the low qword of the XMM register,
+                        // zeroing the upper qword. Register-only (#UD on mem).
+                        // Reuses the movq load path; only the source register
+                        // file differs (mm[] vs xmm[]), selected by the arg.
+                        case 0xd6: TRACEI("movq2dq mm:modrm, xmm");
+                                   READMODRM_NOMEM; VMOV(mm_modrm_val, xmm_modrm_reg,64); break;
 
                         case 0x18 ... 0x1f: TRACEI("repz nop modrm\t"); READMODRM; break;
 

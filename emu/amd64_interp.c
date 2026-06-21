@@ -6322,9 +6322,26 @@ restart_prefix:
                     cpu->xmm[modrm.reg] = value;
                 }
             } else if (op2 == 0x11 || op2 == 0x29 || op2 == 0x7f) {
-                if (op2 == 0x7f && !(operand_size_prefix || rep_mode == AMD64_REPZ))
+                if (op2 == 0x7f && !operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                    // 0F 7F (no mandatory prefix): movq mm/m64, mm — MMX store.
+                    // The shared JIT bridge (amd64_jit_0f_vec_rm, movq_mm_store)
+                    // implements this; mirror it here so a basic block that falls
+                    // back to the interpreter mid-MMX (e.g. libgcrypt SHA
+                    // shuttling state through mm0-7) does not raise a bogus #UD.
+                    // The MMX load (0F 6F) and the 0xd6 MMX<->XMM moves are
+                    // already handled; this completes the store side. Guard the
+                    // MMX register indices to <8, as the bridge and 0x7e do.
+                    if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+                        return INT_UNDEFINED;
+                    if (modrm.is_reg) {
+                        cpu->mm[modrm.rm] = cpu->mm[modrm.reg];
+                    } else if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64,
+                                   cpu->mm[modrm.reg].qw)) {
+                        goto amd64_gpf_restore;
+                    }
+                } else if (op2 == 0x7f && !(operand_size_prefix || rep_mode == AMD64_REPZ)) {
                     return INT_UNDEFINED;
-                if (op2 == 0x11 && rep_mode == AMD64_REPZ) {
+                } else if (op2 == 0x11 && rep_mode == AMD64_REPZ) {
                     if (operand_size_prefix)
                         return INT_UNDEFINED;
                     if (modrm.is_reg) {
@@ -6784,6 +6801,18 @@ restart_prefix:
                                            : cpu->xmm[modrm.reg].u32[0];
                     if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, scalar))
                         goto amd64_gpf_restore;
+                } else if (rep_mode == AMD64_REP_NONE && !operand_size_prefix) {
+                    // 0F 7E (no prefix): movd/movq r/m, mm — MMX store to a GPR
+                    // or memory (movd = 32-bit, movq with REX.W = 64-bit). This
+                    // is the sibling of the 0F 7F MMX store above; the JIT bridge
+                    // (amd64_jit_0f_vec_rm 0x7e) already handles it, so mirror it
+                    // here for the interpreter fallback. reg is an MMX index <8.
+                    if (modrm.reg >= 8)
+                        return INT_UNDEFINED;
+                    qword_t scalar = rex.w ? cpu->mm[modrm.reg].qw
+                                           : (uint32_t) cpu->mm[modrm.reg].qw;
+                    if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, rex.w ? 64 : 32, scalar))
+                        goto amd64_gpf_restore;
                 } else {
                     return INT_UNDEFINED;
                 }
@@ -6903,10 +6932,27 @@ restart_prefix:
                 }
                 cpu->xmm[modrm.reg] = value;
             } else if (op2 == 0xd6) {
-                if (!operand_size_prefix || modrm.is_reg)
+                if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                    // 66 0F D6: movq xmm/m64, xmm (store low qword)
+                    if (modrm.is_reg)
+                        return INT_UNDEFINED;
+                    if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
+                        goto amd64_gpf_restore;
+                } else if (rep_mode == AMD64_REPZ && !operand_size_prefix &&
+                           modrm.is_reg && modrm.rm < 8) {
+                    // F3 0F D6: movq2dq xmm, mm — copy the 64-bit MMX register
+                    // into the low qword of the XMM register, zero the upper
+                    // qword. Register-only (gpgv SHA shuttles MMX<->XMM here).
+                    cpu->xmm[modrm.reg].qw[0] = cpu->mm[modrm.rm].qw;
+                    cpu->xmm[modrm.reg].qw[1] = 0;
+                } else if (rep_mode == AMD64_REPNZ && !operand_size_prefix &&
+                           modrm.is_reg && modrm.reg < 8) {
+                    // F2 0F D6: movdq2q mm, xmm — copy the low qword of the XMM
+                    // register into the MMX register. Register-only.
+                    cpu->mm[modrm.reg].qw = cpu->xmm[modrm.rm].qw[0];
+                } else {
                     return INT_UNDEFINED;
-                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
-                    goto amd64_gpf_restore;
+                }
             } else if (op2 == 0xd7) {
                 uint32_t mask = 0;
                 if (!operand_size_prefix || rep_mode != AMD64_REP_NONE)
@@ -7474,6 +7520,15 @@ restart_prefix:
             }
             if (modrm.reg != 0)
                 return INT_UNDEFINED;
+            break;
+        }
+        if (op2 == 0x77) {
+            // emms (0F 77): empties the x87 FPU tag word. This emulator models
+            // no x87 tag state that gates MMX register access (the i386 decoder
+            // likewise treats emms as ignored), so it is a no-op. No modrm or
+            // operands, so rip is already past the opcode — just continue.
+            // Without this an MMX routine running under (or falling back to) the
+            // interpreter SIGILLs on the trailing emms.
             break;
         }
         if (op2 == 0x0b)
@@ -12635,10 +12690,26 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 vec_shuffle_ps128(NULL, &src_xmm, &value, imm8);
             cpu->xmm[modrm.reg] = value;
         } else if (op2 == 0xd6) {
-            if (!operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
+            if (operand_size_prefix && rep_mode == AMD64_REP_NONE) {
+                // 66 0F D6: movq xmm/m64, xmm (store low qword)
+                if (modrm.is_reg)
+                    return INT_UNDEFINED;
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
+                    goto amd64_0f_vec_rm_pf;
+            } else if (rep_mode == AMD64_REPZ && !operand_size_prefix &&
+                       modrm.is_reg && modrm.rm < 8) {
+                // F3 0F D6: movq2dq xmm, mm — 64-bit MMX register into the low
+                // qword of the XMM register, upper qword zeroed. Register-only.
+                cpu->xmm[modrm.reg].qw[0] = cpu->mm[modrm.rm].qw;
+                cpu->xmm[modrm.reg].qw[1] = 0;
+            } else if (rep_mode == AMD64_REPNZ && !operand_size_prefix &&
+                       modrm.is_reg && modrm.reg < 8) {
+                // F2 0F D6: movdq2q mm, xmm — low qword of the XMM register
+                // into the MMX register. Register-only.
+                cpu->mm[modrm.reg].qw = cpu->xmm[modrm.rm].qw[0];
+            } else {
                 return INT_UNDEFINED;
-            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
-                goto amd64_0f_vec_rm_pf;
+            }
         } else if (op2 == 0xe7) {
             if (rep_mode != AMD64_REP_NONE || modrm.is_reg)
                 return INT_UNDEFINED;

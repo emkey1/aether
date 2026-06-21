@@ -1445,6 +1445,26 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return true;
     }
 
+    // emms (0F 77): no modrm, no operands. Architecturally it just empties the
+    // x87 FPU tag word; this emulator models no x87 tag state that gates MMX
+    // register access (the i386 decoder likewise treats emms as ignored), so it
+    // is a pure no-op. Without this the JIT raised #UD on the trailing emms that
+    // every real MMX routine emits (e.g. libgcrypt SHA), independent of the
+    // 0F 7F store fix. Strict prefixes: bare 0F 77 only; any 66/F2/F3 variant
+    // falls through to the interpreter, which also treats it as a nop.
+    if (!insn.operand_size_prefix && !insn.address_size_prefix &&
+            !insn.fs_prefix && !insn.lock_prefix &&
+            insn.rep_mode == amd64_jit_rep_none && insn.two_byte_opcode &&
+            insn.op2 == 0x77) {
+        next_ip = insn.end_ip;
+        state->amd64_ip = next_ip;
+        amd64_jit_debug("emms-direct ip=%llx next=%llx",
+                (unsigned long long) insn.start_ip,
+                (unsigned long long) next_ip);
+        gen_amd64_defer_rip(state, next_ip);
+        return true;
+    }
+
 #if defined(__aarch64__)
     // imul reg, rm (0F AF), reg form, low8 regs, 32/64-bit: native multiply with
     // overflow flags via gadget_amd64_imul_reg (shares amd64_imul_body with the
