@@ -79,7 +79,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 |---|---|---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 8bit | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.5-4b-mlx` | 8bit | 2026-02 | 6/30 · 6✓ | 4/5 · 4✓ |
+| `qwen3.5-4b-mlx` | 8bit | 2026-02 | 6/30 · 6✓ | 5/8 · 5✓ |
 | `deepseek-r1-distill-qwen-7b` | Q4_K_M | 2025-01 | 0/30 · 3✓ | 0/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | Q4_K_M | 2025-10 | 12/30 · 15✓ | 18/30 · 22✓ |
 | `starcoder2-7b` | Q8_0 | 2024-02 | 0/30 · 0✓ | 0/30 · 0✓ |
