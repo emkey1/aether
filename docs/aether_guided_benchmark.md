@@ -73,18 +73,20 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*7 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = best-known YYYY-MM (? = unverified).*
+*8 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM (release announcements; ? = unfilled).*
 
 | model | quant | released | small | full |
 |---|---|---|---|---|
-| `qwen3.5-122b-a10b-nvfp4` | NVFP4 | ? | 29/30 · 30✓ | 30/30 · 30✓ |
-| `qwen/qwen3.6-35b-a3b` | 8bit | ? | 30/30 · 30✓ | 30/30 · 30✓ |
-| `deepseek-r1-distill-qwen-7b` | Q4_K_M | 2025-01 | 0/30 · 0✓ | 0/20 · 1✓ |
-| `ibm/granite-4-h-tiny` | Q4_K_M | ? | 12/30 · 15✓ | 18/30 · 22✓ |
+| `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
+| `qwen/qwen3.6-35b-a3b` | 8bit | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
+| `qwen3.5-4b-mlx` | 8bit | 2026-02 | 0/0 · 0✓ | — |
+| `deepseek-r1-distill-qwen-7b` | Q4_K_M | 2025-01 | 0/30 · 0✓ | 0/30 · 1✓ |
+| `ibm/granite-4-h-tiny` | Q4_K_M | 2025-10 | 12/30 · 15✓ | 18/30 · 22✓ |
 | `starcoder2-7b` | Q8_0 | 2024-02 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `stable-code-instruct-3b` | Q8_0 | 2024-03 | 0/30 · 0✓ | 0/30 · 0✓ |
-| `qwen3.5-2b-mlx` | 4bit | ? | 9/30 · 12✓ | 13/30 · 23✓ |
-| `bonsai-8b-mlx` | 1bit | ? | *load-failed* | |
+| `qwen3.5-2b-mlx` | 4bit | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
+| `bonsai-8b-mlx` | 1bit | 2026-04 | *load-failed* | |
+| `gemma-4-e2b-it` | Q6_K | 2026-04 | *load-failed* | |
 <!-- LEADERBOARD:END -->
 
 Early, robust shape:
