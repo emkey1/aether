@@ -28,6 +28,9 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "scope") == 0) {
             return "SCOPE-001";
         }
+        if (strcmp(kind, "redeclaration") == 0) {
+            return "NAME-001";
+        }
     }
 
     if (!detail) {

@@ -2340,6 +2340,154 @@ static void validateAetherSource(const char *source,
     }
 }
 
+typedef struct {
+    char *name;
+    int depth;
+} AetherLocalDecl;
+
+// Conservative NAME-001 pre-flight: flag a `let`/`const` local redeclared in the
+// SAME lexical scope. Sound by construction — shadowing in a nested scope and
+// name reuse across sibling scopes are allowed, and tuple/loop/parameter names
+// are not tracked — so anything it misses still trips the bytecode compiler's
+// own "duplicate variable" backstop. Reports via reportAetherError (kind
+// "redeclaration" -> NAME-001), which increments the semantic error count so the
+// compile aborts before codegen: one message, with a code and a guide pointer.
+// `source` is the sanitized scan source (comments already neutralized); string
+// literals are still present, so we skip them ourselves to keep brace depth
+// honest.
+static void validateNoDuplicateLocals(const char *source) {
+    const char *cursor = source;
+    int line = 1;
+    int depth = 0;
+    int atStmtStart = 1;
+    AetherLocalDecl *decls = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+
+    if (!source) {
+        return;
+    }
+
+    while (*cursor) {
+        char c = *cursor;
+
+        if (c == '\n') {
+            line++;
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            const char *after = skipQuotedString(cursor, NULL);
+            cursor = (after > cursor) ? after : cursor + 1;
+            atStmtStart = 0;
+            continue;
+        }
+        if (c == '{') {
+            depth++;
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (c == '}') {
+            if (depth > 0) {
+                depth--;
+            }
+            while (count > 0 && decls[count - 1].depth > depth) {
+                free(decls[count - 1].name);
+                count--;
+            }
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (c == ';') {
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (isspace((unsigned char)c)) {
+            cursor++;
+            continue;
+        }
+
+        if (atStmtStart) {
+            const char *lineEnd = cursor;
+            int isConst;
+
+            while (*lineEnd && *lineEnd != '\n') {
+                lineEnd++;
+            }
+            isConst = startsWithWord(cursor, lineEnd, "const");
+            if (isConst || startsWithWord(cursor, lineEnd, "let")) {
+                const char *scan = skipInlineSpaces(cursor + (isConst ? 5 : 3), lineEnd);
+                const char *nameStart;
+
+                if (startsWithWord(scan, lineEnd, "mut")) {
+                    scan = skipInlineSpaces(scan + 3, lineEnd);
+                }
+                nameStart = scan;
+                while (scan < lineEnd &&
+                       (isalnum((unsigned char)*scan) || *scan == '_')) {
+                    scan++;
+                }
+                if (scan > nameStart) {
+                    char *name = dupRange(nameStart, scan);
+                    if (name) {
+                        int dup = 0;
+                        size_t k;
+
+                        for (k = 0; k < count; k++) {
+                            if (decls[k].depth == depth &&
+                                strcmp(decls[k].name, name) == 0) {
+                                dup = 1;
+                                break;
+                            }
+                        }
+                        if (dup) {
+                            char detail[256];
+                            snprintf(detail, sizeof(detail),
+                                     "local '%s' is already declared in this scope.",
+                                     name);
+                            reportAetherError("redeclaration", line, detail);
+                            free(name);
+                        } else {
+                            if (count == cap) {
+                                size_t newCap = cap ? cap * 2 : 16;
+                                AetherLocalDecl *grown = (AetherLocalDecl *)realloc(
+                                    decls, newCap * sizeof(*grown));
+                                if (!grown) {
+                                    free(name);
+                                    break;
+                                }
+                                decls = grown;
+                                cap = newCap;
+                            }
+                            decls[count].name = name;
+                            decls[count].depth = depth;
+                            count++;
+                        }
+                    }
+                }
+                cursor = scan;
+                atStmtStart = 0;
+                continue;
+            }
+        }
+
+        atStmtStart = 0;
+        cursor++;
+    }
+
+    {
+        size_t k;
+        for (k = 0; k < count; k++) {
+            free(decls[k].name);
+        }
+    }
+    free(decls);
+}
+
 void aetherPerformSemanticAnalysis(AST *root) {
     const char *source = aetherGetLastSource();
     int errorCountBefore = pascal_semantic_error_count;
@@ -2355,6 +2503,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
         collectOpaqueBindings(scanSource, &opaqueBindings);
         collectScalarBindings(scanSource, &scalarBindings);
         validateAetherSource(scanSource, &table, &opaqueBindings, &scalarBindings);
+        validateNoDuplicateLocals(scanSource);
         freeScalarBindingTable(&scalarBindings);
         freeOpaqueBindingTable(&opaqueBindings);
         freeFunctionTable(&table);

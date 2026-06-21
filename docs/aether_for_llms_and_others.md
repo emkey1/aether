@@ -935,8 +935,8 @@ Larger examples: `Examples/aether/showcase/agent_report`,
 The compiler tags every rejection with a stable code in brackets, and on newer
 builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
-SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, MUT-001, and FIELD-002; the
-finer rule names below map onto them.
+SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, MUT-001, FIELD-002, and
+NAME-001; the finer rule names below map onto them.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
@@ -949,8 +949,8 @@ finer rule names below map onto them.
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
     or rename the local you actually meant (SCOPE-001)
-- **`duplicate variable` (NAME-001)** — a local redeclared in the same scope;
-  currently printed without a bracketed code. Pick a fresh name.
+- **[NAME-001]** a local redeclared in the same scope (`'...' is already
+  declared in this scope`) → pick a fresh name.
 - **[IMP-001]** an invented or malformed import → remove the `use` unless
   verified, or write `use "module_name";` and call exports directly (MOD-002).
 - **[TYPE-001]** a type cannot be inferred → annotate it. Also covers

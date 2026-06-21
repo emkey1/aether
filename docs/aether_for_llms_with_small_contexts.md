@@ -57,11 +57,10 @@ exactly.
 
 Not every rule above is a *compiler* check. The compiler emits a stable code —
 FX-001, SYN-001, ANN-001, IMP-001, SCOPE-001, TOON-001, TYPE-001, TUP-001,
-FLOW-001, MUT-001, FIELD-002 — and, on newer builds, a `help:` line citing it.
-The others surface differently: BUILT-001, MOD-001, ORDER-001, METH-001,
-MOD-002, and LEN-001 are reported under a broader code (mostly SCOPE-001);
-NAME-001 (redeclaration) currently prints as a bare `duplicate variable`
-message; and OUT-001, FMT-001, FIELD-001, KEY-001, NEST-001, ROOT-001 are
+FLOW-001, MUT-001, FIELD-002, NAME-001 — and, on newer builds, a `help:` line
+citing it. The others surface differently: BUILT-001, MOD-001, ORDER-001,
+METH-001, MOD-002, and LEN-001 are reported under a broader code (mostly
+SCOPE-001); and OUT-001, FMT-001, FIELD-001, KEY-001, NEST-001, ROOT-001 are
 authoring rules the compiler cannot check at all. The **Repair rules** section
 maps each emitted code to its fix.
 
@@ -482,8 +481,8 @@ The compiler prints a stable code in brackets, and on newer builds a
   - a type or helper used before it is defined → define it earlier (ORDER-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
-- **`duplicate variable` (NAME-001)** — a local redeclared in the same scope;
-  currently printed without a bracketed code. Pick a fresh name.
+- **[NAME-001]** a local redeclared in the same scope (`'...' is already
+  declared in this scope`) → pick a fresh name.
 - **[IMP-001]** an invented or malformed import → remove the `use`, or write
   `use "module_name";` and call the exports directly (MOD-002).
 - **[TYPE-001]** a type cannot be inferred → annotate it. Also covers
