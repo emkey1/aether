@@ -792,9 +792,10 @@ static CGSize ISHWorkspaceMaximumDockContentSize(void) {
 }
 
 static CGSize ISHWorkspaceMinimumTerminalContentSize(void) {
+    // Half the previous minimums, so terminals can be dragged down to ~half their old smallest.
     if (ISHWorkspaceUsesPhoneLayout())
-        return CGSizeMake(300, 220);
-    return CGSizeMake(520, 340);
+        return CGSizeMake(150, 110);
+    return CGSizeMake(260, 170);
 }
 
 static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
@@ -3859,14 +3860,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  terminalViewController:(TerminalViewController *)terminalViewController {
     CGSize preferredSize = ISHWorkspacePreferredTerminalContentSize();
     terminalViewController.preferredContentSize = preferredSize;
-    // On the phone a small floating terminal wastes most of the screen (a big empty gap above
-    // the keyboard); default new terminals to fill the usable desktop instead. Still clamped and
-    // placed by desktopFrameForWindowWithPreferredSize, and the window stays user-resizable.
+    // Default open: a compact window scaled to orientation so terminals don't dominate and
+    // several fit — at most 1/4 the usable width in landscape, 1/4 the usable height in portrait
+    // (the other axis a half), on both iPad and iPhone. Clamped/placed by
+    // desktopFrameForWindowWithPreferredSize; the window stays user-resizable down to
+    // ISHWorkspaceMinimumTerminalContentSize.
     CGSize windowSize = preferredSize;
-    if (ISHWorkspaceUsesPhoneLayout()) {
-        CGRect usable = [self desktopUsableBounds];
-        if (CGRectGetWidth(usable) > 1.0 && CGRectGetHeight(usable) > 1.0)
-            windowSize = usable.size;
+    CGRect usable = [self desktopUsableBounds];
+    if (CGRectGetWidth(usable) > 1.0 && CGRectGetHeight(usable) > 1.0) {
+        BOOL landscape = CGRectGetWidth(usable) >= CGRectGetHeight(usable);
+        windowSize = landscape
+            ? CGSizeMake(CGRectGetWidth(usable) / 4.0, CGRectGetHeight(usable) / 2.0)
+            : CGSizeMake(CGRectGetWidth(usable) / 2.0, CGRectGetHeight(usable) / 4.0);
     }
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:title
