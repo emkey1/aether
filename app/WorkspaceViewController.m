@@ -6821,7 +6821,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     run.translatesAutoresizingMaskIntoConstraints = NO;
     run.tag = (NSInteger)index;
     run.contentEdgeInsets = UIEdgeInsetsMake(2, 3, 2, 3);
-    run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
     run.titleLabel.numberOfLines = 0;
     run.layer.cornerRadius = 12;
     run.layer.borderWidth = 1;
@@ -6831,7 +6831,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
 
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
-    style.alignment = NSTextAlignmentLeft;
+    style.alignment = NSTextAlignmentCenter;
     UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
     NSAttributedString *label = [[NSAttributedString alloc] initWithString:name attributes:@{
         NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.2 weight:UIFontWeightSemibold],
