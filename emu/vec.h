@@ -120,6 +120,33 @@ void vec_and_q64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 void vec_xor_q64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 void vec_andn64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
 
+// MMX packed-integer ops (no-66 forms) mirroring the 128-bit vec_*128 siblings.
+void vec_unpackl_bw64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_unpackl_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_unpackh_bw64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_unpackh_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_unpackh_d64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_packss_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_packss_d64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_packsu_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_addus_b64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_addus_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_subus_b64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_subus_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_addss_b64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_addss_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_subss_b64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_subss_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_min_ub64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_max_ub64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_mins_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_maxs_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_avg_b64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_avg_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_muluu64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_madd_d64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+void vec_sumabs_w64(NO_CPU, const union mm_reg *src, union mm_reg *dst);
+
 void vec_min_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_mins_w128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);
 void vec_max_ub128(NO_CPU, union xmm_reg *src, union xmm_reg *dst);

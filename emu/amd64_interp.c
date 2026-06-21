@@ -6238,6 +6238,28 @@ restart_prefix:
             cpu->amd64_rip = saved_rip;
             return amd64_jit_0f_vec_rm(cpu, tlb, op2, vec_next_ip);
         }
+        // no-66 MMX forms of the packed-int ops added later: punpck{l,h}{bw,wd}
+        // + punpckhdq (60/61/68/69/6a), pack ss/us (63/67/6b), saturating
+        // add/sub (d8/d9/dc/dd), unsigned min/max (da/de), psadbw (f6). The
+        // inline decoder already handles the 66 (XMM) forms, so this is gated to
+        // the no-prefix MMX forms and hands them to the bridge. (The saturating
+        // signed/min-max e8-ee and pavg/pmulhuw e0/e3/e4 + pmaddwd f5 forms are
+        // already delegated by the block above.)
+        if (!operand_size_prefix && rep_mode == AMD64_REP_NONE &&
+                ((op2 >= 0x60 && op2 <= 0x6b && op2 != 0x62 && op2 != 0x64 &&
+                  op2 != 0x65 && op2 != 0x66) ||
+                 op2 == 0xd8 || op2 == 0xd9 || op2 == 0xda || op2 == 0xdc ||
+                 op2 == 0xdd || op2 == 0xde || op2 == 0xf6)) {
+            struct amd64_modrm modrm;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            unsigned long vec_next_ip = (unsigned long) cpu->amd64_rip;
+            cpu->amd64_rip = saved_rip;
+            return amd64_jit_0f_vec_rm(cpu, tlb, op2, vec_next_ip);
+        }
         // SSE floating-point ops the inline decoder below does not implement:
         // movmskps/pd (50), sqrt (51), rsqrt (52), rcp (53), packed
         // cvtps2pd/cvtpd2ps (5a, scalar cvtss2sd/cvtsd2ss handled above),
@@ -11623,14 +11645,72 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
         bool packed_xmm_misc = (op2 >= 0xd8 && op2 <= 0xe0) ||
             (op2 >= 0xe3 && op2 <= 0xe5) || (op2 >= 0xe8 && op2 <= 0xee);
         bool pack_xmm = op2 == 0x63 || op2 == 0x67 || op2 == 0x6b;
+        // no-66 MMX forms of the packed-int ops the original decoder omitted:
+        // punpck{l,h}{bw,wd} + punpckhdq (0x60/61/68/69/6a), pack ss/us
+        // (0x63/67/6b), saturating add/sub (d8/d9/dc/dd/e8/e9/ec/ed), unsigned
+        // min/max (da/de), signed min/max (ea/ee), pavg (e0/e3), pmulhuw (e4),
+        // psadbw (f6). Handled by the consolidated block below; vec_*64 mirror
+        // the XMM vec_*128. (0x62/64/65/66 are punpckldq/pcmpgt, already handled
+        // above.) NOTE: pmaddwd (f5) is intentionally NOT here -- un-gating it in
+        // the top guard exposed a JIT block-chaining bug where the instruction
+        // *after* an MMX pmaddwd faults (next_ip is correct, yet the next block
+        // dies); left as a follow-up. i386 pmaddwd works (decode.h).
+        bool mmx_extra = !operand_size_prefix && rep_mode == AMD64_REP_NONE &&
+            ((op2 >= 0x60 && op2 <= 0x6b && op2 != 0x62 && op2 != 0x64 &&
+              op2 != 0x65 && op2 != 0x66) ||
+             op2 == 0xd8 || op2 == 0xd9 || op2 == 0xda || op2 == 0xdc ||
+             op2 == 0xdd || op2 == 0xde || op2 == 0xe0 || op2 == 0xe3 ||
+             op2 == 0xe4 || op2 == 0xe8 || op2 == 0xe9 || op2 == 0xea ||
+             op2 == 0xec || op2 == 0xed || op2 == 0xee || op2 == 0xf6);
         if (pshufw || movq_mm_load || movq_mm_store || movnt_mm_store || pcmpeq_mm || pcmpgt_mm ||
-                punpckldq_mm || logic_mm || packed_int_mm || packed_shift_mm || packed_mul_mm) {
+                punpckldq_mm || logic_mm || packed_int_mm || packed_shift_mm || packed_mul_mm ||
+                mmx_extra) {
             if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
                 return INT_UNDEFINED;
         } else if ((modrm.reg >= AMD64_XMM_COUNT) ||
                 (modrm.is_reg && modrm.rm >= AMD64_XMM_COUNT &&
                  !(op2 == 0x7e && !operand_size_prefix && rep_mode == AMD64_REP_NONE)))
             return INT_UNDEFINED;
+        if (mmx_extra) {
+            if (modrm.is_reg) {
+                src_mm = cpu->mm[modrm.rm];
+            } else {
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, 64, &src_scalar))
+                    goto amd64_0f_vec_rm_pf;
+                src_mm.qw = src_scalar;
+            }
+            value_mm = cpu->mm[modrm.reg];
+            switch (op2) {
+            case 0x60: vec_unpackl_bw64(NULL, &src_mm, &value_mm); break;
+            case 0x61: vec_unpackl_w64(NULL, &src_mm, &value_mm); break;
+            case 0x63: vec_packss_w64(NULL, &src_mm, &value_mm); break;
+            case 0x67: vec_packsu_w64(NULL, &src_mm, &value_mm); break;
+            case 0x68: vec_unpackh_bw64(NULL, &src_mm, &value_mm); break;
+            case 0x69: vec_unpackh_w64(NULL, &src_mm, &value_mm); break;
+            case 0x6a: vec_unpackh_d64(NULL, &src_mm, &value_mm); break;
+            case 0x6b: vec_packss_d64(NULL, &src_mm, &value_mm); break;
+            case 0xd8: vec_subus_b64(NULL, &src_mm, &value_mm); break;
+            case 0xd9: vec_subus_w64(NULL, &src_mm, &value_mm); break;
+            case 0xda: vec_min_ub64(NULL, &src_mm, &value_mm); break;
+            case 0xdc: vec_addus_b64(NULL, &src_mm, &value_mm); break;
+            case 0xdd: vec_addus_w64(NULL, &src_mm, &value_mm); break;
+            case 0xde: vec_max_ub64(NULL, &src_mm, &value_mm); break;
+            case 0xe0: vec_avg_b64(NULL, &src_mm, &value_mm); break;
+            case 0xe3: vec_avg_w64(NULL, &src_mm, &value_mm); break;
+            case 0xe4: vec_muluu64(NULL, &src_mm, &value_mm); break;
+            case 0xe8: vec_subss_b64(NULL, &src_mm, &value_mm); break;
+            case 0xe9: vec_subss_w64(NULL, &src_mm, &value_mm); break;
+            case 0xea: vec_mins_w64(NULL, &src_mm, &value_mm); break;
+            case 0xec: vec_addss_b64(NULL, &src_mm, &value_mm); break;
+            case 0xed: vec_addss_w64(NULL, &src_mm, &value_mm); break;
+            case 0xee: vec_maxs_w64(NULL, &src_mm, &value_mm); break;
+            case 0xf6: vec_sumabs_w64(NULL, &src_mm, &value_mm); break;
+            }
+            cpu->mm[modrm.reg] = value_mm;
+            cpu->amd64_rip = (qword_t) next_ip;
+            amd64_sync_legacy_regs(cpu);
+            return INT_NONE;
+        }
         if (op2 == 0x10 || op2 == 0x28) {
             if (op2 == 0x10 && rep_mode == AMD64_REPZ) {
                 if (operand_size_prefix)
