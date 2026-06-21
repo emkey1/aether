@@ -1,23 +1,46 @@
-# aether
+# Aether
 
 <img src="assets/aether-logo.svg" alt="Aether logo" width="88" align="right"/>
 
-**Aether** is a contract- and effect-typed front end for the **PSCAL** VM. It
-lowers to [Rea](https://github.com/emkey1/rea): Aether parses its own source,
-runs its own semantic analysis (effects, purity, contracts, ...), and emits the
-shared PSCAL AST, which the shared bytecode compiler lowers and the PSCAL VM
-runs.
+**Aether is a small, statically-typed programming language designed to be
+written by language models.** It compiles and runs real programs — typed records
+with methods, `@pure` contracts, effect-scoped I/O, integer and real arithmetic,
+and first-class JSON/TOON parsing — through a small, regular grammar. What sets
+it apart is the design goal: a model should be able to produce *valid, correct*
+Aether **with no reference guide in its prompt**, and the language is shaped by
+what capable models actually reach for, not by taste.
 
-## Built on the Rea engine
+```aether
+@pure
+fn classify(score: Int) -> Text {
+    if score >= 90 { ret "distinction"; }
+    if score >= 70 { ret "merit"; }
+    ret "pass";
+}
 
-Aether carries no VM, code generator, or general front-end engine of its own. It
-reuses the shared Rea front-end engine and installs its overrides — parser,
-semantic analysis, diagnostics, source rewriting — through the engine's hook
-seam (`rea`'s `src/rea/frontend_hooks.h`) at startup via
-`aetherInstallFrontendHooks()`. The engine itself has no dependency on Aether.
+fn main() -> Void {
+    fx { println("Ava: ", classify(92)); }   // Ava: distinction
+    ret;
+}
+```
 
-The dependency chain is **aether → rea → pscal-core**, all wired automatically
-through CMake `FetchContent`.
+When a capable model consistently reaches for a construct that does not exist —
+or trips on one that does — that is treated as a language bug and fixed. The
+benchmark, not opinion, is the instrument: see the
+[findings](docs/aether_specialization_findings.md) and the
+[design rationale](docs/aether_architecture_and_rationale.md).
+
+## How it runs
+
+Aether is a contract- and effect-typed front end for the **PSCAL** VM. It lowers
+to [Rea](https://github.com/emkey1/rea): it parses its own source, runs its own
+semantic analysis (effects, purity, contracts), and emits the shared PSCAL AST,
+which the shared bytecode compiler lowers and the PSCAL VM runs. It carries no VM
+or front-end engine of its own — it reuses the shared Rea engine and installs its
+overrides (parser, semantic analysis, diagnostics, source rewriting) through the
+engine's hook seam (`rea`'s `src/rea/frontend_hooks.h`) via
+`aetherInstallFrontendHooks()`. The dependency chain is **aether → rea →
+pscal-core**, wired automatically through CMake `FetchContent`.
 
 ## Build
 
