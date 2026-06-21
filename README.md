@@ -1,5 +1,7 @@
 # aether
 
+<img src="assets/aether-logo.svg" alt="Aether logo" width="88" align="right"/>
+
 **Aether** is a contract- and effect-typed front end for the **PSCAL** VM. It
 lowers to [Rea](https://github.com/emkey1/rea): Aether parses its own source,
 runs its own semantic analysis (effects, purity, contracts, ...), and emits the
