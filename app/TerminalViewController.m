@@ -436,6 +436,12 @@ static const NSInteger kMaximumTerminalFontSize = 72;
             [self.view setNeedsLayout];
         });
     }];
+    [UserPreferences.shared observe:@[@"showTerminalQuickButtons"]
+                            options:0 owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self _updateFloatingSettingsButtonVisibility];
+        });
+    }];
     [self _updateBadge];
 }
 
@@ -823,15 +829,17 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)_updateFloatingSettingsButtonVisibility {
     BOOL visible = [self _shouldShowFloatingSettingsButton];
     BOOL showWorkspaceButtons = self.showsWorkspaceDashboardButton;
-    BOOL settingsEnabled = YES; // settings gear lives in the bar everywhere, including the Workspace
+    // User-toggleable (Settings ▸ Appearance ▸ Terminal Buttons): the settings gear and the
+    // terminal-switcher button, in both their bar and floating forms.
+    BOOL settingsEnabled = UserPreferences.shared.showTerminalQuickButtons;
     self.floatingWorkspaceButton.hidden = !(visible && showWorkspaceButtons);
     self.floatingWorkspaceButton.userInteractionEnabled = visible && showWorkspaceButtons;
     self.floatingSettingsButton.hidden = !(visible && settingsEnabled);
     self.floatingSettingsButton.userInteractionEnabled = visible && settingsEnabled;
-    self.floatingTerminalSwitcherButton.hidden = !visible;
-    self.floatingTerminalSwitcherButton.userInteractionEnabled = visible;
-    self.terminalSwitcherButton.hidden = visible;
-    self.terminalSwitcherButton.userInteractionEnabled = !visible;
+    self.floatingTerminalSwitcherButton.hidden = !(visible && settingsEnabled);
+    self.floatingTerminalSwitcherButton.userInteractionEnabled = visible && settingsEnabled;
+    self.terminalSwitcherButton.hidden = visible || !settingsEnabled;
+    self.terminalSwitcherButton.userInteractionEnabled = !visible && settingsEnabled;
     self.workspaceButton.hidden = !showWorkspaceButtons || visible;
     self.workspaceButton.userInteractionEnabled = showWorkspaceButtons && !visible;
     self.infoButton.alpha = settingsEnabled ? 1 : 0;

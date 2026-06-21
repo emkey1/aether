@@ -109,6 +109,7 @@ enum {
     WorkspaceStyleSection,
     CursorSection,
     StatusBarSection,
+    TerminalButtonsSection,
     NumberOfSections,
 };
 
@@ -124,6 +125,7 @@ enum {
         case WorkspaceStyleSection: return 2;
         case CursorSection: return 2;
         case StatusBarSection: return 1;
+        case TerminalButtonsSection: return 1;
         default: NSAssert(NO, @"unhandled section"); return 0;
     }
 }
@@ -135,6 +137,7 @@ enum {
         case WorkspaceStyleSection: return @"Workspace Style";
         case CursorSection: return @"Cursor";
         case StatusBarSection: return @"Status Bar";
+        case TerminalButtonsSection: return @"Terminal Buttons";
         default: return nil;
     }
 }
@@ -143,6 +146,7 @@ enum {
     switch (section) {
         case PreviewSection: return @"Change the color scheme used for the preview.";
         case WorkspaceStyleSection: return @"Modern is a flat, redesigned desktop; Classic keeps the original look. Both stay available and only restyle the Workspace.";
+        case TerminalButtonsSection: return @"Show the settings (gear) and terminal-switcher buttons on the terminal. Turn this off for a cleaner terminal.";
         default: return nil;
     }
 }
@@ -155,6 +159,7 @@ enum {
         case WorkspaceStyleSection: return @"Color Scheme";
         case CursorSection: return @[@"Cursor Style", @"Blink Cursor"][indexPath.row];
         case StatusBarSection: return @"Status Bar";
+        case TerminalButtonsSection: return @"Color Scheme";
         default: return nil;
     }
 }
@@ -250,6 +255,17 @@ enum {
             }
             break;
 
+        case TerminalButtonsSection:
+            cell.textLabel.text = @"Show Settings & Switcher";
+            if (UserPreferences.shared.showTerminalQuickButtons) {
+                cell.accessoryType = UITableViewCellAccessoryCheckmark;
+                cell.accessibilityTraits |= UIAccessibilityTraitSelected;
+            } else {
+                cell.accessoryType = UITableViewCellAccessoryNone;
+                cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
+            }
+            break;
+
         case CursorSection:
         case StatusBarSection:
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -280,6 +296,10 @@ enum {
             break;
         case WorkspaceStyleSection:
             [UserPreferences.shared setWorkspaceStyle:indexPath.row];
+            break;
+        case TerminalButtonsSection:
+            UserPreferences.shared.showTerminalQuickButtons = !UserPreferences.shared.showTerminalQuickButtons;
+            [tableView reloadSections:[NSIndexSet indexSetWithIndex:TerminalButtonsSection] withRowAnimation:UITableViewRowAnimationNone];
             break;
     }
 }

@@ -23,6 +23,7 @@ static NSString *const kPreferenceOptionMappingKey = @"Option Mapping";
 static NSString *const kPreferenceBacktickEscapeKey = @"Backtick Mapping Escape";
 static NSString *const kPreferenceHideExtraKeysWithExternalKeyboardKey = @"Hide Extra Keys With External Keyboard";
 static NSString *const kPreferenceMaximizeScreenSpaceKey = @"Maximize Screen Space";
+static NSString *const kPreferenceShowTerminalQuickButtonsKey = @"Show Terminal Quick Buttons";
 static NSString *const kPreferenceOverrideControlSpaceKey = @"Override Control Space";
 static NSString *const kPreferenceFontFamilyKey = @"Font Family";
 static NSString *const kPreferenceFontSizeKey = @"Font Size";
@@ -199,6 +200,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceHideStatusBarKey: @(NO),
             kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
             kPreferenceWorkspaceStyleKey: @(WorkspaceStyleClassic),
+            kPreferenceShowTerminalQuickButtonsKey: @(YES),
             kPreferenceThemeKey: @"Solarized",
         }];
         // https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/
@@ -226,6 +228,7 @@ bool (*remove_user_default)(const char *name);
             @"backtick_mapping_escape": kPreferenceBacktickEscapeKey,
             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
             @"maximize_screen_space": kPreferenceMaximizeScreenSpaceKey,
+            @"show_terminal_quick_buttons": kPreferenceShowTerminalQuickButtonsKey,
             @"override_control_space": kPreferenceOverrideControlSpaceKey,
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
@@ -261,6 +264,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceBacktickEscapeKey: property(backtickMapEscape),
             kPreferenceHideExtraKeysWithExternalKeyboardKey: property(hideExtraKeysWithExternalKeyboard),
             kPreferenceMaximizeScreenSpaceKey: property(maximizeScreenSpace),
+            kPreferenceShowTerminalQuickButtonsKey: property(showTerminalQuickButtons),
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
@@ -362,6 +366,15 @@ bool (*remove_user_default)(const char *name);
 
 - (void)setMaximizeScreenSpace:(BOOL)maximizeScreenSpace {
     [_defaults setBool:maximizeScreenSpace forKey:kPreferenceMaximizeScreenSpaceKey];
+}
+
+// MARK: showTerminalQuickButtons
+- (BOOL)showTerminalQuickButtons {
+    return [_defaults boolForKey:kPreferenceShowTerminalQuickButtonsKey];
+}
+
+- (void)setShowTerminalQuickButtons:(BOOL)showTerminalQuickButtons {
+    [_defaults setBool:showTerminalQuickButtons forKey:kPreferenceShowTerminalQuickButtonsKey];
 }
 
 // MARK: overrideControlSpace

@@ -3546,9 +3546,18 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                  terminalViewController:(TerminalViewController *)terminalViewController {
     CGSize preferredSize = ISHWorkspacePreferredTerminalContentSize();
     terminalViewController.preferredContentSize = preferredSize;
+    // On the phone a small floating terminal wastes most of the screen (a big empty gap above
+    // the keyboard); default new terminals to fill the usable desktop instead. Still clamped and
+    // placed by desktopFrameForWindowWithPreferredSize, and the window stays user-resizable.
+    CGSize windowSize = preferredSize;
+    if (ISHWorkspaceUsesPhoneLayout()) {
+        CGRect usable = [self desktopUsableBounds];
+        if (CGRectGetWidth(usable) > 1.0 && CGRectGetHeight(usable) > 1.0)
+            windowSize = usable.size;
+    }
     ISHWorkspaceContainedWindowView *windowView =
         [self createDesktopWindowWithTitle:title
-                             preferredSize:preferredSize
+                             preferredSize:windowSize
                           showsCloseButton:YES];
     windowView.hostedTerminalViewController = terminalViewController;
     windowView.resizable = YES;
