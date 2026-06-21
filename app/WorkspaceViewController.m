@@ -144,6 +144,42 @@ static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, NS
     [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceLauncherShortcutsDidChangeNotification object:nil];
 }
 
+// A launcher shortcut whose command is just a {token} opens a built-in tool/applet instead of
+// running a shell command. Returns the tool identifier for a recognized token, or nil.
+static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command) {
+    NSString *trimmed = [command stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length < 3 || ![trimmed hasPrefix:@"{"] || ![trimmed hasSuffix:@"}"])
+        return nil;
+    NSString *token = [[trimmed substringWithRange:NSMakeRange(1, trimmed.length - 2)]
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString;
+    NSDictionary<NSString *, NSString *> *map = @{
+        @"browser": ISHWorkspaceToolBrowserIdentifier,
+        @"web": ISHWorkspaceToolBrowserIdentifier,
+        @"web_browser": ISHWorkspaceToolBrowserIdentifier,
+        @"webbrowser": ISHWorkspaceToolBrowserIdentifier,
+        @"clock": ISHWorkspaceToolClockIdentifier,
+        @"settings": ISHWorkspaceToolSettingsIdentifier,
+        @"themes": ISHWorkspaceToolThemesIdentifier,
+        @"sessions": ISHWorkspaceToolSessionsIdentifier,
+        @"storage": ISHWorkspaceToolStorageIdentifier,
+        @"monitor": ISHWorkspaceToolMonitorIdentifier,
+        @"networks": ISHWorkspaceToolNetworksIdentifier,
+        @"logs": ISHWorkspaceToolStatusIdentifier,
+        @"status": ISHWorkspaceToolStatusIdentifier,
+        @"diagnostics": ISHWorkspaceToolDiagnosticsIdentifier,
+        @"filesystems": ISHWorkspaceToolFilesystemsIdentifier,
+        @"images": ISHWorkspaceToolFilesystemsIdentifier,
+        @"boot_images": ISHWorkspaceToolFilesystemsIdentifier,
+        @"info": ISHWorkspaceToolInfoIdentifier,
+        @"workspaces": ISHWorkspaceToolWorkspacesIdentifier,
+        @"shortcuts": ISHWorkspaceToolShortcutsIdentifier,
+        @"quick_actions": ISHWorkspaceToolShortcutsIdentifier,
+        @"llm": ISHWorkspaceToolLLMIdentifier,
+        @"chat": ISHWorkspaceToolLLMIdentifier,
+    };
+    return map[token];
+}
+
 static BOOL ISHWorkspaceSupportsSceneWindows(void) {
     if (ISHWorkspaceUsesPhoneLayout())
         return NO;
@@ -3307,6 +3343,17 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
+// Run a launcher shortcut: a {token} command opens the matching built-in tool; anything else
+// runs in a fresh terminal (an empty command just opens a terminal).
+- (void)runLauncherShortcutWithCommand:(NSString *)command title:(NSString *)title {
+    NSString *toolIdentifier = ISHWorkspaceLauncherToolIdentifierForCommand(command);
+    if (toolIdentifier.length > 0) {
+        [self openOrFocusWorkspaceToolIdentifier:toolIdentifier];
+        return;
+    }
+    [self launchTerminalWithCommand:command title:title];
+}
+
 - (void)launchTerminalWithCommand:(NSString *)command {
     [self launchTerminalWithCommand:command title:nil];
 }
@@ -3354,7 +3401,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [sheet addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self launchTerminalWithCommand:command title:name];
+            [self runLauncherShortcutWithCommand:command title:name];
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
@@ -3381,7 +3428,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)presentAddLauncherShortcut {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Add Shortcut"
-                                            message:@"A name, and a command to run in a new terminal. Leave the command blank to just open a terminal."
+                                            message:@"A name, and a command to run in a new terminal. Leave it blank for just a terminal, or use a {token} like {clock} or {browser} to open a built-in."
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"Name (e.g. skippy or terminal)";
@@ -3430,6 +3477,54 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self presentAddLauncherShortcut];
     }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self presentAddLauncherBuiltinFromView:sourceView];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// Discoverable companion to the {token} syntax: pick a built-in tool and it's added as a
+// shortcut whose command is the matching {token}.
+- (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView {
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *builtins = [@[
+        @{@"name": @"Web Browser", @"command": @"{browser}"},
+        @{@"name": @"Clock", @"command": @"{clock}"},
+        @{@"name": @"Monitor", @"command": @"{monitor}"},
+        @{@"name": @"Networks", @"command": @"{networks}"},
+        @{@"name": @"Logs", @"command": @"{logs}"},
+        @{@"name": @"Storage", @"command": @"{storage}"},
+        @{@"name": @"Boot Images", @"command": @"{images}"},
+        @{@"name": @"Themes", @"command": @"{themes}"},
+        @{@"name": @"Sessions", @"command": @"{sessions}"},
+        @{@"name": @"Diagnostics", @"command": @"{diagnostics}"},
+        @{@"name": @"Settings", @"command": @"{settings}"},
+    ] mutableCopy];
+    if (ISHLLMClientEnabled())
+        [builtins addObject:@{@"name": @"LLM Chat", @"command": @"{llm}"}];
+
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Add Built-in"
+                                            message:@"Open a built-in tool straight from the Launcher."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary<NSString *, NSString *> *builtin in builtins) {
+        [sheet addAction:[UIAlertAction actionWithTitle:builtin[@"name"]
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
+            [shortcuts addObject:builtin];
+            ISHWorkspaceSetLauncherShortcuts(shortcuts);
+        }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
@@ -6768,7 +6863,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if ((NSUInteger)sender.tag >= shortcuts.count)
         return;
     NSDictionary<NSString *, NSString *> *shortcut = shortcuts[(NSUInteger)sender.tag];
-    [(id)self.workspaceHostViewController launchTerminalWithCommand:shortcut[@"command"] title:shortcut[@"name"]];
+    [(id)self.workspaceHostViewController runLauncherShortcutWithCommand:shortcut[@"command"] title:shortcut[@"name"]];
 }
 
 - (void)editShortcutsTapped:(UIButton *)sender {
