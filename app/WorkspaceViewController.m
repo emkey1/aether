@@ -622,6 +622,26 @@ static CGSize ISHWorkspaceLauncherContentSize(void) {
     return CGSizeMake(width, height);
 }
 
+// The Workspaces applet sizes itself to the scene count: one narrow column for a single
+// workspace, two columns once there are more. Used as its preferred/fallback size and by
+// -autosizeWorkspacesWindow when scenes come and go.
+static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
+    BOOL phone = ISHWorkspaceUsesPhoneLayout();
+    NSUInteger n = MAX(count, (NSUInteger)1);
+    BOOL twoColumns = n > 1;
+    NSUInteger columns = twoColumns ? 2 : 1;
+    NSUInteger rows = twoColumns ? (n + 1) / 2 : n;
+    CGFloat buttonHeight = phone ? 54.0 : 62.0;
+    CGFloat columnWidth = phone ? 108.0 : 122.0;
+    CGFloat spacing = 6.0;
+    CGFloat cardPadding = 16.0;
+    CGFloat actionsHeight = phone ? 40.0 : 44.0;
+    CGFloat chrome = phone ? 26.0 : 30.0;
+    CGFloat width = columns * columnWidth + (columns - 1) * spacing + cardPadding;
+    CGFloat height = rows * buttonHeight + (rows - 1) * spacing + cardPadding + actionsHeight + chrome;
+    return CGSizeMake(width, height);
+}
+
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if (ISHWorkspaceUsesPhoneLayout()) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -635,7 +655,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(340, 248);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-            return CGSizeMake(220, 118);
+            return ISHWorkspaceWorkspacesContentSize(1);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
             return CGSizeMake(332, 238);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -669,7 +689,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(460, 300);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-        return CGSizeMake(252, 138);
+        return ISHWorkspaceWorkspacesContentSize(1);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return CGSizeMake(460, 286);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -748,7 +768,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
             return CGSizeMake(300, 220);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-            return CGSizeMake(188, 96);
+            return CGSizeMake(110, 108);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
             return CGSizeMake(280, 176);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -783,7 +803,7 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
         return CGSizeMake(360, 220);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier])
-        return CGSizeMake(216, 112);
+        return CGSizeMake(124, 116);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolSessionsIdentifier])
         return CGSizeMake(340, 208);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStorageIdentifier])
@@ -4286,6 +4306,17 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
 }
 
+// Resize the open Workspaces applet to match the live scene count (keeps its restored origin).
+- (void)autosizeWorkspacesWindow {
+    ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+    if (window == nil)
+        return;
+    NSUInteger count = 0;
+    if (@available(iOS 13.0, *))
+        count = ISHWorkspaceSceneDescriptors(self.view.window.windowScene).count;
+    [self resizeDesktopWindow:window toSize:ISHWorkspaceWorkspacesContentSize(count) animated:NO];
+}
+
 - (void)openDiagnostics:(id)sender {
     [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolDiagnosticsIdentifier];
 }
@@ -7130,6 +7161,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     }
     [_trackedButtons removeAllObjects];
     [_previewImageViewsByIdentifier removeAllObjects];
+
+    // Size the window to the workspace count (narrow for one, wider for more). Deferred so it
+    // runs after the host's initial placement, which would otherwise restore a stale frame.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [(id)weakSelf.workspaceHostViewController autosizeWorkspacesWindow];
+    });
 
     if (_sceneDescriptors.count == 0) {
         UILabel *emptyLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
