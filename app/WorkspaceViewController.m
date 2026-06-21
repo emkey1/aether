@@ -2953,6 +2953,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     CGSize preferredSize = ISHWorkspacePreferredToolContentSize(toolIdentifier);
     viewController.preferredContentSize = preferredSize;
     BOOL workspacesTool = [toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier];
+    // On iPad the Desktops applet is a pinned utility with its own persisted top-right placement.
+    // On a phone that placement misbehaves (and the persist key is shared across idioms), so there
+    // the Desktops applet opens like any other tool — normal cascade placement, same as Launcher.
+    BOOL pinnedWorkspaces = workspacesTool && !ISHWorkspaceUsesPhoneLayout();
     // Settings embeds its own navigation bar and gets a "Done" item there instead (see below),
     // so suppress the redundant chrome × that would otherwise sit right above that bar.
     BOOL settingsTool = [toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier];
@@ -2960,7 +2964,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [self createDesktopWindowWithTitle:ISHWorkspaceToolTitle(toolIdentifier)
                              preferredSize:preferredSize
                           showsCloseButton:!settingsTool
-                    appliesInitialPlacement:!workspacesTool];
+                    appliesInitialPlacement:!pinnedWorkspaces];
     windowView.workspaceToolIdentifier = toolIdentifier;
     if ([self isGlobalToolIdentifier:toolIdentifier])
         windowView.workspaceDesktopIndex = 0;  // global singletons live on the first Desktop
@@ -2969,7 +2973,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         windowView.resizable = YES;
         windowView.minimumSize = minimumSize;
     }
-    if (workspacesTool) {
+    if (pinnedWorkspaces) {
         __weak typeof(self) weakSelf = self;
         windowView.frameDidChangeHandler = ^{
             [weakSelf persistDefaultWorkspaceUtilityFrames];
@@ -2987,10 +2991,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                                           target:self
                                                           action:@selector(dismissSettingsToolWindow:)];
     }
-    if (workspacesTool) {
+    if (pinnedWorkspaces)
         [self applyInitialPlacementToWorkspacesWindow:windowView];
+    if (workspacesTool)
         [self.desktopSurfaceView bringSubviewToFront:windowView];
-    }
     [self refreshDockButtons];
     return windowView;
 }
