@@ -148,13 +148,28 @@
     gret 1
     write_bullshit 64, atomic_cmpxchg8b
 
-2:  #All unaligned paths
+2:  # Unaligned LOCK CMPXCHG8B: the ARM exclusive load above needs 8-byte
+    # alignment, but x86 permits unaligned LOCK operands (and the i386 ABI
+    # aligns int64 to only 4 bytes, so glibc/Python 64-bit atomics land here).
+    # Spill the host-cached GP regs, then run a software-atomic compare-exchange
+    # under the global atomic lock via a C helper (cross-page + #PF safe).
+    # Returns 0 = ok (reload EAX/EDX, continue), 1 = fault (segfault_write).
+    str eax, [_cpu, CPU_eax]
+    str ebx, [_cpu, CPU_ebx]
+    str ecx, [_cpu, CPU_ecx]
+    str edx, [_cpu, CPU_edx]
     save_c
     mov x0, _cpu
-    mov w1, _addr
-    mov w2, 5
-    bl NAME(helper_trace_unaligned_atomic)
+    sub x1, _tlb, TLB_entries
+    mov w2, _addr
+    bl NAME(helper_atomic_cmpxchg8b)
+    mov x19, x0
     restore_c
+    ldr eax, [_cpu, CPU_eax]
+    ldr edx, [_cpu, CPU_edx]
+    cbnz x19, 5f
+    gret 1
+5:
     b segfault_write
 
 
