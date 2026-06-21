@@ -27,6 +27,10 @@ correctly.
   - **full** — [`aether_for_llms_and_others.md`](aether_for_llms_and_others.md) (~980 lines)
   - **small** — [`aether_for_llms_with_small_contexts.md`](aether_for_llms_with_small_contexts.md) (~500 lines)
   There is no `none` condition here — that is the no-guide note's department.
+  Both guides are version-stamped; this sweep used **guide version 2026-06-21-1**.
+- **Quantization.** Local models are run at the quant LM Studio reports (shown
+  per row below); the 122B is served NVFP4. Quant is part of the result — a
+  heavier quant of the same model may score differently.
 - **Metrics, paired.** Following the companion note's rule we never report
   exact-match alone. **exact** (stdout matches the oracle) is paired with
   **run-ok** (the program compiled and ran). The gap between the two is where
@@ -42,10 +46,10 @@ correctly.
 
 ## Headline result
 
-| model | class | small (exact / run-ok) | full (exact / run-ok) |
+| model | class · quant | small (exact / run-ok) | full (exact / run-ok) |
 |---|---|---|---|
-| Qwen3.5-122B-A10B (NVFP4) | 122B MoE | 29/30 · 30/30 | **30/30 · 30/30** |
-| Qwen3.6-35B-A3B | 35B MoE | **30/30 · 30/30** | **30/30 · 30/30** |
+| Qwen3.5-122B-A10B | 122B MoE · NVFP4 | 29/30 · 30/30 | **30/30 · 30/30** |
+| Qwen3.6-35B-A3B | 35B MoE · 8-bit | **30/30 · 30/30** | **30/30 · 30/30** |
 
 Qwen3.5-122B with the full guide scores a **clean 30/30** — every task, exact.
 With the condensed guide it scores 29/30, and the single "miss" still **compiled
@@ -69,14 +73,15 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*3 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran.*
+*4 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran.*
 
-| model | small | full |
-|---|---|---|
-| `qwen3.5-122b-a10b-nvfp4` | 29/30 · 30✓ | 30/30 · 30✓ |
-| `qwen/qwen3.6-35b-a3b` | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.5-2b-mlx` | 9/30 · 12✓ | 13/29 · 23✓ |
-| `bonsai-8b-mlx` | *load-failed* | |
+| model | quant | small | full |
+|---|---|---|---|
+| `qwen3.5-122b-a10b-nvfp4` | NVFP4 | 29/30 · 30✓ | 30/30 · 30✓ |
+| `qwen/qwen3.6-35b-a3b` | 8bit | 30/30 · 30✓ | 30/30 · 30✓ |
+| `stable-code-instruct-3b` | Q8_0 | 0/0 · 0✓ | — |
+| `qwen3.5-2b-mlx` | 4bit | 9/30 · 12✓ | 13/30 · 23✓ |
+| `bonsai-8b-mlx` | 1bit | *load-failed* | |
 <!-- LEADERBOARD:END -->
 
 Early, robust shape:
