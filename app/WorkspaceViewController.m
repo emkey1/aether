@@ -614,9 +614,9 @@ static CGSize ISHWorkspaceLauncherContentSize(void) {
     NSUInteger count = ISHWorkspaceLauncherShortcuts().count;
     CGFloat inset = phone ? 12.0 : 16.0;
     CGFloat spacing = 8.0;
-    CGFloat rowHeight = phone ? 60.0 : 66.0;
+    CGFloat rowHeight = phone ? 48.0 : 52.0;
     CGFloat editHeight = phone ? 40.0 : 44.0;
-    CGFloat width = phone ? 186.0 : 226.0;
+    CGFloat width = phone ? 168.0 : 200.0;
     CGFloat rowsHeight = count > 0 ? (count * rowHeight + (count - 1) * spacing) : (phone ? 28.0 : 32.0);
     CGFloat height = inset + rowsHeight + spacing + editHeight + inset;
     return CGSizeMake(width, height);
@@ -3509,6 +3509,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                             handler:^(__unused UIAlertAction *action) {
         [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
     }]];
+    if (ISHWorkspaceSupportsSceneWindows()) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"New Workspace"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self openNewWorkspaceWindow:nil];
+        }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
@@ -6692,14 +6699,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
     run.translatesAutoresizingMaskIntoConstraints = NO;
     run.tag = (NSInteger)index;
-    run.contentEdgeInsets = UIEdgeInsetsMake(8, 12, 8, 12);
+    run.contentEdgeInsets = UIEdgeInsetsMake(4, 6, 4, 6);
     run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     run.titleLabel.numberOfLines = 0;
     run.layer.cornerRadius = 12;
     run.layer.borderWidth = 1;
     run.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
     run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
-    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 60.0 : 66.0;
+    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 48.0 : 52.0;
     [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
 
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
@@ -6707,13 +6714,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
     UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.grayColor];
     NSMutableAttributedString *label = [[NSMutableAttributedString alloc] initWithString:name attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.5 weight:UIFontWeightSemibold],
+        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.2 weight:UIFontWeightSemibold],
         NSForegroundColorAttributeName: primary,
         NSParagraphStyleAttributeName: style,
     }];
     if (command.length > 0 && ![command isEqualToString:name]) {
         [label appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:command] attributes:@{
-            NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) * 1.5 weight:UIFontWeightRegular],
+            NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) * 1.2 weight:UIFontWeightRegular],
             NSForegroundColorAttributeName: secondary,
             NSParagraphStyleAttributeName: style,
         }]];
