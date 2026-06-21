@@ -4490,8 +4490,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier {
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] && !ISHWorkspaceSupportsSceneWindows())
-        return;
+    // The Desktops applet manages in-app Desktops, available on every device (incl. iPhone).
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
         ISHWorkspaceContainedWindowView *existingWindow = [self desktopWindowForToolIdentifier:toolIdentifier];
         if (existingWindow != nil) {
@@ -4678,9 +4677,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (NSArray<NSDictionary<NSString *, id> *> *)dockUtilityGroupDescriptors {
     NSMutableArray<NSDictionary<NSString *, id> *> *workspaceItems = [NSMutableArray arrayWithObject:@{@"title": @"Layout Manager", @"identifier": @"dashboard"}];
-    if (ISHWorkspaceSupportsSceneWindows()) {
-        [workspaceItems addObject:@{@"title": @"Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
-    }
+    // Desktops are in-app (not iOS scenes), so the applet is available on every device.
+    [workspaceItems addObject:@{@"title": @"Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier}];
     [workspaceItems addObjectsFromArray:@[
         @{@"title": @"Launcher", @"identifier": ISHWorkspaceToolLauncherIdentifier},
         @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
@@ -7106,49 +7104,36 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [_contentStack addArrangedSubview:header];
     [_contentStack addArrangedSubview:detail];
 
-    NSArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = nil;
+    // Desktops (row 1) are in-app and available on every device, incl. iPhone. "New Workspace"
+    // opens a real iOS scene window, so it's offered only on scene-capable devices (iPad
+    // multi-window); elsewhere the last row is just the Clock quick action.
+    NSMutableArray<NSArray<NSDictionary<NSString *, NSString *> *> *> *rows = [NSMutableArray arrayWithArray:@[
+        @[
+            @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
+            @{@"title": @"Desktops", @"subtitle": @"Manage in-app Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
+        ],
+        @[
+            @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
+            @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
+        ],
+        @[
+            @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
+            @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
+        ],
+        @[
+            @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
+            @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
+        ],
+    ]];
     if (ISHWorkspaceSupportsSceneWindows()) {
-        rows = @[
-            @[
-                @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
-                @{@"title": @"Desktops", @"subtitle": @"Manage in-app Desktops", @"identifier": ISHWorkspaceToolWorkspacesIdentifier},
-            ],
-            @[
-                @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
-                @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
-            ],
-            @[
-                @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
-                @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
-            ],
-            @[
-                @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
-                @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
-            ],
-            @[
-                @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
-                @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
-            ],
-        ];
+        [rows addObject:@[
+            @{@"title": @"New Workspace", @"subtitle": @"Open another workspace window", @"identifier": @"new-workspace"},
+            @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
+        ]];
     } else {
-        rows = @[
-            @[
-                @{@"title": @"Layout Manager", @"subtitle": @"Save or restore this workspace", @"identifier": @"dashboard"},
-                @{@"title": @"Themes", @"subtitle": @"Colors, density, wallpaper", @"identifier": ISHWorkspaceToolThemesIdentifier},
-            ],
-            @[
-                @{@"title": @"Session Shell", @"subtitle": @"Open or focus the shell", @"identifier": @"shell"},
-                @{@"title": @"System Console", @"subtitle": @"Open or focus the console", @"identifier": @"console"},
-            ],
-            @[
-                @{@"title": @"Sessions", @"subtitle": @"Inspect live terminals", @"identifier": ISHWorkspaceToolSessionsIdentifier},
-                @{@"title": @"Storage", @"subtitle": @"Root and container usage", @"identifier": ISHWorkspaceToolStorageIdentifier},
-            ],
-            @[
-                @{@"title": @"Boot Images", @"subtitle": @"Manage installed roots", @"identifier": ISHWorkspaceToolFilesystemsIdentifier},
-                @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
-            ],
-        ];
+        [rows addObject:@[
+            @{@"title": @"Clock", @"subtitle": @"Quick local time", @"identifier": ISHWorkspaceToolClockIdentifier},
+        ]];
     }
 
     for (NSArray<NSDictionary<NSString *, NSString *> *> *rowDescriptors in rows) {
