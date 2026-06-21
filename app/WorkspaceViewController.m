@@ -3609,6 +3609,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
         if (windowView == self.dockWindow || windowView == self.dashboardWindow)
             continue;
+        // The Workspaces applet is global chrome — keep it visible on every Desktop.
+        if ([windowView.workspaceToolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier]) {
+            windowView.hidden = NO;
+            continue;
+        }
         windowView.hidden = (windowView.workspaceDesktopIndex != self.activeDesktopIndex);
     }
 }
