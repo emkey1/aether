@@ -2799,6 +2799,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             descriptor[@"sessionTerminalUUID"] = sessionTerminalUUID.UUIDString;
         if (terminalRole.length > 0)
             descriptor[@"terminalRole"] = terminalRole;
+        descriptor[@"desktopIndex"] = @(windowView.workspaceDesktopIndex);
         return descriptor;
     }
 
@@ -2807,6 +2808,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             @"kind": ISHWorkspaceSavedLayoutKindTool,
             @"frame": frameDescriptor,
             @"toolIdentifier": windowView.workspaceToolIdentifier,
+            @"desktopIndex": @(windowView.workspaceDesktopIndex),
         };
     }
 
@@ -3128,6 +3130,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             [self applySavedFrameDescriptor:frameDescriptor
                                    toWindow:windowView
                                fallbackSize:ISHWorkspacePreferredToolContentSize(toolIdentifier)];
+            [self assignRestoredWindow:windowView toDesktopFromDescriptor:descriptor];
             continue;
         }
         if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindTerminal]) {
@@ -3149,10 +3152,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                 [self applySavedFrameDescriptor:frameDescriptor
                                        toWindow:windowView
                                    fallbackSize:ISHWorkspacePreferredTerminalContentSize()];
+                [self assignRestoredWindow:windowView toDesktopFromDescriptor:descriptor];
             }
         }
     }
 
+    [self applyDesktopVisibility];
     [self ensureDefaultWorkspaceUtilitiesOpen];
     [self refreshWorkspaceStatus];
     [self applyCompactSizingToOpenWorkspaceToolWindows];
@@ -3597,19 +3602,33 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 // In-app Desktops: a Desktop is a set of contained windows sharing a workspaceDesktopIndex.
 // Only the active Desktop's windows are visible; switching just shows/hides by index (the dock
 // and Layout Manager are global chrome and stay put). Terminals keep running while hidden.
-- (void)switchToDesktopIndex:(NSInteger)index {
-    index = MAX((NSInteger)0, MIN(index, self.desktopCount - 1));
-    if (index == self.activeDesktopIndex)
-        return;
-    self.activeDesktopIndex = index;
+- (void)applyDesktopVisibility {
     for (UIView *view in self.desktopWindows) {
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
             continue;
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
         if (windowView == self.dockWindow || windowView == self.dashboardWindow)
             continue;
-        windowView.hidden = (windowView.workspaceDesktopIndex != index);
+        windowView.hidden = (windowView.workspaceDesktopIndex != self.activeDesktopIndex);
     }
+}
+
+// Put a restored window back on its saved Desktop, growing the Desktop count to fit.
+- (void)assignRestoredWindow:(ISHWorkspaceContainedWindowView *)windowView toDesktopFromDescriptor:(NSDictionary<NSString *, id> *)descriptor {
+    if (windowView == nil)
+        return;
+    NSInteger index = MAX((NSInteger)0, [descriptor[@"desktopIndex"] integerValue]);
+    windowView.workspaceDesktopIndex = index;
+    if (index + 1 > self.desktopCount)
+        self.desktopCount = index + 1;
+}
+
+- (void)switchToDesktopIndex:(NSInteger)index {
+    index = MAX((NSInteger)0, MIN(index, self.desktopCount - 1));
+    if (index == self.activeDesktopIndex)
+        return;
+    self.activeDesktopIndex = index;
+    [self applyDesktopVisibility];
     [self showDesktopIndicator];
 }
 
