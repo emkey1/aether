@@ -614,7 +614,7 @@ static CGSize ISHWorkspaceLauncherContentSize(void) {
     NSUInteger count = ISHWorkspaceLauncherShortcuts().count;
     CGFloat inset = phone ? 12.0 : 16.0;
     CGFloat spacing = 8.0;
-    CGFloat rowHeight = phone ? 48.0 : 52.0;
+    CGFloat rowHeight = phone ? 28.0 : 30.0;
     CGFloat editHeight = phone ? 40.0 : 44.0;
     CGFloat width = phone ? 168.0 : 200.0;
     CGFloat rowsHeight = count > 0 ? (count * rowHeight + (count - 1) * spacing) : (phone ? 28.0 : 32.0);
@@ -3117,6 +3117,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self applyCompactSizingToOpenWorkspaceToolWindows];
 }
 
+// Returns the saved tool-window descriptor for a tool identifier in a saved layout, or nil.
+- (NSDictionary<NSString *, id> *)savedLayout:(NSArray<NSDictionary<NSString *, id> *> *)savedLayout
+                    toolDescriptorForIdentifier:(NSString *)toolIdentifier {
+    if (toolIdentifier.length == 0 || ![savedLayout isKindOfClass:NSArray.class])
+        return nil;
+    for (NSDictionary<NSString *, id> *descriptor in savedLayout) {
+        if ([descriptor[@"kind"] isEqualToString:ISHWorkspaceSavedLayoutKindTool] &&
+            [descriptor[@"toolIdentifier"] isEqualToString:toolIdentifier])
+            return descriptor;
+    }
+    return nil;
+}
+
 - (ISHWorkspaceContainedWindowView *)desktopWindowDisplayingTerminalUUID:(NSUUID *)terminalUUID {
     if (terminalUUID == nil)
         return nil;
@@ -3859,8 +3872,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     if (!self.didEnsureDefaultWorkspaceUtilities) {
         self.didEnsureDefaultWorkspaceUtilities = YES;
+        NSArray<NSDictionary<NSString *, id> *> *savedLayout = [self savedWorkspaceLayoutForCurrentScene];
+        BOOL hasSavedLayout = [savedLayout isKindOfClass:NSArray.class] && savedLayout.count > 0;
         [self ensureDefaultWorkspaceUtilitiesOpen];
-        [self ensureDefaultLLMChatWindowOpenIfNeeded];
+        // Honor a saved arrangement: don't force the LLM chat back open if it was closed before
+        // saving, and reopen the Launcher (at its saved spot) if it was shown on the desktop.
+        if (!hasSavedLayout || [self savedLayout:savedLayout toolDescriptorForIdentifier:ISHWorkspaceToolLLMIdentifier] != nil)
+            [self ensureDefaultLLMChatWindowOpenIfNeeded];
+        NSDictionary<NSString *, id> *launcherDescriptor =
+            hasSavedLayout ? [self savedLayout:savedLayout toolDescriptorForIdentifier:ISHWorkspaceToolLauncherIdentifier] : nil;
+        if (launcherDescriptor != nil && [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier] == nil) {
+            ISHWorkspaceContainedWindowView *launcherWindow = [self openWorkspaceToolWindowWithIdentifier:ISHWorkspaceToolLauncherIdentifier];
+            [self applySavedFrameDescriptor:launcherDescriptor[@"frame"]
+                                   toWindow:launcherWindow
+                               fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolLauncherIdentifier)];
+        }
     }
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
@@ -6699,32 +6725,24 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
     run.translatesAutoresizingMaskIntoConstraints = NO;
     run.tag = (NSInteger)index;
-    run.contentEdgeInsets = UIEdgeInsetsMake(4, 6, 4, 6);
+    run.contentEdgeInsets = UIEdgeInsetsMake(2, 3, 2, 3);
     run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     run.titleLabel.numberOfLines = 0;
     run.layer.cornerRadius = 12;
     run.layer.borderWidth = 1;
     run.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
     run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
-    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 48.0 : 52.0;
+    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 28.0 : 30.0;
     [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
 
     NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
     style.alignment = NSTextAlignmentLeft;
     UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
-    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.grayColor];
-    NSMutableAttributedString *label = [[NSMutableAttributedString alloc] initWithString:name attributes:@{
+    NSAttributedString *label = [[NSAttributedString alloc] initWithString:name attributes:@{
         NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.2 weight:UIFontWeightSemibold],
         NSForegroundColorAttributeName: primary,
         NSParagraphStyleAttributeName: style,
     }];
-    if (command.length > 0 && ![command isEqualToString:name]) {
-        [label appendAttributedString:[[NSAttributedString alloc] initWithString:[@"\n" stringByAppendingString:command] attributes:@{
-            NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption1) * 1.2 weight:UIFontWeightRegular],
-            NSForegroundColorAttributeName: secondary,
-            NSParagraphStyleAttributeName: style,
-        }]];
-    }
     [run setAttributedTitle:label forState:UIControlStateNormal];
     [run addTarget:self action:@selector(runShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
     return run;
