@@ -2936,6 +2936,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (ISHWorkspaceContainedWindowView *)openWorkspaceToolWindowWithIdentifier:(NSString *)toolIdentifier {
+    // Global tools (Desktops/Launcher) are singletons shared by every Desktop — reuse the one
+    // window instead of creating a second with its own separate state.
+    if ([self isGlobalToolIdentifier:toolIdentifier]) {
+        ISHWorkspaceContainedWindowView *existing = [self desktopWindowForToolIdentifier:toolIdentifier];
+        if (existing != nil)
+            return existing;
+    }
     UIViewController *viewController = ISHCreateWorkspaceToolViewController(toolIdentifier);
     if (viewController == nil)
         return nil;
@@ -3604,6 +3611,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 // In-app Desktops: a Desktop is a set of contained windows sharing a workspaceDesktopIndex.
 // Only the active Desktop's windows are visible; switching just shows/hides by index (the dock
 // and Layout Manager are global chrome and stay put). Terminals keep running while hidden.
+// The Desktops applet and the Launcher are global singletons — one window shared by every
+// Desktop, never duplicated, so their state (launcher items, the Desktop list) stays consistent.
+- (BOOL)isGlobalToolIdentifier:(NSString *)toolIdentifier {
+    return [toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
+           [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier];
+}
+
 - (void)applyDesktopVisibility {
     for (UIView *view in self.desktopWindows) {
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
@@ -3611,11 +3625,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
         if (windowView == self.dockWindow || windowView == self.dashboardWindow)
             continue;
-        // The Desktops applet and the Launcher are global chrome — when shown, they appear on
-        // every Desktop (one window, so it keeps whatever position it was last left at).
-        NSString *toolIdentifier = windowView.workspaceToolIdentifier;
-        if ([toolIdentifier isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
-            [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier]) {
+        // Global chrome appears on every Desktop, brought to front so it isn't covered.
+        if ([self isGlobalToolIdentifier:windowView.workspaceToolIdentifier]) {
             windowView.hidden = NO;
             [self.desktopSurfaceView bringSubviewToFront:windowView];
             continue;
@@ -3665,9 +3676,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
         if (windowView == self.dockWindow || windowView == self.dashboardWindow)
             continue;
-        NSString *toolId = windowView.workspaceToolIdentifier;
-        if ([toolId isEqualToString:ISHWorkspaceToolWorkspacesIdentifier] ||
-            [toolId isEqualToString:ISHWorkspaceToolLauncherIdentifier])
+        if ([self isGlobalToolIdentifier:windowView.workspaceToolIdentifier])
             continue;
         if (windowView.workspaceDesktopIndex == indexToRemove) {
             if (windowView.closeHandler != nil)
