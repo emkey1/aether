@@ -220,7 +220,11 @@ and does not exist yet. When that happens we treat it as evidence about the
   are unaffected). The discipline of §3.2 still held: the *unanimous, identical*
   failure across capable models was the bug report, and the compile-fail vs
   wrong-output split in the failure log (§3.6) is what marked it a language bug
-  rather than a model error.
+  rather than a model error. Re-scoring the cohort against the fixed compiler —
+  no retraining, no re-inference — recovered the task for the five models that
+  had written `n % 2`, while leaving untouched the three that had side-stepped it
+  with a division-based parity check. The fix paid out exactly where the models
+  had pointed.
 
 This is the thesis of the architecture doc in practice: when the benchmark says
 the language is wrong, change the language. The discipline is to do it only when
@@ -386,6 +390,35 @@ answer) and outcome-shaped reasoning (reinforcement on the real signal, compile
 and exact-match, so the reasoning is rewarded only when it helps), paired with
 tasks hard enough to be worth reasoning about (§3.6).
 
+### 3.8 Capability injection: training on hard shapes, where there is room
+
+§3.6 left a question — the fine-tunes are brittle on novel hard shapes, so can
+*training* on such shapes push the frontier out? We tested it directly. We
+generated 32 oracle-verified programs in the same eight shapes as the hard
+benchmark but in disjoint scenarios, merged them into the corpus, and retrained
+the two models at the ends of the generalization spectrum: the dense 24B (the
+*weakest* hard generalizer at 3–4/8, so the most room) and the A3B MoE (the
+*best* at 6–7/8, so the least). The outcome is sharply architecture-dependent:
+
+| model | corpus | hard /8 | easy /30 |
+|---|---|---|---|
+| 24B dense | 2x (baseline) | 3 | 29 |
+| 24B dense | **2x + large** | **7** | 29 |
+| A3B MoE | 2x (baseline) | 7 | 29 |
+| A3B MoE | 2x + large | 6 | 24 |
+
+The dense 24B **gained four hard tasks** (3 → 7) while holding the easy bench
+exactly (29 → 29), reaching 7/8 — the best score anything posts on the hard set.
+The MoE did the reverse: no hard gain (it was already near its ceiling) and a
+five-point easy dilution; trimming its base corpus to make room (a 0.75x variant)
+did not rescue it, because the easy loss tracks the hard examples themselves, not
+the corpus size. The reading is the §3.1 rule restated for transfer: injection
+works only where there is **absorption headroom** — a dense model that, by "scale
+the corpus to the model," can take the *larger* base *plus* the new examples. The
+saturated MoE, corpus-insensitive by §3.1, has nowhere to put them and only loses
+ground. The win is real but **bounded**: injection closed the dense model's gap
+*to the MoE's level*, not past it. The frontier moved; it did not vanish.
+
 ---
 
 ## 4. Methodological takeaways
@@ -432,8 +465,12 @@ tasks hard enough to be worth reasoning about (§3.6).
   is **capability injection**: retraining the 24B and the A3B on the corpus plus
   ~30 oracle-verified hard examples (in scenarios disjoint from the hard
   benchmark) to test whether training on hard shapes pushes the frontier out
-  without diluting the easy bench. **Open question:** does the gap close, and
-  does the MoE's generalization edge survive once both models see hard examples?
+  without diluting the easy bench. **Resolved (§3.8):** the gap *closes* on the
+  dense 24B (hard 3 → 7, easy flat at 29), reaching the MoE's level; the same
+  examples only *diluted* the saturated MoE (no hard gain, easy 29 → 24, and a
+  0.75x base-trim did not help). Injection is an absorption-capacity tool, not a
+  universal one — it pays where §3.1 says corpus would, on a dense model with
+  room.
 - **Reasoning-before-coding is net-negative under our current training (§3.7),
   and that is an open problem, not a closed one.** Thinking hurts at every corpus
   size and on the hard set, and the all-rep consistency collapse shows it injects
