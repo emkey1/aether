@@ -65,7 +65,21 @@ The headline is the *ceiling*. The more interesting question this sweep answers
 is **where the floor is** — how far down the capability ladder the guide keeps
 working, and where it stops. A sweep across ~49 locally-served models (2B → ~45B,
 the ≥60B models served separately) is filling that gradient in on the v2/30
-instrument; the table here will be completed as it lands. Early, robust shape:
+instrument. **Live standings**, auto-updated as models land (exact out of 30;
+✓ = compiled and ran):
+
+<!-- LEADERBOARD:START -->
+*3 of 49 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran.*
+
+| model | small | full |
+|---|---|---|
+| `qwen3.5-122b-a10b-nvfp4` | 29/30 · 30✓ | 30/30 · 30✓ |
+| `qwen/qwen3.6-35b-a3b` | 30/30 · 30✓ | 30/30 · 30✓ |
+| `qwen3.5-2b-mlx` | 9/30 · 12✓ | 10/21 · 17✓ |
+| `bonsai-8b-mlx` | *load-failed* | |
+<!-- LEADERBOARD:END -->
+
+Early, robust shape:
 
 - **A guide carries reasoning, not "code-model-ness."** A small *general thinking*
   model writes valid, correct Aether for a real share of tasks with the guide,
