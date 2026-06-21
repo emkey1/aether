@@ -419,6 +419,36 @@ saturated MoE, corpus-insensitive by §3.1, has nowhere to put them and only los
 ground. The win is real but **bounded**: injection closed the dense model's gap
 *to the MoE's level*, not past it. The frontier moved; it did not vanish.
 
+### 3.9 A recency floor: older models write valid but incorrect Aether
+
+Across model *vintages* a recency effect appears, and the cleanest evidence
+isolates it from corpus and size. DeepSeek-Coder-6.7B (Nov 2023) and
+Qwen2.5-Coder-7B (Sep 2024) are both ~7B code models; trained on the *identical*
+ml1x corpus with the *identical* recipe, ten months apart, they land sixteen
+points apart on the no-guide bench:
+
+| model | release | v2 /30 | run_ok /90 |
+|---|---|---|---|
+| DeepSeek-Coder-6.7B | Nov 2023 | 12 | 81 |
+| Qwen2.5-Coder-7B | Sep 2024 | 28 | 84 |
+
+The gap is **not in syntax**. Both compile ~90% of their generations (run_ok 81
+and 84 of 90); the older model simply produces *valid, wrong* programs — only 12
+of 30 are correct against 28. This is the §1 run-ok-vs-exact split at the level
+of model vintage: recency buys correctness, not the ability to produce parseable
+Aether. (Within one family the ladder repeats: DeepSeek-Coder-6.7B 12,
+DeepSeek-V2-Lite 21, the 2024-and-later models 28–30.) And it is not a corpus
+artifact — DeepSeek-Coder scored 10/30 on the older v8 corpus and 12/30 here,
+essentially flat, so it sits at a correctness ceiling regardless of what it is
+trained on.
+
+The same run closes a loop with §3.8. Injection helped the dense 24B because it
+had absorption *capacity*; the saturated MoE only diluted because it had no
+*room*. DeepSeek-Coder is the third corner of that square — abundant room (12/30)
+but no capacity — and training it on the hard examples diluted it too (12 → 8).
+So the injection gain requires **both** headroom and capacity: a model can have
+one without the other and gain nothing.
+
 ---
 
 ## 4. Methodological takeaways
