@@ -1,0 +1,13 @@
+#!/bin/bash
+# Auto-bump the YYYY-MM-DD-N version stamp on any Aether guide being committed,
+# so a guide edit can never ship with a stale version. Never blocks a commit.
+#
+# Activate once per clone:
+#     git config core.hooksPath tools/hooks
+#
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+guides=$(git diff --cached --name-only --diff-filter=d 2>/dev/null \
+  | grep -E '^docs/aether_for_llms_(and_others|with_small_contexts)\.md$' || true)
+[ -z "$guides" ] && exit 0
+( cd "$root" && python3 tools/bump_guide_version.py $guides && git add $guides ) >/dev/null 2>&1
+exit 0
