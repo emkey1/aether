@@ -75,7 +75,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 |---|---|---|
 | `qwen3.5-122b-a10b-nvfp4` | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.5-2b-mlx` | 9/30 · 12✓ | 10/21 · 17✓ |
+| `qwen3.5-2b-mlx` | 9/30 · 12✓ | 13/29 · 23✓ |
 | `bonsai-8b-mlx` | *load-failed* | |
 <!-- LEADERBOARD:END -->
 
