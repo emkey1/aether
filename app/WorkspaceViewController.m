@@ -3624,7 +3624,31 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
            [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier];
 }
 
+// Defensive: if more than one window exists for a global tool — duplicates created before the
+// singleton guard, or restored from an old layout that had them on several Desktops — keep the
+// first and close the rest so the Launcher / Desktops applet is genuinely one shared instance.
+- (void)collapseGlobalToolDuplicates {
+    for (NSString *toolIdentifier in @[ISHWorkspaceToolWorkspacesIdentifier, ISHWorkspaceToolLauncherIdentifier]) {
+        ISHWorkspaceContainedWindowView *kept = nil;
+        for (UIView *view in self.desktopWindows.copy) {
+            if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+                continue;
+            ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
+            if (![windowView.workspaceToolIdentifier isEqualToString:toolIdentifier])
+                continue;
+            if (kept == nil) {
+                kept = windowView;
+                windowView.workspaceDesktopIndex = 0;
+                windowView.hidden = NO;
+            } else if (windowView.closeHandler != nil) {
+                windowView.closeHandler();
+            }
+        }
+    }
+}
+
 - (void)applyDesktopVisibility {
+    [self collapseGlobalToolDuplicates];
     for (UIView *view in self.desktopWindows) {
         if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
             continue;
@@ -4140,6 +4164,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                    toWindow:launcherWindow
                                fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolLauncherIdentifier)];
         }
+        [self applyDesktopVisibility];
     }
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
