@@ -679,13 +679,13 @@ static CGSize ISHWorkspaceLauncherContentSize(void) {
 static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
     BOOL phone = ISHWorkspaceUsesPhoneLayout();
     NSUInteger n = MAX(count, (NSUInteger)1);
-    CGFloat rowHeight = phone ? 34.0 : 38.0;
-    CGFloat newDesktopHeight = phone ? 36.0 : 40.0;
-    CGFloat spacing = 6.0;
-    CGFloat cardPadding = 16.0;
-    CGFloat actionsHeight = phone ? 40.0 : 44.0;
-    CGFloat chrome = phone ? 28.0 : 32.0;
-    CGFloat width = phone ? 234.0 : 254.0;
+    CGFloat rowHeight = phone ? 30.0 : 38.0;
+    CGFloat newDesktopHeight = phone ? 30.0 : 40.0;
+    CGFloat spacing = phone ? 5.0 : 6.0;
+    CGFloat cardPadding = phone ? 12.0 : 16.0;
+    CGFloat actionsHeight = phone ? 36.0 : 44.0;
+    CGFloat chrome = phone ? 24.0 : 32.0;
+    CGFloat width = phone ? 214.0 : 254.0;
     CGFloat rowsHeight = n * rowHeight + n * spacing + newDesktopHeight;
     CGFloat height = rowsHeight + cardPadding + actionsHeight + chrome;
     return CGSizeMake(width, height);
@@ -7434,12 +7434,14 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    button.layer.cornerRadius = 12;
+    button.titleLabel.font = [UIFont systemFontOfSize:(ISHWorkspaceUsesPhoneLayout() ? 14.0 : 16.0) weight:UIFontWeightSemibold];
+    button.titleLabel.adjustsFontSizeToFitWidth = YES;
+    button.titleLabel.minimumScaleFactor = 0.7;
+    button.layer.cornerRadius = ISHWorkspaceUsesPhoneLayout() ? 9.0 : 12.0;
     button.layer.borderWidth = 1;
     [button setTitle:title forState:UIControlStateNormal];
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 36.0 : 40.0].active = YES;
+    [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 40.0].active = YES;
     return button;
 }
 
@@ -7651,7 +7653,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     jump.backgroundColor = active ? [accent colorWithAlphaComponent:0.22] : nil;
     [jump setTitle:[NSString stringWithFormat:@"Desktop %ld", (long)(index + 1)] forState:UIControlStateNormal];
     [jump setTitleColor:active ? accent : (theme[@"primary"] ?: UIColor.darkTextColor) forState:UIControlStateNormal];
-    [jump.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 34.0 : 38.0].active = YES;
+    [jump.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 38.0].active = YES;
     [jump addTarget:self action:@selector(jumpToDesktopFromApplet:) forControlEvents:UIControlEventTouchUpInside];
     [row addArrangedSubview:jump];
 
@@ -7734,11 +7736,12 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [layoutRow addArrangedSubview:[self workspacesIconButtonWithSymbol:@"arrow.clockwise" fallback:@"Restore" action:@selector(restoreLayoutFromApplet:)]];
         [_contentStack addArrangedSubview:layoutRow];
     }
+    CGFloat listInset = ISHWorkspaceUsesPhoneLayout() ? 6.0 : 8.0;
     [NSLayoutConstraint activateConstraints:@[
-        [_rowsStack.topAnchor constraintEqualToAnchor:listCard.topAnchor constant:8],
-        [_rowsStack.leadingAnchor constraintEqualToAnchor:listCard.leadingAnchor constant:8],
-        [_rowsStack.trailingAnchor constraintEqualToAnchor:listCard.trailingAnchor constant:-8],
-        [_rowsStack.bottomAnchor constraintEqualToAnchor:listCard.bottomAnchor constant:-8],
+        [_rowsStack.topAnchor constraintEqualToAnchor:listCard.topAnchor constant:listInset],
+        [_rowsStack.leadingAnchor constraintEqualToAnchor:listCard.leadingAnchor constant:listInset],
+        [_rowsStack.trailingAnchor constraintEqualToAnchor:listCard.trailingAnchor constant:-listInset],
+        [_rowsStack.bottomAnchor constraintEqualToAnchor:listCard.bottomAnchor constant:-listInset],
     ]];
 
     [_contentStack addArrangedSubview:listCard];
