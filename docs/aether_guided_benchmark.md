@@ -160,6 +160,22 @@ separate table because the v2/30 board is already wide.
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/4 · 2✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
+**Preliminary: the full-guide advantage is a middle-band effect.** A first pass
+at the weaker models on this hard set lands a result neither obvious direction
+predicted. On v2/30, the full guide's extra context helped *exactly* the weak
+models (granite-4-tiny was full +3, gemma-3n full +2, deepseek-r1-14b full +1).
+On the hard set that advantage does not widen; it vanishes. All three crater to
+near-zero (0 to 2 of 8) on **both** guides, small tying full, and most outputs
+no longer even compile. The reason is a floor: these models cannot solve the
+hard tasks at all, so guide size has nothing to bite on. Put that next to the
+top of the board, where the strongest models ace both sets either way (small ≈
+full at the ceiling), and the shape is clear: the full guide's edge lives only
+in the **middle band** — on tasks hard enough that the extra context is the
+margin, yet still within the model's reach. More context helps precisely when
+the task is hard-but-achievable, and nowhere else. (Preliminary: three weak
+models so far; the rest of the local sweep will fill this in, and the claim
+firms up or breaks with them.)
+
 ## What this does and does not show
 
 - It shows that **adoption does not require fine-tuning.** A capable model plus
