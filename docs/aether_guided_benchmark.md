@@ -85,7 +85,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen/qwen3.6-35b-a3b` | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `mistralai/devstral-small-2-2512` | 4bit | MLX | 2025-12 | 5/5 · 5✓ | — |
 | `qwen2.5-7b-instruct-1m` | Q8_0 | GGUF | 2025-01 | — | — |
-| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | 0/3 · 0✓ | — |
+| `google/gemma-4-12b-qat` | Q4_0 | GGUF | 2026-06 | 0/6 · 0✓ | — |
 | `gemma-4-e4b-it-mlx@4bit` | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 19/30 · 20✓ |
