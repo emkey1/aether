@@ -3006,10 +3006,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     if (pinnedWorkspaces)
         [self applyInitialPlacementToWorkspacesWindow:windowView];
-    if (launcherTool) {
+    if (launcherTool)
         [self applyInitialPlacementToLauncherWindow:windowView];
-        NSLog(@"[LAUNCHER-DIAG] window opened/recreated -> frame=%@", NSStringFromCGRect(windowView.frame));
-    }
     if (workspacesTool)
         [self.desktopSurfaceView bringSubviewToFront:windowView];
     [self refreshDockButtons];
@@ -4215,7 +4213,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     if (!self.didEnsureDefaultWorkspaceUtilities) {
         self.didEnsureDefaultWorkspaceUtilities = YES;
-        NSLog(@"[LAUNCHER-DIAG] viewDidAppear: fresh VC, ensureDefaultWorkspaceUtilities running (restore path)");
         NSArray<NSDictionary<NSString *, id> *> *savedLayout = [self savedWorkspaceLayoutForCurrentScene];
         BOOL hasSavedLayout = [savedLayout isKindOfClass:NSArray.class] && savedLayout.count > 0;
         [self ensureDefaultWorkspaceUtilitiesOpen];
@@ -4422,7 +4419,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
     }
-    NSLog(@"[LAUNCHER-DIAG] foreground activation (workspaceActivationDidChange)");
     [self restoreLauncherWindowPlacement];
     // The Desktops applet is a pinned utility only on iPad. On phone it uses normal cascade
     // placement, so re-pinning it here would yank it off-screen on every scene activation
@@ -4646,7 +4642,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (frameDescriptor != nil)
         [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
                                                 forKey:ISHWorkspacePersistentLauncherWindowFrameDefaultsKey];
-    NSLog(@"[LAUNCHER-DIAG] persist frame=%@", NSStringFromCGRect(launcherWindow.frame));
 }
 
 - (void)applyInitialPlacementToLauncherWindow:(ISHWorkspaceContainedWindowView *)windowView {
@@ -4654,10 +4649,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return;
     NSDictionary<NSString *, id> *frameDescriptor =
         [NSUserDefaults.standardUserDefaults dictionaryForKey:ISHWorkspacePersistentLauncherWindowFrameDefaultsKey];
-    BOOL hasPersisted = [frameDescriptor isKindOfClass:NSDictionary.class];
-    if (hasPersisted)
+    if ([frameDescriptor isKindOfClass:NSDictionary.class])
         [self applyAbsoluteFrameDescriptor:frameDescriptor toWindow:windowView];
-    NSLog(@"[LAUNCHER-DIAG] restore hasPersisted=%d -> frame=%@", (int)hasPersisted, NSStringFromCGRect(windowView.frame));
 }
 
 - (void)restoreLauncherWindowPlacement {
