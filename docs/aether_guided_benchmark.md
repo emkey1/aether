@@ -132,7 +132,7 @@ v2/30 board is already wide.
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 7/8 · 7✓ | 8/8 · 8✓ |
-| `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 6/8 · 6✓ | 4/4 · 4✓ (incomplete) |
+| `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 6/8 · 6✓ | 8/8 · 8✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 7/8 · 7✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
