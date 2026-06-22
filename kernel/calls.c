@@ -6,6 +6,7 @@
 #include "kernel/calls.h"
 #include "emu/interrupt.h"
 #include "emu/memory.h"
+#include "emu/vec.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
 #include "fs/devices.h"
@@ -4007,31 +4008,58 @@ static bool amd64_try_emulate_sse2_packed_integer(guest_addr_t ip, struct cpu_st
         break;
     }
 
-    if (!operand_size_prefix || opcode != 0x0f)
+    if (opcode != 0x0f)
         return false;
     if (!amd64_trap_fetch_u8(&decode_ip, &opcode))
         return false;
-    if (opcode != 0xd4 && opcode != 0xf4)
-        return false;
 
+    // 66 0F D4/F4/F5 = paddq / pmuludq / pmaddwd (xmm); no-prefix 0F F5 =
+    // pmaddwd (mmx). These are emulated here in the #UD handler rather than the
+    // JIT bridge: the bridge cannot do the xmm paddq/pmuludq forms, and bridging
+    // MMX pmaddwd trips a JIT block-chaining bug (the instruction *after* it
+    // faults though its next_ip is correct). The #UD path advances rip one
+    // instruction at a time, so it is immune -- the same reason paddq/pmuludq
+    // already live here.
     struct amd64_trap_modrm modrm;
-    if (!amd64_trap_decode_modrm(&decode_ip, rex, &modrm))
-        return false;
-
-    union xmm_reg src;
-    if (!amd64_trap_read_xmm_rm(cpu, &modrm, fs_prefix, decode_ip, &src))
-        return false;
-    union xmm_reg *dst = &cpu->xmm[modrm.reg & 0xf];
-
-    switch (opcode) {
-    case 0xd4: // PADDQ xmm, xmm/m128
-        dst->qw[0] += src.qw[0];
-        dst->qw[1] += src.qw[1];
-        break;
-    case 0xf4: // PMULUDQ xmm, xmm/m128
-        dst->qw[0] = (uint64_t) dst->u32[0] * src.u32[0];
-        dst->qw[1] = (uint64_t) dst->u32[2] * src.u32[2];
-        break;
+    if (operand_size_prefix) {
+        if (opcode != 0xd4 && opcode != 0xf4 && opcode != 0xf5)
+            return false;
+        if (!amd64_trap_decode_modrm(&decode_ip, rex, &modrm))
+            return false;
+        union xmm_reg src;
+        if (!amd64_trap_read_xmm_rm(cpu, &modrm, fs_prefix, decode_ip, &src))
+            return false;
+        union xmm_reg *dst = &cpu->xmm[modrm.reg & 0xf];
+        switch (opcode) {
+        case 0xd4: // PADDQ xmm, xmm/m128
+            dst->qw[0] += src.qw[0];
+            dst->qw[1] += src.qw[1];
+            break;
+        case 0xf4: // PMULUDQ xmm, xmm/m128
+            dst->qw[0] = (uint64_t) dst->u32[0] * src.u32[0];
+            dst->qw[1] = (uint64_t) dst->u32[2] * src.u32[2];
+            break;
+        case 0xf5: // PMADDWD xmm, xmm/m128
+            vec_madd_d128(NULL, &src, dst);
+            break;
+        }
+    } else {
+        if (opcode != 0xf5) // no-prefix: only MMX pmaddwd is handled here
+            return false;
+        if (!amd64_trap_decode_modrm(&decode_ip, rex, &modrm))
+            return false;
+        if (modrm.reg >= 8 || (modrm.is_reg && modrm.rm >= 8))
+            return false; // mm[] has 8 entries; reject an invalid MMX encoding (-> #UD)
+        union mm_reg src_mm;
+        if (modrm.is_reg) {
+            src_mm = cpu->mm[modrm.rm & 7];
+        } else {
+            qword_t v;
+            if (!amd64_trap_read_rm(cpu, &modrm, fs_prefix, decode_ip, 64, &v))
+                return false;
+            src_mm.qw = v;
+        }
+        vec_madd_d64(NULL, &src_mm, &cpu->mm[modrm.reg & 7]);
     }
 
     cpu->amd64_rip = decode_ip;
