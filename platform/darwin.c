@@ -26,25 +26,40 @@ struct cpu_usage get_total_cpu_usage(void) {
 }
 
 struct mem_usage get_mem_usage(void) {
-    host_basic_info_data_t basic = {};
-    mach_msg_type_number_t fuck = HOST_BASIC_INFO_COUNT;
-    kern_return_t status = host_info(mach_host_self(), HOST_BASIC_INFO, (host_info_t) &basic, &fuck);
-    assert(status == KERN_SUCCESS);
-    vm_statistics64_data_t vm = {};
-    fuck = HOST_VM_INFO64_COUNT;
-    status = host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info_t) &vm, &fuck);
-    assert(status == KERN_SUCCESS);
+    // These host_* calls can fail on iOS (sandbox / OS-version changes; observed
+    // returning non-KERN_SUCCESS on iOS 26/27). They must NEVER abort the
+    // emulator: /proc/meminfo is read by routine guest tools (busybox top/free,
+    // init scripts), so an assert here takes down the whole app on a normal
+    // guest read. Degrade gracefully and return best-effort values instead.
+    struct mem_usage usage = {};
 
-    struct mem_usage usage;
-    usage.total = basic.max_mem;
-    usage.free = vm.free_count * vm_page_size;
-    usage.available = basic.memory_size;
-    usage.cached = vm.speculative_count * vm_page_size;
-    usage.active = vm.active_count * vm_page_size;
-    usage.inactive = vm.inactive_count * vm_page_size;
-    usage.wirecount = vm.wire_count * vm_page_size;
-    usage.swapins = vm.swapins * vm_page_size;
-    usage.swapouts = vm.swapouts * vm_page_size;
+    host_basic_info_data_t basic = {};
+    mach_msg_type_number_t count = HOST_BASIC_INFO_COUNT;
+    if (host_info(mach_host_self(), HOST_BASIC_INFO, (host_info_t) &basic, &count) == KERN_SUCCESS) {
+        usage.total = basic.max_mem;
+        usage.available = basic.memory_size;
+    } else {
+        // Fall back to sysctl for the physical memory size.
+        uint64_t memsize = 0;
+        size_t len = sizeof(memsize);
+        if (sysctlbyname("hw.memsize", &memsize, &len, NULL, 0) == 0) {
+            usage.total = memsize;
+            usage.available = memsize;
+        }
+    }
+
+    vm_statistics64_data_t vm = {};
+    count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info_t) &vm, &count) == KERN_SUCCESS) {
+        usage.free = (uint64_t) vm.free_count * vm_page_size;
+        usage.cached = (uint64_t) vm.speculative_count * vm_page_size;
+        usage.active = (uint64_t) vm.active_count * vm_page_size;
+        usage.inactive = (uint64_t) vm.inactive_count * vm_page_size;
+        usage.wirecount = (uint64_t) vm.wire_count * vm_page_size;
+        usage.swapins = (uint64_t) vm.swapins * vm_page_size;
+        usage.swapouts = (uint64_t) vm.swapouts * vm_page_size;
+    }
+    // If the VM stats are unavailable, leave them zero rather than crashing.
     return usage;
 }
 
