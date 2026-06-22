@@ -130,11 +130,14 @@ Early, robust shape:
 
 ## The large data set (tasks_hard.json)
 
-These eight tasks are the *tests for the large examples* — hard compositional
-shapes (nested aggregation, finite-state machines, streak detection, integer
-recursion) that consume the large input fixtures, scored exact-stdout against an
-oracle. Same two guides and harness as above; a separate table because the
-v2/30 board is already wide.
+These eight tasks are larger and harder than the v2 set, built to pull more
+signal out of a model's real capability, particularly for the larger models.
+The v2/30 board above saturates at the top (several models tie at a perfect
+30/30), so it stops separating the strongest from one another. These tasks
+carry bigger inputs and more layered logic (nested aggregation, finite-state
+machines, streak detection, integer recursion), scored exact-stdout against an
+oracle, which spreads the leaders back out. Same two guides and harness; a
+separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
 *6 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
