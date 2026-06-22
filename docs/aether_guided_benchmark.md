@@ -82,7 +82,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*18 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
+*19 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -95,11 +95,12 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `prism-coder-7b` | 15.24 GB | ? | GGUF | 2026-04 | 5/29 · 5✓ (incomplete) | — |
+| `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 13/15 · 13✓ (incomplete) | — |
+| `prism-coder-7b` | 15.24 GB | ? | GGUF | 2026-04 | 5/30 · 5✓ | 2/30 · 2✓ |
 | `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
-| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 1/1 · 1✓ (incomplete) | — |
+| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 1/2 · 1✓ (incomplete) | — |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 19/30 · 20✓ |
