@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 1/1 · 1✓ (incomplete) | — |
+| `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 2/3 · 3✓ (incomplete) | — |
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB | 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
@@ -147,7 +147,7 @@ oracle, which spreads the leaders back out. Same two guides and harness; a
 separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*13 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*14 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -162,7 +162,8 @@ separate table because the v2/30 board is already wide.
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
 | `mistralai/devstral-small-2-2512` | 14.12 GB | 4bit | MLX | 2025-12 | 5/8 · 5✓ | 6/8 · 6✓ |
 | `mistralai/devstral-small-2507` | 13.28 GB | 4bit | MLX | 2025-07 | 7/8 · 7✓ | 6/8 · 7✓ |
-| `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 0/8 · 1✓ | 1/2 · 1✓ (incomplete) |
+| `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 0/8 · 1✓ | 2/8 · 2✓ |
+| `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 0/4 · 2✓ (incomplete) | — |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/4 · 2✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
