@@ -7009,6 +7009,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                            selector:@selector(launcherShortcutsDidChange)
                                                name:ISHWorkspaceLauncherShortcutsDidChangeNotification
                                              object:nil];
+    // Re-assert the Launcher's placement when the app returns to the foreground. The Launcher is
+    // otherwise the one window the activation transition can leave displaced; the Desktops applet
+    // already self-corrects the same way via its own foreground observers.
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(reassertLauncherPlacement)
+                                               name:UIApplicationDidBecomeActiveNotification
+                                             object:nil];
+    if (@available(iOS 13.0, *)) {
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(reassertLauncherPlacement)
+                                                   name:UISceneDidActivateNotification
+                                                 object:nil];
+    }
 }
 
 - (void)dealloc {
@@ -7019,6 +7032,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self rebuildLauncherList];
     // Grow/shrink the window to match the new item count.
     [(id)self.workspaceHostViewController autosizeLauncherWindow];
+}
+
+- (void)reassertLauncherPlacement {
+    // Deferred so it runs after the foreground layout pass settles (mirrors the Desktops applet's
+    // dispatch_async'd autosize), which re-clamps the Launcher back into the visible desktop.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [(id)weakSelf.workspaceHostViewController autosizeLauncherWindow];
+    });
 }
 
 - (UIColor *)launcherColorForKey:(NSString *)key fallback:(UIColor *)fallback {
