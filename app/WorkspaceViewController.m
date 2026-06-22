@@ -4213,6 +4213,19 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                    toWindow:launcherWindow
                                fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolLauncherIdentifier)];
         }
+        // On phone the Desktops applet isn't auto-opened (ensureDefaultWorkspaceUtilitiesOpen is
+        // scene-gated off there), so a scene rebuild on foreground would drop it. Restore it
+        // explicitly, at its saved on-screen spot, if it was shown when the workspace was saved.
+        if (ISHWorkspaceUsesPhoneLayout()) {
+            NSDictionary<NSString *, id> *workspacesDescriptor =
+                hasSavedLayout ? [self savedLayout:savedLayout toolDescriptorForIdentifier:ISHWorkspaceToolWorkspacesIdentifier] : nil;
+            if (workspacesDescriptor != nil && [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] == nil) {
+                ISHWorkspaceContainedWindowView *workspacesWindow = [self openWorkspaceToolWindowWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
+                [self applySavedFrameDescriptor:workspacesDescriptor[@"frame"]
+                                       toWindow:workspacesWindow
+                                   fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolWorkspacesIdentifier)];
+            }
+        }
         [self applyDesktopVisibility];
     }
     if (self.dockWindow != nil) {
@@ -4426,6 +4439,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (NSString *)currentWorkspaceLayoutStorageIdentifier {
+    // In-app Desktops are a single workspace (no per-scene layouts). On a phone the scene can be
+    // discarded and reconnected on foreground with a fresh persistentIdentifier, which would
+    // orphan a scene-keyed saved layout — so use a stable key there and Save/Restore survives.
+    if (ISHWorkspaceUsesPhoneLayout())
+        return @"default";
     if (@available(iOS 13.0, *)) {
         NSString *identifier = self.view.window.windowScene.session.persistentIdentifier;
         if (identifier.length > 0)
