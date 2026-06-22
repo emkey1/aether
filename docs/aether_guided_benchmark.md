@@ -84,7 +84,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 8/8 · 8✓ (incomplete) | — |
+| `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 9/9 · 9✓ (incomplete) | — |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 1/2 · 1✓ (incomplete) | — |
