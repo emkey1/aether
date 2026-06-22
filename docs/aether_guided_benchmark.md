@@ -45,6 +45,13 @@ correctly.
   models a generous output budget, so a model that reasons at length is never
   truncated mid-thought — a real failure mode that, left unfixed, makes a capable
   model look incompetent for a purely mechanical reason.
+- **One shot, no repair.** Every score is a *single pass*. The model sees the
+  task and the guide once and emits one program, with no retry and no
+  compile-error or wrong-output diagnostics fed back to it. The harness does
+  support a repair loop (`--repair-attempts N`, which returns failure diagnostics
+  for another try), but it is **off** for this sweep, so a miss is a first-attempt
+  miss, not a model that converged after several tries. The scores are a floor;
+  turning repair on could only raise them.
 
 ## Headline result
 
