@@ -1349,6 +1349,13 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         }
     }
     // NSLog(@"pad %f", pad);
+    // A workspace floating terminal is positioned clear of the keyboard by the workspace, so the
+    // terminal must fill its own window. Applying a keyboard inset here (the narrow floating window
+    // also trips the "undocked keyboard" fallback above) only reserves a dead strip at the bottom
+    // of the terminal that the cursor can't reach -- _updateSafeAreaCompensation already zeroes the
+    // inset for the embedded case, so match it here.
+    if (self.embeddedInWorkspaceWindow)
+        pad = 0;
     self.bottomConstraint.constant = pad;
     [self _updateFloatingSettingsButtonVisibility];
 
