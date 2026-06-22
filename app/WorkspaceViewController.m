@@ -691,6 +691,8 @@ static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
     return CGSizeMake(width, height);
 }
 
+static CGSize ISHWorkspaceMonitorContentSize(void);
+
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if (ISHWorkspaceUsesPhoneLayout()) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -698,7 +700,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
             return CGSizeMake(280, 154);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
-            return CGSizeMake(328, 170);
+            return ISHWorkspaceMonitorContentSize();
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
             return CGSizeMake(328, 176);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
@@ -732,7 +734,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolInfoIdentifier])
         return CGSizeMake(318, 168);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMonitorIdentifier])
-        return CGSizeMake(360, 182);
+        return ISHWorkspaceMonitorContentSize();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolNetworksIdentifier])
         return CGSizeMake(360, 188);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolStatusIdentifier])
@@ -1869,6 +1871,24 @@ static void ISHWorkspaceSetUsesRingGauges(BOOL usesRings) {
     [NSUserDefaults.standardUserDefaults setObject:(usesRings ? @"ring" : @"bar")
                                             forKey:ISHWorkspaceGaugeStylePreferenceKey];
     [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceGaugeStyleDidChangeNotification object:nil];
+}
+
+// The Monitor applet stacks two gauge rows (CPU/Memory, Battery/Storage) over a details card. Ring
+// gauges are much taller than bars, so size the window to the ACTIVE gauge style — a window sized
+// for bars clips the bottom row of dials when rings are selected (the reported bug), and one sized
+// for rings would leave dead space under bars. Returns the window frame height (incl. title bar).
+static CGSize ISHWorkspaceMonitorContentSize(void) {
+    BOOL phone = ISHWorkspaceUsesPhoneLayout();
+    BOOL rings = ISHWorkspaceUsesRingGauges();
+    CGFloat width = phone ? 328.0 : 360.0;
+    CGFloat gaugeHeight = rings ? (phone ? 42.0 : 54.0) : (phone ? 20.0 : 28.0);
+    CGFloat tileInset = phone ? 5.0 : 7.0;
+    // tile = vertical inset×2 + header row + stack spacing + gauge; floored at the card min height.
+    CGFloat tileHeight = MAX(phone ? 50.0 : 64.0, tileInset * 2.0 + 20.0 + 5.0 + gaugeHeight);
+    CGFloat detailsCardHeight = phone ? 112.0 : 124.0;
+    // contentStack: 6pt top/bottom inset, 8pt between its three children (2 gauge rows + card).
+    CGFloat contentHeight = 6.0 * 2.0 + tileHeight * 2.0 + 8.0 * 2.0 + detailsCardHeight;
+    return CGSizeMake(width, contentHeight + ISHWorkspaceWindowTitleBarHeight);
 }
 
 static CGFloat ISHWorkspaceDensityValue(CGFloat compact, CGFloat roomy) {
@@ -3635,6 +3655,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (window == nil)
         return;
     [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize() animated:YES];
+}
+
+- (void)autosizeMonitorWindow {
+    ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolMonitorIdentifier];
+    if (window == nil)
+        return;
+    [self resizeDesktopWindow:window toSize:ISHWorkspaceMonitorContentSize() animated:YES];
 }
 
 // In-app Desktops: a Desktop is a set of contained windows sharing a workspaceDesktopIndex.
@@ -8857,6 +8884,20 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     ]];
 
     [self refreshMonitor:nil];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(monitorGaugeStyleDidChange)
+                                               name:ISHWorkspaceGaugeStyleDidChangeNotification
+                                             object:nil];
+}
+
+- (void)monitorGaugeStyleDidChange {
+    // Ring vs bar gauges differ in height, so resize the window to the new style (deferred so the
+    // gauges re-lay-out first) — keeps both gauge rows visible instead of clipping or floating.
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [(id)weakSelf.workspaceHostViewController autosizeMonitorWindow];
+    });
 }
 
 - (void)viewWillAppear:(BOOL)animated {
