@@ -4228,19 +4228,6 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                    toWindow:launcherWindow
                                fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolLauncherIdentifier)];
         }
-        // On phone the Desktops applet isn't auto-opened (ensureDefaultWorkspaceUtilitiesOpen is
-        // scene-gated off there), so a scene rebuild on foreground would drop it. Restore it
-        // explicitly, at its saved on-screen spot, if it was shown when the workspace was saved.
-        if (ISHWorkspaceUsesPhoneLayout()) {
-            NSDictionary<NSString *, id> *workspacesDescriptor =
-                hasSavedLayout ? [self savedLayout:savedLayout toolDescriptorForIdentifier:ISHWorkspaceToolWorkspacesIdentifier] : nil;
-            if (workspacesDescriptor != nil && [self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] == nil) {
-                ISHWorkspaceContainedWindowView *workspacesWindow = [self openWorkspaceToolWindowWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
-                [self applySavedFrameDescriptor:workspacesDescriptor[@"frame"]
-                                       toWindow:workspacesWindow
-                                   fallbackSize:ISHWorkspacePreferredToolContentSize(ISHWorkspaceToolWorkspacesIdentifier)];
-            }
-        }
         [self applyDesktopVisibility];
     }
     if (self.dockWindow != nil) {
@@ -4592,8 +4579,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)ensureDefaultWorkspaceUtilitiesOpen {
-    if (!ISHWorkspaceSupportsSceneWindows())
-        return;
+    // In-app Desktops are no longer scene-window-only, so the Desktops applet auto-opens on every
+    // device now, including iPhone. This was previously gated off here by the iPad-only scene
+    // check (ISHWorkspaceSupportsSceneWindows), which is exactly why the applet never appeared on
+    // iPhone.
     if ([self desktopWindowForToolIdentifier:ISHWorkspaceToolWorkspacesIdentifier] != nil)
         return;
     [self openWorkspaceToolWithIdentifier:ISHWorkspaceToolWorkspacesIdentifier];
