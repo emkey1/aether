@@ -505,6 +505,18 @@ dword_t sys_clock_settime64(dword_t clock, addr_t UNUSED(tp)) {
     return clock_settime_errno(clock);
 }
 
+// clock_adjtime / clock_adjtime64 (chronyd, ntpd). iSH cannot discipline the
+// host (iOS) clock, so any adjustment is denied -- same policy as
+// settimeofday / clock_settime: CLOCK_REALTIME -> EPERM, other/unknown clocks
+// -> EINVAL. Callers that can only monitor handle EPERM gracefully, and this
+// stops the "missing syscall 343/405" boot spam. A full adjtimex (filling the
+// timex on a read-only query) is not worth it: the clock comes from iOS and
+// cannot be slewed. The 'modes' arg is the first int of struct timex in both
+// the legacy and _time64 layouts, so one handler serves syscalls 343 and 405.
+dword_t sys_clock_adjtime(dword_t clock, addr_t UNUSED(tx)) {
+    return clock_settime_errno(clock);
+}
+
 static bool time_warning_trace_enabled(void) {
     return false;
 }
