@@ -66,10 +66,6 @@ This is a focused release (89 commits). The headline is a **Workspace UI redesig
 - New default-on preference to show/hide the on-terminal settings gear and switcher buttons. New phone terminal windows fill the usable desktop or open at compact, orientation-scaled default sizes, and the resizable minimum is roughly halved.
 - Fixed a dead strip at the bottom of workspace **floating terminals** on iPhone (e.g. the Session Shell) that the cursor couldn't reach: the floating window is already placed clear of the keyboard, but the keyboard-avoidance inset was applied anyway (it didn't honor `embeddedInWorkspaceWindow`, and the narrower-than-screen window tripped the "undocked keyboard" fallback).
 
-### CLI
-
-- Defaults to **4 emulated CPUs** (was 2) so local and fakefs runs exercise the same TLB/COW/futex/heap races as a multi-core device (override with `ISH_GUEST_CPU_COUNT`; the iOS app is unaffected and keeps the true `hw.ncpu`). New env-gated `ISH_REAL_MNT=<dir>` mounts a host directory as realfs at `/realmnt` (inert unless set) for reproducing real-fs-backed behavior against a local fakefs root.
-
 ## Known Issues
 
 - **`futex_core` "signal restart" is flaky on-device under load** (carried over from 531; ~75–85% on a busy device, both i386 and amd64; ~0% on a quiet device, not reproducible on the macOS CLI). A `FUTEX_WAKE` that races an `SA_RESTART` signal can be lost while the waiter is mid-restart, so the restarted wait runs to its timeout. Still **deferred**: it is real-software-immune (every libc synchronization primitive changes the futex word before waking, degrading a lost wake to a harmless re-check; real Linux passes because its syscall restart is microseconds).
