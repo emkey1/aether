@@ -153,17 +153,25 @@ static int file_lock_from_flock(struct fd *fd, struct flock_ *flock, struct file
         case LSEEK_SET:
             offset = 0;
             break;
-        case LSEEK_CUR:
-            if (fd->ops->lseek == NULL)
+        case LSEEK_CUR: {
+            // Snapshot the fn ptr so the NULL-check and the call observe the
+            // same value across the intervening mylock() (an opaque call that
+            // forces a reload). Prevents the file_lock_from_flock NULL-call
+            // crash seen on lockf()/SEEK_CUR locks.
+            typeof(fd->ops->lseek) lseek_fn = fd->ops->lseek;
+            if (lseek_fn == NULL)
                 return _ESPIPE;
             mylock(&fd->lock, 0);
-            offset = fd->ops->lseek(fd, 0, LSEEK_CUR);
+            offset = lseek_fn(fd, 0, LSEEK_CUR);
             unlock(&fd->lock);
             if (offset < 0)
                 return (int)offset;
             break;
+        }
         case LSEEK_END: {
             struct statbuf stat;
+            if (fd->mount == NULL || fd->mount->fs == NULL || fd->mount->fs->fstat == NULL)
+                return _ESPIPE;
             int err = fd->mount->fs->fstat(fd, &stat);
             if (err < 0)
                 return err;
