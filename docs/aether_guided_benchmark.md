@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 2/3 · 3✓ (incomplete) | — |
+| `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 4/7 · 6✓ (incomplete) | — |
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB | 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
@@ -113,7 +113,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
-| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 6/12 · 6✓ (incomplete) | — |
+| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 8/18 · 9✓ (incomplete) | — |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
@@ -147,7 +147,7 @@ oracle, which spreads the leaders back out. Same two guides and harness; a
 separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*14 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*15 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -163,7 +163,8 @@ separate table because the v2/30 board is already wide.
 | `mistralai/devstral-small-2-2512` | 14.12 GB | 4bit | MLX | 2025-12 | 5/8 · 5✓ | 6/8 · 6✓ |
 | `mistralai/devstral-small-2507` | 13.28 GB | 4bit | MLX | 2025-07 | 7/8 · 7✓ | 6/8 · 7✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 0/8 · 1✓ | 2/8 · 2✓ |
-| `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 0/4 · 2✓ (incomplete) | — |
+| `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 1/8 · 4✓ | 1/8 · 4✓ |
+| `deepseek-r1-distill-qwen-7b` | 4.68 GB | Q4_K_M | GGUF | 2025-01 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/4 · 2✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
@@ -183,6 +184,16 @@ the task is hard-but-achievable, and nowhere else. (Preliminary: three weak
 models so far; the rest of the local sweep will fill this in, and the claim
 firms up or breaks with them.)
 
+**The hard set also separates models that v2 cannot.** The first mid-tier
+coders to land make the point sharply: `devstral-small` (a 24B coder quantized
+to 4-bit, ~14GB) holds at **5-7 of 8**, near the cloud tier, while `yi-coder-9b`,
+which scored about the same on v2/30 (22 vs 24-25), collapses to **0-2 of 8**.
+v2/30 rated them peers; the hard tasks show devstral is far more capable. Code
+specialization *does* help here, but specifically the agentic, compositional
+kind devstral is trained for, not mere code fluency; it is the README's "a
+guide carries reasoning, not code-model-ness" point seen from inside the
+code-model camp.
+
 ## What this does and does not show
 
 - It shows that **adoption does not require fine-tuning.** A capable model plus
@@ -194,6 +205,17 @@ firms up or breaks with them.)
 - The README's compiler↔guide loop closes here too: when a guided model does
   slip, the compiler's coded diagnostic (`FX-001`, `ANN-001`, …) points back into
   the same guide section, so a second pass can self-correct.
+
+## Tools and tasks
+
+Everything here is reproducible from the public repos. The harness, task sets,
+and training corpus live in the umbrella repo (`emkey1/pscal`); the guides and
+write-ups live here in `emkey1/aether`.
+
+- **Harness.** [`tools/aether_doc_bench.py`](https://github.com/emkey1/pscal/blob/main/tools/aether_doc_bench.py) issues each task, compiles and runs the model's program with the `aether` binary, and scores stdout byte-for-byte against an oracle.
+- **Task sets (the examples).** [`tasks_v2_pos.json`](https://github.com/emkey1/pscal/blob/main/Tests/aether_doc_bench/tasks_v2_pos.json) is the v2/30 board; [`tasks_hard.json`](https://github.com/emkey1/pscal/blob/main/Tests/aether_doc_bench/tasks_hard.json) is the large set. Each task carries its prompt, input fixtures, and expected stdout.
+- **Guides.** [full](aether_for_llms_and_others.md) and [small](aether_for_llms_with_small_contexts.md) — the only Aether any model here ever sees.
+- **The training (no-guide) side.** Companion write-up [`aether_specialization_findings.md`](aether_specialization_findings.md), generated from the corpus and example generators under [`Tests/aether_specialization/`](https://github.com/emkey1/pscal/tree/main/Tests/aether_specialization).
 
 ## Status
 
