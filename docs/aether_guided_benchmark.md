@@ -95,14 +95,14 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | — |
+| `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 0/4 · 0✓ (incomplete) |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 17/30 · 21✓ | 19/30 · 24✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 21/30 · 22✓ | 22/30 · 23✓ |
 | `prism-coder-7b` | 15.24 GB | ? | GGUF | 2026-04 | 5/30 · 5✓ | 2/30 · 2✓ |
 | `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
-| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 2/10 · 2✓ (incomplete) | — |
+| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 2/12 · 2✓ (incomplete) | — |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 19/30 · 20✓ |
@@ -137,7 +137,7 @@ oracle. Same two guides and harness as above; a separate table because the
 v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*5 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*6 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -146,6 +146,7 @@ v2/30 board is already wide.
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 7/8 · 7✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
+| `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 3/3 · 3✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
 ## What this does and does not show
