@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `bytedance/seed-oss-36b` | 20.35 GB | 4bit | MLX | 2025-08 | 0/6 · 0✓ (incomplete) | — |
+| `bytedance/seed-oss-36b` | 20.35 GB | 4bit | MLX | 2025-08 | 0/14 · 0✓ (incomplete) | — |
 | `zai-org/glm-4.7-flash` | 20.0 GB | 8bit | MLX | 2025-12 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen3.6-27b-claude-deckard-qx64-hi-mlx` | 19.58 GB | 6bit | MLX | 2026-04 | 24/30 · 24✓ | 22/30 · 22✓ |
 | `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 2/30 · 2✓ |
@@ -106,7 +106,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
-| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 2/30 · 2✓ | 3/17 · 3✓ (incomplete) |
+| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 2/30 · 2✓ | 3/19 · 3✓ (incomplete) |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 4/30 · 5✓ | 19/30 · 20✓ |
