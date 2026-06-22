@@ -208,14 +208,14 @@ code-model camp.
 
 ## Tools and tasks
 
-Everything here is reproducible from the public repos. The harness, task sets,
-and training corpus live in the umbrella repo (`emkey1/pscal`); the guides and
-write-ups live here in `emkey1/aether`.
+Everything here is reproducible from the public repos. The harness and task
+sets live in the umbrella repo (`emkey1/pscal`, on the `AetherLang` branch); the
+guides and write-ups live here in `emkey1/aether`.
 
-- **Harness.** [`tools/aether_doc_bench.py`](https://github.com/emkey1/pscal/blob/main/tools/aether_doc_bench.py) issues each task, compiles and runs the model's program with the `aether` binary, and scores stdout byte-for-byte against an oracle.
-- **Task sets (the examples).** [`tasks_v2_pos.json`](https://github.com/emkey1/pscal/blob/main/Tests/aether_doc_bench/tasks_v2_pos.json) is the v2/30 board; [`tasks_hard.json`](https://github.com/emkey1/pscal/blob/main/Tests/aether_doc_bench/tasks_hard.json) is the large set. Each task carries its prompt, input fixtures, and expected stdout.
+- **Harness.** [`tools/aether_doc_bench.py`](https://github.com/emkey1/pscal/blob/AetherLang/tools/aether_doc_bench.py) issues each task, compiles and runs the model's program with the `aether` binary, and scores stdout byte-for-byte against an oracle.
+- **Task sets (the examples).** [`tasks_v2_pos.json`](https://github.com/emkey1/pscal/blob/AetherLang/Tests/aether_doc_bench/tasks_v2_pos.json) is the v2/30 board; [`tasks_hard.json`](https://github.com/emkey1/pscal/blob/AetherLang/Tests/aether_doc_bench/tasks_hard.json) is the large set. Each task carries its prompt, input fixtures, and expected stdout.
 - **Guides.** [full](aether_for_llms_and_others.md) and [small](aether_for_llms_with_small_contexts.md) — the only Aether any model here ever sees.
-- **The training (no-guide) side.** Companion write-up [`aether_specialization_findings.md`](aether_specialization_findings.md), generated from the corpus and example generators under [`Tests/aether_specialization/`](https://github.com/emkey1/pscal/tree/main/Tests/aether_specialization).
+- **The training (no-guide) side.** Companion write-up [`aether_specialization_findings.md`](aether_specialization_findings.md); its corpus and example generators live under `Tests/aether_specialization/` in the umbrella repo.
 
 ## Status
 
