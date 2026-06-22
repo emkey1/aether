@@ -157,7 +157,7 @@ separate table because the v2/30 board is already wide.
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
-| `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/8 · 4✓ | 1/8 · 3✓ |
+| `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/4 · 2✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
 ## What this does and does not show
