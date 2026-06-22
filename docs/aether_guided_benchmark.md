@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/25 · 14✓ (incomplete) |
+| `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/29 · 14✓ (incomplete) |
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `zai-org/glm-4.7-flash` | 20.0 GB | 8bit | MLX | 2025-12 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen3.6-27b-claude-deckard-qx64-hi-mlx` | 19.58 GB | 6bit | MLX | 2026-04 | 24/30 · 24✓ | 22/30 · 22✓ |
@@ -111,7 +111,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
-| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 3/5 · 3✓ (incomplete) | — |
+| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 4/8 · 4✓ (incomplete) | — |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
@@ -145,7 +145,7 @@ oracle, which spreads the leaders back out. Same two guides and harness; a
 separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*11 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*12 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -158,7 +158,8 @@ separate table because the v2/30 board is already wide.
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
-| `mistralai/devstral-small-2507` | 13.28 GB | 4bit | MLX | 2025-07 | — | — |
+| `mistralai/devstral-small-2-2512` | 14.12 GB | 4bit | MLX | 2025-12 | 5/8 · 5✓ | — |
+| `mistralai/devstral-small-2507` | 13.28 GB | 4bit | MLX | 2025-07 | 7/8 · 7✓ | 6/8 · 7✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 1/4 · 2✓ (incomplete) | — |
 <!-- LEADERBOARD-LARGE:END -->
 
