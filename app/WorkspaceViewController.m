@@ -60,6 +60,9 @@
 - (void)persistDefaultWorkspaceUtilityFrames;
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey;
 - (void)applyInitialPlacementToWorkspacesWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (void)applyInitialPlacementToLauncherWindow:(ISHWorkspaceContainedWindowView *)windowView;
+- (void)persistLauncherWindowFrame;
+- (void)restoreLauncherWindowPlacement;
 - (void)persistDockWindowFrame;
 - (NSString *)persistentDockWindowDescriptorDefaultsKey;
 - (void)applyInitialPlacementToDockWindow:(ISHWorkspaceContainedWindowView *)windowView;
@@ -109,6 +112,7 @@ static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedL
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspacePersistentDockWindowDescriptorDefaultsKey = @"ISHWorkspacePersistentDockWindowDescriptor";
+static NSString *const ISHWorkspacePersistentLauncherWindowFrameDefaultsKey = @"ISHWorkspacePersistentLauncherWindowFrame";
 static NSString *const ISHWorkspaceForgottenHiddenSessionsDefaultsKey = @"ISHWorkspaceForgottenHiddenSessions";
 static NSString *const ISHWorkspaceDockFrameDidChangeNotification = @"ISHWorkspaceDockFrameDidChange";
 static NSString *const ISHWorkspaceWorkspacesFrameDidChangeNotification = @"ISHWorkspaceWorkspacesFrameDidChange";
@@ -2957,6 +2961,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     // On a phone that placement misbehaves (and the persist key is shared across idioms), so there
     // the Desktops applet opens like any other tool — normal cascade placement, same as Launcher.
     BOOL pinnedWorkspaces = workspacesTool && !ISHWorkspaceUsesPhoneLayout();
+    // The Launcher (a global tool) persists its own frame like the dock, so it returns to exactly
+    // where the user left it after a foreground transition instead of drifting to its open spot.
+    BOOL launcherTool = [toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier];
     // Settings embeds its own navigation bar and gets a "Done" item there instead (see below),
     // so suppress the redundant chrome × that would otherwise sit right above that bar.
     BOOL settingsTool = [toolIdentifier isEqualToString:ISHWorkspaceToolSettingsIdentifier];
@@ -2979,6 +2986,12 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
             [weakSelf persistDefaultWorkspaceUtilityFrames];
         };
     }
+    if (launcherTool) {
+        __weak typeof(self) weakSelf = self;
+        windowView.frameDidChangeHandler = ^{
+            [weakSelf persistLauncherWindowFrame];
+        };
+    }
     [self attachViewController:viewController toDesktopWindow:windowView];
     if (settingsTool && [viewController isKindOfClass:UINavigationController.class]) {
         // Give the embedded Settings screen a real, labelled dismiss control in its own
@@ -2993,6 +3006,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     }
     if (pinnedWorkspaces)
         [self applyInitialPlacementToWorkspacesWindow:windowView];
+    if (launcherTool)
+        [self applyInitialPlacementToLauncherWindow:windowView];
     if (workspacesTool)
         [self.desktopSurfaceView bringSubviewToFront:windowView];
     [self refreshDockButtons];
@@ -4404,6 +4419,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (self.dockWindow != nil) {
         [self applyInitialPlacementToDockWindow:self.dockWindow];
     }
+    [self restoreLauncherWindowPlacement];
     // The Desktops applet is a pinned utility only on iPad. On phone it uses normal cascade
     // placement, so re-pinning it here would yank it off-screen on every scene activation
     // (which is why it "vanished" after interacting). Leave the phone applet where it is.
@@ -4616,6 +4632,31 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (NSString *)persistentWorkspacesWindowFrameDefaultsKey {
     return ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey;
+}
+
+- (void)persistLauncherWindowFrame {
+    ISHWorkspaceContainedWindowView *launcherWindow = [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+    if (launcherWindow == nil || launcherWindow.hidden)
+        return;
+    NSDictionary<NSString *, NSNumber *> *frameDescriptor = [self absoluteFrameDescriptorForFrame:launcherWindow.frame];
+    if (frameDescriptor != nil)
+        [NSUserDefaults.standardUserDefaults setObject:frameDescriptor
+                                                forKey:ISHWorkspacePersistentLauncherWindowFrameDefaultsKey];
+}
+
+- (void)applyInitialPlacementToLauncherWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    if (windowView == nil)
+        return;
+    NSDictionary<NSString *, id> *frameDescriptor =
+        [NSUserDefaults.standardUserDefaults dictionaryForKey:ISHWorkspacePersistentLauncherWindowFrameDefaultsKey];
+    if ([frameDescriptor isKindOfClass:NSDictionary.class])
+        [self applyAbsoluteFrameDescriptor:frameDescriptor toWindow:windowView];
+}
+
+- (void)restoreLauncherWindowPlacement {
+    ISHWorkspaceContainedWindowView *launcherWindow = [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+    if (launcherWindow != nil)
+        [self applyInitialPlacementToLauncherWindow:launcherWindow];
 }
 
 - (void)persistDockWindowFrame {
@@ -7035,11 +7076,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)reassertLauncherPlacement {
-    // Deferred so it runs after the foreground layout pass settles (mirrors the Desktops applet's
-    // dispatch_async'd autosize), which re-clamps the Launcher back into the visible desktop.
+    // Deferred so it runs after the foreground layout pass settles, then restores the Launcher to
+    // its persisted frame (like the dock) so it returns to exactly where the user left it.
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [(id)weakSelf.workspaceHostViewController autosizeLauncherWindow];
+        [(id)weakSelf.workspaceHostViewController restoreLauncherWindowPlacement];
     });
 }
 
