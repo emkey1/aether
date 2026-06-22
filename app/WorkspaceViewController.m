@@ -3758,12 +3758,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (BOOL)isDesktopLockedAtIndex:(NSInteger)index {
+    if (index == 0)
+        return YES;  // the first Desktop is permanently protected and can't be removed
     return index >= 0 && [self.lockedDesktopIndices containsIndex:(NSUInteger)index];
 }
 
 - (void)toggleDesktopLockAtIndex:(NSInteger)index {
-    if (index < 0 || index >= self.desktopCount)
-        return;
+    if (index <= 0 || index >= self.desktopCount)
+        return;  // the first Desktop is always locked; only Desktops 2+ can be toggled
     if ([self.lockedDesktopIndices containsIndex:(NSUInteger)index])
         [self.lockedDesktopIndices removeIndex:(NSUInteger)index];
     else
@@ -7529,8 +7531,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [lock setTitle:(locked ? @"🔒" : @"🔓") forState:UIControlStateNormal];
     }
     lock.tintColor = locked ? accent : muted;
-    lock.accessibilityLabel =
-        [NSString stringWithFormat:@"%@ Desktop %ld", locked ? @"Unlock" : @"Lock", (long)(index + 1)];
+    // The first Desktop is permanently protected, so its lock shows closed and isn't toggleable.
+    lock.enabled = (index != 0);
+    lock.accessibilityLabel = (index == 0)
+        ? @"Desktop 1 is protected"
+        : [NSString stringWithFormat:@"%@ Desktop %ld", locked ? @"Unlock" : @"Lock", (long)(index + 1)];
     [lock setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [lock.widthAnchor constraintEqualToConstant:28.0].active = YES;
     [lock addTarget:self action:@selector(toggleLockFromApplet:) forControlEvents:UIControlEventTouchUpInside];
