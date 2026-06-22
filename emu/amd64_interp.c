@@ -6417,7 +6417,10 @@ restart_prefix:
                     cpu->xmm[modrm.reg] = value;
                 }
             } else if (op2 == 0x13) {
-                if (operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
+                // movlps (NP) / movlpd (66) m64, xmm: both store xmm[63:0] to
+                // memory, so the 66 (movlpd) form must be accepted too -- it was
+                // wrongly #UD'd (chronyd movlpd [rsp+x],xmm). reg form is #UD.
+                if (rep_mode != AMD64_REP_NONE || modrm.is_reg)
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                     goto amd64_gpf_restore;
@@ -6668,7 +6671,9 @@ restart_prefix:
                     cpu->xmm[modrm.reg] = value;
                 }
             } else if (op2 == 0x17) {
-                if (operand_size_prefix || modrm.is_reg)
+                // movhps (NP) / movhpd (66) m64, xmm: both store xmm[127:64], so
+                // accept the 66 (movhpd) form too (was wrongly #UD'd). reg #UD.
+                if (modrm.is_reg)
                     return INT_UNDEFINED;
                 if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[1]))
                     goto amd64_gpf_restore;
@@ -12124,7 +12129,9 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 cpu->xmm[modrm.reg] = value;
             }
         } else if (op2 == 0x13) {
-            if (operand_size_prefix || rep_mode != AMD64_REP_NONE || modrm.is_reg)
+            // movlps (NP) / movlpd (66) m64, xmm: both store xmm[63:0]; accept
+            // the 66 (movlpd) form (was wrongly #UD'd). reg form is #UD.
+            if (rep_mode != AMD64_REP_NONE || modrm.is_reg)
                 return INT_UNDEFINED;
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[0]))
                 goto amd64_0f_vec_rm_pf;
@@ -12172,7 +12179,9 @@ int amd64_jit_0f_vec_rm(struct cpu_state *cpu, struct tlb *tlb,
                 cpu->xmm[modrm.reg] = value;
             }
         } else if (op2 == 0x17) {
-            if (operand_size_prefix || modrm.is_reg)
+            // movhps (NP) / movhpd (66) m64, xmm: both store xmm[127:64]; accept
+            // the 66 (movhpd) form (was wrongly #UD'd). reg form is #UD.
+            if (modrm.is_reg)
                 return INT_UNDEFINED;
             if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, 64, cpu->xmm[modrm.reg].qw[1]))
                 goto amd64_0f_vec_rm_pf;
