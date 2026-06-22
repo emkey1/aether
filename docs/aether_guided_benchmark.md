@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `bytedance/seed-oss-36b` | 20.35 GB | 4bit | MLX | 2025-08 | 1/22 · 1✓ (incomplete) | — |
+| `bytedance/seed-oss-36b` | 20.35 GB | 4bit | MLX | 2025-08 | 1/26 · 1✓ (incomplete) | — |
 | `zai-org/glm-4.7-flash` | 20.0 GB | 8bit | MLX | 2025-12 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen3.6-27b-claude-deckard-qx64-hi-mlx` | 19.58 GB | 6bit | MLX | 2026-04 | 24/30 · 24✓ | 22/30 · 22✓ |
 | `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 2/30 · 2✓ |
