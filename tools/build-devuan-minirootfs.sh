@@ -107,6 +107,30 @@ note "keyring: $(wc -c < "$WORK/devuan-archive-keyring.gpg") bytes"
 CLEAN_HOOK='rm -rf "$1"/var/lib/apt/lists/* "$1"/var/cache/apt/archives/*.deb "$1"/var/cache/apt/*.bin 2>/dev/null || true'
 [ "${KEEP_APT_LISTS:-}" = 1 ] && CLEAN_HOOK='true'
 
+# busybox-static (~2 MB) gives the bare image the interactive/monitoring tools a
+# Devuan minbase lacks (ps/top/watch/free/wget/less/...) -- usable offline,
+# before provision-ultimate-devuan.sh runs apt. We symlink ONLY those gap
+# applets into /usr/bin: never the coreutils/dash/bash/sysvinit names, and never
+# update-alternatives-managed names (vi/editor/pager) which would fight a later
+# vim/less install. Because Excalibur is usr-merged, dpkg cleanly replaces each
+# symlink with the real binary when its package is installed (procps/psmisc/
+# wget/less), so busybox is a self-healing fallback, never a shadow. Set
+# BUSYBOX_APPLETS="" to skip the symlinks (busybox is still callable as
+# `busybox <applet>`); set BUSYBOX=0 to omit busybox entirely.
+BUSYBOX="${BUSYBOX:-1}"
+BUSYBOX_APPLETS="${BUSYBOX_APPLETS-top watch ps free vmstat pgrep pkill killall wget less}"
+if [ "$BUSYBOX" = 1 ]; then
+    INCLUDE_PKGS="ca-certificates,devuan-keyring,busybox-static"
+    # Only symlink applets the target busybox actually provides (it's the same
+    # arch as the build container, so it runs) -- a symlink to a non-compiled
+    # applet would print "applet not found" and look broken. Never overwrite an
+    # existing target file.
+    BBOX_HOOK='[ -e "$1/bin/busybox" ] || exit 0; avail=$("$1/bin/busybox" --list 2>/dev/null); for ap in '"$BUSYBOX_APPLETS"'; do printf "%s\n" "$avail" | grep -qx "$ap" || { echo "    busybox: no applet $ap, skipping" >&2; continue; }; [ -e "$1/usr/bin/$ap" ] || [ -e "$1/bin/$ap" ] || ln -s /bin/busybox "$1/usr/bin/$ap"; done'
+else
+    INCLUDE_PKGS="ca-certificates,devuan-keyring"
+    BBOX_HOOK='true'
+fi
+
 build_one() {  # <deb-arch>
     arch="$1"
     suffix="$(arch_suffix "$arch")"
@@ -118,7 +142,7 @@ build_one() {  # <deb-arch>
     # ($COMPRESS) on the host for the smallest possible bundle.
     docker run --rm --privileged --platform="$platform" \
         -e SUITE="$SUITE" -e ARCH="$arch" -e MIRROR="$DEVUAN_MIRROR" \
-        -e CLEAN_HOOK="$CLEAN_HOOK" \
+        -e CLEAN_HOOK="$CLEAN_HOOK" -e BBOX_HOOK="$BBOX_HOOK" -e INCLUDE_PKGS="$INCLUDE_PKGS" \
         -v "$WORK:/work" \
         "$BUILD_IMAGE" bash -euc '
             export DEBIAN_FRONTEND=noninteractive
@@ -139,8 +163,9 @@ build_one() {  # <deb-arch>
                 --components=main \
                 --arch="$ARCH" \
                 --keyring=/work/devuan-archive-keyring.gpg \
-                --include=ca-certificates,devuan-keyring \
+                --include="$INCLUDE_PKGS" \
                 --aptopt="Acquire::Check-Valid-Until \"false\"" \
+                --customize-hook="$BBOX_HOOK" \
                 --customize-hook="$CLEAN_HOOK" \
                 "$SUITE" "/work/rootfs-$ARCH.tar" \
                 "deb $MIRROR $SUITE main"
