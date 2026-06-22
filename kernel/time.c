@@ -505,16 +505,119 @@ dword_t sys_clock_settime64(dword_t clock, addr_t UNUSED(tp)) {
     return clock_settime_errno(clock);
 }
 
-// clock_adjtime / clock_adjtime64 (chronyd, ntpd). iSH cannot discipline the
-// host (iOS) clock, so any adjustment is denied -- same policy as
-// settimeofday / clock_settime: CLOCK_REALTIME -> EPERM, other/unknown clocks
-// -> EINVAL. Callers that can only monitor handle EPERM gracefully, and this
-// stops the "missing syscall 343/405" boot spam. A full adjtimex (filling the
-// timex on a read-only query) is not worth it: the clock comes from iOS and
-// cannot be slewed. The 'modes' arg is the first int of struct timex in both
-// the legacy and _time64 layouts, so one handler serves syscalls 343 and 405.
-dword_t sys_clock_adjtime(dword_t clock, addr_t UNUSED(tx)) {
-    return clock_settime_errno(clock);
+// clock_adjtime / clock_adjtime64 (chronyd, ntpd). iSH runs no kernel NTP loop
+// and cannot slew the host (iOS) clock, so any *adjustment* (modes != 0) is
+// denied with EPERM -- the same policy as settimeofday / clock_settime. But a
+// read-only query (modes == 0) succeeds with a sane, undisciplined state
+// (default tick + current time, no frequency/offset correction), so chronyd
+// can initialise and run in monitor-only mode rather than failing at startup.
+//
+// 'modes' is the first int of struct timex in every layout. The legacy timex
+// (clock_adjtime, 343) uses 32-bit longs; __kernel_timex (clock_adjtime64, 405)
+// uses 64-bit fields. Layouts cross-checked against the kernel uapi headers.
+#define CLOCK_ADJ_TICK_USEC 10000 // default kernel tick (100 Hz); chronyd's base
+#define STA_UNSYNC_ 0x0040        // clock unsynchronized (no kernel NTP discipline)
+#define TIME_ERROR_ 5             // clock not synchronized (adjtimex return state)
+
+struct timex32_ { // legacy struct timex, 32-bit long ABI (i386). 128 bytes.
+    uint32_t modes;
+    int32_t offset, freq, maxerror, esterror;
+    int32_t status;
+    int32_t constant, precision, tolerance;
+    int32_t time_sec, time_usec; // struct timeval
+    int32_t tick;
+    int32_t ppsfreq, jitter, shift, stabil, jitcnt, calcnt, errcnt, stbcnt, tai;
+    int32_t reserved[11];
+};
+struct timex64_ { // struct __kernel_timex, 64-bit fields. 208 bytes.
+    uint32_t modes; uint32_t pad0_;
+    int64_t offset, freq, maxerror, esterror;
+    int32_t status; uint32_t pad1_;
+    int64_t constant, precision, tolerance;
+    int64_t time_sec, time_usec; // __kernel_timex_timeval
+    int64_t tick;
+    int64_t ppsfreq, jitter;
+    int32_t shift; uint32_t pad2_;
+    int64_t stabil, jitcnt, calcnt, errcnt, stbcnt;
+    int32_t tai;
+    int32_t reserved[11];
+};
+
+static dword_t clock_adjtime_read(guest_addr_t tx, bool time64) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+        now.tv_sec = 0;
+        now.tv_nsec = 0;
+    }
+    // iSH runs no kernel NTP loop, so the clock is undisciplined: report the
+    // default tick and STA_UNSYNC, and return TIME_ERROR -- exactly what real
+    // Linux returns for an unsynchronized clock (verified against the mint
+    // oracle: ret=5, status=0x40, tick=default). This is still a successful
+    // syscall (ret >= 0, no errno); chronyd reads it fine in monitor mode.
+    if (time64) {
+        struct timex64_ t = {0};
+        t.tick = CLOCK_ADJ_TICK_USEC;
+        t.status = STA_UNSYNC_;
+        t.time_sec = now.tv_sec;
+        t.time_usec = now.tv_nsec / 1000;
+        if (user_put(tx, t))
+            return _EFAULT;
+    } else {
+        struct timex32_ t = {0};
+        t.tick = CLOCK_ADJ_TICK_USEC;
+        t.status = STA_UNSYNC_;
+        t.time_sec = (int32_t) now.tv_sec;
+        t.time_usec = (int32_t) (now.tv_nsec / 1000);
+        if (user_put(tx, t))
+            return _EFAULT;
+    }
+    return TIME_ERROR_;
+}
+
+dword_t sys_clock_adjtime(dword_t clock, addr_t tx) { // i386 343 (legacy timex)
+    if (clock != CLOCK_REALTIME_)
+        return _EINVAL;
+    uint32_t modes;
+    if (user_get(tx, modes)) // 'modes' is the first u32 of the timex
+        return _EFAULT;
+    if (modes != 0)
+        return _EPERM; // can't slew the iOS clock -> caller stays monitor-only
+    return clock_adjtime_read(tx, false);
+}
+
+dword_t sys_clock_adjtime64(dword_t clock, addr_t tx) { // i386 405 (_time64)
+    if (clock != CLOCK_REALTIME_)
+        return _EINVAL;
+    uint32_t modes;
+    if (user_get(tx, modes))
+        return _EFAULT;
+    if (modes != 0)
+        return _EPERM;
+    return clock_adjtime_read(tx, true);
+}
+
+// amd64 clock_adjtime (305) table fallback. The real handler is the _guest
+// variant below, dispatched via handle_amd64_native_memory_syscall with the
+// full-width (48-bit) timex pointer; the legacy marshaller would truncate it.
+// This entry only has to be non-NULL so the dispatcher reaches the native
+// case; if that case were ever removed, EPERM is the safe answer (the legacy
+// pointer is truncated, so no user_put here).
+dword_t sys_clock_adjtime_amd64(dword_t clock, addr_t UNUSED(tx)) {
+    return clock == CLOCK_REALTIME_ ? _EPERM : _EINVAL;
+}
+
+// amd64 clock_adjtime (305) real handler: full-width guest pointer, 64-bit
+// __kernel_timex layout. modes==0 -> undisciplined read-state (TIME_ERROR +
+// STA_UNSYNC), modes!=0 -> EPERM. Enables amd64 chronyd monitor-only mode.
+dword_t sys_clock_adjtime_amd64_guest(dword_t clock, guest_addr_t tx) {
+    if (clock != CLOCK_REALTIME_)
+        return _EINVAL;
+    uint32_t modes;
+    if (user_get(tx, modes))
+        return _EFAULT;
+    if (modes != 0)
+        return _EPERM;
+    return clock_adjtime_read(tx, true);
 }
 
 static bool time_warning_trace_enabled(void) {

@@ -1126,7 +1126,7 @@ static syscall_t i386_syscall_table[] = {
     [398] = (syscall_t) sys_shmdt,
     [403] = (syscall_t) sys_clock_gettime64, // clock_gettime64
     [404] = (syscall_t) sys_clock_settime64, // clock_settime64
-    [405] = (syscall_t) sys_clock_adjtime, // clock_adjtime64 (modes at offset 0 in both layouts)
+    [405] = (syscall_t) sys_clock_adjtime64, // clock_adjtime64 (read-state -> chronyd monitor-only)
     [406] = (syscall_t) sys_clock_getres_time64, // clock_getres_time64
     [407] = (syscall_t) sys_clock_nanosleep_time64, // clock_nanosleep_time64
     [408] = (syscall_t) sys_timer_gettime64, // timer_gettime64
@@ -1454,7 +1454,7 @@ static syscall_t amd64_syscall_table[453] = {
     [302] = (syscall_t) sys_prlimit64,
     [303] = (syscall_t) syscall_eopnotsupp_stub, // name_to_handle_at
     [304] = (syscall_t) syscall_eopnotsupp_stub, // open_by_handle_at
-    [305] = (syscall_t) sys_clock_adjtime, // clock_adjtime (EPERM: iSH can't slew the iOS clock)
+    [305] = (syscall_t) sys_clock_adjtime_amd64, // clock_adjtime (EPERM; full-width read-state TODO)
     [307] = (syscall_t) sys_sendmmsg_amd64,
     [309] = (syscall_t) syscall_success_stub, // getcpu
     [310] = (syscall_t) sys_process_vm_readv,
@@ -2039,6 +2039,10 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 230:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_nanosleep_amd64_guest(
                 (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]));
+        return true;
+    case 305:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_clock_adjtime_amd64_guest(
+                (dword_t) raw_args[0], raw_args[1]));
         return true;
     case 217:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_getdents64_guest(
