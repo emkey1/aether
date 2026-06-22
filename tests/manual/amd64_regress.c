@@ -174,6 +174,136 @@ static void test_exec_loader_zero(char **argv) {
     }
 }
 
+static void put_le(unsigned char *p, uint64_t v, int n) {
+    for (int i = 0; i < n; i++)
+        p[i] = (unsigned char) (v >> (8 * i));
+}
+
+#if defined(__x86_64__) || defined(__i386__)
+// Build a minimal static ELF whose single writable PT_LOAD ends partway through
+// the final host page of its file mapping, with a BSS tail past p_filesz. On a
+// host whose page size exceeds the guest's (iOS: 16K host vs 4K guest), the ELF
+// loader used to map that final, EOF-straddling page directly from the file and
+// then zero-fill the BSS tail into it; the copy-on-write pagein cluster spilled
+// past the backing file's EOF and APFS killed the guest with SIGBUS
+// ("cluster_pagein past EOF"). The entry point sits *inside* that straddling
+// region, so a clean exit also proves the loader reproduced those bytes (now
+// copied into anonymous memory) intact.
+static int build_straddle_elf_fd(int fd) {
+    const uint64_t filesz = 0x12500;          // file content ends mid last host page
+    const uint64_t memsz = filesz + 0x8000;   // BSS past p_filesz
+    const uint32_t entry_off = 0x124f0;       // inside the straddling/copied region
+#if defined(__x86_64__)
+    const uint64_t base = 0x400000;
+    const unsigned char code[] = { 0x31,0xFF, 0xB8,60,0,0,0, 0x0F,0x05 }; // xor edi,edi; mov eax,60; syscall
+#else
+    const uint64_t base = 0x08048000;
+    const unsigned char code[] = { 0xB8,1,0,0,0, 0x31,0xDB, 0xCD,0x80 };  // mov eax,1; xor ebx,ebx; int 0x80
+#endif
+    unsigned char *f = calloc(1, filesz);
+    if (f == NULL)
+        return -1;
+    memcpy(f, "\x7f""ELF", 4);
+    f[5] = 1; f[6] = 1;                        // little-endian, EI_VERSION
+    put_le(f + 16, 2, 2);                      // e_type = ET_EXEC
+    put_le(f + 20, 1, 4);                      // e_version
+#if defined(__x86_64__)
+    f[4] = 2;                                  // ELFCLASS64
+    put_le(f + 18, 62, 2);                     // EM_X86_64
+    put_le(f + 24, base + entry_off, 8);       // e_entry
+    put_le(f + 32, 64, 8);                     // e_phoff
+    put_le(f + 52, 64, 2);                     // e_ehsize
+    put_le(f + 54, 56, 2);                     // e_phentsize
+    put_le(f + 56, 1, 2);                      // e_phnum
+    unsigned char *ph = f + 64;
+    put_le(ph + 0, 1, 4);                      // PT_LOAD
+    put_le(ph + 4, 7, 4);                      // PF_R|W|X
+    put_le(ph + 8, 0, 8);                      // p_offset
+    put_le(ph + 16, base, 8);                  // p_vaddr
+    put_le(ph + 24, base, 8);                  // p_paddr
+    put_le(ph + 32, filesz, 8);                // p_filesz
+    put_le(ph + 40, memsz, 8);                 // p_memsz
+    put_le(ph + 48, 0x1000, 8);                // p_align
+#else
+    f[4] = 1;                                  // ELFCLASS32
+    put_le(f + 18, 3, 2);                      // EM_386
+    put_le(f + 24, base + entry_off, 4);       // e_entry
+    put_le(f + 28, 52, 4);                     // e_phoff
+    put_le(f + 40, 52, 2);                     // e_ehsize
+    put_le(f + 42, 32, 2);                     // e_phentsize
+    put_le(f + 44, 1, 2);                      // e_phnum
+    unsigned char *ph = f + 52;
+    put_le(ph + 0, 1, 4);                      // PT_LOAD
+    put_le(ph + 4, 0, 4);                      // p_offset
+    put_le(ph + 8, base, 4);                   // p_vaddr
+    put_le(ph + 12, base, 4);                  // p_paddr
+    put_le(ph + 16, filesz, 4);                // p_filesz
+    put_le(ph + 20, memsz, 4);                 // p_memsz
+    put_le(ph + 24, 7, 4);                     // PF_R|W|X
+    put_le(ph + 28, 0x1000, 4);                // p_align
+#endif
+    memcpy(f + entry_off, code, sizeof(code));
+
+    ssize_t wr = write(fd, f, filesz);
+    free(f);
+    if (wr != (ssize_t) filesz)
+        return -1;
+    if (fchmod(fd, 0755) != 0)
+        return -1;
+    return 0;
+}
+
+static void test_exec_loader_straddle(void) {
+    char path[] = "/tmp/ish-aok-straddle-XXXXXX";
+    int tfd = mkstemp(path);
+    if (tfd < 0) {
+        perror("mkstemp");
+        exit(1);
+    }
+    if (build_straddle_elf_fd(tfd) != 0) {
+        test_log_if(1, "could not build straddle elf\n");
+        failf("amd64 exec loader straddle build", 0, 0, 0, 1, 0, 0);
+        close(tfd);
+        unlink(path);
+        return;
+    }
+    close(tfd);
+
+    for (int iter = 0; iter < 8; iter++) {
+        pid_t pid = fork();
+        int status = 0;
+
+        if (pid < 0) {
+            perror("fork");
+            exit(1);
+        }
+        if (pid == 0) {
+            char *child_argv[] = { path, NULL };
+            execv(path, child_argv);
+            _exit(127);
+        }
+        if (run_wait_ok(pid, &status) != 0) {
+            perror("waitpid");
+            exit(1);
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            test_log_if(1, "exec loader straddle failed iter=%d status=%#x\n", iter, status);
+            failf("amd64 exec loader straddle", (uint64_t) WIFEXITED(status),
+                  (uint64_t) (WIFSIGNALED(status) ? WTERMSIG(status) : 0),
+                  (uint64_t) status, 1, 0, 0);
+            unlink(path);
+            return;
+        }
+    }
+    unlink(path);
+    test_logf("exec loader straddle: ok\n");
+}
+#else
+static void test_exec_loader_straddle(void) {
+    test_logf("exec loader straddle: skipped (non-x86)\n");
+}
+#endif
+
 static void *lock_race_fcntl_thread(void *arg) {
     struct lock_race_state *state = arg;
     struct flock fl;
@@ -464,6 +594,7 @@ int main(int argc, char **argv) {
     test_init(argc, argv);
     test_cross_page_private_store();
     test_exec_loader_zero(argv);
+    test_exec_loader_straddle();
     test_fcntl_lock_close_race();
     test_push_pop_lifo();
     test_cc1_varargs_compile_stress();

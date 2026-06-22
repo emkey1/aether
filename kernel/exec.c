@@ -239,50 +239,152 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
     int flags = P_READ;
     if (ph.flags & PH_W) flags |= P_WRITE;
 
-    if ((err = fd->ops->mmap(fd, current->mem, PAGE(addr),
-                    PAGE_ROUND_UP(filesize + PGOFFSET(addr)),
-                    offset - PGOFFSET(addr), flags, MMAP_PRIVATE)) < 0) {
-        amd64_trace_exec_loader_failure("segment-mmap", NULL, abi, &ph, bias, fd, err, NULL);
-        return err;
-    }
-    // TODO find a better place for these to avoid code duplication
-    mem_pt(current->mem, PAGE(addr))->data->fd = fd_retain(fd);
-    mem_pt(current->mem, PAGE(addr))->data->file_offset = offset - PGOFFSET(addr);
-
     guest_addr_t file_end = addr + filesize;
+    guest_addr_t mem_end = addr + memsize;
+    guest_addr_t map_file_start = offset - PGOFFSET(addr);  // file offset of PAGE(addr)
+    guest_addr_t content_file_end = offset + filesize;      // file offset where p_filesz ends
 
-    // ELF requires the remainder of the final file-backed page in a PT_LOAD
-    // segment to read as zero. When the host page size is larger than the
-    // guest page size, the mmap above can otherwise expose later file bytes in
-    // that guest-visible tail.
-    dword_t tail_size = PAGE_SIZE - PGOFFSET(file_end);
-    if (tail_size == PAGE_SIZE)
-        tail_size = 0;
+    // Guest pages spanned by the segment's file content, counted from the
+    // segment's first page. This is the full extent mapped from the file by
+    // default.
+    pages_t fb_pages = PAGE_ROUND_UP(filesize + PGOFFSET(addr));
 
-    if (tail_size != 0 && (flags & P_WRITE)) {
-        // Unlock and lock the mem because the user functions must be
-        // called without locking mem.
-        struct mem *mem = current->mem;
-        write_unlock(&mem->lock);
-
-        int memset_err = user_memset(file_end, 0, tail_size);
-        write_lock(&mem->lock);
-        if (memset_err) {
-            amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
-            return _EFAULT;
+    // Guard against a host page that extends past the backing file's EOF.
+    //
+    // iOS host pages (16K) are larger than guest pages (4K). When a writable
+    // PT_LOAD's file content ends partway through the final host page of its
+    // private file mapping, the rest of that host page lies beyond the file's
+    // EOF. The first write into that page -- the BSS zero-fill below, or any
+    // guest store at run time -- triggers a copy-on-write fault, and the host
+    // must page in the whole 16K cluster from the file to copy it. The part
+    // past EOF makes APFS fail the pagein ("cluster_pagein past EOF") and the
+    // guest dies with SIGBUS. (On a host whose page size equals the guest's,
+    // the tail of the final page reads as zero and COW works, so we leave the
+    // mapping alone there.)
+    //
+    // So when the host page is larger than the guest page, map only the whole
+    // host pages that lie entirely within the file, and back the remainder --
+    // the file tail that shares EOF's host page, plus the BSS -- with anonymous
+    // memory, copying the residual file bytes into it. Read-only segments are
+    // never written, so they never trigger the COW pagein and stay fully
+    // file-backed (and shareable).
+    bool split_tail = false;
+    guest_addr_t residual_file_start = 0;  // file offset of bytes to copy into anon
+    guest_addr_t split_file_size = 0;      // backing file size, for the copy clamp
+    if (real_page_size > PAGE_SIZE && (flags & P_WRITE) && filesize != 0) {
+        struct statbuf st;
+        if (fd->mount->fs->fstat(fd, &st) >= 0) {
+            guest_addr_t host_mask = (guest_addr_t) real_page_size - 1;
+            guest_addr_t mapping_host_end = (content_file_end + host_mask) & ~host_mask;
+            if ((qword_t) st.size < mapping_host_end) {
+                // The final host page of the file mapping straddles EOF.
+                split_tail = true;
+                split_file_size = (guest_addr_t) st.size;
+                guest_addr_t safe_file_end = (guest_addr_t) st.size & ~host_mask; // floor to host page
+                guest_addr_t fb_file_end = content_file_end < safe_file_end ?
+                        content_file_end : safe_file_end;
+                fb_file_end &= ~host_mask;          // keep only whole host pages
+                if (fb_file_end < map_file_start)
+                    fb_file_end = map_file_start;   // nothing is safely file-backed
+                fb_pages = (pages_t) ((fb_file_end - map_file_start) >> PAGE_BITS);
+                residual_file_start = fb_file_end;
+            }
         }
     }
 
-    if (memsize > filesize) {
-        dword_t bss_size = memsize - filesize;
-        if (tail_size > bss_size)
-            tail_size = bss_size;
-        dword_t extra_bss_size = bss_size - tail_size;
-        if (extra_bss_size != 0) {
-            if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(file_end),
-                            PAGE_ROUND_UP(extra_bss_size), flags)) < 0) {
+    // Map the file-backed portion of the segment.
+    if (fb_pages > 0) {
+        if ((err = fd->ops->mmap(fd, current->mem, PAGE(addr), fb_pages,
+                        map_file_start, flags, MMAP_PRIVATE)) < 0) {
+            amd64_trace_exec_loader_failure("segment-mmap", NULL, abi, &ph, bias, fd, err, NULL);
+            return err;
+        }
+        // TODO find a better place for these to avoid code duplication
+        mem_pt(current->mem, PAGE(addr))->data->fd = fd_retain(fd);
+        mem_pt(current->mem, PAGE(addr))->data->file_offset = map_file_start;
+    }
+
+    if (!split_tail) {
+        // The file content's final page is mapped from the file. ELF requires the
+        // remainder of that page (the BSS that shares the last file page) to read
+        // as zero. When the host page size is larger than the guest page size,
+        // the mmap above can otherwise expose later file bytes in that
+        // guest-visible tail.
+        dword_t tail_size = PAGE_SIZE - PGOFFSET(file_end);
+        if (tail_size == PAGE_SIZE)
+            tail_size = 0;
+
+        if (tail_size != 0 && (flags & P_WRITE)) {
+            // Unlock and lock the mem because the user functions must be
+            // called without locking mem.
+            struct mem *mem = current->mem;
+            write_unlock(&mem->lock);
+
+            int memset_err = user_memset(file_end, 0, tail_size);
+            write_lock(&mem->lock);
+            if (memset_err) {
+                amd64_trace_exec_loader_failure("segment-bss-tail", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
+                return _EFAULT;
+            }
+        }
+
+        if (memsize > filesize) {
+            dword_t bss_size = memsize - filesize;
+            if (tail_size > bss_size)
+                tail_size = bss_size;
+            dword_t extra_bss_size = bss_size - tail_size;
+            if (extra_bss_size != 0) {
+                if ((err = pt_map_nothing(current->mem, PAGE_ROUND_UP(file_end),
+                                PAGE_ROUND_UP(extra_bss_size), flags)) < 0) {
+                    amd64_trace_exec_loader_failure("segment-bss-map", NULL, abi, &ph, bias, fd, err, NULL);
+                    return err;
+                }
+            }
+        }
+    } else {
+        // Anonymous (zeroed) backing for the file tail sharing EOF's host page
+        // plus the BSS, so neither the zero-fill below nor later guest stores
+        // ever fault a file page past EOF.
+        guest_addr_t anon_start = (guest_addr_t) (PAGE(addr) + fb_pages) << PAGE_BITS;
+        pages_t anon_pages = mem_end > anon_start ? PAGE_ROUND_UP(mem_end - anon_start) : 0;
+        if (anon_pages != 0) {
+            if ((err = pt_map_nothing(current->mem, PAGE(anon_start), anon_pages, flags)) < 0) {
                 amd64_trace_exec_loader_failure("segment-bss-map", NULL, abi, &ph, bias, fd, err, NULL);
                 return err;
+            }
+        }
+
+        // Copy the residual file bytes (the file content that fell into the anon
+        // region) to the start of it; the rest stays zero (the BSS). Clamp to the
+        // backing file's real size so an over-declared/truncated p_filesz never
+        // makes us read past EOF or allocate an absurd buffer -- those bytes don't
+        // exist and are already zero in the anon mapping.
+        guest_addr_t copy_end = content_file_end < split_file_size ? content_file_end : split_file_size;
+        dword_t copy_len = (dword_t) (copy_end - residual_file_start);
+        if (copy_len != 0) {
+            char *buf = malloc(copy_len);
+            if (buf == NULL)
+                return _ENOMEM;
+            ssize_t got = fd->ops->pread(fd, buf, copy_len, (off_t) residual_file_start);
+            if (got < 0) {
+                free(buf);
+                amd64_trace_exec_loader_failure("segment-tail-read", NULL, abi, &ph, bias, fd, _EIO, NULL);
+                return _EIO;
+            }
+            // A short read leaves the remaining bytes zero, which is what ELF
+            // wants for any content claimed past a truncated p_filesz.
+            if ((dword_t) got < copy_len)
+                memset(buf + got, 0, copy_len - (dword_t) got);
+
+            // user functions must be called without holding the mem lock.
+            struct mem *mem = current->mem;
+            write_unlock(&mem->lock);
+            int write_err = user_write(anon_start, buf, copy_len);
+            write_lock(&mem->lock);
+            free(buf);
+            if (write_err) {
+                amd64_trace_exec_loader_failure("segment-tail-copy", NULL, abi, &ph, bias, fd, _EFAULT, NULL);
+                return _EFAULT;
             }
         }
     }
