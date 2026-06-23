@@ -221,11 +221,12 @@ code-model camp.
 A third instrument: classic computer-science algorithms (recursion, the bubble/merge/quick sort triad, binary search, graph BFS and Dijkstra, dynamic programming, strings), exact-stdout scored. It tests algorithmic implementation, a different axis from v2's language-feature fluency and the hard set's large-compositional tasks, and doubles as a language-completeness probe: it surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*5 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*6 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 18/19 · 19✓ | 19/19 · 19✓ |
+| `GLM-5.2` | — | none | Z.ai API | 2026-05 | 0/19 · 0✓ | 0/19 · 0✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 15/19 · 15✓ | 16/19 · 17✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
