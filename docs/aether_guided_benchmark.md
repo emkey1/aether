@@ -111,12 +111,12 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
-| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 7/30 · 7✓ | 0/10 · 0✓ (incomplete) |
+| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 7/30 · 7✓ | 0/16 · 0✓ (incomplete) |
 | `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
-| `gpt-4o` | ? | — | GGUF | ? | 23/30 · 23✓ | 28/30 · 28✓ |
-| `gpt-5.5` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
+| `gpt-4o` | — | none | OpenAI API | 2024-05 | 23/30 · 23✓ | 28/30 · 28✓ |
+| `gpt-5.5` | — | none | OpenAI API | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `mistral-small3.1:24b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 25✓ |
-| `o3` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
+| `o3` | — | none | OpenAI API | 2025-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `qwen3-coder:30b` | ? | — | GGUF | ? | 21/30 · 24✓ | 24/30 · 25✓ |
 | `command-r:latest` | 20 GB | Q4_K_M | Ollama | 2024-08 | 21/30 · 24✓ | 22/30 · 25✓ |
 | `qwen3:32b` | 20 GB | Q4_K_M | Ollama | 2025-04 | 24/30 · 27✓ | 27/30 · 28✓ |
@@ -183,10 +183,10 @@ separate table because the v2/30 board is already wide.
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 5/8 · 5✓ | 7/8 · 7✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
-| `gpt-4o` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
-| `gpt-5.5` | ? | — | GGUF | ? | 8/8 · 8✓ | 8/8 · 8✓ |
+| `gpt-4o` | — | none | OpenAI API | 2024-05 | 6/8 · 6✓ | 7/8 · 7✓ |
+| `gpt-5.5` | — | none | OpenAI API | 2026-04 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `mistral-small3.1:24b` | ? | — | GGUF | ? | 4/8 · 4✓ | 6/8 · 7✓ |
-| `o3` | ? | — | GGUF | ? | 7/8 · 7✓ | 7/8 · 7✓ |
+| `o3` | — | none | OpenAI API | 2025-04 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3-coder:30b` | ? | — | GGUF | ? | 4/8 · 5✓ | 3/8 · 4✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
@@ -243,9 +243,9 @@ A third instrument: classic computer-science algorithms (recursion, the bubble/m
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
 | `GLM-4.5-Air` | — | none | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
-| `gpt-4o` | ? | — | GGUF | ? | 8/19 · 8✓ | 4/19 · 4✓ |
-| `gpt-5.5` | ? | — | GGUF | ? | 19/19 · 19✓ | 19/19 · 19✓ |
-| `o3` | ? | — | GGUF | ? | 10/19 · 11✓ | 7/19 · 7✓ |
+| `gpt-4o` | — | none | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
+| `gpt-5.5` | — | none | OpenAI API | 2026-04 | 19/19 · 19✓ | 19/19 · 19✓ |
+| `o3` | — | none | OpenAI API | 2025-04 | 10/19 · 11✓ | 7/19 · 7✓ |
 <!-- LEADERBOARD-CS:END -->
 
 ## What this does and does not show
