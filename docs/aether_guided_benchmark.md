@@ -82,7 +82,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*36 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
+*37 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -100,7 +100,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 26/27 · 26✓ (incomplete) | — |
+| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 29/30 · 29✓ | 20/21 · 20✓ (incomplete) |
 | `nvidia/nemotron-3-nano` | 33.58 GB | 8bit | MLX | 2025-12 | 10/30 · 13✓ | 14/30 · 15✓ |
 | `qwen/qwen3-vl-30b` | 33.53 GB | 8bit | MLX | 2026-02 | 14/30 · 27✓ | 3/30 · 5✓ |
 | `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 12/30 · 19✓ | 0/30 · 0✓ |
@@ -117,12 +117,13 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
-| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 1/1 · 1✓ (incomplete) | — |
+| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | 1/3 · 1✓ (incomplete) | — |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 2/30 · 2✓ | 0/30 · 0✓ |
 | `deepseek-r1-distill-qwen-7b` | 4.68 GB | Q4_K_M | GGUF | 2025-01 | 2/30 · 4✓ | 1/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
+| `qwen3:4b` | 2.5 GB | Q4_K_M | Ollama | 2025-04 | 20/23 · 20✓ (incomplete) | — |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
 | `gemma-4-12b-it-mxfp8` | 12.38 GB | 8bit | MLX | 2026-06 | *load-failed* | |
@@ -155,16 +156,19 @@ oracle, which spreads the leaders back out. Same two guides and harness; a
 separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*16 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*19 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
-| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 8/8 · 8✓ | 7/7 · 7✓ (incomplete) |
+| `GLM-5` | — | none | Z.ai API | 2026-03 | 8/8 · 8✓ | 8/8 · 8✓ |
+| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 7/8 · 7✓ | 8/8 · 8✓ |
 | `GLM-5.2` | — | none | Z.ai API | 2026-05 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 6/8 · 6✓ | 8/8 · 8✓ |
+| `GLM-5-Turbo` | — | none | Z.ai API | 2026-04 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 7/8 · 7✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 8/8 · 8✓ | 8/8 · 8✓ |
+| `GLM-4.5-Air` | — | none | Z.ai API | 2025-07 | 3/8 · 3✓ | 4/8 · 5✓ |
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
