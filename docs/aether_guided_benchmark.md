@@ -82,7 +82,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*45 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
+*48 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -111,9 +111,12 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
+| `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
 | `gemma4-ctx32k` | ? | — | GGUF | ? | 7/29 · 7✓ (incomplete) | — |
+| `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
 | `mistral-small3.1:24b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 25✓ |
 | `qwen3-coder:30b` | ? | — | GGUF | ? | 21/30 · 24✓ | 24/30 · 25✓ |
+| `command-r:latest` | 20 GB | Q4_K_M | Ollama | 2024-08 | 21/30 · 24✓ | 22/30 · 25✓ |
 | `qwen3:32b` | 20 GB | Q4_K_M | Ollama | 2025-04 | 24/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-claude-deckard-qx64-hi-mlx` | 19.58 GB | 6bit | MLX | 2026-04 | 24/30 · 24✓ | 22/30 · 22✓ |
 | `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 2/30 · 2✓ |
@@ -221,11 +224,12 @@ code-model camp.
 A third instrument: classic computer-science algorithms (recursion, the bubble/merge/quick sort triad, binary search, graph BFS and Dijkstra, dynamic programming, strings), exact-stdout scored. It tests algorithmic implementation, a different axis from v2's language-feature fluency and the hard set's large-compositional tasks, and doubles as a language-completeness probe: it surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*5 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*6 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 18/19 · 19✓ | 19/19 · 19✓ |
+| `GLM-5.2` | — | none | Z.ai API | 2026-05 | 17/19 · 17✓ | 18/19 · 18✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 15/19 · 15✓ | 16/19 · 17✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
