@@ -112,9 +112,9 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `gemma4-ctx32k` | ? | — | GGUF | ? | 7/29 · 7✓ (incomplete) | — |
-| `mistral-small3.1:24b` | ? | — | GGUF | ? | 21/24 · 21✓ (incomplete) | — |
+| `mistral-small3.1:24b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 25✓ |
 | `qwen3-coder:30b` | ? | — | GGUF | ? | 21/30 · 24✓ | 24/30 · 25✓ |
-| `qwen3:32b` | 20 GB | Q4_K_M | Ollama | 2025-04 | 24/30 · 27✓ | 13/16 · 14✓ (incomplete) |
+| `qwen3:32b` | 20 GB | Q4_K_M | Ollama | 2025-04 | 24/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-claude-deckard-qx64-hi-mlx` | 19.58 GB | 6bit | MLX | 2026-04 | 24/30 · 24✓ | 22/30 · 22✓ |
 | `qwq-32b` | 18.0 GB | Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 2/30 · 2✓ |
 | `gemma3:27b` | 17 GB | Q4_K_M | Ollama | 2025-03 | 29/30 · 30✓ | 5/30 · 5✓ |
@@ -229,7 +229,7 @@ A third instrument: classic computer-science algorithms (recursion, the bubble/m
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 15/19 · 15✓ | 16/19 · 17✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
-| `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 8/9 · 9✓ (incomplete) | — |
+| `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
 <!-- LEADERBOARD-CS:END -->
 
 ## What this does and does not show
