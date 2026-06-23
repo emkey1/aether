@@ -39,8 +39,19 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Aether language version: the date of the last language-affecting change
+# (YYYY-MM-DD-N), checked into VERSION so every node that builds this commit
+# reports the same value. Bumped only on language changes via
+# tools/bump_version.py, never per build, so the date means "semantics last
+# changed" -- which makes node version-skew self-evident.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" AETHER_LANG_VERSION LIMIT_COUNT 1)
+if(NOT AETHER_LANG_VERSION)
+    set(AETHER_LANG_VERSION "unknown")
+endif()
+message(STATUS "Aether language version: ${AETHER_LANG_VERSION}")
+
 add_compile_definitions(
-    PROGRAM_VERSION="0.0.0"
+    PROGRAM_VERSION="${AETHER_LANG_VERSION}"
     PSCAL_GIT_TAG="untagged"
     ENABLE_EXT_BUILTIN_MATH ENABLE_EXT_BUILTIN_STRINGS ENABLE_EXT_BUILTIN_SYSTEM
     ENABLE_EXT_BUILTIN_USER ENABLE_EXT_BUILTIN_YYJSON ENABLE_EXT_BUILTIN_3D
