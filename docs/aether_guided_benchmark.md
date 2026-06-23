@@ -170,7 +170,7 @@ oracle, which spreads the leaders back out. Same two guides and harness; a
 separate table because the v2/30 board is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*24 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
+*25 models scored on the large data set (`tasks_hard.json`, 8 hard tasks). exact/8 · ✓ = compiled & ran. Cloud + claw1 first; locals to follow.*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -186,9 +186,10 @@ separate table because the v2/30 board is already wide.
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 5/8 · 5✓ | 7/8 · 7✓ |
-| `exaone3.5:32b` | ? | — | GGUF | ? | 1/2 · 1✓ (incomplete) | — |
+| `exaone3.5:32b` | ? | — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 8/8 · 8✓ | 8/8 · 8✓ |
+| `mistral-small3.1:24b` | ? | — | GGUF | ? | — | — |
 | `o3` | ? | — | GGUF | ? | 7/8 · 7✓ | 7/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
