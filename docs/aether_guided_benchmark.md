@@ -157,7 +157,7 @@ separate table because the v2/30 board is already wide.
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
-| `GLM-4.6` | — | none | Z.ai API | 2025-09 | — | — |
+| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 0/2 · 0✓ (incomplete) | — |
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 7/8 · 7✓ | 8/8 · 8✓ |
 | `GLM-5.2` | — | none | Z.ai API | 2026-05 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 6/8 · 6✓ | 8/8 · 8✓ |
