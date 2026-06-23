@@ -82,7 +82,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*37 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
+*38 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -118,12 +118,13 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen3.5-9b-mlx` | 10.45 GB | 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB | Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
+| `google/gemma-4-12b-qat` | 7.15 GB | Q4_0 | GGUF | 2026-06 | — | — |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 2/30 · 2✓ | 0/30 · 0✓ |
-| `deepseek-r1-distill-qwen-7b` | 4.68 GB | Q4_K_M | GGUF | 2025-01 | 2/30 · 4✓ | 1/27 · 3✓ (incomplete) |
+| `deepseek-r1-distill-qwen-7b` | 4.68 GB | Q4_K_M | GGUF | 2025-01 | 2/30 · 4✓ | 1/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
-| `qwen3:4b` | 2.5 GB | Q4_K_M | Ollama | 2025-04 | 1/30 · 1✓ | 0/30 · 0✓ |
+| `qwen3:4b` | 2.5 GB | Q4_K_M | Ollama | 2025-04 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
 | `gemma-4-12b-it-mxfp8` | 12.38 GB | 8bit | MLX | 2026-06 | *load-failed* | |
@@ -160,7 +161,7 @@ separate table because the v2/30 board is already wide.
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
-| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 8/8 · 8✓ | — |
+| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 8/8 · 8✓ | 1/1 · 1✓ (incomplete) |
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 7/8 · 7✓ | 8/8 · 8✓ |
 | `GLM-5.2` | — | none | Z.ai API | 2026-05 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 6/8 · 6✓ | 8/8 · 8✓ |
