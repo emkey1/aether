@@ -224,7 +224,7 @@ code-model camp.
 A third instrument: classic computer-science algorithms (recursion, the bubble/merge/quick sort triad, binary search, graph BFS and Dijkstra, dynamic programming, strings), exact-stdout scored. It tests algorithmic implementation, a different axis from v2's language-feature fluency and the hard set's large-compositional tasks, and doubles as a language-completeness probe: it surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*6 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*9 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
@@ -234,6 +234,9 @@ A third instrument: classic computer-science algorithms (recursion, the bubble/m
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
+| `gpt-4o` | ? | — | GGUF | ? | 8/19 · 8✓ | 4/19 · 4✓ |
+| `gpt-5.5` | ? | — | GGUF | ? | 19/19 · 19✓ | 19/19 · 19✓ |
+| `o3` | ? | — | GGUF | ? | 10/19 · 11✓ | 7/19 · 7✓ |
 <!-- LEADERBOARD-CS:END -->
 
 ## What this does and does not show
