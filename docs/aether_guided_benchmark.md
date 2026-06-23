@@ -111,7 +111,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
-| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 4/22 · 4✓ (incomplete) | — |
+| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 5/23 · 5✓ (incomplete) | — |
 | `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 23/30 · 23✓ | 28/30 · 28✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
@@ -184,7 +184,7 @@ separate table because the v2/30 board is already wide.
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 5/8 · 5✓ | 7/8 · 7✓ |
-| `deepseek-r1:32b` | ? | — | GGUF | ? | 6/8 · 6✓ | 6/7 · 6✓ (incomplete) |
+| `deepseek-r1:32b` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 8/8 · 8✓ | 8/8 · 8✓ |
