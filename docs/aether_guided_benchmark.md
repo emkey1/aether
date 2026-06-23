@@ -102,7 +102,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `deepseek-r1:70b` | 42 GB | Q4_K_M | Ollama | 2025-01 | 25/30 · 25✓ | 25/30 · 27✓ |
 | `llama3.3:70b` | 42 GB | Q4_K_M | Ollama | 2024-12 | 28/30 · 28✓ | 27/30 · 29✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `allenai/olmo-3-32b-think` | 34.25 GB | Q8_0 | GGUF | 2025-11 | 11/30 · 14✓ | 6/9 · 6✓ (incomplete) |
+| `allenai/olmo-3-32b-think` | 34.25 GB | Q8_0 | GGUF | 2025-11 | — | — |
 | `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 29/30 · 29✓ | 29/30 · 29✓ |
 | `nvidia/nemotron-3-nano` | 33.58 GB | 8bit | MLX | 2025-12 | 10/30 · 13✓ | 14/30 · 15✓ |
 | `qwen/qwen3-vl-30b` | 33.53 GB | 8bit | MLX | 2026-02 | 14/30 · 27✓ | 3/30 · 5✓ |
@@ -112,7 +112,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
-| `gemma4-ctx32k` | ? | — | GGUF | ? | 7/29 · 7✓ (incomplete) | — |
+| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 0/2 · 0✓ (incomplete) | — |
 | `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 23/30 · 23✓ | 28/30 · 28✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
@@ -134,7 +134,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
-| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 2/6 · 2✓ (incomplete) | — |
+| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | — | — |
 | `deepseek-r1-distill-qwen-7b` | 4.68 GB | Q4_K_M | GGUF | 2025-01 | 2/30 · 4✓ | 1/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3:4b` | 2.5 GB | Q4_K_M | Ollama | 2025-04 | 25/30 · 26✓ | 22/30 · 27✓ |
@@ -189,7 +189,7 @@ separate table because the v2/30 board is already wide.
 | `exaone3.5:32b` | ? | — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 8/8 · 8✓ | 8/8 · 8✓ |
-| `mistral-small3.1:24b` | ? | — | GGUF | ? | — | — |
+| `mistral-small3.1:24b` | ? | — | GGUF | ? | 3/6 · 3✓ (incomplete) | — |
 | `o3` | ? | — | GGUF | ? | 7/8 · 7✓ | 7/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
