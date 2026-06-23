@@ -112,7 +112,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
-| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 0/2 · 0✓ (incomplete) | — |
+| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 0/3 · 0✓ (incomplete) | — |
 | `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 23/30 · 23✓ | 28/30 · 28✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
@@ -189,7 +189,7 @@ separate table because the v2/30 board is already wide.
 | `exaone3.5:32b` | ? | — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 8/8 · 8✓ | 8/8 · 8✓ |
-| `mistral-small3.1:24b` | ? | — | GGUF | ? | 3/6 · 3✓ (incomplete) | — |
+| `mistral-small3.1:24b` | ? | — | GGUF | ? | 4/8 · 4✓ | — |
 | `o3` | ? | — | GGUF | ? | 7/8 · 7✓ | 7/8 · 7✓ |
 | `google/gemma-3n-e4b` | 15.74 GB | bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB | Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
@@ -232,15 +232,19 @@ code-model camp.
 A third instrument: classic computer-science algorithms (recursion, the bubble/merge/quick sort triad, binary search, graph BFS and Dijkstra, dynamic programming, strings), exact-stdout scored. It tests algorithmic implementation, a different axis from v2's language-feature fluency and the hard set's large-compositional tasks, and doubles as a language-completeness probe: it surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*9 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*13 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size | quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|---|
+| `GLM-5` | — | none | Z.ai API | 2026-03 | 15/19 · 17✓ | 15/19 · 16✓ |
+| `GLM-4.6` | — | none | Z.ai API | 2025-09 | 15/19 · 15✓ | 15/19 · 17✓ |
 | `gemini-3.1-pro-preview` | — | none | Gemini API | 2026-04 | 18/19 · 19✓ | 19/19 · 19✓ |
 | `GLM-5.2` | — | none | Z.ai API | 2026-05 | 17/19 · 17✓ | 18/19 · 18✓ |
 | `gemini-3-flash-preview` | — | none | Gemini API | 2026-04 | 15/19 · 15✓ | 16/19 · 17✓ |
+| `GLM-5-Turbo` | — | none | Z.ai API | 2026-04 | 17/19 · 18✓ | 18/19 · 19✓ |
 | `gemini-2.5-pro` | — | none | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
+| `GLM-4.5-Air` | — | none | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 8/19 · 8✓ | 4/19 · 4✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 19/19 · 19✓ | 19/19 · 19✓ |
