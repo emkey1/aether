@@ -96,7 +96,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 5/5 · 5✓ (incomplete) | — |
+| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 7/7 · 7✓ (incomplete) | — |
 | `nvidia/nemotron-3-nano` | 33.58 GB | 8bit | MLX | 2025-12 | 10/30 · 13✓ | 14/30 · 15✓ |
 | `qwen/qwen3-vl-30b` | 33.53 GB | 8bit | MLX | 2026-02 | 14/30 · 27✓ | 3/30 · 5✓ |
 | `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 12/30 · 19✓ | 0/30 · 0✓ |
