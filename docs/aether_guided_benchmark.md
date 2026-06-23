@@ -82,7 +82,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*35 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
+*34 of 47 local models scored so far (the ≥60B set is served separately). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio 0.4.16, vLLM/TRT-LLM = claw1, Gemini API = Google cloud.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow) and `stable-code-instruct-3b` (2024-03, chat-template parse failure).*
 
@@ -100,7 +100,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `openai/gpt-oss-120b` | 63 GB | MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB | NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
-| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 9/9 · 9✓ (incomplete) | — |
+| `google/gemma-4-31b` | 33.8 GB | 8bit | MLX | 2026-04 | 10/10 · 10✓ (incomplete) | — |
 | `nvidia/nemotron-3-nano` | 33.58 GB | 8bit | MLX | 2025-12 | 10/30 · 13✓ | 14/30 · 15✓ |
 | `qwen/qwen3-vl-30b` | 33.53 GB | 8bit | MLX | 2026-02 | 14/30 · 27✓ | 3/30 · 5✓ |
 | `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB | 8bit | MLX | 2026-04 | 12/30 · 19✓ | 0/30 · 0✓ |
@@ -120,7 +120,6 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB | 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB | 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
 | `yi-coder-9b-chat@q4_k_m` | 5.5 GB | Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
-| `qwen3.5-4b-mlx` | 5.16 GB | 8bit | MLX | 2026-02 | 1/6 · 1✓ (incomplete) | — |
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
 | `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
