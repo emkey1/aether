@@ -111,7 +111,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
-| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 5/23 · 5✓ (incomplete) | — |
+| `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 7/30 · 7✓ | 0/10 · 0✓ (incomplete) |
 | `gemma4:12b` | ? | — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
 | `gpt-4o` | ? | — | GGUF | ? | 23/30 · 23✓ | 28/30 · 28✓ |
 | `gpt-5.5` | ? | — | GGUF | ? | 30/30 · 30✓ | 30/30 · 30✓ |
@@ -137,9 +137,6 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `ibm/granite-4-h-tiny` | 4.23 GB | Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
 | `qwen3:4b` | 2.5 GB | Q4_K_M | Ollama | 2025-04 | 25/30 · 26✓ | 22/30 · 27✓ |
 | `qwen3.5-2b-mlx` | 1.75 GB | 4bit | MLX | 2026-02 | 9/30 · 12✓ | 13/30 · 23✓ |
-| `bonsai-8b-mlx` | 1.3 GB | 1bit | MLX | 2026-04 | *load-failed* | |
-| `gemma-4-12b-it-mxfp8` | 12.38 GB | 8bit | MLX | 2026-06 | *load-failed* | |
-| `gemma-4-e2b-it` | 4.83 GB | Q6_K | GGUF | 2026-04 | *load-failed* | |
 <!-- LEADERBOARD:END -->
 
 Early, robust shape:
