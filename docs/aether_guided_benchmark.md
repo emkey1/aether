@@ -71,14 +71,14 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 (exact out of 30; ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*Each small/full cell reads **compiled / ran / retried / fixed**: compiled and ran, ran to the correct output, sent to the repair loop, fixed by repair (the repair loop is off for these runs, so the last two read 0). think = reasoning effort. served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = claw1, Z.ai/Gemini/OpenAI = cloud. Sorted by size, cloud first.*
+*think = reasoning effort. served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = claw1, Z.ai/Gemini/OpenAI = cloud. Sorted by size, cloud first. 47 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow), `stable-code-instruct-3b` (2024-03, chat-template parse failure), and `gemma4:12b` (Ollama, 0 of 30 produced a runnable program, a serving failure not a capability result).*
 
 *Withheld pending re-test: `nvidia/nemotron-3-nano`. Its latest serving run returned empty completions on all 60 generations (the model loaded, but produced nothing extractable), so that 0/30 is a serving fault under investigation, not a capability result. An earlier pass scored in the double digits, so it will be re-run once the serving issue is fixed.*
 
 <table>
-<tr><th colspan="7">v2/30 · 30 tasks: core language fluency on decontaminated positive cases · 47 models scored</th></tr>
+<tr><th colspan="7">30 simple tasks: core language fluency measured</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
 <tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
 <tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>29/29/0/0</td><td>30/30/0/0</td></tr>
@@ -127,6 +127,7 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 <tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>20/15/0/0</td><td>21/18/0/0</td></tr>
 <tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>26/25/0/0</td><td>27/22/0/0</td></tr>
 <tr><td><code>qwen3.5-2b-mlx</code></td><td>1.75 GB · 4bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>12/9/0/0</td><td>23/13/0/0</td></tr>
+<tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD:END -->
 
@@ -160,10 +161,10 @@ exact-stdout against an oracle, spreads them back out. Same two guides and
 harness, a separate board because v2/30 is already wide.
 
 <!-- LEADERBOARD-LARGE:START -->
-*Each cell reads **compiled / ran / retried / fixed** (repair loop off, so the last two read 0). Sorted by size.*
+*Sorted by size. 27 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 <table>
-<tr><th colspan="7">large/8 · 8 harder tasks (tasks_hard.json): bigger inputs, more layered logic · 27 models scored</th></tr>
+<tr><th colspan="7">8 harder tasks: bigger inputs, more layered logic</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
 <tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
@@ -192,6 +193,7 @@ harness, a separate board because v2/30 is already wide.
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>4/1/0/0</td><td>4/1/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>4/1/0/0</td><td>3/1/0/0</td></tr>
+<tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD-LARGE:END -->
 
@@ -224,10 +226,10 @@ large-compositional tasks — and doubles as a language-completeness probe: it
 surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*Each cell reads **compiled / ran / retried / fixed** (repair loop off, so the last two read 0). Sorted by size.*
+*Sorted by size. 24 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 <table>
-<tr><th colspan="7">CS-classics · 19 textbook-algorithm tasks: recursion, sorts, search, graphs, DP, strings · 24 models scored</th></tr>
+<tr><th colspan="7">19 CS-classics: textbook-algorithm tasks: recursion, sorts, search, graphs, DP, strings</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
 <tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>17/15/0/0</td><td>16/15/0/0</td></tr>
 <tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>15/15/0/0</td><td>17/15/0/0</td></tr>
@@ -241,7 +243,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <tr><td><code>gemini-2.5-flash</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>16/14/0/0</td><td>14/13/0/0</td></tr>
 <tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>gpt-4o</code></td><td>—</td><td>OpenAI API</td><td>2024-05</td><td>—</td><td>8/8/0/0</td><td>4/4/0/0</td></tr>
-<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>5/4/0/0 (incomplete)</td><td>—</td></tr>
+<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>qwen/qwen3.6-35b-a3b</code></td><td>37.75 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>16/14/0/0</td><td>16/16/0/0</td></tr>
 <tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
 <tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>9/6/0/0</td><td>9/6/0/0</td></tr>
@@ -253,6 +255,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>6/5/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>7/7/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
+<tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD-CS:END -->
 
