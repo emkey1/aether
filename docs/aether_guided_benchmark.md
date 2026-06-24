@@ -226,7 +226,7 @@ large-compositional tasks — and doubles as a language-completeness probe: it
 surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*Sorted by size. 24 models scored; Retried and Fixed read 0 while the repair loop is off.*
+*Sorted by size. 25 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 <table>
 <tr><th colspan="7">19 CS-classics: textbook-algorithm tasks: recursion, sorts, search, graphs, DP, strings</th></tr>
@@ -249,6 +249,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <tr><td><code>gemma3:27b</code></td><td>17 GB · Q4_K_M</td><td>Ollama</td><td>2025-03</td><td>—</td><td>8/5/0/0</td><td>8/7/0/0</td></tr>
 <tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>8/5/0/0</td><td>9/7/0/0</td></tr>
 <tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
+<tr><td><code>llama3.3:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2024-12</td><td>—</td><td>13/8/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/4/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>7/7/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0</td><td>4/2/0/0</td></tr>
