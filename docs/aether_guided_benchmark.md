@@ -80,12 +80,15 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 | `GLM-5` | — | Z.ai API | 2026-03 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `GLM-4.6` | — | Z.ai API | 2025-09 | 29/30 · 29✓ | 30/30 · 30✓ |
 | `gemini-3.1-pro-preview` | — | Gemini API | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
+| `gpt-5.5` | — | OpenAI API | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `GLM-5.2` | — | Z.ai API | 2026-05 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `gemini-3-flash-preview` | — | Gemini API | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `GLM-5-Turbo` | — | Z.ai API | 2026-04 | 29/30 · 30✓ | 29/30 · 30✓ |
+| `o3` | — | OpenAI API | 2025-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `gemini-2.5-pro` | — | Gemini API | 2025-06 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `gemini-2.5-flash` | — | Gemini API | 2025-06 | 29/30 · 29✓ | 30/30 · 30✓ |
 | `GLM-4.5-Air` | — | Z.ai API | 2025-07 | 25/30 · 26✓ | 25/30 · 27✓ |
+| `gpt-4o` | — | OpenAI API | 2024-05 | 23/30 · 23✓ | 28/30 · 28✓ |
 | `openai/gpt-oss-120b` | 63 GB · MXFP4 | TRT-LLM | 2025-08 | 27/30 · 27✓ | 29/30 · 29✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB · NVFP4 | vLLM | 2026-02 | 29/30 · 30✓ | 30/30 · 30✓ |
 | `deepseek-r1:70b` | 42 GB · Q4_K_M | Ollama | 2025-01 | 25/30 · 25✓ | 25/30 · 27✓ |
@@ -98,15 +101,12 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB · 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB · 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB · Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
-| `command-r-plus:104b` | ? · — | GGUF | ? | 1/17 · 2✓ (incomplete) | — |
+| `command-r-plus:104b` | ? · — | GGUF | ? | 3/26 · 4✓ (incomplete) | — |
 | `deepseek-r1:32b` | ? · — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? · — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
 | `gemma4-ctx32k:latest` | ? · — | GGUF | ? | 7/30 · 7✓ | 0/30 · 0✓ |
 | `gemma4:12b` | ? · — | GGUF | ? | 0/30 · 0✓ | 0/30 · 0✓ |
-| `gpt-4o` | — | OpenAI API | 2024-05 | 23/30 · 23✓ | 28/30 · 28✓ |
-| `gpt-5.5` | — | OpenAI API | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `mistral-small3.1:24b` | ? · — | GGUF | ? | 25/30 · 25✓ | 23/30 · 25✓ |
-| `o3` | — | OpenAI API | 2025-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `qwen3-coder:30b` | ? · — | GGUF | ? | 21/30 · 24✓ | 24/30 · 25✓ |
 | `command-r:latest` | 20 GB · Q4_K_M | Ollama | 2024-08 | 21/30 · 24✓ | 22/30 · 25✓ |
 | `qwen3:32b` | 20 GB · Q4_K_M | Ollama | 2025-04 | 24/30 · 27✓ | 27/30 · 28✓ |
@@ -165,21 +165,21 @@ harness, a separate board because v2/30 is already wide.
 | `GLM-5` | — | Z.ai API | 2026-03 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `GLM-4.6` | — | Z.ai API | 2025-09 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3.1-pro-preview` | — | Gemini API | 2026-04 | 7/8 · 7✓ | 8/8 · 8✓ |
+| `gpt-5.5` | — | OpenAI API | 2026-04 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `GLM-5.2` | — | Z.ai API | 2026-05 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `gemini-3-flash-preview` | — | Gemini API | 2026-04 | 6/8 · 6✓ | 8/8 · 8✓ |
 | `GLM-5-Turbo` | — | Z.ai API | 2026-04 | 8/8 · 8✓ | 8/8 · 8✓ |
+| `o3` | — | OpenAI API | 2025-04 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `gemini-2.5-pro` | — | Gemini API | 2025-06 | 8/8 · 8✓ | 7/8 · 7✓ |
 | `gemini-2.5-flash` | — | Gemini API | 2025-06 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `GLM-4.5-Air` | — | Z.ai API | 2025-07 | 3/8 · 3✓ | 4/8 · 5✓ |
+| `gpt-4o` | — | OpenAI API | 2024-05 | 6/8 · 6✓ | 7/8 · 7✓ |
 | `openai/gpt-oss-120b` | 63 GB · MXFP4 | TRT-LLM | 2025-08 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3.5-122b-a10b-nvfp4` | 62 GB · NVFP4 | vLLM | 2026-02 | 8/8 · 8✓ | 6/8 · 7✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB · 8bit | MLX | 2026-04 | 5/8 · 5✓ | 7/8 · 7✓ |
 | `deepseek-r1:32b` | ? · — | GGUF | ? | 6/8 · 6✓ | 7/8 · 7✓ |
 | `exaone3.5:32b` | ? · — | GGUF | ? | 2/8 · 5✓ | 1/8 · 3✓ |
-| `gpt-4o` | — | OpenAI API | 2024-05 | 6/8 · 6✓ | 7/8 · 7✓ |
-| `gpt-5.5` | — | OpenAI API | 2026-04 | 8/8 · 8✓ | 8/8 · 8✓ |
 | `mistral-small3.1:24b` | ? · — | GGUF | ? | 4/8 · 4✓ | 6/8 · 7✓ |
-| `o3` | — | OpenAI API | 2025-04 | 7/8 · 7✓ | 7/8 · 7✓ |
 | `qwen3-coder:30b` | ? · — | GGUF | ? | 4/8 · 5✓ | 3/8 · 4✓ |
 | `google/gemma-3n-e4b` | 15.74 GB · bf16 | MLX | 2025-06 | 0/8 · 0✓ | 0/8 · 0✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB · Q8_0 | GGUF | 2025-01 | 2/8 · 3✓ | 2/8 · 2✓ |
@@ -227,19 +227,19 @@ surfaced the rea method-to-method receiver bug, since fixed.
 | `GLM-5` | — | Z.ai API | 2026-03 | 15/19 · 17✓ | 15/19 · 16✓ |
 | `GLM-4.6` | — | Z.ai API | 2025-09 | 15/19 · 15✓ | 15/19 · 17✓ |
 | `gemini-3.1-pro-preview` | — | Gemini API | 2026-04 | 18/19 · 19✓ | 19/19 · 19✓ |
+| `gpt-5.5` | — | OpenAI API | 2026-04 | 19/19 · 19✓ | 19/19 · 19✓ |
 | `GLM-5.2` | — | Z.ai API | 2026-05 | 17/19 · 17✓ | 18/19 · 18✓ |
 | `gemini-3-flash-preview` | — | Gemini API | 2026-04 | 15/19 · 15✓ | 16/19 · 17✓ |
 | `GLM-5-Turbo` | — | Z.ai API | 2026-04 | 17/19 · 18✓ | 18/19 · 19✓ |
+| `o3` | — | OpenAI API | 2025-04 | 10/19 · 11✓ | 7/19 · 7✓ |
 | `gemini-2.5-pro` | — | Gemini API | 2025-06 | 14/19 · 15✓ | 14/19 · 16✓ |
 | `gemini-2.5-flash` | — | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
 | `GLM-4.5-Air` | — | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
+| `gpt-4o` | — | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB · 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
 | `deepseek-r1:32b` | ? · — | GGUF | ? | 6/19 · 9✓ | 6/19 · 9✓ |
 | `exaone3.5:32b` | ? · — | GGUF | ? | 3/19 · 5✓ | 3/19 · 4✓ |
-| `gpt-4o` | — | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
-| `gpt-5.5` | — | OpenAI API | 2026-04 | 19/19 · 19✓ | 19/19 · 19✓ |
 | `mistral-small3.1:24b` | ? · — | GGUF | ? | 5/19 · 8✓ | 7/19 · 9✓ |
-| `o3` | — | OpenAI API | 2025-04 | 10/19 · 11✓ | 7/19 · 7✓ |
 | `qwen3-coder:30b` | ? · — | GGUF | ? | 8/19 · 10✓ | 8/19 · 8✓ |
 | `qwen3:4b` | 2.5 GB · Q4_K_M | Ollama | 2025-04 | 0/19 · 0✓ | 0/19 · 0✓ |
 <!-- LEADERBOARD-CS:END -->
