@@ -71,9 +71,11 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 (exact out of 30; ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*48 models scored on v2/30 — cloud APIs and local builds together, sorted by size (cloud first, size unlisted). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = claw1, Z.ai/Gemini/OpenAI = cloud APIs.*
+*47 models scored on v2/30 — cloud APIs and local builds together, sorted by size (cloud first, size unlisted). exact/30 · ✓ = compiled & ran · released = YYYY-MM · served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = claw1, Z.ai/Gemini/OpenAI = cloud APIs.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow), `stable-code-instruct-3b` (2024-03, chat-template parse failure), and `gemma4:12b` (Ollama, 0 of 30 produced a runnable program, a serving failure not a capability result).*
+
+*Withheld pending re-test: `nvidia/nemotron-3-nano`. Its latest serving run returned empty completions on all 60 generations (the model loaded, but produced nothing extractable), so that 0/30 is a serving fault under investigation, not a capability result. An earlier pass scored in the double digits, so it will be re-run once the serving issue is fixed.*
 
 | model | size · quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|
@@ -95,7 +97,6 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 | `llama3.3:70b` | 42 GB · Q4_K_M | Ollama | 2024-12 | 28/30 · 28✓ | 27/30 · 29✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB · 8bit | MLX | 2026-04 | 30/30 · 30✓ | 30/30 · 30✓ |
 | `google/gemma-4-31b` | 33.8 GB · 8bit | MLX | 2026-04 | 29/30 · 29✓ | 29/30 · 29✓ |
-| `nvidia/nemotron-3-nano` | 33.58 GB · 8bit | MLX | 2025-12 | 0/30 · 0✓ | 0/30 · 0✓ |
 | `qwen/qwen3-vl-30b` | 33.53 GB · 8bit | MLX | 2026-02 | 14/30 · 27✓ | 3/30 · 5✓ |
 | `qwen3-vl-30b-a3b-thinking-mlx` | 33.53 GB · 8bit | MLX | 2026-04 | 12/30 · 19✓ | 0/30 · 0✓ |
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB · 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
@@ -236,7 +237,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 | `GLM-4.5-Air` | — | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
 | `gpt-4o` | — | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB · 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
-| `qwen3:32b` | 20 GB · Q4_K_M | Ollama | 2025-04 | 4/9 · 4✓ (incomplete) | — |
+| `qwen3:32b` | 20 GB · Q4_K_M | Ollama | 2025-04 | 4/11 · 4✓ (incomplete) | — |
 | `deepseek-r1:32b` | 19 GB · Q4_K_M | GGUF | 2025-01 | 6/19 · 9✓ | 6/19 · 9✓ |
 | `exaone3.5:32b` | 19 GB · Q4_K_M | GGUF | 2024-12 | 3/19 · 5✓ | 3/19 · 4✓ |
 | `qwen3-coder:30b` | 18 GB · Q4_K_M | GGUF | 2025-07 | 8/19 · 10✓ | 8/19 · 8✓ |
