@@ -81,52 +81,52 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 <tr><th colspan="7">30 simple tasks: core language fluency measured</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
 <tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>29/29/0/0</td><td>30/30/0/0</td></tr>
+<tr><td><code>GLM-5.2</code></td><td>—</td><td>Z.ai API</td><td>2026-05</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
+<tr><td><code>gemini-2.5-pro</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
+<tr><td><code>gemini-3-flash-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
 <tr><td><code>gemini-3.1-pro-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
 <tr><td><code>gpt-5.5</code></td><td>—</td><td>OpenAI API</td><td>2026-04</td><td>none</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>GLM-5.2</code></td><td>—</td><td>Z.ai API</td><td>2026-05</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>gemini-3-flash-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>GLM-5-Turbo</code></td><td>—</td><td>Z.ai API</td><td>2026-04</td><td>—</td><td>30/29/0/0</td><td>30/29/0/0</td></tr>
-<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>30/30/0/0</td><td>29/29/0/0</td></tr>
-<tr><td><code>gemini-2.5-pro</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
+<tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>29/29/0/0</td><td>30/30/0/0</td></tr>
 <tr><td><code>gemini-2.5-flash</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>29/29/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>26/25/0/0</td><td>27/25/0/0</td></tr>
+<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>30/30/0/0</td><td>29/29/0/0</td></tr>
+<tr><td><code>GLM-5-Turbo</code></td><td>—</td><td>Z.ai API</td><td>2026-04</td><td>—</td><td>30/29/0/0</td><td>30/29/0/0</td></tr>
 <tr><td><code>gpt-4o</code></td><td>—</td><td>OpenAI API</td><td>2024-05</td><td>—</td><td>23/23/0/0</td><td>28/28/0/0</td></tr>
-<tr><td><code>openai/gpt-oss-120b</code></td><td>63 GB · MXFP4</td><td>TRT-LLM</td><td>2025-08</td><td>—</td><td>27/27/0/0</td><td>29/29/0/0</td></tr>
-<tr><td><code>qwen3.5-122b-a10b-nvfp4</code></td><td>62 GB · NVFP4</td><td>vLLM</td><td>2026-02</td><td>—</td><td>30/29/0/0</td><td>30/30/0/0</td></tr>
-<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>25/25/0/0</td><td>27/25/0/0</td></tr>
-<tr><td><code>llama3.3:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2024-12</td><td>—</td><td>28/28/0/0</td><td>29/27/0/0</td></tr>
+<tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>26/25/0/0</td><td>27/25/0/0</td></tr>
 <tr><td><code>qwen/qwen3.6-35b-a3b</code></td><td>37.75 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>30/30/0/0</td><td>30/30/0/0</td></tr>
+<tr><td><code>qwen3.5-122b-a10b-nvfp4</code></td><td>62 GB · NVFP4</td><td>vLLM</td><td>2026-02</td><td>—</td><td>30/29/0/0</td><td>30/30/0/0</td></tr>
 <tr><td><code>google/gemma-4-31b</code></td><td>33.8 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>29/29/0/0</td><td>29/29/0/0</td></tr>
+<tr><td><code>openai/gpt-oss-120b</code></td><td>63 GB · MXFP4</td><td>TRT-LLM</td><td>2025-08</td><td>—</td><td>27/27/0/0</td><td>29/29/0/0</td></tr>
+<tr><td><code>llama3.3:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2024-12</td><td>—</td><td>28/28/0/0</td><td>29/27/0/0</td></tr>
+<tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>27/25/0/0</td><td>29/29/0/0</td></tr>
+<tr><td><code>qwen/qwen3-30b-a3b-2507</code></td><td>32.46 GB · 8bit</td><td>MLX</td><td>2025-07</td><td>—</td><td>27/27/0/0</td><td>28/27/0/0</td></tr>
+<tr><td><code>gemma-4-26b-a4b-it</code></td><td>28.05 GB · Q8_0</td><td>GGUF</td><td>2026-04</td><td>—</td><td>28/28/0/0</td><td>28/25/0/0</td></tr>
+<tr><td><code>mistralai/devstral-small-2507</code></td><td>13.28 GB · 4bit</td><td>MLX</td><td>2025-07</td><td>—</td><td>28/25/0/0</td><td>28/27/0/0</td></tr>
+<tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>27/24/0/0</td><td>28/27/0/0</td></tr>
+<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>25/25/0/0</td><td>27/25/0/0</td></tr>
+<tr><td><code>mistralai/devstral-small-2-2512</code></td><td>14.12 GB · 4bit</td><td>MLX</td><td>2025-12</td><td>—</td><td>24/24/0/0</td><td>25/25/0/0</td></tr>
+<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>25/25/0/0</td><td>24/23/0/0</td></tr>
+<tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>25/25/0/0</td><td>25/23/0/0</td></tr>
+<tr><td><code>qwen3.5-9b-mlx</code></td><td>10.45 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>24/23/0/0</td><td>26/25/0/0</td></tr>
+<tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>26/25/0/0</td><td>27/22/0/0</td></tr>
+<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>22/21/0/0</td><td>26/25/0/0</td></tr>
+<tr><td><code>gemma-4-e4b-it-mlx@8bit</code></td><td>8.97 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>23/22/0/0</td><td>24/24/0/0</td></tr>
+<tr><td><code>qwen3.6-27b-claude-deckard-qx64-hi-mlx</code></td><td>19.58 GB · 6bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>24/24/0/0</td><td>22/22/0/0</td></tr>
+<tr><td><code>qwen3-coder:30b</code></td><td>18 GB · Q4_K_M</td><td>GGUF</td><td>2025-07</td><td>—</td><td>24/21/0/0</td><td>25/24/0/0</td></tr>
+<tr><td><code>command-r:latest</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2024-08</td><td>—</td><td>24/21/0/0</td><td>25/22/0/0</td></tr>
+<tr><td><code>gemma-4-e4b-it-mlx@4bit</code></td><td>6.86 GB · 4bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>24/21/0/0</td><td>21/20/0/0</td></tr>
+<tr><td><code>google/gemma-3n-e4b</code></td><td>15.74 GB · bf16</td><td>MLX</td><td>2025-06</td><td>—</td><td>21/17/0/0</td><td>24/19/0/0</td></tr>
+<tr><td><code>gemma3:27b</code></td><td>17 GB · Q4_K_M</td><td>Ollama</td><td>2025-03</td><td>—</td><td>30/29/0/0</td><td>5/5/0/0</td></tr>
+<tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>20/15/0/0</td><td>21/18/0/0</td></tr>
+<tr><td><code>qwen3.6-27b-mlx-oq8</code></td><td>28.6 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>19/19/0/0</td><td>14/14/0/0</td></tr>
+<tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>25/23/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>qwen3.5-2b-mlx</code></td><td>1.75 GB · 4bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>12/9/0/0</td><td>23/13/0/0</td></tr>
+<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>23/22/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>qwq-32b</code></td><td>18.0 GB · Q6_K</td><td>GGUF</td><td>2025-03</td><td>always-on</td><td>22/19/0/0</td><td>2/2/0/0</td></tr>
 <tr><td><code>qwen/qwen3-vl-30b</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>27/14/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>qwen3-vl-30b-a3b-thinking-mlx</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>always-on</td><td>19/12/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>qwen/qwen3-30b-a3b-2507</code></td><td>32.46 GB · 8bit</td><td>MLX</td><td>2025-07</td><td>—</td><td>27/27/0/0</td><td>28/27/0/0</td></tr>
-<tr><td><code>qwen3.6-27b-mlx-oq8</code></td><td>28.6 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>19/19/0/0</td><td>14/14/0/0</td></tr>
-<tr><td><code>gemma-4-26b-a4b-it</code></td><td>28.05 GB · Q8_0</td><td>GGUF</td><td>2026-04</td><td>—</td><td>28/28/0/0</td><td>28/25/0/0</td></tr>
-<tr><td><code>command-r:latest</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2024-08</td><td>—</td><td>24/21/0/0</td><td>25/22/0/0</td></tr>
-<tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>27/24/0/0</td><td>28/27/0/0</td></tr>
-<tr><td><code>qwen3.6-27b-claude-deckard-qx64-hi-mlx</code></td><td>19.58 GB · 6bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>24/24/0/0</td><td>22/22/0/0</td></tr>
-<tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>27/25/0/0</td><td>29/29/0/0</td></tr>
-<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>25/25/0/0</td><td>24/23/0/0</td></tr>
-<tr><td><code>qwen3-coder:30b</code></td><td>18 GB · Q4_K_M</td><td>GGUF</td><td>2025-07</td><td>—</td><td>24/21/0/0</td><td>25/24/0/0</td></tr>
-<tr><td><code>qwq-32b</code></td><td>18.0 GB · Q6_K</td><td>GGUF</td><td>2025-03</td><td>always-on</td><td>22/19/0/0</td><td>2/2/0/0</td></tr>
-<tr><td><code>gemma3:27b</code></td><td>17 GB · Q4_K_M</td><td>Ollama</td><td>2025-03</td><td>—</td><td>30/29/0/0</td><td>5/5/0/0</td></tr>
-<tr><td><code>google/gemma-3n-e4b</code></td><td>15.74 GB · bf16</td><td>MLX</td><td>2025-06</td><td>—</td><td>21/17/0/0</td><td>24/19/0/0</td></tr>
-<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>22/21/0/0</td><td>26/25/0/0</td></tr>
 <tr><td><code>prism-coder-7b</code></td><td>15.24 GB · ?</td><td>GGUF</td><td>2026-04</td><td>—</td><td>5/5/0/0</td><td>2/2/0/0</td></tr>
-<tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>25/25/0/0</td><td>25/23/0/0</td></tr>
-<tr><td><code>mistralai/devstral-small-2-2512</code></td><td>14.12 GB · 4bit</td><td>MLX</td><td>2025-12</td><td>—</td><td>24/24/0/0</td><td>25/25/0/0</td></tr>
-<tr><td><code>mistralai/devstral-small-2507</code></td><td>13.28 GB · 4bit</td><td>MLX</td><td>2025-07</td><td>—</td><td>28/25/0/0</td><td>28/27/0/0</td></tr>
-<tr><td><code>qwen3.5-9b-mlx</code></td><td>10.45 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>24/23/0/0</td><td>26/25/0/0</td></tr>
-<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>23/22/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>gemma-4-e4b-it-mlx@8bit</code></td><td>8.97 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>23/22/0/0</td><td>24/24/0/0</td></tr>
-<tr><td><code>gemma-4-e4b-it-mlx@4bit</code></td><td>6.86 GB · 4bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>24/21/0/0</td><td>21/20/0/0</td></tr>
-<tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>25/23/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>0/0/0/0</td><td>3/3/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/2/0/0</td><td>3/1/0/0</td></tr>
-<tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>20/15/0/0</td><td>21/18/0/0</td></tr>
-<tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>26/25/0/0</td><td>27/22/0/0</td></tr>
-<tr><td><code>qwen3.5-2b-mlx</code></td><td>1.75 GB · 4bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>12/9/0/0</td><td>23/13/0/0</td></tr>
+<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>0/0/0/0</td><td>3/3/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD:END -->
@@ -166,33 +166,33 @@ harness, a separate board because v2/30 is already wide.
 <table>
 <tr><th colspan="7">8 harder tasks: bigger inputs, more layered logic</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
-<tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>gemini-3.1-pro-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>7/7/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>gpt-5.5</code></td><td>—</td><td>OpenAI API</td><td>2026-04</td><td>none</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>GLM-5.2</code></td><td>—</td><td>Z.ai API</td><td>2026-05</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>gemini-3-flash-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>6/6/0/0</td><td>8/8/0/0</td></tr>
+<tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>GLM-5-Turbo</code></td><td>—</td><td>Z.ai API</td><td>2026-04</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>7/7/0/0</td><td>7/7/0/0</td></tr>
-<tr><td><code>gemini-2.5-pro</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>8/8/0/0</td><td>7/7/0/0</td></tr>
+<tr><td><code>GLM-5.2</code></td><td>—</td><td>Z.ai API</td><td>2026-05</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>gemini-2.5-flash</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
-<tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>3/3/0/0</td><td>5/4/0/0</td></tr>
+<tr><td><code>gpt-5.5</code></td><td>—</td><td>OpenAI API</td><td>2026-04</td><td>none</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
+<tr><td><code>gemini-2.5-pro</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>8/8/0/0</td><td>7/7/0/0</td></tr>
+<tr><td><code>gemini-3.1-pro-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>7/7/0/0</td><td>8/8/0/0</td></tr>
+<tr><td><code>gemini-3-flash-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>6/6/0/0</td><td>8/8/0/0</td></tr>
+<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>7/7/0/0</td><td>7/7/0/0</td></tr>
 <tr><td><code>gpt-4o</code></td><td>—</td><td>OpenAI API</td><td>2024-05</td><td>—</td><td>6/6/0/0</td><td>7/7/0/0</td></tr>
+<tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>3/3/0/0</td><td>5/4/0/0</td></tr>
 <tr><td><code>openai/gpt-oss-120b</code></td><td>63 GB · MXFP4</td><td>TRT-LLM</td><td>2025-08</td><td>—</td><td>7/7/0/0</td><td>7/7/0/0</td></tr>
 <tr><td><code>qwen3.5-122b-a10b-nvfp4</code></td><td>62 GB · NVFP4</td><td>vLLM</td><td>2026-02</td><td>—</td><td>8/8/0/0</td><td>7/6/0/0</td></tr>
-<tr><td><code>qwen/qwen3.6-35b-a3b</code></td><td>37.75 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>5/5/0/0</td><td>7/7/0/0</td></tr>
 <tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>6/6/0/0</td><td>7/7/0/0</td></tr>
-<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/2/0/0</td><td>3/1/0/0</td></tr>
-<tr><td><code>qwen3-coder:30b</code></td><td>18 GB · Q4_K_M</td><td>GGUF</td><td>2025-07</td><td>—</td><td>5/4/0/0</td><td>4/3/0/0</td></tr>
-<tr><td><code>google/gemma-3n-e4b</code></td><td>15.74 GB · bf16</td><td>MLX</td><td>2025-06</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>3/2/0/0</td><td>2/2/0/0</td></tr>
-<tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>4/4/0/0</td><td>7/6/0/0</td></tr>
-<tr><td><code>mistralai/devstral-small-2-2512</code></td><td>14.12 GB · 4bit</td><td>MLX</td><td>2025-12</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
 <tr><td><code>mistralai/devstral-small-2507</code></td><td>13.28 GB · 4bit</td><td>MLX</td><td>2025-07</td><td>—</td><td>7/7/0/0</td><td>7/6/0/0</td></tr>
-<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>1/0/0/0</td><td>2/2/0/0</td></tr>
-<tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>4/1/0/0</td><td>4/1/0/0</td></tr>
-<tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>qwen/qwen3.6-35b-a3b</code></td><td>37.75 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>5/5/0/0</td><td>7/7/0/0</td></tr>
+<tr><td><code>mistralai/devstral-small-2-2512</code></td><td>14.12 GB · 4bit</td><td>MLX</td><td>2025-12</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
+<tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>4/4/0/0</td><td>7/6/0/0</td></tr>
+<tr><td><code>qwen3-coder:30b</code></td><td>18 GB · Q4_K_M</td><td>GGUF</td><td>2025-07</td><td>—</td><td>5/4/0/0</td><td>4/3/0/0</td></tr>
+<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>3/2/0/0</td><td>2/2/0/0</td></tr>
+<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/2/0/0</td><td>3/1/0/0</td></tr>
 <tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>4/1/0/0</td><td>3/1/0/0</td></tr>
+<tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>4/1/0/0</td><td>4/1/0/0</td></tr>
+<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>1/0/0/0</td><td>2/2/0/0</td></tr>
+<tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>google/gemma-3n-e4b</code></td><td>15.74 GB · bf16</td><td>MLX</td><td>2025-06</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD-LARGE:END -->
@@ -231,29 +231,29 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <table>
 <tr><th colspan="7">19 CS-classics: textbook-algorithm tasks: recursion, sorts, search, graphs, DP, strings</th></tr>
 <tr><th>model</th><th>size · quant</th><th>served</th><th>released</th><th>think</th><th><a href="aether_for_llms_with_small_contexts.md">small</a></th><th><a href="aether_for_llms_and_others.md">full</a></th></tr>
-<tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>17/15/0/0</td><td>16/15/0/0</td></tr>
-<tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>15/15/0/0</td><td>17/15/0/0</td></tr>
-<tr><td><code>gemini-3.1-pro-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>19/18/0/0</td><td>19/19/0/0</td></tr>
 <tr><td><code>gpt-5.5</code></td><td>—</td><td>OpenAI API</td><td>2026-04</td><td>none</td><td>19/19/0/0</td><td>19/19/0/0</td></tr>
+<tr><td><code>gemini-3.1-pro-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>19/18/0/0</td><td>19/19/0/0</td></tr>
+<tr><td><code>GLM-5-Turbo</code></td><td>—</td><td>Z.ai API</td><td>2026-04</td><td>—</td><td>18/17/0/0</td><td>19/18/0/0</td></tr>
 <tr><td><code>GLM-5.2</code></td><td>—</td><td>Z.ai API</td><td>2026-05</td><td>—</td><td>17/17/0/0</td><td>18/18/0/0</td></tr>
 <tr><td><code>gemini-3-flash-preview</code></td><td>—</td><td>Gemini API</td><td>2026-04</td><td>—</td><td>15/15/0/0</td><td>17/16/0/0</td></tr>
-<tr><td><code>GLM-5-Turbo</code></td><td>—</td><td>Z.ai API</td><td>2026-04</td><td>—</td><td>18/17/0/0</td><td>19/18/0/0</td></tr>
-<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>11/10/0/0</td><td>7/7/0/0</td></tr>
+<tr><td><code>GLM-4.6</code></td><td>—</td><td>Z.ai API</td><td>2025-09</td><td>—</td><td>15/15/0/0</td><td>17/15/0/0</td></tr>
+<tr><td><code>GLM-5</code></td><td>—</td><td>Z.ai API</td><td>2026-03</td><td>—</td><td>17/15/0/0</td><td>16/15/0/0</td></tr>
 <tr><td><code>gemini-2.5-pro</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>15/14/0/0</td><td>16/14/0/0</td></tr>
 <tr><td><code>gemini-2.5-flash</code></td><td>—</td><td>Gemini API</td><td>2025-06</td><td>—</td><td>16/14/0/0</td><td>14/13/0/0</td></tr>
+<tr><td><code>o3</code></td><td>—</td><td>OpenAI API</td><td>2025-04</td><td>low</td><td>11/10/0/0</td><td>7/7/0/0</td></tr>
 <tr><td><code>GLM-4.5-Air</code></td><td>—</td><td>Z.ai API</td><td>2025-07</td><td>—</td><td>8/8/0/0</td><td>8/8/0/0</td></tr>
 <tr><td><code>gpt-4o</code></td><td>—</td><td>OpenAI API</td><td>2024-05</td><td>—</td><td>8/8/0/0</td><td>4/4/0/0</td></tr>
-<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>qwen/qwen3.6-35b-a3b</code></td><td>37.75 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>16/14/0/0</td><td>16/16/0/0</td></tr>
-<tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
-<tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>9/6/0/0</td><td>9/6/0/0</td></tr>
-<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/3/0/0</td><td>4/3/0/0</td></tr>
 <tr><td><code>qwen3-coder:30b</code></td><td>18 GB · Q4_K_M</td><td>GGUF</td><td>2025-07</td><td>—</td><td>10/8/0/0</td><td>8/8/0/0</td></tr>
+<tr><td><code>deepseek-r1:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>9/6/0/0</td><td>9/6/0/0</td></tr>
 <tr><td><code>gemma3:27b</code></td><td>17 GB · Q4_K_M</td><td>Ollama</td><td>2025-03</td><td>—</td><td>8/5/0/0</td><td>8/7/0/0</td></tr>
-<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/4/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>mistral-small3.1:24b</code></td><td>15 GB · Q4_K_M</td><td>GGUF</td><td>2025-03</td><td>—</td><td>8/5/0/0</td><td>9/7/0/0</td></tr>
-<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>6/5/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
+<tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/4/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>7/7/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/3/0/0</td><td>4/3/0/0</td></tr>
+<tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>6/5/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
