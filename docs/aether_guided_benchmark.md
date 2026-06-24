@@ -237,7 +237,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 | `GLM-4.5-Air` | — | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
 | `gpt-4o` | — | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB · 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
-| `nvidia/nemotron-3-nano` | 33.58 GB · 8bit | MLX | 2025-12 | 0/19 · 0✓ | 0/19 · 0✓ |
+| `command-r:latest` | 20 GB · Q4_K_M | Ollama | 2024-08 | 3/19 · 7✓ | 4/13 · 7✓ (incomplete) |
 | `qwen3:32b` | 20 GB · Q4_K_M | Ollama | 2025-04 | 5/19 · 5✓ | 6/19 · 6✓ |
 | `deepseek-r1:32b` | 19 GB · Q4_K_M | GGUF | 2025-01 | 6/19 · 9✓ | 6/19 · 9✓ |
 | `exaone3.5:32b` | 19 GB · Q4_K_M | GGUF | 2024-12 | 3/19 · 5✓ | 3/19 · 4✓ |
