@@ -101,7 +101,7 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB · 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB · 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB · Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
-| `command-r-plus:104b` | ? · — | GGUF | ? | 3/26 · 4✓ (incomplete) | — |
+| `command-r-plus:104b` | ? · — | GGUF | ? | 3/30 · 4✓ | 2/19 · 4✓ (incomplete) |
 | `deepseek-r1:32b` | ? · — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? · — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
 | `gemma4-ctx32k:latest` | ? · — | GGUF | ? | 7/30 · 7✓ | 0/30 · 0✓ |
@@ -114,15 +114,15 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 | `qwq-32b` | 18.0 GB · Q6_K | GGUF | 2025-03 | 19/30 · 22✓ | 2/30 · 2✓ |
 | `gemma3:27b` | 17 GB · Q4_K_M | Ollama | 2025-03 | 29/30 · 30✓ | 5/30 · 5✓ |
 | `google/gemma-3n-e4b` | 15.74 GB · bf16 | MLX | 2025-06 | 17/30 · 21✓ | 19/30 · 24✓ |
-| `deepseek-r1-distill-qwen-14b` | 15.7 GB · Q8_0 | GGUF | 2025-01 | 21/30 · 22✓ | 22/30 · 23✓ |
+| `deepseek-r1-distill-qwen-14b` | 15.7 GB · Q8_0 | GGUF | 2025-01 | 21/30 · 22✓ | 25/30 · 26✓ |
 | `prism-coder-7b` | 15.24 GB · ? | GGUF | 2026-04 | 5/30 · 5✓ | 2/30 · 2✓ |
 | `mistralai/devstral-small-2-2512` | 14.12 GB · 4bit | MLX | 2025-12 | 24/30 · 24✓ | 25/30 · 25✓ |
 | `mistralai/devstral-small-2507` | 13.28 GB · 4bit | MLX | 2025-07 | 25/30 · 28✓ | 27/30 · 28✓ |
 | `qwen3.5-9b-mlx` | 10.45 GB · 8bit | MLX | 2026-02 | 23/30 · 24✓ | 25/30 · 26✓ |
-| `yi-coder-9b-chat@q8_0` | 9.3 GB · Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 2/30 · 2✓ |
+| `yi-coder-9b-chat@q8_0` | 9.3 GB · Q8_0 | GGUF | 2024-09 | 22/30 · 23✓ | 0/30 · 0✓ |
 | `gemma-4-e4b-it-mlx@8bit` | 8.97 GB · 8bit | MLX | 2026-04 | 22/30 · 23✓ | 24/30 · 24✓ |
 | `gemma-4-e4b-it-mlx@4bit` | 6.86 GB · 4bit | MLX | 2026-04 | 21/30 · 24✓ | 20/30 · 21✓ |
-| `yi-coder-9b-chat@q4_k_m` | 5.5 GB · Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 2/30 · 2✓ |
+| `yi-coder-9b-chat@q4_k_m` | 5.5 GB · Q4_K_M | GGUF | 2024-09 | 23/30 · 25✓ | 0/30 · 0✓ |
 | `qwen3.5-4b-mlx` | 5.16 GB · 8bit | MLX | 2026-02 | 0/30 · 0✓ | 3/30 · 3✓ |
 | `deepseek-r1-distill-qwen-7b` | 4.68 GB · Q4_K_M | GGUF | 2025-01 | 2/30 · 4✓ | 1/30 · 3✓ |
 | `ibm/granite-4-h-tiny` | 4.23 GB · Q4_K_M | GGUF | 2025-10 | 15/30 · 20✓ | 18/30 · 21✓ |
@@ -140,13 +140,15 @@ Three robust shapes:
 - **The full guide meets or beats the condensed one,** and the margin widens as
   models weaken — more context buys the most exactly where in-context learning is
   hardest.
-- **A few `full`-column collapses are harness artifacts, not capability.** Where
-  a model scores well on `small` but craters on `full` — `qwq-32b` 19→2,
-  `yi-coder-9b` 22-23→2, `qwen3-vl-thinking` 12→0 — the cause is mechanical: the
-  ~8.7k full guide overflowed a too-small served context, or a long-reasoning
-  model hit the request timeout before finishing. Clean re-runs with a larger
-  window and a longer ceiling are in flight; treat those specific `full` cells as
-  provisional, not the model's real ceiling.
+- **Some `full`-column collapses are real ceilings, not harness artifacts.** When
+  a model aces `small` but craters on `full`, the easy assumption is mechanical.
+  Maybe the ~8.7k full guide overflowed a too-small served context, or a
+  long-reasoning model hit the request timeout. Re-running clean shows it is not
+  always so. `yi-coder-9b` held at **0/30 on `full`** at a 16k window, both
+  quants, while `small` stayed 22-23. It follows the 4.6k condensed guide but
+  cannot carry the 8.7k full one, a genuine capability edge rather than a glitch.
+  Treat a wide `small`-to-`full` gap as a result to verify per model, not one to
+  dismiss.
 
 ## The large data set (tasks_hard.json)
 
@@ -220,7 +222,7 @@ large-compositional tasks — and doubles as a language-completeness probe: it
 surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*18 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*22 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size · quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|
@@ -241,6 +243,10 @@ surfaced the rea method-to-method receiver bug, since fixed.
 | `exaone3.5:32b` | ? · — | GGUF | ? | 3/19 · 5✓ | 3/19 · 4✓ |
 | `mistral-small3.1:24b` | ? · — | GGUF | ? | 5/19 · 8✓ | 7/19 · 9✓ |
 | `qwen3-coder:30b` | ? · — | GGUF | ? | 8/19 · 10✓ | 8/19 · 8✓ |
+| `qwen3:32b` | 20 GB · Q4_K_M | Ollama | 2025-04 | 1/4 · 1✓ (incomplete) | — |
+| `deepseek-r1-distill-qwen-14b` | 15.7 GB · Q8_0 | GGUF | 2025-01 | 4/19 · 4✓ | 3/19 · 5✓ |
+| `yi-coder-9b-chat@q8_0` | 9.3 GB · Q8_0 | GGUF | 2024-09 | 5/19 · 6✓ | 0/19 · 0✓ |
+| `yi-coder-9b-chat@q4_k_m` | 5.5 GB · Q4_K_M | GGUF | 2024-09 | 7/19 · 7✓ | 0/19 · 0✓ |
 | `qwen3:4b` | 2.5 GB · Q4_K_M | Ollama | 2025-04 | 0/19 · 0✓ | 0/19 · 0✓ |
 <!-- LEADERBOARD-CS:END -->
 
