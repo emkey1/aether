@@ -220,7 +220,7 @@ large-compositional tasks — and doubles as a language-completeness probe: it
 surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*23 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
+*24 models scored on the CS-classics set (`tasks_cs.json`, 19 algorithm tasks: recursion, sorts, search, graphs, DP, strings).*
 
 | model | size · quant | served | released | [small](aether_for_llms_with_small_contexts.md) | [full](aether_for_llms_and_others.md) |
 |---|---|---|---|---|---|
@@ -242,6 +242,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 | `deepseek-r1:32b` | 19 GB · Q4_K_M | GGUF | 2025-01 | 6/19 · 9✓ | 6/19 · 9✓ |
 | `exaone3.5:32b` | 19 GB · Q4_K_M | GGUF | 2024-12 | 3/19 · 5✓ | 3/19 · 4✓ |
 | `qwen3-coder:30b` | 18 GB · Q4_K_M | GGUF | 2025-07 | 8/19 · 10✓ | 8/19 · 8✓ |
+| `gemma3:27b` | 17 GB · Q4_K_M | Ollama | 2025-03 | 5/19 · 8✓ | 7/19 · 8✓ |
 | `deepseek-r1-distill-qwen-14b` | 15.7 GB · Q8_0 | GGUF | 2025-01 | 4/19 · 4✓ | 3/19 · 5✓ |
 | `mistral-small3.1:24b` | 15 GB · Q4_K_M | GGUF | 2025-03 | 5/19 · 8✓ | 7/19 · 9✓ |
 | `yi-coder-9b-chat@q8_0` | 9.3 GB · Q8_0 | GGUF | 2024-09 | 5/19 · 6✓ | 0/19 · 0✓ |
