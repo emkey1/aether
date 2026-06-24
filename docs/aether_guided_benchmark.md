@@ -109,7 +109,7 @@ instrument. **Live standings**, auto-updated as models land (exact out of 30;
 | `qwen/qwen3-30b-a3b-2507` | 32.46 GB | 8bit | MLX | 2025-07 | 27/30 · 27✓ | 27/30 · 28✓ |
 | `qwen3.6-27b-mlx-oq8` | 28.6 GB | 8bit | MLX | 2026-04 | 19/30 · 19✓ | 14/30 · 14✓ |
 | `gemma-4-26b-a4b-it` | 28.05 GB | Q8_0 | GGUF | 2026-04 | 28/30 · 28✓ | 25/30 · 28✓ |
-| `command-r-plus:104b` | ? | — | GGUF | ? | 1/8 · 2✓ (incomplete) | — |
+| `command-r-plus:104b` | ? | — | GGUF | ? | 1/16 · 2✓ (incomplete) | — |
 | `deepseek-r1:32b` | ? | — | GGUF | ? | 25/30 · 27✓ | 29/30 · 29✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 25/30 · 25✓ | 23/30 · 24✓ |
 | `gemma4-ctx32k:latest` | ? | — | GGUF | ? | 7/30 · 7✓ | 0/30 · 0✓ |
@@ -245,7 +245,7 @@ A third instrument: classic computer-science algorithms (recursion, the bubble/m
 | `gemini-2.5-flash` | — | none | Gemini API | 2025-06 | 14/19 · 16✓ | 13/19 · 14✓ |
 | `GLM-4.5-Air` | — | none | Z.ai API | 2025-07 | 8/19 · 8✓ | 8/19 · 8✓ |
 | `qwen/qwen3.6-35b-a3b` | 37.75 GB | 8bit | MLX | 2026-04 | 14/19 · 16✓ | 16/19 · 16✓ |
-| `deepseek-r1:32b` | ? | — | GGUF | ? | 3/3 · 3✓ (incomplete) | — |
+| `deepseek-r1:32b` | ? | — | GGUF | ? | 6/19 · 9✓ | 6/19 · 9✓ |
 | `exaone3.5:32b` | ? | — | GGUF | ? | 3/19 · 5✓ | 3/19 · 4✓ |
 | `gpt-4o` | — | none | OpenAI API | 2024-05 | 8/19 · 8✓ | 4/19 · 4✓ |
 | `gpt-5.5` | — | none | OpenAI API | 2026-04 | 19/19 · 19✓ | 19/19 · 19✓ |
