@@ -251,9 +251,9 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <tr><td><code>qwen3:32b</code></td><td>20 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>5/5/0/0</td><td>6/6/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-14b</code></td><td>15.7 GB · Q8_0</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/4/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>7/7/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0</td><td>4/2/0/0</td></tr>
 <tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/3/0/0</td><td>4/3/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>6/5/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
