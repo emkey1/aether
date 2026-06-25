@@ -118,13 +118,13 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 <tr><td><code>gemma3:27b</code></td><td>17 GB · Q4_K_M</td><td>Ollama</td><td>2025-03</td><td>—</td><td>30/29/0/0</td><td>5/5/0/0</td></tr>
 <tr><td><code>ibm/granite-4-h-tiny</code></td><td>4.23 GB · Q4_K_M</td><td>GGUF</td><td>2025-10</td><td>—</td><td>20/15/0/0</td><td>21/18/0/0</td></tr>
 <tr><td><code>qwen3.6-27b-mlx-oq8</code></td><td>28.6 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>—</td><td>19/19/0/0</td><td>14/14/0/0</td></tr>
+<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>12/12/0/0</td><td>18/18/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q4_k_m</code></td><td>5.5 GB · Q4_K_M</td><td>GGUF</td><td>2024-09</td><td>—</td><td>25/23/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>qwen3.5-2b-mlx</code></td><td>1.75 GB · 4bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>12/9/0/0</td><td>23/13/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>23/22/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>qwq-32b</code></td><td>18.0 GB · Q6_K</td><td>GGUF</td><td>2025-03</td><td>always-on</td><td>22/19/0/0</td><td>2/2/0/0</td></tr>
 <tr><td><code>qwen/qwen3-vl-30b</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>27/14/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>qwen3-vl-30b-a3b-thinking-mlx</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>always-on</td><td>19/12/0/0</td><td>0/0/0/0</td></tr>
-<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>8/8/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>prism-coder-7b</code></td><td>15.24 GB · ?</td><td>GGUF</td><td>2026-04</td><td>—</td><td>5/5/0/0</td><td>2/2/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/2/0/0</td><td>3/1/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
