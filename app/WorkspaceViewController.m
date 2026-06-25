@@ -208,7 +208,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     return frame;
 }
 
-@interface ISHWorkspaceContainedWindowView : UIView
+@interface ISHWorkspaceContainedWindowView : UIView <UIGestureRecognizerDelegate>
 
 @property (nonatomic) CGSize preferredSize;
 @property (nonatomic) BOOL didApplyInitialFrame;
@@ -393,12 +393,14 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     ]];
 
     UIPanGestureRecognizer *panGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+    panGestureRecognizer.delegate = self;
     [self.titleBarView addGestureRecognizer:panGestureRecognizer];
 
     UITapGestureRecognizer *titleBarDoubleTapGestureRecognizer =
         [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTitleBarDoubleTap:)];
     titleBarDoubleTapGestureRecognizer.numberOfTapsRequired = 2;
     titleBarDoubleTapGestureRecognizer.cancelsTouchesInView = NO;
+    titleBarDoubleTapGestureRecognizer.delegate = self;
     [self.titleBarView addGestureRecognizer:titleBarDoubleTapGestureRecognizer];
 
     UIPanGestureRecognizer *resizeGestureRecognizer = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleResizePan:)];
@@ -406,6 +408,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 
     UITapGestureRecognizer *tapGestureRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(bringWindowToFront)];
     tapGestureRecognizer.cancelsTouchesInView = NO;
+    tapGestureRecognizer.delegate = self;
     [tapGestureRecognizer requireGestureRecognizerToFail:titleBarDoubleTapGestureRecognizer];
     [self addGestureRecognizer:tapGestureRecognizer];
 
@@ -509,6 +512,19 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 - (void)utilityPressed:(id)sender {
     if (self.utilityHandler != nil)
         self.utilityHandler();
+}
+
+// Keep the window's drag / bring-to-front / double-tap-zoom gestures from intercepting touches
+// that land on a control (the close "×" and utility buttons). The title-bar pan recognizer's
+// cancelsTouchesInView defaults to YES, so without this the slightest finger movement on the
+// small × cancels the button's touch and touchUpInside never fires — the window looks
+// unclosable. Letting the buttons own their own touches makes them respond immediately.
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    for (UIView *view = touch.view; view != nil && view != self; view = view.superview) {
+        if ([view isKindOfClass:UIControl.class])
+            return NO;
+    }
+    return YES;
 }
 
 - (void)setUtilityButtonTitle:(NSString *)title handler:(dispatch_block_t)handler {
@@ -3968,6 +3984,27 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     windowView.titleBarDoubleTapZoomEnabled = YES;
     windowView.minimumSize = ISHWorkspaceMinimumTerminalContentSize();
     [self attachViewController:terminalViewController toDesktopWindow:windowView];
+
+    // A workspace terminal window owns its shell session (desktop-style): closing the window
+    // ends the shell, and an exiting shell ("exit") closes the window instead of relaunching the
+    // login shell. Both converge on the same teardown the chrome × uses.
+    //   - Wrap the generic close handler set by attachViewController: so the × (and any
+    //     programmatic close) first disposes the session, then tears the window down.
+    //   - Hand the terminal a workspaceSessionDidEndHandler so a shell exit routes back through
+    //     that same close handler rather than respawning.
+    dispatch_block_t genericCloseHandler = windowView.closeHandler;
+    __weak typeof(terminalViewController) weakTerminalViewController = terminalViewController;
+    windowView.closeHandler = ^{
+        [weakTerminalViewController disposeSessionForWorkspaceClose];
+        if (genericCloseHandler != nil)
+            genericCloseHandler();
+    };
+    __weak typeof(windowView) weakWindowView = windowView;
+    terminalViewController.workspaceSessionDidEndHandler = ^{
+        ISHWorkspaceContainedWindowView *strongWindowView = weakWindowView;
+        if (strongWindowView.closeHandler != nil)
+            strongWindowView.closeHandler();
+    };
     return windowView;
 }
 

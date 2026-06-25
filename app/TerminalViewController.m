@@ -913,6 +913,19 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.terminal = [self preferredTerminalForFreshSession];
 }
 
+- (void)disposeSessionForWorkspaceClose {
+    Terminal *sessionTerminal = self.sessionTerminal;
+    if (sessionTerminal == nil)
+        return;
+    // Clear our session bookkeeping first so a process-exit notification racing in from the
+    // hangup below is filtered out by the pid guard in processExited: (and so a second call is a
+    // no-op). destroy hangs up the pty, which delivers SIGHUP to the shell so it exits.
+    self.sessionTerminal = nil;
+    self.sessionPid = 0;
+    [sessionTerminal setPendingDestroyReason:@"workspace-window-closed"];
+    [sessionTerminal destroy];
+}
+
 - (void)showSystemConsoleForCurrentSession {
     Terminal *console = [self currentConsoleTerminal];
     if (console != nil) {
@@ -1101,15 +1114,25 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         return;
 
     Terminal *exitedTerminal = self.sessionTerminal;
+    // A workspace-embedded terminal closes its window when its shell exits; only the main
+    // full-screen terminal relaunches the login shell.
+    dispatch_block_t didEndHandler = self.workspaceSessionDidEndHandler;
     [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.processExited"
                                   details:@{@"pid": @(pid),
                                             @"sceneSession": self.sceneSession.persistentIdentifier ?: @"",
-                                            @"restarting": @YES}];
+                                            @"restarting": @(didEndHandler == nil)}];
     self.sessionTerminal = nil;
     self.sessionPid = 0;
     [exitedTerminal setPendingDestroyReason:@"session-process-exited"];
     [exitedTerminal destroy];
     current = NULL; // it's been freed
+    if (didEndHandler != nil) {
+        // Defer to the next runloop turn: the handler tears down this view controller (removing
+        // it from its parent can release the last reference), so don't run it while we're still
+        // executing one of its instance methods.
+        dispatch_async(dispatch_get_main_queue(), didEndHandler);
+        return;
+    }
     [self startNewSession];
 }
 #endif

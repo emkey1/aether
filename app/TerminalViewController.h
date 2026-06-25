@@ -28,6 +28,17 @@ typedef NS_ENUM(NSInteger, ISHFreshSessionTerminalDisplayMode) {
 @property UISceneSession *sceneSession API_AVAILABLE(ios(13.0));
 @property (nonatomic) BOOL showsWorkspaceDashboardButton;
 @property (nonatomic) BOOL embeddedInWorkspaceWindow;
+// Set by the workspace host for an embedded terminal. Invoked (on the main queue) when the
+// shell session ends, so the host closes the contained window instead of the default relaunch
+// of the login shell. Left nil for the main full-screen terminal, which keeps relaunching.
+// (No nullability qualifier: this header isn't audited for nullability, and adding one here
+// would trip -Wnullability-completeness on the other unannotated pointers.)
+@property (nonatomic, copy) dispatch_block_t workspaceSessionDidEndHandler;
+
+// Ends the live shell session (hangs up its pty) without relaunching. Used by the workspace
+// host when its window is closed via the × so the shell doesn't keep running headless. Safe to
+// call repeatedly; a no-op once the session is already gone.
+- (void)disposeSessionForWorkspaceClose;
 
 @end
 
