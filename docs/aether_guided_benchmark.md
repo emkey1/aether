@@ -124,9 +124,9 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 <tr><td><code>qwq-32b</code></td><td>18.0 GB · Q6_K</td><td>GGUF</td><td>2025-03</td><td>always-on</td><td>22/19/0/0</td><td>2/2/0/0</td></tr>
 <tr><td><code>qwen/qwen3-vl-30b</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>27/14/0/0</td><td>5/3/0/0</td></tr>
 <tr><td><code>qwen3-vl-30b-a3b-thinking-mlx</code></td><td>33.53 GB · 8bit</td><td>MLX</td><td>2026-04</td><td>always-on</td><td>19/12/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>8/8/0/0 (incomplete)</td><td>—</td></tr>
 <tr><td><code>prism-coder-7b</code></td><td>15.24 GB · ?</td><td>GGUF</td><td>2026-04</td><td>—</td><td>5/5/0/0</td><td>2/2/0/0</td></tr>
 <tr><td><code>deepseek-r1-distill-qwen-7b</code></td><td>4.68 GB · Q4_K_M</td><td>GGUF</td><td>2025-01</td><td>always-on</td><td>4/2/0/0</td><td>3/1/0/0</td></tr>
-<tr><td><code>qwen3.5-4b-mlx</code></td><td>5.16 GB · 8bit</td><td>MLX</td><td>2026-02</td><td>—</td><td>0/0/0/0</td><td>3/3/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
 <!-- LEADERBOARD:END -->
