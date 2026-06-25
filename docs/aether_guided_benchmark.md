@@ -226,7 +226,7 @@ large-compositional tasks — and doubles as a language-completeness probe: it
 surfaced the rea method-to-method receiver bug, since fixed.
 
 <!-- LEADERBOARD-CS:START -->
-*Sorted by size. 25 models scored; Retried and Fixed read 0 while the repair loop is off.*
+*Sorted by size. 26 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 <table>
 <tr><th colspan="7">19 CS-classics: textbook-algorithm tasks: recursion, sorts, search, graphs, DP, strings</th></tr>
@@ -255,6 +255,7 @@ surfaced the rea method-to-method receiver bug, since fixed.
 <tr><td><code>deepseek-r1:70b</code></td><td>42 GB · Q4_K_M</td><td>Ollama</td><td>2025-01</td><td>always-on</td><td>6/4/0/0</td><td>4/2/0/0</td></tr>
 <tr><td><code>exaone3.5:32b</code></td><td>19 GB · Q4_K_M</td><td>GGUF</td><td>2024-12</td><td>—</td><td>5/3/0/0</td><td>4/3/0/0</td></tr>
 <tr><td><code>yi-coder-9b-chat@q8_0</code></td><td>9.3 GB · Q8_0</td><td>GGUF</td><td>2024-09</td><td>—</td><td>6/5/0/0</td><td>0/0/0/0</td></tr>
+<tr><td><code>nemotron-3-super:latest</code></td><td>86 GB · Q4_K_M</td><td>Ollama</td><td>2025-12</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td><code>qwen3:4b</code></td><td>2.5 GB · Q4_K_M</td><td>Ollama</td><td>2025-04</td><td>—</td><td>0/0/0/0</td><td>0/0/0/0</td></tr>
 <tr><td colspan="7"><em>Small and full guide results show Compiled/Correct/Retried/Fixed counts for that model.</em></td></tr>
 </table>
