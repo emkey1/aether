@@ -46,6 +46,8 @@ time_conformance.c
 mem_conformance.c
 sock_conformance.c
 netlink_route.c
+mount_flags.c
+clone_error_cleanup.c
 random_seed.c
 amd64_regress.c
 amd64_jit_bench.sh
