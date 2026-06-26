@@ -1340,11 +1340,19 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     } else {
         screen = UIScreen.mainScreen;
     }
-    // notification.object is nil before iOS 16.1 and the correct UIScreen after iOS 16.1
-    if (notification.object != nil)
-        screen = notification.object;
+    // Convert the keyboard frame from THIS view's own window screen. On iOS 16.1+ the
+    // notification carries the keyboard's own UIScreen as notification.object, but
+    // converting a rect between two different UIScreen objects is invalid -- UIKit logs
+    // "Invalid UIScreen coordinate space conversion" and hands back CGRectNull. That
+    // foreign screen is either the same object as ours (identical result) or a different
+    // one (invalid), so it is never useful as the source: a separate keyboard-hosting
+    // scene, or a second terminal window/scene, can vend a distinct UIScreen wrapper for
+    // the very same physical display (identical bounds + shared UIScreenMode) -- which is
+    // exactly what produced the log spam.
     CGRect keyboardFrame = [self.view convertRect:screenKeyboardFrame fromCoordinateSpace:screen.coordinateSpace];
-    if (CGRectEqualToRect(keyboardFrame, CGRectZero))
+    // CGRectNull (from a refused conversion) is not equal to CGRectZero, so guard both --
+    // otherwise an infinite/garbage rect slips through and gets mis-read as a hardware kbd.
+    if (CGRectIsNull(keyboardFrame) || CGRectEqualToRect(keyboardFrame, CGRectZero))
         return;
     CGRect intersection = CGRectIntersection(keyboardFrame, self.view.bounds);
     keyboardFrame = intersection;
