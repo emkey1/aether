@@ -433,6 +433,7 @@ static int inotify_close(struct fd *fd) {
 }
 
 static struct fd_ops inotify_fdops = {
+    .anon_inode_class = "inotify",
     .read = inotify_read,
     .poll = inotify_poll,
     .close = inotify_close,

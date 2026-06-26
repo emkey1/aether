@@ -1454,6 +1454,7 @@ static int timerfd_close(struct fd *fd) {
 }
 
 static struct fd_ops timerfd_ops = {
+    .anon_inode_class = "timerfd",
     .read = timerfd_read,
     .poll = timerfd_poll,
     .close = timerfd_close,

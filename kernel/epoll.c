@@ -260,5 +260,6 @@ static int epoll_close(struct fd *fd) {
 }
 
 static struct fd_ops epoll_ops = {
+    .anon_inode_class = "eventpoll",
     .close = epoll_close,
 };
