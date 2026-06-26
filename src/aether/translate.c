@@ -8425,6 +8425,169 @@ static char *rewriteAetherBuiltinAliases(const char *start, const char *end) {
     return out.data ? out.data : dupCString("");
 }
 
+/* ---- Compound-line normalization (split run-on type members / fn bodies) ----
+ *
+ * The per-line rewriter below dispatches each line by its leading keyword, so it
+ * assumes every member/statement is line-leading. When constructs share a
+ * physical line that invariant breaks: `field: T;fn m() {...}` makes the field
+ * handler swallow the line and DROP the method, and `fn f() { let x: T = ... }`
+ * leaves the body untranslated (raw `let`/`fx`/`ret` reach rea -> SYN-001). This
+ * pass restores the invariant by inserting newlines around `type`- and `fn`-body
+ * braces and the `;`-separated members/statements directly inside them.
+ *
+ * Only `type` and `fn` bodies are touched. Value braces (`new T { ... }`),
+ * if-expressions (`if c { a } else { b }`) and control one-liners
+ * (`if c { ... }`, expanded later by the inline-block expander) are `AE_BLK_OTHER`
+ * and left intact, so existing behavior is preserved and the pass is a no-op for
+ * already-canonical multi-line code. String/char/comment/paren/bracket aware. */
+typedef enum { AE_BLK_OTHER = 0, AE_BLK_TYPE, AE_BLK_FN } AetherBlockKind;
+
+static char *aetherNormalizeCompoundLines(const char *source) {
+    Buffer out = {0};
+    const char *p;
+    AetherBlockKind kindStack[1024];
+    int sp = 0;
+    int parenDepth = 0;
+    int bracketDepth = 0;
+    int lineHasFn = 0;      /* a word-boundary `fn` seen on this logical line at depth 0 */
+    int lineHasType = 0;    /* likewise `type` */
+    int lineBodyOpened = 0; /* this logical line's `type`/`fn` body brace already opened */
+
+    if (!source) {
+        return NULL;
+    }
+    p = source;
+    while (*p) {
+        char c = *p;
+
+        if (c == '"' || c == '\'') {            /* string / char literal: copy verbatim */
+            char quote = c;
+            if (!bufferAppendN(&out, p, 1)) goto fail;
+            p++;
+            while (*p) {
+                if (*p == '\\' && p[1]) {
+                    if (!bufferAppendN(&out, p, 2)) goto fail;
+                    p += 2;
+                    continue;
+                }
+                if (!bufferAppendN(&out, p, 1)) goto fail;
+                if (*p == quote) { p++; break; }
+                p++;
+            }
+            continue;
+        }
+        if (c == '/' && p[1] == '/') {           /* line comment */
+            while (*p && *p != '\n') {
+                if (!bufferAppendN(&out, p, 1)) goto fail;
+                p++;
+            }
+            continue;
+        }
+        if (c == '/' && p[1] == '*') {           /* block comment */
+            if (!bufferAppendN(&out, p, 2)) goto fail;
+            p += 2;
+            while (*p && !(*p == '*' && p[1] == '/')) {
+                if (!bufferAppendN(&out, p, 1)) goto fail;
+                p++;
+            }
+            if (*p) { if (!bufferAppendN(&out, p, 2)) goto fail; p += 2; }
+            continue;
+        }
+        if (c == '\n') {
+            if (!bufferAppendN(&out, p, 1)) goto fail;
+            p++;
+            lineHasFn = lineHasType = lineBodyOpened = 0;
+            continue;
+        }
+        if (c == '(') { parenDepth++; if (!bufferAppendN(&out, p, 1)) goto fail; p++; continue; }
+        if (c == ')') { if (parenDepth > 0) parenDepth--; if (!bufferAppendN(&out, p, 1)) goto fail; p++; continue; }
+        if (c == '[') { bracketDepth++; if (!bufferAppendN(&out, p, 1)) goto fail; p++; continue; }
+        if (c == ']') { if (bracketDepth > 0) bracketDepth--; if (!bufferAppendN(&out, p, 1)) goto fail; p++; continue; }
+
+        /* note a depth-0 word-boundary `fn` / `type` keyword on this logical line */
+        if (parenDepth == 0 && bracketDepth == 0 &&
+            (p == source || !(isalnum((unsigned char)p[-1]) || p[-1] == '_'))) {
+            if (c == 'f' && p[1] == 'n' && !(isalnum((unsigned char)p[2]) || p[2] == '_')) {
+                lineHasFn = 1;
+            } else if (c == 't' && strncmp(p, "type", 4) == 0 &&
+                       !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
+                lineHasType = 1;
+            }
+        }
+
+        if (c == '{') {
+            AetherBlockKind kind = AE_BLK_OTHER;
+            if (parenDepth == 0 && bracketDepth == 0 && !lineBodyOpened) {
+                if (lineHasFn) { kind = AE_BLK_FN; lineBodyOpened = 1; }
+                else if (lineHasType) { kind = AE_BLK_TYPE; lineBodyOpened = 1; }
+            }
+            if (sp >= (int)(sizeof(kindStack) / sizeof(kindStack[0]))) {
+                if (!bufferAppend(&out, p)) goto fail;   /* pathological nesting: copy rest */
+                break;
+            }
+            kindStack[sp++] = kind;
+            if (!bufferAppendN(&out, p, 1)) goto fail;
+            p++;
+            if (kind == AE_BLK_TYPE || kind == AE_BLK_FN) {
+                const char *q = p;
+                while (*q == ' ' || *q == '\t') q++;
+                if (*q && *q != '\n' && *q != '}') {     /* `{ member` -> member on its own line */
+                    if (!bufferAppendN(&out, "\n", 1)) goto fail;
+                    lineHasFn = lineHasType = lineBodyOpened = 0;
+                }
+            }
+            continue;
+        }
+        if (c == '}') {
+            AetherBlockKind kind = (sp > 0) ? kindStack[--sp] : AE_BLK_OTHER;
+            if (kind == AE_BLK_TYPE || kind == AE_BLK_FN) {
+                size_t L = out.len;                      /* `member }` -> close on its own line */
+                int hasLeading = 0;
+                while (L > 0 && out.data[L - 1] != '\n') {
+                    char pc = out.data[L - 1];
+                    if (pc != ' ' && pc != '\t') { hasLeading = 1; break; }
+                    L--;
+                }
+                if (hasLeading && !bufferAppendN(&out, "\n", 1)) goto fail;
+            }
+            if (!bufferAppendN(&out, p, 1)) goto fail;
+            p++;
+            if (kind == AE_BLK_TYPE || kind == AE_BLK_FN) {
+                const char *q = p;                       /* `}@pure` / `}fn main` -> next decl own line */
+                while (*q == ' ' || *q == '\t') q++;
+                if (*q && *q != '\n') {
+                    if (!bufferAppendN(&out, "\n", 1)) goto fail;
+                    lineHasFn = lineHasType = lineBodyOpened = 0;
+                }
+            }
+            continue;
+        }
+        if (c == ';' && parenDepth == 0 && bracketDepth == 0 && sp > 0 &&
+            (kindStack[sp - 1] == AE_BLK_TYPE || kindStack[sp - 1] == AE_BLK_FN)) {
+            const char *q;
+            if (!bufferAppendN(&out, p, 1)) goto fail;
+            p++;
+            q = p;
+            while (*q == ' ' || *q == '\t') q++;
+            if (*q && *q != '\n') {                      /* `a; b` at member/body level -> split */
+                if (!bufferAppendN(&out, "\n", 1)) goto fail;
+                lineHasFn = lineHasType = lineBodyOpened = 0;
+            }
+            continue;
+        }
+        if (!bufferAppendN(&out, p, 1)) goto fail;
+        p++;
+    }
+    if (!out.data) {
+        out.data = (char *)malloc(1);
+        if (out.data) out.data[0] = '\0';
+    }
+    return out.data;
+fail:
+    free(out.data);
+    return NULL;
+}
+
 char *aetherRewriteSource(const char *source, const char *path) {
     char *preprocessed = NULL;
     const char *cursor;
@@ -8459,6 +8622,19 @@ char *aetherRewriteSource(const char *source, const char *path) {
     }
     if (!preprocessed) {
         return NULL;
+    }
+    {
+        /* Split run-on type members / inline fn bodies onto their own lines so
+         * the per-line rewriter below sees one construct per line. Runs after
+         * TOON extraction (leaves TOON data alone) and before inline-if so split
+         * `let x = if ...` decls still reach preprocessInlineIfDecls. */
+        char *normalized = aetherNormalizeCompoundLines(preprocessed);
+        if (!normalized) {
+            free(preprocessed);
+            return NULL;
+        }
+        free(preprocessed);
+        preprocessed = normalized;
     }
     {
         char *inlineIfPreprocessed = preprocessInlineIfDecls(preprocessed, path);

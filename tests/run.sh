@@ -15,6 +15,7 @@ cd "$EX_DIR/showcase"
 SMOKE_FIXTURE="$TESTS_DIR/smoke.aether"
 NEG_ARRAY_FIXTURE="$TESTS_DIR/negative_array_literal.aether"
 STRING_PARSE_PASS_FIXTURE="$TESTS_DIR/string_parse_pass.aether"
+COMPOUND_LINES_PASS_FIXTURE="$TESTS_DIR/compound_lines_pass.aether"
 TOON_ALIAS_PASS_FIXTURE="$TESTS_DIR/toon_alias_pass.aether"
 CONTRACT_PASS_FIXTURE="$TESTS_DIR/contracts_pass.aether"
 CONTRACT_LAYOUT_PASS_FIXTURE="$TESTS_DIR/contract_layout_pass.aether"
@@ -146,6 +147,7 @@ fi
 
 for fixture in \
     "$SMOKE_FIXTURE" \
+    "$COMPOUND_LINES_PASS_FIXTURE" \
     "$CONTRACT_PASS_FIXTURE" \
     "$CONTRACT_LAYOUT_PASS_FIXTURE" \
     "$CONTRACT_STRING_LEN_PASS_FIXTURE" \
@@ -260,6 +262,15 @@ done
 
 "$AETHER_BIN" --no-cache --no-run "$SMOKE_FIXTURE" >/dev/null
 "$AETHER_BIN" --no-cache --dump-ast-json "$SMOKE_FIXTURE" >/dev/null
+# Compound lines: a type field + method, and a fn body, sharing one physical line
+# must parse (aetherNormalizeCompoundLines splits them). Regression for the two
+# SYN-001 mis-parses (dropped method / untranslated inline body).
+"$AETHER_BIN" --no-cache "$COMPOUND_LINES_PASS_FIXTURE" >/tmp/aether_compound_lines_pass.out
+if ! grep -qx "7 positive" /tmp/aether_compound_lines_pass.out; then
+    echo "unexpected compound-line output (regression: run-on type members / inline fn bodies)" >&2
+    cat /tmp/aether_compound_lines_pass.out >&2
+    exit 1
+fi
 "$AETHER_BIN" --no-cache "$CONTRACT_PASS_FIXTURE" >/dev/null
 "$AETHER_BIN" --no-cache "$CONTRACT_LAYOUT_PASS_FIXTURE" >/tmp/aether_contract_layout_pass.out
 if ! grep -qx "42" /tmp/aether_contract_layout_pass.out; then

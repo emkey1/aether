@@ -1,0 +1,19 @@
+// Regression: multiple constructs sharing one physical line must parse.
+// Bug 1: a type field sharing a line with the next method was dropped, orphaning
+//        the method body (SYN-001 Unexpected token ELSE).
+// Bug 2: a fn body inlined on the signature line was left untranslated, so raw
+//        let/fx/ret reached the backend (SYN-001 Unexpected token COLON).
+// aetherNormalizeCompoundLines() in translate.c splits these onto their own lines.
+type Counter {
+    count: Int;
+    label: Text;fn bump(by: Int) -> Void { self.count = self.count + by; ret; }
+}
+
+fn describe(n: Int) -> Text { if n > 0 { ret "positive"; } ret "nonpositive"; }
+
+fn main() -> Void {
+    let c: Counter = new Counter {};
+    c.bump(7);
+    fx { println(c.count, " ", describe(c.count)); }
+    ret;
+}
