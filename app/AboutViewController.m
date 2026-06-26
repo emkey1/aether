@@ -2976,6 +2976,43 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return [super tableView:tableView cellForRowAtIndexPath:indexPath];
 }
 
+// iOS 27's UIKit bounds-checks the storyboard's static-section array. Our LLM
+// section is appended at index == _llmSectionIndex (past the static sections),
+// so any UITableViewController static *layout* delegate method reached via
+// [super ...] for it indexes out of bounds -> "index N beyond bounds [0..N-1]"
+// (reloadData asks the static layout for the appended section's heights). Older
+// UIKit tolerated it; 27 throws. Guard these the same way we guard the
+// data-source methods above. heightForRow/indentationLevel are part of the
+// static-cell support (proven by the [super ...] calls above); header/footer
+// heights may be table defaults, so only forward those when super implements them.
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == [self _llmSectionIndex])
+        return 44;
+    return [super tableView:tableView heightForRowAtIndexPath:indexPath];
+}
+
+- (NSInteger)tableView:(UITableView *)tableView indentationLevelForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == [self _llmSectionIndex])
+        return 0;
+    return [super tableView:tableView indentationLevelForRowAtIndexPath:indexPath];
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return UITableViewAutomaticDimension;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView heightForHeaderInSection:section];
+    return UITableViewAutomaticDimension;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return UITableViewAutomaticDimension;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView heightForFooterInSection:section];
+    return UITableViewAutomaticDimension;
+}
+
 - (IBAction)disableDimmingChanged:(id)sender {
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
 }
