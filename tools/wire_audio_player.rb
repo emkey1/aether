@@ -106,18 +106,12 @@ end
 
 proj.save
 
-# Work around an xcodeproj-gem quirk: proj.save inserts a spurious
-# `IPHONEOS_DEPLOYMENT_TARGET = 15.0` into build configs that had no explicit
-# target. iSH-AOK targets iOS 12 and never sets 15.0 on purpose, so strip those
-# lines back out — otherwise re-running this (e.g. after building the codecs)
-# silently bumps the deployment target.
-pbxproj_path = File.join(PROJECT, "project.pbxproj")
-original = File.read(pbxproj_path)
-cleaned = original.gsub(/^[ \t]*IPHONEOS_DEPLOYMENT_TARGET = 15\.0;[ \t]*\n/, "")
-if cleaned != original
-  File.write(pbxproj_path, cleaned)
-  puts "stripped #{(original.lines.count - cleaned.lines.count)} gem-inserted IPHONEOS_DEPLOYMENT_TARGET=15.0 line(s)"
-end
+# NOTE: we deliberately do NOT strip IPHONEOS_DEPLOYMENT_TARGET here anymore.
+# The deployment target is iOS 15.0 — the minimum the iOS 26+ SDK accepts — set
+# authoritatively in app/Project.xcconfig. This block used to delete the
+# xcodeproj gem's auto-inserted `IPHONEOS_DEPLOYMENT_TARGET = 15.0` lines (back
+# when the project targeted iOS 12), which silently reverted the 15.0 the
+# project now actually wants. Stripping removed; 15.0 is correct.
 
 # Verify references resolve to app/<file> and report membership.
 puts "\nVerification:"

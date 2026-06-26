@@ -75,11 +75,11 @@ apple_target_triple() {
     local arch="$2"
     case "$sdk_name" in
         iphoneos)
-            local version="${IPHONEOS_DEPLOYMENT_TARGET:-11.0}"
+            local version="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
             echo "${arch}-apple-ios${version}"
             ;;
         iphonesimulator)
-            local version="${IPHONEOS_DEPLOYMENT_TARGET:-11.0}"
+            local version="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
             echo "${arch}-apple-ios${version}-simulator"
             ;;
         macosx)
