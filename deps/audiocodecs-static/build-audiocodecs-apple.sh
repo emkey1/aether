@@ -40,6 +40,13 @@ fetch "libvorbis-$VORBIS_VER" "https://downloads.xiph.org/releases/vorbis/libvor
 fetch "opus-$OPUS_VER"        "https://downloads.xiph.org/releases/opus/opus-$OPUS_VER.tar.gz"
 fetch "opusfile-$OPUSFILE_VER" "https://downloads.xiph.org/releases/opus/opusfile-$OPUSFILE_VER.tar.gz"
 
+# libvorbis 1.3.7's configure hardcodes the legacy Mach-O flag -force_cpusubtype_ALL
+# into its Darwin CFLAGS; modern ld (Xcode 15+) rejects it at link time (fatal when
+# linking libvorbis's test programs). Strip it from configure so every regenerated
+# Makefile links cleanly. Idempotent; libogg/opus/opusfile don't carry it.
+echo "== patching libvorbis configure (drop -force_cpusubtype_ALL for modern ld) =="
+sed -i '' 's/-force_cpusubtype_ALL //g' "$SRC/libvorbis-$VORBIS_VER/configure"
+
 # Build every Xiph lib for one slice into a private staging prefix, then merge
 # the static archives into one $OUT/audiocodecs-<tag>.a.
 build_slice() { # sdk arch host tag minflag
@@ -47,6 +54,15 @@ build_slice() { # sdk arch host tag minflag
   local sysroot; sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
   local stage="$ROOT/stage-$tag"
   rm -rf "$stage"; mkdir -p "$stage"
+
+  # The four source trees are shared across slices. autotools leaves per-arch .o
+  # behind, and on the next slice `make` sees them "up to date" and skips the
+  # recompile — so a different-arch slice would archive stale objects (e.g. an
+  # x86_64 slice picking up leftover arm64 .o), and lipo then rejects the fat
+  # library. Wipe each tree back to pristine before configuring for this slice.
+  for d in "libogg-$OGG_VER" "libvorbis-$VORBIS_VER" "opus-$OPUS_VER" "opusfile-$OPUSFILE_VER"; do
+    ( cd "$SRC/$d" && make distclean >/dev/null 2>&1 || true )
+  done
 
   export CC; CC="$(xcrun -f clang)"
   export CFLAGS="-arch $arch -isysroot $sysroot $minflag -O2 -fPIC -fvisibility=hidden"
