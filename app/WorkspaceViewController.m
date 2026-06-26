@@ -9,6 +9,8 @@
 #import "TerminalViewController.h"
 #import "UserPreferences.h"
 #import "NSObject+SaneKVO.h"
+#import "AudioPlayerEngine.h"
+#import "AudioLibrary.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
@@ -108,6 +110,7 @@ static NSString *const ISHWorkspaceToolSettingsIdentifier = @"settings";
 static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
 static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
+static NSString *const ISHWorkspaceToolAudioIdentifier = @"audio";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -190,6 +193,8 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"quick_actions": ISHWorkspaceToolShortcutsIdentifier,
         @"llm": ISHWorkspaceToolLLMIdentifier,
         @"chat": ISHWorkspaceToolLLMIdentifier,
+        @"music": ISHWorkspaceToolAudioIdentifier,
+        @"audio": ISHWorkspaceToolAudioIdentifier,
     };
     return map[token];
 }
@@ -709,6 +714,16 @@ static CGSize ISHWorkspaceWorkspacesContentSize(NSUInteger count) {
 
 static CGSize ISHWorkspaceMonitorContentSize(void);
 
+// The Music player is a fixed-width "device": the window hugs it horizontally
+// (locked, non-resizable) and only grows/shrinks vertically. Width = the device
+// body width plus a thin margin on each side.
+static CGFloat ISHWorkspaceAudioDeviceWidth(void) {
+    return ISHWorkspaceUsesPhoneLayout() ? 240.0 : 200.0;
+}
+static CGFloat ISHWorkspaceAudioWindowWidth(void) {
+    return ISHWorkspaceAudioDeviceWidth() + 12.0;  // 6pt margin each side
+}
+
 static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if (ISHWorkspaceUsesPhoneLayout()) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -743,6 +758,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(352, 560);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
             return ISHWorkspaceLauncherContentSize();
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+            return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 510);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -777,6 +794,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(560, 620);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
         return ISHWorkspaceLauncherContentSize();
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+        return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 470);
     return CGSizeMake(720, 640);
 }
 
@@ -857,6 +876,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(300, 360);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
             return CGSizeMake(200, 80);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+            return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 390);
         return CGSizeMake(300, 220);
     }
 
@@ -886,6 +907,16 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(420, 420);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
         return CGSizeMake(220, 96);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+        return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 360);
+    return CGSizeZero;
+}
+
+// Per-tool maximum content size. Width > 0 locks the window's width; height 0
+// leaves vertical resize unbounded. Only the Music player uses it (fixed width).
+static CGSize ISHWorkspaceMaximumToolContentSize(NSString *toolIdentifier) {
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+        return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 0);
     return CGSizeZero;
 }
 
@@ -935,6 +966,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"LLM Chat";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
         return @"Launcher";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+        return @"Music";
     return @"Window";
 }
 
@@ -2210,6 +2243,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceThemesToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceAudioPlayerToolViewController : WorkspaceThemedToolViewController
+@end
+
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return ISHCreateLLMClientViewController();
@@ -2248,6 +2284,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return ISHCreateDiagnosticsViewController();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
         return [WorkspaceLauncherToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
+        return [WorkspaceAudioPlayerToolViewController new];
     return nil;
 }
 
@@ -2284,6 +2322,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolSettingsIdentifier;
     if ([viewController isKindOfClass:NSClassFromString(@"RootsTableViewController")])
         return ISHWorkspaceToolFilesystemsIdentifier;
+    if ([viewController isKindOfClass:WorkspaceAudioPlayerToolViewController.class])
+        return ISHWorkspaceToolAudioIdentifier;
     return nil;
 }
 
@@ -2537,6 +2577,15 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (CGRect)clampedDesktopFrame:(CGRect)frame forWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    // Enforce the window's own min/max content size first (e.g. the Music player
+    // locks its width); a no-op for windows that leave these at 0.
+    CGSize minSize = windowView.minimumSize;
+    CGSize maxSize = windowView.maximumSize;
+    if (minSize.width > 0) frame.size.width = MAX(frame.size.width, minSize.width);
+    if (minSize.height > 0) frame.size.height = MAX(frame.size.height, minSize.height);
+    if (maxSize.width > 0) frame.size.width = MIN(frame.size.width, maxSize.width);
+    if (maxSize.height > 0) frame.size.height = MIN(frame.size.height, maxSize.height);
+
     CGRect usableBounds = [self desktopUsableBounds];
     if (CGRectGetWidth(frame) > CGRectGetWidth(usableBounds))
         frame.size.width = CGRectGetWidth(usableBounds);
@@ -3016,6 +3065,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         windowView.resizable = YES;
         windowView.minimumSize = minimumSize;
     }
+    windowView.maximumSize = ISHWorkspaceMaximumToolContentSize(toolIdentifier);
     if (pinnedWorkspaces) {
         __weak typeof(self) weakSelf = self;
         windowView.frameDidChangeHandler = ^{
@@ -3496,7 +3546,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Edit Shortcuts…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentLauncherEditorFromView:sourceView];
+        // Defer: presenting from a sheet handler races the sheet dismissal and
+        // iOS 27 drops it (see presentDesktopRootMenuFromView).
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentLauncherEditorFromView:sourceView];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
@@ -3553,18 +3607,24 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [sheet addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self presentEditLauncherShortcutAtIndex:idx];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentEditLauncherShortcutAtIndex:idx];
+            });
         }]];
     }];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentAddLauncherShortcut];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherShortcut];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentAddLauncherBuiltinFromView:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherBuiltinFromView:sourceView];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
@@ -3582,6 +3642,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 - (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView {
     NSMutableArray<NSDictionary<NSString *, NSString *> *> *builtins = [@[
         @{@"name": @"Web Browser", @"command": @"{browser}"},
+        @{@"name": @"Music", @"command": @"{music}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -3883,17 +3944,29 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Terminal…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentTerminalDockActionsFromView:sourceView];
+        // Any item that presents another controller (nested sheet, Launcher,
+        // Windows, Utilities, Style chooser) must defer to the next runloop:
+        // presenting synchronously from a UIAlertAction handler races this
+        // sheet's own dismissal and UIKit drops it as "already presenting", so
+        // the item silently does nothing. Used to bite only iPad popovers; iOS
+        // 27 makes it consistent (iPhone action sheets too).
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentTerminalDockActionsFromView:sourceView];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Launcher"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentLauncherFromView:sourceView sourceRect:sourceRect];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentLauncherFromView:sourceView sourceRect:sourceRect];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Windows"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentIconManagerFromView:sourceView sourceRect:sourceRect];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"New Desktop"
                                               style:UIAlertActionStyleDefault
@@ -3903,7 +3976,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Utilities…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentUtilsDockActionsFromView:self.desktopSurfaceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentUtilsDockActionsFromView:self.desktopSurfaceView];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Settings"
                                               style:UIAlertActionStyleDefault
@@ -3913,7 +3988,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Workspace Style…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentWorkspaceStyleChooserFromView:self.desktopSurfaceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentWorkspaceStyleChooserFromView:self.desktopSurfaceView];
+        });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
@@ -4851,6 +4928,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         @{@"title": @"Launcher", @"identifier": ISHWorkspaceToolLauncherIdentifier},
         @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
+        @{@"title": @"Music", @"identifier": ISHWorkspaceToolAudioIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
@@ -4931,7 +5009,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Back"
                                               style:UIAlertActionStyleCancel
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentUtilsDockActionsFromView:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentUtilsDockActionsFromView:sourceView];
+        });
     }]];
 
     UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
@@ -4958,7 +5038,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [sheet addAction:[UIAlertAction actionWithTitle:actionTitle
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self presentUtilityGroup:groupDescriptor fromView:sourceView];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentUtilityGroup:groupDescriptor fromView:sourceView];
+            });
         }]];
     }
 
@@ -4966,7 +5048,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Workspace Style: %@", workspaceStyleTitle]
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentWorkspaceStyleChooserFromView:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentWorkspaceStyleChooserFromView:sourceView];
+        });
     }]];
 
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel"
@@ -5012,7 +5096,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [sheet addAction:[UIAlertAction actionWithTitle:@"Back"
                                               style:UIAlertActionStyleCancel
                                             handler:^(__unused UIAlertAction *action) {
-        [self presentUtilsDockActionsFromView:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentUtilsDockActionsFromView:sourceView];
+        });
     }]];
 
     UIPopoverPresentationController *popoverPresentationController = sheet.popoverPresentationController;
@@ -7221,6 +7307,691 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)editShortcutsTapped:(UIButton *)sender {
     [(id)self.workspaceHostViewController presentLauncherEditorFromView:sender];
+}
+
+@end
+
+#pragma mark - Audio Player applet
+
+static UIColor *ISHAudioHexColor(uint32_t hex) {
+    return [UIColor colorWithRed:((hex >> 16) & 0xFF) / 255.0
+                           green:((hex >> 8) & 0xFF) / 255.0
+                            blue:(hex & 0xFF) / 255.0
+                           alpha:1.0];
+}
+
+// Animated rainbow equalizer for the Music player's "device screen". Cheap: a
+// low-rate timer nudges bar heights, and the player only runs it while playing
+// and on-screen.
+@interface WorkspaceAudioEQView : UIView
+- (void)setActive:(BOOL)active;
+@end
+
+@implementation WorkspaceAudioEQView {
+    NSArray<NSLayoutConstraint *> *_heights;
+    NSTimer *_timer;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        NSArray<UIColor *> *colors = @[
+            ISHAudioHexColor(0xFF4D4D), ISHAudioHexColor(0xFF8A3C), ISHAudioHexColor(0xFFD23C),
+            ISHAudioHexColor(0xB6E83C), ISHAudioHexColor(0x4FE06A), ISHAudioHexColor(0x36D6A0),
+            ISHAudioHexColor(0x33C9D6), ISHAudioHexColor(0x3AA0FF), ISHAudioHexColor(0x6B7BFF),
+            ISHAudioHexColor(0xA86BFF), ISHAudioHexColor(0xE25BFF), ISHAudioHexColor(0xFF5BBF),
+            ISHAudioHexColor(0xFF4D7A),
+        ];
+        UIStackView *row = [UIStackView new];
+        row.translatesAutoresizingMaskIntoConstraints = NO;
+        row.axis = UILayoutConstraintAxisHorizontal;
+        row.alignment = UIStackViewAlignmentBottom;
+        row.distribution = UIStackViewDistributionFillEqually;
+        row.spacing = 3;
+        [self addSubview:row];
+        [NSLayoutConstraint activateConstraints:@[
+            [row.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [row.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+            [row.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [row.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+        ]];
+        NSMutableArray<NSLayoutConstraint *> *heights = [NSMutableArray array];
+        for (UIColor *color in colors) {
+            UIView *bar = [UIView new];
+            bar.translatesAutoresizingMaskIntoConstraints = NO;
+            bar.backgroundColor = color;
+            bar.layer.cornerRadius = 1.0;
+            [row addArrangedSubview:bar];
+            NSLayoutConstraint *height = [bar.heightAnchor constraintEqualToConstant:5];
+            height.active = YES;
+            [heights addObject:height];
+        }
+        _heights = heights;
+    }
+    return self;
+}
+
+- (void)setActive:(BOOL)active {
+    [_timer invalidate];
+    _timer = nil;
+    if (active) {
+        _timer = [NSTimer scheduledTimerWithTimeInterval:0.13 target:self selector:@selector(ish_tick) userInfo:nil repeats:YES];
+        [self ish_tick];
+    } else {
+        for (NSLayoutConstraint *height in _heights) height.constant = 5;
+        [UIView animateWithDuration:0.2 animations:^{ [self layoutIfNeeded]; }];
+    }
+}
+
+- (void)ish_tick {
+    CGFloat maxHeight = MAX(CGRectGetHeight(self.bounds), 10);
+    for (NSLayoutConstraint *height in _heights)
+        height.constant = 4 + (CGFloat)arc4random_uniform((uint32_t)(maxHeight - 4));
+    [UIView animateWithDuration:0.11 delay:0
+                        options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionCurveEaseOut
+                     animations:^{ [self layoutIfNeeded]; } completion:nil];
+}
+
+- (void)dealloc { [_timer invalidate]; }
+
+@end
+
+@interface WorkspaceAudioPlayerToolViewController () <UITableViewDataSource, UITableViewDelegate>
+@end
+
+@implementation WorkspaceAudioPlayerToolViewController {
+    UIView *_deviceBody;
+    UIView *_wheelView;
+    UILabel *_counterLabel;
+    WorkspaceAudioEQView *_eqView;
+    UILabel *_titleLabel;
+    UISlider *_progressSlider;
+    UILabel *_elapsedLabel;
+    UILabel *_durationLabel;
+    UIButton *_shuffleButton;
+    UIButton *_repeatButton;
+    UIButton *_mButton;
+    UIButton *_prevButton;
+    UIButton *_playButton;
+    UIButton *_nextButton;
+    UIButton *_volButton;
+    UIImageView *_speakerView;
+    UISlider *_volumeSlider;
+    float _volumeBeforeMute;
+    UITableView *_tableView;
+    NSTimer *_progressTimer;
+    BOOL _scrubbing;
+}
+
+- (ISHAudioPlayerEngine *)engine { return ISHAudioPlayerEngine.sharedEngine; }
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Music";
+
+    CGFloat bodyMaxWidth = ISHWorkspaceAudioDeviceWidth();
+
+    // --- Device body (color comes from applyDeviceColors / the workspace theme) ---
+    _deviceBody = [UIView new];
+    _deviceBody.translatesAutoresizingMaskIntoConstraints = NO;
+    _deviceBody.layer.cornerRadius = 18;
+    [self.toolContentView addSubview:_deviceBody];
+
+    // --- Screen (always a dark display, regardless of theme) ---
+    UIView *screen = [UIView new];
+    screen.translatesAutoresizingMaskIntoConstraints = NO;
+    screen.backgroundColor = ISHAudioHexColor(0x10141B);
+    screen.layer.cornerRadius = 10;
+    screen.clipsToBounds = YES;
+    [_deviceBody addSubview:screen];
+
+    _shuffleButton = [self deviceSymbolButton:@"shuffle" fallback:@"S" pointSize:12 tint:UIColor.grayColor action:@selector(toggleShuffle)];
+    _repeatButton = [self deviceSymbolButton:@"repeat" fallback:@"R" pointSize:12 tint:UIColor.grayColor action:@selector(cycleRepeat)];
+    [_shuffleButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_repeatButton setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    _counterLabel = [UILabel new];
+    _counterLabel.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightRegular];
+    _counterLabel.textColor = ISHAudioHexColor(0xE8EEF6);
+    _counterLabel.textAlignment = NSTextAlignmentCenter;
+    _counterLabel.text = @"0 / 0";
+    UIStackView *topRow = [[UIStackView alloc] initWithArrangedSubviews:@[_shuffleButton, _counterLabel, _repeatButton]];
+    topRow.axis = UILayoutConstraintAxisHorizontal;
+    topRow.alignment = UIStackViewAlignmentCenter;
+
+    _eqView = [[WorkspaceAudioEQView alloc] initWithFrame:CGRectZero];
+    _eqView.translatesAutoresizingMaskIntoConstraints = NO;
+    [_eqView.heightAnchor constraintEqualToConstant:20].active = YES;
+
+    _titleLabel = [UILabel new];
+    _titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+    _titleLabel.textColor = UIColor.whiteColor;
+    _titleLabel.textAlignment = NSTextAlignmentCenter;
+    _titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    _titleLabel.text = @"Nothing playing";
+
+    _progressSlider = [UISlider new];
+    _progressSlider.continuous = YES;
+    _progressSlider.maximumTrackTintColor = ISHAudioHexColor(0x3A3F49);
+    [_progressSlider addTarget:self action:@selector(scrubStarted) forControlEvents:UIControlEventTouchDown];
+    [_progressSlider addTarget:self action:@selector(scrubChanged) forControlEvents:UIControlEventValueChanged];
+    [_progressSlider addTarget:self action:@selector(scrubEnded) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+
+    _elapsedLabel = [self screenTimeLabelWithAlignment:NSTextAlignmentLeft];
+    _durationLabel = [self screenTimeLabelWithAlignment:NSTextAlignmentRight];
+    UIStackView *timeRow = [[UIStackView alloc] initWithArrangedSubviews:@[_elapsedLabel, _durationLabel]];
+    timeRow.axis = UILayoutConstraintAxisHorizontal;
+    timeRow.distribution = UIStackViewDistributionFillEqually;
+
+    UIStackView *screenStack = [[UIStackView alloc] initWithArrangedSubviews:@[topRow, _eqView, _titleLabel, _progressSlider, timeRow]];
+    screenStack.axis = UILayoutConstraintAxisVertical;
+    screenStack.spacing = 4;
+    screenStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [screen addSubview:screenStack];
+    [NSLayoutConstraint activateConstraints:@[
+        [screenStack.topAnchor constraintEqualToAnchor:screen.topAnchor constant:7],
+        [screenStack.leadingAnchor constraintEqualToAnchor:screen.leadingAnchor constant:9],
+        [screenStack.trailingAnchor constraintEqualToAnchor:screen.trailingAnchor constant:-9],
+        [screenStack.bottomAnchor constraintEqualToAnchor:screen.bottomAnchor constant:-7],
+    ]];
+
+    // --- Click wheel ---
+    _wheelView = [UIView new];
+    _wheelView.translatesAutoresizingMaskIntoConstraints = NO;
+    _wheelView.layer.borderWidth = 1;
+    [_deviceBody addSubview:_wheelView];
+
+    _mButton = [self deviceSymbolButton:nil fallback:@"M" pointSize:11 tint:UIColor.grayColor action:@selector(menuTapped)];
+    _prevButton = [self deviceSymbolButton:@"backward.fill" fallback:@"|<" pointSize:11 tint:UIColor.grayColor action:@selector(prevTapped)];
+    _nextButton = [self deviceSymbolButton:@"forward.fill" fallback:@">|" pointSize:11 tint:UIColor.grayColor action:@selector(nextTapped)];
+    _volButton = [self deviceSymbolButton:nil fallback:@"VOL" pointSize:9 tint:UIColor.grayColor action:@selector(volTapped)];
+    _volButton.titleLabel.font = [UIFont systemFontOfSize:9 weight:UIFontWeightMedium];
+    _playButton = [self deviceSymbolButton:@"play.fill" fallback:@">" pointSize:16 tint:UIColor.grayColor action:@selector(playPauseTapped)];
+    _playButton.layer.cornerRadius = 23;
+    _playButton.layer.borderWidth = 1;
+    for (UIView *control in @[_mButton, _prevButton, _nextButton, _volButton, _playButton])
+        [_wheelView addSubview:control];
+    [NSLayoutConstraint activateConstraints:@[
+        [_mButton.centerXAnchor constraintEqualToAnchor:_wheelView.centerXAnchor],
+        [_mButton.topAnchor constraintEqualToAnchor:_wheelView.topAnchor constant:7],
+        [_prevButton.centerYAnchor constraintEqualToAnchor:_wheelView.centerYAnchor],
+        [_prevButton.leadingAnchor constraintEqualToAnchor:_wheelView.leadingAnchor constant:9],
+        [_nextButton.centerYAnchor constraintEqualToAnchor:_wheelView.centerYAnchor],
+        [_nextButton.trailingAnchor constraintEqualToAnchor:_wheelView.trailingAnchor constant:-9],
+        [_volButton.centerXAnchor constraintEqualToAnchor:_wheelView.centerXAnchor],
+        [_volButton.bottomAnchor constraintEqualToAnchor:_wheelView.bottomAnchor constant:-8],
+        [_playButton.centerXAnchor constraintEqualToAnchor:_wheelView.centerXAnchor],
+        [_playButton.centerYAnchor constraintEqualToAnchor:_wheelView.centerYAnchor],
+        [_playButton.widthAnchor constraintEqualToConstant:46],
+        [_playButton.heightAnchor constraintEqualToConstant:46],
+    ]];
+
+    // --- Volume slider (below the wheel) ---
+    _speakerView = [UIImageView new];
+    _speakerView.translatesAutoresizingMaskIntoConstraints = NO;
+    _speakerView.contentMode = UIViewContentModeScaleAspectFit;
+    if (@available(iOS 13.0, *)) _speakerView.image = [UIImage systemImageNamed:@"speaker.fill"];
+    [_speakerView setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_speakerView.widthAnchor constraintEqualToConstant:13].active = YES;
+    _volumeSlider = [UISlider new];
+    _volumeSlider.minimumValue = 0;
+    _volumeSlider.maximumValue = 1;
+    _volumeSlider.value = self.engine.volume;
+    [_volumeSlider addTarget:self action:@selector(volumeChanged) forControlEvents:UIControlEventValueChanged];
+    UIStackView *volumeRow = [[UIStackView alloc] initWithArrangedSubviews:@[_speakerView, _volumeSlider]];
+    volumeRow.axis = UILayoutConstraintAxisHorizontal;
+    volumeRow.alignment = UIStackViewAlignmentCenter;
+    volumeRow.spacing = 6;
+    volumeRow.translatesAutoresizingMaskIntoConstraints = NO;
+    [_deviceBody addSubview:volumeRow];
+
+    // --- Device body internal layout ---
+    CGFloat pad = 11;
+    [NSLayoutConstraint activateConstraints:@[
+        [screen.topAnchor constraintEqualToAnchor:_deviceBody.topAnchor constant:pad],
+        [screen.leadingAnchor constraintEqualToAnchor:_deviceBody.leadingAnchor constant:pad],
+        [screen.trailingAnchor constraintEqualToAnchor:_deviceBody.trailingAnchor constant:-pad],
+        [_wheelView.topAnchor constraintEqualToAnchor:screen.bottomAnchor constant:11],
+        [_wheelView.centerXAnchor constraintEqualToAnchor:_deviceBody.centerXAnchor],
+        [_wheelView.widthAnchor constraintEqualToAnchor:_deviceBody.widthAnchor multiplier:0.6],
+        [_wheelView.heightAnchor constraintEqualToAnchor:_wheelView.widthAnchor],
+        [volumeRow.topAnchor constraintEqualToAnchor:_wheelView.bottomAnchor constant:8],
+        [volumeRow.leadingAnchor constraintEqualToAnchor:_deviceBody.leadingAnchor constant:pad],
+        [volumeRow.trailingAnchor constraintEqualToAnchor:_deviceBody.trailingAnchor constant:-pad],
+        [volumeRow.bottomAnchor constraintEqualToAnchor:_deviceBody.bottomAnchor constant:-pad],
+    ]];
+
+    // --- Place the device in the window: fill width, capped + centered ---
+    CGFloat inset = 6.0;
+    NSLayoutConstraint *bodyWidthFill = [_deviceBody.widthAnchor constraintEqualToAnchor:self.toolContentView.widthAnchor constant:-2 * inset];
+    bodyWidthFill.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        [_deviceBody.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:inset],
+        [_deviceBody.centerXAnchor constraintEqualToAnchor:self.toolContentView.centerXAnchor],
+        [_deviceBody.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
+        [_deviceBody.widthAnchor constraintLessThanOrEqualToConstant:bodyMaxWidth],
+        bodyWidthFill,
+    ]];
+
+    // --- Song list below the device ---
+    _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.backgroundColor = UIColor.clearColor;
+    _tableView.rowHeight = 38;
+    _tableView.alwaysBounceVertical = YES;
+    _tableView.showsVerticalScrollIndicator = YES;
+    [self.toolContentView addSubview:_tableView];
+    // The device body is tall; if the window is shorter than it, let this yield
+    // (the list compresses) rather than hard-conflicting.
+    NSLayoutConstraint *tableTop = [_tableView.topAnchor constraintEqualToAnchor:_deviceBody.bottomAnchor constant:8];
+    tableTop.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        tableTop,
+        [_tableView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+        [_tableView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+        [_tableView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+    ]];
+
+    for (NSString *name in @[ISHAudioPlayerStateDidChangeNotification,
+                             ISHAudioPlayerTrackDidChangeNotification,
+                             ISHAudioPlayerQueueDidChangeNotification]) {
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(engineDidChange:)
+                                                   name:name object:nil];
+    }
+    [self applyDeviceColors];
+    [self refreshNowPlaying];
+    [self refreshTransport];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    _wheelView.layer.cornerRadius = CGRectGetWidth(_wheelView.bounds) / 2.0;
+}
+
+- (void)dealloc {
+    [_progressTimer invalidate];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [_progressTimer invalidate];
+    _progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.4 target:self
+                                                    selector:@selector(progressTick) userInfo:nil repeats:YES];
+    [_tableView reloadData];
+    [self refreshNowPlaying];
+    [self refreshTransport];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_progressTimer invalidate];
+    _progressTimer = nil;  // playback keeps running; we just stop polling the UI
+    [_eqView setActive:NO];
+}
+
+#pragma mark Button builders
+
+- (UIButton *)deviceSymbolButton:(NSString *)symbol fallback:(NSString *)text pointSize:(CGFloat)pointSize tint:(UIColor *)tint action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    button.tintColor = tint;
+    BOOL haveSymbol = NO;
+    if (symbol != nil) {
+        if (@available(iOS 13.0, *)) {
+            UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:pointSize weight:UIImageSymbolWeightSemibold];
+            UIImage *image = [UIImage systemImageNamed:symbol withConfiguration:config];
+            if (image) { [button setImage:image forState:UIControlStateNormal]; haveSymbol = YES; }
+        }
+    }
+    if (!haveSymbol) {
+        [button setTitle:text forState:UIControlStateNormal];
+        [button setTitleColor:tint forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:pointSize weight:UIFontWeightSemibold];
+    }
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
+- (UILabel *)screenTimeLabelWithAlignment:(NSTextAlignment)alignment {
+    UILabel *label = [UILabel new];
+    label.font = [UIFont monospacedDigitSystemFontOfSize:9 weight:UIFontWeightRegular];
+    label.textColor = ISHAudioHexColor(0xAEB6C2);
+    label.textAlignment = alignment;
+    label.text = @"0:00";
+    return label;
+}
+
+#pragma mark UI refresh
+
+- (void)engineDidChange:(NSNotification *)note {
+    [self refreshNowPlaying];
+    [self refreshTransport];
+    [_tableView reloadData];
+}
+
+- (void)refreshNowPlaying {
+    ISHAudioTrack *track = self.engine.currentTrack;
+    NSInteger total = (NSInteger)self.engine.queue.count;
+    NSInteger index = self.engine.currentIndex;
+    _counterLabel.text = (total > 0 && index >= 0)
+        ? [NSString stringWithFormat:@"%ld / %ld", (long)(index + 1), (long)total]
+        : [NSString stringWithFormat:@"0 / %ld", (long)total];
+    if (track == nil) {
+        _titleLabel.text = @"Nothing playing";
+    } else {
+        NSString *title = track.title.length ? track.title : track.guestPath.lastPathComponent;
+        _titleLabel.text = track.artist.length ? [NSString stringWithFormat:@"%@ — %@", title, track.artist] : title;
+    }
+    NSTimeInterval duration = self.engine.duration;
+    _durationLabel.text = [self stringForTime:duration];
+    _progressSlider.maximumValue = duration > 0 ? duration : 1;
+    _progressSlider.enabled = duration > 0;
+}
+
+- (void)refreshTransport {
+    BOOL playing = (self.engine.state == ISHAudioPlaybackStatePlaying);
+    [self setSymbol:(playing ? @"pause.fill" : @"play.fill") text:(playing ? @"||" : @">")
+           onButton:_playButton pointSize:26];
+
+    UIColor *activeTint = self.workspaceTheme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *inactiveTint = ISHAudioHexColor(0x5A6472);
+    UIColor *shuffleTint = self.engine.shuffleEnabled ? activeTint : inactiveTint;
+    _shuffleButton.tintColor = shuffleTint;
+    [_shuffleButton setTitleColor:shuffleTint forState:UIControlStateNormal];
+    UIColor *repeatTint = (self.engine.repeatMode == ISHAudioRepeatModeOff) ? inactiveTint : activeTint;
+    _repeatButton.tintColor = repeatTint;
+    [_repeatButton setTitleColor:repeatTint forState:UIControlStateNormal];
+    switch (self.engine.repeatMode) {
+        case ISHAudioRepeatModeOff:
+            [self setSymbol:@"repeat" text:@"R" onButton:_repeatButton pointSize:15];
+            break;
+        case ISHAudioRepeatModeAll:
+            [self setSymbol:@"repeat" text:@"R*" onButton:_repeatButton pointSize:15];
+            break;
+        case ISHAudioRepeatModeOne:
+            [self setSymbol:@"repeat.1" text:@"R1" onButton:_repeatButton pointSize:15];
+            break;
+    }
+    _volumeSlider.value = self.engine.volume;
+    [_eqView setActive:(playing && _progressTimer != nil)];
+}
+
+// Paint the device from the workspace theme. The screen stays a dark display and
+// the equalizer stays rainbow; everything else follows the theme so the player
+// matches the rest of the workspace, live (this is also the workspaceApplyTheme hook).
+- (void)applyDeviceColors {
+    if (_deviceBody == nil) return;  // the base may invoke the theme hook before our views exist
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    UIColor *accent = theme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *card = theme[@"card"] ?: UIColor.whiteColor;
+    UIColor *cardAlt = theme[@"cardAlt"] ?: card;
+    UIColor *primary = theme[@"primary"] ?: UIColor.darkTextColor;
+    UIColor *stroke = theme[@"stroke"] ?: [UIColor colorWithWhite:0.0 alpha:0.15];
+
+    _deviceBody.backgroundColor = accent;
+    _wheelView.backgroundColor = card;
+    _wheelView.layer.borderColor = stroke.CGColor;
+    _playButton.backgroundColor = cardAlt;
+    _playButton.layer.borderColor = stroke.CGColor;
+    _playButton.tintColor = primary;
+    [_playButton setTitleColor:primary forState:UIControlStateNormal];
+    for (UIButton *button in @[_mButton, _prevButton, _nextButton, _volButton]) {
+        button.tintColor = primary;
+        [button setTitleColor:primary forState:UIControlStateNormal];
+    }
+    _speakerView.tintColor = primary;
+    _volumeSlider.minimumTrackTintColor = primary;
+    _volumeSlider.maximumTrackTintColor = stroke;
+    _progressSlider.minimumTrackTintColor = accent;
+    [self refreshTransport];  // shuffle/repeat active tint follows the accent too
+}
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    [self applyDeviceColors];
+}
+
+// VOL on the wheel toggles mute (the slider below it is fine-grained control).
+- (void)volTapped {
+    if (self.engine.volume > 0.001f) {
+        _volumeBeforeMute = self.engine.volume;
+        self.engine.volume = 0;
+    } else {
+        self.engine.volume = (_volumeBeforeMute > 0.001f) ? _volumeBeforeMute : 1.0f;
+    }
+    _volumeSlider.value = self.engine.volume;
+}
+
+- (void)menuTapped {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Music" message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Music…" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { dispatch_async(dispatch_get_main_queue(), ^{ [self addMusicTapped:self->_mButton]; }); }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Playlists…" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { dispatch_async(dispatch_get_main_queue(), ^{ [self playlistsTapped:self->_mButton]; }); }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentSheet:sheet fromView:_mButton];
+}
+
+- (void)setSymbol:(NSString *)symbol text:(NSString *)text onButton:(UIButton *)button pointSize:(CGFloat)pointSize {
+    if (@available(iOS 13.0, *)) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:pointSize weight:UIImageSymbolWeightSemibold];
+        UIImage *image = [UIImage systemImageNamed:symbol withConfiguration:config];
+        if (image) { [button setImage:image forState:UIControlStateNormal]; return; }
+    }
+    [button setTitle:text forState:UIControlStateNormal];
+}
+
+- (void)progressTick {
+    if (_scrubbing) return;
+    NSTimeInterval t = self.engine.currentTime;
+    if (self.engine.duration > 0) _progressSlider.value = t;
+    _elapsedLabel.text = [self stringForTime:t];
+}
+
+- (NSString *)stringForTime:(NSTimeInterval)time {
+    if (time < 0 || !isfinite(time)) time = 0;
+    int total = (int)llround(time);
+    return [NSString stringWithFormat:@"%d:%02d", total / 60, total % 60];
+}
+
+#pragma mark Transport actions
+
+- (void)playPauseTapped { [self.engine togglePlayPause]; }
+- (void)prevTapped { [self.engine previous]; }
+- (void)nextTapped { [self.engine next]; }
+- (void)toggleShuffle { self.engine.shuffleEnabled = !self.engine.shuffleEnabled; [self refreshTransport]; }
+
+- (void)cycleRepeat {
+    switch (self.engine.repeatMode) {
+        case ISHAudioRepeatModeOff: self.engine.repeatMode = ISHAudioRepeatModeAll; break;
+        case ISHAudioRepeatModeAll: self.engine.repeatMode = ISHAudioRepeatModeOne; break;
+        case ISHAudioRepeatModeOne: self.engine.repeatMode = ISHAudioRepeatModeOff; break;
+    }
+    [self refreshTransport];
+}
+
+- (void)scrubStarted { _scrubbing = YES; }
+- (void)scrubChanged { _elapsedLabel.text = [self stringForTime:_progressSlider.value]; }
+- (void)scrubEnded {
+    if (!_scrubbing) return;
+    _scrubbing = NO;
+    if (self.engine.duration > 0) [self.engine seekToTime:_progressSlider.value];
+}
+
+- (void)volumeChanged { self.engine.volume = _volumeSlider.value; }
+
+#pragma mark Add Music / Playlists
+
+- (void)addMusicTapped:(UIButton *)sender {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Add Music"
+        message:@"Music lives in /AOK/persist/music by default, or add tracks from any path in the guest."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Play Music Folder" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { [self loadDefaultFolderReplacing:YES]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Music Folder to Queue" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { [self loadDefaultFolderReplacing:NO]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add from Path…" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { [self promptAddFromPath]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentSheet:sheet fromView:sender];
+}
+
+- (void)loadDefaultFolderReplacing:(BOOL)replace {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSArray<ISHAudioTrack *> *tracks = [ISHAudioLibrary.sharedLibrary scanDefaultMusicDirectory];
+        dispatch_async(dispatch_get_main_queue(), ^{ [self applyScannedTracks:tracks replace:replace emptyMessage:@"No audio files in /AOK/persist/music."]; });
+    });
+}
+
+- (void)promptAddFromPath {
+    [self promptForTextWithTitle:@"Add from Path" message:@"A guest folder or audio file path."
+                     placeholder:@"/root/music" initial:nil handler:^(NSString *path) {
+        NSString *trimmed = [path stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trimmed.length == 0) return;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSArray<ISHAudioTrack *> *tracks;
+            if ([ISHAudioLibrary isSupportedAudioFileName:trimmed])
+                tracks = @[[[ISHAudioTrack alloc] initWithGuestPath:trimmed]];
+            else
+                tracks = [ISHAudioLibrary.sharedLibrary scanGuestDirectoryAtPath:trimmed];
+            dispatch_async(dispatch_get_main_queue(), ^{ [self applyScannedTracks:tracks replace:NO emptyMessage:@"No audio files found at that path."]; });
+        });
+    }];
+}
+
+- (void)applyScannedTracks:(NSArray<ISHAudioTrack *> *)tracks replace:(BOOL)replace emptyMessage:(NSString *)emptyMessage {
+    if (tracks.count == 0) { [self showMessage:emptyMessage]; return; }
+    if (replace || self.engine.queue.count == 0)
+        [self.engine setQueue:tracks startIndex:0];
+    else
+        [self.engine enqueueTracks:tracks];
+    [_tableView reloadData];
+}
+
+- (void)playlistsTapped:(UIButton *)sender {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Playlists" message:nil
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Save Queue as Playlist…" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { [self promptSavePlaylist]; }]];
+    NSArray<NSString *> *names = [ISHAudioLibrary.sharedLibrary playlistNames];
+    for (NSString *name in names) {
+        [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Play “%@”", name]
+            style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) { [self loadPlaylistNamed:name]; }]];
+    }
+    if (names.count > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Delete Playlist…" style:UIAlertActionStyleDestructive
+            handler:^(__unused UIAlertAction *a) { [self promptDeletePlaylistFromView:sender]; }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentSheet:sheet fromView:sender];
+}
+
+- (void)promptSavePlaylist {
+    if (self.engine.queue.count == 0) { [self showMessage:@"The queue is empty."]; return; }
+    [self promptForTextWithTitle:@"Save Playlist" message:nil placeholder:@"Playlist name" initial:nil
+                         handler:^(NSString *name) {
+        NSString *trimmed = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trimmed.length == 0) return;
+        [ISHAudioLibrary.sharedLibrary savePlaylistNamed:trimmed tracks:self.engine.queue];
+    }];
+}
+
+- (void)loadPlaylistNamed:(NSString *)name {
+    NSArray<ISHAudioTrack *> *tracks = [ISHAudioLibrary.sharedLibrary tracksForPlaylistNamed:name];
+    [self applyScannedTracks:tracks replace:YES emptyMessage:@"That playlist is empty."];
+}
+
+- (void)promptDeletePlaylistFromView:(UIView *)sender {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Delete Playlist" message:nil
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSString *name in [ISHAudioLibrary.sharedLibrary playlistNames]) {
+        [sheet addAction:[UIAlertAction actionWithTitle:name style:UIAlertActionStyleDestructive
+            handler:^(__unused UIAlertAction *a) { [ISHAudioLibrary.sharedLibrary deletePlaylistNamed:name]; }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentSheet:sheet fromView:sender];
+}
+
+#pragma mark Alert helpers
+
+- (void)promptForTextWithTitle:(NSString *)title message:(NSString *)message
+                   placeholder:(NSString *)placeholder initial:(NSString *)initial
+                       handler:(void (^)(NSString *))handler {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = placeholder;
+        field.text = initial;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+        field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+        handler:^(__unused UIAlertAction *a) { handler(alert.textFields.firstObject.text ?: @""); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showMessage:(NSString *)message {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:nil message:message
+                                                           preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)presentSheet:(UIAlertController *)sheet fromView:(UIView *)sourceView {
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView ?: self.toolContentView;
+        popover.sourceRect = sourceView ? sourceView.bounds : self.toolContentView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+#pragma mark Table
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.engine.queue.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    static NSString *const reuseID = @"AudioTrackCell";
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:reuseID];
+    if (cell == nil)
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:reuseID];
+    NSArray<ISHAudioTrack *> *queue = self.engine.queue;
+    if ((NSUInteger)indexPath.row >= queue.count) return cell;
+    ISHAudioTrack *track = queue[indexPath.row];
+    cell.backgroundColor = UIColor.clearColor;
+    cell.textLabel.text = track.title.length ? track.title : track.guestPath.lastPathComponent;
+    cell.detailTextLabel.text = track.artist.length ? track.artist : nil;
+    BOOL isCurrent = (indexPath.row == self.engine.currentIndex);
+    UIColor *accent = self.workspaceTheme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *primary = self.workspaceTheme[@"primary"] ?: UIColor.labelColor;
+    cell.textLabel.textColor = isCurrent ? accent : primary;
+    cell.textLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline)
+                                            weight:isCurrent ? UIFontWeightSemibold : UIFontWeightRegular];
+    cell.detailTextLabel.textColor = self.workspaceTheme[@"secondary"] ?: UIColor.secondaryLabelColor;
+    cell.detailTextLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleCaption2)];
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [self.engine playTrackAtIndex:indexPath.row];
+}
+
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return UITableViewCellEditingStyleDelete;
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle
+forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle == UITableViewCellEditingStyleDelete)
+        [self.engine removeTrackAtIndex:indexPath.row];
 }
 
 @end

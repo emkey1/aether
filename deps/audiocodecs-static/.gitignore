@@ -1,0 +1,6 @@
+# Build intermediates. Committed products: audiocodecs.xcframework (for linking)
+# and Headers/ (for compiling the decoders — on HEADER_SEARCH_PATHS, mirroring
+# how deps/liblzma headers reach libarchive).
+/src/
+/lib/
+/stage-*/
