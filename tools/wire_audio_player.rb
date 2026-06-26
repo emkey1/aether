@@ -76,14 +76,17 @@ end
 # 2.5) Put the codec headers on the compiler search path for the target that
 #      compiles the decoders (linking the xcframework only exposes headers to the
 #      linking target). Mirrors deps/liblzma -> libarchive HEADER_SEARCH_PATHS.
-hdr_path = "$(SRCROOT)/deps/audiocodecs-static/Headers"
+#      Both the Headers root AND the opus/ subdir are required: the root resolves
+#      <vorbis/vorbisfile.h>, <opus/opusfile.h>, <ogg/ogg.h>, but opusfile.h then
+#      does a bare `#include <opus_multistream.h>` that only resolves with the
+#      opus/ dir itself on the path.
+hdr_paths = ["$(SRCROOT)/deps/audiocodecs-static/Headers",
+             "$(SRCROOT)/deps/audiocodecs-static/Headers/opus"]
 src_target.build_configurations.each do |c|
   hsp = c.build_settings["HEADER_SEARCH_PATHS"]
   arr = hsp.nil? ? ["$(inherited)"] : (hsp.is_a?(String) ? [hsp] : hsp.dup)
-  unless arr.include?(hdr_path)
-    arr << hdr_path
-    c.build_settings["HEADER_SEARCH_PATHS"] = arr
-  end
+  hdr_paths.each { |p| arr << p unless arr.include?(p) }
+  c.build_settings["HEADER_SEARCH_PATHS"] = arr
 end
 
 # 3) Link AVFoundation + MediaPlayer in the final app targets.

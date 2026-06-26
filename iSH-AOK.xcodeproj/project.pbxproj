@@ -2861,6 +2861,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/deps/audiocodecs-static/Headers",
+					"$(SRCROOT)/deps/audiocodecs-static/Headers/opus",
 				);
 				PRODUCT_NAME = "libiSH-AOKApp";
 				SWIFT_VERSION = 5.0;
@@ -3093,6 +3094,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/deps/audiocodecs-static/Headers",
+					"$(SRCROOT)/deps/audiocodecs-static/Headers/opus",
 				);
 				PRODUCT_NAME = "libiSH-AOKApp";
 				SWIFT_VERSION = 5.0;
@@ -3107,6 +3109,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/deps/audiocodecs-static/Headers",
+					"$(SRCROOT)/deps/audiocodecs-static/Headers/opus",
 				);
 				PRODUCT_NAME = "libiSH-AOKApp";
 				SWIFT_VERSION = 5.0;
@@ -3205,6 +3208,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/deps/audiocodecs-static/Headers",
+					"$(SRCROOT)/deps/audiocodecs-static/Headers/opus",
 				);
 				PRODUCT_NAME = "libiSH-AOKApp";
 				SWIFT_VERSION = 5.0;
