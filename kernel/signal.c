@@ -2,6 +2,8 @@
 #include <string.h>
 #include <signal.h>
 #include <sched.h>
+#include <unistd.h>
+#include <errno.h>
 #include "fs/poll.h"
 #include "kernel/calls.h"
 #include "kernel/signal.h"
@@ -386,6 +388,25 @@ static int signal_action(struct sighand *sighand, int sig) {
     }
 }
 
+// Wake a sibling blocked in poll_wait through its notify pipe, in addition to
+// the SIGUSR1 poke. SIGUSR1 is shared with the TLB/quiesce shootdown poke and
+// does not queue, so under load the guest-signal SIGUSR1 can be coalesced with
+// a poke or land in a window where it has no effect, leaving real_poll_wait to
+// run to its timeout and return 0 instead of EINTR. A byte on the notify pipe
+// is not lost: it makes the host wait return so the poll loop re-checks pending.
+// fd is read under the target's sighand->lock (held by our caller); poll_wait
+// clears it before closing the pipe under the same lock, so it is never stale.
+// The pipe is O_NONBLOCK; a full pipe already has a pending wake, so EAGAIN is
+// fine to drop.
+static void poll_notify_poke(int fd) {
+    if (fd < 0)
+        return;
+    ssize_t wrote;
+    do {
+        wrote = write(fd, "", 1);
+    } while (wrote < 0 && errno == EINTR);
+}
+
 static void deliver_signal_unlocked_locked(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
         return;
@@ -410,6 +431,9 @@ static void deliver_signal_unlocked_locked(struct task *task, struct sighand *si
     bool interrupted_wait = false;
     if (task != current) {
         int wake_err = pthread_kill(task->thread, SIGUSR1);
+        // Robustly wake a sibling parked in poll/select/epoll: the SIGUSR1 above
+        // can be lost in TLB-poke noise, but the notify-pipe write cannot.
+        poll_notify_poke(task->poll_notify_fd);
         if ((sig == SIGKILL_ || sig == SIGABRT_) &&
                 (amd64_trace_is_lineage_tgid(task->tgid) ||
                  (current != NULL && amd64_trace_is_lineage_tgid(current->tgid)))) {

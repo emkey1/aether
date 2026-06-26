@@ -279,6 +279,7 @@ struct task *task_create_(struct task *parent) {
     task->waiting_interrupt_flag = NULL;
     task->wait_interrupted = false;
     task->restart_interrupted_syscall = false;
+    task->poll_notify_fd = -1;
     lock_init(&task->waiting_cond_lock, "task_creat_wait\0");
     cond_init(&task->pause);
 

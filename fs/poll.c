@@ -494,6 +494,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
     if (poll_->waiters++ == 0) {
         assert(poll_->notify_pipe[0] == -1 && poll_->notify_pipe[1] == -1);
         if (pipe(poll_->notify_pipe) < 0) {
+            poll_->waiters--;
             unlock(&poll_->lock);
             return errno_map();
         }
@@ -501,6 +502,20 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         fcntl(poll_->notify_pipe[1], F_SETFL, O_NONBLOCK);
         real_poll_update(&poll_->real, poll_->notify_pipe[0], POLL_READ, NULL);
     }
+
+    // Publish this poll's notify-pipe write end so a concurrent guest-signal
+    // delivery can wake us through the (non-lossy) pipe in addition to SIGUSR1.
+    // SIGUSR1 doubles as the TLB/quiesce poke and as the guest-signal wake; under
+    // heavy poke traffic the wake SIGUSR1 can be coalesced or consumed in a
+    // window where it does nothing, letting real_poll_wait run to its timeout
+    // and return 0 instead of EINTR. The pipe write is not lost, so the host
+    // wait is torn out and the loop re-checks pending. Guarded by sighand->lock
+    // (the same lock deliver_signal_unlocked_locked reads the fd under); we
+    // already hold poll_->lock, matching the poll->then->sighand order used by
+    // the pending checks below.
+    lock(&current->sighand->lock, 0);
+    current->poll_notify_fd = poll_->notify_pipe[1];
+    unlock(&current->sighand->lock);
 
     struct timespec deadline_storage = {0};
     struct timespec *deadline = NULL;
@@ -632,6 +647,19 @@ poll_wait_done:
             // a transition even when a direct readiness probe already says the
             // fd is ready.
             res += poll_scan_ready_locked(poll_, callback, context);
+            // If nothing is ready but a guest signal slipped in while we were
+            // blocked, the wait was interrupted, not idle: return EINTR rather
+            // than a 0 (timeout). The notify-pipe wake normally tears us out
+            // promptly, but this also covers the case where the wake was lost
+            // and only the timeout fired -- a pending unblocked signal must win
+            // over a timeout, matching Linux poll()/select() semantics.
+            if (res == 0) {
+                lock(&current->sighand->lock, 0);
+                bool signal_pending = !!(current->pending & ~current->blocked);
+                unlock(&current->sighand->lock);
+                if (signal_pending)
+                    res = _EINTR;
+            }
             break;
         }
 
@@ -682,6 +710,15 @@ poll_wait_done:
         if (res > 0)
             break;
     }
+
+    // Stop advertising the notify pipe before dropping our waiter reference, so
+    // it is cleared while the pipe is still open (the last waiter only closes it
+    // after every waiter has cleared its fd). A signal sender reads this under
+    // sighand->lock, so it either sees a valid still-open fd or -1, never a
+    // closed/recycled one.
+    lock(&current->sighand->lock, 0);
+    current->poll_notify_fd = -1;
+    unlock(&current->sighand->lock);
 
     // release the pipe
     if (--poll_->waiters == 0) {

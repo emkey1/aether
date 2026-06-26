@@ -149,6 +149,18 @@ struct task {
     lock_t waiting_cond_lock;
     bool wait_interrupted;
     bool restart_interrupted_syscall;
+
+    // Write-end of the notify pipe of the poll the task is currently blocked in
+    // (poll_wait), or -1. A thread blocked in real_poll_wait (kevent/epoll_wait)
+    // can only be torn out of its host wait by a host signal, and SIGUSR1 is
+    // shared with TLB/quiesce pokes, so a guest-signal SIGUSR1 can be coalesced
+    // away or consumed in a window where it has no effect -- letting the host
+    // wait run to its timeout and return 0 instead of EINTR. Guest-signal
+    // delivery writes a byte here in addition to SIGUSR1 so the poll wakes
+    // through its (non-lossy) notify pipe and re-checks pending. Guarded by
+    // sighand->lock: set/cleared by the waiter in poll_wait, read by the signal
+    // sender in deliver_signal_unlocked_locked.
+    int poll_notify_fd;
 };
 
 // current will always give the process that is currently executing
