@@ -88,6 +88,7 @@ set(AETHER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/diagnostics.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/translate.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/parser.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_prepasses.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_parser.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/semantic.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/state.c

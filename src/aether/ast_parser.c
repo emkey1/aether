@@ -58,7 +58,7 @@
 #include "rea/lexer.h"
 #include "aether/semantic.h"
 #include "aether/diagnostics.h"
-#include "aether/translate.h"
+#include "aether/ast_prepasses.h"
 
 /* Provided by core/utils.c */
 Token *newToken(TokenType type, const char *value, int line, int column);
@@ -516,6 +516,47 @@ static bool tokTextIs(const ReaToken *t, const char *kw) {
 
 static bool isAetherKeyword(const ReaToken *t, const char *kw) {
     return t->type == REA_TOKEN_IDENTIFIER && tokTextIs(t, kw);
+}
+
+/* The Rea lexer reserves lowercase type-name words (`int`, `text`, `str`,
+ * `bool`, `char`, `void`, ...) as dedicated keyword tokens. Aether spells its
+ * own types capitalized (`Int`, `Text`, `Bool`), so in Aether source those
+ * lowercase spellings are ordinary identifiers -- the text rewriter accepts
+ * them as such because it never lexes them. The AST path must do the same:
+ * wherever an Aether *identifier* is expected (a binding/param/field name, or a
+ * bare variable / call reference), one of these type-keyword tokens is just as
+ * valid as REA_TOKEN_IDENTIFIER. This predicate gates exactly those positions;
+ * it deliberately excludes value/structure keywords (true/false/nil, if/for/
+ * while, new/match, ...) so they keep their reserved meaning. */
+static bool aetherTokenIsIdentifierLike(const ReaToken *t) {
+    if (!t) return false;
+    switch (t->type) {
+        case REA_TOKEN_IDENTIFIER:
+        /* Lowercase type-name keywords usable as Aether identifiers. */
+        case REA_TOKEN_INT:
+        case REA_TOKEN_INT64:
+        case REA_TOKEN_INT32:
+        case REA_TOKEN_INT16:
+        case REA_TOKEN_INT8:
+        case REA_TOKEN_UINT64:
+        case REA_TOKEN_UINT32:
+        case REA_TOKEN_UINT16:
+        case REA_TOKEN_UINT8:
+        case REA_TOKEN_FLOAT:
+        case REA_TOKEN_FLOAT32:
+        case REA_TOKEN_LONG_DOUBLE:
+        case REA_TOKEN_CHAR:
+        case REA_TOKEN_BYTE:
+        case REA_TOKEN_WORD:
+        case REA_TOKEN_STR:
+        case REA_TOKEN_TEXT:
+        case REA_TOKEN_MSTREAM:
+        case REA_TOKEN_VOID:
+        case REA_TOKEN_BOOL:
+            return true;
+        default:
+            return false;
+    }
 }
 
 /* Map an Aether stdlib builtin name to its canonical Rea/pscal builtin, exactly
@@ -1132,7 +1173,7 @@ static AST *parseRecordInitDelimited(AetherParser *p, ReaTokenType closeTok) {
     aetherAdvance(p); /* consume opening delimiter */
     AST *inits = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != closeTok && p->current.type != REA_TOKEN_EOF) {
-        if (p->current.type != REA_TOKEN_IDENTIFIER) {
+        if (!aetherTokenIsIdentifierLike(&p->current)) {
             fprintf(stderr, "L%d: Expected field name in record initializer.\n", p->current.line);
             p->hadError = true;
             break;
@@ -1202,7 +1243,7 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
         }
         /* DOT */
         aetherAdvance(p); /* consume '.' */
-        if (p->current.type != REA_TOKEN_IDENTIFIER) break;
+        if (!aetherTokenIsIdentifierLike(&p->current)) break;
         Token *nameTok = copyNameToken(p);
         if (!nameTok) break;
         aetherAdvance(p); /* consume member name */
@@ -1505,8 +1546,10 @@ static AST *parsePrimary(AetherParser *p) {
         setTypeAST(node, TYPE_POINTER);
         return parsePostfix(p, node);
     }
-    /* Identifier: bare variable or call f(args). */
-    if (p->current.type == REA_TOKEN_IDENTIFIER) {
+    /* Identifier: bare variable or call f(args). A lowercase type-keyword token
+     * (`text`, `int`, ...) reaching here is a variable/function reference (the
+     * rewriter treats such words as identifiers), so accept it too. */
+    if (aetherTokenIsIdentifierLike(&p->current)) {
         Token *tok = currentAsIdentifier(p);
         if (!tok) return NULL;
         int idLine = p->current.line;
@@ -2163,7 +2206,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     if (isAetherKeyword(&p->current, "mut")) {
         aetherAdvance(p); /* consume 'mut' */
     }
-    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
         fprintf(stderr, "L%d: expected name after 'let'.\n", p->current.line);
         p->hadError = true;
         return NULL;
@@ -2642,7 +2685,7 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     char *names[16];
     size_t nameCount = 0;
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
-        if (p->current.type != REA_TOKEN_IDENTIFIER || nameCount >= 16) {
+        if (!aetherTokenIsIdentifierLike(&p->current) || nameCount >= 16) {
             fprintf(stderr, "L%d: expected a binding name in tuple destructuring.\n", p->current.line);
             p->hadError = true;
             for (size_t i = 0; i < nameCount; i++) free(names[i]);
@@ -2964,7 +3007,7 @@ static AST *parseIfStmt(AetherParser *p) {
  * both bounds are parsed straight from the token stream as expressions -- no
  * raw-source-span workaround. Handles numeric and identifier bounds uniformly. */
 static AST *parseLoopRange(AetherParser *p) {
-    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
         fprintf(stderr, "L%d: expected loop variable name.\n", p->current.line);
         p->hadError = true;
         return NULL;
@@ -3110,7 +3153,7 @@ static AST *parseLoop(AetherParser *p) {
 
     /* Range form: `loop NAME in ...`. Peek the token after a leading identifier
      * for the `in` keyword without consuming the stream permanently. */
-    if (p->current.type == REA_TOKEN_IDENTIFIER) {
+    if (aetherTokenIsIdentifierLike(&p->current)) {
         ReaToken save = p->current;
         int savedHead = p->queueHead, savedCount = p->queueCount;
         ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
@@ -3520,7 +3563,7 @@ static AST *parseFnDecl(AetherParser *p) {
     int fnLine = p->current.line; /* line of the `fn` keyword, for diagnostics */
     aetherAdvance(p); /* consume 'fn' */
 
-    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
         fprintf(stderr, "L%d: expected function name after 'fn'.\n", p->current.line);
         p->hadError = true;
         return NULL;
@@ -3597,7 +3640,7 @@ static AST *parseFnDecl(AetherParser *p) {
             if (p->current.type == REA_TOKEN_COMMA) aetherAdvance(p);
             continue; /* myself is the receiver; do not add `self` as a param */
         }
-        if (p->current.type != REA_TOKEN_IDENTIFIER) {
+        if (!aetherTokenIsIdentifierLike(&p->current)) {
             fprintf(stderr, "L%d: expected parameter name.\n", p->current.line);
             p->hadError = true;
             break;
@@ -4008,7 +4051,7 @@ static AST *parseFnDecl(AetherParser *p) {
 static AST *parseConstDecl(AetherParser *p) {
     aetherAdvance(p); /* consume 'const' */
 
-    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
         fprintf(stderr, "L%d: expected name after 'const'.\n", p->current.line);
         p->hadError = true;
         return NULL;
@@ -4618,24 +4661,24 @@ static void aetherImportTypeSink(void *ctxv, const char *name, const char *aethe
 AST *parseAetherAst(const char *rawSource) {
     if (!rawSource) return NULL;
 
-    /* TOON pre-pass: reuse the rewriter's preprocessToonBlocks so `toon:` blocks
-     * become escaped string literals before the lexer runs (roadmap mandate: do
-     * not re-implement TOON). On failure a diagnostic is already reported. */
+    /* TOON pre-pass: lower `toon:` blocks to escaped string literals before the
+     * lexer runs. This (and the two pre-passes below) live in ast_prepasses.c,
+     * a translation unit the AST path owns -- the rewriter's line-based machinery
+     * (translate.c) is never called from here, so its fragility cannot leak into
+     * AST parsing. On failure a diagnostic is already reported. */
     const char *sourcePath = aetherSemanticGetSourcePath();
-    char *toonSource = aetherPreprocessToonBlocksForAst(rawSource, sourcePath);
+    char *toonSource = aetherAstPrepassToonBlocks(rawSource, sourcePath);
     if (!toonSource) return NULL;
     /* Builtin-alias pre-pass: lower stdlib/TOON/capability call spellings to the
-     * canonical pscal builtins (toon_*->Yyjson*, has_toon/string_eq/...), again
-     * reusing the rewriter's machinery rather than re-implementing it. Runs after
-     * TOON-block extraction so `let d: TOON = "..."` literal bindings are visible
-     * to the toon_parse(d) lowering. */
-    char *builtinSource = aetherPreprocessBuiltinsForAst(toonSource);
+     * canonical pscal builtins (toon_*->Yyjson*, has_toon/string_eq/...). Runs
+     * after TOON-block extraction so `let d: TOON = "..."` literal bindings are
+     * visible to the toon_parse(d) lowering. */
+    char *builtinSource = aetherAstPrepassBuiltins(toonSource);
     free(toonSource);
     if (!builtinSource) return NULL;
-    /* string_eq(a, b) -> (a == b): a context-free inline-call alias the rewriter
-     * applies in translateLine. Run it as a pre-pass (MS3 pattern) so the AST path
-     * lowers it identically without re-implementing the scanner here. */
-    char *source = aetherPreprocessInlineEqForAst(builtinSource);
+    /* string_eq(a, b) -> (a == b): a context-free inline-call alias. Run it as a
+     * pre-pass so the AST path lowers it identically to the rewriter. */
+    char *source = aetherAstPrepassInlineEq(builtinSource);
     free(builtinSource);
     if (!source) return NULL;
 
@@ -4679,12 +4722,12 @@ AST *parseAetherAst(const char *rawSource) {
 
     /* Imported-module types: load each `use`d module and fold its exported
      * const/let binding types + fn return types into our tables, so inferred
-     * `let x = ImportedConst;` / `let y = importedFn();` resolve (the rewriter does
-     * this via maybeLoadImportedBindings). Runs before the forward scan + real
-     * parse so both see the imported types. */
+     * `let x = ImportedConst;` / `let y = importedFn();` resolve (this mirrors
+     * the rewriter's maybeLoadImportedBindings, reimplemented in ast_prepasses.c).
+     * Runs before the forward scan + real parse so both see the imported types. */
     {
         AetherImportSinkCtx sinkCtx = { &bindings, &funcReturns };
-        aetherCollectImportedTypesForAst(rawSource, sourcePath, aetherImportTypeSink, &sinkCtx);
+        aetherAstCollectImportedTypes(rawSource, sourcePath, aetherImportTypeSink, &sinkCtx);
     }
 
     /* Forward-declaration pre-pass: pre-register every top-level function/type so
