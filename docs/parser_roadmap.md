@@ -1,6 +1,20 @@
 # Aether Parser Roadmap — replace the text rewriter with a real AST frontend
 
-Status: planned (2026-06-26). Owner: the Aether frontend.
+Status: P6 substantially done (2026-06-27). Owner: the Aether frontend.
+
+**Progress (2026-06-27).** P6 corpus parity: RW-vs-AST **1819/1851** byte-for-byte,
+with **AST-worse = 0** -- on every program the rewriter compiles+runs, the AST path
+now matches or beats it. The 32 remaining divergences are all AST-better (24),
+out-differs where the AST path is the *more correct* one (5; e.g. two_type_methods,
+AST 13/30/43 vs the rewriter's buggy 10/0/10), or both-fail (2). The 12 prior
+AST-worse regressions were closed by eight `ast_parser.c` fixes: `loop while` filler,
+typed tuple destructure (`let (a,b): (T,T) = ...`), `rec.len` field read (not
+length()), builtin-receiver `.toInt()` no-mangle, `match` as an identifier, the
+`continue` statement, `continue` in a range loop (inject the post-step, as rea's
+parseFor does), and nested `type` decls in a function body. The P7 gate ("~99%+ on
+the AST-worse axis") is therefore met; the remaining cutover blocker is **AST
+diagnostic quality** (the `*_fail` negatives + inferred-let report a later/terser
+message than legacy -- tracked in ideas_and_todo.md).
 
 ## Why
 
