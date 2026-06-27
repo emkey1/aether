@@ -581,6 +581,12 @@ static bool aetherTokenIsIdentifierLike(const ReaToken *t) {
         case REA_TOKEN_VOID:
         case REA_TOKEN_BOOL:
             return true;
+        /* `match` is a Rea keyword, but Aether has no match-expression, so models
+         * freely use it as an ordinary identifier (e.g. `let match: Bool`). Accept
+         * it as a name; copyNameToken/currentAsIdentifier use the token's actual
+         * text, so the real spelling is preserved. */
+        case REA_TOKEN_MATCH:
+            return true;
         default:
             return false;
     }
@@ -1280,8 +1286,28 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
          * `<chain>.len` to `length(<chain>)` for both Text (via string_len) and
          * array receivers (translate.c ~5137); both alias to `length`, so the AST
          * is the same regardless of receiver type. Only the property form (no
-         * following '(') is rewritten; `x.len(...)` stays a method call. */
-        if (nameTok->value &&
+         * following '(') is rewritten; `x.len(...)` stays a method call.
+         *
+         * EXCEPT when the receiver is a user record/class instance: there `.len`
+         * is a field read (the rewriter leaves `rec.len` as a field access). Detect
+         * a bare variable whose declared type is a user type and skip the lowering
+         * so it falls through to the field-access path below. */
+        bool recvIsUserRecord = false;
+        if (node->type == AST_VARIABLE && node->token && node->token->value) {
+            const char *rty = bindingTableGet(p->bindings, node->token->value,
+                                              strlen(node->token->value));
+            if (rty) {
+                VarType rvt = TYPE_UNKNOWN; const char *rrn = NULL;
+                if (!mapAetherType(rty, strlen(rty), &rrn, &rvt)) {
+                    AST *rtyNode = lookupType(rty);
+                    if (rtyNode) {
+                        recvIsUserRecord = true;
+                        if (!rtyNode->token) freeAST(rtyNode);
+                    }
+                }
+            }
+        }
+        if (!recvIsUserRecord && nameTok->value &&
             (strcmp(nameTok->value, "len") == 0 ||
              (strcmp(nameTok->value, "length") == 0 &&
               p->current.type == REA_TOKEN_LEFT_PAREN))) {
@@ -1321,7 +1347,16 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 cls = bindingTableGet(p->bindings, node->token->value,
                                       strlen(node->token->value));
             }
+            /* Only mangle for user class/record receivers. A builtin-typed
+             * receiver (Int/Real/Text/Bool/...) has no user methods, so e.g.
+             * `pct.toInt()` must stay an unmangled call -- `Real.toInt` would be an
+             * undefined global; the rewriter leaves `pct.toInt()` as written. */
+            bool clsIsBuiltin = false;
             if (cls) {
+                VarType cvt = TYPE_UNKNOWN; const char *crn = NULL;
+                clsIsBuiltin = mapAetherType(cls, strlen(cls), &crn, &cvt);
+            }
+            if (cls && !clsIsBuiltin) {
                 size_t ln = strlen(cls) + 1 + strlen(nameTok->value) + 1;
                 char *m = (char *)malloc(ln);
                 if (m) {
@@ -2730,6 +2765,16 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         break;
     }
     if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
+    /* Optional type annotation: `let (a, b): (T0, T1) = ...`. The rewriter accepts
+     * and ignores it (the slot globals below carry the real per-item types); skip
+     * from ':' to the '=' so the assignment check still fires. */
+    if (p->current.type == REA_TOKEN_COLON) {
+        aetherAdvance(p); /* consume ':' */
+        while (p->current.type != REA_TOKEN_EQUAL && p->current.type != REA_TOKEN_EOF &&
+               p->current.type != REA_TOKEN_SEMICOLON) {
+            aetherAdvance(p);
+        }
+    }
     if (p->current.type != REA_TOKEN_EQUAL) {
         fprintf(stderr, "L%d: expected '=' in tuple destructuring.\n", kwLine);
         p->hadError = true;
@@ -3013,6 +3058,30 @@ static AST *parseIfStmt(AetherParser *p) {
 }
 
 
+/* Inject the loop post-step before every `continue` in a range-loop body, exactly
+ * as rea's parseFor does (rewriteContinueWithPost). `loop i in a..b` lowers to a
+ * while whose post-increment is the last body statement, so a bare `continue`
+ * would jump straight to the condition, skip the increment, and spin forever.
+ * Rewrite each `continue` to `{ post; continue; }`. Recurses through the whole
+ * subtree, matching rea so output stays byte-for-byte identical to the rewriter. */
+static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
+    if (!node) return NULL;
+    if (node->type == AST_CONTINUE) {
+        AST *comp = newASTNode(AST_COMPOUND, NULL);
+        addChild(comp, copyAST(postStmt));
+        addChild(comp, newASTNode(AST_CONTINUE, NULL));
+        return comp;
+    }
+    node->left  = aetherRewriteContinueWithPost(node->left, postStmt);
+    node->right = aetherRewriteContinueWithPost(node->right, postStmt);
+    node->extra = aetherRewriteContinueWithPost(node->extra, postStmt);
+    for (int i = 0; i < node->child_count; i++) {
+        if (node->children[i])
+            node->children[i] = aetherRewriteContinueWithPost(node->children[i], postStmt);
+    }
+    return node;
+}
+
 /* Parse a range bound expression up to (but not consuming) the AE_TOKEN_DOTDOT
  * or the body-opening '{'. Bounds may be arbitrary expressions (numbers,
  * identifiers, calls, arithmetic), so reuse the full expression parser, stopping
@@ -3134,6 +3203,11 @@ static AST *parseLoopRange(AetherParser *p) {
     AST *postStmt = newASTNode(AST_EXPR_STMT, postAssign->token);
     setLeft(postStmt, postAssign);
 
+    /* Rewrite `continue` in the body to run postStmt first (rea parseFor does this
+     * via rewriteContinueWithPost) -- otherwise `continue` jumps to the condition,
+     * skips the increment, and the loop spins forever. */
+    body = aetherRewriteContinueWithPost(body, postStmt);
+
     /* while body = COMPOUND[ body, postStmt ]  (rea parseFor with post). */
     AST *whileBody = newASTNode(AST_COMPOUND, NULL);
     addChild(whileBody, body);
@@ -3163,12 +3237,20 @@ static AST *buildWhile(AST *cond, AST *body) {
 /* `loop` dispatcher. The rewriter recognizes three `loop` shapes and lowers them
  * to (translate.c):
  *   - `loop NAME in LOW..HIGH { }` -> C-for -> while  (parseLoopRange)
+ *   - `loop while EXPR { }`        -> `while (EXPR) { }`  (redundant spelling)
  *   - `loop EXPR { }`              -> `while (EXPR) { }`
  *   - `loop { }`                   -> `while (true) { }`
  * Detection: `loop {` is infinite; `loop IDENT in ...` is the range form (peek
  * one token past the identifier for `in`); anything else is a condition. */
 static AST *parseLoop(AetherParser *p) {
     aetherAdvance(p); /* consume 'loop' */
+
+    /* `loop while EXPR { }` -- a redundant spelling models emit; the rewriter
+     * swallows the `while` filler and lowers it to a plain `while (EXPR) { }`.
+     * Consume the optional `while` and fall through to the forms below. */
+    if (p->current.type == REA_TOKEN_WHILE || isAetherKeyword(&p->current, "while")) {
+        aetherAdvance(p); /* consume 'while' */
+    }
 
     /* Infinite loop: `loop { }` -> while (true). */
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
@@ -3363,6 +3445,13 @@ static AST *parseStatement(AetherParser *p) {
     if (p->current.type == REA_TOKEN_CONST || isAetherKeyword(&p->current, "const")) {
         return parseConstDeclTop(p); /* AST_CONST_DECL; depth-aware folding */
     }
+    if (p->current.type == REA_TOKEN_TYPE || isAetherKeyword(&p->current, "type")) {
+        /* Nested `type` declaration inside a function body. parseTypeDecl returns
+         * the same is_global_scope bundle [type-decl, methods...] the top-level path
+         * emits; returning it here lets a model declare a local record + methods
+         * (the rewriter maps `type`->`class`, which Rea also accepts in a body). */
+        return parseTypeDecl(p);
+    }
     if (isAetherKeyword(&p->current, "ret")) {
         return parseRet(p);
     }
@@ -3382,6 +3471,11 @@ static AST *parseStatement(AetherParser *p) {
         aetherAdvance(p); /* consume 'break' */
         if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
         return newASTNode(AST_BREAK, NULL); /* rea parseBreak shape */
+    }
+    if (p->current.type == REA_TOKEN_CONTINUE || isAetherKeyword(&p->current, "continue")) {
+        aetherAdvance(p); /* consume 'continue' */
+        if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+        return newASTNode(AST_CONTINUE, NULL); /* rea parseContinue shape */
     }
     if (p->current.type == REA_TOKEN_IF) {
         return parseIfStmt(p);
