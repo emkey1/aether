@@ -1,0 +1,6 @@
+[submodule "external/pscal-core"]
+	path = external/pscal-core
+	url = https://github.com/emkey1/pscal-core.git
+[submodule "external/rea"]
+	path = external/rea
+	url = https://github.com/emkey1/rea.git

@@ -23,12 +23,17 @@ endif()
 find_package(Threads REQUIRED)
 
 include(FetchContent)
-FetchContent_Declare(
-    rea
-    GIT_REPOSITORY https://github.com/emkey1/rea.git
-    GIT_TAG main
-)
-# Brings in the Rea engine sources and, transitively, pscal-core (pscal_core_static).
+# Backend engine deps are vendored as git submodules under external/, so a normal
+# `git clone --recurse-submodules` / `git pull --recurse-submodules` brings them and a
+# plain `git pull` carries backend (rea/pscal-core) fixes. pscal-core is declared FIRST
+# so this declaration wins (FetchContent honours the first declaration of a name),
+# overriding rea's transitive pull; both then resolve to the pinned submodule checkouts.
+# The PBuild umbrella overrides these via FETCHCONTENT_SOURCE_DIR_{PSCAL_CORE,REA} to
+# reuse its shared sibling checkouts instead.
+FetchContent_Declare(pscal_core SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/pscal-core)
+FetchContent_MakeAvailable(pscal_core)
+FetchContent_Declare(rea SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/rea)
+# Brings in the Rea engine sources (pscal-core already populated above, so rea reuses it).
 FetchContent_MakeAvailable(rea)
 
 include_directories(
