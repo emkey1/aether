@@ -60,15 +60,24 @@ or front-end engine of its own — it reuses the shared Rea engine and installs 
 overrides (parser, semantic analysis, diagnostics, source rewriting) through the
 engine's hook seam (`rea`'s `src/rea/frontend_hooks.h`) via
 `aetherInstallFrontendHooks()`. The dependency chain is **aether → rea →
-pscal-core**, wired automatically through CMake `FetchContent`.
+pscal-core**. `rea` and `pscal-core` are vendored as git submodules under
+`external/` and wired in through CMake `FetchContent` (`SOURCE_DIR`).
 
 ## Build
 
+`rea` and `pscal-core` are vendored as git submodules under `external/`, so clone
+recursively. A plain clone leaves `external/` empty and the build fails.
+
 ```sh
-cmake -S . -B build      # fetches rea (+ pscal-core) and builds aether
+git clone --recurse-submodules https://github.com/emkey1/aether.git
+cd aether
+cmake -S . -B build      # builds aether against external/{rea,pscal-core}
 cmake --build build -j
 ./build/aether --no-cache program.aether
 ```
+
+Already cloned without `--recurse-submodules`? Run `git submodule update --init
+--recursive` once, then build.
 
 ## Install
 
