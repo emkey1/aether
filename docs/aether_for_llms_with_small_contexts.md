@@ -1,7 +1,6 @@
 # Aether for LLMs with Small Contexts
 
-*Guide version: 2026-06-21-1*
-
+*Guide version: 2026-06-27-3*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -51,6 +50,11 @@ compiler, and VM. It is not a separate runtime.
 22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
     call exported names directly. Never guess `export { ... }`, `JsonDoc`,
     `json.parseFile(...)`, `Int.MIN`, or `value.toString()`.
+23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
+    no lambdas, no closures, never pass a function as an argument.
+    `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
+    `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
+    use `par { f(); g(); }`, not `task_spawn`.
 
 Default stance: single-file programs; variadic `println("label = ", v)` over
 mixed-type `+`; explicit types for TOON values and non-trivial helper results;
@@ -62,8 +66,8 @@ FX-001, SYN-001, ANN-001, IMP-001, SCOPE-001, TOON-001, TYPE-001, TUP-001,
 FLOW-001, MUT-001, FIELD-002, NAME-001 — and, on newer builds, a `help:` line
 citing it. The others surface differently: BUILT-001, MOD-001, ORDER-001,
 METH-001, MOD-002, and LEN-001 are reported under a broader code (mostly
-SCOPE-001); and OUT-001, FMT-001, FIELD-001, KEY-001, NEST-001, ROOT-001 are
-authoring rules the compiler cannot check at all. The **Repair rules** section
+SCOPE-001); and OUT-001, FMT-001, FIELD-001, FUNC-001, KEY-001, NEST-001,
+ROOT-001 are authoring rules the compiler cannot check at all. The **Repair rules** section
 maps each emitted code to its fix.
 
 ## Core syntax
@@ -323,6 +327,25 @@ Never: `toon_get_text_or(toon_key(toon_at(root, i), "meta"), "code", "EMPTY");`
 Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 `json.parseFile(...)`, `root.get(...)`, `Int.MIN`, or `value.toString()`.
 
+## Concurrency: `par`
+
+Run your own functions concurrently with `par { ... }`. The body holds direct
+calls only (no assignments, loops, or inline `fx`); the calls run in parallel
+and the block joins before continuing. Return results through pointer-backed
+records passed as arguments.
+
+```aether
+par {
+    tally(a, 100);   // a, b are records; each callee writes a field
+    tally(b, 200);
+}
+fx { println("a=", a.count, " b=", b.count); }
+```
+
+This is the capture-free way to parallelize user code (FUNC-001). The task
+helpers below are a lower-level handle API over runtime builtins, not user
+functions.
+
 ## Tasks and AI
 
 `sleep(ms: Int) -> Void`, `task_spawn(target: Text, name: Text, arg) -> Int`,
@@ -334,6 +357,8 @@ Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`.
 All are effectful and must stay inside `fx`. `sleep(ms)` is a blocking
 millisecond pause. `task_wait` waits on a task handle, not a duration.
+`task_spawn`/`task_queue` dispatch an allow-listed runtime builtin by name (for
+example `"delay"`), not a user-defined function; for user code use `par`.
 
 Discovery exists:
 - `builtins_json()` -> JSON list of available Aether-visible builtins

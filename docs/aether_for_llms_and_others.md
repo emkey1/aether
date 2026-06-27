@@ -1,7 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-21-1*
-
+*Guide version: 2026-06-27-3*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -58,6 +57,13 @@ If you only read one part of this document, read **Highest-Value Rules** and
     Do not invent fields on a type.
 18. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path.
+19. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
+    no inline `fn(...) -> T { ... }` literals, no lambdas, and no closures.
+    Never pass a function as an argument. `task_spawn` / `task_queue` take a
+    builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
+    function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
+    To run your own code concurrently, call your functions inside a
+    `par { ... }` block (see **Concurrency**), not `task_spawn`.
 
 Fast failure checks: output outside `fx` is wrong; a guessed import is wrong;
 a helper not listed in this document is wrong; arithmetic on `ToonDoc` /
@@ -76,6 +82,9 @@ when unsure about a type, add it explicitly.
 - `use module_name;` or `export { ... }` in new code; use canonical
   `use "module_name";` and `mod Name { export ... }`
 - invented helper functions not listed in this document (BUILT-001)
+- anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
+  passing a function as a value; `task_spawn` / `task_queue` take a builtin
+  *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
 - names that were never declared, or locals reused outside their scope
   (SCOPE-001)
 - arithmetic on `ToonDoc` or `ToonNode`, or assigning one where the other is
@@ -108,6 +117,8 @@ Generate the canonical form unless preserving existing code.
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
 | TOON array length | `toon_len(node)` | — | `length(node)` |
 | Method call | `counter.bump()` | `bump(counter)` if receiver obvious | class syntax |
+| Concurrency target | `task_spawn("delay", "w", n)` (builtin name) | — | passing a closure / `fn(){...}` |
+| Transform a list | explicit `loop` building `xs + [v]` | — | `map(...)` / `filter(...)` with a lambda |
 | Record init | `Point { x: 3, y: 4 }` | `Point(x: 3, y: 4)` | — |
 | TOON nested lookup | bind and validate intermediates | nested calls when shape guaranteed | `_or` on missing intermediate |
 | Imports | verified `use "module";` | self-contained code | guessed modules |
@@ -649,10 +660,60 @@ fn main() -> Void {
 }
 ```
 
+## Concurrency: `par`
+
+To run your own functions concurrently, use a `par { ... }` block. Each
+statement inside must be a direct function call; the calls run in parallel and
+the block joins (waits for all) before execution continues.
+
+```aether
+par {
+    workerA();
+    workerB();
+}
+```
+
+`par` bodies accept direct calls only — no assignments, loops, or inline `fx`
+(push those into the called functions). Return results through pointer-backed
+records passed as arguments: a callee that writes `out.count = n` makes the
+value visible to the caller after the block joins.
+
+```aether
+type Box {
+    count: Int;
+}
+
+fn tally(out: Box, n: Int) -> Void {
+    let acc: Int = 0;
+    loop i in 0..n { acc = acc + i; }
+    out.count = acc;
+    ret;
+}
+
+fn main() -> Void {
+    let a: Box = new Box();
+    let b: Box = new Box();
+    par {
+        tally(a, 100);
+        tally(b, 200);
+    }
+    fx { println("a=", a.count, " b=", b.count); }
+    ret;
+}
+```
+
+This is the capture-free alternative to spawning closures (FUNC-001): you
+parallelize ordinary calls and collect results through records, with no
+function values. `par` is the mechanism for user code; the task helpers below
+are a lower-level handle API over runtime builtins.
+
 ## Tasks and AI helpers
 
 Compact aliases over shared runtime helpers; all are effectful — call inside
-`fx` (FX-001).
+`fx` (FX-001). `task_spawn` / `task_queue` dispatch an allow-listed runtime
+*builtin* by name (for example `"delay"`), not a user-defined function; passing
+your own function name is an error. To parallelize your own functions, use
+`par` (above).
 
 Core signatures:
 

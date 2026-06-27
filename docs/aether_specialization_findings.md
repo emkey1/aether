@@ -421,6 +421,18 @@ saturated MoE, corpus-insensitive by §3.1, has nowhere to put them and only los
 ground. The win is real but **bounded**: injection closed the dense model's gap
 *to the MoE's level*, not past it. The frontier moved; it did not vanish.
 
+A companion attempt to inject *CS-classics* competence by domain augmentation did
+not transfer. The dense 24B with CS-domain programs folded into its corpus (the
+`cs-aug` variant, served as an f16 GGUF) scored **v2 25/30, hard 4/8, CS 7/19**,
+every generation compiling (gen_ok 30/30, 8/8, 19/19 — so these are real model
+quality, not harness artifacts). The set it was meant to lift did not move (7/19),
+and against the same model's 2x baseline (v2 29, hard 3) it *cost* four points of
+v2 (29 → 25) for a one-task hard nudge (3 → 4), far short of the hard-*shape*
+injection's 3 → 7 above. Domain augmentation diluted rather than injected — the
+same signature as the saturated MoE here and DeepSeek-Coder in §3.9 — which
+sharpens the section's lesson: the gain comes from training on the *exact shape
+class being measured*, not from piling on adjacent "hard-looking" data.
+
 ### 3.9 A recency floor: older models write valid but incorrect Aether
 
 Across model *vintages* a recency effect appears, and the cleanest evidence
