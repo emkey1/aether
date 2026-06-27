@@ -2100,6 +2100,11 @@ static AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
  * the rewriter which lowers a local `const` to a Rea `const`, not a typed var. */
 static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     /* `let` has already been consumed by the caller (which peeked for `(`). */
+    /* Optional `mut` modifier: Rea bindings are mutable already, so accept and
+     * ignore it, matching the rewriter (which tolerates `let mut x ...`). */
+    if (isAetherKeyword(&p->current, "mut")) {
+        aetherAdvance(p); /* consume 'mut' */
+    }
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
         fprintf(stderr, "L%d: expected name after 'let'.\n", p->current.line);
         p->hadError = true;
@@ -3084,6 +3089,22 @@ static AST *parseForLoop(AetherParser *p) {
     return parseLoopRange(p);
 }
 
+/* `while EXPR { }` -- a spelling of the condition loop; the rewriter lowers it to
+ * `while (EXPR) { }`, identical to `loop EXPR`. */
+static AST *parseWhileLoop(AetherParser *p) {
+    aetherAdvance(p); /* consume 'while' */
+    AST *cond = parseExpr(p);
+    if (!cond) { p->hadError = true; return NULL; }
+    if (p->current.type != REA_TOKEN_LEFT_BRACE) {
+        fprintf(stderr, "L%d: expected '{' to open while body.\n", p->current.line);
+        p->hadError = true;
+        freeAST(cond);
+        return NULL;
+    }
+    AST *body = parseBlock(p);
+    return buildWhile(cond, body);
+}
+
 /* `par { call1(); call2(); ... }` -> the spawn/join block the rewriter emits
  * (translate.c translateParallelCallLine): a nested `{ }` scope holding one
  * `int __aether_par_<N> = spawn callN();` per body call followed by a
@@ -3194,6 +3215,9 @@ static AST *parseStatement(AetherParser *p) {
     }
     if (p->current.type == REA_TOKEN_FOR || isAetherKeyword(&p->current, "for")) {
         return parseForLoop(p); /* `for i in a..b` */
+    }
+    if (p->current.type == REA_TOKEN_WHILE || isAetherKeyword(&p->current, "while")) {
+        return parseWhileLoop(p); /* `while cond { }` -> while loop */
     }
     if (isAetherKeyword(&p->current, "par")) {
         return parseParBlock(p); /* `par { ... }` -> spawn/join block */
