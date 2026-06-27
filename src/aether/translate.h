@@ -18,4 +18,25 @@ char *aetherPreprocessToonBlocksForAst(const char *source, const char *path);
  * copy (caller frees) or NULL. Line structure preserved. */
 char *aetherPreprocessBuiltinsForAst(const char *source);
 
+/* Exposed for the AST parser: lower the context-free `string_eq(a, b)` inline
+ * call alias to `(a == b)` as a pure text pre-pass (the rewriter does this in
+ * translateLine via appendAetherInlineCallAlias). Returns a malloc'd copy (caller
+ * frees) or NULL. Line structure preserved. */
+char *aetherPreprocessInlineEqForAst(const char *source);
+
+/* Sink for aetherCollectImportedTypesForAst: called once per exported binding of
+ * an imported module. `name` is the binding/function name, `aetherType` its Aether
+ * type name (or function return type), and `isFunction` is 1 for a function return
+ * type, 0 for a const/let binding. The strings are owned by the caller and valid
+ * only for the duration of the call. */
+typedef void (*AetherImportTypeSink)(void *ctx, const char *name,
+                                     const char *aetherType, int isFunction);
+
+/* Exposed for the AST parser: scan `mainSource` for `use` imports, load each
+ * module file, and report its exported const/let binding types and fn return
+ * types via `sink`, so the AST path can infer `let x = ImportedConst;` /
+ * `let y = importedFn();`. Mirrors the rewriter's maybeLoadImportedBindings. */
+void aetherCollectImportedTypesForAst(const char *mainSource, const char *path,
+                                      AetherImportTypeSink sink, void *ctx);
+
 #endif

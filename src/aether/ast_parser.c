@@ -357,6 +357,16 @@ typedef struct {
     /* When true, bare identifiers that name a current-class field lower to
      * `myself.<field>` (contract expressions inside a method). */
     bool inMethodContract;
+    /* When true, this is the forward-declaration pre-pass: top-level function and
+     * type signatures are registered (so forward references resolve) but the
+     * produced nodes are discarded and compile-time-constant registration is
+     * suppressed (it warns on the redefinition the real pass would cause). */
+    bool forwardScan;
+    /* Set by parseFnDecl when the just-parsed function was an extension method
+     * (`fn f(self: T, ...)`). The rewriter does NOT emit a forward declaration for
+     * extension methods (rea would see the prototype + definition as duplicate
+     * T.f methods), so the forward scan reads this and skips the prototype. */
+    bool lastFnWasExtension;
     /* Contracts accumulated from `@pre`/`@post` lines immediately before the next
      * `fn`/method decl. Consumed (and cleared) by parseFnDecl. */
     AetherPendingContracts pending;
@@ -482,6 +492,8 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->currentFunctionName = NULL;
     p->currentFunctionIsMethod = false;
     p->inMethodContract = false;
+    p->forwardScan = false;
+    p->lastFnWasExtension = false;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
 }
@@ -635,6 +647,64 @@ static AST *buildTypeNode(const char *name, size_t len, int line, VarType *outTy
     setTypeAST(node, TYPE_UNKNOWN);
     *outType = TYPE_UNKNOWN;
     return node;
+}
+
+/* Parse a type-name token plus any trailing `[]` array suffixes, mirroring how
+ * rea's parseVarDecl builds an open array type: each `[]` wraps the base type in
+ * an AST_ARRAY_TYPE (var_type TYPE_ARRAY, right = base, no AST_SUBRANGE children
+ * for the open dimension, exactly as rea parseArrayType does with allowOpen).
+ * The current token must be the (already-current) base type name; on return the
+ * lexer is positioned just past the last `]`. *outType is the resulting VarType
+ * (TYPE_ARRAY when any suffix was seen). If `outAetherName` is non-NULL it is set
+ * to a malloc'd Aether type-name string with `[]` appended per dimension (e.g.
+ * "Int[]"), matching the rewriter's binding-table convention so `.len`/array
+ * inference resolve. Returns NULL on allocation failure. */
+static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
+                                     char **outAetherName) {
+    /* Capture the base Aether type name for the binding form. */
+    size_t baseLen = (size_t)p->current.length;
+    char *aetherName = (char *)malloc(baseLen + 1);
+    if (!aetherName) { if (outAetherName) *outAetherName = NULL; return NULL; }
+    memcpy(aetherName, p->current.start, baseLen);
+    aetherName[baseLen] = '\0';
+
+    VarType vt = TYPE_UNKNOWN;
+    AST *typeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vt);
+    if (!typeNode) { free(aetherName); if (outAetherName) *outAetherName = NULL; return NULL; }
+    aetherAdvance(p); /* consume the base type name */
+
+    while (p->current.type == REA_TOKEN_LEFT_BRACKET) {
+        aetherAdvance(p); /* consume '[' */
+        /* Only the open dimension `[]` is part of Aether's surface type syntax.
+         * A `[N]` fixed-size suffix is not produced by Aether sources, so we treat
+         * a non-empty bracket as not-a-type and stop (the caller will see the '['
+         * still pending). */
+        if (p->current.type != REA_TOKEN_RIGHT_BRACKET) {
+            /* Not an open array dimension; we cannot represent it here. Push back
+             * is impossible cleanly, so flag an error matching rea's stricter
+             * "Missing array size" intent only if truly malformed. For Aether this
+             * path is unreachable in practice; bail without corrupting the node. */
+            break;
+        }
+        aetherAdvance(p); /* consume ']' */
+        AST *arrType = newASTNode(AST_ARRAY_TYPE, NULL);
+        setTypeAST(arrType, TYPE_ARRAY);
+        setRight(arrType, typeNode);
+        typeNode = arrType;
+        vt = TYPE_ARRAY;
+        /* Extend the Aether name with "[]". */
+        size_t nlen = strlen(aetherName);
+        char *grown = (char *)realloc(aetherName, nlen + 3);
+        if (!grown) { free(aetherName); freeAST(typeNode); if (outAetherName) *outAetherName = NULL; return NULL; }
+        aetherName = grown;
+        aetherName[nlen] = '[';
+        aetherName[nlen + 1] = ']';
+        aetherName[nlen + 2] = '\0';
+    }
+
+    if (outType) *outType = vt;
+    if (outAetherName) *outAetherName = aetherName; else free(aetherName);
+    return typeNode;
 }
 
 /* ------------------------------------------------------------------ */
@@ -873,6 +943,7 @@ static AST *parseBlock(AetherParser *p);
 static AST *parseFnDecl(AetherParser *p);
 static AST *parseTypeDecl(AetherParser *p);
 static AST *parseConstDeclTop(AetherParser *p);
+static char *inferLetTypeName(AetherParser *p, AST *init);
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
                              bool inMethodContract);
 static AST *buildContractGuard(AetherParser *p, const char *exprText,
@@ -946,14 +1017,58 @@ static AST *parseStringLiteral(AetherParser *p) {
     return node;
 }
 
+/* Parse one expression optionally followed by Pascal-style write formatting
+ * specifiers `:width[:precision]`, mirroring rea parseWriteArgument: the result
+ * is wrapped in AST_FORMATTED_EXPR(token=STRING "width,prec", left=expr). Only
+ * valid as a write-builtin argument (println/print -> writeln/write). The token
+ * line is the expression's start line, matching rea. */
+static AST *parseWriteArg(AetherParser *p) {
+    int expr_line = p->current.line;
+    AST *expr = parseExpr(p);
+    if (!expr) return NULL;
+    if (p->current.type != REA_TOKEN_COLON) return expr;
+    aetherAdvance(p); /* consume ':' */
+    if (p->current.type != REA_TOKEN_NUMBER) return expr;
+    char *wlex = (char *)malloc(p->current.length + 1);
+    if (!wlex) return expr;
+    memcpy(wlex, p->current.start, p->current.length);
+    wlex[p->current.length] = '\0';
+    int width = atoi(wlex);
+    free(wlex);
+    aetherAdvance(p);
+    int prec = -1;
+    if (p->current.type == REA_TOKEN_COLON) {
+        aetherAdvance(p);
+        if (p->current.type == REA_TOKEN_NUMBER) {
+            char *plex = (char *)malloc(p->current.length + 1);
+            if (plex) {
+                memcpy(plex, p->current.start, p->current.length);
+                plex[p->current.length] = '\0';
+                prec = atoi(plex);
+                free(plex);
+            }
+            aetherAdvance(p);
+        }
+    }
+    char fmtbuf[32];
+    snprintf(fmtbuf, sizeof(fmtbuf), "%d,%d", width, prec);
+    Token *fmtTok = newToken(TOKEN_STRING_CONST, fmtbuf, expr_line, 0);
+    AST *fmtNode = newASTNode(AST_FORMATTED_EXPR, fmtTok);
+    setLeft(fmtNode, expr);
+    setTypeAST(fmtNode, TYPE_UNKNOWN);
+    return fmtNode;
+}
+
 /* Parse an argument list assuming '(' is the current token. Returns an
  * AST_COMPOUND whose children are the argument expressions (caller moves them
- * onto the call node, matching rea). */
-static AST *parseArgList(AetherParser *p) {
+ * onto the call node, matching rea). When `isWrite` is set, each argument is
+ * parsed as a write argument so `expr:w:p` format specifiers are honored (the
+ * caller passes this for the write builtins, matching rea's isWriteBuiltin). */
+static AST *parseArgListEx(AetherParser *p, bool isWrite) {
     aetherAdvance(p); /* consume '(' */
     AST *args = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
-        AST *arg = parseExpr(p);
+        AST *arg = isWrite ? parseWriteArg(p) : parseExpr(p);
         if (!arg) break;
         addChild(args, arg);
         if (p->current.type == REA_TOKEN_COMMA) {
@@ -966,6 +1081,10 @@ static AST *parseArgList(AetherParser *p) {
         aetherAdvance(p);
     }
     return args;
+}
+
+static AST *parseArgList(AetherParser *p) {
+    return parseArgListEx(p, false);
 }
 
 static void moveArgsOntoCall(AST *call, AST *args) {
@@ -1078,6 +1197,21 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
         Token *nameTok = copyNameToken(p);
         if (!nameTok) break;
         aetherAdvance(p); /* consume member name */
+        /* `.len` property (not a call) -> length(<receiver>). The rewriter lowers
+         * `<chain>.len` to `length(<chain>)` for both Text (via string_len) and
+         * array receivers (translate.c ~5137); both alias to `length`, so the AST
+         * is the same regardless of receiver type. Only the property form (no
+         * following '(') is rewritten; `x.len(...)` stays a method call. */
+        if (nameTok->value && strcmp(nameTok->value, "len") == 0 &&
+            p->current.type != REA_TOKEN_LEFT_PAREN) {
+            freeToken(nameTok);
+            Token *lenTok = newToken(TOKEN_IDENTIFIER, "length", node->token ? node->token->line : p->current.line, 0);
+            AST *call = newASTNode(AST_PROCEDURE_CALL, lenTok);
+            addChild(call, node);
+            setTypeAST(call, TYPE_INTEGER);
+            node = call;
+            continue;
+        }
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* method call recv.method(args). */
             const char *cls = NULL;
@@ -1247,6 +1381,35 @@ static AST *parsePrimary(AetherParser *p) {
         }
         return expr;
     }
+    /* Array literal `[a, b, c]` (and the empty `[]`). Mirrors rea parseFactor's
+     * REA_TOKEN_LEFT_BRACKET branch: AST_ARRAY_LITERAL (var_type TYPE_ARRAY) with
+     * one child per element. The empty literal yields a childless node (rea keeps
+     * it when the brackets close with no elements, which is the `let xs: T[] = []`
+     * shape). A trailing comma before `]` is allowed, matching rea. */
+    if (p->current.type == REA_TOKEN_LEFT_BRACKET) {
+        aetherAdvance(p); /* consume '[' */
+        AST *literal = newASTNode(AST_ARRAY_LITERAL, NULL);
+        setTypeAST(literal, TYPE_ARRAY);
+        while (p->current.type != REA_TOKEN_RIGHT_BRACKET &&
+               p->current.type != REA_TOKEN_EOF) {
+            AST *element = parseExpr(p);
+            if (!element) break;
+            addChild(literal, element);
+            if (p->current.type == REA_TOKEN_COMMA) {
+                aetherAdvance(p);
+                if (p->current.type == REA_TOKEN_RIGHT_BRACKET) break;
+                continue;
+            }
+            break;
+        }
+        if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
+            aetherAdvance(p);
+        } else {
+            fprintf(stderr, "L%d: Expected ']' to close array literal.\n", p->current.line);
+            p->hadError = true;
+        }
+        return parsePostfix(p, literal);
+    }
     /* Numeric literal */
     if (p->current.type == REA_TOKEN_NUMBER) {
         size_t len = p->current.length;
@@ -1280,6 +1443,17 @@ static AST *parsePrimary(AetherParser *p) {
     /* String literal (with adjacent-literal concatenation, like rea) */
     if (p->current.type == REA_TOKEN_STRING) {
         return parseStringLiteral(p);
+    }
+    /* nil literal -> AST_NIL (rea parseFactor REA_TOKEN_NIL). In an `==`/`!=`
+     * comparison against an opaque TOON handle (ToonDoc/ToonNode) it is rewritten
+     * to integer -1 by parseEquality, mirroring the rewriter's
+     * rewriteAetherOpaqueNilComparisons. */
+    if (p->current.type == REA_TOKEN_NIL) {
+        Token *tok = newToken(TOKEN_NIL, "nil", p->current.line, 0);
+        aetherAdvance(p);
+        AST *node = newASTNode(AST_NIL, tok);
+        setTypeAST(node, TYPE_NIL);
+        return node;
     }
     /* Boolean literals */
     if (p->current.type == REA_TOKEN_TRUE || p->current.type == REA_TOKEN_FALSE) {
@@ -1326,7 +1500,46 @@ static AST *parsePrimary(AetherParser *p) {
                 if (!tok) return NULL;
             }
             const char *tokValue = tok->value ? tok->value : "";
-            AST *args = parseArgList(p);
+            bool isWrite = (strcasecmp(tokValue, "writeln") == 0 ||
+                            strcasecmp(tokValue, "write") == 0);
+            AST *args = parseArgListEx(p, isWrite);
+
+            /* Extension-method call rewrite: `f(recv, rest...)` -> `recv.f(rest...)`
+             * (the rewriter's appendAetherExtensionCallRewrite / UFCS) when the
+             * first arg's type T has a registered extension method T.f. Produces the
+             * same AST_PROCEDURE_CALL(token=f, left=recv, children=[recv, rest...])
+             * shape rea builds for `recv.f(rest)`. */
+            if (!isWrite && args && args->child_count >= 1 && tok->value) {
+                AST *recv = args->children[0];
+                char *recvType = inferLetTypeName(p, recv);
+                if (recvType) {
+                    size_t qn = strlen(recvType) + 1 + strlen(tok->value) + 1;
+                    char *q = (char *)malloc(qn);
+                    if (q) {
+                        snprintf(q, qn, "%s.%s", recvType, tok->value);
+                        bool isExt = (bindingTableGet(p->funcReturns, q, strlen(q)) != NULL);
+                        free(q);
+                        if (isExt) {
+                            /* Build recv.f(rest...): the call's children are
+                             * [recv, rest...] (recv duplicated into left), exactly
+                             * as parsePostfix builds a method call. */
+                            AST *mcall = newASTNode(AST_PROCEDURE_CALL, tok);
+                            setLeft(mcall, recv);
+                            for (int i = 0; i < args->child_count; i++) {
+                                addChild(mcall, args->children[i]);
+                                args->children[i] = NULL;
+                            }
+                            args->child_count = 0;
+                            freeAST(args);
+                            free(recvType);
+                            setTypeAST(mcall, TYPE_UNKNOWN);
+                            return parsePostfix(p, mcall);
+                        }
+                    }
+                    free(recvType);
+                }
+            }
+
             AST *call;
             if (strcasecmp(tokValue, "writeln") == 0) {
                 call = newASTNode(AST_WRITELN, NULL);
@@ -1459,6 +1672,32 @@ static AST *parseComparison(AetherParser *p) {
     return node;
 }
 
+/* True if `node`'s inferred Aether type is an opaque TOON handle (ToonDoc/
+ * ToonNode), the only types against which `== nil` lowers to `== -1`. */
+static bool aetherOperandIsOpaqueHandle(AetherParser *p, AST *node) {
+    if (!node) return false;
+    char *tn = inferLetTypeName(p, node);
+    bool opaque = tn && (strcmp(tn, "ToonDoc") == 0 || strcmp(tn, "ToonNode") == 0);
+    free(tn);
+    return opaque;
+}
+
+/* Replace an AST_NIL node with integer `-1` (the rewriter's opaque-nil lowering),
+ * built as AST_UNARY_OP(-, NUMBER 1) -- the shape rea parses from the text `-1`. */
+static AST *aetherNilToMinusOne(AST *nilNode) {
+    int line = (nilNode && nilNode->token) ? nilNode->token->line : 0;
+    if (nilNode) freeAST(nilNode);
+    Token *oneTok = newToken(TOKEN_INTEGER_CONST, "1", line, 0);
+    AST *one = newASTNode(AST_NUMBER, oneTok);
+    setTypeAST(one, TYPE_INT64);
+    one->i_val = 1;
+    Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
+    AST *neg = newASTNode(AST_UNARY_OP, minusTok);
+    setLeft(neg, one);
+    setTypeAST(neg, TYPE_INT64);
+    return neg;
+}
+
 static AST *parseEquality(AetherParser *p) {
     AST *node = parseComparison(p);
     if (!node) return NULL;
@@ -1467,6 +1706,18 @@ static AST *parseEquality(AetherParser *p) {
         aetherAdvance(p);
         AST *right = parseComparison(p);
         if (!right) return NULL;
+        /* Opaque-handle nil comparison: `handle == nil` / `nil == handle` ->
+         * `handle == -1` (rewriteAetherOpaqueNilComparisons). Only when exactly one
+         * side is nil and the other is a ToonDoc/ToonNode-typed operand. */
+        bool leftNil = (node->type == AST_NIL);
+        bool rightNil = (right->type == AST_NIL);
+        if (leftNil ^ rightNil) {
+            if (rightNil && aetherOperandIsOpaqueHandle(p, node)) {
+                right = aetherNilToMinusOne(right);
+            } else if (leftNil && aetherOperandIsOpaqueHandle(p, right)) {
+                node = aetherNilToMinusOne(node);
+            }
+        }
         TokenType tt = (op.type == REA_TOKEN_EQUAL_EQUAL) ? TOKEN_EQUAL : TOKEN_NOT_EQUAL;
         Token *tok = newToken(tt, (tt == TOKEN_EQUAL) ? "==" : "!=", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
@@ -1514,10 +1765,41 @@ static AST *parseLogicalOr(AetherParser *p) {
     return node;
 }
 
+/* Ternary conditional `c ? a : b` (mirrors rea parseConditional). Binds looser
+ * than `||` but tighter than assignment. Produces AST_TERNARY(token=TOKEN_IF "?",
+ * left=cond, right=then, extra=else) -- the same shape parseIfExpr builds and the
+ * shape the builtin pre-pass's `(cond ? a : b)` lowering expects. The branches are
+ * full expressions (rea uses parseAssignment), so recurse through parseExpr. */
+static AST *parseConditional(AetherParser *p) {
+    AST *cond = parseLogicalOr(p);
+    if (!cond) return NULL;
+    if (p->current.type != REA_TOKEN_QUESTION) return cond;
+    ReaToken question = p->current;
+    aetherAdvance(p); /* consume '?' */
+    AST *thenBranch = parseExpr(p);
+    if (!thenBranch) { p->hadError = true; freeAST(cond); return NULL; }
+    if (p->current.type != REA_TOKEN_COLON) {
+        fprintf(stderr, "L%d: Expected ':' in conditional expression.\n", p->current.line);
+        p->hadError = true;
+        freeAST(cond); freeAST(thenBranch);
+        return NULL;
+    }
+    aetherAdvance(p); /* consume ':' */
+    AST *elseBranch = parseExpr(p);
+    if (!elseBranch) { p->hadError = true; freeAST(cond); freeAST(thenBranch); return NULL; }
+    Token *tok = newToken(TOKEN_IF, "?", question.line, 0);
+    AST *node = newASTNode(AST_TERNARY, tok);
+    setLeft(node, cond);
+    setRight(node, thenBranch);
+    setExtra(node, elseBranch);
+    setTypeAST(node, resolveConditionalType(thenBranch, elseBranch));
+    return node;
+}
+
 /* Assignment is right-associative and only valid with an lvalue on the left
  * (mirrors rea parseAssignment). Produces AST_ASSIGN. */
 static AST *parseExpr(AetherParser *p) {
-    AST *left = parseLogicalOr(p);
+    AST *left = parseConditional(p);
     if (!left) return NULL;
     if ((left->type == AST_VARIABLE || left->type == AST_FIELD_ACCESS ||
          left->type == AST_ARRAY_ACCESS) &&
@@ -1666,22 +1948,25 @@ static const char *aetherTypeNameForVarType(VarType vt) {
 static const char *inferBuiltinReturnTypeName(const char *name) {
     if (!name) return NULL;
     struct { const char *fn; const char *ret; } table[] = {
-        /* TOON doc/node handles (canonical Yyjson* names). */
-        { "yyjsonread", "ToonDoc" }, { "yyjsonreadfile", "ToonDoc" },
-        { "yyjsongetroot", "ToonNode" }, { "yyjsongetkey", "ToonNode" },
-        { "yyjsongetidx", "ToonNode" }, { "yyjsonarrget", "ToonNode" },
+        /* TOON doc/node handles (the EXACT canonical Yyjson* names the builtin
+         * pre-pass + parsePrimary aliasing produce -- see appendJsonAliasReplacement
+         * / toonScalarGetterForName in translate.c). */
+        { "YyjsonRead", "ToonDoc" }, { "YyjsonReadFile", "ToonDoc" },
+        { "YyjsonGetRoot", "ToonNode" }, { "YyjsonGetKey", "ToonNode" },
+        { "YyjsonGetIndex", "ToonNode" },
         /* Text-returning. */
-        { "yyjsongettext", "Text" }, { "ai_chat", "Text" },
+        { "YyjsonGetString", "Text" }, { "ai_chat", "Text" },
         { "openaichatcompletions", "Text" },
         { "aetherbuiltinsjson", "Text" }, { "aetherbuiltininfo", "Text" },
         { "inttostr", "Text" },
         /* Int-returning. */
-        { "length", "Int" }, { "yyjsongetint", "Int" }, { "yyjsongetlen", "Int" },
+        { "length", "Int" }, { "YyjsonGetInt", "Int" }, { "YyjsonGetLength", "Int" },
         /* Real-returning. */
-        { "yyjsongetreal", "Real" },
+        { "YyjsonGetNumber", "Real" },
         /* Bool-returning. */
         { "hasextbuiltin", "Bool" },
-        { "yyjsongetbool", "Bool" }, { "yyjsonisnull", "Bool" },
+        { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
+        { "YyjsonHasKey", "Bool" }, { "YyjsonHasIndex", "Bool" },
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         if (strcasecmp(name, table[i].fn) == 0) return table[i].ret;
@@ -1715,6 +2000,16 @@ static char *inferLetTypeName(AetherParser *p, AST *init) {
         if (rt) return strdup(rt);
         rt = inferBuiltinReturnTypeName(init->token->value);
         if (rt) return strdup(rt);
+    }
+    /* Ternary `(c ? a : b)` -> infer from a branch (the shape the builtin pre-pass
+     * emits for `toon_get_*_or(...)`: `(YyjsonHasKey(...) ? YyjsonGet*(...) : def)`).
+     * The rewriter infers these from the original `toon_get_*_or` helper; we recover
+     * the type from the then-branch getter call (or the else default). */
+    if (init->type == AST_TERNARY) {
+        char *t = inferLetTypeName(p, init->right);
+        if (t) return t;
+        t = inferLetTypeName(p, init->extra);
+        if (t) return t;
     }
     /* fall back to the expression's own computed var_type. */
     const char *name = aetherTypeNameForVarType(init->var_type);
@@ -1819,19 +2114,146 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             freeToken(nameTok);
             return NULL;
         }
-        declaredTypeName = (char *)malloc(p->current.length + 1);
-        if (declaredTypeName) {
-            memcpy(declaredTypeName, p->current.start, p->current.length);
-            declaredTypeName[p->current.length] = '\0';
-        }
-        typeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vtype);
+        typeNode = parseTypeWithArraySuffix(p, &vtype, &declaredTypeName);
         if (!typeNode) { freeToken(nameTok); free(declaredTypeName); return NULL; }
-        aetherAdvance(p); /* consume type name */
     }
 
     AST *init = NULL;
     if (p->current.type == REA_TOKEN_EQUAL) {
         aetherAdvance(p); /* consume '=' */
+
+        /* Inline object-method: `let x = T { f: v, ... }.method(args);`. The
+         * rewriter hoists the inline object literal into a temp
+         * `__aether_obj_<line>`, assigns its fields, then binds x to
+         * `temp.method(args)` (translate.c). Detect `IDENT { ... } .` (a known type
+         * name, balanced braces, then a dot) and build that temp/splice. */
+        if (p->current.type == REA_TOKEN_IDENTIFIER) {
+            /* Confirm IDENT is a user type and is followed by `{ ... } .`. */
+            char *probeName = (char *)malloc(p->current.length + 1);
+            bool looksInlineObj = false;
+            if (probeName) {
+                memcpy(probeName, p->current.start, p->current.length);
+                probeName[p->current.length] = '\0';
+            }
+            VarType pvt = TYPE_UNKNOWN; const char *prn = NULL;
+            bool isBuiltinTy = probeName && mapAetherType(probeName, strlen(probeName), &prn, &pvt);
+            AST *resolvedTy = (probeName && !isBuiltinTy) ? lookupType(probeName) : NULL;
+            bool isUserType = (resolvedTy != NULL);
+            if (resolvedTy && !resolvedTy->token) freeAST(resolvedTy);
+            if (isUserType) {
+                ReaToken save = p->current;
+                int savedHead = p->queueHead, savedCount = p->queueCount;
+                ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
+                ReaLexer savedLexer = p->lexer;
+                aetherAdvance(p); /* past type name */
+                if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+                    int depth = 0;
+                    while (p->current.type != REA_TOKEN_EOF) {
+                        if (p->current.type == REA_TOKEN_LEFT_BRACE) depth++;
+                        else if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+                            depth--;
+                            if (depth == 0) { aetherAdvance(p); break; }
+                        }
+                        aetherAdvance(p);
+                    }
+                    looksInlineObj = (depth == 0 && p->current.type == REA_TOKEN_DOT);
+                }
+                /* restore to the type name */
+                p->lexer = savedLexer;
+                p->queueHead = savedHead; p->queueCount = savedCount;
+                p->queue[0] = q0; p->queue[1] = q1; p->queue[2] = q2;
+                p->current = save;
+            }
+            if (looksInlineObj && probeName) {
+                /* Build the temp object: __aether_obj_<line> = new T(); field = v; */
+                Token *clsTok = copyNameToken(p);
+                aetherAdvance(p); /* consume type name */
+                VarType objVt = TYPE_UNKNOWN;
+                AST *objTypeNode = buildTypeNode(probeName, strlen(probeName), kwLine, &objVt);
+                AST *newNode = newASTNode(AST_NEW, clsTok);
+                setTypeAST(newNode, TYPE_POINTER);
+                AST *objInits = parseRecordInitBlock(p);
+
+                char tempName[64];
+                snprintf(tempName, sizeof(tempName), "__aether_obj_%d", kwLine);
+                /* Register the temp's type so its method call resolves. */
+                bindingTableSet((AetherBindingTable *)p->bindings, tempName, probeName);
+
+                AST *splice = newASTNode(AST_COMPOUND, NULL);
+                splice->i_val = 1;
+                Token *tvTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
+                AST *tv = newASTNode(AST_VARIABLE, tvTok);
+                setTypeAST(tv, objVt);
+                AST *tdecl = newASTNode(AST_VAR_DECL, NULL);
+                addChild(tdecl, tv);
+                setLeft(tdecl, newNode);
+                setRight(tdecl, objTypeNode);
+                setTypeAST(tdecl, objVt);
+                addChild(splice, tdecl);
+                if (objInits) {
+                    for (int i = 0; i < objInits->child_count; i++) {
+                        AST *fa = objInits->children[i];
+                        if (!fa || fa->type != AST_ASSIGN || !fa->left || !fa->left->token) continue;
+                        Token *rTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
+                        AST *r = newASTNode(AST_VARIABLE, rTok);
+                        setTypeAST(r, objVt);
+                        Token *fTok = newToken(TOKEN_IDENTIFIER, fa->left->token->value, kwLine, 0);
+                        AST *fv = newASTNode(AST_VARIABLE, fTok);
+                        AST *facc = newASTNode(AST_FIELD_ACCESS, fTok);
+                        setLeft(facc, r);
+                        setRight(facc, fv);
+                        Token *aTok = newToken(TOKEN_ASSIGN, "=", kwLine, 0);
+                        AST *as = newASTNode(AST_ASSIGN, aTok);
+                        setLeft(as, facc);
+                        setRight(as, fa->right);
+                        fa->right = NULL;
+                        setTypeAST(as, as->right ? as->right->var_type : TYPE_UNKNOWN);
+                        addChild(splice, as);
+                    }
+                    freeAST(objInits);
+                }
+                /* Now parse `.method(args)` (and any further postfix) on the temp. */
+                Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
+                AST *recvVar = newASTNode(AST_VARIABLE, recvTok);
+                setTypeAST(recvVar, objVt);
+                AST *callChain = parsePostfix(p, recvVar);
+                if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+
+                /* Infer x's type from the resulting expression / method return. */
+                char *inferred = inferLetTypeName(p, callChain);
+                AST *xTypeNode = NULL; VarType xvt = TYPE_UNKNOWN;
+                if (inferred) {
+                    const char *reaName = NULL; VarType iv = TYPE_UNKNOWN;
+                    if (mapAetherType(inferred, strlen(inferred), &reaName, &iv)) {
+                        Token *tt = newToken(TOKEN_IDENTIFIER, reaName, kwLine, 0);
+                        xTypeNode = newASTNode(AST_TYPE_IDENTIFIER, tt);
+                        setTypeAST(xTypeNode, iv);
+                        xvt = iv;
+                    } else {
+                        Token *tt = newToken(TOKEN_IDENTIFIER, inferred, kwLine, 0);
+                        xTypeNode = newASTNode(AST_TYPE_REFERENCE, tt);
+                        setTypeAST(xTypeNode, TYPE_UNKNOWN);
+                    }
+                    bindingTableSet((AetherBindingTable *)p->bindings, nameTok->value, inferred);
+                    free(inferred);
+                }
+                AST *xVar = newASTNode(AST_VARIABLE, nameTok);
+                setTypeAST(xVar, xvt);
+                AST *xDecl = newASTNode(AST_VAR_DECL, NULL);
+                addChild(xDecl, xVar);
+                setLeft(xDecl, callChain);
+                setRight(xDecl, xTypeNode);
+                setTypeAST(xDecl, xvt);
+                addChild(splice, xDecl);
+
+                free(probeName);
+                free(declaredTypeName);
+                if (typeNode) freeAST(typeNode);
+                return splice;
+            }
+            free(probeName);
+        }
+
         /* Detect a bare object literal `T { ... }` or paren form `T( f: v, ... )`:
          * an identifier matching the declared type immediately followed by '{'
          * (always an init) or '(' whose first token pair is `name :` (named
@@ -1904,6 +2326,24 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         aetherAdvance(p);
     }
 
+    /* Binding a tuple-return call to a single name is unsupported: `let v = pair();`
+     * where `pair` returns `(...)`. Match the rewriter's specific diagnostic rather
+     * than the generic "cannot infer type" so error-message parity holds. Applies
+     * regardless of explicit type, like the rewriter. */
+    if (init && init->type == AST_PROCEDURE_CALL && init->token && init->token->value &&
+        p->tuples &&
+        tupleTableGet(p->tuples, init->token->value, strlen(init->token->value))) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "feature",
+                             "tuple-return calls must be destructured directly.",
+                             "use `let (a, b) = pair();` rather than binding the tuple call to one name.");
+        p->hadError = true;
+        freeToken(nameTok);
+        if (typeNode) freeAST(typeNode);
+        free(declaredTypeName);
+        freeAST(init);
+        return NULL;
+    }
+
     /* Inferred type: derive from the initializer, like the rewriter. */
     if (!explicitType) {
         if (!init) {
@@ -1954,6 +2394,101 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     setRight(decl, typeNode);
     setTypeAST(decl, vtype);
     return decl;
+}
+
+/* Structural equality for the lvalue chains that can appear on both sides of an
+ * array-append (`xs = xs + [v]` / `box.values = box.values + [v]`): a bare
+ * variable, a field-access chain, or an array access. The rewriter's append
+ * detection compares the LHS and the `+` left operand as TEXT; we compare the
+ * already-parsed nodes, which is the same relation. */
+static bool aetherLValueEqual(const AST *a, const AST *b) {
+    if (!a || !b) return false;
+    if (a->type != b->type) return false;
+    switch (a->type) {
+        case AST_VARIABLE:
+            return a->token && b->token && a->token->value && b->token->value &&
+                   strcmp(a->token->value, b->token->value) == 0;
+        case AST_FIELD_ACCESS:
+            /* token is the field name; left is the receiver chain. */
+            if (!(a->token && b->token && a->token->value && b->token->value &&
+                  strcmp(a->token->value, b->token->value) == 0))
+                return false;
+            return aetherLValueEqual(a->left, b->left);
+        case AST_ARRAY_ACCESS:
+            return aetherLValueEqual(a->left, b->left);
+        default:
+            return false;
+    }
+}
+
+/* Build `length(<target-copy>)` as an AST_PROCEDURE_CALL (INTEGER), the call the
+ * rewriter emits inside its setlength/index-assign append expansion. */
+static AST *buildLengthCall(const AST *target, int line) {
+    Token *lenTok = newToken(TOKEN_IDENTIFIER, "length", line, 0);
+    AST *call = newASTNode(AST_PROCEDURE_CALL, lenTok);
+    addChild(call, copyAST((AST *)target));
+    setTypeAST(call, TYPE_INTEGER);
+    return call;
+}
+
+/* Build an integer constant node. */
+static AST *buildIntLiteral(long v, int line) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%ld", v);
+    Token *tok = newToken(TOKEN_INTEGER_CONST, buf, line, 0);
+    AST *node = newASTNode(AST_NUMBER, tok);
+    setTypeAST(node, TYPE_INT64);
+    node->i_val = v;
+    return node;
+}
+
+/* Expand `target = target + [item]` into the two-statement append the rewriter
+ * emits (translate.c translateArrayAppendLine):
+ *     setlength(target, length(target) + 1);
+ *     target[length(target) - 1] = item;
+ * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it; the caller
+ * has already verified the shape. `assign` is consumed (its target + the item are
+ * reused/freed). */
+static AST *buildArrayAppend(AST *assign, AST *target, AST *item, int line) {
+    /* setlength(target, length(target) + 1) */
+    Token *slTok = newToken(TOKEN_IDENTIFIER, "setlength", line, 0);
+    AST *setlen = newASTNode(AST_PROCEDURE_CALL, slTok);
+    addChild(setlen, copyAST(target));
+    Token *plusTok = newToken(TOKEN_PLUS, "+", line, 0);
+    AST *lenPlus1 = newASTNode(AST_BINARY_OP, plusTok);
+    setLeft(lenPlus1, buildLengthCall(target, line));
+    setRight(lenPlus1, buildIntLiteral(1, line));
+    setTypeAST(lenPlus1, TYPE_INTEGER);
+    addChild(setlen, lenPlus1);
+    setTypeAST(setlen, TYPE_VOID);
+    AST *setlenStmt = newASTNode(AST_EXPR_STMT, setlen->token);
+    setLeft(setlenStmt, setlen);
+
+    /* target[length(target) - 1] = item */
+    Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
+    AST *lenMinus1 = newASTNode(AST_BINARY_OP, minusTok);
+    setLeft(lenMinus1, buildLengthCall(target, line));
+    setRight(lenMinus1, buildIntLiteral(1, line));
+    setTypeAST(lenMinus1, TYPE_INTEGER);
+    AST *access = newASTNode(AST_ARRAY_ACCESS, NULL);
+    setLeft(access, copyAST(target));
+    addChild(access, lenMinus1);
+    setTypeAST(access, TYPE_UNKNOWN);
+    Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *idxAssign = newASTNode(AST_ASSIGN, aTok);
+    setLeft(idxAssign, access);
+    setRight(idxAssign, item);
+    setTypeAST(idxAssign, item ? item->var_type : TYPE_UNKNOWN);
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, setlenStmt);
+    addChild(outer, idxAssign);
+
+    /* The original assign node's target was copied; release it along with the
+     * now-detached `+` expression (item was moved out, so detach it first). */
+    freeAST(assign);
+    return outer;
 }
 
 /* Build an assignment `<name> = <value>;` AST (AST_ASSIGN of an AST_VARIABLE). */
@@ -2130,6 +2665,89 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     return outer;
 }
 
+/* `ret T { f: v, ... } ;` -> the temp-object pattern the rewriter emits
+ * (translate.c translateReturnObjectInitLine):
+ *     T __aether_retobj_<line> = new T();
+ *     __aether_retobj_<line>.f = v;   (one per field)
+ *     return __aether_retobj_<line>;
+ * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it. The
+ * current token is the type-name identifier (verified by the caller to be
+ * followed by '{'). `line` is the source line of the `ret`, used for the temp
+ * name (so it matches the rewriter byte-for-byte). */
+static AST *buildReturnObjectInit(AetherParser *p, int line) {
+    Token *clsTok = copyNameToken(p);
+    if (!clsTok) return NULL;
+    /* Resolve the class type so the temp var-decl carries the same pointer type
+     * node the rewriter's `T x = new T();` lowering produces. */
+    VarType vtype = TYPE_UNKNOWN;
+    AST *typeNode = buildTypeNode(clsTok->value, strlen(clsTok->value), line, &vtype);
+    aetherAdvance(p); /* consume type name */
+
+    /* new T() initializer (no record-init block; fields assigned below). */
+    Token *newTok = newToken(TOKEN_IDENTIFIER, clsTok->value, line, 0);
+    AST *newNode = newASTNode(AST_NEW, newTok);
+    setTypeAST(newNode, TYPE_POINTER);
+
+    /* Parse the `{ f: v, ... }` field list (same as the let/new object literal). */
+    AST *inits = parseRecordInitBlock(p);
+
+    char tempName[64];
+    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
+
+    Token *tmpVarTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *tmpVar = newASTNode(AST_VARIABLE, tmpVarTok);
+    setTypeAST(tmpVar, vtype);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, tmpVar);
+    setLeft(decl, newNode);
+    setRight(decl, typeNode);
+    setTypeAST(decl, vtype);
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+
+    if (inits) {
+        for (int i = 0; i < inits->child_count; i++) {
+            AST *fa = inits->children[i];
+            if (!fa || fa->type != AST_ASSIGN) continue;
+            AST *fieldVar = fa->left;   /* AST_VARIABLE(field) */
+            AST *valExpr = fa->right;
+            if (!fieldVar || !fieldVar->token) continue;
+            Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+            AST *recv = newASTNode(AST_VARIABLE, recvTok);
+            setTypeAST(recv, vtype);
+            Token *fldTok = newToken(TOKEN_IDENTIFIER, fieldVar->token->value, line, 0);
+            AST *fldVar2 = newASTNode(AST_VARIABLE, fldTok);
+            AST *fldAccess = newASTNode(AST_FIELD_ACCESS, fldTok);
+            setLeft(fldAccess, recv);
+            setRight(fldAccess, fldVar2);
+            Token *asgnTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+            AST *assign = newASTNode(AST_ASSIGN, asgnTok);
+            setLeft(assign, fldAccess);
+            setRight(assign, valExpr);
+            fa->right = NULL; /* moved */
+            setTypeAST(assign, valExpr ? valExpr->var_type : TYPE_UNKNOWN);
+            addChild(outer, assign);
+        }
+        freeAST(inits);
+    }
+
+    /* return __aether_retobj_<line>; (carries the function's pointer type). */
+    Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+    AST *ret = newASTNode(AST_RETURN, retTok);
+    Token *resTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *resVar = newASTNode(AST_VARIABLE, resTok);
+    setTypeAST(resVar, vtype);
+    setLeft(ret, resVar);
+    setTypeAST(ret, vtype);
+    addChild(outer, ret);
+
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    freeToken(clsTok);
+    return outer;
+}
+
 /* ret [expr] ;  ->  AST_RETURN (mirrors rea parseReturn).
  *
  * Three contract/tuple-aware shapes (MILESTONE 3), matching translate.c:
@@ -2151,6 +2769,29 @@ static AST *parseRet(AetherParser *p) {
     }
 
     aetherAdvance(p); /* consume 'ret' */
+
+    /* Return object-init: `ret T { f: v, ... };`. The rewriter lowers this to a
+     * temp-object pattern (translateReturnObjectInitLine). Detect `IDENT {` -- the
+     * only place `{` follows an identifier in expression position is an object
+     * literal -- and build the temp/return splice. Not applied when a @post guard
+     * is active (the rewriter stages those differently); fall through then. */
+    if (p->current.type == REA_TOKEN_IDENTIFIER && !p->currentPostExpr) {
+        ReaToken save = p->current;
+        int savedHead = p->queueHead, savedCount = p->queueCount;
+        ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
+        ReaLexer savedLexer = p->lexer;
+        aetherAdvance(p); /* tentatively consume the identifier */
+        bool isObjInit = (p->current.type == REA_TOKEN_LEFT_BRACE);
+        /* restore to the identifier */
+        p->lexer = savedLexer;
+        p->queueHead = savedHead; p->queueCount = savedCount;
+        p->queue[0] = q0; p->queue[1] = q1; p->queue[2] = q2;
+        p->current = save;
+        if (isObjInit) {
+            return buildReturnObjectInit(p, line);
+        }
+    }
+
     AST *value = NULL;
     if (p->current.type != REA_TOKEN_SEMICOLON && p->current.type != REA_TOKEN_RIGHT_BRACE &&
         p->current.type != REA_TOKEN_EOF) {
@@ -2235,9 +2876,10 @@ static AST *parseIfStmt(AetherParser *p) {
  * naturally stops at '{' and AE_TOKEN_DOTDOT (neither is an operator it
  * recognizes), so a plain parseExpr() call suffices. */
 
-/* loop NAME in LOW..HIGH { body }
+/* NAME in LOW..HIGH { body }  (the loop/for keyword is consumed by the caller)
  *
- * The rewriter lowers this to a C-style half-open for loop
+ * The rewriter lowers both `loop i in a..b` and `for i in a..b` to a C-style
+ * half-open for loop
  *     for (int i = LOW; i < HIGH; i = i + 1) { body }
  * which rea's parseFor turns into:
  *     COMPOUND[ init-var-decl,
@@ -2250,8 +2892,6 @@ static AST *parseIfStmt(AetherParser *p) {
  * both bounds are parsed straight from the token stream as expressions -- no
  * raw-source-span workaround. Handles numeric and identifier bounds uniformly. */
 static AST *parseLoopRange(AetherParser *p) {
-    aetherAdvance(p); /* consume 'loop' */
-
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
         fprintf(stderr, "L%d: expected loop variable name.\n", p->current.line);
         p->hadError = true;
@@ -2367,6 +3007,152 @@ static AST *parseLoopRange(AetherParser *p) {
     return outer;
 }
 
+/* Build a while loop from an already-parsed condition + body, mirroring rea
+ * parseWhile: AST_WHILE(left=condition, right=body). */
+static AST *buildWhile(AST *cond, AST *body) {
+    AST *node = newASTNode(AST_WHILE, NULL);
+    setLeft(node, cond);
+    setRight(node, body);
+    return node;
+}
+
+/* `loop` dispatcher. The rewriter recognizes three `loop` shapes and lowers them
+ * to (translate.c):
+ *   - `loop NAME in LOW..HIGH { }` -> C-for -> while  (parseLoopRange)
+ *   - `loop EXPR { }`              -> `while (EXPR) { }`
+ *   - `loop { }`                   -> `while (true) { }`
+ * Detection: `loop {` is infinite; `loop IDENT in ...` is the range form (peek
+ * one token past the identifier for `in`); anything else is a condition. */
+static AST *parseLoop(AetherParser *p) {
+    aetherAdvance(p); /* consume 'loop' */
+
+    /* Infinite loop: `loop { }` -> while (true). */
+    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+        Token *trueTok = newToken(TOKEN_TRUE, "true", p->current.line, 0);
+        AST *cond = newASTNode(AST_BOOLEAN, trueTok);
+        setTypeAST(cond, TYPE_BOOLEAN);
+        cond->i_val = 1;
+        AST *body = parseBlock(p);
+        return buildWhile(cond, body);
+    }
+
+    /* Range form: `loop NAME in ...`. Peek the token after a leading identifier
+     * for the `in` keyword without consuming the stream permanently. */
+    if (p->current.type == REA_TOKEN_IDENTIFIER) {
+        ReaToken save = p->current;
+        int savedHead = p->queueHead, savedCount = p->queueCount;
+        ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
+        ReaLexer savedLexer = p->lexer;
+        aetherAdvance(p); /* tentatively consume the identifier */
+        bool isRange = isAetherKeyword(&p->current, "in");
+        /* restore to the identifier */
+        p->lexer = savedLexer;
+        p->queueHead = savedHead; p->queueCount = savedCount;
+        p->queue[0] = q0; p->queue[1] = q1; p->queue[2] = q2;
+        p->current = save;
+        if (isRange) {
+            return parseLoopRange(p);
+        }
+    }
+
+    /* Condition form: `loop EXPR { }` -> while (EXPR) { }. */
+    AST *cond = parseExpr(p);
+    if (!cond) { p->hadError = true; return NULL; }
+    if (p->current.type != REA_TOKEN_LEFT_BRACE) {
+        fprintf(stderr, "L%d: expected '{' to open loop body.\n", p->current.line);
+        p->hadError = true;
+        freeAST(cond);
+        return NULL;
+    }
+    AST *body = parseBlock(p);
+    return buildWhile(cond, body);
+}
+
+/* `for NAME in LOW..HIGH { }` -- a spelling of the range loop. The rewriter
+ * lowers `for` ranges identically to `loop` ranges. */
+static AST *parseForLoop(AetherParser *p) {
+    aetherAdvance(p); /* consume 'for' */
+    return parseLoopRange(p);
+}
+
+/* `par { call1(); call2(); ... }` -> the spawn/join block the rewriter emits
+ * (translate.c translateParallelCallLine): a nested `{ }` scope holding one
+ * `int __aether_par_<N> = spawn callN();` per body call followed by a
+ * `join __aether_par_<N>;` for each, in order. The handle counter restarts at 1
+ * per par block (clearParBlockState resets nextHandle). Returns an AST_COMPOUND
+ * (a block statement). */
+static AST *parseParBlock(AetherParser *p) {
+    aetherAdvance(p); /* consume 'par' */
+    if (p->current.type != REA_TOKEN_LEFT_BRACE) {
+        fprintf(stderr, "L%d: expected '{' to open par block.\n", p->current.line);
+        p->hadError = true;
+        return NULL;
+    }
+    aetherAdvance(p); /* consume '{' */
+
+    AST *block = newASTNode(AST_COMPOUND, NULL);
+    AST *joins = newASTNode(AST_COMPOUND, NULL); /* staged join statements */
+    int handle = 0;
+    while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
+           !p->hadError) {
+        int callLine = p->current.line;
+        AST *stmt = parseStatement(p);
+        if (!stmt) break;
+        /* Extract the call expression from the parsed statement (a call statement is
+         * AST_EXPR_STMT wrapping the call). */
+        AST *call = NULL;
+        if (stmt->type == AST_EXPR_STMT && stmt->left) {
+            call = stmt->left;
+            stmt->left = NULL;
+            freeAST(stmt);
+        } else {
+            call = stmt; /* tolerate a bare call node */
+        }
+        handle++;
+        char handleName[64];
+        snprintf(handleName, sizeof(handleName), "__aether_par_%d", handle);
+
+        /* int __aether_par_N = spawn <call>; */
+        Token *hTok = newToken(TOKEN_IDENTIFIER, handleName, callLine, 0);
+        AST *hVar = newASTNode(AST_VARIABLE, hTok);
+        setTypeAST(hVar, TYPE_INT64);
+        Token *intTok = newToken(TOKEN_IDENTIFIER, "int", callLine, 0);
+        AST *intType = newASTNode(AST_TYPE_IDENTIFIER, intTok);
+        setTypeAST(intType, TYPE_INT64);
+        AST *spawnNode = newThreadSpawn(call);
+        setTypeAST(spawnNode, TYPE_INT64);
+        AST *decl = newASTNode(AST_VAR_DECL, NULL);
+        addChild(decl, hVar);
+        setLeft(decl, spawnNode);
+        setRight(decl, intType);
+        setTypeAST(decl, TYPE_INT64);
+        addChild(block, decl);
+
+        /* Stage  join __aether_par_N;  for after all spawns. */
+        Token *jTok = newToken(TOKEN_IDENTIFIER, handleName, callLine, 0);
+        AST *jVar = newASTNode(AST_VARIABLE, jTok);
+        setTypeAST(jVar, TYPE_INT64);
+        AST *joinNode = newThreadJoin(jVar);
+        addChild(joins, joinNode);
+
+        while (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    }
+    if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+        aetherAdvance(p);
+    } else {
+        fprintf(stderr, "L%d: expected '}' to close par block.\n", p->current.line);
+        p->hadError = true;
+    }
+    /* Append the staged joins after the spawns, in order. */
+    for (int i = 0; i < joins->child_count; i++) {
+        addChild(block, joins->children[i]);
+        joins->children[i] = NULL;
+    }
+    joins->child_count = 0;
+    freeAST(joins);
+    return block;
+}
+
 static AST *parseStatement(AetherParser *p) {
     /* fx { ... } -- effect wrapper. The marker is erased; we return the inner
      * block directly (an AST_COMPOUND), matching the rewriter which strips the
@@ -2395,8 +3181,18 @@ static AST *parseStatement(AetherParser *p) {
         return parseRet(p);
     }
     if (isAetherKeyword(&p->current, "loop")) {
-        /* Only the range form `loop i in a..b` is handled in Milestone 1. */
-        return parseLoopRange(p);
+        return parseLoop(p); /* range / condition / infinite forms */
+    }
+    if (p->current.type == REA_TOKEN_FOR || isAetherKeyword(&p->current, "for")) {
+        return parseForLoop(p); /* `for i in a..b` */
+    }
+    if (isAetherKeyword(&p->current, "par")) {
+        return parseParBlock(p); /* `par { ... }` -> spawn/join block */
+    }
+    if (p->current.type == REA_TOKEN_BREAK || isAetherKeyword(&p->current, "break")) {
+        aetherAdvance(p); /* consume 'break' */
+        if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+        return newASTNode(AST_BREAK, NULL); /* rea parseBreak shape */
     }
     if (p->current.type == REA_TOKEN_IF) {
         return parseIfStmt(p);
@@ -2411,6 +3207,24 @@ static AST *parseStatement(AetherParser *p) {
         aetherAdvance(p);
     }
     if (expr->type == AST_ASSIGN) {
+        /* Array append: `target = target + [item]` (single-element literal, with
+         * the `+` left operand structurally equal to the assign target). Lower it
+         * to the rewriter's setlength + indexed-assign expansion. */
+        AST *target = expr->left;
+        AST *rhs = expr->right;
+        if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
+            rhs->token->type == TOKEN_PLUS &&
+            rhs->right && rhs->right->type == AST_ARRAY_LITERAL &&
+            rhs->right->child_count == 1 &&
+            aetherLValueEqual(target, rhs->left)) {
+            int line = expr->token ? expr->token->line : p->current.line;
+            /* Move the single element out of the literal so it survives the free. */
+            AST *item = rhs->right->children[0];
+            rhs->right->children[0] = NULL;
+            rhs->right->child_count = 0;
+            if (item) item->parent = NULL;
+            return buildArrayAppend(expr, target, item, line);
+        }
         return expr; /* assignments act as statements directly */
     }
     AST *stmt = newASTNode(AST_EXPR_STMT, expr->token);
@@ -2649,6 +3463,12 @@ static AST *parseFnDecl(AetherParser *p) {
         setTypeAST(selfDecl, TYPE_POINTER);
         addChild(params, selfDecl);
     }
+    /* First parameter's name + Aether type name, captured for extension-method
+     * detection below (`fn f(self: T, ...)` at top level lowers to a UFCS method
+     * on T). Only meaningful when this is NOT already a `type`-body method. */
+    char *firstParamName = NULL;
+    char *firstParamAetherType = NULL;
+    bool sawAnyParam = false;
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
         if (p->current.type != REA_TOKEN_IDENTIFIER) {
             fprintf(stderr, "L%d: expected parameter name.\n", p->current.line);
@@ -2675,9 +3495,16 @@ static AST *parseFnDecl(AetherParser *p) {
             break;
         }
         VarType pvtype = TYPE_UNKNOWN;
-        AST *ptypeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &pvtype);
-        if (!ptypeNode) { freeToken(paramNameTok); p->hadError = true; break; }
-        aetherAdvance(p); /* consume param type */
+        char *pAetherType = NULL;
+        AST *ptypeNode = parseTypeWithArraySuffix(p, &pvtype, &pAetherType);
+        if (!ptypeNode) { freeToken(paramNameTok); free(pAetherType); p->hadError = true; break; }
+        if (!sawAnyParam) {
+            sawAnyParam = true;
+            firstParamName = paramNameTok->value ? strdup(paramNameTok->value) : NULL;
+            firstParamAetherType = pAetherType; /* take ownership */
+            pAetherType = NULL;
+        }
+        free(pAetherType);
 
         AST *paramVar = newASTNode(AST_VARIABLE, paramNameTok);
         setTypeAST(paramVar, pvtype);
@@ -2696,6 +3523,44 @@ static AST *parseFnDecl(AetherParser *p) {
     if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
         aetherAdvance(p);
     }
+
+    /* Extension method: a top-level `fn f(self: T, ...)` whose first parameter is
+     * self-like (`self`/`my`/`myself`) and typed as a user type T. The rewriter
+     * lowers this to a free function (un-mangled) whose body's `self` references
+     * become `myself`, and rewrites call sites `f(recv, ...)` -> `recv.f(...)`
+     * (UFCS). We mirror that: register T.f so call sites can detect it, rename the
+     * first param's variable to `myself` so the body resolves, and set the class
+     * context for the body so bare `self` lowers to `myself`. The function name is
+     * NOT mangled and no v-table slot is reserved. */
+    bool isExtensionMethod = false;
+    char *extClassName = NULL;
+    if (!isMethod && firstParamName && firstParamAetherType &&
+        (strcmp(firstParamName, "self") == 0 || strcmp(firstParamName, "my") == 0 ||
+         strcmp(firstParamName, "myself") == 0) &&
+        /* The receiver type must be a user type (not a builtin scalar/array). */
+        strchr(firstParamAetherType, '[') == NULL) {
+        VarType probe = TYPE_UNKNOWN; const char *reaName = NULL;
+        bool isBuiltin = mapAetherType(firstParamAetherType, strlen(firstParamAetherType),
+                                       &reaName, &probe);
+        if (!isBuiltin) {
+            isExtensionMethod = true;
+            extClassName = strdup(firstParamAetherType);
+            /* Rename the first param's variable to `myself` (rea's semantic does
+             * this; doing it here lets the body's `myself` references bind). */
+            if (params->child_count > 0 && params->children[0] &&
+                params->children[0]->child_count > 0) {
+                AST *pv = params->children[0]->children[0];
+                if (pv && pv->token && pv->token->value) {
+                    free(pv->token->value);
+                    pv->token->value = strdup("myself");
+                    if (pv->token->value) pv->token->length = strlen(pv->token->value);
+                }
+            }
+        }
+    }
+    free(firstParamName);
+    free(firstParamAetherType);
+    p->lastFnWasExtension = isExtensionMethod;
 
     /* An explicit '-> RetType' is REQUIRED (SYN-001), matching the rewriter,
      * which rejects any `fn` lacking a declared return type. */
@@ -2755,22 +3620,10 @@ static AST *parseFnDecl(AetherParser *p) {
                 aetherAdvance(p);
             } else {
                 /* Not a tuple type after all: fall through to scalar parsing. */
-                retTypeName = (char *)malloc(p->current.length + 1);
-                if (retTypeName) {
-                    memcpy(retTypeName, p->current.start, p->current.length);
-                    retTypeName[p->current.length] = '\0';
-                }
-                returnTypeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vtype);
-                aetherAdvance(p);
+                returnTypeNode = parseTypeWithArraySuffix(p, &vtype, &retTypeName);
             }
         } else {
-            retTypeName = (char *)malloc(p->current.length + 1);
-            if (retTypeName) {
-                memcpy(retTypeName, p->current.start, p->current.length);
-                retTypeName[p->current.length] = '\0';
-            }
-            returnTypeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vtype);
-            aetherAdvance(p); /* consume return type */
+            returnTypeNode = parseTypeWithArraySuffix(p, &vtype, &retTypeName);
         }
     }
 
@@ -2780,6 +3633,18 @@ static AST *parseFnDecl(AetherParser *p) {
      * recursive call inside the body could resolve too. */
     if (retTypeName && nameTok->value && p->funcReturns) {
         bindingTableSet(p->funcReturns, nameTok->value, retTypeName);
+        /* Extension method: also register T.fnName so call-site UFCS rewriting can
+         * detect `f(recv,...)` as `recv.f(...)` (mirrors the rewriter's function
+         * table, which keys extension methods under the receiver type). */
+        if (isExtensionMethod && extClassName) {
+            size_t qn = strlen(extClassName) + 1 + strlen(nameTok->value) + 1;
+            char *q = (char *)malloc(qn);
+            if (q) {
+                snprintf(q, qn, "%s.%s", extClassName, nameTok->value);
+                bindingTableSet(p->funcReturns, q, retTypeName);
+                free(q);
+            }
+        }
     }
     free(retTypeName);
     retTypeName = NULL;
@@ -2794,6 +3659,36 @@ static AST *parseFnDecl(AetherParser *p) {
     char *postExpr = p->pending.postExpr;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
+    /* A tuple-return @post must reference positional slots (`result.0`/`result.1`),
+     * not a bare `result`. Match the rewriter's ANN-001 diagnostic for an invalid
+     * bare `result` reference. (forwardScan suppresses output; the real pass
+     * reports it.) */
+    if (hasTupleReturn && postExpr && !p->forwardScan) {
+        const char *s = postExpr;
+        bool bareResult = false;
+        while (*s) {
+            if (strncmp(s, "result", 6) == 0 &&
+                (s == postExpr || !(isalnum((unsigned char)s[-1]) || s[-1] == '_')) &&
+                !(isalnum((unsigned char)s[6]) || s[6] == '_')) {
+                const char *after = s + 6;
+                while (*after == ' ' || *after == '\t') after++;
+                if (*after != '.') { bareResult = true; break; }
+            }
+            s++;
+        }
+        if (bareResult) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "contract",
+                                 "tuple-return @post checks must reference slots explicitly, for example `result.0` or `result.1`.",
+                                 "use positional tuple slots in @post, for example `result.0` and `result.1`.");
+            p->hadError = true;
+            freeAST(params);
+            if (returnTypeNode) freeAST(returnTypeNode);
+            freeToken(nameTok);
+            free(preExpr);
+            free(postExpr);
+            return NULL;
+        }
+    }
     if (hasTupleReturn && tupleSig && postExpr) {
         size_t cap = strlen(postExpr) + 64;
         char *rewritten = (char *)malloc(cap);
@@ -2851,14 +3746,43 @@ static AST *parseFnDecl(AetherParser *p) {
     int prevDepth = p->functionDepth;
     p->currentFunctionType = vtype;
     p->functionDepth++;
+    /* For an extension method, set the class context so the body's bare `self`
+     * lowers to `myself` (parsePrimary) and `self.method()` mangles to T.method,
+     * exactly as the rewriter's rewriteMethodScopedExpr does. Restored below. */
+    const char *prevExtClass = p->currentClassName;
+    if (isExtensionMethod && extClassName) {
+        p->currentClassName = extClassName;
+    }
 
     AST *block = NULL;
     bool hasBody = false;
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
-        block = parseBlock(p);
-        hasBody = true;
+        if (p->forwardScan) {
+            /* Forward-declaration pre-pass: emit a body-less prototype (the rewriter
+             * emits `RetType name(params);`). Skip the body by brace-matching rather
+             * than parsing it, so body-level diagnostics fire only in the real pass
+             * (avoids double-reporting an error for an invalid body). */
+            int depth = 0;
+            while (p->current.type != REA_TOKEN_EOF) {
+                if (p->current.type == REA_TOKEN_LEFT_BRACE) depth++;
+                else if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+                    depth--;
+                    if (depth == 0) { aetherAdvance(p); break; }
+                }
+                aetherAdvance(p);
+            }
+            hasBody = false;
+        } else {
+            block = parseBlock(p);
+            hasBody = true;
+        }
     }
 
+    if (isExtensionMethod) {
+        p->currentClassName = prevExtClass;
+    }
+    free(extClassName);
+    extClassName = NULL;
     p->currentFunctionType = prevType;
     p->functionDepth = prevDepth;
 
@@ -3015,11 +3939,13 @@ static AST *parseConstDecl(AetherParser *p) {
     if (declaredTypeName)
         bindingTableSet((AetherBindingTable *)p->bindings, nameTok->value, declaredTypeName);
 
-    /* Fold + register the compile-time value (rea parseConstDecl tail). */
+    /* Fold + register the compile-time value (rea parseConstDecl tail). Suppressed
+     * during the forward-declaration pre-pass: the real pass registers it, and
+     * addCompilerConstant warns on the redefinition a double registration causes. */
     {
         Value v = evaluateCompileTimeValue(value);
         if (v.type != TYPE_VOID && v.type != TYPE_UNKNOWN) {
-            if (p->functionDepth == 0) {
+            if (p->functionDepth == 0 && !p->forwardScan) {
                 addCompilerConstant(nameTok->value, &v, nameTok->line);
             }
             if (!typeNode) setTypeAST(node, v.type);
@@ -3120,10 +4046,8 @@ static AST *parseTypeDecl(AetherParser *p) {
                 }
                 aetherAdvance(p); /* consume ':' */
                 VarType fvtype = TYPE_UNKNOWN;
-                AST *ftypeNode = buildTypeNode(p->current.start, p->current.length,
-                                               p->current.line, &fvtype);
+                AST *ftypeNode = parseTypeWithArraySuffix(p, &fvtype, NULL);
                 if (!ftypeNode) { freeToken(fieldTok); p->hadError = true; break; }
-                aetherAdvance(p); /* consume field type */
                 AST *fieldVar = newASTNode(AST_VARIABLE, fieldTok);
                 setTypeAST(fieldVar, fvtype);
                 AST *fieldDecl = newASTNode(AST_VAR_DECL, NULL);
@@ -3180,6 +4104,186 @@ static AST *parseTypeDecl(AetherParser *p) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Modules (use / mod / export)                                        */
+/* ------------------------------------------------------------------ */
+
+/* True if the current token is Aether's `mod` keyword. The shared Rea lexer maps
+ * the 3-char lexeme "mod" to REA_TOKEN_PERCENT (Rea's modulo operator keyword),
+ * so we must recognize it by token type + text rather than as an identifier. */
+static bool aetherIsModKeyword(const AetherParser *p) {
+    return p->current.type == REA_TOKEN_PERCENT && tokTextIs(&p->current, "mod");
+}
+
+/* `use NAME ;` / `use "NAME" ;` -> AST_USES_CLAUSE { AST_IMPORT(token=STRING path) }.
+ * The rewriter lowers `use X;` to Rea `#import X;`, which rea's parseImport turns
+ * into exactly this shape (the path token is always a STRING const, whether the
+ * source spelled a bare identifier or a quoted string). Mirrors rea parseImport
+ * for the single-import, no-alias case Aether emits. */
+static AST *parseUse(AetherParser *p) {
+    aetherAdvance(p); /* consume 'use' */
+    char *path = NULL;
+    int pathLine = p->current.line;
+    if (p->current.type == REA_TOKEN_STRING) {
+        /* Strip the surrounding quotes, like rea parseImport. */
+        size_t len = (size_t)p->current.length;
+        if (len >= 2) {
+            path = (char *)malloc(len - 1);
+            if (path) { memcpy(path, p->current.start + 1, len - 2); path[len - 2] = '\0'; }
+        }
+        aetherAdvance(p);
+    } else if (p->current.type == REA_TOKEN_IDENTIFIER) {
+        size_t len = (size_t)p->current.length;
+        path = (char *)malloc(len + 1);
+        if (path) { memcpy(path, p->current.start, len); path[len] = '\0'; }
+        aetherAdvance(p);
+    } else {
+        fprintf(stderr, "L%d: expected a module name after 'use'.\n", p->current.line);
+        p->hadError = true;
+        return NULL;
+    }
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    if (!path) { p->hadError = true; return NULL; }
+
+    Token *pathTok = newToken(TOKEN_STRING_CONST, path, pathLine, 0);
+    free(path);
+    AST *importNode = newASTNode(AST_IMPORT, pathTok);
+    AST *uses = newASTNode(AST_USES_CLAUSE, NULL);
+    addChild(uses, importNode);
+    return uses;
+}
+
+/* Recursively flag exportable declarations as exported, mirroring rea
+ * markExported (used for `export <decl>` inside a module body). */
+static void aetherMarkExported(AST *node) {
+    if (!node) return;
+    if (node->type == AST_COMPOUND || node->type == AST_BLOCK) {
+        if (node->left) aetherMarkExported(node->left);
+        if (node->right) aetherMarkExported(node->right);
+        if (node->extra) aetherMarkExported(node->extra);
+        for (int i = 0; i < node->child_count; i++) aetherMarkExported(node->children[i]);
+        return;
+    }
+    switch (node->type) {
+        case AST_VAR_DECL: case AST_CONST_DECL: case AST_TYPE_DECL:
+        case AST_FUNCTION_DECL: case AST_PROCEDURE_DECL:
+            node->is_exported = true;
+            break;
+        default: break;
+    }
+}
+
+/* Route a module-body member into the module's decls/stmts, mirroring rea
+ * appendModuleNode: exportable decls + nested imports go to decls. */
+static void aetherAppendModuleNode(AST *decls, AST *stmts, AST *node) {
+    if (!node) return;
+    if (node->type == AST_COMPOUND && node->is_global_scope) {
+        for (int i = 0; i < node->child_count; i++) {
+            AST *child = node->children[i];
+            if (!child) continue;
+            switch (child->type) {
+                case AST_VAR_DECL: case AST_CONST_DECL: case AST_TYPE_DECL:
+                case AST_FUNCTION_DECL: case AST_PROCEDURE_DECL:
+                case AST_USES_CLAUSE: case AST_IMPORT:
+                    addChild(decls, child); break;
+                default: addChild(stmts, child); break;
+            }
+            node->children[i] = NULL;
+        }
+        freeAST(node);
+        return;
+    }
+    switch (node->type) {
+        case AST_VAR_DECL: case AST_CONST_DECL: case AST_TYPE_DECL:
+        case AST_FUNCTION_DECL: case AST_PROCEDURE_DECL:
+        case AST_USES_CLAUSE: case AST_IMPORT: case AST_MODULE:
+            addChild(decls, node); break;
+        default: addChild(stmts, node); break;
+    }
+}
+
+/* Parse a single module-body member, handling the leading `export` qualifier.
+ * `export <decl>` parses the declaration then flags it exported. Members are the
+ * same declarations top-level allows (fn / type / const). */
+static AST *parseModuleMember(AetherParser *p) {
+    bool exported = false;
+    if (p->current.type == REA_TOKEN_EXPORT || isAetherKeyword(&p->current, "export")) {
+        exported = true;
+        aetherAdvance(p); /* consume 'export' */
+    }
+    AST *decl = NULL;
+    if (isAetherKeyword(&p->current, "fn")) {
+        decl = parseFnDecl(p);
+    } else if (p->current.type == REA_TOKEN_TYPE || isAetherKeyword(&p->current, "type")) {
+        decl = parseTypeDecl(p);
+    } else if (p->current.type == REA_TOKEN_CONST || isAetherKeyword(&p->current, "const")) {
+        decl = parseConstDeclTop(p);
+    } else if (aetherIsModKeyword(p)) {
+        decl = NULL; /* nested modules are not part of Aether's surface syntax */
+    } else {
+        fprintf(stderr, "L%d: expected a declaration inside 'mod'.\n", p->current.line);
+        p->hadError = true;
+        return NULL;
+    }
+    if (decl && exported) aetherMarkExported(decl);
+    return decl;
+}
+
+/* `mod NAME { members }` -> AST_MODULE(token=name, right=AST_BLOCK[decls,stmts]),
+ * mirroring rea parseModule. The rewriter lowers `mod` to Rea `module`; the AST
+ * is identical. Imported Aether module files are parsed through this same entry
+ * (reaFrontendParseSource -> parseAether -> parseAetherAst when AETHER_PARSER=ast). */
+static AST *parseModuleDecl(AetherParser *p) {
+    int modLine = p->current.line;
+    aetherAdvance(p); /* consume 'mod' */
+    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+        fprintf(stderr, "L%d: expected a module name after 'mod'.\n", p->current.line);
+        p->hadError = true;
+        return NULL;
+    }
+    Token *nameTok = currentAsIdentifier(p);
+    if (!nameTok) return NULL;
+    aetherAdvance(p); /* consume module name */
+    if (p->current.type != REA_TOKEN_LEFT_BRACE) {
+        fprintf(stderr, "L%d: expected '{' to begin module body.\n", p->current.line);
+        p->hadError = true;
+        freeToken(nameTok);
+        return NULL;
+    }
+    aetherAdvance(p); /* consume '{' */
+
+    AST *moduleNode = newASTNode(AST_MODULE, nameTok);
+    AST *block = newASTNode(AST_BLOCK, NULL);
+    AST *decls = newASTNode(AST_COMPOUND, NULL);
+    AST *stmts = newASTNode(AST_COMPOUND, NULL);
+    decls->is_global_scope = true;
+    stmts->is_global_scope = true;
+    addChild(block, decls);
+    addChild(block, stmts);
+    setRight(moduleNode, block);
+
+    while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
+           !p->hadError) {
+        collectPendingAnnotations(p);
+        if (p->hadError) break;
+        if (p->current.type == REA_TOKEN_SEMICOLON) { aetherAdvance(p); continue; }
+        AST *member = parseModuleMember(p);
+        if (!member) { if (!p->hadError) break; p->hadError = true; break; }
+        aetherAppendModuleNode(decls, stmts, member);
+        while (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    }
+    if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+        aetherAdvance(p);
+    } else {
+        fprintf(stderr, "L%d: expected '}' to close module body.\n", p->current.line);
+        p->hadError = true;
+    }
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+
+    (void)modLine;
+    return moduleNode;
+}
+
+/* ------------------------------------------------------------------ */
 /* Program entry                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -3206,7 +4310,8 @@ static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
     }
     if (node->type == AST_VAR_DECL || node->type == AST_FUNCTION_DECL ||
         node->type == AST_PROCEDURE_DECL || node->type == AST_TYPE_DECL ||
-        node->type == AST_CONST_DECL) {
+        node->type == AST_CONST_DECL || node->type == AST_MODULE ||
+        node->type == AST_USES_CLAUSE || node->type == AST_IMPORT) {
         addChild(decls, node);
     } else {
         addChild(stmts, node);
@@ -3301,6 +4406,82 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
     return true;
 }
 
+/* Forward-declaration pre-pass: parse every top-level declaration once with the
+ * `forwardScan` flag set so a top-level function call that textually precedes its
+ * `fn` definition resolves. The rewriter achieves this by emitting an explicit
+ * `RetType name(params);` forward declaration for every top-level function; we
+ * mirror that by appending each top-level function as a body-less prototype node
+ * to `decls` (so rea's compiler sees the signature before the call), and discard
+ * everything else (types are registered via insertType during their parse, which
+ * is idempotent; top-level const folding is suppressed via forwardScan to avoid a
+ * redefinition warning the real pass would trip). Shares the caller's
+ * binding/return/tuple tables. */
+static void aetherRunForwardScan(const char *source, const AetherBindingTable *bindings,
+                                 AetherBindingTable *funcReturns, AetherTupleTable *tuples,
+                                 int *nextTupleTypeId, AST *decls) {
+    AetherParser fp;
+    aetherParserInit(&fp, source, bindings);
+    fp.funcReturns = funcReturns;
+    fp.tuples = tuples;
+    fp.nextTupleTypeId = nextTupleTypeId;
+    fp.forwardScan = true;
+    aetherAdvance(&fp);
+    while (fp.current.type != REA_TOKEN_EOF && !fp.hadError) {
+        collectPendingAnnotations(&fp);
+        if (fp.hadError || fp.current.type == REA_TOKEN_EOF) break;
+        if (isAetherKeyword(&fp.current, "fn")) {
+            AST *proto = parseFnDecl(&fp); /* body-less under forwardScan */
+            if (!proto) break;
+            /* The rewriter does not forward-declare extension methods (rea would
+             * see prototype + definition as duplicate T.f methods); skip them. */
+            if (fp.lastFnWasExtension) {
+                freeAST(proto);
+            } else {
+                addChild(decls, proto);    /* emit the prototype (rea forward decl) */
+            }
+        } else if (fp.current.type == REA_TOKEN_TYPE || isAetherKeyword(&fp.current, "type")) {
+            AST *t = parseTypeDecl(&fp);   /* insertType registers it; discard node */
+            if (!t) break;
+            freeAST(t);
+        } else if (fp.current.type == REA_TOKEN_CONST || isAetherKeyword(&fp.current, "const")) {
+            AST *c = parseConstDeclTop(&fp);
+            if (!c) break;
+            freeAST(c);
+        } else if (isAetherKeyword(&fp.current, "use")) {
+            AST *u = parseUse(&fp);
+            if (!u) break;
+            freeAST(u);
+        } else if (aetherIsModKeyword(&fp)) {
+            AST *m = parseModuleDecl(&fp);
+            if (!m) break;
+            freeAST(m);
+        } else {
+            break; /* malformed: let the real pass report it precisely */
+        }
+    }
+    aetherFreePending(&fp.pending);
+}
+
+/* Context + sink for folding an imported module's exported binding/return types
+ * into the AST parser's tables (so `let x = ImportedConst;` /
+ * `let y = importedFn();` infer their type). Const/let bindings go into
+ * `bindings`; function return types go into `funcReturns`. */
+typedef struct {
+    AetherBindingTable *bindings;
+    AetherBindingTable *funcReturns;
+} AetherImportSinkCtx;
+
+static void aetherImportTypeSink(void *ctxv, const char *name, const char *aetherType,
+                                 int isFunction) {
+    AetherImportSinkCtx *ctx = (AetherImportSinkCtx *)ctxv;
+    if (!ctx || !name || !aetherType) return;
+    if (isFunction) {
+        if (ctx->funcReturns) bindingTableSet(ctx->funcReturns, name, aetherType);
+    } else {
+        if (ctx->bindings) bindingTableSet(ctx->bindings, name, aetherType);
+    }
+}
+
 AST *parseAetherAst(const char *rawSource) {
     if (!rawSource) return NULL;
 
@@ -3315,8 +4496,14 @@ AST *parseAetherAst(const char *rawSource) {
      * reusing the rewriter's machinery rather than re-implementing it. Runs after
      * TOON-block extraction so `let d: TOON = "..."` literal bindings are visible
      * to the toon_parse(d) lowering. */
-    char *source = aetherPreprocessBuiltinsForAst(toonSource);
+    char *builtinSource = aetherPreprocessBuiltinsForAst(toonSource);
     free(toonSource);
+    if (!builtinSource) return NULL;
+    /* string_eq(a, b) -> (a == b): a context-free inline-call alias the rewriter
+     * applies in translateLine. Run it as a pre-pass (MS3 pattern) so the AST path
+     * lowers it identically without re-implementing the scanner here. */
+    char *source = aetherPreprocessInlineEqForAst(builtinSource);
+    free(builtinSource);
     if (!source) return NULL;
 
     AetherBindingTable bindings;
@@ -3357,6 +4544,22 @@ AST *parseAetherAst(const char *rawSource) {
         return NULL;
     }
 
+    /* Imported-module types: load each `use`d module and fold its exported
+     * const/let binding types + fn return types into our tables, so inferred
+     * `let x = ImportedConst;` / `let y = importedFn();` resolve (the rewriter does
+     * this via maybeLoadImportedBindings). Runs before the forward scan + real
+     * parse so both see the imported types. */
+    {
+        AetherImportSinkCtx sinkCtx = { &bindings, &funcReturns };
+        aetherCollectImportedTypesForAst(rawSource, sourcePath, aetherImportTypeSink, &sinkCtx);
+    }
+
+    /* Forward-declaration pre-pass: pre-register every top-level function/type so
+     * a call that precedes its definition resolves (the rewriter emits explicit
+     * forward declarations for this). Runs over the same source with throwaway
+     * output; shares the tuple table (already populated above). */
+    aetherRunForwardScan(source, &bindings, &funcReturns, &tuples, &nextTupleTypeId, decls);
+
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
         collectPendingAnnotations(&p);
@@ -3368,6 +4571,10 @@ AST *parseAetherAst(const char *rawSource) {
             decl = parseTypeDecl(&p);
         } else if (p.current.type == REA_TOKEN_CONST || isAetherKeyword(&p.current, "const")) {
             decl = parseConstDeclTop(&p);
+        } else if (isAetherKeyword(&p.current, "use")) {
+            decl = parseUse(&p);                 /* `use X;` -> AST_USES_CLAUSE */
+        } else if (aetherIsModKeyword(&p)) {
+            decl = parseModuleDecl(&p);          /* `mod X { ... }` -> AST_MODULE */
         } else {
             const char *path = aetherSemanticGetSourcePath();
             if (path && *path) {

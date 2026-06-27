@@ -1,5 +1,6 @@
 #include "aether/parser.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -52,6 +53,10 @@ AST *parseAether(const char *source) {
     rewritten = aetherRewriteSource(source, sourcePath);
     if (!rewritten) {
         return NULL;
+    }
+
+    if (getenv("AETHER_DUMP_REWRITE")) {
+        fprintf(stderr, "=== AETHER REWRITE BEGIN ===\n%s\n=== AETHER REWRITE END ===\n", rewritten);
     }
 
     ast = parseRea(rewritten);

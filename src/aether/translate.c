@@ -8643,6 +8643,130 @@ char *aetherPreprocessBuiltinsForAst(const char *source) {
     return out.data;
 }
 
+/* Public pre-pass for the AST parser: lower the context-free `string_eq(a, b)`
+ * inline-call alias to `(a == b)`, exactly as the rewriter's
+ * appendAetherInlineCallAlias does in translateLine, but as a standalone text
+ * transform that preserves all other text (string literals, comments, line
+ * structure). string_eq is purely syntactic -- it needs no binding/type context
+ * -- so it can run as a pre-pass safely. Returns a malloc'd copy (caller frees)
+ * or NULL on error. */
+char *aetherPreprocessInlineEqForAst(const char *source) {
+    if (!source) return NULL;
+    Buffer out = {0};
+    const char *end = source + strlen(source);
+    const char *cur = source;
+    /* Process line by line so identifier-boundary checks (body[-1]) and the
+     * lineEnd the alias helper needs are well defined. */
+    while (cur < end) {
+        const char *lineStart = cur;
+        const char *lineEnd = cur;
+        while (lineEnd < end && *lineEnd != '\n') lineEnd++;
+        const char *body = lineStart;
+        while (body < lineEnd) {
+            char ch = *body;
+            /* Skip over string/char literals verbatim. */
+            if (ch == '"' || ch == '\'') {
+                char quote = ch;
+                if (!bufferAppendN(&out, body, 1)) { free(out.data); return NULL; }
+                body++;
+                while (body < lineEnd) {
+                    if (*body == '\\' && body + 1 < lineEnd) {
+                        if (!bufferAppendN(&out, body, 2)) { free(out.data); return NULL; }
+                        body += 2;
+                        continue;
+                    }
+                    char c = *body;
+                    if (!bufferAppendN(&out, body, 1)) { free(out.data); return NULL; }
+                    body++;
+                    if (c == quote) break;
+                }
+                continue;
+            }
+            /* A `string_eq(` call at an identifier boundary -> inline `==`. */
+            if ((body == lineStart || !(isalnum((unsigned char)body[-1]) || body[-1] == '_')) &&
+                isalpha((unsigned char)ch)) {
+                const char *nameStart = body;
+                const char *nameEnd = body + 1;
+                while (nameEnd < lineEnd && (isalnum((unsigned char)*nameEnd) || *nameEnd == '_')) {
+                    nameEnd++;
+                }
+                const char *afterName = skipSpacesInRange(nameEnd, lineEnd);
+                const char *advancedCursor = NULL;
+                if (afterName < lineEnd && *afterName == '(' &&
+                    appendAetherInlineCallAlias(&out, nameStart,
+                                                (size_t)(nameEnd - nameStart),
+                                                afterName, lineEnd, &advancedCursor)) {
+                    body = advancedCursor;
+                    continue;
+                }
+            }
+            if (!bufferAppendN(&out, body, 1)) { free(out.data); return NULL; }
+            body++;
+        }
+        if (lineEnd < end) {
+            if (!bufferAppendN(&out, "\n", 1)) { free(out.data); return NULL; }
+            cur = lineEnd + 1;
+        } else {
+            cur = lineEnd;
+        }
+    }
+    if (!out.data) { out.data = (char *)malloc(1); if (out.data) out.data[0] = '\0'; }
+    return out.data;
+}
+
+/* Public for the AST parser: scan `mainSource` for `use` imports, load each
+ * referenced module, and report the *types* of its exported `const`/`let`
+ * bindings and `fn` return types via `sink`. This is how the AST path infers
+ * `let x = ImportedConst;` / `let y = importedFn();` -- exactly the binding info
+ * the rewriter folds in via maybeLoadImportedBindings, here surfaced as
+ * (name, aetherTypeName, isFunction) tuples since the AST parser keeps its own
+ * binding-table type. `isFunction` is 1 for a function return type, 0 for a
+ * const/let binding. */
+void aetherCollectImportedTypesForAst(const char *mainSource, const char *path,
+                                      AetherImportTypeSink sink, void *ctx) {
+    if (!mainSource || !sink) {
+        return;
+    }
+    const char *cursor = mainSource;
+    while (*cursor) {
+        const char *lineStart = cursor;
+        const char *lineEnd = cursor;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        const char *body = skipSpacesInRange(lineStart, lineEnd);
+        if (startsWithWord(body, lineEnd, "use")) {
+            char *importPath = extractUsePathLiteral(body, lineEnd);
+            if (importPath) {
+                char *resolved = resolveRelativePath(path, importPath);
+                if (resolved) {
+                    char *moduleSource = readTextFile(resolved);
+                    if (moduleSource) {
+                        AetherBindingTable bt = {0};
+                        AetherFunctionTable ft = {0};
+                        if (collectImportedAetherBindings(&bt, &ft, moduleSource, resolved)) {
+                            for (size_t i = 0; i < bt.count; i++) {
+                                if (bt.items[i].name && bt.items[i].typeName) {
+                                    sink(ctx, bt.items[i].name, bt.items[i].typeName, 0);
+                                }
+                            }
+                            for (size_t i = 0; i < ft.count; i++) {
+                                if (ft.items[i].name && ft.items[i].returnType) {
+                                    sink(ctx, ft.items[i].name, ft.items[i].returnType, 1);
+                                }
+                            }
+                        }
+                        freeAetherBindingTable(&bt);
+                        freeAetherFunctionTable(&ft);
+                        free(moduleSource);
+                    }
+                    free(resolved);
+                }
+                free(importPath);
+            }
+        }
+        cursor = (*lineEnd == '\n') ? lineEnd + 1 : lineEnd;
+    }
+}
+
 char *aetherRewriteSource(const char *source, const char *path) {
     char *preprocessed = NULL;
     const char *cursor;
