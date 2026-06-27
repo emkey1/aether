@@ -1002,6 +1002,12 @@ static char *preprocessToonBlocks(const char *source, const char *path) {
     return out.data;
 }
 
+/* Public wrapper so the AST parser can reuse this exact TOON pre-pass (the
+ * roadmap mandates reusing it, not re-implementing TOON). */
+char *aetherPreprocessToonBlocksForAst(const char *source, const char *path) {
+    return preprocessToonBlocks(source, path);
+}
+
 static int lineStartsInlineIfDecl(const char *lineStart,
                                   const char *lineEnd,
                                   const char **outExprStart) {
@@ -8586,6 +8592,55 @@ static char *aetherNormalizeCompoundLines(const char *source) {
 fail:
     free(out.data);
     return NULL;
+}
+
+/* Public pre-pass for the AST parser (AETHER_PARSER=ast): lower the Aether
+ * stdlib/TOON/capability builtin call spellings to their canonical pscal builtins
+ * the same way the rewriter does, as a pure text transform, BEFORE the lexer
+ * runs. Reuses rewriteAetherBuiltinAliases (JSON->toon_* spellings) then drives
+ * applyJsonAliasesToLine line-by-line (toon_* -> Yyjson*, has_toon/string_eq/...
+ * capability lowering), building the TOON literal-binding table first so
+ * `toon_parse(docVar)` resolves against an earlier `let docVar: TOON = "...";`.
+ * Line structure is preserved so source line numbers stay accurate. Returns a
+ * malloc'd copy (caller frees) or NULL on error. */
+char *aetherPreprocessBuiltinsForAst(const char *source) {
+    if (!source) return NULL;
+    char *aliasNormalized = rewriteAetherBuiltinAliases(source, source + strlen(source));
+    if (!aliasNormalized) return NULL;
+
+    JsonAliasState jsonState = {0};
+    ToonLiteralTable toonTable = {0};
+    Buffer out = {0};
+    const char *cursor = aliasNormalized;
+    int ok = 1;
+    while (*cursor) {
+        const char *lineStart = cursor;
+        const char *lineEnd = cursor;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        const char *body = lineStart;
+        while (body < lineEnd && (*body == ' ' || *body == '\t')) body++;
+        /* Track TOON literal bindings exactly as the rewriter does before the
+         * per-line alias pass so doc-handle args resolve to the literal. */
+        maybeRecordToonLiteralBinding(&toonTable, body, lineEnd);
+        char *lineCopy = dupRange(lineStart, lineEnd);
+        if (!lineCopy) { ok = 0; break; }
+        char *aliased = applyJsonAliasesToLine(lineCopy, &jsonState, &toonTable);
+        free(lineCopy);
+        if (!aliased) { ok = 0; break; }
+        if (!bufferAppend(&out, aliased)) { free(aliased); ok = 0; break; }
+        free(aliased);
+        if (*lineEnd == '\n') {
+            if (!bufferAppendN(&out, "\n", 1)) { ok = 0; break; }
+            cursor = lineEnd + 1;
+        } else {
+            cursor = lineEnd;
+        }
+    }
+    free(aliasNormalized);
+    freeToonLiteralTable(&toonTable);
+    if (!ok) { free(out.data); return NULL; }
+    if (!out.data) { out.data = (char *)malloc(1); if (out.data) out.data[0] = '\0'; }
+    return out.data;
 }
 
 char *aetherRewriteSource(const char *source, const char *path) {

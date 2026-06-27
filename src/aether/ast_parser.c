@@ -58,6 +58,7 @@
 #include "rea/lexer.h"
 #include "aether/semantic.h"
 #include "aether/diagnostics.h"
+#include "aether/translate.h"
 
 /* Provided by core/utils.c */
 Token *newToken(TokenType type, const char *value, int line, int column);
@@ -153,6 +154,167 @@ static const char *bindingTableGet(const AetherBindingTable *t, const char *name
 }
 
 /* ------------------------------------------------------------------ */
+/* Contract + tuple support tables (MILESTONE 3)                       */
+/* ------------------------------------------------------------------ */
+
+/* Pending `@pre`/`@post` contract expressions accumulated immediately before a
+ * `fn`/method decl. Multiple `@pre` (or `@post`) lines combine with `&&` exactly
+ * as the rewriter's appendContractExpr does. `@pure`/`@cost` are recorded only as
+ * presence flags -- they carry no codegen (the runtime check is none; the
+ * semantic layer validates them on the original source text). */
+typedef struct {
+    char *preExpr;   /* combined @pre expression text, or NULL  */
+    char *postExpr;  /* combined @post expression text, or NULL */
+} AetherPendingContracts;
+
+/* A tuple-return function signature: name -> synthetic record-free lowering via
+ * per-slot globals `__aether_tuple_<id>_item<k>`. itemTypes are the Aether type
+ * names of each slot (e.g. "Int","Text"). Mirrors translate.c AetherTupleSig. */
+typedef struct {
+    char *functionName;
+    int   typeId;          /* the N in __aether_tuple_N */
+    char **itemTypes;      /* Aether type names per slot */
+    size_t itemCount;
+} AetherTupleSig;
+
+typedef struct {
+    AetherTupleSig *items;
+    size_t count;
+    size_t cap;
+} AetherTupleTable;
+
+/* Field list of the type currently being parsed, so bare field references inside
+ * a method's contract expression lower to `myself.<field>` the way the rewriter's
+ * rewriteMethodScopedExpr does. */
+typedef struct {
+    char **names;
+    size_t count;
+    size_t cap;
+} AetherFieldNameList;
+
+static void tupleTableInit(AetherTupleTable *t) { t->items = NULL; t->count = 0; t->cap = 0; }
+
+static void tupleSigFree(AetherTupleSig *s) {
+    if (!s) return;
+    free(s->functionName);
+    for (size_t i = 0; i < s->itemCount; i++) free(s->itemTypes[i]);
+    free(s->itemTypes);
+    s->functionName = NULL;
+    s->itemTypes = NULL;
+    s->itemCount = 0;
+}
+
+static void tupleTableFree(AetherTupleTable *t) {
+    if (!t) return;
+    for (size_t i = 0; i < t->count; i++) tupleSigFree(&t->items[i]);
+    free(t->items);
+    t->items = NULL;
+    t->count = 0;
+    t->cap = 0;
+}
+
+/* Record (or replace) a tuple signature for `name`. itemTypes are deep-copied. */
+static bool tupleTableSet(AetherTupleTable *t, const char *name, int typeId,
+                          char **itemTypes, size_t itemCount) {
+    if (!t || !name || !itemTypes || itemCount == 0) return false;
+    AetherTupleSig *slot = NULL;
+    for (size_t i = 0; i < t->count; i++) {
+        if (strcmp(t->items[i].functionName, name) == 0) { slot = &t->items[i]; break; }
+    }
+    if (!slot) {
+        if (t->count == t->cap) {
+            size_t newCap = t->cap ? t->cap * 2 : 4;
+            AetherTupleSig *items = (AetherTupleSig *)realloc(t->items, newCap * sizeof(*items));
+            if (!items) return false;
+            t->items = items;
+            t->cap = newCap;
+        }
+        slot = &t->items[t->count];
+        memset(slot, 0, sizeof(*slot));
+        slot->functionName = strdup(name);
+        if (!slot->functionName) return false;
+        t->count++;
+    } else {
+        for (size_t i = 0; i < slot->itemCount; i++) free(slot->itemTypes[i]);
+        free(slot->itemTypes);
+        slot->itemTypes = NULL;
+        slot->itemCount = 0;
+    }
+    slot->typeId = typeId;
+    slot->itemTypes = (char **)calloc(itemCount, sizeof(char *));
+    if (!slot->itemTypes) return false;
+    for (size_t i = 0; i < itemCount; i++) {
+        slot->itemTypes[i] = strdup(itemTypes[i] ? itemTypes[i] : "");
+        if (!slot->itemTypes[i]) return false;
+    }
+    slot->itemCount = itemCount;
+    return true;
+}
+
+static const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char *name, size_t len) {
+    if (!t || !name) return NULL;
+    for (size_t i = 0; i < t->count; i++) {
+        if (strlen(t->items[i].functionName) == len &&
+            strncmp(t->items[i].functionName, name, len) == 0) {
+            return &t->items[i];
+        }
+    }
+    return NULL;
+}
+
+static void fieldNameListInit(AetherFieldNameList *l) { l->names = NULL; l->count = 0; l->cap = 0; }
+
+static void fieldNameListFree(AetherFieldNameList *l) {
+    if (!l) return;
+    for (size_t i = 0; i < l->count; i++) free(l->names[i]);
+    free(l->names);
+    l->names = NULL;
+    l->count = 0;
+    l->cap = 0;
+}
+
+static void fieldNameListAdd(AetherFieldNameList *l, const char *name, size_t len) {
+    if (!l || !name) return;
+    if (l->count == l->cap) {
+        size_t newCap = l->cap ? l->cap * 2 : 8;
+        char **names = (char **)realloc(l->names, newCap * sizeof(char *));
+        if (!names) return;
+        l->names = names;
+        l->cap = newCap;
+    }
+    char *dup = (char *)malloc(len + 1);
+    if (!dup) return;
+    memcpy(dup, name, len);
+    dup[len] = '\0';
+    l->names[l->count++] = dup;
+}
+
+static bool fieldNameListHas(const AetherFieldNameList *l, const char *name, size_t len) {
+    if (!l || !name) return false;
+    for (size_t i = 0; i < l->count; i++) {
+        if (strlen(l->names[i]) == len && strncmp(l->names[i], name, len) == 0) return true;
+    }
+    return false;
+}
+
+/* Combine a fresh contract expression onto an existing one with `&&`, wrapping
+ * each operand in parentheses -- byte for byte as translate.c appendContractExpr
+ * (which yields `(a) && (b)` style: actually `((a) && (b))`-free combination).
+ * The rewriter emits `(A) && (B)` then later wraps the whole in `!( ... )`; for
+ * three it nests `((A && B)) && C` -> we reproduce its exact left-folded shape
+ * `(prev) && (next)`. */
+static char *appendContractExprText(char *existing, const char *expr) {
+    if (!expr || !*expr) return existing;
+    if (!existing) return strdup(expr);
+    size_t need = strlen(existing) + strlen(expr) + 16;
+    char *combined = (char *)malloc(need);
+    if (!combined) return existing;
+    snprintf(combined, need, "(%s) && (%s)", existing, expr);
+    free(existing);
+    return combined;
+}
+
+/* ------------------------------------------------------------------ */
 /* Parser state                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -179,6 +341,25 @@ typedef struct {
     AetherBindingTable *funcReturns;    /* fn/method (possibly-mangled) name ->   */
                                         /* Aether return-type name, for inferring */
                                         /* `let x = f(...)` / `x = recv.m(...)`.  */
+    /* Contract + tuple state (MILESTONE 3). */
+    AetherTupleTable *tuples;           /* tuple-return fn signatures (global)     */
+    int *nextTupleTypeId;               /* monotonically-increasing tuple type id  */
+    const AetherFieldNameList *classFields; /* fields of the type being parsed     */
+    /* The tuple signature of the function whose body is being parsed (so `ret
+     * (a,b)` lowers to per-slot global writes), NULL outside a tuple fn body.    */
+    const AetherTupleSig *currentTupleSig;
+    /* The combined @post expression text for the current function (already
+     * method-scoped / tuple-result rewritten), consumed at each `ret`. NULL when
+     * there is no @post. */
+    const char *currentPostExpr;
+    const char *currentFunctionName;    /* unmangled name, for guard messages      */
+    bool currentFunctionIsMethod;
+    /* When true, bare identifiers that name a current-class field lower to
+     * `myself.<field>` (contract expressions inside a method). */
+    bool inMethodContract;
+    /* Contracts accumulated from `@pre`/`@post` lines immediately before the next
+     * `fn`/method decl. Consumed (and cleared) by parseFnDecl. */
+    AetherPendingContracts pending;
 } AetherParser;
 
 /* Raw next token straight from the rea lexer (no `..` synthesis), honoring the
@@ -293,6 +474,16 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->currentMethodIndex = 0;
     p->bindings = bindings;
     p->funcReturns = NULL;
+    p->tuples = NULL;
+    p->nextTupleTypeId = NULL;
+    p->classFields = NULL;
+    p->currentTupleSig = NULL;
+    p->currentPostExpr = NULL;
+    p->currentFunctionName = NULL;
+    p->currentFunctionIsMethod = false;
+    p->inMethodContract = false;
+    p->pending.preExpr = NULL;
+    p->pending.postExpr = NULL;
 }
 
 /* True if the current token's text equals `kw` exactly. Aether keywords come
@@ -369,12 +560,19 @@ static Token *currentAsIdentifier(AetherParser *p) {
 static bool mapAetherType(const char *name, size_t len,
                           const char **outReaName, VarType *outType) {
     struct { const char *aether; const char *rea; VarType vt; } table[] = {
-        { "Int",   "int",   TYPE_INT64 },
-        { "Real",  "float", TYPE_DOUBLE },
-        { "Float", "float", TYPE_DOUBLE },
-        { "Text",  "str",   TYPE_UNICODE_STRING },
-        { "Bool",  "bool",  TYPE_BOOLEAN },
-        { "Void",  "void",  TYPE_VOID },
+        { "Int",     "int",   TYPE_INT64 },
+        { "Real",    "float", TYPE_DOUBLE },
+        { "Float",   "float", TYPE_DOUBLE },
+        { "Text",    "str",   TYPE_UNICODE_STRING },
+        { "Bool",    "bool",  TYPE_BOOLEAN },
+        { "Void",    "void",  TYPE_VOID },
+        /* TOON surface types lower exactly as translate.c mapTypeName: the TOON
+         * literal is a string; doc/node handles are opaque integer handles. The
+         * TOON handle/scalar *type* discipline is enforced by semantic.c on the
+         * source text, so here we only need the codegen-compatible lowering. */
+        { "TOON",    "str",   TYPE_UNICODE_STRING },
+        { "ToonDoc", "int",   TYPE_INT64 },
+        { "ToonNode","int",   TYPE_INT64 },
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         size_t alen = strlen(table[i].aether);
@@ -675,6 +873,11 @@ static AST *parseBlock(AetherParser *p);
 static AST *parseFnDecl(AetherParser *p);
 static AST *parseTypeDecl(AetherParser *p);
 static AST *parseConstDeclTop(AetherParser *p);
+static AST *parseExprFromText(AetherParser *p, const char *text, int line,
+                             bool inMethodContract);
+static AST *buildContractGuard(AetherParser *p, const char *exprText,
+                              const char *kind, const char *fnName, int line);
+static AST *parseLetTupleDestructure(AetherParser *p, int kwLine);
 
 /* ------------------------------------------------------------------ */
 /* Primary / call expressions (mirrors rea parseFactor primary cases)  */
@@ -1138,6 +1341,22 @@ static AST *parsePrimary(AetherParser *p) {
             setTypeAST(call, TYPE_UNKNOWN);
             return parsePostfix(p, call);
         }
+        /* Inside a method's contract expression, a bare field reference lowers to
+         * `myself.<field>` -- exactly as the rewriter's rewriteMethodScopedExpr
+         * does (only when it is a current-class field and not a known binding). */
+        if (p->inMethodContract && tok->value &&
+            p->classFields &&
+            !bindingTableGet(p->bindings, tok->value, strlen(tok->value)) &&
+            fieldNameListHas(p->classFields, tok->value, strlen(tok->value))) {
+            Token *selfTok = newToken(TOKEN_IDENTIFIER, "myself", idLine, 0);
+            AST *recv = newASTNode(AST_VARIABLE, selfTok);
+            setTypeAST(recv, TYPE_POINTER);
+            AST *fieldVar = newASTNode(AST_VARIABLE, tok);
+            AST *fa = newASTNode(AST_FIELD_ACCESS, tok);
+            setLeft(fa, recv);
+            setRight(fa, fieldVar);
+            return parsePostfix(p, fa);
+        }
         AST *node = newASTNode(AST_VARIABLE, tok);
         setTypeAST(node, TYPE_UNKNOWN);
         return parsePostfix(p, node);
@@ -1318,6 +1537,102 @@ static AST *parseExpr(AetherParser *p) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Contract-expression sub-parser + guard builder (MILESTONE 3)        */
+/* ------------------------------------------------------------------ */
+
+/* Parse a standalone expression from a NUL-terminated text buffer (a contract
+ * expression). A fresh lexer/parser is spun up that *shares* the parent's class
+ * context, bindings, function-return table, tuple table and class field list, so
+ * `self`/field references, builtin aliases and `result` all lower identically to
+ * how they would in the function body. `line` stamps the produced nodes' source
+ * line (the @pre/@post directive's line). With `inMethodContract` set, bare field
+ * names lower to `myself.<field>`. Errors propagate via p->hadError. */
+static AST *parseExprFromText(AetherParser *p, const char *text, int line,
+                             bool inMethodContract) {
+    if (!text) return NULL;
+    AetherParser sub;
+    aetherParserInit(&sub, text, p->bindings);
+    sub.currentFunctionType = p->currentFunctionType;
+    sub.functionDepth = p->functionDepth;
+    sub.currentClassName = p->currentClassName;
+    sub.funcReturns = p->funcReturns;
+    sub.tuples = p->tuples;
+    sub.nextTupleTypeId = p->nextTupleTypeId;
+    sub.classFields = p->classFields;
+    sub.inMethodContract = inMethodContract;
+    aetherAdvance(&sub);
+    AST *expr = parseExpr(&sub);
+    if (!expr || sub.hadError) {
+        if (expr) freeAST(expr);
+        p->hadError = true;
+        return NULL;
+    }
+    /* Stamp the directive line on the whole tree so a contract error reports the
+     * @pre/@post line, not column 0. */
+    if (expr->token) expr->token->line = line;
+    return expr;
+}
+
+/* Build the runtime contract guard the rewriter emits as text:
+ *     if (!(EXPR)) { writeln("Aether @KIND failed in FN"); halt(1); }
+ * as an AST_IF whose condition is AST_UNARY_OP(NOT, EXPR), then-branch a
+ * COMPOUND[ AST_WRITELN(message), halt(1) ]. `exprText` is the (already combined
+ * + scoped) contract expression; it is parsed via parseExprFromText. Returns the
+ * AST_IF, or NULL on error (p->hadError set). */
+static AST *buildContractGuard(AetherParser *p, const char *exprText,
+                              const char *kind, const char *fnName, int line) {
+    if (!exprText || !*exprText) return NULL;
+    AST *cond = parseExprFromText(p, exprText, line, p->currentFunctionIsMethod);
+    if (!cond) return NULL;
+
+    /* NOT(cond) */
+    Token *notTok = newToken(TOKEN_NOT, "!", line, 0);
+    AST *notNode = newASTNode(AST_UNARY_OP, notTok);
+    setLeft(notNode, cond);
+    setTypeAST(notNode, TYPE_BOOLEAN);
+
+    /* writeln("Aether @KIND failed in FN") */
+    size_t mlen = strlen("Aether @") + strlen(kind ? kind : "") +
+                  strlen(" failed in ") + strlen(fnName ? fnName : "") + 1;
+    char *msg = (char *)malloc(mlen);
+    if (!msg) { freeAST(notNode); p->hadError = true; return NULL; }
+    snprintf(msg, mlen, "Aether @%s failed in %s", kind ? kind : "", fnName ? fnName : "");
+    Token *strTok = (Token *)malloc(sizeof(Token));
+    if (!strTok) { free(msg); freeAST(notNode); p->hadError = true; return NULL; }
+    strTok->type = TOKEN_STRING_CONST;
+    strTok->value = msg;
+    strTok->length = strlen(msg);
+    strTok->line = line;
+    strTok->column = 0;
+    strTok->is_char_code = false;
+    strTok->char_code_value = 0;
+    AST *strNode = newASTNode(AST_STRING, strTok);
+    strNode->i_val = (int)strlen(msg);
+    setTypeAST(strNode, TYPE_STRING);
+    AST *writelnNode = newASTNode(AST_WRITELN, NULL);
+    addChild(writelnNode, strNode);
+    setTypeAST(writelnNode, TYPE_VOID);
+
+    /* halt(1) */
+    Token *haltTok = newToken(TOKEN_IDENTIFIER, "halt", line, 0);
+    AST *haltCall = newASTNode(AST_PROCEDURE_CALL, haltTok);
+    Token *oneTok = newToken(TOKEN_INTEGER_CONST, "1", line, 0);
+    AST *oneNode = newASTNode(AST_NUMBER, oneTok);
+    setTypeAST(oneNode, TYPE_INT64);
+    addChild(haltCall, oneNode);
+    setTypeAST(haltCall, TYPE_VOID);
+
+    AST *thenBlock = newASTNode(AST_COMPOUND, NULL);
+    addChild(thenBlock, writelnNode);
+    addChild(thenBlock, haltCall);
+
+    AST *ifNode = newASTNode(AST_IF, NULL);
+    setLeft(ifNode, notNode);
+    setRight(ifNode, thenBlock);
+    return ifNode;
+}
+
+/* ------------------------------------------------------------------ */
 /* Statements                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -1479,11 +1794,8 @@ static AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
  *   - inferred (no type):   `let x = e;`      -> type inferred from `e`
  * Block-level `const` is handled by parseConstDeclTop (AST_CONST_DECL), matching
  * the rewriter which lowers a local `const` to a Rea `const`, not a typed var. */
-static AST *parseLetDecl(AetherParser *p, bool isConst) {
-    int kwLine = p->current.line;
-    (void)isConst; /* `const` no longer routes here; kept for call-site symmetry */
-    aetherAdvance(p); /* consume 'let' */
-
+static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
+    /* `let` has already been consumed by the caller (which peeked for `(`). */
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
         fprintf(stderr, "L%d: expected name after 'let'.\n", p->current.line);
         p->hadError = true;
@@ -1644,9 +1956,200 @@ static AST *parseLetDecl(AetherParser *p, bool isConst) {
     return decl;
 }
 
-/* ret [expr] ;  ->  AST_RETURN (mirrors rea parseReturn). */
+/* Build an assignment `<name> = <value>;` AST (AST_ASSIGN of an AST_VARIABLE). */
+static AST *buildSimpleAssign(const char *name, AST *value, int line) {
+    Token *nTok = newToken(TOKEN_IDENTIFIER, name, line, 0);
+    AST *var = newASTNode(AST_VARIABLE, nTok);
+    setTypeAST(var, value ? value->var_type : TYPE_UNKNOWN);
+    Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *assign = newASTNode(AST_ASSIGN, aTok);
+    setLeft(assign, var);
+    setRight(assign, value);
+    setTypeAST(assign, value ? value->var_type : TYPE_UNKNOWN);
+    return assign;
+}
+
+/* ret (a, b, ...) ;  for a tuple-return function. Lowers to the same shape the
+ * rewriter emits: per-slot global writes `__aether_tuple_N_item<k> = expr<k>;`
+ * followed by the @post guard (if any) and a bare `return;`. The result is an
+ * AST_COMPOUND splice (i_val==1) so parseBlock flattens it into the body. */
+static AST *parseTupleReturn(AetherParser *p, int line) {
+    const AetherTupleSig *sig = p->currentTupleSig;
+    aetherAdvance(p); /* consume '(' */
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* declaration-group splice wrapper */
+    size_t idx = 0;
+    while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
+        AST *item = parseExpr(p);
+        if (!item) { p->hadError = true; freeAST(outer); return NULL; }
+        if (idx >= sig->itemCount) {
+            fprintf(stderr, "L%d: tuple return has more values than the declared return type.\n", line);
+            p->hadError = true;
+            freeAST(item);
+            freeAST(outer);
+            return NULL;
+        }
+        char fieldName[80];
+        snprintf(fieldName, sizeof(fieldName), "__aether_tuple_%d_item%zu", sig->typeId, idx);
+        addChild(outer, buildSimpleAssign(fieldName, item, line));
+        idx++;
+        if (p->current.type == REA_TOKEN_COMMA) { aetherAdvance(p); continue; }
+        break;
+    }
+    if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    if (idx != sig->itemCount) {
+        fprintf(stderr, "L%d: tuple return arity does not match the declared return type.\n", line);
+        p->hadError = true;
+        freeAST(outer);
+        return NULL;
+    }
+    if (p->currentPostExpr) {
+        AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
+                                        p->currentFunctionName, line);
+        if (!guard) { freeAST(outer); return NULL; }
+        addChild(outer, guard);
+    }
+    Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+    AST *ret = newASTNode(AST_RETURN, retTok);
+    setLeft(ret, NULL);
+    setTypeAST(ret, TYPE_VOID);
+    addChild(outer, ret);
+    return outer;
+}
+
+/* let (a, b, ...) = call();  tuple destructuring.
+ *
+ * Lowers to the same shape the rewriter (translateTupleDestructureLetLine)
+ * emits: call the tuple-return function as a statement, then read each slot
+ * global into a typed local:
+ *     call();
+ *     <type0> a = __aether_tuple_N_item0;
+ *     <type1> b = __aether_tuple_N_item1;
+ * Requires a direct call to a known tuple-return function (matching the
+ * rewriter). Returns an AST_COMPOUND splice (i_val==1). Called with `current`
+ * positioned at the '(' that opens the destructuring pattern. */
+static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
+    aetherAdvance(p); /* consume '(' */
+    /* Collect the binding names. */
+    char *names[16];
+    size_t nameCount = 0;
+    while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
+        if (p->current.type != REA_TOKEN_IDENTIFIER || nameCount >= 16) {
+            fprintf(stderr, "L%d: expected a binding name in tuple destructuring.\n", p->current.line);
+            p->hadError = true;
+            for (size_t i = 0; i < nameCount; i++) free(names[i]);
+            return NULL;
+        }
+        char *nm = (char *)malloc(p->current.length + 1);
+        if (!nm) { p->hadError = true; for (size_t i = 0; i < nameCount; i++) free(names[i]); return NULL; }
+        memcpy(nm, p->current.start, p->current.length);
+        nm[p->current.length] = '\0';
+        names[nameCount++] = nm;
+        aetherAdvance(p); /* consume name */
+        if (p->current.type == REA_TOKEN_COMMA) { aetherAdvance(p); continue; }
+        break;
+    }
+    if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
+    if (p->current.type != REA_TOKEN_EQUAL) {
+        fprintf(stderr, "L%d: expected '=' in tuple destructuring.\n", kwLine);
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
+    aetherAdvance(p); /* consume '=' */
+
+    /* The right side must be a direct call `name(args)` to a tuple-return fn. */
+    if (p->current.type != REA_TOKEN_IDENTIFIER) {
+        const char *path = aetherSemanticGetSourcePath();
+        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
+        fprintf(stderr, "[feature] tuple destructuring currently requires a direct call to a known tuple-return function.\n");
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
+    char calleeName[128];
+    size_t cl = p->current.length < sizeof(calleeName) - 1 ? p->current.length : sizeof(calleeName) - 1;
+    memcpy(calleeName, p->current.start, cl);
+    calleeName[cl] = '\0';
+    const AetherTupleSig *sig = tupleTableGet(p->tuples, calleeName, strlen(calleeName));
+    if (!sig) {
+        const char *path = aetherSemanticGetSourcePath();
+        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
+        fprintf(stderr, "[feature] tuple destructuring target is not a known tuple-return function.\n");
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
+    if (sig->itemCount != nameCount) {
+        const char *path = aetherSemanticGetSourcePath();
+        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
+        fprintf(stderr, "[feature] tuple destructuring arity does not match the function return tuple.\n");
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
+    /* Parse the call as a full expression (handles args), yielding a
+     * PROCEDURE_CALL we use as a statement. */
+    AST *call = parseExpr(p);
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+    if (!call) {
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    /* The call statement. */
+    AST *callStmt = newASTNode(AST_EXPR_STMT, call->token);
+    setLeft(callStmt, call);
+    addChild(outer, callStmt);
+    /* One typed local per binding, reading the matching slot global, and record
+     * the binding's Aether type for downstream inference. */
+    for (size_t i = 0; i < nameCount; i++) {
+        char slot[80];
+        snprintf(slot, sizeof(slot), "__aether_tuple_%d_item%zu", sig->typeId, i);
+        VarType vt = TYPE_UNKNOWN;
+        AST *typeNode = buildTypeNode(sig->itemTypes[i], strlen(sig->itemTypes[i]), kwLine, &vt);
+        Token *nameTok = newToken(TOKEN_IDENTIFIER, names[i], kwLine, 0);
+        AST *var = newASTNode(AST_VARIABLE, nameTok);
+        setTypeAST(var, vt);
+        Token *slotTok = newToken(TOKEN_IDENTIFIER, slot, kwLine, 0);
+        AST *slotVar = newASTNode(AST_VARIABLE, slotTok);
+        setTypeAST(slotVar, vt);
+        AST *decl = newASTNode(AST_VAR_DECL, NULL);
+        addChild(decl, var);
+        setLeft(decl, slotVar);
+        setRight(decl, typeNode);
+        setTypeAST(decl, vt);
+        addChild(outer, decl);
+        bindingTableSet((AetherBindingTable *)p->bindings, names[i], sig->itemTypes[i]);
+        free(names[i]);
+    }
+    return outer;
+}
+
+/* ret [expr] ;  ->  AST_RETURN (mirrors rea parseReturn).
+ *
+ * Three contract/tuple-aware shapes (MILESTONE 3), matching translate.c:
+ *   - tuple-return fn: `ret (a,b);`  -> per-slot writes + [post] + `return;`
+ *   - @post on a value fn: `ret e;`  -> `result = e; <post guard>; return result;`
+ *   - otherwise: a plain AST_RETURN. */
 static AST *parseRet(AetherParser *p) {
     int line = p->current.line;
+
+    /* Tuple-return function: `ret (a, b);`. */
+    if (p->currentTupleSig && p->currentTupleSig->itemCount > 0) {
+        aetherAdvance(p); /* consume 'ret' */
+        if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+            return parseTupleReturn(p, line);
+        }
+        fprintf(stderr, "L%d: a tuple-return function must return a tuple literal `(...)`.\n", line);
+        p->hadError = true;
+        return NULL;
+    }
+
     aetherAdvance(p); /* consume 'ret' */
     AST *value = NULL;
     if (p->current.type != REA_TOKEN_SEMICOLON && p->current.type != REA_TOKEN_RIGHT_BRACE &&
@@ -1660,6 +2163,28 @@ static AST *parseRet(AetherParser *p) {
         aetherAdvance(p);
     }
     if (p->hadError) return NULL;
+
+    /* @post on a value-returning function: stage `result`, check, then return it,
+     * exactly as the rewriter's translateReturnWithPost. */
+    if (p->currentPostExpr && value) {
+        AST *outer = newASTNode(AST_COMPOUND, NULL);
+        outer->i_val = 1; /* splice into the surrounding block */
+        addChild(outer, buildSimpleAssign("result", value, line));
+        AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
+                                        p->currentFunctionName, line);
+        if (!guard) { freeAST(outer); return NULL; }
+        addChild(outer, guard);
+        Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+        AST *ret = newASTNode(AST_RETURN, retTok);
+        Token *resTok = newToken(TOKEN_IDENTIFIER, "result", line, 0);
+        AST *resVar = newASTNode(AST_VARIABLE, resTok);
+        setTypeAST(resVar, value->var_type);
+        setLeft(ret, resVar);
+        setTypeAST(ret, value->var_type);
+        addChild(outer, ret);
+        return outer;
+    }
+
     Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
     AST *node = newASTNode(AST_RETURN, retTok);
     setLeft(node, value);
@@ -1855,7 +2380,13 @@ static AST *parseStatement(AetherParser *p) {
         return newASTNode(AST_COMPOUND, NULL);
     }
     if (isAetherKeyword(&p->current, "let")) {
-        return parseLetDecl(p, false);
+        int kwLine = p->current.line;
+        aetherAdvance(p); /* consume 'let' */
+        /* `let (a, b) = call();` -> tuple destructuring. */
+        if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+            return parseLetTupleDestructure(p, kwLine);
+        }
+        return parseLetDeclAfterKeyword(p, kwLine);
     }
     if (p->current.type == REA_TOKEN_CONST || isAetherKeyword(&p->current, "const")) {
         return parseConstDeclTop(p); /* AST_CONST_DECL; depth-aware folding */
@@ -1918,6 +2449,136 @@ static AST *parseBlock(AetherParser *p) {
 /* ------------------------------------------------------------------ */
 /* Function declarations                                               */
 /* ------------------------------------------------------------------ */
+
+static void aetherFreePending(AetherPendingContracts *pending) {
+    if (!pending) return;
+    free(pending->preExpr);
+    free(pending->postExpr);
+    pending->preExpr = NULL;
+    pending->postExpr = NULL;
+}
+
+/* Parse a parenthesized type list `(T, U, ...)` (a tuple type) from the raw text
+ * span [start,end). On success fills `*outItems` with malloc'd Aether type-name
+ * strings (caller frees) and returns true. Returns false if the span is not a
+ * tuple type (e.g. a scalar like `Int`, or `()`), mirroring translate.c
+ * parseTupleTypeList: requires a leading '(' and at least one ',' inside. */
+static bool parseTupleTypeList(const char *start, const char *end,
+                              char ***outItems, size_t *outCount) {
+    if (!start || !end || end <= start) return false;
+    while (start < end && isspace((unsigned char)*start)) start++;
+    const char *tail = end;
+    while (tail > start && isspace((unsigned char)tail[-1])) tail--;
+    if (tail - start < 2 || *start != '(' || tail[-1] != ')') return false;
+    const char *inner = start + 1;
+    const char *innerEnd = tail - 1;
+
+    char **items = NULL;
+    size_t count = 0, cap = 0;
+    const char *cursor = inner;
+    int depth = 0;
+    bool sawComma = false;
+    const char *segStart = cursor;
+    while (cursor <= innerEnd) {
+        char c = (cursor < innerEnd) ? *cursor : ',';
+        if (cursor < innerEnd && (c == '(' || c == '[')) depth++;
+        else if (cursor < innerEnd && (c == ')' || c == ']')) depth--;
+        if ((cursor == innerEnd) || (c == ',' && depth == 0)) {
+            if (cursor < innerEnd) sawComma = true;
+            const char *s = segStart, *e = cursor;
+            while (s < e && isspace((unsigned char)*s)) s++;
+            while (e > s && isspace((unsigned char)e[-1])) e--;
+            if (e <= s) { /* empty segment -> not a valid tuple type */
+                for (size_t i = 0; i < count; i++) free(items[i]);
+                free(items);
+                return false;
+            }
+            if (count == cap) {
+                size_t nc = cap ? cap * 2 : 4;
+                char **ni = (char **)realloc(items, nc * sizeof(char *));
+                if (!ni) { for (size_t i = 0; i < count; i++) free(items[i]); free(items); return false; }
+                items = ni; cap = nc;
+            }
+            char *seg = (char *)malloc((size_t)(e - s) + 1);
+            if (!seg) { for (size_t i = 0; i < count; i++) free(items[i]); free(items); return false; }
+            memcpy(seg, s, (size_t)(e - s));
+            seg[e - s] = '\0';
+            items[count++] = seg;
+            segStart = cursor + 1;
+        }
+        cursor++;
+    }
+    if (!sawComma || count < 2) {
+        for (size_t i = 0; i < count; i++) free(items[i]);
+        free(items);
+        return false;
+    }
+    *outItems = items;
+    *outCount = count;
+    return true;
+}
+
+/* Advance the lexer past the remainder of the physical line that contains
+ * `p->current` (used after capturing an `@`-annotation's raw expression text).
+ * Resets the token FIFO and re-primes `current` on the next line. */
+static void aetherResyncToNextLine(AetherParser *p) {
+    const char *src = p->lexer.source;
+    /* p->current.start points into the source; walk to the next newline. */
+    const char *at = p->current.start;
+    /* Guard: if start is NULL (synthetic), fall back to lexer pos. */
+    if (!at) at = src + p->lexer.pos;
+    const char *nl = at;
+    while (*nl && *nl != '\n') nl++;
+    size_t newPos = (size_t)((*nl == '\n') ? (nl + 1 - src) : (nl - src));
+    p->lexer.pos = newPos;
+    if (*nl == '\n') p->lexer.line++;
+    p->queueHead = 0;
+    p->queueCount = 0;
+    aetherAdvance(p);
+}
+
+/* Collect a run of `@pre`/`@post`/`@pure`/`@cost` annotation lines that precede a
+ * `fn`/method decl into `p->pending`. The shared Rea lexer yields `@` as
+ * REA_TOKEN_UNKNOWN("@"); we read the directive identifier, then capture the rest
+ * of the physical line as the raw contract expression (alias/method-scope/tuple
+ * rewriting happens when the guard is built). `@pure`/`@cost` carry no codegen --
+ * the semantic layer validates them on the source text -- so we just skip them.
+ * Detached/empty/misplaced annotations are diagnosed by semantic.c; here we are
+ * permissive so the parser produces an AST and the text-based checks fire. */
+static void collectPendingAnnotations(AetherParser *p) {
+    while (p->current.type == REA_TOKEN_UNKNOWN &&
+           p->current.length == 1 && p->current.start && p->current.start[0] == '@') {
+        const char *lineStart = p->current.start;          /* at the '@' */
+        const char *lineEnd = lineStart;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        /* Identify directive: skip '@', read the keyword. */
+        const char *d = lineStart + 1;
+        const char *dEnd = d;
+        while (dEnd < lineEnd && (isalnum((unsigned char)*dEnd) || *dEnd == '_')) dEnd++;
+        size_t dlen = (size_t)(dEnd - d);
+        /* Raw expression = trimmed remainder of the line after the directive. */
+        const char *exprStart = dEnd;
+        while (exprStart < lineEnd && isspace((unsigned char)*exprStart)) exprStart++;
+        const char *exprEnd = lineEnd;
+        while (exprEnd > exprStart && isspace((unsigned char)exprEnd[-1])) exprEnd--;
+        char *exprText = NULL;
+        if (exprEnd > exprStart) {
+            exprText = (char *)malloc((size_t)(exprEnd - exprStart) + 1);
+            if (exprText) {
+                memcpy(exprText, exprStart, (size_t)(exprEnd - exprStart));
+                exprText[exprEnd - exprStart] = '\0';
+            }
+        }
+        if (dlen == 3 && strncmp(d, "pre", 3) == 0) {
+            p->pending.preExpr = appendContractExprText(p->pending.preExpr, exprText);
+        } else if (dlen == 4 && strncmp(d, "post", 4) == 0) {
+            p->pending.postExpr = appendContractExprText(p->pending.postExpr, exprText);
+        }
+        /* @pure / @cost: no codegen; presence already in the source for semantic.c */
+        free(exprText);
+        aetherResyncToNextLine(p);
+    }
+}
 
 /* fn NAME ( [name: Type, ...] ) [ -> RetType ] { body }
  *
@@ -2041,6 +2702,10 @@ static AST *parseFnDecl(AetherParser *p) {
     AST *returnTypeNode = NULL;
     VarType vtype = TYPE_VOID;
     char *retTypeName = NULL; /* Aether return-type name, for the return table */
+    bool hasTupleReturn = false;
+    char **tupleItemTypes = NULL;
+    size_t tupleItemCount = 0;
+    const AetherTupleSig *tupleSig = NULL;
     if (p->current.type != REA_TOKEN_ARROW) {
         reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "function",
                              "functions must declare an explicit return type.",
@@ -2048,6 +2713,7 @@ static AST *parseFnDecl(AetherParser *p) {
         p->hadError = true;
         freeAST(params);
         freeToken(nameTok);
+        aetherFreePending(&p->pending);
         return NULL;
     }
     if (p->current.type == REA_TOKEN_ARROW) {
@@ -2055,6 +2721,48 @@ static AST *parseFnDecl(AetherParser *p) {
         if (p->current.type == REA_TOKEN_LEFT_BRACE || p->current.type == REA_TOKEN_EOF) {
             fprintf(stderr, "L%d: expected return type after '->'.\n", p->current.line);
             p->hadError = true;
+        } else if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+            /* Tuple return type `-> (T, U, ...)`. Capture the raw `(...)` text
+             * from the source and split it. Tuple returns are only supported on
+             * top-level functions (matching the rewriter), not methods. */
+            const char *tupleStart = p->current.start;
+            const char *tupleEnd = tupleStart;
+            int depth = 0;
+            while (*tupleEnd) {
+                if (*tupleEnd == '(') depth++;
+                else if (*tupleEnd == ')') { depth--; if (depth == 0) { tupleEnd++; break; } }
+                else if (*tupleEnd == '\n') break;
+                tupleEnd++;
+            }
+            if (parseTupleTypeList(tupleStart, tupleEnd, &tupleItemTypes, &tupleItemCount)) {
+                if (isMethod) {
+                    reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "feature",
+                                         "tuple return types are currently only supported on top-level functions.",
+                                         "return a record/object from methods, or move tuple-return logic to a top-level helper function.");
+                    p->hadError = true;
+                } else {
+                    hasTupleReturn = true;
+                    vtype = TYPE_VOID;          /* tuple fns lower to void */
+                    returnTypeNode = NULL;
+                    /* The tuple signature + globals were registered in the
+                     * top-level forward-decl pre-pass; look it up by name. */
+                    tupleSig = tupleTableGet(p->tuples, nameTok->value,
+                                             nameTok->value ? strlen(nameTok->value) : 0);
+                }
+                /* Re-sync the lexer past the `(...)` we read straight from source. */
+                p->lexer.pos = (size_t)(tupleEnd - p->lexer.source);
+                p->queueHead = 0; p->queueCount = 0;
+                aetherAdvance(p);
+            } else {
+                /* Not a tuple type after all: fall through to scalar parsing. */
+                retTypeName = (char *)malloc(p->current.length + 1);
+                if (retTypeName) {
+                    memcpy(retTypeName, p->current.start, p->current.length);
+                    retTypeName[p->current.length] = '\0';
+                }
+                returnTypeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vtype);
+                aetherAdvance(p);
+            }
         } else {
             retTypeName = (char *)malloc(p->current.length + 1);
             if (retTypeName) {
@@ -2076,6 +2784,68 @@ static AST *parseFnDecl(AetherParser *p) {
     free(retTypeName);
     retTypeName = NULL;
 
+    /* --- Contract + tuple body context (MILESTONE 3) --- */
+    /* Take ownership of the pending @pre/@post collected before this decl. The
+     * post-expr text is rewritten for tuple result slots (`result.N` ->
+     * `__aether_tuple_<id>_item<N>`) here so parseRet / the guard builder see a
+     * plain expression. Method field-prefix + builtin aliasing happen
+     * automatically in parseExprFromText. */
+    char *preExpr = p->pending.preExpr;
+    char *postExpr = p->pending.postExpr;
+    p->pending.preExpr = NULL;
+    p->pending.postExpr = NULL;
+    if (hasTupleReturn && tupleSig && postExpr) {
+        size_t cap = strlen(postExpr) + 64;
+        char *rewritten = (char *)malloc(cap);
+        if (rewritten) {
+            size_t w = 0;
+            const char *s = postExpr;
+            while (*s) {
+                if (strncmp(s, "result.", 7) == 0 &&
+                    (s == postExpr ||
+                     !(isalnum((unsigned char)s[-1]) || s[-1] == '_' || s[-1] == '.'))) {
+                    const char *digits = s + 7;
+                    if (isdigit((unsigned char)*digits)) {
+                        unsigned long k = strtoul(digits, NULL, 10);
+                        const char *dEnd = digits;
+                        while (isdigit((unsigned char)*dEnd)) dEnd++;
+                        char repl[80];
+                        int rl = snprintf(repl, sizeof(repl),
+                                          "__aether_tuple_%d_item%lu", tupleSig->typeId, k);
+                        while (w + (size_t)rl + 1 >= cap) {
+                            cap *= 2; rewritten = (char *)realloc(rewritten, cap);
+                        }
+                        memcpy(rewritten + w, repl, (size_t)rl);
+                        w += (size_t)rl;
+                        s = dEnd;
+                        continue;
+                    }
+                }
+                if (w + 2 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
+                rewritten[w++] = *s++;
+            }
+            rewritten[w] = '\0';
+            free(postExpr);
+            postExpr = rewritten;
+        }
+    }
+
+    const AetherTupleSig *prevTupleSig = p->currentTupleSig;
+    const char *prevPostExpr = p->currentPostExpr;
+    const char *prevFnName = p->currentFunctionName;
+    bool prevIsMethod = p->currentFunctionIsMethod;
+    p->currentTupleSig = hasTupleReturn ? tupleSig : NULL;
+    /* The guard message uses the unmangled name (e.g. "area"), matching the
+     * rewriter, which prints `failed in <name>` from the source token. */
+    const char *guardName = nameTok->value ? nameTok->value : "";
+    if (isMethod && guardName) {
+        const char *dot = strrchr(guardName, '.');
+        if (dot && dot[1]) guardName = dot + 1;
+    }
+    p->currentFunctionName = guardName;
+    p->currentFunctionIsMethod = isMethod;
+    p->currentPostExpr = postExpr; /* parseRet consumes it for value/tuple returns */
+
     /* Body. */
     VarType prevType = p->currentFunctionType;
     int prevDepth = p->functionDepth;
@@ -2091,6 +2861,35 @@ static AST *parseFnDecl(AetherParser *p) {
 
     p->currentFunctionType = prevType;
     p->functionDepth = prevDepth;
+
+    /* Inject the @pre guard at the very start of the body, exactly where the
+     * rewriter emits it (immediately after the opening brace). */
+    if (block && preExpr && !p->hadError) {
+        AST *guard = buildContractGuard(p, preExpr, "pre", guardName, fnLine);
+        if (guard) {
+            addChild(block, NULL); /* grow capacity by one slot */
+            for (int i = block->child_count - 1; i > 0; i--) {
+                block->children[i] = block->children[i - 1];
+            }
+            block->children[0] = guard;
+            guard->parent = block;
+        }
+    }
+    /* A VOID function with a @post gets its guard before the implicit
+     * fall-through close (no `result` to stage), matching the rewriter. Tuple and
+     * value-returning fns handle @post at each `ret` instead. */
+    if (block && postExpr && !p->hadError && vtype == TYPE_VOID && !hasTupleReturn) {
+        AST *guard = buildContractGuard(p, postExpr, "post", guardName, fnLine);
+        if (guard) addChild(block, guard);
+    }
+
+    /* Restore the enclosing function's contract/tuple context. */
+    p->currentTupleSig = prevTupleSig;
+    p->currentPostExpr = prevPostExpr;
+    p->currentFunctionName = prevFnName;
+    p->currentFunctionIsMethod = prevIsMethod;
+    free(preExpr);
+    free(postExpr);
 
     if (p->hadError) {
         freeAST(params);
@@ -2280,13 +3079,22 @@ static AST *parseTypeDecl(AetherParser *p) {
 
     const char *prevClass = p->currentClassName;
     int prevIndex = p->currentMethodIndex;
+    const AetherFieldNameList *prevFields = p->classFields;
     p->currentClassName = classNameTok->value;
     p->currentMethodIndex = 0;
+    /* Track this type's field names so method contract expressions can lower bare
+     * field references to `myself.<field>` (rewriteMethodScopedExpr parity). */
+    AetherFieldNameList fields;
+    fieldNameListInit(&fields);
+    p->classFields = &fields;
 
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         aetherAdvance(p); /* consume '{' */
         while (p->current.type != REA_TOKEN_RIGHT_BRACE &&
                p->current.type != REA_TOKEN_EOF && !p->hadError) {
+            /* Method contract annotations precede a `fn`. */
+            collectPendingAnnotations(p);
+            if (p->hadError) break;
             if (isAetherKeyword(&p->current, "fn")) {
                 AST *m = parseFnDecl(p); /* class-aware: injects myself, mangles */
                 if (m) {
@@ -2299,6 +3107,9 @@ static AST *parseTypeDecl(AetherParser *p) {
                 /* A data field: NAME : Type ; */
                 Token *fieldTok = currentAsIdentifier(p);
                 if (!fieldTok) { p->hadError = true; break; }
+                if (fieldTok->value) {
+                    fieldNameListAdd(&fields, fieldTok->value, strlen(fieldTok->value));
+                }
                 aetherAdvance(p); /* consume field name */
                 if (p->current.type != REA_TOKEN_COLON) {
                     fprintf(stderr, "L%d: expected ':' after field name in type.\n",
@@ -2338,6 +3149,8 @@ static AST *parseTypeDecl(AetherParser *p) {
 
     p->currentClassName = prevClass;
     p->currentMethodIndex = prevIndex;
+    p->classFields = prevFields;
+    fieldNameListFree(&fields);
 
     if (p->hadError) {
         freeAST(recordAst);
@@ -2400,17 +3213,125 @@ static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
     }
 }
 
-AST *parseAetherAst(const char *source) {
+/* Build a global variable declaration `<reaType> <name>;` AST node (the lowering
+ * for a tuple slot global). Mirrors rea's parseVarDecl for a typed, uninitialized
+ * scalar at top level. */
+static AST *buildGlobalTupleSlotDecl(const char *aetherType, const char *name, int line) {
+    VarType vt = TYPE_UNKNOWN;
+    AST *typeNode = buildTypeNode(aetherType, strlen(aetherType), line, &vt);
+    if (!typeNode) return NULL;
+    Token *nTok = newToken(TOKEN_IDENTIFIER, name, line, 0);
+    AST *var = newASTNode(AST_VARIABLE, nTok);
+    setTypeAST(var, vt);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, var);
+    setRight(decl, typeNode);
+    setTypeAST(decl, vt);
+    return decl;
+}
+
+/* Pre-pass over the (TOON-preprocessed) source that registers tuple-return
+ * function signatures and emits the per-slot global var-decls into `decls`, the
+ * way translate.c appendTopLevelForwardDeclarations does. Scans only top-level
+ * (column-0) `fn NAME(...) -> (...)` lines; method tuple returns are unsupported
+ * (handled/diagnosed in parseFnDecl). Returns false on allocation failure. */
+static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tuples,
+                                       int *nextTupleTypeId, AST *decls) {
+    const char *cursor = source;
+    int lineNumber = 1;
+    while (*cursor) {
+        const char *lineStart = cursor;
+        const char *lineEnd = cursor;
+        while (*lineEnd && *lineEnd != '\n') lineEnd++;
+        /* Only column-0 `fn ` lines (no leading whitespace). */
+        if (lineStart < lineEnd && (lineStart[0] == 'f' && lineStart[1] == 'n') &&
+            (lineStart + 2 < lineEnd) &&
+            (lineStart[2] == ' ' || lineStart[2] == '\t')) {
+            const char *c = lineStart + 2;
+            while (c < lineEnd && (*c == ' ' || *c == '\t')) c++;
+            const char *nameStart = c;
+            while (c < lineEnd && (isalnum((unsigned char)*c) || *c == '_')) c++;
+            const char *nameEnd = c;
+            const char *paren = c;
+            while (paren < lineEnd && *paren != '(') paren++;
+            const char *arrow = NULL;
+            for (const char *q = paren; q + 1 < lineEnd; q++) {
+                if (q[0] == '-' && q[1] == '>') { arrow = q + 2; break; }
+            }
+            if (nameEnd > nameStart && arrow) {
+                const char *rt = arrow;
+                while (rt < lineEnd && isspace((unsigned char)*rt)) rt++;
+                if (rt < lineEnd && *rt == '(') {
+                    /* Capture the `(...)` return-type span. */
+                    const char *rtEnd = rt;
+                    int depth = 0;
+                    while (rtEnd < lineEnd) {
+                        if (*rtEnd == '(') depth++;
+                        else if (*rtEnd == ')') { depth--; if (depth == 0) { rtEnd++; break; } }
+                        rtEnd++;
+                    }
+                    char **items = NULL;
+                    size_t itemCount = 0;
+                    if (parseTupleTypeList(rt, rtEnd, &items, &itemCount)) {
+                        char *fnName = (char *)malloc((size_t)(nameEnd - nameStart) + 1);
+                        if (!fnName) { for (size_t i = 0; i < itemCount; i++) free(items[i]); free(items); return false; }
+                        memcpy(fnName, nameStart, (size_t)(nameEnd - nameStart));
+                        fnName[nameEnd - nameStart] = '\0';
+                        (*nextTupleTypeId)++;
+                        int typeId = *nextTupleTypeId;
+                        if (!tupleTableSet(tuples, fnName, typeId, items, itemCount)) {
+                            free(fnName); for (size_t i = 0; i < itemCount; i++) free(items[i]); free(items); return false;
+                        }
+                        for (size_t i = 0; i < itemCount; i++) {
+                            char slot[80];
+                            snprintf(slot, sizeof(slot), "__aether_tuple_%d_item%zu", typeId, i);
+                            AST *g = buildGlobalTupleSlotDecl(items[i], slot, lineNumber);
+                            if (g) addChild(decls, g);
+                        }
+                        free(fnName);
+                        for (size_t i = 0; i < itemCount; i++) free(items[i]);
+                        free(items);
+                    }
+                }
+            }
+        }
+        cursor = (*lineEnd == '\n') ? lineEnd + 1 : lineEnd;
+        if (*lineEnd == '\n') lineNumber++;
+    }
+    return true;
+}
+
+AST *parseAetherAst(const char *rawSource) {
+    if (!rawSource) return NULL;
+
+    /* TOON pre-pass: reuse the rewriter's preprocessToonBlocks so `toon:` blocks
+     * become escaped string literals before the lexer runs (roadmap mandate: do
+     * not re-implement TOON). On failure a diagnostic is already reported. */
+    const char *sourcePath = aetherSemanticGetSourcePath();
+    char *toonSource = aetherPreprocessToonBlocksForAst(rawSource, sourcePath);
+    if (!toonSource) return NULL;
+    /* Builtin-alias pre-pass: lower stdlib/TOON/capability call spellings to the
+     * canonical pscal builtins (toon_*->Yyjson*, has_toon/string_eq/...), again
+     * reusing the rewriter's machinery rather than re-implementing it. Runs after
+     * TOON-block extraction so `let d: TOON = "..."` literal bindings are visible
+     * to the toon_parse(d) lowering. */
+    char *source = aetherPreprocessBuiltinsForAst(toonSource);
+    free(toonSource);
     if (!source) return NULL;
 
     AetherBindingTable bindings;
     bindingTableInit(&bindings);
     AetherBindingTable funcReturns;
     bindingTableInit(&funcReturns);
+    AetherTupleTable tuples;
+    tupleTableInit(&tuples);
+    int nextTupleTypeId = 0;
 
     AetherParser p;
     aetherParserInit(&p, source, &bindings);
     p.funcReturns = &funcReturns;
+    p.tuples = &tuples;
+    p.nextTupleTypeId = &nextTupleTypeId;
     aetherAdvance(&p);
 
     /* Build the AST_PROGRAM root exactly like rea parseRea: a program whose
@@ -2424,7 +3345,22 @@ AST *parseAetherAst(const char *source) {
     addChild(block, decls);
     addChild(block, stmts);
 
+    /* Tuple forward decls: register tuple-return signatures + emit per-slot
+     * globals before parsing bodies, so `fn ... -> (T,U)`, `ret (a,b)` and
+     * `let (a,b) = call()` all resolve regardless of declaration order. */
+    if (!aetherRegisterTupleGlobals(source, &tuples, &nextTupleTypeId, decls)) {
+        bindingTableFree(&bindings);
+        bindingTableFree(&funcReturns);
+        tupleTableFree(&tuples);
+        freeAST(program);
+        free(source);
+        return NULL;
+    }
+
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
+        /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
+        collectPendingAnnotations(&p);
+        if (p.hadError || p.current.type == REA_TOKEN_EOF) break;
         AST *decl = NULL;
         if (isAetherKeyword(&p.current, "fn")) {
             decl = parseFnDecl(&p);
@@ -2450,14 +3386,19 @@ AST *parseAetherAst(const char *source) {
         appendTopLevelDecl(decls, stmts, decl);
     }
 
+    aetherFreePending(&p.pending);
     if (p.hadError) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
+        tupleTableFree(&tuples);
         freeAST(program);
+        free(source);
         return NULL;
     }
     bindingTableFree(&bindings);
     bindingTableFree(&funcReturns);
+    tupleTableFree(&tuples);
+    free(source);
 
     /* If a routine named 'main' exists and there are no top-level statements,
      * inject an implicit `main()` call so the VM runs user code on start --
