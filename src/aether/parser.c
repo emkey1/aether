@@ -1,6 +1,7 @@
 #include "aether/parser.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "aether/semantic.h"
 #include "aether/translate.h"
@@ -36,6 +37,17 @@ AST *parseAether(const char *source) {
     }
 
     aetherRememberSource(source);
+
+    /* Experimental AST frontend (Milestone 1): when AETHER_PARSER=ast, parse
+     * Aether straight to the shared pscal AST. The default path below (the text
+     * rewriter -> parseRea) is unchanged. */
+    {
+        const char *parserMode = getenv("AETHER_PARSER");
+        if (parserMode && strcmp(parserMode, "ast") == 0) {
+            return parseAetherAst(source);
+        }
+    }
+
     sourcePath = aetherSemanticGetSourcePath();
     rewritten = aetherRewriteSource(source, sourcePath);
     if (!rewritten) {
