@@ -370,6 +370,12 @@ typedef struct {
     /* Contracts accumulated from `@pre`/`@post` lines immediately before the next
      * `fn`/method decl. Consumed (and cleared) by parseFnDecl. */
     AetherPendingContracts pending;
+    /* Set by collectPendingAnnotations: how many `@`-annotations it just consumed,
+     * the directive of the first one, and its source line -- so the caller can emit
+     * the ANN-001 "detached annotation" diagnostic when no `fn` follows. */
+    int pendingAnnotCount;
+    char pendingAnnotName[8];
+    int pendingAnnotLine;
 } AetherParser;
 
 /* Raw next token straight from the rea lexer (no `..` synthesis), honoring the
@@ -496,6 +502,9 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->lastFnWasExtension = false;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
+    p->pendingAnnotCount = 0;
+    p->pendingAnnotName[0] = '\0';
+    p->pendingAnnotLine = 0;
 }
 
 /* True if the current token's text equals `kw` exactly. Aether keywords come
@@ -3360,6 +3369,7 @@ static void aetherResyncToNextLine(AetherParser *p) {
  * Detached/empty/misplaced annotations are diagnosed by semantic.c; here we are
  * permissive so the parser produces an AST and the text-based checks fire. */
 static void collectPendingAnnotations(AetherParser *p) {
+    p->pendingAnnotCount = 0;
     while (p->current.type == REA_TOKEN_UNKNOWN &&
            p->current.length == 1 && p->current.start && p->current.start[0] == '@') {
         const char *lineStart = p->current.start;          /* at the '@' */
@@ -3370,6 +3380,15 @@ static void collectPendingAnnotations(AetherParser *p) {
         const char *dEnd = d;
         while (dEnd < lineEnd && (isalnum((unsigned char)*dEnd) || *dEnd == '_')) dEnd++;
         size_t dlen = (size_t)(dEnd - d);
+        /* Record the first annotation of this run for a possible detached-annotation
+         * diagnostic (ANN-001), emitted by the caller if no `fn` follows. */
+        if (p->pendingAnnotCount == 0) {
+            size_t n = dlen < sizeof(p->pendingAnnotName) - 1 ? dlen : sizeof(p->pendingAnnotName) - 1;
+            memcpy(p->pendingAnnotName, d, n);
+            p->pendingAnnotName[n] = '\0';
+            p->pendingAnnotLine = p->current.line;
+        }
+        p->pendingAnnotCount++;
         /* Raw expression = trimmed remainder of the line after the directive. */
         const char *exprStart = dEnd;
         while (exprStart < lineEnd && isspace((unsigned char)*exprStart)) exprStart++;
@@ -4563,7 +4582,21 @@ AST *parseAetherAst(const char *rawSource) {
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
         collectPendingAnnotations(&p);
-        if (p.hadError || p.current.type == REA_TOKEN_EOF) break;
+        if (p.hadError) break;
+        /* An `@`-annotation must be followed by a `fn`; otherwise it is detached.
+         * Match the rewriter's ANN-001 diagnostic, pointed at the annotation line. */
+        if (p.pendingAnnotCount > 0 && !isAetherKeyword(&p.current, "fn")) {
+            const char *path = aetherSemanticGetSourcePath();
+            if (path && *path) fprintf(stderr, "%s:%d: ", path, p.pendingAnnotLine);
+            fprintf(stderr,
+                    "[ANN-001] Aether contract error: @%s must annotate the next function declaration.\n",
+                    p.pendingAnnotName);
+            fprintf(stderr,
+                    "help: see ANN-001 in the Aether guide (aether_for_llms_with_small_contexts.md)\n");
+            p.hadError = true;
+            break;
+        }
+        if (p.current.type == REA_TOKEN_EOF) break;
         AST *decl = NULL;
         if (isAetherKeyword(&p.current, "fn")) {
             decl = parseFnDecl(&p);
