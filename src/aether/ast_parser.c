@@ -876,12 +876,14 @@ static VarType promoteIntegralBinaryType(VarType a, VarType b) {
 
 static VarType inferStringLiteralType(const char *text, size_t len) {
     if (!text) return TYPE_STRING;
-    if (len == 1) return TYPE_CHAR;
     if (len == 0) return TYPE_STRING;
     uint32_t codepoint = 0;
     size_t advance = 0;
     if (decodeUtf8Codepoint(text, len, &codepoint, &advance) && advance == len) {
-        return TYPE_WIDECHAR;
+        /* A single codepoint in a DOUBLE-quoted literal is a one-character string,
+         * not a Char (the Char literal is the single-quote 'x' form). ASCII -> the
+         * Pascal String; a non-ASCII codepoint stays WIDECHAR. */
+        return (codepoint <= 127u) ? TYPE_STRING : TYPE_WIDECHAR;
     }
     if (isValidUtf8Bytes(text, len) && utf8CodepointCount(text, len) < len) {
         return TYPE_UNICODE_STRING;
