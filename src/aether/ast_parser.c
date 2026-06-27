@@ -3239,6 +3239,24 @@ static AST *parseParBlock(AetherParser *p) {
         } else {
             call = stmt; /* tolerate a bare call node */
         }
+        /* Only direct call statements may appear in a par block. A non-call body
+         * statement (e.g. `x = 5;` -> AST_ASSIGN, or an `fx { }` block) would
+         * otherwise be wrapped in a spawn node and surface later as codegen's terse
+         * "spawn expects procedure call" -- emitted twice, once with a bogus L0.
+         * Reject it here with the legacy rewriter's exact diagnostic + repair hint
+         * (translate.c: "only direct call statements are allowed inside par blocks.")
+         * so the AST path's error UX matches byte for byte: a single diagnostic on
+         * the correct line. */
+        if (!call || call->type != AST_PROCEDURE_CALL) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), callLine, "par",
+                                 "only direct call statements are allowed inside par blocks.",
+                                 "move side effects into direct calls inside `par { ... }`.");
+            p->hadError = true;
+            if (call) freeAST(call);
+            freeAST(block);
+            freeAST(joins);
+            return NULL;
+        }
         handle++;
         char handleName[64];
         snprintf(handleName, sizeof(handleName), "__aether_par_%d", handle);
