@@ -48,6 +48,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "ast/ast.h"
 #include "core/types.h"
@@ -89,6 +91,31 @@ static void reportAetherAstError(const char *path, int line, const char *kind,
         fprintf(stderr, "hint: %s\n", hint);
     }
     aetherReportGuideHelp(code);
+}
+
+/* Temporarily mute stderr. Returns a saved descriptor to pass to
+ * aetherUnmuteStderr, or -1 if muting could not be set up (in which case
+ * restoration is a no-op). Used to silence the throwaway forward-declaration
+ * pre-pass: it re-parses the same top-level signatures the authoritative real
+ * pass parses, so every diagnostic it could emit (SYN-001, parameter/return-type
+ * syntax errors, etc.) is re-emitted with the correct line number by the real
+ * pass. Without this the pre-pass prints each such diagnostic a second time. */
+static int aetherMuteStderr(void) {
+    fflush(stderr);
+    int saved = dup(STDERR_FILENO);
+    if (saved < 0) return -1;
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0) { close(saved); return -1; }
+    if (dup2(devnull, STDERR_FILENO) < 0) { close(devnull); close(saved); return -1; }
+    close(devnull);
+    return saved;
+}
+
+static void aetherUnmuteStderr(int saved) {
+    if (saved < 0) return;
+    fflush(stderr);
+    dup2(saved, STDERR_FILENO);
+    close(saved);
 }
 
 /* ------------------------------------------------------------------ */
@@ -4751,8 +4778,12 @@ AST *parseAetherAst(const char *rawSource) {
     /* Forward-declaration pre-pass: pre-register every top-level function/type so
      * a call that precedes its definition resolves (the rewriter emits explicit
      * forward declarations for this). Runs over the same source with throwaway
-     * output; shares the tuple table (already populated above). */
+     * output; shares the tuple table (already populated above). Muted: its
+     * diagnostics are redundant with (and less precise than) the real pass below,
+     * so emitting them here would double-report every signature-level error. */
+    int savedStderr = aetherMuteStderr();
     aetherRunForwardScan(source, &bindings, &funcReturns, &tuples, &nextTupleTypeId, decls);
+    aetherUnmuteStderr(savedStderr);
 
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
