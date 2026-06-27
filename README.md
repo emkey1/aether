@@ -116,6 +116,12 @@ Runnable programs live in [`examples/`](examples/), from `base/hello` through th
 ./build/aether --no-cache examples/showcase/agent_report
 ```
 
+## SDL graphics (optional)
+
+Aether can drive the PSCAL VM's SDL backend (windows, 2D drawing, input). It is
+off by default; build with `-DAETHER_ENABLE_SDL=ON` and see
+[`examples/sdl/`](examples/sdl/) for a runnable demo and the build details.
+
 ## Docs
 
 In-depth language documentation is in [`docs/`](docs/):

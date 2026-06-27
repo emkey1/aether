@@ -30,6 +30,12 @@ include(FetchContent)
 # overriding rea's transitive pull; both then resolve to the pinned submodule checkouts.
 # The PBuild umbrella overrides these via FETCHCONTENT_SOURCE_DIR_{PSCAL_CORE,REA} to
 # reuse its shared sibling checkouts instead.
+# Optional SDL backend: aether opts pscal-core into its SDL graphics/audio build.
+# Forced into the cache BEFORE the subbuild so pscal_core's option() picks it up.
+option(AETHER_ENABLE_SDL "Build aether with the pscal-core SDL backend" OFF)
+if(AETHER_ENABLE_SDL)
+    set(PSCAL_SDL ON CACHE BOOL "Enable SDL in pscal-core (forced by aether)" FORCE)
+endif()
 FetchContent_Declare(pscal_core SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/pscal-core)
 FetchContent_MakeAvailable(pscal_core)
 FetchContent_Declare(rea SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/rea)

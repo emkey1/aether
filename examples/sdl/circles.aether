@@ -1,0 +1,32 @@
+// circles.aether -- a minimal SDL graphics demo for Aether.
+//
+// Requires an SDL-enabled build (the default build leaves SDL out):
+//   cmake -S . -B build-sdl -DAETHER_ENABLE_SDL=ON
+//   cmake --build build-sdl -j
+//   ./build-sdl/aether --no-cache examples/sdl/circles.aether
+//
+// On a default build, InitGraph and friends are "not in scope".
+// See examples/sdl/README.md. The SDL routines are I/O effects, so they live
+// inside an fx { } block.
+
+fn main() -> Void {
+    fx {
+        InitGraph(640, 480, "Aether + SDL");
+        ClearDevice();
+
+        SetRGBColor(80, 180, 255);
+        FillCircle(320, 240, 90);
+
+        SetRGBColor(255, 200, 40);
+        FillRect(80, 60, 160, 90);
+
+        SetRGBColor(255, 80, 120);
+        DrawCircle(480, 360, 60);
+
+        UpdateScreen();
+        GraphLoop(1500);   // hold the window ~1.5s
+        CloseGraph();
+        println("Aether SDL demo: init + draw + present + close, clean.");
+    }
+    ret;
+}
