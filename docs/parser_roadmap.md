@@ -88,9 +88,25 @@ re-expressing text->text rules as tokens->AST rules.
     conformance set.
   - New line-number tests (the LN1-LN5 cases): errors report the true source line.
 
-- **P7 Cutover.** Make `ast` the default, re-run suite + benchmark, then delete
-  `translate.c` and the rewrite line-map. Bump the language version (diagnostics
-  changed). Guide should need no change.
+- **P7 Cutover (translate.c retained).** Flip the default so the AST parser is the
+  frontend, but **keep `translate.c` and the rewrite line-map in the tree** as an
+  opt-in legacy path (for reference, A/B comparison, and fallback) — do NOT delete.
+  Steps:
+  1. Invert the dispatch in `parser.c` `parseAether()`: default (env unset) ->
+     `parseAetherAst`; `AETHER_PARSER=rewriter` (or `=legacy`) -> the old rewriter
+     path. (`AETHER_PARSER=ast` stays valid as an explicit synonym for the default.)
+  2. Update the `*_fail` fixtures' expected diagnostics to the AST's (it reports the
+     true line and a more precise message than the rewriter's lenient strings); add
+     the LN1-LN5 true-line tests.
+  3. Bump the language version via `tools/bump_version.py` (diagnostics changed) +
+     CHANGELOG. The guide needs no change.
+  4. Re-run `tests/run.sh` (now default = AST) + the benchmark-corpus parity, and a
+     spot A/B against `AETHER_PARSER=rewriter` to confirm the legacy path still works.
+  - **Gating:** only flip once the worth-fixing P6 gaps are closed and corpus parity
+    is ~99%+ on the AST-worse axis, so the flip is not a regression for real programs.
+  - **Pre-cutover safety:** because the rewriter is retained, the flip is reversible
+    at runtime (`AETHER_PARSER=rewriter`) and the legacy code stays buildable; retiring
+    it later is a separate, optional step (owner's call: keep for now).
 
 ## Construct -> AST mapping (to complete in P3)
 

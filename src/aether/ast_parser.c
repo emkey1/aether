@@ -2023,6 +2023,17 @@ static char *inferLetTypeName(AetherParser *p, AST *init) {
     /* fall back to the expression's own computed var_type. */
     const char *name = aetherTypeNameForVarType(init->var_type);
     if (name) return strdup(name);
+    /* Arithmetic binary op whose operand types we can't name at parse time (e.g.
+     * `let x = self.field + n`, where neither operand is scope-resolved here): default
+     * to the dominant Int, or Real for `/`. Relational/logical ops are already typed
+     * BOOLEAN above, so they're handled by the var_type fallback. */
+    if (init->type == AST_BINARY_OP && init->token && init->token->value) {
+        const char *op = init->token->value;
+        if (strcmp(op, "/") == 0) return strdup("Real");
+        if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 ||
+            strcmp(op, "div") == 0 || strcmp(op, "mod") == 0)
+            return strdup("Int");
+    }
     return NULL;
 }
 
