@@ -1211,8 +1211,22 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
          * array receivers (translate.c ~5137); both alias to `length`, so the AST
          * is the same regardless of receiver type. Only the property form (no
          * following '(') is rewritten; `x.len(...)` stays a method call. */
-        if (nameTok->value && strcmp(nameTok->value, "len") == 0 &&
-            p->current.type != REA_TOKEN_LEFT_PAREN) {
+        if (nameTok->value &&
+            (strcmp(nameTok->value, "len") == 0 ||
+             (strcmp(nameTok->value, "length") == 0 &&
+              p->current.type == REA_TOKEN_LEFT_PAREN))) {
+            /* `.len`, `.len()` and `.length()` are all the `length` builtin alias.
+             * The builtin pre-pass rewrites `len(` -> `length(`, so the method-call
+             * form arrives here as `length`; translate.c lowers all of these to
+             * length(receiver). They must NOT mangle to <Type>.len|length (len/length
+             * is a builtin, not a user method): once params/let-arrays carry a type the
+             * mangled call `Int[].length` was undefined at runtime. The bare `.length`
+             * property (no `(`) is left as a field access so a record field named
+             * `length` is untouched. Swallow any arg list and emit length(receiver). */
+            if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+                AST *discard = parseArgList(p);
+                if (discard) freeAST(discard);
+            }
             freeToken(nameTok);
             Token *lenTok = newToken(TOKEN_IDENTIFIER, "length", node->token ? node->token->line : p->current.line, 0);
             AST *call = newASTNode(AST_PROCEDURE_CALL, lenTok);
@@ -1812,12 +1826,28 @@ static AST *parseExpr(AetherParser *p) {
     if (!left) return NULL;
     if ((left->type == AST_VARIABLE || left->type == AST_FIELD_ACCESS ||
          left->type == AST_ARRAY_ACCESS) &&
-        p->current.type == REA_TOKEN_EQUAL) {
+        (p->current.type == REA_TOKEN_EQUAL ||
+         p->current.type == REA_TOKEN_PLUS_EQUAL ||
+         p->current.type == REA_TOKEN_MINUS_EQUAL ||
+         p->current.type == REA_TOKEN_STAR_EQUAL ||
+         p->current.type == REA_TOKEN_SLASH_EQUAL ||
+         p->current.type == REA_TOKEN_PERCENT_EQUAL)) {
         ReaToken op = p->current;
         aetherAdvance(p);
         AST *value = parseExpr(p);
         if (!value) return NULL;
-        Token *assignTok = newToken(TOKEN_ASSIGN, "=", op.line, 0);
+        /* Mirror rea parseAssignment: a compound assignment `x OP= v` lowers to an
+         * AST_ASSIGN whose token carries the arithmetic op (TOKEN_PLUS/...); the
+         * backend reads the lvalue, applies OP with the value, and stores -- so the
+         * lvalue is evaluated once. Plain `=` keeps TOKEN_ASSIGN. */
+        TokenType assignType = TOKEN_ASSIGN;
+        const char *assignLex = "=";
+        if (op.type == REA_TOKEN_PLUS_EQUAL)         { assignType = TOKEN_PLUS;  assignLex = "+"; }
+        else if (op.type == REA_TOKEN_MINUS_EQUAL)   { assignType = TOKEN_MINUS; assignLex = "-"; }
+        else if (op.type == REA_TOKEN_STAR_EQUAL)    { assignType = TOKEN_MUL;   assignLex = "*"; }
+        else if (op.type == REA_TOKEN_SLASH_EQUAL)   { assignType = TOKEN_SLASH; assignLex = "/"; }
+        else if (op.type == REA_TOKEN_PERCENT_EQUAL) { assignType = TOKEN_MOD;   assignLex = "%"; }
+        Token *assignTok = newToken(assignType, assignLex, op.line, 0);
         AST *node = newASTNode(AST_ASSIGN, assignTok);
         setLeft(node, left);
         setRight(node, value);
@@ -1972,6 +2002,9 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "length", "Int" }, { "YyjsonGetInt", "Int" }, { "YyjsonGetLength", "Int" },
         /* Real-returning. */
         { "YyjsonGetNumber", "Real" },
+        /* Math: pow/power -> Real. (int^int may be exact-Int at runtime, but Real is
+         * the safe inferred type; matches pscal-core's builtin-return type list.) */
+        { "pow", "Real" }, { "power", "Real" },
         /* Bool-returning. */
         { "hasextbuiltin", "Bool" },
         { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
@@ -2019,6 +2052,20 @@ static char *inferLetTypeName(AetherParser *p, AST *init) {
         if (t) return t;
         t = inferLetTypeName(p, init->extra);
         if (t) return t;
+    }
+    /* Array index `arr[i]` -> the array's element type: infer the base array's type
+     * name (e.g. "Int[]") and strip one trailing "[]". Works for Int[]/Text[]/Real[]
+     * and one dimension of a nested array; the base is AST_ARRAY_ACCESS->left. */
+    if (init->type == AST_ARRAY_ACCESS && init->left) {
+        char *base = inferLetTypeName(p, init->left);
+        if (base) {
+            size_t n = strlen(base);
+            if (n >= 2 && base[n - 2] == '[' && base[n - 1] == ']') {
+                base[n - 2] = '\0';
+                return base;
+            }
+            free(base);
+        }
     }
     /* fall back to the expression's own computed var_type. */
     const char *name = aetherTypeNameForVarType(init->var_type);
@@ -3195,6 +3242,14 @@ static AST *parseParBlock(AetherParser *p) {
 }
 
 static AST *parseStatement(AetherParser *p) {
+    /* Empty statement `;` -- consume it and return a no-op block. Without this, a
+     * stray/trailing `;` (e.g. `fx {…};`, or a bare `;`) would fall to the
+     * expression-statement path, parseExpr would return NULL, and parseBlock's
+     * `if (!stmt) break` would silently truncate the rest of the block (no output). */
+    if (p->current.type == REA_TOKEN_SEMICOLON) {
+        aetherAdvance(p);
+        return newASTNode(AST_COMPOUND, NULL);
+    }
     /* fx { ... } -- effect wrapper. The marker is erased; we return the inner
      * block directly (an AST_COMPOUND), matching the rewriter which strips the
      * `fx` token and leaves the brace block. */
@@ -3570,6 +3625,12 @@ static AST *parseFnDecl(AetherParser *p) {
         char *pAetherType = NULL;
         AST *ptypeNode = parseTypeWithArraySuffix(p, &pvtype, &pAetherType);
         if (!ptypeNode) { freeToken(paramNameTok); free(pAetherType); p->hadError = true; break; }
+        /* Bind the param's name -> its Aether type name so body inference resolves it
+         * the way let-decls do: `let e = arr[i]` -> element type, `let m = n` -> Int.
+         * Harmless for scalars; required for `arr: Int[]` element inference. */
+        if (paramNameTok->value && pAetherType) {
+            bindingTableSet((AetherBindingTable *)p->bindings, paramNameTok->value, pAetherType);
+        }
         if (!sawAnyParam) {
             sawAnyParam = true;
             firstParamName = paramNameTok->value ? strdup(paramNameTok->value) : NULL;
