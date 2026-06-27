@@ -3513,6 +3513,24 @@ static AST *parseFnDecl(AetherParser *p) {
     char *firstParamAetherType = NULL;
     bool sawAnyParam = false;
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
+        /* A type-body method may explicitly name its receiver `self` (bare or
+         * `self: Type`). The implicit `myself` injected above already serves as the
+         * receiver, so consume and skip it (body `self.<field>` maps to `myself`, as
+         * for the implicit form). Extension methods at top level (isMethod=false)
+         * keep `self` as a real first param and are unaffected. */
+        if (isMethod && !sawAnyParam && p->current.type == REA_TOKEN_IDENTIFIER &&
+            tokTextIs(&p->current, "self")) {
+            aetherAdvance(p); /* consume 'self' */
+            if (p->current.type == REA_TOKEN_COLON) {
+                aetherAdvance(p); /* consume ':' */
+                VarType st = TYPE_UNKNOWN; char *sat = NULL;
+                AST *stype = parseTypeWithArraySuffix(p, &st, &sat);
+                free(sat);
+                if (stype) freeAST(stype); /* receiver type is the enclosing class */
+            }
+            if (p->current.type == REA_TOKEN_COMMA) aetherAdvance(p);
+            continue; /* myself is the receiver; do not add `self` as a param */
+        }
         if (p->current.type != REA_TOKEN_IDENTIFIER) {
             fprintf(stderr, "L%d: expected parameter name.\n", p->current.line);
             p->hadError = true;
@@ -4633,15 +4651,11 @@ AST *parseAetherAst(const char *rawSource) {
         } else if (aetherIsModKeyword(&p)) {
             decl = parseModuleDecl(&p);          /* `mod X { ... }` -> AST_MODULE */
         } else {
-            const char *path = aetherSemanticGetSourcePath();
-            if (path && *path) {
-                fprintf(stderr, "%s:%d: ", path, p.current.line);
-            }
-            fprintf(stderr,
-                    "Unexpected token '%.*s' at line %d (expected a top-level 'fn', 'type' or 'const' declaration).\n",
-                    (int)p.current.length, p.current.start, p.current.line);
-            p.hadError = true;
-            break;
+            /* Bare top-level statement: a script-style program with no explicit
+             * `fn main`. parseStatement parses it; appendTopLevelDecl routes
+             * var/const to globals and executable statements to the program body
+             * (stmts), matching the rewriter's implicit-main wrapping. */
+            decl = parseStatement(&p);
         }
         if (!decl) {
             p.hadError = true;
