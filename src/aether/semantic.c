@@ -4,8 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "core/globals.h"
+#include "backend_ast/builtin.h"
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
 #include "rea/semantic.h"
@@ -1200,45 +1202,15 @@ static void validateContractAnnotations(const char *source) {
 }
 
 static int aetherIsEffectfulBuiltin(const char *name, size_t len) {
-    static const char *kEffectfulNames[] = {
-        "exit",
-        "fetch",
-        "flush",
-        "fprintf",
-        "halt",
-        "ai_chat",
-        "openaichatcompletions",
-        "print",
-        "printf",
-        "println",
-        "read",
-        "readln",
-        "sleep",
-        "store",
-        "swap",
-        "task_cancel",
-        "task_pause",
-        "task_queue",
-        "task_resume",
-        "task_set_name",
-        "task_spawn",
-        "thread_cancel",
-        "thread_pause",
-        "thread_pool_submit",
-        "thread_resume",
-        "thread_set_name",
-        "thread_spawn_named",
-        "write",
-        "writeln"
-    };
-    size_t i;
-
-    for (i = 0; i < sizeof(kEffectfulNames) / sizeof(kEffectfulNames[0]); i++) {
-        if (strlen(kEffectfulNames[i]) == len && strncmp(kEffectfulNames[i], name, len) == 0) {
-            return 1;
-        }
+    /* Effectfulness is single-sourced in pscal-core (pscalBuiltinNameIsEffectful).
+     * Copy the possibly non-terminated slice and delegate. */
+    char buf[128];
+    if (!name || len == 0 || len >= sizeof(buf)) {
+        return 0;
     }
-    return 0;
+    memcpy(buf, name, len);
+    buf[len] = '\0';
+    return pscalBuiltinNameIsEffectful(buf) ? 1 : 0;
 }
 
 static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) {

@@ -50,6 +50,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/parsing
 ./build/bin/aether examples/base/clamp_minmax
 ./build/bin/aether examples/base/recursion
+./build/bin/aether examples/base/text_var_builtins
 ```
 
 These examples stay within the currently supported Aether Core subset:
@@ -176,5 +177,9 @@ These examples stay within the currently supported Aether Core subset:
 - `clamp_minmax`: `clamp(x, lo, hi)` plus `min` / `max` as accumulators instead
   of if-chains
 - `recursion`: base-case + recursive-case helpers (factorial, summation)
+- `text_var_builtins`: string builtins (`fileexists`, `getfattr`, `atoi`)
+  accepting a `Text` *variable* argument, not just a string literal -- a `Text`
+  variable is a `TYPE_UNICODE_STRING` at runtime, so strict `TYPE_STRING`
+  builtins used to reject it
 
 The backend remains the shared PSCAL compiler and VM.

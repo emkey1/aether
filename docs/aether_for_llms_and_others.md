@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-27-5*
+*Guide version: 2026-06-28-1*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -19,8 +19,12 @@ If you only read one part of this document, read **Highest-Value Rules** and
 
 **LLM-critical.** These determine whether generated Aether works on the first try.
 
-1. **FX-001.** Every `print(...)`, `println(...)`, task helper call, and AI
-   helper call must be inside `fx { ... }`.
+1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output
+   (`print`/`println`), `ai_chat`, task/thread helpers, and all host
+   interaction — filesystem (`mkdir`, `fileexists`, file I/O), environment
+   (`getenv`), CLI (`paramstr`), `random`/`randomize`, the clock (`gettime`),
+   console input (`readkey`), networking (`http*`/`socket*`), and database
+   (`sqlite*`). Pure builtins (math, string, conversion) do not need `fx`.
 2. **SYN-001.** Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Do not import syntax from Python, Rust, JavaScript,
    Go, or Pascal.
@@ -40,9 +44,11 @@ If you only read one part of this document, read **Highest-Value Rules** and
     returns (`let (a, b) = pair();`) only. Assume nothing else.
 11. **OUT-001.** When asked to generate code, return raw Aether source only.
     No Markdown fences.
-12. **BUILT-001.** The helpers and builtins listed in this document are the
-    complete callable surface. If a function is not listed here, it does not
-    exist. Do not invent helpers (`substring`, `to_upper`, `replace`, ...).
+12. **BUILT-001.** The builtins listed here are the supported, recommended
+    surface. Do not invent helpers (`substring`, `to_upper`, `replace`, ...) and
+    do not guess names. More builtins exist and are discoverable via
+    `builtins_json()` / `builtin_info(...)`, but if one is not listed here,
+    discover its exact name and signature before calling rather than assuming.
 13. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
     object-shaped, extract the named array with `toon_key(...)` before
     iterating; never iterate an object root as if it were the array.
@@ -113,6 +119,7 @@ Generate the canonical form unless preserving existing code.
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `itoa(n)` | `int_to_text(n)` | inventing `n.toString()` |
+| Real → Text | `formatfloat(r, prec)` | `realtostr(r)` (always 6 dp) | `r:0:prec` as a value (it is `println`-only) |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
 | TOON array length | `toon_len(node)` | — | `length(node)` |
@@ -382,9 +389,12 @@ loop {                      // infinite
 
 ## Effects: `fx` (FX-001)
 
-**LLM-critical.** All visible effects go inside `fx { ... }`: `print`,
-`println`, task helpers, `ai_chat`, and other effectful builtins. Compute pure
-values outside `fx`, then perform effects inside it.
+**LLM-critical.** All effects go inside `fx { ... }`: `print`, `println`, task
+helpers, `ai_chat`, and every builtin that touches the outside world —
+filesystem, environment, CLI, `random`, the clock, console input, networking,
+and database. Compute pure values (math, string, conversion) outside `fx`, then
+perform effects inside it. `@pure` functions may not contain `fx`, so they
+cannot call any of these.
 
 ```aether
 fn report(msg: Text) -> Void {
@@ -410,7 +420,10 @@ fx {
 ```
 
 `println(realValue)` uses the backend default (6 decimals). For stable decimal
-output use `value:width:precision`; width `0` means "precision only".
+output use `value:width:precision`; width `0` means "precision only". The
+`value:width:precision` spec works **only inside `print`/`println` arguments**.
+To capture a formatted Real as `Text` (to return from a helper or concatenate),
+use `formatfloat(value, precision)` or `realtostr(value)` (always 6 decimals).
 
 | Use case | Syntax | Output |
 |---|---|---|
@@ -423,6 +436,31 @@ force a real result:
 
 ```aether
 let successRate: Real = successful * 100.0 / total;
+```
+
+## Math builtins
+
+Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`**
+(not `log`). Trig is in radians. Unless noted, arguments and results are `Real`.
+
+| Group | Builtins |
+|---|---|
+| sign / rounding | `abs(x)`, `round(x) -> Int`, `trunc(x) -> Int`, `floor(x) -> Int`, `ceil(x) -> Int` |
+| powers / roots | `sqrt(x)`, `sqr(x)` (x²), `pow(base, exp)`, `power(base, exp)` (alias of `pow`) |
+| exp / log | `exp(x)`, `ln(x)` (natural log), `log10(x)` |
+| trig | `sin(x)`, `cos(x)`, `tan(x)`, `arcsin(x)`, `arccos(x)`, `arctan(x)`, `atan2(y, x)`, `cotan(x)` |
+| hyperbolic | `sinh(x)`, `cosh(x)`, `tanh(x)` |
+| compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` |
+| integer | `odd(n) -> Bool`, `factorial(n) -> Int`, `fibonacci(n) -> Int` |
+| random | `random() -> Real` in `[0, 1)`; `random(n) -> Int` in `[0, n)`; seed with `randomize()` |
+
+`abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
+`round`/`trunc`/`floor`/`ceil` always return `Int`.
+
+```aether
+let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);  // full Real precision
+let hyp: Real = sqrt(sqr(3.0) + sqr(4.0));                            // 5.0
+fx { println("pi=", pi:0:6, " hyp=", hyp:0:1); }
 ```
 
 ## TOON handle ownership
@@ -515,9 +553,48 @@ backend `IntToStr`). Reach for it when you need a `Text` *value* — for
 concatenation, a field, or a return — not merely to print a number
 (`println(n)` already prints an `Int` directly).
 
-Do not invent richer string helpers. If the prompt explicitly depends on
-additional text builtins, use `builtin_info(...)` or prompt-supplied
-signatures and then call the exact discovered names.
+Additional verified `Text` builtins (all pure, no `fx` needed):
+
+| Builtin | Effect |
+|---|---|
+| `copy(s, start, count)` | substring; `start` is 1-based |
+| `pos(needle, s)` | 1-based index of `needle` in `s`, `0` if absent |
+| `trim(s)` | strip leading/trailing whitespace |
+| `stringofchar(ch, n)` | `n` copies of single-char `ch` |
+
+Beyond these, do not invent string helpers: there is no `replace`, and no
+whole-string `to_upper`/`to_lower` (`upcase`/`toupper` change a single character
+only). If the prompt depends on more, use `builtin_info(...)` or prompt-supplied
+signatures and call the exact discovered names.
+
+## Files and environment
+
+Host access for automation. **All of these are effectful — call inside `fx`**
+(FX-001), and they are rejected inside `@pure` functions.
+
+| Builtin | Signature |
+|---|---|
+| `fileexists(path)` | `(Text) -> Bool` |
+| `getenv(name)` | `(Text) -> Text` (empty if unset) |
+| `getenvint(name, fallback)` | `(Text, Int) -> Int` |
+| `getcurrentdir()` | `() -> Text` |
+| `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
+| `paramcount()` | `() -> Int` (CLI arg count) |
+| `paramstr(i)` | `(Int) -> Text` (`paramstr(0)` is the program) |
+
+```aether
+fn main() -> Void {
+    fx {
+        let home: Text = getenv("HOME");
+        if fileexists("/etc/hosts") { println("hosts present, home=", home); }
+    }
+    ret;
+}
+```
+
+Networking (`http*`, `socket*`), database (`sqlite*`), `random`/`randomize`,
+and the clock are also effectful but are not part of the curated surface; reach
+for them via `builtin_info(...)` discovery.
 
 ## Dynamic arrays
 
@@ -739,14 +816,28 @@ spelling for the shared PSCAL `delay(ms)` builtin and is effectful, so it must
 stay inside `fx`. `task_wait(handle)` waits for a task handle; it is not a
 timer and should not be used like `task_wait(100)`.
 
-Structured discovery also exists for sophisticated agents:
-- `builtins_json()` returns a compact JSON list of Aether-visible builtin names
-- `builtins_json(true)` returns richer JSON metadata, including aliases and
-  usage hints when available
-- `builtin_info(name)` returns JSON metadata for one builtin name
+## Discovering builtins beyond this guide
 
-Use discovery when the prompt depends on optional runtime capabilities. Do not
-replace the documented core subset with ad hoc discovery in ordinary examples.
+This guide documents the **core surface**: the builtins you reach for in almost
+every program (output, TOON, types, control flow, math, strings, conversion,
+files/env, tasks/`par`, contracts, modules). The runtime also exposes many more
+— deeper networking, database, lower-level I/O — and a host program can register
+**custom builtins** that no static guide could anticipate. Rather than list them
+all, discover them:
+
+- `builtins_json()` → JSON array of every Aether-visible builtin name
+- `builtins_json(true)` → richer metadata per builtin (`signature`,
+  `return_type`, `effectful`, `usage`, `category`)
+- `builtin_info(name)` → the metadata for one builtin
+- `aether --dump-ext-builtins` (CLI) → the registered custom/extended builtins
+
+**This is an agentic capability.** You can only query by running the compiler or
+a probe program, so it is for an agent that can execute and read the result. The
+workflow: discover the exact **name, signature, and `effectful` flag**, then call
+it — wrapping it in `fx` if `effectful` is true. If you cannot run the compiler
+(one-shot generation), stay within this guide's documented surface; never call,
+or guess the signature of, a builtin you have not verified. Discovering a name is
+not permission to guess how it is called.
 
 ## Modules (IMP-001, MOD-001)
 

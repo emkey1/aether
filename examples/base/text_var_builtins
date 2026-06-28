@@ -1,0 +1,18 @@
+// Regression: pscal-core string builtins must accept a `Text` *variable*,
+// not only a string *literal*.  At runtime a `Text` variable is a
+// TYPE_UNICODE_STRING while a literal is a TYPE_STRING; builtins that checked
+// for TYPE_STRING strictly used to reject the variable form with a confusing
+// "argument must be a string" error.  These all take a Text variable below.
+
+fn main() -> Void {
+    let path: Text = ".";
+    let number: Text = "42";
+    fx {
+        // fileexists / getfattr: path passed as a variable, not a literal
+        println("dir_exists = ", fileexists(path));
+        println("dir_attr = ", getfattr(path));
+        // atoi: numeric string passed as a variable
+        println("atoi_plus_one = ", atoi(number) + 1);
+    }
+    ret;
+}

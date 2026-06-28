@@ -12,6 +12,25 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-27-3
+
+**Effect model now covers host interaction (FX-001 / `@pure` soundness).** The
+effectful-builtin set that FX-001 enforces (and that `@pure` rejects) previously
+covered only output, `read`/`readln`, `ai_chat`, tasks/threads, and `sleep`.
+Filesystem (`mkdir`/`rmdir`/`fileexists`/file-handle I/O), environment
+(`getenv`), CLI (`paramstr`/`paramcount`), `random`/`randomize`, the external
+clock (`gettime`/`getdate`/`realtimeclock`), console input (`readkey`/
+`keypressed`), networking (`http*`/`socket*`/`dnslookup`), database (`sqlite*`),
+and the `task_wait` family all escaped both checks — so a `@pure` function could
+read the environment or call `random` and still compile. These are now
+effectful: they require an `fx { ... }` block and are rejected inside `@pure`
+functions. Pure builtins (math, string, conversion, in-memory streams,
+`toon_parse` on a string) are unaffected. The name match is now
+case-insensitive, and the rule is enforced identically on the AST and rewriter
+paths. **Breaking:** code that called these outside `fx` (or inside `@pure`)
+must move the call into an `fx` block. SDL/graphics and terminal screen-control
+builtins are intentionally left ungated.
+
 ## 2026-06-27-2
 
 **AST frontend is now the default (P7 cutover).** `parseAether()` parses straight

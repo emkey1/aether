@@ -1,19 +1,22 @@
 # Aether for LLMs with Small Contexts
 
-*Guide version: 2026-06-27-5*
+*Guide version: 2026-06-28-1*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
 ## Highest-Value Rules
 
-1. **FX-001.** Every `print(...)`, `println(...)`, task helper call, and
-   `ai_chat(...)` call must be inside `fx { ... }`.
+1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
+   task helpers, `ai_chat`, and all host interaction — filesystem (`mkdir`,
+   `fileexists`), env (`getenv`), CLI (`paramstr`), `random`, clock (`gettime`),
+   console input, `http*`/`socket*`, `sqlite*`. Pure math/string/conversion do
+   not need `fx`, and `@pure` functions may call none of the effectful ones.
 2. **SYN-001.** Aether syntax only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Never `return`, `class`, `for`, `while`, `var`,
    `def`, `func`, `=>`.
-3. **BUILT-001.** The helpers named in this document are the complete callable
-   surface. If a function is not listed here, it does not exist. Do not invent
-   helpers (`substring`, `to_upper`, `replace`, ...).
+3. **BUILT-001.** The builtins named here are the supported surface. Do not
+   invent helpers (`substring`, `to_upper`, `replace`, ...) or guess names. More
+   exist (discover via `builtin_info(...)`), but never assume an unlisted name.
 4. **IMP-001.** Never invent `use "..."` imports. Only import verified modules.
 5. **MOD-001.** If a module exports `getFortyTwo`, call `getFortyTwo`. Do not
    rename exports to `get_forty_two`, `AetherName`, `APP_NAME`, or other guesses.
@@ -75,8 +78,9 @@ maps each emitted code to its fix.
 - Comments: prefer `// line comment`. Block comments are accepted, but models
   should still generate `//`. Text literals are double-quoted; escape `\"`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true`/`false`), `Void`, plus opaque
-  `ToonDoc`/`ToonNode`. `println(boolValue)` prints `true` or `false`. No
-  conversion helpers exist; use variadic `println`.
+  `ToonDoc`/`ToonNode`. `println(boolValue)` prints `true` or `false`. For mixed
+  output use variadic `println` (never `+`); to build a `Text`, use the
+  conversion helpers (`itoa`, `formatfloat`, `realtostr`, `parse_int/float/bool`).
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||`.
 - Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
@@ -206,11 +210,48 @@ let n: Int = parse_int(parts[0]);          // Text -> Int
 let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
 let s: Text = itoa(99);                    // Int  -> Text  (int_to_text alias)
+let f: Text = formatfloat(3.14159, 2);     // Real -> Text  "3.14" (realtostr(r) = 6 dp)
 ```
 
 The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
-`parse_float`, `parse_bool`, `itoa`/`int_to_text`. Do not invent richer helpers
-(`substring`, `to_upper`, `replace`).
+`parse_float`, `parse_bool`, `itoa`/`int_to_text`, `formatfloat`/`realtostr`,
+plus `copy(s, start, count)` (substring, 1-based), `pos(needle, s)` (1-based, 0
+if absent), `trim(s)`, `stringofchar(ch, n)`. Do not invent richer helpers (no
+`replace`; no whole-string `to_upper`). Note: the `value:width:precision` spec
+only works inside `println`; use `formatfloat` to build a `Text`.
+
+## Math
+
+Pascal naming: **`arctan`** not `atan`, **`ln`** not `log`. Trig in radians.
+Args/results are `Real` unless noted.
+
+- rounding (→ `Int`): `round`, `trunc`, `floor`, `ceil`; sign: `abs`
+- powers: `sqrt`, `sqr`, `pow(base, exp)` (`power` alias), `exp`, `ln`, `log10`
+- trig: `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `atan2(y, x)`, `cotan`
+- hyperbolic: `sinh`, `cosh`, `tanh`
+- helpers: `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)`, `odd(n) -> Bool`,
+  `factorial(n)`, `fibonacci(n)`, `random()` `[0,1)`, `random(n)` `[0,n)`, `randomize()`
+
+```aether
+let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);
+```
+
+## Files and environment
+
+Host access for automation. **All effectful — call inside `fx`** (FX-001), and
+banned in `@pure` functions:
+
+- `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
+- `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
+- `mkdir(path)`, `rmdir(path)`
+- `paramcount() -> Int`, `paramstr(i) -> Text` (`paramstr(0)` = program)
+
+```aether
+fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
+```
+
+Networking (`http*`/`socket*`), `sqlite*`, `random`, and the clock are also
+effectful; discover them via `builtin_info(...)`.
 
 ## Dynamic arrays
 
@@ -361,10 +402,16 @@ millisecond pause. `task_wait` waits on a task handle, not a duration.
 `task_spawn`/`task_queue` dispatch an allow-listed runtime builtin by name (for
 example `"delay"`), not a user-defined function; for user code use `par`.
 
-Discovery exists:
-- `builtins_json()` -> JSON list of available Aether-visible builtins
-- `builtins_json(true)` -> richer JSON metadata
-- `builtin_info(name)` -> JSON metadata for one builtin
+Discovery (for builtins beyond this guide — deeper I/O, networking, DB, and
+host-registered **custom** builtins). Agentic only: you must run the compiler.
+- `builtins_json()` -> JSON list of all Aether-visible builtins
+- `builtins_json(true)` -> richer metadata (`signature`, `effectful`, ...)
+- `builtin_info(name)` -> metadata for one builtin
+- `aether --dump-ext-builtins` -> registered custom/extended builtins
+
+Discover the exact name, signature, and `effectful` flag, then call it (inside
+`fx` if effectful). Cannot run the compiler? Stay within this guide; never guess
+an unlisted name or its signature.
 
 ## Imports (IMP-001, MOD-001)
 
