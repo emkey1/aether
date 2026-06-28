@@ -1,3 +1,6 @@
 build/
+build-sdl/
+build_fix/
+.claude/
 *.o
 .DS_Store
