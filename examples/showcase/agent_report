@@ -40,11 +40,17 @@ fn main() -> Void {
         ret;
     }
 
+    let existsLocal: Bool = false;
+    let existsRepo: Bool = false;
+    fx {
+        existsLocal = fileexists("agent_payload.json");
+        existsRepo = fileexists("Examples/aether/showcase/agent_payload.json");
+    }
     let payloadPath: Text = RepoPayloadPath;
-    if fileexists("agent_payload.json") {
+    if existsLocal {
         payloadPath = "agent_payload.json";
     } else {
-        if fileexists("Examples/aether/showcase/agent_payload.json") {
+        if existsRepo {
             payloadPath = "Examples/aether/showcase/agent_payload.json";
         } else {
             fx {
@@ -53,13 +59,16 @@ fn main() -> Void {
             ret;
         }
     }
-    if !fileexists("agent_payload.json") && !fileexists("Examples/aether/showcase/agent_payload.json") {
+    if !existsLocal && !existsRepo {
         fx {
             println("payload unavailable: agent_payload.json");
         }
         ret;
     }
-    let doc = toon_parse_file(payloadPath);
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file(payloadPath);
+    }
     let root = toon_root(doc);
     let jobs = toon_key(root, "jobs");
     let total = toon_len(jobs);
