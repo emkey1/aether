@@ -19,6 +19,28 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### Builtin reference shipped into the training corpus — *done 2026-06-28*
+The specialization reference corpus shipped only the prose guide, so trained
+models never saw the real builtin surface (the guide documents a curated subset
+and says "discover the rest"). Closed the gap:
+`tools/aether_export_builtins_reference.py` generates a non-SDL builtin reference
+from the compiler's own `builtins_json(true)` (the ~52 fully-documented
+builtins with signature/usage today + the rest as a categorized name inventory +
+a prominent "Discovering builtins" queryability section), and
+`aether_specialization_export_reference_corpus.py` now ships it alongside the
+guide (binary-driven, regenerated each build, graceful skip if the binary is
+absent). ~3.1k tokens.
+**Exclusions (auditable, curated in the generator):** SDL graphics/3d/demo by
+category (99) + by name the `landscape*` leak, legacy Pascal CRT (~40), DOS unit,
+VM/introspection plumbing, redundant non-canonical alias spellings, and the
+`to be filled` registry junk (182 hidden → 240 kept). Scope chosen with the
+owner: the clean data-automation surface, not just "everything but SDL".
+**Synergy:** binary-driven, so as the *Enrich builtin metadata* work below adds
+signatures, the corpus reference improves automatically on the next regen.
+**Follow-ups:** (1) rebuild + dataset version-bump for it to actually land in
+training; (2) `to be filled` is a real placeholder builtin registered in
+pscal-core — worth fixing at source.
+
 ### Enrich builtin metadata so discovery teaches *how to call* — *in progress 2026-06-27*
 **Done:** single-sourced effectfulness in `pscal-core` via
 `pscalBuiltinNameIsEffectful()` (builtin.h/.c) — aether's FX-001 gate delegates
