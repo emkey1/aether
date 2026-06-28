@@ -1,6 +1,7 @@
 # Aether Parser Roadmap — replace the text rewriter with a real AST frontend
 
-Status: P6 substantially done (2026-06-27). Owner: the Aether frontend.
+Status: **P7 cutover done (2026-06-27)** -- the AST frontend is the default; the
+rewriter is retained as a runtime-reversible fallback. Owner: the Aether frontend.
 
 **Progress (2026-06-27).** P6 corpus parity: RW-vs-AST **1819/1851** byte-for-byte,
 with **AST-worse = 0** -- on every program the rewriter compiles+runs, the AST path
@@ -12,9 +13,14 @@ typed tuple destructure (`let (a,b): (T,T) = ...`), `rec.len` field read (not
 length()), builtin-receiver `.toInt()` no-mangle, `match` as an identifier, the
 `continue` statement, `continue` in a range loop (inject the post-step, as rea's
 parseFor does), and nested `type` decls in a function body. The P7 gate ("~99%+ on
-the AST-worse axis") is therefore met; the remaining cutover blocker is **AST
-diagnostic quality** (the `*_fail` negatives + inferred-let report a later/terser
-message than legacy -- tracked in ideas_and_todo.md).
+the AST-worse axis") was met, and **the cutover shipped 2026-06-27** (lang version
+2026-06-27-2): `parseAether()` now parses straight to the AST by default, with the
+rewriter retained as a runtime-reversible fallback (`AETHER_PARSER=rewriter` or
+`=legacy`; `=ast` is an explicit synonym for the default). The diagnostic-quality
+blocker was closed by aligning three negative-case diagnostics to the rewriter's
+wording -- the inferred-let `cannot infer the type`, `type fields must end with ';'`,
+and the FLOW-001 fallthrough check -- so the curated suite is green under both
+frontends. `translate.c` is kept in the tree (not deleted), per the cutover plan.
 
 ## Why
 

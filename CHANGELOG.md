@@ -12,6 +12,21 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-27-2
+
+**AST frontend is now the default (P7 cutover).** `parseAether()` parses straight
+to the shared AST by default; the legacy text rewriter is retained as a runtime-
+reversible fallback via `AETHER_PARSER=rewriter` (or `=legacy`), and
+`AETHER_PARSER=ast` remains an explicit synonym for the default. Gate met:
+RW-vs-AST parity 1819/1851 on the model corpus with **zero AST-worse** (the 32
+divergences are AST-better or out-differs, where the AST path is the more correct
+one -- correct error line numbers, no compound-line mis-parses). Three negative-case
+diagnostics were aligned to the rewriter's wording so the curated suite stays green
+under the new default: the declaration `cannot infer the type of '<x>'` error
+(mixed string/number initializers like `tag + 1` now bail instead of mis-inferring
+Int), the `type fields must end with ';', not ','.` type error, and the
+`non-Void functions have a fallthrough path with no return value.` FLOW-001 check.
+
 ## 2026-06-27-1
 
 **Digit separators in numeric literals.** Underscores may now appear between

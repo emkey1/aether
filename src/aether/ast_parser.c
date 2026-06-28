@@ -2177,6 +2177,24 @@ static char *inferLetTypeName(AetherParser *p, AST *init) {
             free(base);
         }
     }
+    /* Mixed string/non-string arithmetic (e.g. `tag + 1`, Text + Int) has no
+     * inferable result type -> NULL, so the caller emits "cannot infer" like the
+     * rewriter. Checked before the var_type fallback below, which would otherwise
+     * name the operation's (misleading) promoted type. */
+    if (init->type == AST_BINARY_OP && init->token && init->token->value) {
+        const char *bop = init->token->value;
+        if (strcmp(bop, "+") == 0 || strcmp(bop, "-") == 0 || strcmp(bop, "*") == 0 ||
+            strcmp(bop, "div") == 0 || strcmp(bop, "mod") == 0) {
+            char *lt = inferLetTypeName(p, init->left);
+            char *rt = inferLetTypeName(p, init->right);
+            int lStr = lt && (strcmp(lt, "Text") == 0 || strcmp(lt, "str") == 0);
+            int rStr = rt && (strcmp(rt, "Text") == 0 || strcmp(rt, "str") == 0);
+            int mixed = lt && rt && (lStr != rStr);
+            free(lt);
+            free(rt);
+            if (mixed) return NULL;
+        }
+    }
     /* fall back to the expression's own computed var_type. */
     const char *name = aetherTypeNameForVarType(init->var_type);
     if (name) return strdup(name);
@@ -2537,11 +2555,15 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         }
         char *inferred = inferLetTypeName(p, init);
         if (!inferred) {
-            const char *path = aetherSemanticGetSourcePath();
-            if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
-            fprintf(stderr,
-                    "[declaration] cannot infer the type of '%s' from its initializer.\n",
-                    nameTok->value ? nameTok->value : "");
+            const char *vn = nameTok->value ? nameTok->value : "";
+            char detail[256];
+            char hint[256];
+            snprintf(detail, sizeof(detail),
+                     "cannot infer the type of '%s' from its initializer.", vn);
+            snprintf(hint, sizeof(hint),
+                     "add an explicit type, for example `let %s: Int = ...;`.", vn);
+            reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "declaration",
+                                 detail, hint);
             p->hadError = true;
             freeToken(nameTok);
             freeAST(init);
@@ -3703,6 +3725,49 @@ static void collectPendingAnnotations(AetherParser *p) {
  * injected first, the node is flagged virtual with its v-table slot, and a
  * bare-name alias is registered so `obj.method(...)` resolves -- all exactly as
  * rea's parseFunctionDecl does for class methods. */
+/* True if the subtree contains a value-bearing `ret <expr>` (AST_RETURN with a
+ * non-NULL value in ->left). Does not descend into nested function/procedure
+ * declarations, whose returns belong to them. Mirrors the rewriter's
+ * "sawValueReturn" used for the FLOW-001 fallthrough check. */
+static bool astHasValueReturn(const AST *node) {
+    if (!node) return false;
+    if (node->type == AST_FUNCTION_DECL || node->type == AST_PROCEDURE_DECL) return false;
+    if (node->type == AST_RETURN && node->left) return true;
+    if (astHasValueReturn(node->left)) return true;
+    if (astHasValueReturn(node->right)) return true;
+    if (astHasValueReturn(node->extra)) return true;
+    for (int i = 0; i < node->child_count; i++) {
+        if (astHasValueReturn(node->children[i])) return true;
+    }
+    return false;
+}
+
+/* True if the block has a top-level statement that "falls through": an
+ * expression/assignment/call, not a declaration, control-flow construct, or
+ * return. Mirrors the rewriter's sawFallthroughTopLevelStmt (translate.c ~8966,
+ * which excludes if/else/loop/for/while/let/const/fn), so an all-declarations
+ * body (e.g. a malformed unclosed `fn`) is not mistaken for a fallthrough. */
+static bool astBlockHasFallthroughStmt(const AST *block) {
+    if (!block) return false;
+    for (int i = 0; i < block->child_count; i++) {
+        const AST *c = block->children[i];
+        if (!c) continue;
+        switch (c->type) {
+            case AST_VAR_DECL:
+            case AST_CONST_DECL:
+            case AST_FUNCTION_DECL:
+            case AST_PROCEDURE_DECL:
+            case AST_IF:
+            case AST_WHILE:
+            case AST_RETURN:
+                break; /* declaration / control-flow / return: not a fallthrough */
+            default:
+                return true;
+        }
+    }
+    return false;
+}
+
 static AST *parseFnDecl(AetherParser *p) {
     int fnLine = p->current.line; /* line of the `fn` keyword, for diagnostics */
     aetherAdvance(p); /* consume 'fn' */
@@ -4106,6 +4171,18 @@ static AST *parseFnDecl(AetherParser *p) {
     p->currentFunctionType = prevType;
     p->functionDepth = prevDepth;
 
+    /* Non-Void function whose body has top-level statements but never returns a
+     * value: a fallthrough path (FLOW-001), matching the rewriter. Checked before
+     * @pre/@post guard injection so an injected guard does not count as the
+     * fallthrough statement, and skipped for tuple-return fns (handled elsewhere). */
+    if (hasBody && block && !p->hadError && vtype != TYPE_VOID && !hasTupleReturn &&
+        astBlockHasFallthroughStmt(block) && !astHasValueReturn(block)) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "function",
+                             "non-Void functions have a fallthrough path with no return value.",
+                             "add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects.");
+        p->hadError = true;
+    }
+
     /* Inject the @pre guard at the very start of the body, exactly where the
      * rewriter emits it (immediately after the opening brace). */
     if (block && preExpr && !p->hadError) {
@@ -4377,6 +4454,14 @@ static AST *parseTypeDecl(AetherParser *p) {
                 addChild(recordAst, fieldDecl);
                 if (p->current.type == REA_TOKEN_SEMICOLON) {
                     aetherAdvance(p);
+                } else if (p->current.type == REA_TOKEN_COMMA) {
+                    /* `field: Type,` -- match the rewriter's type-field diagnostic
+                     * (translate.c) rather than the generic "unexpected token". */
+                    reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "type",
+                                         "type fields must end with ';', not ','.",
+                                         "write `fieldName: Type;` for each field inside a `type` block.");
+                    p->hadError = true;
+                    break;
                 }
             } else if (p->current.type == REA_TOKEN_SEMICOLON) {
                 aetherAdvance(p); /* tolerate stray semicolons */

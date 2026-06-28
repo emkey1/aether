@@ -39,12 +39,15 @@ AST *parseAether(const char *source) {
 
     aetherRememberSource(source);
 
-    /* Experimental AST frontend (Milestone 1): when AETHER_PARSER=ast, parse
-     * Aether straight to the shared pscal AST. The default path below (the text
-     * rewriter -> parseRea) is unchanged. */
+    /* P7 cutover (2026-06-27): the AST frontend is the DEFAULT. The legacy text
+     * rewriter is retained as a runtime-reversible fallback -- AETHER_PARSER=rewriter
+     * (or =legacy) selects the old `aetherRewriteSource -> parseRea` path below.
+     * AETHER_PARSER=ast stays valid as an explicit synonym for the default. */
     {
         const char *parserMode = getenv("AETHER_PARSER");
-        if (parserMode && strcmp(parserMode, "ast") == 0) {
+        int useRewriter = parserMode != NULL &&
+            (strcmp(parserMode, "rewriter") == 0 || strcmp(parserMode, "legacy") == 0);
+        if (!useRewriter) {
             return parseAetherAst(source);
         }
     }
