@@ -1,6 +1,6 @@
 # Aether for LLMs with Small Contexts
 
-*Guide version: 2026-06-28-1*
+*Guide version: 2026-06-28-3*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -284,6 +284,8 @@ Keys are `Text`, indexes `Int`. Always `toon_close(doc)`.
 
 Handle ownership:
 
+- `toon_parse_file(path)` is **effectful** (file I/O — call inside `fx`);
+  `toon_parse(text)` and the node ops below are pure (call outside `fx`)
 - `ToonDoc` owns all `ToonNode` handles derived from it
 - `toon_root(...)`, `toon_key(...)`, and `toon_at(...)` create node handles
 - `toon_free(node)` releases one node handle early
@@ -310,14 +312,16 @@ loop i in 0..toon_len(jobs) {
 Never do this:
 
 ```aether
-let doc: ToonDoc = toon_parse_file("payload.json");
+let doc: ToonDoc;
+fx { doc = toon_parse_file("payload.json"); }
 let name: Text = toon_get_text(doc, "name");
 ```
 
 Always do this:
 
 ```aether
-let doc: ToonDoc = toon_parse_file("payload.json");
+let doc: ToonDoc;
+fx { doc = toon_parse_file("payload.json"); }
 let root: ToonNode = toon_root(doc);
 let name: Text = toon_get_text(root, "name");
 ```
@@ -325,7 +329,8 @@ let name: Text = toon_get_text(root, "name");
 Large-loop pattern:
 
 ```aether
-let doc: ToonDoc = toon_parse_file(path);
+let doc: ToonDoc;
+fx { doc = toon_parse_file(path); }
 let root: ToonNode = toon_root(doc);
 let jobs: ToonNode = toon_key(root, "jobs");
 

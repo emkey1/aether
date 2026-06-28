@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-28-1*
+*Guide version: 2026-06-28-3*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -467,9 +467,10 @@ fx { println("pi=", pi:0:6, " hyp=", hyp:0:1); }
 
 `ToonDoc` owns all `ToonNode` handles derived from it.
 
-- `toon_parse(...)` and `toon_parse_file(...)` return a `ToonDoc`
+- `toon_parse(text)` (pure) and `toon_parse_file(path)` (**effectful** — file
+  I/O, so call it inside `fx`) both return a `ToonDoc`
 - `toon_root(...)`, `toon_key(...)`, and `toon_at(...)` return `ToonNode`
-  handles associated with that document
+  handles associated with that document (all pure — call outside `fx`)
 - `toon_free(node)` releases one node handle early
 - `toon_close(doc)` releases the document and any remaining child handles
   derived from it
@@ -481,10 +482,14 @@ Practical rule:
 - if a loop creates many temporary node handles, prefer `toon_free(...)` for
   those transient nodes to reduce temporary handle-table growth before close
 
-Example:
+Example. `toon_parse_file` is effectful (file I/O), so parse it inside `fx`,
+then use the pure handle ops outside:
 
 ```aether
-let doc: ToonDoc = toon_parse_file(path);
+let doc: ToonDoc;
+fx {
+    doc = toon_parse_file(path);
+}
 let root: ToonNode = toon_root(doc);
 let jobs: ToonNode = toon_key(root, "jobs");
 
@@ -674,14 +679,20 @@ object-shaped, bind that named array first.
 Wrong:
 
 ```aether
-let doc: ToonDoc = toon_parse_file("payload.json");
+let doc: ToonDoc;
+fx {
+    doc = toon_parse_file("payload.json");
+}
 let name: Text = toon_get_text(doc, "name");
 ```
 
 Right:
 
 ```aether
-let doc: ToonDoc = toon_parse_file("payload.json");
+let doc: ToonDoc;
+fx {
+    doc = toon_parse_file("payload.json");
+}
 let root: ToonNode = toon_root(doc);
 let name: Text = toon_get_text(root, "name");
 ```
