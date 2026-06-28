@@ -27,7 +27,7 @@ fn main() -> Void {
 When a capable model consistently reaches for a construct that does not exist —
 or trips on one that does — that is treated as a language bug and fixed. The
 benchmark, not opinion, is the instrument: see the
-[findings](docs/aether_specialization_findings.md) and the
+[findings](docs/archive/aether_specialization_findings.md) and the
 [design rationale](docs/aether_architecture_and_rationale.md).
 
 ## You don't have to fine-tune a model to use it
@@ -46,7 +46,7 @@ for a malformed TOON handle, and so on. Those same codes are section headings in
 the guide, so the diagnostic points straight back to the paragraph that explains
 the fix. A model can read its own error and correct the program on a second pass.
 
-Measured: in the [guided benchmark](docs/aether_guided_benchmark.md), a 122B
+Measured: in the [guided benchmark](docs/archive/aether_guided_benchmark.md), a 122B
 model writes the **full 30-task v2 benchmark correctly** from the guide alone —
 no fine-tuning.
 
