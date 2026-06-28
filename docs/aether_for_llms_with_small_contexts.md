@@ -1,6 +1,6 @@
 # Aether for LLMs with Small Contexts
 
-*Guide version: 2026-06-28-3*
+*Guide version: 2026-06-28-4*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -51,8 +51,8 @@ compiler, and VM. It is not a separate runtime.
 21. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
     names such as `values`, `count`, `sum`, `maxValue`.
 22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
-    call exported names directly. Never guess `export { ... }`, `JsonDoc`,
-    `json.parseFile(...)`, `Int.MIN`, or `value.toString()`.
+    call exported names directly. Never guess `export { ... }` syntax or the
+    foreign object/JSON APIs listed under **TOON rules**.
 23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
     no lambdas, no closures, never pass a function as an argument.
     `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
@@ -64,14 +64,11 @@ mixed-type `+`; explicit types for TOON values and non-trivial helper results;
 real logic, never hard-coded expected output; preserve provided export names
 exactly.
 
-Not every rule above is a *compiler* check. The compiler emits a stable code —
-FX-001, SYN-001, ANN-001, IMP-001, SCOPE-001, TOON-001, TYPE-001, TUP-001,
-FLOW-001, MUT-001, FIELD-002, NAME-001 — and, on newer builds, a `help:` line
-citing it. The others surface differently: BUILT-001, MOD-001, ORDER-001,
-METH-001, MOD-002, and LEN-001 are reported under a broader code (mostly
-SCOPE-001); and OUT-001, FMT-001, FIELD-001, FUNC-001, KEY-001, NEST-001,
-ROOT-001 are authoring rules the compiler cannot check at all. The **Repair rules** section
-maps each emitted code to its fix.
+Not every rule above is a *compiler* check: some are emitted as a stable
+`[CODE]` (with a `help:` line on newer builds), some are reported under a broader
+code (mostly SCOPE-001), and the rest are authoring rules the compiler cannot
+catch. The **Repair rules** section lists each emitted code with its fix and
+flags the authoring-only ones.
 
 ## Core syntax
 
