@@ -12,6 +12,15 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-27-1
+
+**Digit separators in numeric literals.** Underscores may now appear between
+digits in integer, hexadecimal, and floating-point literals (`1_000_000`,
+`0xFF_FF`, `3.141_592`); they are cosmetic and stripped before the value is
+parsed. A `_` is only part of the number when it sits between two digits, so a
+leading/trailing `_` still begins/ends a separate token. Both frontends (the
+legacy rewriter and the AST parser) accept them, via the shared rea lexer.
+
 ## 2026-06-26-1
 
 **Compound-line parsing** (frontend rewriter): multiple constructs sharing a

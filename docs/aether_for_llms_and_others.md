@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-27-3*
+*Guide version: 2026-06-27-5*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -193,6 +193,11 @@ guessing conversion helpers or `Text + Int` coercions.
 | Array | `xs + [v]` append only; do not assume `xs + ys` concatenates arrays |
 
 Unary minus on numeric literals and expressions is supported.
+
+Numeric literals may contain `_` digit separators for readability
+(`1_000_000`, `0xFF_FF`, `3.141_592`); the separators are ignored. Hexadecimal
+(`0x…`), decimal, and floating-point literals all accept them. A `_` counts only
+between two digits, so a leading or trailing `_` is not part of the number.
 
 ## Functions
 

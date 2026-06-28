@@ -1,6 +1,6 @@
 # Aether for LLMs with Small Contexts
 
-*Guide version: 2026-06-27-3*
+*Guide version: 2026-06-27-5*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -78,6 +78,7 @@ maps each emitted code to its fix.
   `ToonDoc`/`ToonNode`. `println(boolValue)` prints `true` or `false`. No
   conversion helpers exist; use variadic `println`.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||`.
+- Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
 ```aether
 fn add(a: Int, b: Int) -> Int {
