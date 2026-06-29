@@ -35,13 +35,12 @@ model when there is *nothing* in context to lean on?
 |---|---|---|---|---|
 | `a3b-coder30b` (30B-A3B) | cs-aug2-builtins | **29**/29/3/2 | 5/5/4/1 | 12/9/11/1 |
 | `mistral24b` | cs-aug2-builtins | 28/27/4/1 | 7/3/5/0 | 8/6/15/2 |
+| `q36` (35B-A3B hybrid) | cs-aug2-builtins | 27/27/13/12 | 6/6/7/6 | 13/13/9/5 |
 | `qwen3-8b-nothink` | cs-aug2-builtins | 27/26/6/3 | 3/3/3/0 | 9/7/11/0 |
 | `qwen14b` | cs-aug2-builtins | 25/25/6/1 | 6/4/4/0 | 13/10/11/2 |
 | `mistral24b` *(baseline)* | cs-aug2 (old) | 25/25/7/2 | **0**/0/8/0 | 11/9/12/2 |
-| `q36` (35B-A3B hybrid) | cs-aug2-builtins | *pending* | *pending* | *pending* |
 
-*Cells are Compiled/Correct/Retried/Fixed. `q36` is deploying (bf16) and folds in
-when its run lands.*
+*Cells are Compiled/Correct/Retried/Fixed (overlapping tallies, not a partition).*
 
 ## Findings
 
@@ -82,8 +81,9 @@ when its run lands.*
 
 ## Status
 
-`q36` (Qwen3.6-35B-A3B, hybrid `qwen3_5_moe`) is deploying as **bf16** — q8 is broken
-for this hybrid arch — and will be added once its no-guide run completes.
-`deepseek6.7b-cs-aug2-builtins` trained intact but is blocked from this board by an
+`q36` (Qwen3.6-35B-A3B, hybrid `qwen3_5_moe`) is now included, served as **bf16** (q8 is
+broken for this hybrid arch). It needed the reasoning-model `stop:null` handling to score
+at all — note its heavy repair use (simple: 13 retried, 12 fixed), the most of any model
+here. `deepseek6.7b-cs-aug2-builtins` trained intact but is blocked from this board by an
 upstream llama.cpp GGUF pre-tokenizer gap (see the deploy notes); its merged
 checkpoint is preserved. Tables regenerate from the per-model result JSONs.
