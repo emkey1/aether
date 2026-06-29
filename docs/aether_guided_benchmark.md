@@ -51,6 +51,8 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | **30**/30/6/6 | 29/29/7/6 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | **30**/30/1/1 | **30**/30/0/0 |
 | `gemini-2.5-flash` | — · cloud | **30**/30/1/1 | **30**/30/1/1 |
+| `glm-5.2` | — · cloud | **30**/30/0/0 | **30**/30/0/0 |
+| `glm-5-turbo` | — · cloud | **30**/30/1/1 | 29/29/2/1 |
 | `devstral-24b` | 24B · m5t | 29/29/3/2 | 28/28/4/3 |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 29/28/4/2 | 28/28/2/0 |
 | `mistral-small-24b` | 24B · claw1 | 28/28/6/4 | 28/27/7/4 |
@@ -65,6 +67,8 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 |---|---|---|---|
 | `gemini-2.5-flash` | — · cloud | **8**/8/0/0 | **8**/8/0/0 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | **8**/8/1/1 | **8**/8/2/2 |
+| `glm-5.2` | — · cloud | **8**/8/0/0 | **8**/8/0/0 |
+| `glm-5-turbo` | — · cloud | 7/7/0/0 | **8**/8/0/0 |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | **8**/8/2/2 | 7/7/1/0 |
 | `devstral-24b` | 24B · m5t | 7/7/2/1 | 7/7/8/7 |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 6/6/4/2 | 7/7/5/4 |
@@ -76,6 +80,8 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 | model | size · served | concise | full |
 |---|---|---|---|
+| `glm-5-turbo` | — · cloud | 18/18/1/1 | 19/**19**/1/1 |
+| `glm-5.2` | — · cloud | 18/18/3/3 | 18/18/1/1 |
 | `gemini-2.5-flash` | — · cloud | 18/**18**/3/2 | 18/17/4/2 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 17/17/2/2 | 18/**18**/2/1 |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | 17/17/6/4 | 17/17/8/6 |
@@ -141,8 +147,11 @@ stdout byte-for-byte. Task sets:
 ## Status
 
 This is the finalized-guide / repair-on cohort, regenerated from the per-model
-result JSONs. **In progress:** `seed-oss-36b` (mid-run) and roughly six more m5t
-models (exaone, lfm2, glm, gemma4-31b, olmo-think, deepseek-r1-14b, qwq) are still
-benchmarking and will be folded in as they land. The broad single-pass 2B–122B
-sweep — including the cloud flagships that ace every board — remains in the
-[archive](archive/aether_guided_benchmark.md).
+result JSONs. The two cloud **GLM** models (`glm-5-turbo`, `glm-5.2`) are served via
+the autoglm/autoclaw proxy, which is slow (~23 tok/s); GLM's verbose reasoning can run
+a hard task past the request time budget, so a couple of their large/cs cells reflect a
+proxy/verbosity timeout rather than a capability miss. **In progress:** `seed-oss-36b`
+(mid-run) and roughly six more m5t models (exaone, lfm2, glm-4.7-flash, gemma4-31b,
+olmo-think, deepseek-r1-14b, qwq) are still benchmarking and will be folded in as they
+land. The broad single-pass 2B–122B sweep — including the cloud flagships that ace
+every board — remains in the [archive](archive/aether_guided_benchmark.md).
