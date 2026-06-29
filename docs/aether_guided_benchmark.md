@@ -59,7 +59,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3.5-9b` | 9B · m5t | 27/27/1/1 | 26/26/2/2 |
 | `granite4-tiny-7b` | 7B · m5t | 19/15/20/5 | 21/13/17/0 |
 
-*seed-oss-36b and ~6 more m5t models are still landing — see Status.*
+*~6 more m5t models are still landing — see Status.*
 
 ## Large (8 tasks): bigger inputs, layered logic
 
@@ -150,8 +150,9 @@ This is the finalized-guide / repair-on cohort, regenerated from the per-model
 result JSONs. The two cloud **GLM** models (`glm-5-turbo`, `glm-5.2`) are served via
 the autoglm/autoclaw proxy, which is slow (~23 tok/s); GLM's verbose reasoning can run
 a hard task past the request time budget, so a couple of their large/cs cells reflect a
-proxy/verbosity timeout rather than a capability miss. **In progress:** `seed-oss-36b`
-(mid-run) and roughly six more m5t models (exaone, lfm2, glm-4.7-flash, gemma4-31b,
-olmo-think, deepseek-r1-14b, qwq) are still benchmarking and will be folded in as they
-land. The broad single-pass 2B–122B sweep — including the cloud flagships that ace
+proxy/verbosity timeout rather than a capability miss. **In progress:** roughly six m5t
+models (exaone, lfm2, glm-4.7-flash, gemma4-31b, olmo-think, deepseek-r1-14b, qwq) are
+still benchmarking and will be folded in as they land. (`seed-oss-36b` was dropped —
+impractically slow to serve in this setup.) The broad single-pass 2B–122B sweep —
+including the cloud flagships that ace
 every board — remains in the [archive](archive/aether_guided_benchmark.md).
