@@ -21,7 +21,10 @@ model when there is *nothing* in context to lean on?
   large set (8), and CS-classics (19) — exact-stdout scored against an oracle, repair on.
 - **Scoring is identical to the guide side:** **Compiled / Correct / Retried /
   Fixed**. Compiled = ran rc 0; Correct = exact stdout; Retried = needed ≥2 attempts;
-  Fixed = a repair turned a failure into a pass.
+  Fixed = a repair turned a failure into a pass. These four are overlapping tallies
+  over the same N tasks (NOT a partition — they do not sum to N: `Compiled ≥ Correct ≥
+  Fixed`, `Fixed ⊆ Retried`); a task that never produced a usable program counts 0 in
+  all four.
 - **A control for the corpus change.** The same Mistral-24B base, trained on the
   *previous* corpus (`cs-aug2`, **without** the builtin reference), is included as a
   baseline — an old-vs-new corpus A/B, both judged with no guide.

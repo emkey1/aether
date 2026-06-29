@@ -36,7 +36,10 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
   coded errors that double as guide section headings — and may resubmit.
   **Compiled** = ran with return code 0; **Correct** = exact stdout match (the
   headline number); **Retried** = needed ≥2 attempts; **Fixed** = a repair turned a
-  failure into a pass. `Fixed ⊆ Retried`, and `Correct` already includes the fixes.
+  failure into a pass. These four are **overlapping tallies over the same N tasks,
+  not a partition** — they do not sum to N (`Compiled ≥ Correct ≥ Fixed`,
+  `Fixed ⊆ Retried`, and `Correct` already includes the fixes). A task that never
+  produced a usable program counts 0 in all four (and shows up as `Correct < N`).
 - **Cohort.** A curated set from a 120B MoE down to a 7B, served on claw1 (Ollama),
   m5t (LM Studio / MLX), and the Gemini API. For the broad 2B–122B model list, see
   the archive.
