@@ -1,6 +1,6 @@
-# Aether for LLMs with Small Contexts
+# Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-06-28-4*
+*Guide version: 2026-06-29-1*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 

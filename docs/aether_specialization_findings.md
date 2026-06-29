@@ -74,7 +74,7 @@ when its run lands.*
   offline or tiny-context deployment where you cannot spend the prompt tokens.
 - It does **not** close the hard-task gap that in-context rules do. For a capable
   model the practical recommendation remains: paste the
-  [small guide](aether_for_llms_with_small_contexts.md) and skip fine-tuning;
+  [concise guide](aether_for_llms_with_small_contexts.md) and skip fine-tuning;
   fine-tune only when you genuinely cannot put the guide in context.
 
 ## Status

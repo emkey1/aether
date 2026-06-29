@@ -27,7 +27,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
   byte-for-byte against an oracle.
 - **The guide in the prompt, two sizes.** The **full** guide
   ([`aether_for_llms_and_others.md`](aether_for_llms_and_others.md), ~980 lines) or
-  the condensed **small** one
+  the **concise** one
   ([`aether_for_llms_with_small_contexts.md`](aether_for_llms_with_small_contexts.md),
   ~500 lines), version 2026-06-28. There is no `none` column — that is the
   fine-tuned side's department.
@@ -43,7 +43,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ## Simple (30 tasks): core language fluency
 
-| model | size · served | small (C/C/R/F) | full (C/C/R/F) |
+| model | size · served | concise (C/C/R/F) | full (C/C/R/F) |
 |---|---|---|---|
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | **30**/30/6/6 | 29/29/7/6 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | **30**/30/1/1 | **30**/30/0/0 |
@@ -58,7 +58,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ## Large (8 tasks): bigger inputs, layered logic
 
-| model | size · served | small | full |
+| model | size · served | concise | full |
 |---|---|---|---|
 | `gemini-2.5-flash` | — · cloud | **8**/8/0/0 | **8**/8/0/0 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | **8**/8/1/1 | **8**/8/2/2 |
@@ -71,7 +71,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ## CS-classics (19 tasks): textbook algorithms
 
-| model | size · served | small | full |
+| model | size · served | concise | full |
 |---|---|---|---|
 | `gemini-2.5-flash` | — · cloud | 18/**18**/3/2 | 18/17/4/2 |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 17/17/2/2 | 18/**18**/2/1 |
@@ -82,25 +82,25 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `mistral-small-24b` | 24B · claw1 | 9/7/12/0 | 10/7/14/2 |
 | `granite4-tiny-7b` | 7B · m5t | 4/2/18/1 | 6/4/16/1 |
 
-*All boards: small and full columns are Compiled/Correct/Retried/Fixed for that
+*All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
 model.*
 
 ## What the repair columns show
 
 - **Repair earns its keep — for models strong enough to read their own error.**
   This is what the archived single-pass sweep could not show. `gpt-oss-120b` on the simple set
-  fixed **6 of 6** retries (small); `devstral-24b` on the large set fixed **7 of 8**
+  fixed **6 of 6** retries (concise); `devstral-24b` on the large set fixed **7 of 8**
   (full). The coded diagnostic points back into the same guide section the model
   already has, and a capable model uses it. But it is capability-gated: weak models
   thrash. `granite4-tiny-7b` on `cs` retried 16 and fixed 1; `mistral-small-24b` on
   `cs` retried 14 and fixed 2. A model that cannot turn `FX-001` into a fix just
   rattles the cage — visible as a high Retried with a near-zero Fixed.
-- **The condensed guide costs the capable models nothing.** At the top, small and
+- **The concise guide costs the capable models nothing.** At the top, concise and
   full tie (gpt-oss, qwen3.6, gemini all 30/30 on simple; 8/8 on large). The full
   guide's edge is a **weak-model, hard-task** effect: `qwen3.5-9b` jumps from 8 to
   **13** on `cs` with the full guide, `granite4-tiny` from 2 to 4. More context buys
   the most exactly where in-context learning is hardest, and nothing where it is
-  easy. Shipping the small guide gives up nothing on the models that matter.
+  easy. Shipping the concise guide gives up nothing on the models that matter.
 - **The simple set saturates; `cs` discriminates.** Four models sit at ≥29/30 on
   simple — it no longer separates the top tier. `cs` spreads the same cohort from 2
   to 18. Rank on `cs` and the large set, not simple.

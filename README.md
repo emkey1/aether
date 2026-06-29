@@ -33,7 +33,7 @@ benchmark, not opinion, is the instrument: see the
 ## You don't have to fine-tune a model to use it
 
 Fine-tuning is the research frontier, but it isn't the cost of entry. The
-condensed guide
+concise guide
 ([`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md),
 ~500 lines) pasted into the prompt gets a frontier model that has *never seen
 Aether* writing valid, correct programs a surprising fraction of the time — the
@@ -128,7 +128,7 @@ In-depth language documentation is in [`docs/`](docs/):
 
 - [`aether_architecture_and_rationale.md`](docs/aether_architecture_and_rationale.md): design and rationale
 - [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full language guide
-- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): a condensed guide
+- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (for small contexts)
 
 See [`src/aether/DESIGN.md`](src/aether/DESIGN.md) for the front-end internals.
 
