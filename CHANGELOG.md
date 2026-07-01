@@ -12,6 +12,34 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-30-3
+
+**A `-> Void` method now compiles on an object whose type was *inferred* from
+`new`, not only when the instance is explicitly annotated.** Records are
+pointer-backed, so a statement-level method call passes the receiver as the
+method's `POINTER` `self` argument. The inferred-`let` path built the declared
+type node by hand and, for any user type, emitted a bare `AST_TYPE_REFERENCE` at
+`TYPE_UNKNOWN` — it never consulted `lookupType` to detect a record and wrap it in
+`AST_POINTER_TYPE`. So the variable stayed untyped and a later statement-level
+Void-method call failed:
+
+```
+type C { value: Int; fn inc() -> Void { self.value = self.value + 1; } }
+let c = new C();   // inferred -> argument 1 to 'c.inc' expects type POINTER but got VOID
+let c: C = new C(); // explicit -> OK
+c.inc();
+```
+
+The inferred binding now routes through the same `buildTypeNode` helper the
+explicit `: T` annotation uses, which resolves a record/class name to
+`AST_POINTER_TYPE -> AST_TYPE_REFERENCE(RECORD)` (var_type `POINTER`). The inferred
+and annotated forms now produce a byte-identical declaration, so `let c = new C();`
+and `let c: C = new C();` behave the same. Builtin and un-inferable types are
+unchanged (the "cannot infer" diagnostic still fires). The same fix covers an
+inline object-literal method chain that returns a record
+(`let x = Foo { ... }.makeBar();`). Reported by `mistral-small-24b`, which could
+not recover from the raw `POINTER`/`VOID` message.
+
 ## 2026-06-30-2
 
 **Trailing `//` comments on `@pre`/`@post` annotations no longer leak into the

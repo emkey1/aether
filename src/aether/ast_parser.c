@@ -2498,17 +2498,13 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 char *inferred = inferLetTypeName(p, callChain);
                 AST *xTypeNode = NULL; VarType xvt = TYPE_UNKNOWN;
                 if (inferred) {
-                    const char *reaName = NULL; VarType iv = TYPE_UNKNOWN;
-                    if (mapAetherType(inferred, strlen(inferred), &reaName, &iv)) {
-                        Token *tt = newToken(TOKEN_IDENTIFIER, reaName, kwLine, 0);
-                        xTypeNode = newASTNode(AST_TYPE_IDENTIFIER, tt);
-                        setTypeAST(xTypeNode, iv);
-                        xvt = iv;
-                    } else {
-                        Token *tt = newToken(TOKEN_IDENTIFIER, inferred, kwLine, 0);
-                        xTypeNode = newASTNode(AST_TYPE_REFERENCE, tt);
-                        setTypeAST(xTypeNode, TYPE_UNKNOWN);
-                    }
+                    /* Same record->POINTER resolution as the plain inferred-let
+                     * path below: route through buildTypeNode so a method chain
+                     * that returns a record/class type (e.g. `let x =
+                     * Foo{}.makeBar();`) gets an AST_POINTER_TYPE receiver rather
+                     * than a bare TYPE_UNKNOWN reference. Builtin and unknown-type
+                     * cases are handled exactly as the old inline code did. */
+                    xTypeNode = buildTypeNode(inferred, strlen(inferred), kwLine, &xvt);
                     bindingTableSet((AetherBindingTable *)p->bindings, nameTok->value, inferred);
                     free(inferred);
                 }
@@ -2644,19 +2640,25 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             freeAST(init);
             return NULL;
         }
-        VarType iv = TYPE_UNKNOWN;
-        const char *reaName = NULL;
-        if (mapAetherType(inferred, strlen(inferred), &reaName, &iv)) {
-            Token *ttok = newToken(TOKEN_IDENTIFIER, reaName, kwLine, 0);
-            typeNode = newASTNode(AST_TYPE_IDENTIFIER, ttok);
-            setTypeAST(typeNode, iv);
-            vtype = iv;
-        } else {
-            /* user-defined type name */
-            Token *ttok = newToken(TOKEN_IDENTIFIER, inferred, kwLine, 0);
-            typeNode = newASTNode(AST_TYPE_REFERENCE, ttok);
-            setTypeAST(typeNode, TYPE_UNKNOWN);
-            vtype = TYPE_UNKNOWN;
+        /* Build the declared type node from the inferred name through the same
+         * helper the explicit `: T` path uses (parseTypeWithArraySuffix ->
+         * buildTypeNode). Critically, buildTypeNode resolves a user record/class
+         * name to an AST_POINTER_TYPE -> AST_TYPE_REFERENCE(RECORD) with var_type
+         * POINTER (object variables are pointers). The prior inline construction
+         * emitted a bare AST_TYPE_REFERENCE at TYPE_UNKNOWN for every user type,
+         * so an inferred `let c = new C();` left `c` untyped and a later
+         * statement-level `c.inc();` (a `-> Void` method) tripped pscal-core's
+         * "argument 1 to 'c.inc' expects type POINTER but got VOID" -- whereas the
+         * annotated `let c: C = new C();` type-checked. buildTypeNode handles the
+         * builtin-keyword case (AST_TYPE_IDENTIFIER) and the unknown-type fallback
+         * (bare AST_TYPE_REFERENCE, TYPE_UNKNOWN) exactly as the old code did. */
+        typeNode = buildTypeNode(inferred, strlen(inferred), kwLine, &vtype);
+        if (!typeNode) {
+            free(inferred);
+            freeToken(nameTok);
+            freeAST(init);
+            p->hadError = true;
+            return NULL;
         }
         declaredTypeName = inferred; /* take ownership for binding below */
     }

@@ -350,7 +350,7 @@ by name and cannot tell the user's method from the builtin. That is an
 effect-check fix, not a parser fix — deferred. See the follow-up idea *Fully
 support type-keyword names as record members* under Open ideas.
 
-### Mutating method works only when the instance has an explicit type — *gap (verified footgun)*
+### Mutating method works only when the instance has an explicit type — *fixed 2026-06-30-3*
 A method that mutates `self` compiles and runs when the receiver is bound with an
 explicit type, but fails when the type is inferred from `new`:
 ```
@@ -378,6 +378,20 @@ mutates: `let n: Int = c.bump()` compiles with `c` inferred (verified on
 `2026-06-30-2`). So the framing is "annotate `new` instances" (universal), not
 "mutating methods need a type". The underlying inference/diagnostic fix is still
 open.
+
+**Resolved (2026-06-30-3).** The inferred-`let` path in `ast_parser.c`
+(`parseLetDeclAfterKeyword`) hand-built the declared type node and, for any
+user type, emitted a bare `AST_TYPE_REFERENCE` at `TYPE_UNKNOWN` — it never
+consulted `lookupType` to detect a record and wrap it in `AST_POINTER_TYPE`, so
+the inferred variable stayed untyped while the annotated `: C` path (via
+`buildTypeNode`) produced `POINTER_TYPE -> TYPE_REFERENCE(RECORD)`, var_type
+`POINTER`. The inferred path now routes through that same `buildTypeNode` helper,
+so `let c = new C();` and `let c: C = new C();` produce a **byte-identical**
+declaration (verified with `--dump-ast-json`) and the statement-level Void-method
+call type-checks. The symmetric second site (inline object-literal method chain
+that returns a record, `let x = Foo { ... }.makeBar();`) got the same fix. Builtin
+and un-inferable initializers are unchanged (the "cannot infer" diagnostic still
+fires). Regression: `tests/inferred_object_mutation_pass.aether` (prints 42).
 
 ### Array literals need an explicit type; arrays of record literals fail to parse — *gap*
 - `let xs = [1, 2, 3];` → `[TYPE-001] cannot infer the type of 'xs'`; needs

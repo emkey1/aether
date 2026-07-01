@@ -99,6 +99,7 @@ TYPE_METHOD_CONTRACTS_PASS_FIXTURE="$TESTS_DIR/type_method_contracts_pass.aether
 SELF_ALIAS_PASS_FIXTURE="$TESTS_DIR/self_alias_pass.aether"
 SELF_MUTATION_PASS_FIXTURE="$TESTS_DIR/self_mutation_pass.aether"
 METHOD_FIELD_INFERENCE_PASS_FIXTURE="$TESTS_DIR/method_field_inference_pass.aether"
+INFERRED_OBJECT_MUTATION_PASS_FIXTURE="$TESTS_DIR/inferred_object_mutation_pass.aether"
 SELF_CONDITION_METHOD_PASS_FIXTURE="$TESTS_DIR/self_condition_method_pass.aether"
 TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE="$TESTS_DIR/text_field_method_param_pass.aether"
 TOON_JSON_HELPERS_PASS_FIXTURE="$TESTS_DIR/toon_json_helpers_pass.aether"
@@ -229,6 +230,7 @@ for fixture in \
     "$SELF_ALIAS_PASS_FIXTURE" \
     "$SELF_MUTATION_PASS_FIXTURE" \
     "$METHOD_FIELD_INFERENCE_PASS_FIXTURE" \
+    "$INFERRED_OBJECT_MUTATION_PASS_FIXTURE" \
     "$SELF_CONDITION_METHOD_PASS_FIXTURE" \
     "$TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE" \
     "$TOON_JSON_HELPERS_PASS_FIXTURE" \
@@ -666,6 +668,16 @@ fi
 if ! grep -qx "3" /tmp/aether_method_field_inference_pass.out; then
     echo "unexpected method field inference output" >&2
     cat /tmp/aether_method_field_inference_pass.out >&2
+    exit 1
+fi
+# Inferred object binding + statement-level `-> Void` method call: `let c = new
+# Counter();` (no annotation) must resolve the pointer-backed receiver so `c.inc();`
+# type-checks, matching `let c: Counter = ...`. Regression for "argument 1 to
+# 'c.inc' expects type POINTER but got VOID" (inferred-let record type left UNKNOWN).
+"$AETHER_BIN" --no-cache "$INFERRED_OBJECT_MUTATION_PASS_FIXTURE" >/tmp/aether_inferred_object_mutation_pass.out
+if ! grep -qx "42" /tmp/aether_inferred_object_mutation_pass.out; then
+    echo "unexpected inferred object mutation output (regression: inferred receiver POINTER/VOID)" >&2
+    cat /tmp/aether_inferred_object_mutation_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$SELF_CONDITION_METHOD_PASS_FIXTURE" >/tmp/aether_self_condition_method_pass.out
