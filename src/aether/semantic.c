@@ -477,6 +477,179 @@ static const AetherScalarBinding *findScalarBinding(const AetherScalarBindingTab
     return NULL;
 }
 
+/* --------------------------------------------------------------------------
+ * Function-scoped textual type-flow.
+ *
+ * The TOON-handle and scalar tables used to be collected once over the WHOLE
+ * source, so `let v: Int` in one function clobbered `let v: Text` in another
+ * (last-write-wins), yielding both false TYPE-001/TOON-001 positives and
+ * missed negatives. The passes now run per function: each physical line is
+ * mapped to the function whose body contains it (0 = top level), the global
+ * (top-level) tables are collected first and stay visible program-wide, and
+ * every function gets a fresh copy of the globals plus only its own locals.
+ * A local that shadows a global simply overwrites the entry in that
+ * function's COPY, so the global is intact again for the next function.
+ * -------------------------------------------------------------------------- */
+
+/* Map each physical source line to the function whose signature/body contains
+ * it: 0 = top level (including `type` field lines and `mod`-level consts),
+ * 1..N = the N `fn` declarations (methods and module fns included) in source
+ * order. Lines between a `fn` keyword and its opening brace belong to that
+ * function. Returns a malloc'd array of *lineCountOut entries (caller frees),
+ * or NULL on allocation failure (callers fall back to the flat scan). The
+ * source is the sanitized scan source (comments blanked; strings present). */
+static int *computeLineFunctionIds(const char *source, size_t *lineCountOut,
+                                   int *fnCountOut) {
+    size_t lineCount = 1;
+    size_t lineIdx = 0;
+    const char *s;
+    const char *cursor = source;
+    int *ids;
+    int depth = 0;
+    int inFn = 0;
+    int pendingFn = 0;
+    int fnBodyDepth = 0;
+    int curId = 0;
+    int nextId = 1;
+
+    if (!source) {
+        return NULL;
+    }
+    for (s = source; *s; s++) {
+        if (*s == '\n') {
+            lineCount++;
+        }
+    }
+    ids = (int *)calloc(lineCount, sizeof(int));
+    if (!ids) {
+        return NULL;
+    }
+
+    while (*cursor) {
+        const char *lineStart = cursor;
+        const char *lineEnd = cursor;
+        const char *body;
+        const char *scan;
+
+        while (*lineEnd && *lineEnd != '\n') {
+            lineEnd++;
+        }
+        body = skipInlineSpaces(lineStart, lineEnd);
+        if (!inFn && !pendingFn && startsWithWord(body, lineEnd, "fn")) {
+            pendingFn = 1;
+            curId = nextId++;
+        }
+        if (lineIdx < lineCount) {
+            ids[lineIdx] = (inFn || pendingFn) ? curId : 0;
+        }
+        for (scan = lineStart; scan < lineEnd;) {
+            if (*scan == '"' || *scan == '\'') {
+                const char *after = skipQuotedString(scan, NULL);
+                scan = (after > scan) ? after : scan + 1;
+                if (scan > lineEnd) {
+                    scan = lineEnd; /* unterminated on this line: clamp */
+                }
+                continue;
+            }
+            if (*scan == '{') {
+                depth++;
+                if (pendingFn) {
+                    pendingFn = 0;
+                    inFn = 1;
+                    fnBodyDepth = depth;
+                }
+            } else if (*scan == '}') {
+                if (depth > 0) {
+                    depth--;
+                }
+                if (inFn && depth < fnBodyDepth) {
+                    inFn = 0;
+                    curId = 0;
+                }
+            }
+            scan++;
+        }
+        lineIdx++;
+        cursor = (*lineEnd == '\n') ? lineEnd + 1 : lineEnd;
+    }
+
+    if (lineCountOut) {
+        *lineCountOut = lineCount;
+    }
+    if (fnCountOut) {
+        *fnCountOut = nextId - 1;
+    }
+    return ids;
+}
+
+/* True when line `lineIdx` (0-based) should be skipped by a pass that is
+ * scoped to function `fnId`. A NULL id array disables filtering (legacy
+ * whole-source behavior, used only on allocation failure). */
+static int lineOutsideScope(const int *lineFnIds, size_t lineCount,
+                            size_t lineIdx, int fnId) {
+    if (!lineFnIds) {
+        return 0;
+    }
+    if (lineIdx >= lineCount) {
+        return fnId != 0;
+    }
+    return lineFnIds[lineIdx] != fnId;
+}
+
+/* Seed a function's working table with the program-wide (top-level) bindings.
+ * Returns 0 on allocation failure; dst stays freeable either way. */
+static int copyOpaqueBindingTable(AetherOpaqueBindingTable *dst,
+                                  const AetherOpaqueBindingTable *src) {
+    size_t i;
+
+    dst->items = NULL;
+    dst->count = 0;
+    dst->cap = 0;
+    if (!src || src->count == 0) {
+        return 1;
+    }
+    if (!ensureOpaqueBindingTable(dst, src->count)) {
+        return 0;
+    }
+    for (i = 0; i < src->count; i++) {
+        char *name = dupRange(src->items[i].name,
+                              src->items[i].name + strlen(src->items[i].name));
+        if (!name) {
+            return 0;
+        }
+        dst->items[dst->count].name = name;
+        dst->items[dst->count].isDoc = src->items[i].isDoc;
+        dst->count++;
+    }
+    return 1;
+}
+
+static int copyScalarBindingTable(AetherScalarBindingTable *dst,
+                                  const AetherScalarBindingTable *src) {
+    size_t i;
+
+    dst->items = NULL;
+    dst->count = 0;
+    dst->cap = 0;
+    if (!src || src->count == 0) {
+        return 1;
+    }
+    if (!ensureScalarBindingTable(dst, src->count)) {
+        return 0;
+    }
+    for (i = 0; i < src->count; i++) {
+        char *name = dupRange(src->items[i].name,
+                              src->items[i].name + strlen(src->items[i].name));
+        if (!name) {
+            return 0;
+        }
+        dst->items[dst->count].name = name;
+        dst->items[dst->count].typeName = src->items[i].typeName;
+        dst->count++;
+    }
+    return 1;
+}
+
 static int isBoolLiteralRange(const char *start, const char *end) {
     size_t len;
 
@@ -757,16 +930,23 @@ static const char *inferInitializerTypeName(const char *start,
     return expectedScalarReturnTypeName(trimmedStart, (size_t)(nameEnd - trimmedStart));
 }
 
-static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *table) {
+static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *table,
+                                  const int *lineFnIds, size_t lineCount, int fnId) {
     const char *cursor = source;
+    size_t lineIdx = 0;
 
     while (cursor && *cursor) {
         const char *lineStart = cursor;
         const char *lineEnd = cursor;
         const char *body;
+        size_t thisLine = lineIdx++;
 
         while (*lineEnd && *lineEnd != '\n') {
             lineEnd++;
+        }
+        if (lineOutsideScope(lineFnIds, lineCount, thisLine, fnId)) {
+            cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
+            continue;
         }
         body = skipInlineSpaces(lineStart, lineEnd);
         if (startsWithWord(body, lineEnd, "let") || startsWithWord(body, lineEnd, "const")) {
@@ -849,16 +1029,23 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
     }
 }
 
-static void collectScalarBindings(const char *source, AetherScalarBindingTable *table) {
+static void collectScalarBindings(const char *source, AetherScalarBindingTable *table,
+                                  const int *lineFnIds, size_t lineCount, int fnId) {
     const char *cursor = source;
+    size_t lineIdx = 0;
 
     while (cursor && *cursor) {
         const char *lineStart = cursor;
         const char *lineEnd = cursor;
         const char *body;
+        size_t thisLine = lineIdx++;
 
         while (*lineEnd && *lineEnd != '\n') {
             lineEnd++;
+        }
+        if (lineOutsideScope(lineFnIds, lineCount, thisLine, fnId)) {
+            cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
+            continue;
         }
         body = skipInlineSpaces(lineStart, lineEnd);
         if (startsWithWord(body, lineEnd, "let") || startsWithWord(body, lineEnd, "const")) {
@@ -1203,9 +1390,13 @@ static const char *expectedTertiaryArgTypeName(const char *name, size_t len) {
     return NULL;
 }
 
-static void reportAetherError(const char *kind, int line, const char *detail) {
-    const char *code = aetherInferDiagnosticCode(kind, detail);
-
+/* Like reportAetherError, but the caller names the diagnostic code explicitly
+ * instead of relying on aetherInferDiagnosticCode's message-pattern table. Used
+ * by the scalar/opaque type-checking family below so those diagnostics always
+ * carry [TYPE-001]/[TOON-001] at the emission site (the inference table keeps
+ * only narrow backstop patterns for them). */
+static void reportAetherErrorCoded(const char *code, const char *kind, int line,
+                                   const char *detail) {
     if (code) {
         fprintf(stderr,
                 "%s:%d: [%s] Aether %s error: %s\n",
@@ -1224,6 +1415,10 @@ static void reportAetherError(const char *kind, int line, const char *detail) {
     }
     aetherReportGuideHelp(code);
     pascal_semantic_error_count++;
+}
+
+static void reportAetherError(const char *kind, int line, const char *detail) {
+    reportAetherErrorCoded(aetherInferDiagnosticCode(kind, detail), kind, line, detail);
 }
 
 static int parseOpaqueTypeName(const char *start, const char *end, int *isDoc) {
@@ -1330,7 +1525,7 @@ static void validateOpaqueAssignmentLine(const char *body,
                          rhsReturnsDoc ? "ToonDoc" : "ToonNode",
                          (int)(rhsEnd - rhsStart),
                          rhsStart);
-                reportAetherError("type", line, detail);
+                reportAetherErrorCoded("TOON-001", "type", line, detail);
             }
             return;
         }
@@ -1355,7 +1550,7 @@ static void validateOpaqueAssignmentLine(const char *body,
                  (int)(rhsEnd - rhsStart),
                  rhsStart,
                  lhsIsDoc ? "ToonDoc" : "ToonNode");
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TOON-001", "type", line, detail);
     }
 }
 
@@ -1423,7 +1618,7 @@ static void validateOpaqueReturnBindingLine(const char *body, const char *lineEn
                  rhsIsDoc ? "ToonDoc" : "ToonNode",
                  (int)(rhsEnd - rhsStart),
                  rhsStart);
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TOON-001", "type", line, detail);
         return;
     }
 
@@ -1436,7 +1631,7 @@ static void validateOpaqueReturnBindingLine(const char *body, const char *lineEn
                  rhsIsDoc ? "ToonDoc" : "ToonNode",
                  (int)(rhsEnd - rhsStart),
                  rhsStart);
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TOON-001", "type", line, detail);
     }
 }
 
@@ -1531,7 +1726,7 @@ check_rhs:
                  expectedType,
                  (int)(rhsEnd - rhsStart),
                  rhsStart);
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TYPE-001", "type", line, detail);
     }
 }
 
@@ -1600,7 +1795,7 @@ static void validateScalarAssignmentLine(const char *body,
                  lhsBinding->typeName,
                  (int)(lhsEnd - lhsStart),
                  lhsStart);
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TYPE-001", "type", line, detail);
         return;
     }
 
@@ -1621,7 +1816,7 @@ static void validateScalarAssignmentLine(const char *body,
                  lhsBinding->typeName,
                  (int)(lhsEnd - lhsStart),
                  lhsStart);
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TYPE-001", "type", line, detail);
         return;
     }
     if (strcmp(lhsBinding->typeName, rhsBinding->typeName) == 0) {
@@ -1637,7 +1832,7 @@ static void validateScalarAssignmentLine(const char *body,
              lhsBinding->typeName,
              (int)(lhsEnd - lhsStart),
              lhsStart);
-    reportAetherError("type", line, detail);
+    reportAetherErrorCoded("TYPE-001", "type", line, detail);
 }
 
 static int isArithmeticChar(char ch) {
@@ -1708,7 +1903,7 @@ static void validateOpaqueCallKind(const char *callName,
                  (int)(argEnd - argStart),
                  argStart,
                  binding->isDoc ? "ToonDoc" : "ToonNode");
-        reportAetherError("type", line, detail);
+        reportAetherErrorCoded("TOON-001", "type", line, detail);
     }
 }
 
@@ -1784,7 +1979,7 @@ static void validateSecondaryHelperArgType(const char *callName,
              (int)(secondEnd - secondStart),
              secondStart,
              binding->typeName);
-    reportAetherError("type", line, detail);
+    reportAetherErrorCoded("TOON-001", "type", line, detail);
 }
 
 static void validateTertiaryHelperArgType(const char *callName,
@@ -1877,7 +2072,7 @@ static void validateTertiaryHelperArgType(const char *callName,
              (int)(thirdEnd - thirdStart),
              thirdStart,
              binding->typeName);
-    reportAetherError("type", line, detail);
+    reportAetherErrorCoded("TOON-001", "type", line, detail);
 }
 
 static void validatePrimaryHelperArgType(const char *callName,
@@ -1936,16 +2131,19 @@ static void validatePrimaryHelperArgType(const char *callName,
              (int)(argEnd - argStart),
              argStart,
              binding->typeName);
-    reportAetherError("type", line, detail);
+    reportAetherErrorCoded("TOON-001", "type", line, detail);
 }
 
 static void validateAetherSource(const char *source,
                                  const AetherOpaqueBindingTable *opaqueBindings,
-                                 const AetherScalarBindingTable *scalarBindings) {
+                                 const AetherScalarBindingTable *scalarBindings,
+                                 const int *lineFnIds, size_t lineCount, int fnId) {
     /* Textual TOON handle-typing / scalar-flow pass. The fx effect fence and
      * @pure purity checks that used to live in this line scan moved to the AST
      * walk (aetherValidateEffectsAndPurity); this scan keeps only the checks
-     * that are still line-oriented by design. */
+     * that are still line-oriented by design. Runs once per scope (top level +
+     * each function) against that scope's tables; lines belonging to other
+     * scopes are skipped (they get their own pass). */
     const char *cursor = source;
     int line = 1;
 
@@ -1959,6 +2157,15 @@ static void validateAetherSource(const char *source,
 
         while (*lineEnd && *lineEnd != '\n') {
             lineEnd++;
+        }
+        if (lineOutsideScope(lineFnIds, lineCount, (size_t)(line - 1), fnId)) {
+            if (*lineEnd == '\n') {
+                line++;
+                cursor = lineEnd + 1;
+            } else {
+                cursor = lineEnd;
+            }
+            continue;
         }
         body = skipInlineSpaces(lineStart, lineEnd);
         validateOpaqueAssignmentLine(body, lineEnd, line, opaqueBindings);
@@ -2035,7 +2242,7 @@ static void validateAetherSource(const char *source,
                                  "opaque TOON handle '%.*s' cannot be used in arithmetic expressions.",
                                  (int)nameLen,
                                  start);
-                        reportAetherError("type", line, detail);
+                        reportAetherErrorCoded("TOON-001", "type", line, detail);
                     }
                 }
 
@@ -2397,10 +2604,39 @@ void aetherPerformSemanticAnalysis(AST *root) {
         const char *scanSource = sanitized ? sanitized : source;
         AetherOpaqueBindingTable opaqueBindings = {0};
         AetherScalarBindingTable scalarBindings = {0};
+        size_t lineCount = 0;
+        int fnCount = 0;
+        int *lineFnIds;
         validateContractAnnotations(scanSource);
-        collectOpaqueBindings(scanSource, &opaqueBindings);
-        collectScalarBindings(scanSource, &scalarBindings);
-        validateAetherSource(scanSource, &opaqueBindings, &scalarBindings);
+        /* Function-scoped type flow: collect + validate the top level first
+         * (its const/let bindings are visible program-wide), then re-run per
+         * function against a fresh copy of the top-level tables plus only
+         * that function's own locals -- so one function's `let v: Int` can
+         * neither type another function's `v` nor clobber a global it merely
+         * shadows. On allocation failure lineFnIds is NULL and the passes
+         * degrade to the old whole-source flat scan. */
+        lineFnIds = computeLineFunctionIds(scanSource, &lineCount, &fnCount);
+        collectOpaqueBindings(scanSource, &opaqueBindings, lineFnIds, lineCount, 0);
+        collectScalarBindings(scanSource, &scalarBindings, lineFnIds, lineCount, 0);
+        validateAetherSource(scanSource, &opaqueBindings, &scalarBindings,
+                             lineFnIds, lineCount, 0);
+        if (lineFnIds) {
+            int fid;
+            for (fid = 1; fid <= fnCount; fid++) {
+                AetherOpaqueBindingTable fnOpaque = {0};
+                AetherScalarBindingTable fnScalar = {0};
+                if (copyOpaqueBindingTable(&fnOpaque, &opaqueBindings) &&
+                    copyScalarBindingTable(&fnScalar, &scalarBindings)) {
+                    collectOpaqueBindings(scanSource, &fnOpaque, lineFnIds, lineCount, fid);
+                    collectScalarBindings(scanSource, &fnScalar, lineFnIds, lineCount, fid);
+                    validateAetherSource(scanSource, &fnOpaque, &fnScalar,
+                                         lineFnIds, lineCount, fid);
+                }
+                freeScalarBindingTable(&fnScalar);
+                freeOpaqueBindingTable(&fnOpaque);
+            }
+            free(lineFnIds);
+        }
         validateNoDuplicateLocals(scanSource);
         freeScalarBindingTable(&scalarBindings);
         freeOpaqueBindingTable(&opaqueBindings);

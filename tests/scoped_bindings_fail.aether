@@ -1,0 +1,20 @@
+// A function's local must stop existing when the function ends: `secret` is
+// provider()'s local, so consumer()'s `let copy = secret;` has nothing to
+// infer from and must fail with the coded cannot-infer diagnostic. Under the
+// old program-flat binding table the leaked entry typed `copy` as Text and the
+// failure surfaced only later (as an undefined-global compile error).
+fn provider() -> Void {
+    let secret: Text = "s";
+    ret;
+}
+
+fn consumer() -> Void {
+    let copy = secret;
+    fx { println(copy); }
+    ret;
+}
+
+fn main() -> Void {
+    consumer();
+    ret;
+}

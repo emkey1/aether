@@ -1,0 +1,57 @@
+// Function-scoped binding tables: same-name locals in different functions each
+// keep their own type, and a local that shadows a global const leaves the
+// global's type intact for later functions. Under the old program-flat tables
+// this program failed twice: `let b = label;` inferred Int from shadow_and_bump's
+// leaked local (a compile-time "Cannot assign STRING to integer"), and
+// sum_real's `v = v + 1.0` drew a false [TYPE-001] because sum_int's `v: Int`
+// clobbered the Real entry.
+const label: Text = "answer";
+
+fn shadow_and_bump() -> Int {
+    // Shadows the global `label` with an Int local; on function exit the
+    // global Text binding must be restored, not last-write-wins.
+    let label: Int = 40;
+    ret label + 2;
+}
+
+fn sum_real() -> Void {
+    let v: Real = 1.5;
+    v = v + 1.0;
+    fx { println(v); }
+    ret;
+}
+
+fn sum_int() -> Void {
+    let v: Int = 2;
+    v = v + 1;
+    fx { println(v); }
+    ret;
+}
+
+fn text_side() -> Void {
+    let tag: Text = "scoped";
+    let echo = tag;
+    fx { println(echo); }
+    ret;
+}
+
+fn int_side() -> Void {
+    let tag: Int = 41;
+    let echo = tag;
+    fx { println(echo + 1); }
+    ret;
+}
+
+fn main() -> Void {
+    let a = shadow_and_bump();
+    let b = label; // infers Text from the restored global binding
+    fx {
+        println(a);
+        println(b);
+    }
+    sum_real();
+    sum_int();
+    text_side();
+    int_side();
+    ret;
+}

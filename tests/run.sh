@@ -51,6 +51,8 @@ RUNTIME_LINE_MAPPING_FAIL_FIXTURE="$TESTS_DIR/runtime_line_mapping_fail.aether"
 INFERRED_BINDINGS_PASS_FIXTURE="$TESTS_DIR/inferred_bindings_pass.aether"
 INFERRED_CONST_PASS_FIXTURE="$TESTS_DIR/inferred_const_pass.aether"
 INFERRED_LET_UNKNOWN_FAIL_FIXTURE="$TESTS_DIR/inferred_let_unknown_fail.aether"
+SCOPED_BINDINGS_PASS_FIXTURE="$TESTS_DIR/scoped_bindings_pass.aether"
+SCOPED_BINDINGS_FAIL_FIXTURE="$TESTS_DIR/scoped_bindings_fail.aether"
 DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE="$TESTS_DIR/diagnostic_line_mapping_fail.aether"
 FUNCTION_INFERENCE_SUPPORT_FIXTURE="$TESTS_DIR/function_inference_support"
 FUNCTION_RETURN_INFERENCE_PASS_FIXTURE="$TESTS_DIR/function_return_inference_pass.aether"
@@ -196,6 +198,8 @@ for fixture in \
     "$INFERRED_BINDINGS_PASS_FIXTURE" \
     "$INFERRED_CONST_PASS_FIXTURE" \
     "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" \
+    "$SCOPED_BINDINGS_PASS_FIXTURE" \
+    "$SCOPED_BINDINGS_FAIL_FIXTURE" \
     "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" \
     "$FUNCTION_INFERENCE_SUPPORT_FIXTURE" \
     "$FUNCTION_RETURN_INFERENCE_PASS_FIXTURE" \
@@ -841,6 +845,17 @@ if ! grep -q "cannot assign ToonDoc handle 'doc' to ToonNode binding" /tmp/aethe
     cat /tmp/aether_toon_handle_cross_assign_fail.out >&2
     exit 1
 fi
+# The opaque cross-assign must carry [TOON-001] so --diagnostics-json feeds the
+# code->guide repair loop (regression: this semantic family used to be uncoded).
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_HANDLE_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_handle_cross_assign_json.out 2>&1; then
+    echo "expected TOON handle cross-assignment diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"TOON-001"' /tmp/aether_toon_handle_cross_assign_json.out; then
+    echo "missing TOON-001 code on TOON handle cross-assignment (regression: uncoded semantic diagnostic?)" >&2
+    cat /tmp/aether_toon_handle_cross_assign_json.out >&2
+    exit 1
+fi
 
 if "$AETHER_BIN" --no-cache "$TOON_HANDLE_KIND_DOC_AS_NODE_FAIL_FIXTURE" >/tmp/aether_toon_handle_kind_doc_as_node_fail.out 2>&1; then
     echo "expected TOON doc-as-node failure but program succeeded" >&2
@@ -919,6 +934,17 @@ fi
 if ! grep -q "cannot assign Text binding 'name' to Bool binding 'enabled'" /tmp/aether_toon_scalar_cross_assign_fail.out; then
     echo "missing TOON scalar cross-assignment failure message" >&2
     cat /tmp/aether_toon_scalar_cross_assign_fail.out >&2
+    exit 1
+fi
+# The scalar assignment mismatch must carry [TYPE-001] so --diagnostics-json
+# feeds the code->guide repair loop (regression: used to be uncoded).
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_SCALAR_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_scalar_cross_assign_json.out 2>&1; then
+    echo "expected TOON scalar cross-assignment diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"TYPE-001"' /tmp/aether_toon_scalar_cross_assign_json.out; then
+    echo "missing TYPE-001 code on scalar cross-assignment (regression: uncoded semantic diagnostic?)" >&2
+    cat /tmp/aether_toon_scalar_cross_assign_json.out >&2
     exit 1
 fi
 
@@ -1311,6 +1337,31 @@ fi
 if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`."' /tmp/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json hint" >&2
     cat /tmp/aether_inferred_let_unknown_json.out >&2
+    exit 1
+fi
+# Function-scoped binding tables: same-name locals in different functions each
+# keep their own type (Real vs Int `v`, Text vs Int `tag`) and a local that
+# shadows a global const leaves the global Text binding intact for later
+# functions. Under the old program-flat tables this drew a false [TYPE-001] on
+# sum_real and mis-typed `let b = label;` as Int (a hard compile error).
+"$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_PASS_FIXTURE" >/tmp/aether_scoped_bindings_pass.out
+printf '42\nanswer\n2.500000\n3\nscoped\n42\n' >/tmp/aether_scoped_bindings_expected.out
+if ! cmp -s /tmp/aether_scoped_bindings_expected.out /tmp/aether_scoped_bindings_pass.out; then
+    echo "unexpected scoped bindings output (regression: cross-function binding leakage / shadowed global not restored)" >&2
+    cat /tmp/aether_scoped_bindings_pass.out >&2
+    exit 1
+fi
+# The flip side: a name declared only inside another function must NOT feed
+# inference. `let copy = secret;` has nothing in scope, so the parse fails with
+# the coded cannot-infer diagnostic (previously the leaked Text entry typed it
+# and the error surfaced later as an undefined global).
+if "$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_FAIL_FIXTURE" >/tmp/aether_scoped_bindings_fail.out 2>&1; then
+    echo "expected scoped bindings failure but program succeeded (regression: another function's local leaked into inference)" >&2
+    exit 1
+fi
+if ! grep -q "\[TYPE-001\] Aether declaration rewrite error: cannot infer the type of 'copy' from its initializer" /tmp/aether_scoped_bindings_fail.out; then
+    echo "missing scoped bindings cannot-infer diagnostic" >&2
+    cat /tmp/aether_scoped_bindings_fail.out >&2
     exit 1
 fi
 if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >/tmp/aether_function_missing_return_type_fail.out 2>&1; then

@@ -88,13 +88,37 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
     if (strstr(detail, "tuple return types are not supported yet")) {
         return "TUP-001";
     }
+    /* TOON handle-kind / helper-argument misuse. The argument-position patterns
+     * are anchored on the toon_ helper name ("call to 'toon_...") so an
+     * unrelated message that merely mentions "first argument" is not swallowed
+     * into TOON-001. The cross-assign / must-use-ToonX backstops mirror the
+     * semantic.c sites that now emit [TOON-001] explicitly. */
     if (strstr(detail, "opaque TOON handle") ||
         strstr(detail, "expects a ToonDoc handle") ||
         strstr(detail, "expects a ToonNode handle") ||
-        strstr(detail, " first argument") ||
-        strstr(detail, " second argument") ||
-        strstr(detail, " third argument")) {
+        strstr(detail, "cannot assign ToonDoc handle") ||
+        strstr(detail, "cannot assign ToonNode handle") ||
+        strstr(detail, "must use ToonDoc when initialized") ||
+        strstr(detail, "must use ToonNode when initialized") ||
+        (strstr(detail, "call to 'toon_") &&
+         (strstr(detail, " first argument") ||
+          strstr(detail, " second argument") ||
+          strstr(detail, " third argument")))) {
         return "TOON-001";
+    }
+    /* Scalar binding/assignment mismatches from the semantic pass (which now
+     * emits [TYPE-001] at the site; these are backstops for any uncoded copy of
+     * the same wording). Checked after the ToonDoc/ToonNode block so handle
+     * mismatches keep resolving to TOON-001. */
+    if ((strstr(detail, "cannot assign") && strstr(detail, " binding")) ||
+        (strstr(detail, "must use") && strstr(detail, "when initialized from"))) {
+        return "TYPE-001";
+    }
+    /* An inferred `let`/`const` with neither a type annotation nor an
+     * initializer to infer from (ast_parser.c parseLet). Same fix class as
+     * "cannot infer the type of": annotate the type. */
+    if (strstr(detail, "requires a type or an initializer")) {
+        return "TYPE-001";
     }
     if (strstr(detail, "requires an fx block")) {
         return "FX-001";

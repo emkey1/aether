@@ -12,6 +12,34 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-6
+
+**Every frontend diagnostic is now coded, and name/type tracking is scoped per
+function.** Two hardening changes from the same review batch as -5:
+
+- **Coded diagnostics everywhere.** The 44 remaining raw parser errors
+  (`L<n>: ...` with no code, path, hint, or guide pointer) now emit the
+  standard `path:line: [CODE] ...` format: syntax errors as `SYN-001`, tuple
+  limitations as `TUP-001`, imports as `IMP-001`, field defaults as
+  `FIELD-003`, inference as `TYPE-001`. The semantic scalar/TOON type-flow
+  family (cross-assigns, helper argument mismatches, opaque-handle arithmetic,
+  typed-binding rules) emits explicit `[TYPE-001]`/`[TOON-001]` codes at the
+  site instead of relying on message-text inference, and the overbroad
+  `" first argument"` -> TOON-001 inference pattern now requires a
+  `call to 'toon_*'` context. `--diagnostics-json` code assertions added for
+  the cross-assign fixtures.
+- **Function-scoped binding tables.** The parser's inference bindings and the
+  semantic scalar/TOON tables were program-global: one function's locals
+  leaked into every later function (last-write-wins), mis-typing same-name
+  locals and masking real misuse. Locals (and parameters) are now scoped to
+  their function, with globals/imports/function signatures still visible
+  program-wide and shadowed globals restored on function exit. Programs that
+  accidentally relied on cross-function leakage now get the normal
+  `[TYPE-001] cannot infer` / scope diagnostics; same-name locals of
+  different types in different functions now each infer correctly, and
+  previously-masked TOON handle misuse is reported. Regression fixtures:
+  `scoped_bindings_pass` / `scoped_bindings_fail`.
+
 ## 2026-07-01-5
 
 **The fx effect fence (FX-001) and @pure purity checks (ANN-001) now run on the
