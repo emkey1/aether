@@ -1,7 +1,11 @@
 # Aether Parser Roadmap — replace the text rewriter with a real AST frontend
 
-Status: **P7 cutover done (2026-06-27)** -- the AST frontend is the default; the
-rewriter is retained as a runtime-reversible fallback. Owner: the Aether frontend.
+Status: **COMPLETE — rewriter retired (2026-07-01).** The P7 cutover (2026-06-27)
+made the AST frontend the default with the rewriter as a runtime-reversible
+fallback; on 2026-07-01 the fallback was removed entirely (`translate.c`/`.h`
+deleted, `AETHER_PARSER` no longer consulted, `--dump-rewrite` gone). The AST
+parser is the only Aether frontend. This document is retained as the historical
+record of the migration. Owner: the Aether frontend.
 
 **Progress (2026-06-27).** P6 corpus parity: RW-vs-AST **1819/1851** byte-for-byte,
 with **AST-worse = 0** -- on every program the rewriter compiles+runs, the AST path

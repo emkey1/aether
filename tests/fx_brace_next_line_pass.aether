@@ -1,0 +1,7 @@
+fn main() -> Void {
+    fx
+    {
+        println("brace on next line");
+    }
+    ret;
+}

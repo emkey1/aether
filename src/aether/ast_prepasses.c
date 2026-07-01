@@ -1,7 +1,7 @@
 /*
  * src/aether/ast_prepasses.c
  *
- * Self-contained source pre-passes for the AST frontend (AETHER_PARSER=ast).
+ * Self-contained source pre-passes for the Aether AST frontend.
  *
  * The AST parser (ast_parser.c) needs four source-level transforms before it
  * lexes a program:
@@ -31,16 +31,32 @@
 #include <string.h>
 
 #include "aether/diagnostics.h"
+#include "aether/parser.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+
+/* Source line the builtin-alias pre-pass is currently rewriting, so an alias
+ * replacement can be recorded (line, canonical -> surface) for diagnostics.
+ * 0 = no line context (e.g. contract-expression segment re-aliasing); such
+ * rewrites are not recorded. Set/cleared by aetherAstPrepassBuiltins. */
+static int g_aetherPrepassAliasLine = 0;
+
 
 typedef struct Buffer {
     char *data;
     size_t len;
     size_t cap;
 } Buffer;
+
+/* Append the canonical spelling for an aliased builtin call and, when line
+ * context exists, record the surface spelling the user wrote so semantic
+ * diagnostics (FX-001/ANN-001) can quote it. */
+static int aetherAliasAppendRecorded(Buffer *out,
+                                     const char *surfaceStart,
+                                     size_t surfaceLen,
+                                     const char *canonical);
 
 typedef struct JsonAliasState {
     int needed;
@@ -2187,7 +2203,9 @@ static int appendJsonAliasReplacement(Buffer *out,
 
     if (nameLen == 15 && strncmp(nameStart, "toon_parse_file", nameLen) == 0) {
         jsonState->needed = 1;
-        return bufferAppend(out, "YyjsonReadFile");
+        /* Recorded: YyjsonReadFile is the one effectful Yyjson lowering, and
+         * FX-001/purity diagnostics must quote 'toon_parse_file'. */
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "YyjsonReadFile");
     }
     if (nameLen == 10 && strncmp(nameStart, "toon_parse", nameLen) == 0) {
         jsonState->needed = 1;
@@ -2248,72 +2266,85 @@ static int appendJsonAliasReplacement(Buffer *out,
     return 0;
 }
 
+static int aetherAliasAppendRecorded(Buffer *out,
+                                     const char *surfaceStart,
+                                     size_t surfaceLen,
+                                     const char *canonical) {
+    if (g_aetherPrepassAliasLine > 0 && surfaceStart && surfaceLen > 0 && surfaceLen < 64) {
+        char surface[64];
+        memcpy(surface, surfaceStart, surfaceLen);
+        surface[surfaceLen] = '\0';
+        aetherAstRegisterAliasAtLine(g_aetherPrepassAliasLine, canonical, surface);
+    }
+    return bufferAppend(out, canonical);
+}
+
 static int appendAetherBuiltinAlias(Buffer *out, const char *nameStart, size_t nameLen) {
     if (!out || !nameStart || nameLen == 0) {
         return 0;
     }
     if (nameLen == 10 && strncmp(nameStart, "task_spawn", nameLen) == 0) {
-        return bufferAppend(out, "thread_spawn_named");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_spawn_named");
     }
     if (nameLen == 10 && strncmp(nameStart, "task_queue", nameLen) == 0) {
-        return bufferAppend(out, "thread_pool_submit");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_pool_submit");
     }
     if (nameLen == 13 && strncmp(nameStart, "task_set_name", nameLen) == 0) {
-        return bufferAppend(out, "thread_set_name");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_set_name");
     }
     if (nameLen == 10 && strncmp(nameStart, "task_pause", nameLen) == 0) {
-        return bufferAppend(out, "thread_pause");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_pause");
     }
     if (nameLen == 11 && strncmp(nameStart, "task_resume", nameLen) == 0) {
-        return bufferAppend(out, "thread_resume");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_resume");
     }
     if (nameLen == 11 && strncmp(nameStart, "task_cancel", nameLen) == 0) {
-        return bufferAppend(out, "thread_cancel");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_cancel");
     }
     if (nameLen == 11 && strncmp(nameStart, "task_lookup", nameLen) == 0) {
-        return bufferAppend(out, "thread_lookup");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_lookup");
     }
     if (nameLen == 9 && strncmp(nameStart, "task_wait", nameLen) == 0) {
-        return bufferAppend(out, "WaitForThread");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "WaitForThread");
     }
     if (nameLen == 11 && strncmp(nameStart, "task_status", nameLen) == 0) {
-        return bufferAppend(out, "thread_get_status");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_get_status");
     }
     if (nameLen == 11 && strncmp(nameStart, "task_result", nameLen) == 0) {
-        return bufferAppend(out, "thread_get_result");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_get_result");
     }
     if (nameLen == 10 && strncmp(nameStart, "task_stats", nameLen) == 0) {
-        return bufferAppend(out, "thread_stats");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "thread_stats");
     }
     if (nameLen == 15 && strncmp(nameStart, "task_stats_json", nameLen) == 0) {
-        return bufferAppend(out, "ThreadStatsJson");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "ThreadStatsJson");
     }
     if (nameLen == 7 && strncmp(nameStart, "ai_chat", nameLen) == 0) {
-        return bufferAppend(out, "openaichatcompletions");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "openaichatcompletions");
     }
     if (nameLen == 13 && strncmp(nameStart, "builtins_json", nameLen) == 0) {
-        return bufferAppend(out, "aetherbuiltinsjson");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "aetherbuiltinsjson");
     }
     if (nameLen == 12 && strncmp(nameStart, "builtin_info", nameLen) == 0) {
-        return bufferAppend(out, "aetherbuiltininfo");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "aetherbuiltininfo");
     }
     if (nameLen == 7 && strncmp(nameStart, "println", nameLen) == 0) {
-        return bufferAppend(out, "writeln");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "writeln");
     }
     if (nameLen == 11 && strncmp(nameStart, "int_to_text", nameLen) == 0) {
-        return bufferAppend(out, "IntToStr");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "IntToStr");
     }
     if (nameLen == 5 && strncmp(nameStart, "sleep", nameLen) == 0) {
-        return bufferAppend(out, "delay");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "delay");
     }
     if (nameLen == 5 && strncmp(nameStart, "print", nameLen) == 0) {
-        return bufferAppend(out, "write");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "write");
     }
     if (nameLen == 10 && strncmp(nameStart, "string_len", nameLen) == 0) {
-        return bufferAppend(out, "length");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "length");
     }
     if (nameLen == 3 && strncmp(nameStart, "len", nameLen) == 0) {
-        return bufferAppend(out, "length");
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "length");
     }
     return 0;
 }
@@ -2970,6 +3001,37 @@ static char *applyJsonAliasesToLine(const char *line,
     }
 
     while (*cursor) {
+        if (*cursor == '"') {
+            /* Copy string literals verbatim: alias lowering must never rewrite
+             * user-visible text (e.g. println("call sleep(5) now") must not
+             * become "call delay(5) now"). Honors \" escapes. */
+            const char *scan = cursor + 1;
+            while (*scan) {
+                if (*scan == '\\' && scan[1] != '\0') {
+                    scan += 2;
+                    continue;
+                }
+                if (*scan == '"') {
+                    scan++;
+                    break;
+                }
+                scan++;
+            }
+            if (!bufferAppendN(&out, cursor, (size_t)(scan - cursor))) {
+                free(out.data);
+                return NULL;
+            }
+            cursor = scan;
+            continue;
+        }
+        if (cursor[0] == '/' && cursor[1] == '/') {
+            /* Rest of the line is a comment: copy verbatim, no alias rewriting. */
+            if (!bufferAppend(&out, cursor)) {
+                free(out.data);
+                return NULL;
+            }
+            break;
+        }
         if ((cursor == line || !(isalnum((unsigned char)cursor[-1]) || cursor[-1] == '_')) &&
             ((strncmp(cursor, "toon_parse", 10) == 0 &&
               !(isalnum((unsigned char)cursor[10]) || cursor[10] == '_')) ||
@@ -3275,6 +3337,7 @@ char *aetherAstPrepassBuiltins(const char *source) {
     Buffer out = {0};
     const char *cursor = aliasNormalized;
     int ok = 1;
+    int line = 1; /* the pre-passes preserve line structure, so this matches lexer lines */
     while (*cursor) {
         const char *lineStart = cursor;
         const char *lineEnd = cursor;
@@ -3286,7 +3349,9 @@ char *aetherAstPrepassBuiltins(const char *source) {
         maybeRecordToonLiteralBinding(&toonTable, body, lineEnd);
         char *lineCopy = dupRange(lineStart, lineEnd);
         if (!lineCopy) { ok = 0; break; }
+        g_aetherPrepassAliasLine = line;
         char *aliased = applyJsonAliasesToLine(lineCopy, &jsonState, &toonTable);
+        g_aetherPrepassAliasLine = 0;
         free(lineCopy);
         if (!aliased) { ok = 0; break; }
         if (!bufferAppend(&out, aliased)) { free(aliased); ok = 0; break; }
@@ -3294,6 +3359,7 @@ char *aetherAstPrepassBuiltins(const char *source) {
         if (*lineEnd == '\n') {
             if (!bufferAppendN(&out, "\n", 1)) { ok = 0; break; }
             cursor = lineEnd + 1;
+            line++;
         } else {
             cursor = lineEnd;
         }

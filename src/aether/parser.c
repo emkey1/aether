@@ -1,11 +1,8 @@
 #include "aether/parser.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "aether/semantic.h"
-#include "aether/translate.h"
 #include "rea/parser.h"
 
 static char *g_aether_last_source = NULL;
@@ -29,42 +26,16 @@ static void aetherRememberSource(const char *source) {
 }
 
 AST *parseAether(const char *source) {
-    char *rewritten;
-    AST *ast;
-    const char *sourcePath;
-
     if (!source) {
         return NULL;
     }
 
     aetherRememberSource(source);
 
-    /* P7 cutover (2026-06-27): the AST frontend is the DEFAULT. The legacy text
-     * rewriter is retained as a runtime-reversible fallback -- AETHER_PARSER=rewriter
-     * (or =legacy) selects the old `aetherRewriteSource -> parseRea` path below.
-     * AETHER_PARSER=ast stays valid as an explicit synonym for the default. */
-    {
-        const char *parserMode = getenv("AETHER_PARSER");
-        int useRewriter = parserMode != NULL &&
-            (strcmp(parserMode, "rewriter") == 0 || strcmp(parserMode, "legacy") == 0);
-        if (!useRewriter) {
-            return parseAetherAst(source);
-        }
-    }
-
-    sourcePath = aetherSemanticGetSourcePath();
-    rewritten = aetherRewriteSource(source, sourcePath);
-    if (!rewritten) {
-        return NULL;
-    }
-
-    if (getenv("AETHER_DUMP_REWRITE")) {
-        fprintf(stderr, "=== AETHER REWRITE BEGIN ===\n%s\n=== AETHER REWRITE END ===\n", rewritten);
-    }
-
-    ast = parseRea(rewritten);
-    free(rewritten);
-    return ast;
+    /* The AST frontend is the only parser. The legacy line-oriented text
+     * rewriter (translate.c, selected via AETHER_PARSER=rewriter) was retired
+     * on 2026-07-01 after the P7 cutover proved out; see docs/parser_roadmap.md. */
+    return parseAetherAst(source);
 }
 
 void aetherSetStrictMode(int enable) {

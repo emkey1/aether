@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-6*
+*Guide version: 2026-07-01-7*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -515,7 +515,7 @@ fn normalize(score: Int) -> Int {
 
 Bad: bare `@pre` / `@post` with no expression; annotations inside the body.
 `@post` may reference `result`. `@cost 5ms` units: `ns us ms s op ops step
-steps`.
+steps`; syntax-checked but non-binding (no runtime enforcement).
 
 On a collection return (`-> T[]`) a contract must compare a **property** of the
 collection, not the collection itself: use `@post length(result) > 0`, never

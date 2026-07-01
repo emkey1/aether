@@ -1,0 +1,15 @@
+// Alias lowering must never rewrite user-visible text: builtin names inside
+// string literals (sleep, print, toon_len, string_eq, len, has_toon) stay
+// verbatim, while the same aliases outside strings still lower normally.
+fn main() -> Void {
+    let s: Text = "abc";
+    let n: Int = string_len(s);
+    let same: Bool = string_eq(s, "abc");
+    fx {
+        println("call sleep(5) now");
+        println("string_eq(a,b) or len(x) or has_toon() inline");
+        println("len=", n, " same=", same);
+        sleep(1);
+    }
+    ret;
+}

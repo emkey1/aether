@@ -92,7 +92,6 @@ set(ENGINE_SOURCES
 set(AETHER_SOURCES
     ${ENGINE_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/diagnostics.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/translate.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/parser.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_prepasses.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_parser.c
@@ -108,7 +107,6 @@ target_compile_definitions(aether PRIVATE
     PSCAL_FRONTEND_DISPLAY_NAME=\"Aether\"
     PSCAL_FRONTEND_USAGE_NAME=\"aether\"
     PSCAL_FRONTEND_COMPILER_ID=\"aether\"
-    PSCAL_FRONTEND_HAS_REWRITE_DUMP=1
     PSCAL_FRONTEND_INSTALL_HOOKS=aetherInstallFrontendHooks
 )
 target_link_libraries(aether PRIVATE pscal_core_static Threads::Threads m)
@@ -131,4 +129,9 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md
 enable_testing()
 add_test(NAME aether_tests COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh)
 set_tests_properties(aether_tests PROPERTIES
+    ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
+# Compile-check every shipped example (keep-going, capability-gated) so the
+# examples tree cannot rot silently.
+add_test(NAME aether_examples COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_examples.sh)
+set_tests_properties(aether_examples PROPERTIES
     ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")

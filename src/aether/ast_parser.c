@@ -1,9 +1,9 @@
 /*
- * ast_parser.c -- Aether recursive-descent parser (MILESTONE 1).
+ * ast_parser.c -- the Aether recursive-descent parser.
  *
- * Experimental alternative to the line-based text rewriter in translate.c.
- * Enabled only when the environment variable AETHER_PARSER is set to "ast";
- * otherwise parser.c keeps using aetherRewriteSource()+parseRea() unchanged.
+ * This is the only Aether frontend. It replaced the line-based text rewriter
+ * (translate.c), which was retired on 2026-07-01 after the P7 cutover; see
+ * docs/parser_roadmap.md for the history.
  *
  * The parser tokenizes Aether source with Rea's lexer and emits the *shared
  * pscal AST* directly -- the same node shapes Rea's own parser builds -- so
@@ -59,6 +59,7 @@
 #include "core/type_registry.h"
 #include "symbol/symbol.h"
 #include "rea/lexer.h"
+#include "aether/parser.h"
 #include "aether/semantic.h"
 #include "aether/diagnostics.h"
 #include "aether/ast_prepasses.h"
@@ -96,6 +97,246 @@ static int aetherDiagf(const char *fmt, ...) {
     va_end(ap);
     g_aetherAstDiagCount++;
     return r;
+}
+
+/* ------------------------------------------------------------------ */
+/* Semantic side-registries (see parser.h)                             */
+/*                                                                     */
+/* The parser lowers `fx { ... }` to a plain AST_COMPOUND, drops @pure */
+/* (annotation with no codegen), and canonicalizes builtin aliases     */
+/* (println -> writeln). These registries retain those three facts so  */
+/* the semantic pass can enforce the effect fence (FX-001) and purity  */
+/* (ANN-001) on the real AST. Entries accumulate across parses (main   */
+/* program + imported modules) and are cleared only via                */
+/* aetherAstClearSemanticRegistries() from aetherInvalidateGlobalState.*/
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    const AST *node;
+    int line; /* line of the `fx` keyword, for diagnostics */
+} AetherFxBlockEntry;
+
+typedef struct {
+    AetherFxBlockEntry *items;
+    size_t count;
+    size_t cap;
+} AetherNodePtrSet;
+
+typedef struct {
+    char *name;
+    int isPure;
+} AetherFnPurityEntry;
+
+typedef struct {
+    const AST *node;
+    char *surface;
+} AetherCallSurfaceEntry;
+
+static AetherNodePtrSet g_aetherFxBlocks;
+static struct { AetherFnPurityEntry *items; size_t count; size_t cap; } g_aetherFnPurity;
+static struct { AetherCallSurfaceEntry *items; size_t count; size_t cap; } g_aetherCallSurfaces;
+static struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesized;
+
+void aetherAstRegisterFxBlock(const AST *block, int line) {
+    if (!block) return;
+    if (aetherAstNodeIsFxBlock(block)) return;
+    if (g_aetherFxBlocks.count == g_aetherFxBlocks.cap) {
+        size_t newCap = g_aetherFxBlocks.cap ? g_aetherFxBlocks.cap * 2 : 16;
+        AetherFxBlockEntry *grown = (AetherFxBlockEntry *)realloc(
+            g_aetherFxBlocks.items, newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherFxBlocks.items = grown;
+        g_aetherFxBlocks.cap = newCap;
+    }
+    g_aetherFxBlocks.items[g_aetherFxBlocks.count].node = block;
+    g_aetherFxBlocks.items[g_aetherFxBlocks.count].line = line;
+    g_aetherFxBlocks.count++;
+}
+
+int aetherAstNodeIsFxBlock(const AST *node) {
+    if (!node) return 0;
+    for (size_t i = 0; i < g_aetherFxBlocks.count; i++) {
+        if (g_aetherFxBlocks.items[i].node == node) return 1;
+    }
+    return 0;
+}
+
+int aetherAstFxBlockLine(const AST *node) {
+    if (!node) return 0;
+    for (size_t i = 0; i < g_aetherFxBlocks.count; i++) {
+        if (g_aetherFxBlocks.items[i].node == node) return g_aetherFxBlocks.items[i].line;
+    }
+    return 0;
+}
+
+void aetherAstRegisterFunctionPurity(const char *name, int isPure) {
+    if (!name || !*name) return;
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        if (strcmp(g_aetherFnPurity.items[i].name, name) == 0) {
+            /* Re-registration (forward-scan pre-pass + real pass): keep the
+             * latest annotation state. */
+            g_aetherFnPurity.items[i].isPure = isPure;
+            return;
+        }
+    }
+    if (g_aetherFnPurity.count == g_aetherFnPurity.cap) {
+        size_t newCap = g_aetherFnPurity.cap ? g_aetherFnPurity.cap * 2 : 16;
+        AetherFnPurityEntry *grown = (AetherFnPurityEntry *)realloc(
+            g_aetherFnPurity.items, newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherFnPurity.items = grown;
+        g_aetherFnPurity.cap = newCap;
+    }
+    {
+        char *copy = strdup(name);
+        if (!copy) return;
+        g_aetherFnPurity.items[g_aetherFnPurity.count].name = copy;
+        g_aetherFnPurity.items[g_aetherFnPurity.count].isPure = isPure;
+        g_aetherFnPurity.count++;
+    }
+}
+
+int aetherAstLookupFunctionPurity(const char *name, int *isPure) {
+    if (!name) return 0;
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        if (strcmp(g_aetherFnPurity.items[i].name, name) == 0) {
+            if (isPure) *isPure = g_aetherFnPurity.items[i].isPure;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void aetherAstRegisterCallSurfaceName(const AST *call, const char *surfaceName) {
+    if (!call || !surfaceName || !*surfaceName) return;
+    if (g_aetherCallSurfaces.count == g_aetherCallSurfaces.cap) {
+        size_t newCap = g_aetherCallSurfaces.cap ? g_aetherCallSurfaces.cap * 2 : 16;
+        AetherCallSurfaceEntry *grown = (AetherCallSurfaceEntry *)realloc(
+            g_aetherCallSurfaces.items, newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherCallSurfaces.items = grown;
+        g_aetherCallSurfaces.cap = newCap;
+    }
+    {
+        char *copy = strdup(surfaceName);
+        if (!copy) return;
+        g_aetherCallSurfaces.items[g_aetherCallSurfaces.count].node = call;
+        g_aetherCallSurfaces.items[g_aetherCallSurfaces.count].surface = copy;
+        g_aetherCallSurfaces.count++;
+    }
+}
+
+const char *aetherAstCallSurfaceName(const AST *call) {
+    if (!call) return NULL;
+    for (size_t i = 0; i < g_aetherCallSurfaces.count; i++) {
+        if (g_aetherCallSurfaces.items[i].node == call) {
+            return g_aetherCallSurfaces.items[i].surface;
+        }
+    }
+    return NULL;
+}
+
+typedef struct {
+    int line;
+    char *canonical;
+    char *surface;
+} AetherLineAliasEntry;
+
+static struct { AetherLineAliasEntry *items; size_t count; size_t cap; } g_aetherLineAliases;
+
+void aetherAstRegisterAliasAtLine(int line, const char *canonical, const char *surface) {
+    if (line <= 0 || !canonical || !*canonical || !surface || !*surface) return;
+    if (g_aetherLineAliases.count == g_aetherLineAliases.cap) {
+        size_t newCap = g_aetherLineAliases.cap ? g_aetherLineAliases.cap * 2 : 16;
+        AetherLineAliasEntry *grown = (AetherLineAliasEntry *)realloc(
+            g_aetherLineAliases.items, newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherLineAliases.items = grown;
+        g_aetherLineAliases.cap = newCap;
+    }
+    {
+        char *canonCopy = strdup(canonical);
+        char *surfCopy = strdup(surface);
+        if (!canonCopy || !surfCopy) {
+            free(canonCopy);
+            free(surfCopy);
+            return;
+        }
+        g_aetherLineAliases.items[g_aetherLineAliases.count].line = line;
+        g_aetherLineAliases.items[g_aetherLineAliases.count].canonical = canonCopy;
+        g_aetherLineAliases.items[g_aetherLineAliases.count].surface = surfCopy;
+        g_aetherLineAliases.count++;
+    }
+}
+
+const char *aetherAstAliasSurfaceAtLine(int line, const char *canonical) {
+    if (line <= 0 || !canonical) return NULL;
+    for (size_t i = 0; i < g_aetherLineAliases.count; i++) {
+        if (g_aetherLineAliases.items[i].line == line &&
+            strcasecmp(g_aetherLineAliases.items[i].canonical, canonical) == 0) {
+            return g_aetherLineAliases.items[i].surface;
+        }
+    }
+    return NULL;
+}
+
+void aetherAstRegisterSynthesizedSubtree(const AST *node) {
+    if (!node) return;
+    if (aetherAstNodeIsSynthesizedSubtree(node)) return;
+    if (g_aetherSynthesized.count == g_aetherSynthesized.cap) {
+        size_t newCap = g_aetherSynthesized.cap ? g_aetherSynthesized.cap * 2 : 16;
+        const AST **grown = (const AST **)realloc((void *)g_aetherSynthesized.items,
+                                                  newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherSynthesized.items = grown;
+        g_aetherSynthesized.cap = newCap;
+    }
+    g_aetherSynthesized.items[g_aetherSynthesized.count++] = node;
+}
+
+int aetherAstNodeIsSynthesizedSubtree(const AST *node) {
+    if (!node) return 0;
+    for (size_t i = 0; i < g_aetherSynthesized.count; i++) {
+        if (g_aetherSynthesized.items[i] == node) return 1;
+    }
+    return 0;
+}
+
+void aetherAstClearSemanticRegistries(void) {
+    free((void *)g_aetherFxBlocks.items);
+    g_aetherFxBlocks.items = NULL;
+    g_aetherFxBlocks.count = 0;
+    g_aetherFxBlocks.cap = 0;
+
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        free(g_aetherFnPurity.items[i].name);
+    }
+    free(g_aetherFnPurity.items);
+    g_aetherFnPurity.items = NULL;
+    g_aetherFnPurity.count = 0;
+    g_aetherFnPurity.cap = 0;
+
+    for (size_t i = 0; i < g_aetherCallSurfaces.count; i++) {
+        free(g_aetherCallSurfaces.items[i].surface);
+    }
+    free(g_aetherCallSurfaces.items);
+    g_aetherCallSurfaces.items = NULL;
+    g_aetherCallSurfaces.count = 0;
+    g_aetherCallSurfaces.cap = 0;
+
+    free((void *)g_aetherSynthesized.items);
+    g_aetherSynthesized.items = NULL;
+    g_aetherSynthesized.count = 0;
+    g_aetherSynthesized.cap = 0;
+
+    for (size_t i = 0; i < g_aetherLineAliases.count; i++) {
+        free(g_aetherLineAliases.items[i].canonical);
+        free(g_aetherLineAliases.items[i].surface);
+    }
+    free(g_aetherLineAliases.items);
+    g_aetherLineAliases.items = NULL;
+    g_aetherLineAliases.count = 0;
+    g_aetherLineAliases.cap = 0;
 }
 
 /* Emit a diagnostic in the exact format the rewriter's (static) report helper in
@@ -218,6 +459,7 @@ static const char *bindingTableGet(const AetherBindingTable *t, const char *name
 typedef struct {
     char *preExpr;   /* combined @pre expression text, or NULL  */
     char *postExpr;  /* combined @post expression text, or NULL */
+    int isPure;      /* a @pure annotation precedes the next fn decl */
 } AetherPendingContracts;
 
 /* A tuple-return function signature: name -> synthetic record-free lowering via
@@ -560,6 +802,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->lastFnWasExtension = false;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
+    p->pending.isPure = 0;
     p->pendingAnnotCount = 0;
     p->pendingAnnotName[0] = '\0';
     p->pendingAnnotLine = 0;
@@ -1730,13 +1973,21 @@ static AST *parsePrimary(AetherParser *p) {
 
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* Only names that are immediately called get the stdlib alias
-             * treatment, matching the rewriter (it rewrites `name(` spans). */
+             * treatment, matching the rewriter (it rewrites `name(` spans).
+             * When an alias fires, the surface spelling is kept aside so the
+             * semantic pass can quote the name the user actually wrote
+             * (e.g. FX-001 must say 'println', not 'writeln'). */
+            char *surfaceAlias = NULL;
             const char *raw = tok->value ? tok->value : "";
             const char *canonical = aliasBuiltinName(raw);
             if (canonical != raw && strcmp(canonical, raw) != 0) {
+                surfaceAlias = strdup(raw);
                 freeToken(tok);
                 tok = newToken(TOKEN_IDENTIFIER, canonical, idLine, 0);
-                if (!tok) return NULL;
+                if (!tok) {
+                    free(surfaceAlias);
+                    return NULL;
+                }
             }
             const char *tokValue = tok->value ? tok->value : "";
             bool isWrite = (strcasecmp(tokValue, "writeln") == 0 ||
@@ -1772,6 +2023,10 @@ static AST *parsePrimary(AetherParser *p) {
                             freeAST(args);
                             free(recvType);
                             setTypeAST(mcall, TYPE_UNKNOWN);
+                            if (surfaceAlias) {
+                                aetherAstRegisterCallSurfaceName(mcall, surfaceAlias);
+                                free(surfaceAlias);
+                            }
                             return parsePostfix(p, mcall);
                         }
                     }
@@ -1781,13 +2036,20 @@ static AST *parsePrimary(AetherParser *p) {
 
             AST *call;
             if (strcasecmp(tokValue, "writeln") == 0) {
-                call = newASTNode(AST_WRITELN, NULL);
+                /* Keep the (canonical) token: the AST effect/purity checks and
+                 * compiler getLine() read the true call line from it. rea
+                 * builds these with a NULL token, but nothing keys on that. */
+                call = newASTNode(AST_WRITELN, tok);
                 freeToken(tok);
             } else if (strcasecmp(tokValue, "write") == 0) {
-                call = newASTNode(AST_WRITE, NULL);
+                call = newASTNode(AST_WRITE, tok);
                 freeToken(tok);
             } else {
                 call = newASTNode(AST_PROCEDURE_CALL, tok);
+            }
+            if (surfaceAlias) {
+                aetherAstRegisterCallSurfaceName(call, surfaceAlias);
+                free(surfaceAlias);
             }
             moveArgsOntoCall(call, args);
             setTypeAST(call, TYPE_UNKNOWN);
@@ -2278,6 +2540,10 @@ static AST *buildContractGuard(AetherParser *p, const char *exprText,
     AST *thenBlock = newASTNode(AST_COMPOUND, NULL);
     addChild(thenBlock, writelnNode);
     addChild(thenBlock, haltCall);
+    /* The guard's failure path calls writeln/halt: compiler machinery, not
+     * user code. Exempt it from the AST effect/purity checks. (Only the
+     * then-block -- the user's contract expression itself stays checked.) */
+    aetherAstRegisterSynthesizedSubtree(thenBlock);
 
     AST *ifNode = newASTNode(AST_IF, NULL);
     setLeft(ifNode, notNode);
@@ -3728,13 +3994,17 @@ static AST *parseStatement(AetherParser *p) {
         aetherAdvance(p);
         return newASTNode(AST_COMPOUND, NULL);
     }
-    /* fx { ... } -- effect wrapper. The marker is erased; we return the inner
-     * block directly (an AST_COMPOUND), matching the rewriter which strips the
-     * `fx` token and leaves the brace block. */
+    /* fx { ... } -- effect wrapper. The marker is erased from the AST shape
+     * (we return the inner block directly, an AST_COMPOUND), but the block is
+     * REGISTERED as an effect region so the semantic pass can enforce the
+     * FX-001 effect fence and the @pure/fx exclusion on the real AST. */
     if (isAetherKeyword(&p->current, "fx")) {
+        int fxLine = p->current.line;
         aetherAdvance(p); /* consume 'fx' */
         if (p->current.type == REA_TOKEN_LEFT_BRACE) {
-            return parseBlock(p);
+            AST *fxBlock = parseBlock(p);
+            if (fxBlock) aetherAstRegisterFxBlock(fxBlock, fxLine);
+            return fxBlock;
         }
         /* `fx` with no following block: a no-op block. */
         return newASTNode(AST_COMPOUND, NULL);
@@ -3859,6 +4129,7 @@ static void aetherFreePending(AetherPendingContracts *pending) {
     free(pending->postExpr);
     pending->preExpr = NULL;
     pending->postExpr = NULL;
+    pending->isPure = 0;
 }
 
 /* Parse a parenthesized type list `(T, U, ...)` (a tuple type) from the raw text
@@ -4015,8 +4286,12 @@ static void collectPendingAnnotations(AetherParser *p) {
             p->pending.preExpr = appendContractExprText(p->pending.preExpr, exprText);
         } else if (dlen == 4 && strncmp(d, "post", 4) == 0) {
             p->pending.postExpr = appendContractExprText(p->pending.postExpr, exprText);
+        } else if (dlen == 4 && strncmp(d, "pure", 4) == 0) {
+            /* @pure has no codegen, but the fact is recorded on the upcoming fn
+             * decl so the AST purity checks (ANN-001) know which functions are
+             * pure. (@cost remains presence-only.) */
+            p->pending.isPure = 1;
         }
-        /* @pure / @cost: no codegen; presence already in the source for semantic.c */
         free(exprText);
         aetherResyncToNextLine(p);
     }
@@ -4362,8 +4637,24 @@ static AST *parseFnDecl(AetherParser *p) {
      * automatically in parseExprFromText. */
     char *preExpr = p->pending.preExpr;
     char *postExpr = p->pending.postExpr;
+    int fnIsPure = p->pending.isPure;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
+    p->pending.isPure = 0;
+
+    /* Register this declaration (and its @pure state) for the AST purity
+     * checks. Methods are registered under both the mangled `Type.method`
+     * name (the decl token) and the bare method name (what a call site's
+     * AST_PROCEDURE_CALL token carries). */
+    if (nameTok->value) {
+        aetherAstRegisterFunctionPurity(nameTok->value, fnIsPure);
+        if (isMethod) {
+            const char *dot = strrchr(nameTok->value, '.');
+            if (dot && dot[1]) {
+                aetherAstRegisterFunctionPurity(dot + 1, fnIsPure);
+            }
+        }
+    }
     /* A tuple-return @post must reference positional slots (`result.0`/`result.1`),
      * not a bare `result`. Match the rewriter's ANN-001 diagnostic for an invalid
      * bare `result` reference. (forwardScan suppresses output; the real pass
@@ -5093,7 +5384,7 @@ static AST *parseModuleMember(AetherParser *p) {
 /* `mod NAME { members }` -> AST_MODULE(token=name, right=AST_BLOCK[decls,stmts]),
  * mirroring rea parseModule. The rewriter lowers `mod` to Rea `module`; the AST
  * is identical. Imported Aether module files are parsed through this same entry
- * (reaFrontendParseSource -> parseAether -> parseAetherAst when AETHER_PARSER=ast). */
+ * (reaFrontendParseSource -> parseAether -> parseAetherAst). */
 static AST *parseModuleDecl(AetherParser *p) {
     int modLine = p->current.line;
     aetherAdvance(p); /* consume 'mod' */

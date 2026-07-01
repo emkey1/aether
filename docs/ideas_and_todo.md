@@ -181,13 +181,15 @@ reserved words" rule was preferred for now.
 
 ## Known gaps
 
-### `@cost` is decorative — *gap / decision needed*
+### `@cost` is decorative — *decided 2026-07-01: documented as non-binding*
 `@cost <n><unit>` (units: `ns us ms s op ops step steps`) is syntax-validated
 but **not enforced or tracked** — it carries no codegen and no runtime check.
-Decide: either (a) make it a real, tracked/asserted budget, or (b) document it
-explicitly as a non-binding annotation so reviews/users stop reading it as
-"formal complexity tracking." Until then it risks being oversold. (Contrast:
-`@pre`/`@post` lower to runtime assertions; `@pure` is enforced at compile time.)
+Decision: option (b) for now — both guides state explicitly that `@cost` is
+syntax-checked but non-binding (machine-readable intent, not enforcement), so
+it can no longer be oversold. Upgrading it to a real, tracked/asserted budget
+(option (a)) stays on the table as future work if a runtime accounting story
+appears. (Contrast: `@pre`/`@post` lower to runtime assertions; `@pure` is
+enforced at compile time.)
 
 ### Math builtins were undocumented — *decided / done 2026-06-27*
 A full numeric/trig family lived uncategorized in the runtime but appeared
@@ -693,3 +695,96 @@ whole `Range` type (lazy vs materialized, inclusive/exclusive, indexable) for ne
 bounded want is the `step` clause above. **Record field defaults** (`value: Int = 0`, 3× a3b) are being
 implemented separately. A missing `join(sep, arr)` string builtin (1×) is a minor wishlist item. One
 generation artifact (a literal `<<<SOURCE>>>` template marker echoed into a program) is not a language gap.
+
+## Full design/implementation review — 2026-07-01
+
+*Findings from a full code review of the Aether frontend (ast_parser.c, ast_prepasses.c, semantic.c,
+diagnostics.c, tests/, examples/, translate.c status). Items marked (verified) were reproduced on the
+current local build; the rest are code-read findings with file:line cites.*
+
+### Alias prepass rewrites inside string literals — *gap (verified, output corruption)*
+`applyJsonAliasesToLine` (`ast_prepasses.c` ~2959) does not skip string literals, so any user string
+containing an aliased builtin name followed by `(` is rewritten: `println("call sleep(5) now");` prints
+`call delay(5) now`. Stage 1 (`rewriteAetherBuiltinAliases`) skips strings/comments correctly; stage 2
+forgot to. Silent wrong OUTPUT from a correct program — worst-severity class for the exact-stdout
+benchmark. Fix: share stage 1's string/comment skipper; add a regression fixture.
+
+### The fx fence is line-textual, with a verified escape and a false positive — *gap (verified)*
+`semantic.c` enforces FX-001 by scanning physical source lines, not the AST (the parser erases `fx`
+before semantics, `ast_parser.c` ~3734). Two consequences, both verified:
+- **Escape:** an effectful call split across lines (`println` on one line, `("...")` on the next)
+  compiles and runs with no `fx` anywhere — the same-line `(` requirement (~2208) misses it.
+- **False positive:** `fx` with `{` on the next line is accepted by the parser but the text scan never
+  sets `pendingFx` (~2211), so the legal program is rejected with a spurious FX-001.
+Related: `@pure` is enforced only against effectful *calls*; a `@pure` fn containing an `fx {}` block
+compiles (the guide says `@pure` functions may not contain `fx`). Durable fix: mark fx regions on the
+AST (a flag on the block node) and run the effect/purity check over the AST, not text. Also
+single-variable `currentPureFunctionName` (~2106) is not a stack (nested fns clear tracking), and the
+scope frame stack `stack[1024]` (~2108) increments depth unconditionally (~2177) → OOB read/write past
+1024 nesting depth.
+
+### Parser inference state is program-global, not scoped — *gap*
+`ast_parser.c` keeps one flat binding table for the whole parse (~5470-5482), never pushed/popped per
+function: a `let x` in fn A leaks into fn B's inference (last-write-wins), affecting inferred types,
+method mangling, and PAR-001 verdicts when names collide across functions. `funcReturns` is likewise
+keyed on bare names. Same flat-table pattern in `semantic.c` (`addScalarBinding` overwrites, ~552).
+Fix: scope-aware tables (push/pop on fn entry/exit).
+
+### Tuple returns lower to globals — non-reentrant — *gap*
+`ret (a, b)` lowers each slot to a global `__aether_tuple_N_itemK`, so a recursive tuple-return fn, a
+nested tuple call, or two `par` branches calling tuple fns silently corrupt each other's results. Also
+tuple-fn registration is a raw-text scan that only recognizes column-0 `fn` lines (~5205-5269), so an
+indented tuple fn degrades. Fix direction: per-call temporaries (locals in the caller), or document the
+limitation and reject recursive/par use of tuple fns.
+
+### Parser silently tolerates missing closing delimiters — *gap*
+`parseBlock` (~3846), `parseArgListEx` (~1271), `parsePostfix` (~1375) all "consume the closer if
+present, else continue": an unclosed fn body / arg list / index at EOF parses without error. And a
+`parseStatement` returning NULL breaks the block loop *without* setting hadError (~3830), so mid-block
+garbage can silently truncate a body. Both defeat the 2026-07-01 silent-failure backstop from the other
+side (accepted-but-wrong rather than rejected-but-silent). Fix: require closers; error on NULL stmt.
+
+### Fixed-size array suffix `[N]` half-consumed — corrupts the token stream — *gap (minor)*
+The type parser consumes `[` for `Int[3]` then abandons the path (~865-876), leaving the stream
+misaligned and producing an unrelated downstream error. Same pattern: `parseWriteArg` (~1221) swallows
+`:` when no NUMBER follows. Emit a real diagnostic ("fixed-size arrays are not supported; use Int[]").
+
+### Diagnostic code inference is substring-matching on message text — *gap (fragility)*
+`aetherInferDiagnosticCode` (`diagnostics.c:59-129`) maps messages to codes by strstr on English
+wording — the wording is load-bearing (a copyedit silently changes/loses the code), and the
+`" first argument"` pattern maps any message containing it to TOON-001. Meanwhile the scalar/opaque
+assignment errors ("cannot assign Bool binding...", "cannot assign ToonDoc handle...") match nothing and
+emit **no code at all** — exactly the TOON/type family the design emphasizes. ~30 raw `aetherDiagf`
+sites also bypass the coded format (no path, no code, no help pointer). Fix: pass an explicit code enum
+at each emission site; keep inference only as a backstop for backend strings.
+
+### toon_* helper name tables are duplicated 3-4× — *gap (drift risk)*
+The helper arg/return-kind tables live in `semantic.c` (~1216, ~1310), `ast_prepasses.c` (~2447), and
+`translate.c` — already drifting (`toon_null` has a return-kind but no arg-kind entry, semantic.c
+~1302). Single-source the table (one header, or generate from the pscal-core metadata array).
+
+### Legacy rewriter fallback is frozen and diverging — *decision needed*
+Since the P7 cutover, `translate.c` has had no substantive updates (CHANGELOG 2026-07-01-3 says so
+explicitly) while the AST path gained FIELD-003 field defaults, FLOW-002/PAR-002, ANN-001 collection
+checks, and the inferred-`new` fix. Nothing in `tests/run.sh` sets `AETHER_PARSER`, so the advertised
+"runtime-reversible fallback" is untested and already parses an older language. Either (a) add a cheap
+`AETHER_PARSER=rewriter` smoke lap over a curated fixture subset (excluding post-cutover features) to
+keep the fallback honestly characterized, or (b) schedule its retirement per the roadmap clause. The
+current state (unmaintained but advertised as reversible) is the worst of both.
+
+### Test-suite shape: one coarse CTest, fail-fast, examples not executed — *idea (infra)*
+All ~149 assertions run inside a single `add_test` via the ~1850-line `tests/run.sh` with
+`set -e` fail-fast: one failure hides everything downstream and CTest granularity is 1, not 127.
+Only `showcase/agent_report` is CI-executed; the ~55 `examples/base` programs can rot silently (two
+already do — the tracked `ai_helpers`/`effects_contracts` gap). TOON is ~1/3 of fixtures while core
+control flow (nested if/elif, recursion) is thin. Ideas: per-fixture CTest registration or a
+keep-going mode + summary; an examples-compile lap in CI; a couple of core-control-flow fixtures.
+
+### Misc code-quality notes (parser) — *idea*
+Giant functions (`parseFnDecl` ~500 lines, `parseLetDeclAfterKeyword` ~320); the object-literal
+expansion duplicated 3×; the lexer save/restore backtracking block duplicated 4× (copies `ReaLexer` by
+value — fragile if the lexer grows heap state); unchecked `realloc` in the tuple-@post rewriter (~4417,
+~4425); temp names keyed by source line (`__aether_obj_%d`, ~2600) collide when two such constructs
+share a line; `bindingTableSet` casts away const at ~8 sites; contract expressions are captured as raw
+line text and re-parsed (cannot span lines; inner nodes keep detached-buffer line numbers,
+`parseExprFromText` ~2109 restamps only the root).

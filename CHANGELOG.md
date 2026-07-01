@@ -12,6 +12,50 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-5
+
+**The fx effect fence (FX-001) and @pure purity checks (ANN-001) now run on the
+real AST instead of scanning physical source lines.** The parser registers the
+facts it used to erase (fx blocks, @pure declarations, builtin-alias surface
+spellings) in side registries, and semantic analysis walks the parsed tree.
+Three verified line-scan defects are fixed:
+
+- **Escape closed:** an effectful call split across lines (`println` on one
+  line, `("hi");` on the next) compiled and ran with no fx anywhere; it is now
+  rejected with the standard `[FX-001]` diagnostic at the call's true line.
+- **False positive removed:** `fx` with its `{` on the following line parsed
+  fine but drew a spurious `[FX-001]` from the text scan; it now compiles and
+  runs.
+- **Purity hole closed:** a `@pure` function containing an `fx { ... }` block
+  compiled (only the calls inside were checked). Per the guide, @pure functions
+  may not contain fx blocks at all: the block itself is now rejected with
+  `[ANN-001] ... pure function 'f' contains an fx block.`, independent of its
+  contents.
+
+Diagnostics keep their codes, file:line format, and surface spellings (a call
+written `println`/`sleep`/`task_spawn`/`ai_chat` is quoted that way even though
+the AST carries the canonical builtin). Compiler-injected @pre/@post guard
+bodies (writeln/halt) are exempt from the fence, as before. Also
+`toon_parse_file`'s canonical lowering (`YyjsonReadFile`) is now classified
+effectful in pscal-core, keeping file I/O behind the fence on the AST path.
+
+Two more changes ride in this version:
+
+- **The legacy text rewriter is retired.** `translate.c`/`translate.h`
+  (~10k lines) are deleted; the AST parser is the only frontend. The
+  `AETHER_PARSER` environment variable is no longer consulted and the
+  `--dump-rewrite` CLI flag is gone. `docs/parser_roadmap.md` records the
+  migration history.
+- **Alias lowering no longer rewrites string literals or comments.** The
+  per-line alias pass rewrote builtin names inside user strings, silently
+  corrupting program output (`println("call sleep(5) now")` printed
+  `call delay(5) now`). String literals (with `\"` escapes) and `//` comments
+  are now copied verbatim; aliases outside strings lower unchanged.
+  Regression: `tests/alias_string_literal_pass.aether`.
+- **New examples compile lap.** `tests/run_examples.sh` compile-checks every
+  shipped example (capability-gated), registered as the `aether_examples`
+  CTest, so the examples tree cannot rot silently.
+
 ## 2026-07-01-4
 
 **Record/type fields may now declare a constant default value:

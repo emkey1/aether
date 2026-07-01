@@ -12,17 +12,6 @@
 #include "aether/parser.h"
 #include "rea/semantic.h"
 
-typedef struct AetherFunctionInfo {
-    char *name;
-    int isPure;
-} AetherFunctionInfo;
-
-typedef struct AetherFunctionTable {
-    AetherFunctionInfo *items;
-    size_t count;
-    size_t cap;
-} AetherFunctionTable;
-
 typedef struct AetherOpaqueBinding {
     char *name;
     int isDoc;
@@ -44,13 +33,6 @@ typedef struct AetherScalarBindingTable {
     size_t count;
     size_t cap;
 } AetherScalarBindingTable;
-
-typedef struct AetherScopeFrame {
-    int isFx;
-    int isFunction;
-    int functionIsPure;
-    const char *functionName;
-} AetherScopeFrame;
 
 static const char *g_aether_source_path = NULL;
 static void reportAetherError(const char *kind, int line, const char *detail);
@@ -131,46 +113,6 @@ static int ensureScalarBindingTable(AetherScalarBindingTable *table, size_t extr
         newCap *= 2;
     }
     resized = (AetherScalarBinding *)realloc(table->items, newCap * sizeof(AetherScalarBinding));
-    if (!resized) {
-        return 0;
-    }
-    table->items = resized;
-    table->cap = newCap;
-    return 1;
-}
-
-static void freeFunctionTable(AetherFunctionTable *table) {
-    size_t i;
-
-    if (!table) {
-        return;
-    }
-    for (i = 0; i < table->count; i++) {
-        free(table->items[i].name);
-    }
-    free(table->items);
-    table->items = NULL;
-    table->count = 0;
-    table->cap = 0;
-}
-
-static int ensureFunctionTable(AetherFunctionTable *table, size_t extra) {
-    AetherFunctionInfo *resized;
-    size_t need;
-    size_t newCap;
-
-    if (!table) {
-        return 0;
-    }
-    need = table->count + extra;
-    if (need <= table->cap) {
-        return 1;
-    }
-    newCap = table->cap ? table->cap * 2 : 16;
-    while (newCap < need) {
-        newCap *= 2;
-    }
-    resized = (AetherFunctionInfo *)realloc(table->items, newCap * sizeof(AetherFunctionInfo));
     if (!resized) {
         return 0;
     }
@@ -305,29 +247,6 @@ static int startsWithWord(const char *body, const char *lineEnd, const char *wor
         return 1;
     }
     return isspace((unsigned char)body[len]) || body[len] == '{' || body[len] == ';';
-}
-
-static int parseFunctionNameFromLine(const char *body, const char *lineEnd, char **outName) {
-    const char *nameStart;
-    const char *nameEnd;
-
-    if (!outName) {
-        return 0;
-    }
-    *outName = NULL;
-    if (!startsWithWord(body, lineEnd, "fn")) {
-        return 0;
-    }
-    nameStart = skipInlineSpaces(body + 2, lineEnd);
-    nameEnd = nameStart;
-    while (nameEnd < lineEnd && (isalnum((unsigned char)*nameEnd) || *nameEnd == '_')) {
-        nameEnd++;
-    }
-    if (nameEnd == nameStart) {
-        return 0;
-    }
-    *outName = dupRange(nameStart, nameEnd);
-    return *outName != NULL;
 }
 
 static int isSupportedCostUnit(const char *start, const char *end) {
@@ -467,49 +386,6 @@ static int validatePureAnnotationSyntax(const char *body,
         snprintf(detail, detailSize, "@pure does not take arguments.");
         return 0;
     }
-    return 1;
-}
-
-static const AetherFunctionInfo *findFunctionInfo(const AetherFunctionTable *table,
-                                                  const char *name,
-                                                  size_t len) {
-    size_t i;
-
-    if (!table || !name) {
-        return NULL;
-    }
-    for (i = 0; i < table->count; i++) {
-        if (strlen(table->items[i].name) == len &&
-            strncmp(table->items[i].name, name, len) == 0) {
-            return &table->items[i];
-        }
-    }
-    return NULL;
-}
-
-static int addFunctionInfo(AetherFunctionTable *table, const char *name, int isPure) {
-    size_t i;
-    char *copy;
-
-    if (!table || !name) {
-        return 0;
-    }
-    for (i = 0; i < table->count; i++) {
-        if (strcmp(table->items[i].name, name) == 0) {
-            table->items[i].isPure = isPure;
-            return 1;
-        }
-    }
-    if (!ensureFunctionTable(table, 1)) {
-        return 0;
-    }
-    copy = dupRange(name, name + strlen(name));
-    if (!copy) {
-        return 0;
-    }
-    table->items[table->count].name = copy;
-    table->items[table->count].isPure = isPure;
-    table->count++;
     return 1;
 }
 
@@ -1058,38 +934,6 @@ static void collectScalarBindings(const char *source, AetherScalarBindingTable *
                 addScalarBinding(table, name, inferredType);
             }
             free(name);
-        }
-        cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
-    }
-}
-
-static void collectFunctionPurity(const char *source, AetherFunctionTable *table) {
-    const char *cursor = source;
-    int pendingPure = 0;
-
-    while (cursor && *cursor) {
-        const char *lineStart = cursor;
-        const char *lineEnd = cursor;
-        const char *body;
-
-        while (*lineEnd && *lineEnd != '\n') {
-            lineEnd++;
-        }
-        body = skipInlineSpaces(lineStart, lineEnd);
-        if (startsWithWord(body, lineEnd, "@pure")) {
-            pendingPure = 1;
-        } else if (startsWithWord(body, lineEnd, "@pre") ||
-                   startsWithWord(body, lineEnd, "@post") ||
-                   startsWithWord(body, lineEnd, "@cost")) {
-        } else if (startsWithWord(body, lineEnd, "fn")) {
-            char *name = NULL;
-            if (parseFunctionNameFromLine(body, lineEnd, &name)) {
-                addFunctionInfo(table, name, pendingPure);
-                free(name);
-            }
-            pendingPure = 0;
-        } else if (body < lineEnd && !(body[0] == '/' && body + 1 < lineEnd && body[1] == '/')) {
-            pendingPure = 0;
         }
         cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
     }
@@ -2096,18 +1940,14 @@ static void validatePrimaryHelperArgType(const char *callName,
 }
 
 static void validateAetherSource(const char *source,
-                                 const AetherFunctionTable *table,
                                  const AetherOpaqueBindingTable *opaqueBindings,
                                  const AetherScalarBindingTable *scalarBindings) {
+    /* Textual TOON handle-typing / scalar-flow pass. The fx effect fence and
+     * @pure purity checks that used to live in this line scan moved to the AST
+     * walk (aetherValidateEffectsAndPurity); this scan keeps only the checks
+     * that are still line-oriented by design. */
     const char *cursor = source;
     int line = 1;
-    int blockDepth = 0;
-    int fxDepth = 0;
-    const char *currentPureFunctionName = NULL;
-    int pendingPureAnnotation = 0;
-    AetherScopeFrame stack[1024];
-
-    memset(stack, 0, sizeof(stack));
 
     while (*cursor) {
         const char *lineStart = cursor;
@@ -2116,12 +1956,6 @@ static void validateAetherSource(const char *source,
         const char *scan;
         const char *lastWord = NULL;
         size_t lastWordLen = 0;
-        int pendingFx = 0;
-        int pendingFunction = 0;
-        int pendingFunctionIsPure = 0;
-        const char *pendingFunctionName = NULL;
-        char *fnName = NULL;
-        const AetherFunctionInfo *fnInfo = NULL;
 
         while (*lineEnd && *lineEnd != '\n') {
             lineEnd++;
@@ -2131,21 +1965,6 @@ static void validateAetherSource(const char *source,
         validateOpaqueReturnBindingLine(body, lineEnd, line);
         validateScalarReturnBindingLine(body, lineEnd, line, scalarBindings);
         validateScalarAssignmentLine(body, lineEnd, line, scalarBindings);
-
-        if (startsWithWord(body, lineEnd, "@pure")) {
-            pendingPureAnnotation = 1;
-        } else if (startsWithWord(body, lineEnd, "@pre") ||
-                   startsWithWord(body, lineEnd, "@post") ||
-                   startsWithWord(body, lineEnd, "@cost")) {
-        } else if (startsWithWord(body, lineEnd, "fn") && parseFunctionNameFromLine(body, lineEnd, &fnName)) {
-            fnInfo = findFunctionInfo(table, fnName, strlen(fnName));
-            pendingFunction = 1;
-            pendingFunctionIsPure = pendingPureAnnotation;
-            pendingFunctionName = fnInfo ? fnInfo->name : fnName;
-            pendingPureAnnotation = 0;
-        } else if (body < lineEnd && !(body[0] == '/' && body + 1 < lineEnd && body[1] == '/')) {
-            pendingPureAnnotation = 0;
-        }
 
         scan = lineStart;
         while (scan < lineEnd) {
@@ -2157,40 +1976,7 @@ static void validateAetherSource(const char *source,
                 scan = skipQuotedString(scan, &ignoredLine);
                 continue;
             }
-            if (*scan == '{') {
-                if (blockDepth < (int)(sizeof(stack) / sizeof(stack[0]))) {
-                    stack[blockDepth].isFx = pendingFx;
-                    stack[blockDepth].isFunction = pendingFunction;
-                    stack[blockDepth].functionIsPure = pendingFunctionIsPure;
-                    stack[blockDepth].functionName = pendingFunctionName;
-                }
-                if (pendingFx) {
-                    fxDepth++;
-                }
-                if (pendingFunction && pendingFunctionIsPure) {
-                    currentPureFunctionName = pendingFunctionName;
-                }
-                pendingFx = 0;
-                pendingFunction = 0;
-                pendingFunctionIsPure = 0;
-                pendingFunctionName = NULL;
-                blockDepth++;
-                lastWord = NULL;
-                lastWordLen = 0;
-                scan++;
-                continue;
-            }
-            if (*scan == '}') {
-                if (blockDepth > 0) {
-                    blockDepth--;
-                    if (stack[blockDepth].isFx && fxDepth > 0) {
-                        fxDepth--;
-                    }
-                    if (stack[blockDepth].isFunction && stack[blockDepth].functionIsPure) {
-                        currentPureFunctionName = NULL;
-                    }
-                    memset(&stack[blockDepth], 0, sizeof(stack[blockDepth]));
-                }
+            if (*scan == '{' || *scan == '}') {
                 lastWord = NULL;
                 lastWordLen = 0;
                 scan++;
@@ -2208,45 +1994,8 @@ static void validateAetherSource(const char *source,
                 afterName = skipInlineSpaces(scan, lineEnd);
                 nameLen = (size_t)(scan - start);
 
-                if (nameLen == 2 && strncmp(start, "fx", 2) == 0 && *afterName == '{') {
-                    pendingFx = 1;
-                    lastWord = start;
-                    lastWordLen = nameLen;
-                    continue;
-                }
-
                 if (*afterName == '(' &&
                     !(lastWordLen == 2 && strncmp(lastWord, "fn", 2) == 0)) {
-                    char detail[256];
-                    const AetherFunctionInfo *calleeInfo = findFunctionInfo(table, start, nameLen);
-                    int calleeKnown = calleeInfo != NULL;
-                    int calleeIsPure = calleeInfo ? calleeInfo->isPure : 0;
-
-                    if (aetherIsEffectfulBuiltin(start, nameLen) && fxDepth == 0) {
-                        snprintf(detail,
-                                 sizeof(detail),
-                                 "call to '%.*s' requires an fx block.",
-                                 (int)nameLen,
-                                 start);
-                        reportAetherError("effect", line, detail);
-                    }
-                    if (currentPureFunctionName && aetherIsEffectfulBuiltin(start, nameLen)) {
-                        snprintf(detail,
-                                 sizeof(detail),
-                                 "pure function '%s' cannot call effectful builtin '%.*s'.",
-                                 currentPureFunctionName,
-                                 (int)nameLen,
-                                 start);
-                        reportAetherError("purity", line, detail);
-                    } else if (currentPureFunctionName && calleeKnown && !calleeIsPure) {
-                        snprintf(detail,
-                                 sizeof(detail),
-                                 "pure function '%s' cannot call non-pure function '%.*s'.",
-                                 currentPureFunctionName,
-                                 (int)nameLen,
-                                 start);
-                        reportAetherError("purity", line, detail);
-                    }
                     validateOpaqueCallKind(start,
                                            nameLen,
                                            afterName,
@@ -2302,7 +2051,6 @@ static void validateAetherSource(const char *source,
             scan++;
         }
 
-        free(fnName);
         if (*lineEnd == '\n') {
             line++;
             cursor = lineEnd + 1;
@@ -2460,6 +2208,186 @@ static void validateNoDuplicateLocals(const char *source) {
     free(decls);
 }
 
+/* --------------------------------------------------------------------------
+ * AST-based effect fence (FX-001) and purity (ANN-001) checks.
+ *
+ * These replace the old physical-line source scan, which had three verified
+ * defects: a call split across lines escaped the fence entirely, `fx` with its
+ * `{` on the next line drew a spurious FX-001, and an fx block inside a @pure
+ * function was not rejected. The parser registers the erased facts (fx blocks,
+ * @pure decls, alias surface spellings) in side registries -- see parser.h --
+ * and this walk enforces the rules on the real AST, so token layout is
+ * irrelevant and node tokens supply true line numbers.
+ * -------------------------------------------------------------------------- */
+
+/* Line for a diagnostic at `node`: its own token, else the first line found in
+ * its immediate operands (mirrors the compiler's getLine, then goes deeper). */
+static int aetherAstNodeLine(const AST *node) {
+    int i;
+
+    if (!node) {
+        return 0;
+    }
+    if (node->token && node->token->line > 0) {
+        return node->token->line;
+    }
+    if (node->left) {
+        int line = aetherAstNodeLine(node->left);
+        if (line > 0) {
+            return line;
+        }
+    }
+    for (i = 0; i < node->child_count; i++) {
+        int line = aetherAstNodeLine(node->children[i]);
+        if (line > 0) {
+            return line;
+        }
+    }
+    return 0;
+}
+
+/* Display name for a function: methods are declared under the mangled
+ * `Type.method` name, but diagnostics quote the bare method name (matching
+ * the wording the old source scan produced from the `fn` line). */
+static const char *aetherBareFunctionName(const char *name) {
+    const char *dot = name ? strrchr(name, '.') : NULL;
+    return (dot && dot[1]) ? dot + 1 : name;
+}
+
+static void aetherCheckCallNode(const AST *node,
+                                const char *canonical,
+                                int fxDepth,
+                                const char *pureFnName) {
+    char detail[256];
+    const char *display;
+    int isEffectful;
+    int line;
+
+    if (!node || !canonical || !*canonical) {
+        return;
+    }
+    /* Diagnostics quote the surface spelling the user wrote (println, sleep,
+     * task_spawn, ai_chat, ...), not the canonical builtin the AST carries.
+     * Two alias layers exist: parsePrimary's aliasBuiltinName records per call
+     * NODE; the text pre-pass (which rewrites same-line `name(` spans before
+     * the lexer runs) records per (line, canonical). */
+    line = aetherAstNodeLine(node);
+    display = aetherAstCallSurfaceName(node);
+    if (!display) {
+        display = aetherAstAliasSurfaceAtLine(line, canonical);
+    }
+    if (!display) {
+        display = canonical;
+    }
+    isEffectful = aetherIsEffectfulBuiltin(canonical, strlen(canonical));
+
+    if (isEffectful && fxDepth == 0) {
+        snprintf(detail, sizeof(detail), "call to '%s' requires an fx block.", display);
+        reportAetherError("effect", line, detail);
+    }
+    if (pureFnName) {
+        if (isEffectful) {
+            snprintf(detail,
+                     sizeof(detail),
+                     "pure function '%s' cannot call effectful builtin '%s'.",
+                     pureFnName,
+                     display);
+            reportAetherError("purity", line, detail);
+        } else {
+            int calleePure = 0;
+            if (aetherAstLookupFunctionPurity(canonical, &calleePure) && !calleePure) {
+                snprintf(detail,
+                         sizeof(detail),
+                         "pure function '%s' cannot call non-pure function '%s'.",
+                         pureFnName,
+                         display);
+                reportAetherError("purity", line, detail);
+            }
+        }
+    }
+}
+
+static void aetherWalkEffectsAndPurity(const AST *node, int fxDepth, const char *pureFnName);
+
+static void aetherWalkEffectsAndPurityOperands(const AST *node,
+                                               int fxDepth,
+                                               const char *pureFnName) {
+    int i;
+
+    aetherWalkEffectsAndPurity(node->left, fxDepth, pureFnName);
+    aetherWalkEffectsAndPurity(node->right, fxDepth, pureFnName);
+    aetherWalkEffectsAndPurity(node->extra, fxDepth, pureFnName);
+    for (i = 0; i < node->child_count; i++) {
+        aetherWalkEffectsAndPurity(node->children[i], fxDepth, pureFnName);
+    }
+}
+
+static void aetherWalkEffectsAndPurity(const AST *node, int fxDepth, const char *pureFnName) {
+    if (!node) {
+        return;
+    }
+    if (aetherAstNodeIsSynthesizedSubtree(node)) {
+        /* Compiler-injected machinery (contract-guard failure paths call
+         * writeln/halt); not user code, so not subject to the fence. */
+        return;
+    }
+
+    switch (node->type) {
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL: {
+            /* Function boundary: neither the effect fence nor the purity
+             * context crosses into a declaration's subtree. */
+            const char *declName =
+                (node->token && node->token->value) ? node->token->value : NULL;
+            const char *innerPure = NULL;
+            int isPure = 0;
+
+            if (declName && aetherAstLookupFunctionPurity(declName, &isPure) && isPure) {
+                innerPure = aetherBareFunctionName(declName);
+            }
+            aetherWalkEffectsAndPurityOperands(node, 0, innerPure);
+            return;
+        }
+        case AST_PROCEDURE_CALL:
+            if (node->token && node->token->value) {
+                aetherCheckCallNode(node, node->token->value, fxDepth, pureFnName);
+            }
+            break;
+        case AST_WRITELN:
+            aetherCheckCallNode(node, "writeln", fxDepth, pureFnName);
+            break;
+        case AST_WRITE:
+            aetherCheckCallNode(node, "write", fxDepth, pureFnName);
+            break;
+        default:
+            break;
+    }
+
+    if (aetherAstNodeIsFxBlock(node)) {
+        /* The guide's exclusion: @pure functions may not contain fx blocks
+         * (an effect region inside a purity contract is a contradiction even
+         * when the block is empty today). */
+        if (pureFnName) {
+            char detail[256];
+            int fxLine = aetherAstFxBlockLine(node);
+            if (fxLine <= 0) {
+                fxLine = aetherAstNodeLine(node);
+            }
+            snprintf(detail,
+                     sizeof(detail),
+                     "pure function '%s' contains an fx block.",
+                     pureFnName);
+            reportAetherError("purity", fxLine, detail);
+        }
+        fxDepth++;
+    }
+    aetherWalkEffectsAndPurityOperands(node, fxDepth, pureFnName);
+}
+
+static void aetherValidateEffectsAndPurity(const AST *root) {
+    aetherWalkEffectsAndPurity(root, 0, NULL);
+}
+
 void aetherPerformSemanticAnalysis(AST *root) {
     const char *source = aetherGetLastSource();
     int errorCountBefore = pascal_semantic_error_count;
@@ -2467,20 +2395,20 @@ void aetherPerformSemanticAnalysis(AST *root) {
     if (source) {
         char *sanitized = sanitizeAetherSourceForSemanticScan(source);
         const char *scanSource = sanitized ? sanitized : source;
-        AetherFunctionTable table = {0};
         AetherOpaqueBindingTable opaqueBindings = {0};
         AetherScalarBindingTable scalarBindings = {0};
         validateContractAnnotations(scanSource);
-        collectFunctionPurity(scanSource, &table);
         collectOpaqueBindings(scanSource, &opaqueBindings);
         collectScalarBindings(scanSource, &scalarBindings);
-        validateAetherSource(scanSource, &table, &opaqueBindings, &scalarBindings);
+        validateAetherSource(scanSource, &opaqueBindings, &scalarBindings);
         validateNoDuplicateLocals(scanSource);
         freeScalarBindingTable(&scalarBindings);
         freeOpaqueBindingTable(&opaqueBindings);
-        freeFunctionTable(&table);
         free(sanitized);
     }
+    /* Effect fence + purity run on the AST (not the source text), so they see
+     * the program the compiler will actually build. */
+    aetherValidateEffectsAndPurity(root);
     if (pascal_semantic_error_count > errorCountBefore) {
         return;
     }

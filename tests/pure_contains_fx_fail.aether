@@ -1,0 +1,14 @@
+@pure
+fn shout(value: Int) -> Int {
+    fx {
+        println(value);
+    }
+    ret value;
+}
+
+fn main() -> Void {
+    fx {
+        println(shout(2));
+    }
+    ret;
+}

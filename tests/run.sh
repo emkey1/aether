@@ -17,6 +17,7 @@ NEG_ARRAY_FIXTURE="$TESTS_DIR/negative_array_literal.aether"
 STRING_PARSE_PASS_FIXTURE="$TESTS_DIR/string_parse_pass.aether"
 COMPOUND_LINES_PASS_FIXTURE="$TESTS_DIR/compound_lines_pass.aether"
 TOON_ALIAS_PASS_FIXTURE="$TESTS_DIR/toon_alias_pass.aether"
+ALIAS_STRING_LITERAL_PASS_FIXTURE="$TESTS_DIR/alias_string_literal_pass.aether"
 CONTRACT_PASS_FIXTURE="$TESTS_DIR/contracts_pass.aether"
 CONTRACT_LAYOUT_PASS_FIXTURE="$TESTS_DIR/contract_layout_pass.aether"
 CONTRACT_STRING_LEN_PASS_FIXTURE="$TESTS_DIR/contract_string_len_pass.aether"
@@ -34,6 +35,8 @@ CONTRACT_FAIL_POST_FIXTURE="$TESTS_DIR/contracts_fail_post.aether"
 CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE="$TESTS_DIR/contract_collection_result_fail.aether"
 CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE="$TESTS_DIR/contract_collection_length_pass.aether"
 EFFECTS_FAIL_FIXTURE="$TESTS_DIR/effects_fail_outside_fx.aether"
+FX_CROSS_LINE_CALL_FAIL_FIXTURE="$TESTS_DIR/fx_cross_line_call_fail.aether"
+FX_BRACE_NEXT_LINE_PASS_FIXTURE="$TESTS_DIR/fx_brace_next_line_pass.aether"
 PRINT_ALIAS_PASS_FIXTURE="$TESTS_DIR/print_alias_pass.aether"
 PRINT_ALIAS_FAIL_FIXTURE="$TESTS_DIR/print_alias_fail_outside_fx.aether"
 TASK_HELPERS_PASS_FIXTURE="$TESTS_DIR/task_helpers_pass.aether"
@@ -77,6 +80,7 @@ TUPLE_POST_INVALID_RESULT_FAIL_FIXTURE="$TESTS_DIR/tuple_post_invalid_result_fai
 PURE_PASS_FIXTURE="$TESTS_DIR/pure_pass.aether"
 PURE_FAIL_EFFECTFUL_FIXTURE="$TESTS_DIR/pure_fail_effectful.aether"
 PURE_FAIL_NON_PURE_CALL_FIXTURE="$TESTS_DIR/pure_fail_non_pure_call.aether"
+PURE_CONTAINS_FX_FAIL_FIXTURE="$TESTS_DIR/pure_contains_fx_fail.aether"
 IMPORT_MISSING_FAIL_FIXTURE="$TESTS_DIR/import_missing_fail.aether"
 PAR_PASS_FIXTURE="$TESTS_DIR/par_pass.aether"
 PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
@@ -366,6 +370,13 @@ fi
 if ! grep -qxE 'Aether 42|toon unavailable' /tmp/aether_toon_alias_pass.out; then
     echo "unexpected TOON alias output (parse_json/root_node/lookup_string/lookup_int/close_doc)" >&2
     cat /tmp/aether_toon_alias_pass.out >&2
+    exit 1
+fi
+"$AETHER_BIN" --no-cache "$ALIAS_STRING_LITERAL_PASS_FIXTURE" >/tmp/aether_alias_string_literal_pass.out
+printf 'call sleep(5) now\nstring_eq(a,b) or len(x) or has_toon() inline\nlen=3 same=true\n' >/tmp/aether_alias_string_literal_expected.out
+if ! cmp -s /tmp/aether_alias_string_literal_expected.out /tmp/aether_alias_string_literal_pass.out; then
+    echo "alias lowering corrupted a string literal (or an alias outside a string broke)" >&2
+    cat /tmp/aether_alias_string_literal_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$INLINE_IF_CALL_ARGS_PASS_FIXTURE" >/tmp/aether_inline_if_call_args_pass.out
@@ -1126,6 +1137,29 @@ if ! grep -q "Aether effect error: call to 'writeln' requires an fx block" /tmp/
     exit 1
 fi
 
+# The effect fence is an AST check, so token layout cannot dodge it: a call
+# with its open-paren on the NEXT line (which escaped the old per-line scan)
+# still needs an fx block.
+if "$AETHER_BIN" --no-cache "$FX_CROSS_LINE_CALL_FAIL_FIXTURE" >/tmp/aether_fx_cross_line_call_fail.out 2>&1; then
+    echo "expected cross-line effect-boundary failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[FX-001\] Aether effect error: call to 'println' requires an fx block" /tmp/aether_fx_cross_line_call_fail.out; then
+    echo "missing cross-line effect-boundary failure message" >&2
+    cat /tmp/aether_fx_cross_line_call_fail.out >&2
+    exit 1
+fi
+
+# ...and conversely, `fx` with its `{` on the NEXT line is a valid effect
+# block (the old per-line scan rejected it with a spurious FX-001).
+"$AETHER_BIN" --no-cache "$FX_BRACE_NEXT_LINE_PASS_FIXTURE" >/tmp/aether_fx_brace_next_line_pass.out 2>&1
+printf 'brace on next line\n' >/tmp/aether_fx_brace_next_line_pass_expected.out
+if ! cmp -s /tmp/aether_fx_brace_next_line_pass_expected.out /tmp/aether_fx_brace_next_line_pass.out; then
+    echo "unexpected fx-brace-on-next-line output" >&2
+    cat /tmp/aether_fx_brace_next_line_pass.out >&2
+    exit 1
+fi
+
 if "$AETHER_BIN" --no-cache "$TASK_ALIAS_FAIL_FIXTURE" >/tmp/aether_task_alias_fail.out 2>&1; then
     echo "expected task alias effect-boundary failure but program succeeded" >&2
     exit 1
@@ -1549,6 +1583,18 @@ fi
 if ! grep -q "Aether purity error: pure function 'wrapper' cannot call non-pure function 'noisy'" /tmp/aether_pure_fail_non_pure_call.out; then
     echo "missing purity failure for non-pure call" >&2
     cat /tmp/aether_pure_fail_non_pure_call.out >&2
+    exit 1
+fi
+
+# @pure functions may not contain fx blocks at all (guide rule): the block
+# itself is rejected (ANN-001), independent of what it calls.
+if "$AETHER_BIN" --no-cache "$PURE_CONTAINS_FX_FAIL_FIXTURE" >/tmp/aether_pure_contains_fx_fail.out 2>&1; then
+    echo "expected purity failure for fx block in pure function but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[ANN-001\] Aether purity error: pure function 'shout' contains an fx block" /tmp/aether_pure_contains_fx_fail.out; then
+    echo "missing purity failure for fx block in pure function" >&2
+    cat /tmp/aether_pure_contains_fx_fail.out >&2
     exit 1
 fi
 

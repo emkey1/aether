@@ -2,7 +2,7 @@
 #define PSCAL_AETHER_AST_PREPASSES_H
 
 /*
- * Source pre-passes for the AST frontend (AETHER_PARSER=ast), implemented
+ * Source pre-passes for the Aether AST frontend, implemented
  * self-contained in ast_prepasses.c with no dependency on the text rewriter
  * (translate.c). Each reproduces, byte-for-byte, the observable result of the
  * matching rewriter pre-pass.

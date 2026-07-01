@@ -3,7 +3,6 @@
 #include "aether/parser.h"
 #include "aether/diagnostics.h"
 #include "aether/semantic.h"
-#include "aether/translate.h"
 #include "rea/state.h"
 #include "rea/frontend_hooks.h"
 
@@ -15,6 +14,10 @@ void aetherResetSymbolState(void) {
 
 void aetherInvalidateGlobalState(void) {
     aetherClearLastSource();
+    /* The fx-block/@pure/call-alias registries accumulate across parseAether
+     * calls (main program + imported modules) because semantic analysis runs
+     * after all of them; this is the one place they are torn down. */
+    aetherAstClearSemanticRegistries();
     reaInvalidateGlobalState();
 }
 
@@ -45,7 +48,6 @@ void aetherInstallFrontendHooks(void) {
         .getModuleName = aetherGetModuleName,
         .resolveImportPath = aetherResolveImportPath,
         .inferDiagnosticCode = aetherInferDiagnosticCode,
-        .rewriteSource = aetherRewriteSource,
         .setVerboseCompatibilityDiagnostics = aetherSetVerboseCompatibilityDiagnostics,
         .getVerboseCompatibilityDiagnostics = aetherGetVerboseCompatibilityDiagnostics,
     };

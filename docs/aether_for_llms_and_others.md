@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-6*
+*Guide version: 2026-07-01-7*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -665,8 +665,11 @@ fn clamp(score: Int) -> Int {
 - for tuple-return helpers, `@post` must use positional slots such as
   `result.0` and `result.1`
 - multiple `@pre` and `@post` lines may stack on one function
-- `@cost <n><unit>` validates a budget annotation; units: `ns us ms s op ops
-  step steps`
+- `@cost <n><unit>` declares a budget annotation; units: `ns us ms s op ops
+  step steps`. The syntax is validated at compile time, but the budget is
+  **non-binding today**: nothing tracks or enforces it at runtime (unlike
+  `@pre`/`@post`, which become real guards, and `@pure`, which is checked at
+  compile time). Treat it as machine-readable documentation of intent
 
 ## Strings
 

@@ -42,20 +42,25 @@ harness in the **PBuild umbrella** — they are no longer all in one tree.
 
 ```
 Aether source
-  → Aether source-rewrite layer        (this repo:  src/aether/translate.c)
-  → Rea parser + semantic analysis     (rea dep:    src/rea/…, via the hook seam)
+  → source pre-passes                  (this repo:  src/aether/ast_prepasses.c)
+  → Aether recursive-descent parser    (this repo:  src/aether/ast_parser.c)
+  → Aether semantic checks             (this repo:  src/aether/semantic.c)
   → shared PSCAL AST                    (pscal-core: src/ast/…)
+  → Rea engine semantic analysis       (rea dep:    src/rea/…, via the hook seam)
   → shared bytecode compiler           (pscal-core: src/compiler/…)
   → shared PSCAL VM                     (pscal-core: src/vm/…)
 ```
 
 Key facts a maintainer must internalize:
 
-- **Aether is a front-end rewrite over Rea**, today. This is the bootstrap path
-  DESIGN.md §6.2 calls "intentionally transitional." It is not yet a standalone
-  lexer/parser. Practically: Aether syntax is translated to Rea-shaped source/AST,
-  then everything downstream is the shared PSCAL pipeline. **There is no separate
-  Aether VM, bytecode, or runtime.** That is a hard architectural rule.
+- **Aether is a standalone AST frontend** (since the P7 cutover, 2026-06-27).
+  `ast_parser.c` tokenizes with Rea's lexer and builds the shared PSCAL AST
+  directly, in the same node shapes Rea's own parser produces, so everything
+  downstream is the shared pipeline unchanged. The bootstrap-era line-based
+  text rewriter (`translate.c`, DESIGN.md §6.2's "intentionally transitional"
+  path) was **retired and deleted on 2026-07-01** — see `parser_roadmap.md` for
+  the migration history. **There is no separate Aether VM, bytecode, or
+  runtime.** That is a hard architectural rule.
 
 - **The front end plugs in through a runtime hook seam, not a forked in-tree
   engine.** The build compiles Rea's engine sources (`ENGINE_SOURCES` in
@@ -79,9 +84,9 @@ Key facts a maintainer must internalize:
   `src/backend_ast` is cross-cutting (those live in the `pscal-core` dep, not this
   repo). Know which kind you are writing.
 
-The consequence of the Rea-rewrite bootstrap shows up most visibly in the
-[known warts](#6-known-warts-be-honest): some Aether parse failures are really
-Rea-grammar limitations leaking through the rewrite layer.
+The [known warts](#6-known-warts-be-honest) section below is largely a record
+of the retired rewrite-layer era; it is kept because it explains why several
+design decisions and tests look the way they do.
 
 ---
 
@@ -153,8 +158,8 @@ to the PSCAL backend spelling.
 
 - `print` / `println` (surface) → `write` / `writeln` (backend).
 - `int_to_text(n)` (surface) → `IntToStr` (backend), and the front end infers its
-  return type as `Text` (`src/aether/translate.c`, the `int_to_text` handling at
-  the alias site and the return-type-inference site).
+  return type as `Text` (alias lowering in `src/aether/ast_prepasses.c`,
+  return-type inference in `src/aether/ast_parser.c`).
 - `has_toon()`, `toon_*`, `task_spawn`, `ai_chat(...)` — compact source helpers
   in place of raw backend/extension builtin identifiers.
 
@@ -307,7 +312,7 @@ one-construct-per-line assumption: `fx`/`ret` are only rewritten when the keywor
 *leads* a line, so a one-liner left the mid-line `fx`/`ret` untranslated (`ret`
 reached Rea verbatim → `SCOPE-001`; raw `fx {` → `SYN-001`).
 
-**The fix** — `expandInlineBlockLine` in `translate.c`. When a line's leading
+**The fix** (rewriter-era; that code is now deleted) — `expandInlineBlockLine` in `translate.c`. When a line's leading
 block construct (`if`/`else`/`while`/`for`/`loop`/`fx`) has its opening brace
 matched **on the same line**, it is expanded into the canonical multi-line form.
 Each header runs through `translateLineInMethod` (the main loop's header path)
@@ -383,7 +388,7 @@ This tripped up the `clamp` work and will trip up the next person.
 A builtin is recognized and executed through *separate* mechanisms. **All five
 sites in the table below live in the `pscal-core` dependency**, not this repo; the
 Aether-side surface alias and type/effect inference live in
-`src/aether/translate.c` and `src/aether/semantic.c`, so adding a model-facing
+`src/aether/ast_prepasses.c` / `ast_parser.c` and `src/aether/semantic.c`, so adding a model-facing
 builtin usually spans two repos:
 
 | Site | File | Purpose | Symptom if you forget it |
@@ -422,7 +427,7 @@ Paths are tagged by repo: unmarked = **this repo** (`emkey1/aether`);
 | *Write* Aether (reference) | `Docs/aether_for_llms_and_others.md` (and the `…small_contexts` variant) |
 | Run the KPI benchmark | *(umbrella)* `tools/aether_doc_bench.py` (variants `full`/`small`/`none`, `--python-baseline`) |
 | Triage a `none` failure | *(umbrella)* `tools/none_fail_detail.py <eval>.json none` |
-| See the surface↔backend rewrite | `src/aether/translate.c` |
+| See the surface↔backend alias lowering | `src/aether/ast_prepasses.c` (pre-passes) + `src/aether/ast_parser.c` |
 | Find Aether-only behavior forks | grep `FRONTEND_KIND_AETHER` |
 | Add/modify a builtin | *(pscal-core)* `src/backend_ast/builtin.{c,h}`, `src/ast/ast.c` (+ Aether surface in `src/aether/`) — see [§8](#8-anatomy-of-a-builtin-worked-example-clamp) |
 | TOON / yyjson bindings | *(pscal-core)* `src/ext_builtins/yyjson/yyjson_builtins.c` |
