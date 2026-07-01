@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-06-29-1*
+*Guide version: 2026-06-30-1*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -144,6 +144,13 @@ type Counter {
   caller
 - a top-level `fn bump(self: Counter) -> Int` is an extension method; call it
   as `counter.bump()`
+- **field & method names must not be reserved words** — a member named after a
+  type (`word`, `text`, `int`, `byte`, `bool`), a keyword (`new`, `for`, `if`,
+  `match`), or an operator word (`mul`, `div`, `mod`, `xor`) fails SYN-001
+  (`'<name>' is a reserved … and cannot be used as a field/method name`); rename
+  it (`wordCount`, `multiply`). Aether has **no constructor method** — never name
+  a method `new`; allocate with `new T()` then set fields, or use a top-level
+  factory `fn` with a non-reserved name.
 
 ## Safe inference
 
@@ -559,7 +566,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[FX-001]** an output, task, or `ai_chat` call outside an effect block → wrap
   it in `fx { ... }`.
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`,
-  `loop` not `for`/`while`; drop `var`, `def`, `=>`.
+  `loop` not `for`/`while`; drop `var`, `def`, `=>`. Also a **field or method
+  named after a reserved word** (`word`, `mul`, `new`, `for`, ...) → rename the
+  member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -597,6 +606,7 @@ FIELD-001). Re-read the prompt and match it exactly.
 - imports verified; exported names used exactly (IMP-001, MOD-001)
 - all parameters typed; uncertain types annotated (TYPE-001)
 - `ret` not `return`; `type` not `class`; no `let mut` (SYN-001, MUT-001)
+- field & method names are not reserved words (`word`/`mul`/`new`/`for`) (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly
   (KEY-001); intermediates guarded before `_or` (NEST-001)

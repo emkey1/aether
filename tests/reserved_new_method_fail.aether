@@ -1,0 +1,10 @@
+type Point {
+    x: Int;
+    fn new() -> Void {
+        self.x = 0;
+    }
+}
+
+fn main() -> Void {
+    ret;
+}

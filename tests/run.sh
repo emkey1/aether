@@ -89,6 +89,9 @@ MODULE_CONST_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_const_import_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
 TYPE_FIELD_COMMA_FAIL_FIXTURE="$TESTS_DIR/type_field_comma_fail.aether"
+RESERVED_FIELD_NAME_FAIL_FIXTURE="$TESTS_DIR/reserved_field_name_fail.aether"
+RESERVED_METHOD_NAME_FAIL_FIXTURE="$TESTS_DIR/reserved_method_name_fail.aether"
+RESERVED_NEW_METHOD_FAIL_FIXTURE="$TESTS_DIR/reserved_new_method_fail.aether"
 TYPE_INIT_PASS_FIXTURE="$TESTS_DIR/type_init_pass.aether"
 TYPE_INIT_PAREN_PASS_FIXTURE="$TESTS_DIR/type_init_paren_pass.aether"
 TYPE_METHOD_CONTRACTS_PASS_FIXTURE="$TESTS_DIR/type_method_contracts_pass.aether"
@@ -215,6 +218,9 @@ for fixture in \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
+    "$RESERVED_FIELD_NAME_FAIL_FIXTURE" \
+    "$RESERVED_METHOD_NAME_FAIL_FIXTURE" \
+    "$RESERVED_NEW_METHOD_FAIL_FIXTURE" \
     "$TYPE_INIT_PASS_FIXTURE" \
     "$TYPE_INIT_PAREN_PASS_FIXTURE" \
     "$TYPE_METHOD_CONTRACTS_PASS_FIXTURE" \
@@ -1254,6 +1260,64 @@ fi
 if ! grep -q '"message":"Aether type rewrite error: type fields must end with ' /tmp/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json message" >&2
     cat /tmp/aether_type_field_comma_json.out >&2
+    exit 1
+fi
+# Reserved-word collisions (broadest generative-testing gap): a field or method
+# named after a reserved word/type name/operator word must name the collision,
+# not the bare "unexpected token in type body" / "expected function name" errors.
+if "$AETHER_BIN" --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_field.out 2>&1; then
+    echo "expected reserved field-name failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "'word' is a reserved type name and cannot be used as a field name." /tmp/aether_reserved_field.out; then
+    echo "missing reserved field-name collision message" >&2
+    cat /tmp/aether_reserved_field.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_field_json.out 2>&1; then
+    echo "expected reserved field-name diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"line":2' /tmp/aether_reserved_field_json.out; then
+    echo "missing reserved field-name diagnostics-json line mapping" >&2
+    cat /tmp/aether_reserved_field_json.out >&2
+    exit 1
+fi
+if ! grep -q '"code":"SYN-001"' /tmp/aether_reserved_field_json.out; then
+    echo "missing reserved field-name diagnostics-json code" >&2
+    cat /tmp/aether_reserved_field_json.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_method.out 2>&1; then
+    echo "expected reserved method-name failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "'mul' is a reserved operator word and cannot be used as a method name." /tmp/aether_reserved_method.out; then
+    echo "missing reserved method-name collision message" >&2
+    cat /tmp/aether_reserved_method.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_method_json.out 2>&1; then
+    echo "expected reserved method-name diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"line":3' /tmp/aether_reserved_method_json.out; then
+    echo "missing reserved method-name diagnostics-json line mapping" >&2
+    cat /tmp/aether_reserved_method_json.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$RESERVED_NEW_METHOD_FAIL_FIXTURE" >/tmp/aether_reserved_new.out 2>&1; then
+    echo "expected reserved new-method failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "'new' is a reserved keyword (the object allocator) and cannot be used as a method name." /tmp/aether_reserved_new.out; then
+    echo "missing reserved new-method collision message" >&2
+    cat /tmp/aether_reserved_new.out >&2
+    exit 1
+fi
+if ! grep -q "Aether has no constructor methods" /tmp/aether_reserved_new.out; then
+    echo "missing reserved new-method constructor hint" >&2
+    cat /tmp/aether_reserved_new.out >&2
     exit 1
 fi
 if "$AETHER_BIN" --diagnostics-json --no-cache "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_diagnostic_line_mapping_json.out 2>&1; then

@@ -12,6 +12,26 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-30-1
+
+**Reserved-word / member-name collisions now name the collision (SYN-001).** A
+`type` field or a `fn` method named after a reserved word previously failed with
+a generic parse error that never identified the cause: a field colliding with a
+type-name keyword (`word`, `text`, `int`, `byte`, `bool`, ...) reported
+`unexpected token in type body`, and a method colliding with an operator word
+(`mul`/`div`/`mod`/`xor`) or a value/structure keyword (`new`, `for`, ...)
+reported `expected function name after 'fn'`. This was the single broadest gap
+generative-model testing surfaced (several distinct LLMs hit it) — neither the
+model nor a human could act on the message. The AST frontend now emits a SYN-001
+diagnostic that names the offending word and its class, e.g. `'word' is a
+reserved type name and cannot be used as a field name` and `'mul' is a reserved
+operator word and cannot be used as a method name`, each with a rename hint;
+`fn new()` additionally points at the (absent) constructor idiom (`new T()` +
+field assignment, or a top-level factory `fn`). **Not breaking:** these programs
+were already rejected — only the diagnostic improved, on the default (AST) path;
+the legacy rewriter path is unchanged. Both LLM guides gained a "reserved words
+to avoid as member names" note.
+
 ## 2026-06-27-3
 
 **Effect model now covers host interaction (FX-001 / `@pure` soundness).** The

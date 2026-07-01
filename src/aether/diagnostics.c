@@ -46,6 +46,10 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
     if (strstr(detail, "type fields must end with ';', not ','")) {
         return "SYN-001";
     }
+    if (strstr(detail, "cannot be used as a")) {
+        /* reserved word / operator word used as a field or method name */
+        return "SYN-001";
+    }
     if (strstr(detail, "cannot infer the type of")) {
         return "TYPE-001";
     }

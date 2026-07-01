@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-28-3*
+*Guide version: 2026-06-30-1*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -83,6 +83,11 @@ when unsure about a type, add it explicitly.
 - `return`; use `ret` (SYN-001)
 - `class`; use `type` (SYN-001)
 - `for`, `while`, `var`, `func`, `def`, `=>`, Python-style colons (SYN-001)
+- a field or method named after a reserved word — a type (`word`, `text`,
+  `int`), a keyword (`new`, `for`, `match`), or an operator word (`mul`, `div`,
+  `mod`, `xor`); rename the member (SYN-001)
+- `fn new()` / `fn __init__` as a constructor method; Aether has none — use
+  `new T()` then assign fields, or a top-level factory `fn` (SYN-001)
 - `print` / `println` / task helpers / `ai_chat` outside `fx { ... }` (FX-001)
 - invented imports such as `use "helpers";` (IMP-001)
 - `use module_name;` or `export { ... }` in new code; use canonical
@@ -312,6 +317,16 @@ type JobSummary {
   `self.name` means the field
 - field names must exist exactly as declared on the type; do not invent
   `self.blockers` if the type has no `blockers` field
+- **field and method names must not be reserved words.** A member named after a
+  type keyword (`word`, `text`, `int`, `byte`, `bool`, `void`), a language
+  keyword (`new`, `for`, `if`, `match`, `type`), or an operator word (`mul`,
+  `div`, `mod`, `xor`) is rejected at parse time — `'<name>' is a reserved … and
+  cannot be used as a field/method name` (SYN-001). Rename the member: `word` →
+  `wordText`/`token`, `mul` → `multiply`/`scale` (plain names like `count`,
+  `value`, `add`, `push` are fine). There is **no constructor method**: do not
+  write `fn new()` (nor `fn __init__` / `Type.new()`); allocate with `new T()`
+  and assign fields, or add a top-level factory `fn makeT(...) -> T` with a
+  non-reserved name.
 
 Record values are pointer-backed: passing a record to a function or method
 and mutating its fields is visible to the caller.
@@ -1116,7 +1131,9 @@ NAME-001; the finer rule names below map onto them.
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` (with Aether field
-  syntax) not `class`, `loop` not `for`/`while`; drop `var`, `def`, `=>`.
+  syntax) not `class`, `loop` not `for`/`while`; drop `var`, `def`, `=>`. Also a
+  **field or method named after a reserved word** (`word`, `mul`, `new`, `for`,
+  ...) → rename the member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -1162,6 +1179,8 @@ Before submitting Aether code, verify:
 - all function parameters have explicit types; uncertain types are annotated
   (TYPE-001)
 - `ret` not `return`; `type` not `class` (SYN-001)
+- no field or method named after a reserved word (`word`, `mul`, `new`, `for`);
+  no `fn new()` constructor method (SYN-001)
 - no `let mut` in new code (MUT-001)
 - no arithmetic on or cross-assignment of `ToonDoc` / `ToonNode`; every parsed
   doc is closed with `toon_close(doc)` (TOON-001)

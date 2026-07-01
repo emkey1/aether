@@ -1,0 +1,10 @@
+type Vec {
+    x: Int;
+    fn mul() -> Void {
+        self.x = self.x * 2;
+    }
+}
+
+fn main() -> Void {
+    ret;
+}

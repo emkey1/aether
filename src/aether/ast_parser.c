@@ -592,6 +592,81 @@ static bool aetherTokenIsIdentifierLike(const ReaToken *t) {
     }
 }
 
+/* Classify a token that turned up where an Aether *member name* (a `type` field
+ * or a `fn` name) was expected, but which Rea's lexer had reserved as a keyword
+ * or operator word -- so the diagnostic can name the collision instead of a bare
+ * "unexpected token" / "expected function name". Returns a short human category,
+ * or NULL when the token is not a word-shaped reserved token (punctuation, a
+ * literal, EOF, or an ordinary identifier) and the caller should keep its generic
+ * message. Note on reachability: aetherTokenIsIdentifierLike already accepts the
+ * lowercase type-name keywords (int/word/text/...) at the `fn`/param positions, so
+ * at the `fn` site only operator words / value-structure keywords reach here; the
+ * "reserved type name" branch fires at the field site, whose acceptance test is
+ * REA_TOKEN_IDENTIFIER exactly. */
+static const char *aetherReservedWordCategory(const ReaToken *t) {
+    if (!t || t->length == 0 || !t->start) return NULL;
+    unsigned char c0 = (unsigned char)t->start[0];
+    if (!(isalpha(c0) || c0 == '_')) return NULL; /* only word-shaped lexemes collide */
+    switch (t->type) {
+        case REA_TOKEN_IDENTIFIER:
+            return NULL; /* an ordinary identifier is a perfectly good name */
+        /* lowercase type-name keywords: int/word/text/bool/char/byte/void/... */
+        case REA_TOKEN_INT: case REA_TOKEN_INT64: case REA_TOKEN_INT32:
+        case REA_TOKEN_INT16: case REA_TOKEN_INT8:
+        case REA_TOKEN_UINT64: case REA_TOKEN_UINT32: case REA_TOKEN_UINT16:
+        case REA_TOKEN_UINT8:
+        case REA_TOKEN_FLOAT: case REA_TOKEN_FLOAT32: case REA_TOKEN_LONG_DOUBLE:
+        case REA_TOKEN_CHAR: case REA_TOKEN_BYTE: case REA_TOKEN_WORD:
+        case REA_TOKEN_STR: case REA_TOKEN_TEXT: case REA_TOKEN_MSTREAM:
+        case REA_TOKEN_VOID: case REA_TOKEN_BOOL:
+            return "reserved type name";
+        /* word forms of arithmetic operators: mul(*), div, mod(%), xor */
+        case REA_TOKEN_STAR: case REA_TOKEN_INT_DIV:
+        case REA_TOKEN_PERCENT: case REA_TOKEN_XOR:
+            return "reserved operator word";
+        default:
+            return "reserved keyword";
+    }
+}
+
+/* Emit a diagnostic that names a reserved-word/member-name collision -- the
+ * broadest gap generative model testing found (a field or method named after a
+ * reserved word or operator word, e.g. `word`, `mul`, `new`). `member` is
+ * "field", "method", or "function". Returns true if `t` was a reserved word and
+ * a naming diagnostic was printed; false if the token is not a reserved word and
+ * the caller should fall back to its generic parse error. */
+static bool reportReservedMemberName(const ReaToken *t, const char *member) {
+    const char *cat = aetherReservedWordCategory(t);
+    if (!cat) return false;
+
+    char name[64];
+    size_t n = (size_t)t->length;
+    if (n >= sizeof(name)) n = sizeof(name) - 1;
+    memcpy(name, t->start, n);
+    name[n] = '\0';
+
+    char detail[256];
+    char hint[320];
+    if (t->type == REA_TOKEN_NEW) {
+        /* `new` is the object allocator; point at the (missing) constructor idiom. */
+        snprintf(detail, sizeof(detail),
+                 "'%s' is a reserved keyword (the object allocator) and cannot be used "
+                 "as a %s name.", name, member);
+        snprintf(hint, sizeof(hint),
+                 "Aether has no constructor methods -- allocate with `new T()` then set "
+                 "fields, or write a top-level factory `fn` with a non-reserved name.");
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "'%s' is a %s and cannot be used as a %s name.", name, cat, member);
+        snprintf(hint, sizeof(hint),
+                 "rename it (e.g. `%sValue`); reserved type names (Int/Word/Text/...), "
+                 "keywords (new/for/if/...) and operator words (mul/div/mod/xor) are not "
+                 "valid field or method names.", name);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), t->line, "declaration", detail, hint);
+    return true;
+}
+
 /* Map an Aether stdlib builtin name to its canonical Rea/pscal builtin, exactly
  * as translate.c appendAetherBuiltinAlias() does textually. Returns the canonical
  * name, or `name` unchanged if there is no alias. Keeping this in sync with the
@@ -3773,7 +3848,12 @@ static AST *parseFnDecl(AetherParser *p) {
     aetherAdvance(p); /* consume 'fn' */
 
     if (!aetherTokenIsIdentifierLike(&p->current)) {
-        fprintf(stderr, "L%d: expected function name after 'fn'.\n", p->current.line);
+        /* A reserved word/operator where the name should be (e.g. `fn mul()`,
+         * `fn new()`): name the collision instead of the bare parse error. */
+        if (!reportReservedMemberName(&p->current,
+                                      p->currentClassName ? "method" : "function")) {
+            fprintf(stderr, "L%d: expected function name after 'fn'.\n", p->current.line);
+        }
         p->hadError = true;
         return NULL;
     }
@@ -4466,7 +4546,11 @@ static AST *parseTypeDecl(AetherParser *p) {
             } else if (p->current.type == REA_TOKEN_SEMICOLON) {
                 aetherAdvance(p); /* tolerate stray semicolons */
             } else {
-                fprintf(stderr, "L%d: unexpected token in type body.\n", p->current.line);
+                /* A reserved word/type name where a field name should be (e.g.
+                 * `word: Text;`): name the collision instead of the bare error. */
+                if (!reportReservedMemberName(&p->current, "field")) {
+                    fprintf(stderr, "L%d: unexpected token in type body.\n", p->current.line);
+                }
                 p->hadError = true;
                 break;
             }

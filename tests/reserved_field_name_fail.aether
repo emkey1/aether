@@ -1,0 +1,8 @@
+type WordCount {
+    word: Text;
+    count: Int;
+}
+
+fn main() -> Void {
+    ret;
+}
