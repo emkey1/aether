@@ -542,3 +542,44 @@ document building the string first (`let s: Text = "..." + rawNow + "..."; toon_
 to parse (seed-oss), and `par` blocks calling user functions can crash silently (qwen3-coder-next) —
 **the par crash is fixed 2026-07-01-1**, root-caused to a shared-record data race and now rejected as
 `PAR-001`; see the resolved silent-failure entry under **Open ideas**.)*
+
+## Generative pass 2 — after the 2026-07-01 diagnostic/guide fixes
+
+*Re-ran the generative miner against the FIXED compiler (`aether 2026-07-01-1`, gitlink 63ca546)
++ updated guides, 6 models (Ornith-1.0, m5 qwen3-coder-next + devstral, claw2 a3b-coder, gemini-2.5-flash,
+gemini-3.1-pro), 32 programs, 23 clean.* **The six fixes held under free-form generation** — none of the
+prior high-frequency gaps recurred: reserved-word member collisions now emit a named `SYN-001`,
+`@post`-over-array is a compile-time `ANN-001`, mutating methods on inferred `new` compile, and
+undefined *methods*/silent AST paths now carry coded diagnostics. What remains is a thinner, lower-severity tier:
+
+### Tuple-destructuring binding + placeholder diagnostic code — *idea (verified)*
+Models reach for multi-value destructuring: `let (name, age, score) = parseLine(line);` →
+`tuple destructuring target is not a known tuple-return function` — and the diagnostic's `code` is the
+literal placeholder **`feature`**, not a real code. **Action:** (a) decide whether to support
+destructuring binds from tuple-returning fns (or document the single-return + record alternative), and
+(b) give this diagnostic a real code (e.g. `TUP-001`) — a placeholder `code:feature` breaks the
+code→guide-section mapping. Hit by `ornith-1.0-35b-nvfp4`.
+
+### A few compiler errors are still uncoded (should join the coded set) — *gap (verified)*
+The recent work coded the worst offenders; these remain raw (no `code`, plain stderr) so models can't
+map them to a guide section:
+- bare `ret;` in a non-Void fn → `return requires a value` (should be a coded FLOW-style error).
+- non-call statement inside `par { ... }` → `only direct call statements are allowed inside par blocks`
+  (the 2026-07-01 fix coded the shared-record par *crash* as PAR-001, but not this par-arity rule).
+- an edge of undefined-field access emits a raw `Compiler error: Unknown field 'X'` from the backend
+  (the clean case is correctly `FIELD-002`). **Action:** route these through the coded-diagnostic path.
+
+*(Also worth a small harness fix, not a language gap: the idea-miner classifies a runtime failure whose
+message lands on STDOUT — e.g. `Aether @post failed in f` from a legitimately-violated contract — as a
+"silent" failure, because it only inspects stderr+diagnostics. It should also scan stdout for the known
+runtime-error prefixes.)*
+
+### Models write `fn m(self: T)` free functions instead of methods — *idea (verified, 2 models)*
+Folding GLM-5-Turbo/5.2 into pass 2 (both very clean: 9/10 programs compiled): the one gap was models
+defining a *free-standing* function with an explicit `self` parameter and referencing `self` in a
+contract — `@pre length(self.data) < self.capacity  fn push_safe(self: Stack, val: Int) -> Void` →
+`[SCOPE-001] identifier 'self' not in scope`. Verified: a PROPER method (inside the `type` block,
+implicit `self`) with `@pre self.v >= 0` compiles+runs fine; only the explicit-`self`-param free-function
+form fails. Hit by `glm-5.2` and (pass 2) `mistralai/devstral-small-2-2512`. **Action:** guide note in
+the method/constructor section — methods live INSIDE the `type` block with implicit `self`; do not write
+`fn m(self: T)` free functions; `@pre`/`@post` on a proper method may reference `self`.
