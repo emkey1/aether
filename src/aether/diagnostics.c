@@ -42,6 +42,14 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "tuple") == 0) {
             return "TUP-001";
         }
+        /* Constant record/type field default-value boundary: a declared field
+         * default that is not a compile-time constant (references another field,
+         * `self`, or calls a function). Points at the FIELD-003 guide section,
+         * which documents `field: Type = <const>` and directs computed values to
+         * construction-time `new T { field: value }`. */
+        if (strcmp(kind, "field-default") == 0) {
+            return "FIELD-003";
+        }
     }
 
     if (!detail) {
@@ -62,6 +70,13 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         return "SYN-001";
     }
     if (strstr(detail, "cannot infer the type of")) {
+        return "TYPE-001";
+    }
+    /* A constant record-field default whose value type does not match the
+     * declared field type (e.g. `value: Int = "x"`). A plain type error -- the
+     * fix is to match the type or move the value to construction -- so it points
+     * at the TYPE-001 guide section, not the FIELD-003 constant-boundary one. */
+    if (strstr(detail, "field default value type mismatch")) {
         return "TYPE-001";
     }
     if (strstr(detail, "@pre must annotate the next function declaration") ||

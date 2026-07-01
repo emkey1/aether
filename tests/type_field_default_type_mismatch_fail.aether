@@ -1,0 +1,8 @@
+type Bad {
+    value: Int = "x";
+}
+
+fn main() -> Void {
+    fx { writeln("unreachable"); }
+    ret;
+}

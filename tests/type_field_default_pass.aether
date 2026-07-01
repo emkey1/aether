@@ -1,0 +1,20 @@
+type Config {
+    retries: Int = 3;
+    ratio: Real = 1.5;
+    label: Text = "def";
+    enabled: Bool = true;
+}
+
+fn main() -> Void {
+    let a = new Config();
+    let b = new Config { retries: 9, label: "over" };
+    fx {
+        writeln(a.retries);
+        writeln(a.label);
+        writeln(b.retries);
+        writeln(b.label);
+        writeln(b.ratio);
+        if b.enabled { writeln("on"); } else { writeln("off"); }
+    }
+    ret;
+}

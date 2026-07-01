@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-5*
+*Guide version: 2026-07-01-6*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -61,16 +61,22 @@ If you only read one part of this document, read **Highest-Value Rules** and
     local; `self.name` means the field.
 17. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields on a type.
-18. **FLOW-001.** Every non-`Void` function must return a value on every
+18. **FIELD-003.** A record/type field may declare a **constant** default:
+    `field: Type = <const>` (e.g. `count: Int = 0`, `name: Text = ""`,
+    `on: Bool = true`, `xs: Int[] = []`). Only compile-time constants are
+    allowed — a default may not reference another field, `self`, or call a
+    function. For a computed initial value, set it at construction with
+    `new T { field: value }`.
+19. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path.
-19. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
+20. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
     no inline `fn(...) -> T { ... }` literals, no lambdas, and no closures.
     Never pass a function as an argument. `task_spawn` / `task_queue` take a
     builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
     `par { ... }` block (see **Concurrency**), not `task_spawn`.
-20. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
@@ -90,8 +96,10 @@ when unsure about a type, add it explicitly.
 - a field or method named after a reserved word — a type (`word`, `text`,
   `int`), a keyword (`new`, `for`, `match`), or an operator word (`mul`, `div`,
   `mod`, `xor`); rename the member (SYN-001)
-- `fn new()` / `fn __init__` as a constructor method; Aether has none — use
-  `new T()` then assign fields, or a top-level factory `fn` (SYN-001)
+- `fn new()` / `fn __init__` as a constructor method; Aether has none —
+  construct with `new T { field: value }` (partial sets ok; unset fields keep
+  their declared defaults), or `new T()` then assign fields, or a top-level
+  factory `fn` (SYN-001)
 - an untyped `new` binding or array literal: `let c = new C();` (a later
   `c.inc();` fails `POINTER but got VOID`) or `let xs = [1, 2, 3];` (cannot
   infer) — annotate both: `let c: C = new C();`, `let xs: Int[] = [1, 2, 3];`
@@ -343,6 +351,13 @@ type JobSummary {
 ```
 
 - use `type`, never `class`; fields are `name: Type;` (semicolons)
+- a field may carry a **constant** default: `name: Type = <const>`
+  (`count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`).
+  The default must be a compile-time constant — it cannot reference another
+  field, `self`, or call a function (FIELD-003). For a computed initial value,
+  set it at construction with `new T { field: value }`. A field with no default
+  falls back to the type zero (integers `0`, reals `0.0`, booleans `false`,
+  text empty).
 - **define methods inside the `type` block; `self` is implicit — never give a
   method a `self` parameter.** Inside a method use lowercase `self`, never `Self`.
 - **only a method declared inside the `type` binds `self`, so only its
@@ -394,21 +409,29 @@ and mutating its fields is visible to the caller.
 ### Constructing records and typing bindings
 
 There is **no constructor method** (SYN-001). Allocate with `new T()` — the only
-constructor — then assign fields; for one-shot construction use the record
-literal `T { field: value, ... }`. Do not write `fn new()`, `fn __init__`, or a
-static `T.new()`; all three are rejected:
+constructor — and set fields at construction with the record-literal form
+`new T { field: value, ... }` (the recommended way to initialize with values).
+Do not write `fn new()`, `fn __init__`, or a static `T.new()`; all three are
+rejected:
 
 ```aether
-let counter: Counter = new Counter();     // annotate; new T() zeroes fields
-counter.value = 41;
-let point: Point = Point { x: 3, y: 4 };  // canonical one-shot field init
+let point: Point = new Point { x: 3, y: 4 };  // set fields at construction
+let counter: Counter = new Counter();         // fields take declared defaults / type zeroes
+counter.value = 41;                           // or assign after allocation
 ```
 
-`new Type()` defaults: integers `0`, reals `0.0`, booleans `false`, text empty,
-pointers `nil`, arrays empty-initialized. `Type(x: 3, y: 4)` is accepted but
-non-canonical. Generated code should not otherwise use pointers or `nil`;
-they are backend details. Want a constructor? Write a top-level factory `fn`
-with a non-reserved name (`fn makePoint(x: Int, y: Int) -> Point { ... }`).
+The record-literal set is **partial**: any field you omit keeps its declared
+default (FIELD-003) or, if it has none, the type zero. An explicit
+`new T { field: value }` value always overrides that field's default.
+
+`new Type()` defaults, in order of precedence: a field's declared constant
+default (`count: Int = 0`), else the type zero — integers `0`, reals `0.0`,
+booleans `false`, text empty, pointers `nil`, arrays empty-initialized. The
+bare `T { ... }` and `Type(x: 3, y: 4)` forms are also accepted but
+non-canonical; prefer `new T { ... }`. Generated code should not otherwise use
+pointers or `nil`; they are backend details. Want a constructor with logic?
+Write a top-level factory `fn` with a non-reserved name
+(`fn makePoint(x: Int, y: Int) -> Point { ... }`).
 
 **Always annotate a binding that holds a `new` instance or an array literal**
 (TYPE-001) — inference is not enough for either:
@@ -1214,7 +1237,7 @@ The compiler tags every rejection with a stable code in brackets, and on newer
 builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, FLOW-002, MUT-001, FIELD-002,
-PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
+FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
@@ -1244,6 +1267,12 @@ PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
   not mix, do arithmetic on, or cross-assign them.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
   the type explicitly if the prompt really requires that field.
+- **[FIELD-003]** a field default that is not a compile-time constant (references
+  another field, `self`, or calls a function), or a populated array default →
+  use a literal/constant (`count: Int = 0`), or drop the default and set the
+  value at construction with `new T { field: value }`. A type-mismatched default
+  (`value: Int = "x"`) is a `[TYPE-001]` instead — make the default's type match
+  the field.
 - **[FLOW-001]** a fallthrough path with no return value → add an explicit final
   `ret ...` on every reachable top-level path in the non-`Void` helper.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)

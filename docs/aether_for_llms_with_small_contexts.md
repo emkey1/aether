@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-5*
+*Guide version: 2026-07-01-6*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -46,21 +46,26 @@ compiler, and VM. It is not a separate runtime.
     `valid` means the local; `self.valid` means the field.
 18. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields.
-19. **FLOW-001.** Every non-`Void` helper must return a value on every
+19. **FIELD-003.** A record/type field may declare a **constant** default:
+    `field: Type = <const>` (`count: Int = 0`, `on: Bool = true`,
+    `xs: Int[] = []`). Only compile-time constants — a default cannot reference
+    another field, `self`, or call a function. For a computed value, set it at
+    construction with `new T { field: value }`.
+20. **FLOW-001.** Every non-`Void` helper must return a value on every
     reachable top-level path.
-20. **FMT-001.** If the prompt specifies exact output, match it exactly:
+21. **FMT-001.** If the prompt specifies exact output, match it exactly:
     spacing, casing, line order, and decimal precision.
-21. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
+22. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
     names such as `values`, `count`, `sum`, `maxValue`.
-22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
+23. **MOD-002.** Canonical import form is `use "module_name";`. After import,
     call exported names directly. Never guess `export { ... }` syntax or the
     foreign object/JSON APIs listed under **TOON rules**.
-23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
+24. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
     no lambdas, no closures, never pass a function as an argument.
     `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
     use `par { f(); g(); }`, not `task_spawn`.
-24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+25. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
 
@@ -148,8 +153,14 @@ type Counter {
   (`@pre self.value >= 0` above `fn bump`). A free-standing `fn bump(self: Counter)`
   with a `self`-referencing contract fails `[SCOPE-001] identifier 'self' not in
   scope`.
-- `new Counter()` zeroes fields (Int `0`, Real `0.0`, Bool `false`, Text empty)
-- canonical init: `Point { x: 3, y: 4 }`; `Point(x: 3, y: 4)` accepted
+- a field may declare a **constant** default: `value: Int = 0` (FIELD-003).
+  Only compile-time constants — no other field, `self`, or call; for a computed
+  value use `new T { field: value }`.
+- `new Counter()` gives each field its declared default, else the type zero
+  (Int `0`, Real `0.0`, Bool `false`, Text empty)
+- construct with values: `new Point { x: 3, y: 4 }` (partial sets ok; an unset
+  field keeps its default); bare `Point { x: 3, y: 4 }` / `Point(x: 3, y: 4)`
+  also accepted
 - records are pointer-backed: mutations through a callee are visible to the
   caller
 - a top-level `fn bump(self: Counter) -> Int` is an extension method, called as
@@ -164,14 +175,16 @@ type Counter {
 
 ## Constructing records and typing bindings
 
-`new T()` is the only constructor. Allocate, then assign fields — or for one-shot
-init use the record literal `T { field: value }`, or a top-level factory `fn`.
-There is **no** `fn new()`, `fn __init__`, or `T.new()` (SYN-001):
+`new T()` is the only constructor. Set fields at construction with
+`new T { field: value }` (the recommended way; a partial set keeps each unset
+field's declared default or type zero), or allocate then assign, or use a
+top-level factory `fn`. There is **no** `fn new()`, `fn __init__`, or `T.new()`
+(SYN-001):
 
 ```aether
-let p: Point = new Point();          // annotate; new T() zeroes fields
-p.x = 3;
-let q: Point = Point { x: 3, y: 4 }; // canonical one-shot init
+let p: Point = new Point { x: 3, y: 4 }; // set fields at construction
+let q: Point = new Point();              // fields take defaults / type zeroes
+q.x = 3;                                 // or assign after allocation
 ```
 
 Always annotate a binding that holds a `new` instance or an array literal
@@ -626,6 +639,11 @@ The compiler prints a stable code in brackets, and on newer builds a
   `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
   to the type if the prompt truly requires it).
+- **[FIELD-003]** a field default that is not a compile-time constant (names
+  another field, `self`, or calls a function), or a populated array default →
+  use a literal/constant (`count: Int = 0`), or set the value at construction
+  with `new T { field: value }`. A type-mismatched default (`value: Int = "x"`)
+  is `[TYPE-001]` instead — match the field's type.
 - **[FLOW-001]** a fallthrough path with no return value → add a final `ret ...`
   on every reachable top-level path.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function → give the return a

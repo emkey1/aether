@@ -12,6 +12,33 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-4
+
+**Record/type fields may now declare a constant default value:
+`type Counter { value: Int = 7; }`.** Models reach for field defaults, and a
+declared default previously hit the raw `L1: unexpected token in type body.`
+parse error. This lands it as a coherent record-initialization improvement.
+
+- **Constant field defaults (`field: Type = <const>`).** After a field's type,
+  an `=` introduces a compile-time-constant default: `count: Int = 0`,
+  `ratio: Real = 1.5`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`,
+  and trivial constant expressions (`-3`, `2 + 3`). The default is applied at
+  construction for `new T()` and for the unset fields of `new T { ... }`; an
+  explicit construction-site value always overrides it. Parsed on the AST path
+  (`ast_parser.c`); the frontend attaches the constant to the field's
+  `AST_VAR_DECL`, and the shared engine's `emitDefaultFieldInitializers`
+  (pscal-core `compiler.c`) applies it on top of the type-zero so string
+  capacity and int→real widening match the record-literal path.
+- **New coded diagnostic `FIELD-003`.** A non-constant default (references
+  another field, `self`, or calls a function) or a populated array default is
+  rejected with `[FIELD-003]` and a hint pointing at construction-time
+  `new T { field: value }`, replacing the generic "unexpected token" error. A
+  type-mismatched default (`value: Int = "x"`) is a `[TYPE-001]` type error.
+- **Guides:** both guides now document constant field defaults (FIELD-003) and
+  surface `new T { field: value }` as the recommended way to initialize with
+  values (partial sets keep unset fields' defaults), while keeping the
+  no-`__init__`/no-`fn new()` stance.
+
 ## 2026-07-01-3
 
 **Three compiler errors that were still raw (no `code` in `--diagnostics-json`,

@@ -4686,6 +4686,71 @@ static AST *parseConstDeclTop(AetherParser *p) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Constant record-field default values (`field: Type = <const>`)      */
+/* ------------------------------------------------------------------ */
+
+/* A declared field default must be a compile-time constant: the construction
+ * path (pscal-core's emitDefaultFieldInitializers) folds it with
+ * evaluateCompileTimeValue and bakes the result into every `new T()` and every
+ * unset field of `new T { ... }`. Allow literals, the (again constant) array
+ * literal, and constant unary/binary expressions over them; reject anything
+ * that reads another field, `self`, or calls a function -- those have
+ * evaluation-order/purity concerns, are FIELD-003, and belong at construction
+ * time (`new T { field: value }`). */
+static bool aetherFieldDefaultIsConstant(const AST *e) {
+    if (!e) return false;
+    switch (e->type) {
+        case AST_NUMBER:
+        case AST_STRING:
+        case AST_BOOLEAN:
+        case AST_NIL:
+            return true;
+        case AST_UNARY_OP:
+            return aetherFieldDefaultIsConstant(e->left);
+        case AST_BINARY_OP:
+            return aetherFieldDefaultIsConstant(e->left) &&
+                   aetherFieldDefaultIsConstant(e->right);
+        case AST_ARRAY_LITERAL:
+            for (int i = 0; i < e->child_count; i++) {
+                if (!aetherFieldDefaultIsConstant(e->children[i])) return false;
+            }
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* Type-check a constant field default against the field's declared type. The
+ * rules mirror the scalar families Aether exposes (Int/Real/Text/Bool) plus
+ * arrays and reference types; an Int default widens into a Real field. A field
+ * type we do not model precisely stays permissive -- the constant guard above
+ * still applies -- so inference gaps never raise a false type error. */
+static bool aetherFieldDefaultTypeMatches(VarType fieldType, const AST *e) {
+    if (!e) return false;
+    VarType et = e->var_type;
+    if (isIntegerFamilyType(fieldType)) {
+        return isIntegerFamilyType(et);
+    }
+    if (isRealType(fieldType)) {
+        return isRealType(et) || isIntegerFamilyType(et);
+    }
+    if (isPascalStringType(fieldType) || isPascalCharType(fieldType)) {
+        return isPascalStringType(et) || isPascalCharType(et);
+    }
+    if (fieldType == TYPE_BOOLEAN) {
+        return et == TYPE_BOOLEAN;
+    }
+    if (fieldType == TYPE_ARRAY) {
+        return et == TYPE_ARRAY || et == TYPE_NIL;
+    }
+    /* A user class/record field is a pointer; only `nil` is a valid constant. */
+    if (fieldType == TYPE_POINTER || fieldType == TYPE_RECORD || fieldType == TYPE_ENUM) {
+        return et == TYPE_NIL;
+    }
+    return true;
+}
+
+/* ------------------------------------------------------------------ */
 /* type (record/class) declarations                                    */
 /* ------------------------------------------------------------------ */
 
@@ -4777,6 +4842,69 @@ static AST *parseTypeDecl(AetherParser *p) {
                 setRight(fieldDecl, ftypeNode);
                 setTypeAST(fieldDecl, fvtype);
                 addChild(recordAst, fieldDecl);
+                /* Optional constant default: `field: Type = <const-expr>`. The
+                 * default is attached to the field's VAR_DECL `left` slot, which
+                 * pscal-core's emitDefaultFieldInitializers folds and applies at
+                 * construction (`new T()` and unset fields of `new T { ... }`).
+                 * Only compile-time constants are allowed (FIELD-003), and the
+                 * value must type-match the declared field. `=` is REA_TOKEN_EQUAL
+                 * (assignment); `==` is REA_TOKEN_EQUAL_EQUAL and is not matched. */
+                if (p->current.type == REA_TOKEN_EQUAL) {
+                    int eqLine = p->current.line;
+                    aetherAdvance(p); /* consume '=' */
+                    AST *defExpr = parseExpr(p);
+                    if (!defExpr || p->hadError) {
+                        if (!p->hadError) {
+                            aetherDiagf("L%d: expected a constant default value after '=' in type field.\n",
+                                    eqLine);
+                        }
+                        if (defExpr) freeAST(defExpr);
+                        p->hadError = true;
+                        break;
+                    }
+                    if (!aetherFieldDefaultIsConstant(defExpr)) {
+                        reportAetherAstError(aetherSemanticGetSourcePath(), eqLine, "field-default",
+                                "only constant field defaults are supported; set computed values at "
+                                "construction via `new T { field: value }`.",
+                                "use a literal or constant expression (e.g. `= 0`, `= \"\"`, `= true`), "
+                                "or drop the default and set the value in `new T { ... }`.");
+                        freeAST(defExpr);
+                        p->hadError = true;
+                        break;
+                    }
+                    /* Arrays: only the empty literal `= []` is a supported default
+                     * (it matches the zero-initialized field). A populated array
+                     * literal cannot be applied by the construction path, so route
+                     * it to FIELD-003 instead of silently dropping the values. */
+                    if (fvtype == TYPE_ARRAY && defExpr->type == AST_ARRAY_LITERAL &&
+                        defExpr->child_count > 0) {
+                        reportAetherAstError(aetherSemanticGetSourcePath(), eqLine, "field-default",
+                                "only an empty array default (`= []`) is supported; populate array "
+                                "fields at construction or in a method.",
+                                "declare `xs: T[] = []` (or omit the default) and fill the array via "
+                                "`new T { ... }` or method code.");
+                        freeAST(defExpr);
+                        p->hadError = true;
+                        break;
+                    }
+                    if (!aetherFieldDefaultTypeMatches(fvtype, defExpr)) {
+                        const char *ftName = aetherTypeNameForVarType(fvtype);
+                        const char *vtName = aetherTypeNameForVarType(defExpr->var_type);
+                        char detail[192];
+                        snprintf(detail, sizeof(detail),
+                                "field default value type mismatch: cannot use a %s default for a "
+                                "field of type %s.",
+                                vtName ? vtName : "non-matching", ftName ? ftName : "this");
+                        reportAetherAstError(aetherSemanticGetSourcePath(), eqLine, "type", detail,
+                                "make the default match the field type (e.g. `count: Int = 0`, "
+                                "`name: Text = \"\"`), or set the value at construction with "
+                                "`new T { field: value }`.");
+                        freeAST(defExpr);
+                        p->hadError = true;
+                        break;
+                    }
+                    setLeft(fieldDecl, defExpr);
+                }
                 if (p->current.type == REA_TOKEN_SEMICOLON) {
                     aetherAdvance(p);
                 } else if (p->current.type == REA_TOKEN_COMMA) {

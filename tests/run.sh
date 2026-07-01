@@ -103,6 +103,9 @@ RESERVED_METHOD_NAME_FAIL_FIXTURE="$TESTS_DIR/reserved_method_name_fail.aether"
 RESERVED_NEW_METHOD_FAIL_FIXTURE="$TESTS_DIR/reserved_new_method_fail.aether"
 TYPE_INIT_PASS_FIXTURE="$TESTS_DIR/type_init_pass.aether"
 TYPE_INIT_PAREN_PASS_FIXTURE="$TESTS_DIR/type_init_paren_pass.aether"
+TYPE_FIELD_DEFAULT_PASS_FIXTURE="$TESTS_DIR/type_field_default_pass.aether"
+TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE="$TESTS_DIR/type_field_default_nonconst_fail.aether"
+TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE="$TESTS_DIR/type_field_default_type_mismatch_fail.aether"
 TYPE_METHOD_CONTRACTS_PASS_FIXTURE="$TESTS_DIR/type_method_contracts_pass.aether"
 SELF_ALIAS_PASS_FIXTURE="$TESTS_DIR/self_alias_pass.aether"
 SELF_MUTATION_PASS_FIXTURE="$TESTS_DIR/self_mutation_pass.aether"
@@ -242,6 +245,9 @@ for fixture in \
     "$RESERVED_NEW_METHOD_FAIL_FIXTURE" \
     "$TYPE_INIT_PASS_FIXTURE" \
     "$TYPE_INIT_PAREN_PASS_FIXTURE" \
+    "$TYPE_FIELD_DEFAULT_PASS_FIXTURE" \
+    "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" \
+    "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" \
     "$TYPE_METHOD_CONTRACTS_PASS_FIXTURE" \
     "$SELF_ALIAS_PASS_FIXTURE" \
     "$SELF_MUTATION_PASS_FIXTURE" \
@@ -1377,6 +1383,56 @@ fi
 if ! grep -q '"message":"Aether type rewrite error: type fields must end with ' /tmp/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json message" >&2
     cat /tmp/aether_type_field_comma_json.out >&2
+    exit 1
+fi
+# Constant record-field defaults (`field: Type = <const>`). The positive fixture
+# exercises Int/Real/Text/Bool defaults, a construction-site override (which must
+# win over the default), and an unset field keeping its default -- including a
+# string override longer than the default (regression: a fixed-capacity default
+# must not clamp the field) and an Int default in a Real field (int->real widen).
+# The negatives are the FIELD-003 constant boundary and the TYPE-001 type
+# mismatch, both coded so --diagnostics-json feeds the guide map.
+"$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_PASS_FIXTURE" >/tmp/aether_type_field_default_pass.out
+printf '3\ndef\n9\nover\n1.500000\non\n' >/tmp/aether_type_field_default_expected.out
+if ! cmp -s /tmp/aether_type_field_default_expected.out /tmp/aether_type_field_default_pass.out; then
+    echo "unexpected constant field default output (regression: defaults / override / unset / capacity)" >&2
+    cat /tmp/aether_type_field_default_pass.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >/tmp/aether_type_field_default_nonconst_fail.out 2>&1; then
+    echo "expected non-constant field default failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "only constant field defaults are supported" /tmp/aether_type_field_default_nonconst_fail.out; then
+    echo "missing non-constant field default failure message" >&2
+    cat /tmp/aether_type_field_default_nonconst_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >/tmp/aether_type_field_default_nonconst_json.out 2>&1; then
+    echo "expected non-constant field default diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"FIELD-003"' /tmp/aether_type_field_default_nonconst_json.out; then
+    echo "missing non-constant field default diagnostics-json code FIELD-003" >&2
+    cat /tmp/aether_type_field_default_nonconst_json.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >/tmp/aether_type_field_default_type_mismatch_fail.out 2>&1; then
+    echo "expected field default type-mismatch failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "field default value type mismatch" /tmp/aether_type_field_default_type_mismatch_fail.out; then
+    echo "missing field default type-mismatch failure message" >&2
+    cat /tmp/aether_type_field_default_type_mismatch_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >/tmp/aether_type_field_default_type_mismatch_json.out 2>&1; then
+    echo "expected field default type-mismatch diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"TYPE-001"' /tmp/aether_type_field_default_type_mismatch_json.out; then
+    echo "missing field default type-mismatch diagnostics-json code TYPE-001" >&2
+    cat /tmp/aether_type_field_default_type_mismatch_json.out >&2
     exit 1
 fi
 # Reserved-word collisions (broadest generative-testing gap): a field or method

@@ -1,0 +1,12 @@
+fn compute() -> Int {
+    ret 5;
+}
+
+type Bad {
+    value: Int = compute();
+}
+
+fn main() -> Void {
+    fx { writeln("unreachable"); }
+    ret;
+}
