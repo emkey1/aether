@@ -304,6 +304,13 @@ and that `new` / `__init__` / `Type.new()` are not constructor forms. Still to d
 if desired: targeted diagnostics for the *call-site* forms `C.new()` and
 `fn __init__` (currently `expected a class name after 'new'` / `[SYN-001]`).
 
+**Guide section added (2026-06-30, docs-only — no VERSION bump).** Both guides now
+carry a dedicated *Constructing records and typing bindings* section that shows
+the `new T()` + field-init idiom, the record-literal one-shot form
+(`T { field: value }`), and the factory-`fn` alternative, and folds in the
+typed-binding rules from the two findings below (always annotate `new` instances
+and array literals). All positive snippets re-verified on `aether 2026-06-30-2`.
+
 ### Reserved words collide with member names, with cryptic diagnostics — *parse cases fixed 2026-06-30-1; FX-001 case open*
 Member names (fields and methods) that collide with an Aether/PSCAL reserved word
 or effectful builtin fail, and the diagnostic never names the collision:
@@ -361,6 +368,17 @@ pointer-backed record type so mutating methods work, **or** emit a clear
 diagnostic ("annotate the instance type: `let c: C = ...`") instead of the raw
 `expects type POINTER but got VOID`.
 
+**Guide clarification shipped (2026-06-30, docs-only).** Both guides now tell
+models to always annotate `new` instances, and Repair rules map the raw
+`expects type POINTER but got VOID` message to "annotate the receiver". *Trigger
+refined during the guide work:* it is a **statement-level call to a `-> Void`
+method** on the inferred receiver (`c.inc();`, `c.show();`) — **not** mutation per
+se. An expression-context call resolves the receiver type even when the method
+mutates: `let n: Int = c.bump()` compiles with `c` inferred (verified on
+`2026-06-30-2`). So the framing is "annotate `new` instances" (universal), not
+"mutating methods need a type". The underlying inference/diagnostic fix is still
+open.
+
 ### Array literals need an explicit type; arrays of record literals fail to parse — *gap*
 - `let xs = [1, 2, 3];` → `[TYPE-001] cannot infer the type of 'xs'`; needs
   `let xs: Int[] = [...]` (verified). Hit by `mistral-small-24b` (2 programs:
@@ -374,6 +392,14 @@ diagnostic ("annotate the instance type: `let c: C = ...`") instead of the raw
 the workaround for) record literals inside array literals. At minimum, the guide
 should state arrays require an explicit type and show building an array-of-records
 by appending in a loop.
+
+**Guide clarification shipped (2026-06-30, docs-only).** Both guides now state
+array literals require an explicit type (`let xs: Int[] = [...]`) and show
+building an array-of-records by append-in-loop (`ps = ps + [p];`, verified on
+`2026-06-30-2`); it is called out in the new *Constructing records and typing
+bindings* section, in *Never Generate These* / inference, and in Repair rules.
+Still open (compiler): infer homogeneous element types, and fix the nested
+record-literal-in-array parse (`Expected ']' to close array literal`).
 
 ### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *fixed 2026-06-30-2*
 The AST frontend captured the rest of an annotation line as the contract

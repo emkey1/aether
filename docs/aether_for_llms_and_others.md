@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-30-1*
+*Guide version: 2026-06-30-2*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -88,6 +88,10 @@ when unsure about a type, add it explicitly.
   `mod`, `xor`); rename the member (SYN-001)
 - `fn new()` / `fn __init__` as a constructor method; Aether has none — use
   `new T()` then assign fields, or a top-level factory `fn` (SYN-001)
+- an untyped `new` binding or array literal: `let c = new C();` (a later
+  `c.inc();` fails `POINTER but got VOID`) or `let xs = [1, 2, 3];` (cannot
+  infer) — annotate both: `let c: C = new C();`, `let xs: Int[] = [1, 2, 3];`
+  (TYPE-001)
 - `print` / `println` / task helpers / `ai_chat` outside `fx { ... }` (FX-001)
 - invented imports such as `use "helpers";` (IMP-001)
 - `use module_name;` or `export { ... }` in new code; use canonical
@@ -275,13 +279,15 @@ ignored; never generate it.
 Omit the type only for these initializers:
 
 - literals: `42`, `3.5`, `"text"`, `true`
-- `new Type()`
 - calls to functions with known declared return types, including methods on
   known typed bindings and the TOON/string helpers in this document
 
-Everything else gets an explicit type — especially TOON extractions with
-non-trivial shape, branchy results, and arithmetic such as `base + 1` where
-the operand types are not visible at a glance. When in doubt, annotate.
+Everything else gets an explicit type — especially `new` instances and array
+literals (an inferred `let c = new C();` breaks a later method call, and
+`let xs = [1, 2, 3];` cannot be inferred at all — see **Constructing records
+and typing bindings**), TOON extractions with non-trivial shape, branchy
+results, and arithmetic such as `base + 1` where the operand types are not
+visible at a glance. When in doubt, annotate.
 
 Canonical loop-local example:
 
@@ -331,17 +337,36 @@ type JobSummary {
 Record values are pointer-backed: passing a record to a function or method
 and mutating its fields is visible to the caller.
 
-### Construction
+### Constructing records and typing bindings
+
+There is **no constructor method** (SYN-001). Allocate with `new T()` — the only
+constructor — then assign fields; for one-shot construction use the record
+literal `T { field: value, ... }`. Do not write `fn new()`, `fn __init__`, or a
+static `T.new()`; all three are rejected:
 
 ```aether
-let counter = new Counter();        // zeroed defaults
-let point: Point = Point { x: 3, y: 4 };  // canonical field init
+let counter: Counter = new Counter();     // annotate; new T() zeroes fields
+counter.value = 41;
+let point: Point = Point { x: 3, y: 4 };  // canonical one-shot field init
 ```
 
 `new Type()` defaults: integers `0`, reals `0.0`, booleans `false`, text empty,
 pointers `nil`, arrays empty-initialized. `Type(x: 3, y: 4)` is accepted but
 non-canonical. Generated code should not otherwise use pointers or `nil`;
-they are backend details.
+they are backend details. Want a constructor? Write a top-level factory `fn`
+with a non-reserved name (`fn makePoint(x: Int, y: Int) -> Point { ... }`).
+
+**Always annotate a binding that holds a `new` instance or an array literal**
+(TYPE-001) — inference is not enough for either:
+
+- `let c = new C();` then `c.inc();` fails with `argument 1 to 'c.inc' expects
+  type POINTER but got VOID`; a method call on an inferred `new` binding is
+  unsafe. Write `let c: C = new C();`.
+- `let xs = [1, 2, 3];` fails with `cannot infer the type of 'xs'`. Write
+  `let xs: Int[] = [1, 2, 3];`.
+
+To build an array of records, declare the typed array and append in a loop
+(`ps = ps + [p];`); do not nest record literals inside a single array literal.
 
 ## Conditionals
 
@@ -1145,8 +1170,11 @@ NAME-001; the finer rule names below map onto them.
   declared in this scope`) → pick a fresh name.
 - **[IMP-001]** an invented or malformed import → remove the `use` unless
   verified, or write `use "module_name";` and call exports directly (MOD-002).
-- **[TYPE-001]** a type cannot be inferred → annotate it. Also covers
+- **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
+  array literal such as `let xs: Int[] = [1, 2, 3];`). Also covers
   `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **`expects type POINTER but got VOID`** on a method call (no bracketed code) →
+  the receiver is an inferred `new` binding; annotate it: `let c: C = new C();`.
 - **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
   not mix, do arithmetic on, or cross-assign them.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
@@ -1176,8 +1204,9 @@ Before submitting Aether code, verify:
 - every called helper appears in this document (BUILT-001)
 - all `use "..."` imports reference real, verified modules; imported names are
   used exactly as exported (IMP-001, MOD-001)
-- all function parameters have explicit types; uncertain types are annotated
-  (TYPE-001)
+- all function parameters have explicit types; uncertain types are annotated;
+  `new` instances and array literals carry an explicit type (`let c: C = new
+  C();`, `let xs: Int[] = [1, 2, 3];`) (TYPE-001)
 - `ret` not `return`; `type` not `class` (SYN-001)
 - no field or method named after a reserved word (`word`, `mul`, `new`, `for`);
   no `fn new()` constructor method (SYN-001)

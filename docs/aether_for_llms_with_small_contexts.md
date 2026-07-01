@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-06-30-1*
+*Guide version: 2026-06-30-2*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -148,16 +148,35 @@ type Counter {
   type (`word`, `text`, `int`, `byte`, `bool`), a keyword (`new`, `for`, `if`,
   `match`), or an operator word (`mul`, `div`, `mod`, `xor`) fails SYN-001
   (`'<name>' is a reserved … and cannot be used as a field/method name`); rename
-  it (`wordCount`, `multiply`). Aether has **no constructor method** — never name
-  a method `new`; allocate with `new T()` then set fields, or use a top-level
-  factory `fn` with a non-reserved name.
+  it (`wordCount`, `multiply`). `new` in particular is reserved — there is no
+  constructor method (see **Constructing records and typing bindings**).
+
+## Constructing records and typing bindings
+
+`new T()` is the only constructor. Allocate, then assign fields — or for one-shot
+init use the record literal `T { field: value }`, or a top-level factory `fn`.
+There is **no** `fn new()`, `fn __init__`, or `T.new()` (SYN-001):
+
+```aether
+let p: Point = new Point();          // annotate; new T() zeroes fields
+p.x = 3;
+let q: Point = Point { x: 3, y: 4 }; // canonical one-shot init
+```
+
+Always annotate a binding that holds a `new` instance or an array literal
+(TYPE-001): `let c = new C();` then `c.inc();` fails (`argument 1 to 'c.inc'
+expects type POINTER but got VOID`), and `let xs = [1, 2, 3];` fails (`cannot
+infer the type of 'xs'`). Write `let c: C = new C();` and
+`let xs: Int[] = [1, 2, 3];`. Build an array of records by appending in a loop
+(`ps = ps + [p];`), not by nesting record literals in one `[...]`.
 
 ## Safe inference
 
-Omit the type only for: literals (`42`, `3.5`, `"text"`, `true`),
-`new Type()`, and calls to functions/methods with known declared return types.
-Annotate everything else — especially TOON extractions, branchy results, and
-arithmetic where operand types aren't visible at a glance.
+Omit the type only for: literals (`42`, `3.5`, `"text"`, `true`) and calls to
+functions/methods with known declared return types. Annotate everything else —
+`new` instances and array literals (see **Constructing records and typing
+bindings**), TOON extractions, branchy results, and arithmetic where operand
+types aren't visible at a glance.
 
 ```aether
 loop i in 0..5 {
@@ -579,8 +598,11 @@ The compiler prints a stable code in brackets, and on newer builds a
   declared in this scope`) → pick a fresh name.
 - **[IMP-001]** an invented or malformed import → remove the `use`, or write
   `use "module_name";` and call the exports directly (MOD-002).
-- **[TYPE-001]** a type cannot be inferred → annotate it. Also covers
-  `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
+  array literal, `let xs: Int[] = [...]`). Also covers `toon_len(node)` for TOON
+  arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **`expects type POINTER but got VOID`** on a method call (no code) → the
+  receiver is an inferred `new` binding; annotate it (`let c: C = new C();`).
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
   `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
@@ -604,9 +626,11 @@ FIELD-001). Re-read the prompt and match it exactly.
 - all output, task, and `ai_chat` calls inside `fx { ... }` (FX-001)
 - every called helper appears in this document (BUILT-001)
 - imports verified; exported names used exactly (IMP-001, MOD-001)
-- all parameters typed; uncertain types annotated (TYPE-001)
+- all parameters typed; uncertain types annotated; `new` instances and array
+  literals typed (`let c: C = new C();`, `let xs: Int[] = [...]`) (TYPE-001)
 - `ret` not `return`; `type` not `class`; no `let mut` (SYN-001, MUT-001)
-- field & method names are not reserved words (`word`/`mul`/`new`/`for`) (SYN-001)
+- field & method names are not reserved words (`word`/`mul`/`new`/`for`); no
+  `fn new()`/`__init__` constructor method (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly
   (KEY-001); intermediates guarded before `_or` (NEST-001)
