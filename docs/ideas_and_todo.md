@@ -118,6 +118,28 @@ lexical capture, statically checkable — preserves the METH-001 / FUNC-001
 invariant. Add only if real demand appears; first-order `loop` covers the domain
 today.
 
+### Fully support type-keyword names as record members — *idea / parser-roadmap*
+Follow-up to *Reserved words collide with member names* (now diagnosed, not
+supported). The AST parser's member-**access** path already accepts type-keyword
+tokens after `.` (`ast_parser.c` ~1281 uses `aetherTokenIsIdentifierLike`), and
+the design comment on that predicate explicitly lists a *field name* as a
+position where lowercase type-name keywords (`word`, `text`, `int`, `bool`, …)
+"must be valid" — Aether spells its own types capitalized, so these lowercase
+spellings are ordinary identifiers. But the field-**declaration** branch tests
+`== REA_TOKEN_IDENTIFIER` exactly, so `word: Text;` is rejected today. Widening
+that one branch to `aetherTokenIsIdentifierLike` would let type-keyword field
+names parse *and* be read/written (access already works), making the current
+`'word' is a reserved type name` diagnostic unnecessary for that subclass — a
+strict AST-better improvement, and it would realize the documented invariant.
+Deliberately NOT done in the diagnostics pass: (a) it is a language-surface
+widening the parser-roadmap owner should scope (coordinate, don't duplicate —
+[[aether-frontend-rewriter]] / `parser_roadmap.md`); (b) it only helps
+identifier-like keywords — operator words (`mul`) and value/structure keywords
+(`new`, `for`) still can't be member names, so the "avoid reserved words"
+guidance stays; (c) needs its own end-to-end + suite validation (decl + every
+`.access` + method mangling). A simple, teachable "don't name members after
+reserved words" rule was preferred for now.
+
 ---
 
 ## Known gaps
@@ -227,3 +249,204 @@ the language:
   joins; results flow through pointer-backed records. (`task_spawn` is a
   builtin-only handle API, not a way to run user code.)
 - **If HOFs are ever needed:** the named-dispatch idea above, not lambdas.
+
+---
+
+## Mined from generative idea-mining — 2026-06-29
+
+*Surfaced by `tools/aether_idea_miner.py`, the generative (no-oracle) sibling of
+`aether_doc_bench.py`: each model freely wrote Aether programs of its own
+choosing, which were compiled + run with a repair loop; "success" = compiles and
+runs (exit 0), and the product is the failure analysis. This run: **8 models
+across 4 systems in parallel** (claw1 ollama: `gpt-oss-120b`,
+`mistral-small-24b`, `qwen3-32b`, `exaone3.5-32b`; autoclaw GLM: `glm-5-turbo`,
+`glm-5.2`; Gemini: `gemini-2.5-flash`, `gemini-3.1-pro-preview`), 40 self-chosen
+programs, 33 ran clean, against `aether` 2026-06-27-3. Every finding below was
+re-verified with a minimal repro on the gating binary. Full report (per-program
+and per-attempt): `Tests/aether_doc_bench/out/idea_miner_2026-06-29.json` (and
+`.md`). `qwen3.6-35b-a3b` timed out (reasoning model, >20 min for 5 programs) and
+is excluded.*
+
+The dominant theme: capable models reach for **record constructors, foreach, and
+type casts** that Aether does not have, and trip on **how instances must be
+bound for mutating methods**. These are the most direct language-design signals
+the generative harness can produce.
+
+### No record-constructor idiom; models reach for `fn new()` / `Type.new()` / `__init__` — *gap (2 models)*
+Models consistently try to define a constructor inside a `type`, and Aether has
+no such form. Verified failure modes:
+- `fn new() -> C { ... }` as a method → `expected function name after 'fn'`
+  (`new` is the reserved allocator keyword). Hit by `qwen3-32b` (two programs).
+- `let c: C = C.new();` (static constructor call) → `expected a class name after 'new'`.
+- `fn __init__(self) { ... }` (Python idiom, no return type, explicit `self`) →
+  `[SYN-001]`. Hit by `exaone3.5-32b`.
+
+The working idiom (verified) is allocate-then-assign, with no constructor method:
+```
+type C { value: Int; }
+fn main() -> Void {
+    let c: C = new C();   // new T() is the only constructor
+    c.value = 0;
+    ret;
+}
+```
+**Action:** guide clarification (both guides) — show the `new T()` + field-init
+idiom explicitly, and state that `new`/`__init__`/`Type.new()` are **not**
+constructor forms (use a top-level factory `fn` with a non-reserved name if a
+constructor is wanted). Optionally a targeted diagnostic on `fn new(`.
+
+**Partly done (aether `2026-06-30-1`).** The targeted `fn new()` diagnostic
+shipped with the reserved-words fix below: a method named `new` now reports
+`'new' is a reserved keyword (the object allocator) and cannot be used as a
+method name` and its hint points at the idiom (`new T()` + field assignment, or a
+top-level factory `fn`). Both guides now state `new T()` is the only constructor
+and that `new` / `__init__` / `Type.new()` are not constructor forms. Still to do
+if desired: targeted diagnostics for the *call-site* forms `C.new()` and
+`fn __init__` (currently `expected a class name after 'new'` / `[SYN-001]`).
+
+### Reserved words collide with member names, with cryptic diagnostics — *parse cases fixed 2026-06-30-1; FX-001 case open*
+Member names (fields and methods) that collide with an Aether/PSCAL reserved word
+or effectful builtin fail, and the diagnostic never names the collision:
+- Field `word: Text;` → `unexpected token in type body` (verified: `word`
+  collides with the PSCAL `Word` type; `count`, `value`, `a`, `b` all compile).
+  Hit by `glm-5-turbo`.
+- Method `fn mul() -> Void { ... }` → `expected function name after 'fn'`
+  (verified: `mul` collides with the `mul` builtin; `add`, `push`, `pop` all
+  compile). Hit by `gemini-3.1-pro-preview` (a stack-VM `mul` method).
+- Method `fn print() -> Void { fx { ... } }` called outside `fx` → misleading
+  `[FX-001] call to 'print' requires an fx block` (the user method collides with
+  the effectful builtin `print`). Seen earlier with `mistral-small-24b`.
+- `new` as a method name → `expected function name after 'fn'` (see above).
+**Action:** emit a diagnostic that names the collision (e.g. "'word' is a
+reserved type name; choose another field name") instead of `unexpected token in
+type body` / a bare `FX-001`; and list the reserved words to avoid as member
+names in the guide. Root cause is shared with the constructor finding above:
+member identifiers are checked against the full reserved/builtin namespace.
+
+**Resolved — parse-shaped cases (aether `2026-06-30-1`).** The AST frontend now
+names both parse-time collisions with `[SYN-001]`: a field on a type-name keyword
+→ `'word' is a reserved type name and cannot be used as a field name`; a method on
+an operator word (`mul`/`div`/`mod`/`xor`) or a keyword (`new`/`for`/…) → `'mul'
+is a reserved operator word … as a method name`, each with a rename hint (`fn
+new()` also points at the missing-constructor idiom: `new T()` + field assignment,
+or a top-level factory `fn`). Impl: `aetherReservedWordCategory` +
+`reportReservedMemberName` in `src/aether/ast_parser.c` (the `unexpected token in
+type body` else-branch and the `expected function name after 'fn'` branch), code
+inference in `diagnostics.c`. Regression fixtures
+`tests/reserved_{field,method,new}_name_fail.aether` wired into `run.sh`; guide
+note added to both LLM guides. Generic fallback preserved for non-word junk
+tokens, and the legacy rewriter path is untouched.
+**Still open — the semantic case:** a *user method* named after an effectful
+builtin (`fn print()`) still yields a misleading `[FX-001] call to 'print'
+requires an fx block` when called outside `fx`, because the effect checker matches
+by name and cannot tell the user's method from the builtin. That is an
+effect-check fix, not a parser fix — deferred. See the follow-up idea *Fully
+support type-keyword names as record members* under Open ideas.
+
+### Mutating method works only when the instance has an explicit type — *gap (verified footgun)*
+A method that mutates `self` compiles and runs when the receiver is bound with an
+explicit type, but fails when the type is inferred from `new`:
+```
+type C { value: Int; fn inc() -> Void { self.value = self.value + 1; } }
+fn main() -> Void {
+    let c = new C();      // inferred  -> [no code] argument 1 to 'c.inc' expects type POINTER but got VOID
+    let c: C = new C();   // explicit  -> OK
+    c.inc();
+    ret;
+}
+```
+Hit by `mistral-small-24b` (unrepaired — the model could not recover from the
+`POINTER`/`VOID` message). **Action:** make `let c = new C()` infer the
+pointer-backed record type so mutating methods work, **or** emit a clear
+diagnostic ("annotate the instance type: `let c: C = ...`") instead of the raw
+`expects type POINTER but got VOID`.
+
+### Array literals need an explicit type; arrays of record literals fail to parse — *gap*
+- `let xs = [1, 2, 3];` → `[TYPE-001] cannot infer the type of 'xs'`; needs
+  `let xs: Int[] = [...]` (verified). Hit by `mistral-small-24b` (2 programs:
+  `[Int]` and `[Real]`).
+- A multi-line array of record literals fails to parse outright:
+  `let ps: Person[] = [ Person { ... }, Person { ... } ];` →
+  `Expected ']' to close array literal` (likely the line-based rewriter not
+  handling record literals nested in an array literal). Hit by `gpt-oss-120b`
+  (unrepaired).
+**Action:** infer homogeneous array-literal element types; support (or document
+the workaround for) record literals inside array literals. At minimum, the guide
+should state arrays require an explicit type and show building an array-of-records
+by appending in a loop.
+
+### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *gap (verified bug)*
+The annotation rewriter takes the rest of an annotation line as the contract
+expression **without stripping a trailing `//` comment**, so the comment text is
+parsed as code:
+```
+@post result >= 1 // Factorial of 0 is 1, otherwise positive
+fn calculateFactorial(n: Int) -> Int { ... }
+   -> [SCOPE-001] identifier 'Factorial' not in scope.
+```
+Hit by `gemini-3.1-pro-preview` (fixed only after deleting the comment).
+**Action:** strip `//` line comments from annotation lines before lowering
+`@pre`/`@post`/`@cost`. (Companion to the existing "malformed `@cost` silently
+dropped" gap.)
+
+### Models reach for `loop x in collection` (foreach) — *idea / decision needed*
+`loop v in values { ... }` → `expected '<low>..<high>' in loop range`; only
+`loop i in 0..n` exists. Hit by `qwen3-32b`. **Action:** either add a foreach
+sugar over arrays, or make the index-only loop (and the array-indexing idiom)
+unmissable in the guide. (Related to the no-closures / first-order-`loop`
+stance already recorded under *Decided*.)
+
+### Models reach for `Int(...)` / `Real(...)` casts — *idea*
+`let limit: Int = Int(sqrt(Real(n)));` → `[SCOPE-001] identifier 'Int' not in
+scope`. Aether has no type-name cast functions. Hit by `exaone3.5-32b`.
+**Action:** document the real conversion surface (`trunc`/`round`/`floor`/`ceil`
+for Real→Int, `realtostr`/`formatfloat` for Real→Text), or add `Int()`/`Real()`
+cast builtins. The Math-builtins guide section is the natural home.
+
+### `par` blocks reject non-call statements, surprising models — *idea / clarify*
+Models put assignments and `fx`/`sleep` inside `par { ... }`:
+`par { sleep(1000); self.state = "red"; fx { ... } }` →
+`only direct call statements are allowed inside par blocks`. Hit by
+`exaone3.5-32b`. **Action:** the guide's `par` section should state the
+call-statements-only rule and show the "wrap work in a `fn`, call it inside `par`"
+pattern.
+
+### Effect-discipline slips remain capability-gated — *(known; reinforces existing FX-001 docs)*
+`exaone3.5-32b` still emitted `println` outside `fx` inside a loop body
+(`[FX-001]`, unrepaired). Consistent with the guided-benchmark finding that weak
+models thrash on the coded diagnostic while capable ones self-correct; no new
+action beyond the existing FX-001 guidance.
+
+### `@pre`/`@post` predicate operand types aren't checked — array-return contract crashes at runtime — *gap (verified)*
+A contract that compares the whole `result` to a scalar, on a function returning a collection, is
+not type-checked at compile time and fails at RUNTIME:
+```
+@post result > 0
+fn make(n: Int) -> Int[] { let xs: Int[] = []; loop i in 0..n { xs = xs + [i]; } ret xs; }
+   -> Runtime Error: Operands not comparable for operator '>'. Left operand: ARRAY, Right operand: Int
+```
+Hit by `qwen3-coder-next` (a Sieve of Eratosthenes with `@post result > 0`, via the
+scheduler-coordinated sweep). **Action:** type-check `@pre`/`@post` predicate operands at compile
+time (reject `array > int` with an ANN-001/TYPE-001-style error), or document that contracts on
+collection returns must use collection predicates (e.g. `length(result) > 0`). *(2026-06-29, sweep 2.)*
+
+### `loop ... step N` (stepped range) is unsupported — *gap (verified)*
+Models reach for a stepped loop; only unit-step `loop i in a..b` exists:
+```
+loop i in 0..10 step 2 { ... }   -> [compile] expected '{' to open loop body   (parser stops at `step`)
+```
+Hit by `bytedance/seed-oss-36b` (a prime check striding odd divisors). **Action:** support a `step`
+clause on `loop`, or document the workaround (`loop i in 0..n { if i % 2 == 1 { ... } }`) and give a
+clearer diagnostic than "expected '{'". *(scheduler-coordinated sweep, 2026-06-29.)*
+
+### `toon_parse` rejects multiple arguments (no println-style concatenation) — *gap (verified)*
+Models build the TOON/JSON string with several args the way `println` concatenates, but `toon_parse`
+takes ONE string, and the failure is a late runtime message:
+```
+toon_parse("{\"now\":\"", rawNow, "\"}")   -> [runtime] YyjsonRead expects a single string argument.
+```
+Hit by `a3b-coder30b-cs-aug2-builtins`. **Action:** either accept + concatenate multiple string args
+(println-consistent), or emit a compile-time ARITY error instead of the late `YyjsonRead` runtime one;
+document building the string first (`let s: Text = "..." + rawNow + "..."; toon_parse(s)`).
+*(scheduler-coordinated sweep, 2026-06-29. Also reconfirmed this sweep: array-of-record literals fail
+to parse (seed-oss), and `par` blocks calling user functions can crash silently (qwen3-coder-next).)*
