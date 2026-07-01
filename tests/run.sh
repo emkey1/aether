@@ -68,6 +68,7 @@ TUPLE_POST_PASS_FIXTURE="$TESTS_DIR/tuple_post_pass.aether"
 ARRAY_APPEND_PASS_FIXTURE="$TESTS_DIR/dynamic_array_append_pass.aether"
 ARRAY_FIELD_INDEX_PASS_FIXTURE="$TESTS_DIR/array_field_index_pass.aether"
 EXTENSION_CALL_ALIAS_PASS_FIXTURE="$TESTS_DIR/extension_call_alias_pass.aether"
+EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE="$TESTS_DIR/extension_method_dot_call_pass.aether"
 TUPLE_DIRECT_BIND_FAIL_FIXTURE="$TESTS_DIR/tuple_return_unsupported_fail.aether"
 TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE="$TESTS_DIR/tuple_let_destructure_unsupported_fail.aether"
 TUPLE_POST_INVALID_RESULT_FAIL_FIXTURE="$TESTS_DIR/tuple_post_invalid_result_fail.aether"
@@ -77,6 +78,9 @@ PURE_FAIL_NON_PURE_CALL_FIXTURE="$TESTS_DIR/pure_fail_non_pure_call.aether"
 IMPORT_MISSING_FAIL_FIXTURE="$TESTS_DIR/import_missing_fail.aether"
 PAR_PASS_FIXTURE="$TESTS_DIR/par_pass.aether"
 PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
+PAR_SHARED_RECORD_FAIL_FIXTURE="$TESTS_DIR/par_shared_record_fail.aether"
+METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
+UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
 FOR_RANGE_PASS_FIXTURE="$TESTS_DIR/for_range_pass.aether"
 LOOP_FORMS_PASS_FIXTURE="$TESTS_DIR/loop_forms_pass.aether"
 ARRAY_RETURN_PASS_FIXTURE="$TESTS_DIR/array_return_pass.aether"
@@ -202,6 +206,7 @@ for fixture in \
     "$TUPLE_POST_PASS_FIXTURE" \
     "$ARRAY_APPEND_PASS_FIXTURE" \
     "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" \
+    "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" \
     "$TUPLE_DIRECT_BIND_FAIL_FIXTURE" \
     "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" \
     "$PURE_PASS_FIXTURE" \
@@ -210,6 +215,9 @@ for fixture in \
     "$IMPORT_MISSING_FAIL_FIXTURE" \
     "$PAR_PASS_FIXTURE" \
     "$PAR_FAIL_NON_CALL_FIXTURE" \
+    "$PAR_SHARED_RECORD_FAIL_FIXTURE" \
+    "$METHOD_UNDEFINED_FAIL_FIXTURE" \
+    "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" \
     "$FOR_RANGE_PASS_FIXTURE" \
     "$LOOP_FORMS_PASS_FIXTURE" \
     "$ARRAY_RETURN_PASS_FIXTURE" \
@@ -555,6 +563,15 @@ printf '5.000000\n4\n' >/tmp/aether_extension_call_alias_expected.out
 if ! cmp -s /tmp/aether_extension_call_alias_expected.out /tmp/aether_extension_call_alias_pass.out; then
     echo "unexpected extension call alias output" >&2
     cat /tmp/aether_extension_call_alias_pass.out >&2
+    exit 1
+fi
+# A dotted call to an extension method (recv.m()) is valid UFCS and must NOT be
+# a false [SCOPE-001] from the undefined-method check (the extension decl stays
+# un-mangled, so the check also accepts a plain `fn m(self: T)`).
+"$AETHER_BIN" --no-cache "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" >/tmp/aether_extension_method_dot_call_pass.out 2>&1
+if ! grep -qx "12" /tmp/aether_extension_method_dot_call_pass.out; then
+    echo "unexpected extension-method dot-call output (false SCOPE-001 regression?)" >&2
+    cat /tmp/aether_extension_method_dot_call_pass.out >&2
     exit 1
 fi
 if "$AETHER_BIN" --no-cache "$TUPLE_DIRECT_BIND_FAIL_FIXTURE" >/tmp/aether_tuple_direct_bind_fail.out 2>&1; then
@@ -1485,6 +1502,49 @@ fi
 if ! grep -q "Aether par rewrite error: only direct call statements are allowed inside par blocks" /tmp/aether_par_fail_non_call.out; then
     echo "missing par rewrite failure message" >&2
     cat /tmp/aether_par_fail_non_call.out >&2
+    exit 1
+fi
+
+# PAR-001: the same pointer-backed record passed to more than one par branch is a
+# concurrent double-free at runtime (SIGABRT/SIGTRAP), silent today. It must be a
+# compile-time diagnostic, not a crash.
+if "$AETHER_BIN" --no-cache "$PAR_SHARED_RECORD_FAIL_FIXTURE" >/tmp/aether_par_shared_record_fail.out 2>&1; then
+    echo "expected PAR-001 for a record shared across par branches but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[PAR-001\] Aether par error: record 'a' is shared by more than one par branch" /tmp/aether_par_shared_record_fail.out; then
+    echo "missing PAR-001 shared-record diagnostic" >&2
+    cat /tmp/aether_par_shared_record_fail.out >&2
+    exit 1
+fi
+
+# SCOPE-001: calling a method that is not defined on a record must fail at compile
+# time (parser lowers recv.method() to a Type.method global; aetherCheckMemberCalls
+# verifies it exists) rather than as a late "Undefined global variable" at runtime.
+if "$AETHER_BIN" --no-cache "$METHOD_UNDEFINED_FAIL_FIXTURE" >/tmp/aether_method_undefined_fail.out 2>&1; then
+    echo "expected SCOPE-001 for an undefined method but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SCOPE-001\] Aether method error: method 'distance' is not defined on type 'Point'" /tmp/aether_method_undefined_fail.out; then
+    echo "missing SCOPE-001 undefined-method diagnostic" >&2
+    cat /tmp/aether_method_undefined_fail.out >&2
+    exit 1
+fi
+
+# SYN-001 backstop: an unparseable top-level construct must never exit non-zero
+# with empty stderr (the worst case for the repair loop). The silent-failure
+# backstop guarantees a coded diagnostic anchored where parsing stalled.
+if "$AETHER_BIN" --no-cache "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" >/tmp/aether_unknown_construct_fail.out 2>&1; then
+    echo "expected SYN-001 for an unparseable construct but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\] Aether syntax error:" /tmp/aether_unknown_construct_fail.out; then
+    echo "missing SYN-001 backstop diagnostic (silent parse failure regressed)" >&2
+    cat /tmp/aether_unknown_construct_fail.out >&2
+    exit 1
+fi
+if ! [ -s /tmp/aether_unknown_construct_fail.out ]; then
+    echo "backstop produced empty output for an unparseable construct" >&2
     exit 1
 fi
 

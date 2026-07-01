@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-1*
+*Guide version: 2026-07-01-2*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -58,6 +58,9 @@ compiler, and VM. It is not a separate runtime.
     `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
     use `par { f(); g(); }`, not `task_spawn`.
+24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+    **same** record to two branches races — the parallel writes corrupt the heap.
+    Give each branch its own record and combine the results after the block.
 
 Default stance: single-file programs; variadic `println("label = ", v)` over
 mixed-type `+`; explicit types for TOON values and non-trivial helper results;
@@ -402,11 +405,12 @@ Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 Run your own functions concurrently with `par { ... }`. The body holds direct
 calls only (no assignments, loops, or inline `fx`); the calls run in parallel
 and the block joins before continuing. Return results through pointer-backed
-records passed as arguments.
+records passed as arguments — one record **per branch** (a record shared by two
+branches races and is rejected, PAR-001).
 
 ```aether
 par {
-    tally(a, 100);   // a, b are records; each callee writes a field
+    tally(a, 100);   // a, b are separate records; each callee writes its own
     tally(b, 200);
 }
 fx { println("a=", a.count, " b=", b.count); }
@@ -598,6 +602,8 @@ The compiler prints a stable code in brackets, and on newer builds a
   - an export called by a guessed name → use the exact exported name (MOD-001)
   - a type or helper used before it is defined → define it earlier (ORDER-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
+  - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
+    `type <T> { ... }`, or fix the call name (methods do not capture; METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
 - **[NAME-001]** a local redeclared in the same scope (`'...' is already
   declared in this scope`) → pick a fresh name.
@@ -618,6 +624,8 @@ The compiler prints a stable code in brackets, and on newer builds a
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
 - **[TUP-001]** tuple misuse → destructure a direct call only, `let (a, b) = pair();`.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+- **[PAR-001]** the same record passed to more than one `par` branch (concurrent
+  writes race) → give each branch its own record and combine after the block.
 
 If the program *compiles* but the output is wrong — extra headings, wrong
 spacing or precision (an integer where decimals are expected → add a `Real`

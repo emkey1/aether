@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-1*
+*Guide version: 2026-07-01-2*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -70,6 +70,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
     `par { ... }` block (see **Concurrency**), not `task_spawn`.
+20. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+    same record to two branches races — the concurrent writes corrupt the heap,
+    so it is rejected at compile time. Give each branch its own record and
+    combine the results after the block.
 
 Fast failure checks: output outside `fx` is wrong; a guessed import is wrong;
 a helper not listed in this document is wrong; arithmetic on `ToonDoc` /
@@ -1169,6 +1173,8 @@ NAME-001; the finer rule names below map onto them.
   - an export called by a guessed name → use the exact exported name (MOD-001)
   - a type or helper used before it is defined → define it earlier (ORDER-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
+  - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
+    `type <T> { ... }`, or fix the call name (METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
     or rename the local you actually meant (SCOPE-001)
 - **[NAME-001]** a local redeclared in the same scope (`'...' is already
@@ -1190,6 +1196,8 @@ NAME-001; the finer rule names below map onto them.
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
 - **[TUP-001]** tuple misuse → destructure a direct top-level call only.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+- **[PAR-001]** the same record passed to more than one `par` branch (concurrent
+  writes race) → give each branch its own record and combine after the block.
 
 The compiler cannot check *output correctness*. If the program compiles but the
 result is wrong, no code is printed — these are authoring rules: integer result

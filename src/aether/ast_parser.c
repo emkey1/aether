@@ -43,6 +43,7 @@
 
 #include <ctype.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,6 +73,31 @@ Token *newToken(TokenType type, const char *value, int line, int column);
 void addCompilerConstant(const char *name_original_case, const Value *value, int line);
 Value evaluateCompileTimeValue(AST *node);
 
+/* Count of user-facing diagnostics written to stderr during the current parse.
+ * Every parser diagnostic funnels through aetherDiagf (all `fprintf(stderr, ...)`
+ * sites in this file were mechanically routed to it), so a nonzero count means the
+ * user already has something to react to. parseAetherAst resets this to 0 just
+ * before the authoritative parse loop (the muted forward-declaration pre-pass runs
+ * first and its increments must not count), then, if it bails with p.hadError but
+ * this count is still 0, emits a backstop [SYN-001] so a parse failure is NEVER
+ * silent (exit 1 with empty stderr + empty --diagnostics-json was the worst case
+ * for both humans and the LLM repair loop -- nothing to react to). */
+static int g_aetherAstDiagCount = 0;
+
+/* stderr diagnostic sink: identical to fprintf(stderr, ...) but bumps the
+ * emitted-diagnostic counter so the silent-failure backstop can tell whether the
+ * real parse pass said anything. Muting (aetherMuteStderr) still discards the text
+ * of the forward-declaration pre-pass; the count from that pass is discarded by the
+ * reset in parseAetherAst. */
+static int aetherDiagf(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int r = vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    g_aetherAstDiagCount++;
+    return r;
+}
+
 /* Emit a diagnostic in the exact format the rewriter's (static) report helper in
  * translate.c uses, so error parity holds byte for byte. Reuses the shared
  * diagnostics helpers (aetherInferDiagnosticCode / aetherReportGuideHelp). */
@@ -79,16 +105,16 @@ static void reportAetherAstError(const char *path, int line, const char *kind,
                                  const char *detail, const char *hint) {
     const char *code = aetherInferDiagnosticCode(kind, detail);
     if (code) {
-        fprintf(stderr, "%s:%d: [%s] Aether %s rewrite error: %s\n",
+        aetherDiagf( "%s:%d: [%s] Aether %s rewrite error: %s\n",
                 path ? path : "<aether>", line > 0 ? line : 1, code,
                 kind ? kind : "rewrite", detail ? detail : "unknown rewrite error.");
     } else {
-        fprintf(stderr, "%s:%d: Aether %s rewrite error: %s\n",
+        aetherDiagf( "%s:%d: Aether %s rewrite error: %s\n",
                 path ? path : "<aether>", line > 0 ? line : 1,
                 kind ? kind : "rewrite", detail ? detail : "unknown rewrite error.");
     }
     if (hint && *hint) {
-        fprintf(stderr, "hint: %s\n", hint);
+        aetherDiagf( "hint: %s\n", hint);
     }
     aetherReportGuideHelp(code);
 }
@@ -1289,7 +1315,7 @@ static AST *parseRecordInitDelimited(AetherParser *p, ReaTokenType closeTok) {
     AST *inits = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != closeTok && p->current.type != REA_TOKEN_EOF) {
         if (!aetherTokenIsIdentifierLike(&p->current)) {
-            fprintf(stderr, "L%d: Expected field name in record initializer.\n", p->current.line);
+            aetherDiagf( "L%d: Expected field name in record initializer.\n", p->current.line);
             p->hadError = true;
             break;
         }
@@ -1297,7 +1323,7 @@ static AST *parseRecordInitDelimited(AetherParser *p, ReaTokenType closeTok) {
         if (!fieldTok) break;
         aetherAdvance(p); /* consume field name */
         if (p->current.type != REA_TOKEN_COLON) {
-            fprintf(stderr, "L%d: Expected ':' after field name in record initializer.\n", p->current.line);
+            aetherDiagf( "L%d: Expected ':' after field name in record initializer.\n", p->current.line);
             p->hadError = true;
             freeToken(fieldTok);
             break;
@@ -1324,7 +1350,7 @@ static AST *parseRecordInitDelimited(AetherParser *p, ReaTokenType closeTok) {
     if (p->current.type == closeTok) {
         aetherAdvance(p);
     } else {
-        fprintf(stderr, "L%d: Expected closing delimiter for record initializer.\n", p->current.line);
+        aetherDiagf( "L%d: Expected closing delimiter for record initializer.\n", p->current.line);
         p->hadError = true;
     }
     return inits;
@@ -1479,7 +1505,7 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
 static AST *parseNew(AetherParser *p) {
     aetherAdvance(p); /* consume 'new' */
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
-        fprintf(stderr, "L%d: expected a class name after 'new'.\n", p->current.line);
+        aetherDiagf( "L%d: expected a class name after 'new'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -1509,7 +1535,7 @@ static AST *parseIfExpr(AetherParser *p) {
     AST *cond = parseExpr(p);
     if (!cond) { p->hadError = true; return NULL; }
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' after if-expression condition.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' after if-expression condition.\n", p->current.line);
         p->hadError = true;
         freeAST(cond);
         return NULL;
@@ -1520,14 +1546,14 @@ static AST *parseIfExpr(AetherParser *p) {
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) aetherAdvance(p);
     if (!thenExpr) { p->hadError = true; freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_ELSE) {
-        fprintf(stderr, "L%d: if-expression requires an 'else' branch.\n", p->current.line);
+        aetherDiagf( "L%d: if-expression requires an 'else' branch.\n", p->current.line);
         p->hadError = true;
         freeAST(cond); freeAST(thenExpr);
         return NULL;
     }
     aetherAdvance(p); /* consume 'else' */
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' after 'else' in if-expression.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' after 'else' in if-expression.\n", p->current.line);
         p->hadError = true;
         freeAST(cond); freeAST(thenExpr);
         return NULL;
@@ -1613,7 +1639,7 @@ static AST *parsePrimary(AetherParser *p) {
         if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
             aetherAdvance(p);
         } else {
-            fprintf(stderr, "L%d: Expected ']' to close array literal.\n", p->current.line);
+            aetherDiagf( "L%d: Expected ']' to close array literal.\n", p->current.line);
             p->hadError = true;
         }
         return parsePostfix(p, literal);
@@ -1992,7 +2018,7 @@ static AST *parseConditional(AetherParser *p) {
     AST *thenBranch = parseExpr(p);
     if (!thenBranch) { p->hadError = true; freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_COLON) {
-        fprintf(stderr, "L%d: Expected ':' in conditional expression.\n", p->current.line);
+        aetherDiagf( "L%d: Expected ':' in conditional expression.\n", p->current.line);
         p->hadError = true;
         freeAST(cond); freeAST(thenBranch);
         return NULL;
@@ -2488,7 +2514,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         aetherAdvance(p); /* consume 'mut' */
     }
     if (!aetherTokenIsIdentifierLike(&p->current)) {
-        fprintf(stderr, "L%d: expected name after 'let'.\n", p->current.line);
+        aetherDiagf( "L%d: expected name after 'let'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -2505,7 +2531,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         aetherAdvance(p); /* consume ':' */
         if (p->current.type == REA_TOKEN_EOF || p->current.type == REA_TOKEN_EQUAL ||
             p->current.type == REA_TOKEN_SEMICOLON) {
-            fprintf(stderr, "L%d: expected type after ':'.\n", p->current.line);
+            aetherDiagf( "L%d: expected type after ':'.\n", p->current.line);
             p->hadError = true;
             freeToken(nameTok);
             return NULL;
@@ -2739,7 +2765,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     /* Inferred type: derive from the initializer, like the rewriter. */
     if (!explicitType) {
         if (!init) {
-            fprintf(stderr, "L%d: '%s' requires a type or an initializer.\n",
+            aetherDiagf( "L%d: '%s' requires a type or an initializer.\n",
                     kwLine, nameTok->value ? nameTok->value : "let");
             p->hadError = true;
             freeToken(nameTok);
@@ -2920,7 +2946,7 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
         AST *item = parseExpr(p);
         if (!item) { p->hadError = true; freeAST(outer); return NULL; }
         if (idx >= sig->itemCount) {
-            fprintf(stderr, "L%d: tuple return has more values than the declared return type.\n", line);
+            aetherDiagf( "L%d: tuple return has more values than the declared return type.\n", line);
             p->hadError = true;
             freeAST(item);
             freeAST(outer);
@@ -2936,7 +2962,7 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
     if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
     if (idx != sig->itemCount) {
-        fprintf(stderr, "L%d: tuple return arity does not match the declared return type.\n", line);
+        aetherDiagf( "L%d: tuple return arity does not match the declared return type.\n", line);
         p->hadError = true;
         freeAST(outer);
         return NULL;
@@ -2973,7 +2999,7 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     size_t nameCount = 0;
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
         if (!aetherTokenIsIdentifierLike(&p->current) || nameCount >= 16) {
-            fprintf(stderr, "L%d: expected a binding name in tuple destructuring.\n", p->current.line);
+            aetherDiagf( "L%d: expected a binding name in tuple destructuring.\n", p->current.line);
             p->hadError = true;
             for (size_t i = 0; i < nameCount; i++) free(names[i]);
             return NULL;
@@ -2999,7 +3025,7 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         }
     }
     if (p->current.type != REA_TOKEN_EQUAL) {
-        fprintf(stderr, "L%d: expected '=' in tuple destructuring.\n", kwLine);
+        aetherDiagf( "L%d: expected '=' in tuple destructuring.\n", kwLine);
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
@@ -3009,8 +3035,8 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     /* The right side must be a direct call `name(args)` to a tuple-return fn. */
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
         const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
-        fprintf(stderr, "[feature] tuple destructuring currently requires a direct call to a known tuple-return function.\n");
+        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
+        aetherDiagf( "[feature] tuple destructuring currently requires a direct call to a known tuple-return function.\n");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
@@ -3022,16 +3048,16 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     const AetherTupleSig *sig = tupleTableGet(p->tuples, calleeName, strlen(calleeName));
     if (!sig) {
         const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
-        fprintf(stderr, "[feature] tuple destructuring target is not a known tuple-return function.\n");
+        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
+        aetherDiagf( "[feature] tuple destructuring target is not a known tuple-return function.\n");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
     }
     if (sig->itemCount != nameCount) {
         const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) fprintf(stderr, "%s:%d: ", path, kwLine);
-        fprintf(stderr, "[feature] tuple destructuring arity does not match the function return tuple.\n");
+        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
+        aetherDiagf( "[feature] tuple destructuring arity does not match the function return tuple.\n");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
@@ -3175,7 +3201,7 @@ static AST *parseRet(AetherParser *p) {
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             return parseTupleReturn(p, line);
         }
-        fprintf(stderr, "L%d: a tuple-return function must return a tuple literal `(...)`.\n", line);
+        aetherDiagf( "L%d: a tuple-return function must return a tuple literal `(...)`.\n", line);
         p->hadError = true;
         return NULL;
     }
@@ -3209,7 +3235,7 @@ static AST *parseRet(AetherParser *p) {
         p->current.type != REA_TOKEN_EOF) {
         value = parseExpr(p);
     } else if (p->currentFunctionType != TYPE_VOID) {
-        fprintf(stderr, "L%d: return requires a value.\n", line);
+        aetherDiagf( "L%d: return requires a value.\n", line);
         p->hadError = true;
     }
     if (p->current.type == REA_TOKEN_SEMICOLON) {
@@ -3329,7 +3355,7 @@ static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
  * raw-source-span workaround. Handles numeric and identifier bounds uniformly. */
 static AST *parseLoopRange(AetherParser *p) {
     if (!aetherTokenIsIdentifierLike(&p->current)) {
-        fprintf(stderr, "L%d: expected loop variable name.\n", p->current.line);
+        aetherDiagf( "L%d: expected loop variable name.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -3343,7 +3369,7 @@ static AST *parseLoopRange(AetherParser *p) {
     aetherAdvance(p); /* consume loop var */
 
     if (!isAetherKeyword(&p->current, "in")) {
-        fprintf(stderr, "L%d: expected 'in' in loop range.\n", p->current.line);
+        aetherDiagf( "L%d: expected 'in' in loop range.\n", p->current.line);
         p->hadError = true;
         free(nameBuf);
         return NULL;
@@ -3352,7 +3378,7 @@ static AST *parseLoopRange(AetherParser *p) {
 
     AST *low = parseExpr(p);
     if (!low || p->current.type != AE_TOKEN_DOTDOT) {
-        fprintf(stderr, "L%d: expected '<low>..<high>' in loop range.\n", idLine);
+        aetherDiagf( "L%d: expected '<low>..<high>' in loop range.\n", idLine);
         p->hadError = true;
         if (low) freeAST(low);
         free(nameBuf);
@@ -3361,7 +3387,7 @@ static AST *parseLoopRange(AetherParser *p) {
     aetherAdvance(p); /* consume '..' */
     AST *high = parseExpr(p);
     if (!high) {
-        fprintf(stderr, "L%d: could not parse loop range bounds.\n", idLine);
+        aetherDiagf( "L%d: could not parse loop range bounds.\n", idLine);
         p->hadError = true;
         freeAST(low);
         free(nameBuf);
@@ -3372,7 +3398,7 @@ static AST *parseLoopRange(AetherParser *p) {
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         body = parseBlock(p);
     } else {
-        fprintf(stderr, "L%d: expected '{' to open loop body.\n", idLine);
+        aetherDiagf( "L%d: expected '{' to open loop body.\n", idLine);
         p->hadError = true;
         freeAST(low);
         freeAST(high);
@@ -3508,7 +3534,7 @@ static AST *parseLoop(AetherParser *p) {
     AST *cond = parseExpr(p);
     if (!cond) { p->hadError = true; return NULL; }
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' to open loop body.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' to open loop body.\n", p->current.line);
         p->hadError = true;
         freeAST(cond);
         return NULL;
@@ -3531,7 +3557,7 @@ static AST *parseWhileLoop(AetherParser *p) {
     AST *cond = parseExpr(p);
     if (!cond) { p->hadError = true; return NULL; }
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' to open while body.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' to open while body.\n", p->current.line);
         p->hadError = true;
         freeAST(cond);
         return NULL;
@@ -3549,7 +3575,7 @@ static AST *parseWhileLoop(AetherParser *p) {
 static AST *parseParBlock(AetherParser *p) {
     aetherAdvance(p); /* consume 'par' */
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' to open par block.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' to open par block.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -3558,6 +3584,13 @@ static AST *parseParBlock(AetherParser *p) {
     AST *block = newASTNode(AST_COMPOUND, NULL);
     AST *joins = newASTNode(AST_COMPOUND, NULL); /* staged join statements */
     int handle = 0;
+    /* Data-race guard: track which record-typed argument variable was passed to
+     * which par branch. The same pointer-backed record handed to two branches is
+     * written concurrently by the spawned threads -> a heap double-free
+     * (SIGABRT/SIGTRAP), silent today (see PAR-001 below). Pointers into the arg
+     * tokens (owned by the call nodes, which outlive this loop); no allocation. */
+    struct { const char *name; int branch; } sharedRecs[64];
+    int sharedRecCount = 0;
     while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
            !p->hadError) {
         int callLine = p->current.line;
@@ -3595,6 +3628,50 @@ static AST *parseParBlock(AetherParser *p) {
         char handleName[64];
         snprintf(handleName, sizeof(handleName), "__aether_par_%d", handle);
 
+        /* PAR-001: reject a record shared across par branches before it becomes a
+         * concurrent double-free at runtime. Scan this call's argument variables
+         * (children[0] is the receiver for a method call); a bare identifier whose
+         * declared type is a user aggregate (record/array -- pointer-backed, so it
+         * aliases across threads) is flagged if a *different* branch already passed
+         * the same name. Scalars (Int/Real/Text/Bool/...) are value-copied per
+         * thread, so they are never flagged. */
+        for (int ci = 0; ci < call->child_count; ci++) {
+            AST *arg = call->children[ci];
+            if (!arg || arg->type != AST_VARIABLE || !arg->token || !arg->token->value) continue;
+            const char *an = arg->token->value;
+            const char *aty = bindingTableGet(p->bindings, an, strlen(an));
+            if (!aty) continue;
+            VarType avt = TYPE_UNKNOWN; const char *arn = NULL;
+            if (mapAetherType(aty, strlen(aty), &arn, &avt)) continue; /* scalar -> safe */
+            int prior = -1;
+            for (int si = 0; si < sharedRecCount; si++) {
+                if (sharedRecs[si].name && strcmp(sharedRecs[si].name, an) == 0) {
+                    prior = sharedRecs[si].branch;
+                    break;
+                }
+            }
+            if (prior >= 0 && prior != handle) {
+                const char *ppath = aetherSemanticGetSourcePath();
+                if (ppath && *ppath) aetherDiagf("%s:%d: ", ppath, callLine);
+                aetherDiagf("[PAR-001] Aether par error: record '%s' is shared by more than one par "
+                            "branch; the spawned threads write it concurrently, which races (heap "
+                            "corruption).\n", an);
+                aetherDiagf("hint: give each par branch its own record, then combine the results "
+                            "after the `par { ... }` block.\n");
+                aetherReportGuideHelp("PAR-001");
+                p->hadError = true;
+                freeAST(call);
+                freeAST(block);
+                freeAST(joins);
+                return NULL;
+            }
+            if (prior < 0 && sharedRecCount < (int)(sizeof(sharedRecs) / sizeof(sharedRecs[0]))) {
+                sharedRecs[sharedRecCount].name = an;
+                sharedRecs[sharedRecCount].branch = handle;
+                sharedRecCount++;
+            }
+        }
+
         /* int __aether_par_N = spawn <call>; */
         Token *hTok = newToken(TOKEN_IDENTIFIER, handleName, callLine, 0);
         AST *hVar = newASTNode(AST_VARIABLE, hTok);
@@ -3623,7 +3700,7 @@ static AST *parseParBlock(AetherParser *p) {
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
         aetherAdvance(p);
     } else {
-        fprintf(stderr, "L%d: expected '}' to close par block.\n", p->current.line);
+        aetherDiagf( "L%d: expected '}' to close par block.\n", p->current.line);
         p->hadError = true;
     }
     /* Append the staged joins after the spawns, in order. */
@@ -4004,7 +4081,7 @@ static AST *parseFnDecl(AetherParser *p) {
          * `fn new()`): name the collision instead of the bare parse error. */
         if (!reportReservedMemberName(&p->current,
                                       p->currentClassName ? "method" : "function")) {
-            fprintf(stderr, "L%d: expected function name after 'fn'.\n", p->current.line);
+            aetherDiagf( "L%d: expected function name after 'fn'.\n", p->current.line);
         }
         p->hadError = true;
         return NULL;
@@ -4029,7 +4106,7 @@ static AST *parseFnDecl(AetherParser *p) {
     }
 
     if (p->current.type != REA_TOKEN_LEFT_PAREN) {
-        fprintf(stderr, "L%d: expected '(' after function name.\n", p->current.line);
+        aetherDiagf( "L%d: expected '(' after function name.\n", p->current.line);
         p->hadError = true;
         freeToken(nameTok);
         return NULL;
@@ -4082,7 +4159,7 @@ static AST *parseFnDecl(AetherParser *p) {
             continue; /* myself is the receiver; do not add `self` as a param */
         }
         if (!aetherTokenIsIdentifierLike(&p->current)) {
-            fprintf(stderr, "L%d: expected parameter name.\n", p->current.line);
+            aetherDiagf( "L%d: expected parameter name.\n", p->current.line);
             p->hadError = true;
             break;
         }
@@ -4091,7 +4168,7 @@ static AST *parseFnDecl(AetherParser *p) {
         aetherAdvance(p); /* consume param name */
 
         if (p->current.type != REA_TOKEN_COLON) {
-            fprintf(stderr, "L%d: expected ':' after parameter name.\n", p->current.line);
+            aetherDiagf( "L%d: expected ':' after parameter name.\n", p->current.line);
             p->hadError = true;
             freeToken(paramNameTok);
             break;
@@ -4100,7 +4177,7 @@ static AST *parseFnDecl(AetherParser *p) {
 
         if (p->current.type == REA_TOKEN_RIGHT_PAREN || p->current.type == REA_TOKEN_COMMA ||
             p->current.type == REA_TOKEN_EOF) {
-            fprintf(stderr, "L%d: expected parameter type.\n", p->current.line);
+            aetherDiagf( "L%d: expected parameter type.\n", p->current.line);
             p->hadError = true;
             freeToken(paramNameTok);
             break;
@@ -4201,7 +4278,7 @@ static AST *parseFnDecl(AetherParser *p) {
     if (p->current.type == REA_TOKEN_ARROW) {
         aetherAdvance(p); /* consume '->' */
         if (p->current.type == REA_TOKEN_LEFT_BRACE || p->current.type == REA_TOKEN_EOF) {
-            fprintf(stderr, "L%d: expected return type after '->'.\n", p->current.line);
+            aetherDiagf( "L%d: expected return type after '->'.\n", p->current.line);
             p->hadError = true;
         } else if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* Tuple return type `-> (T, U, ...)`. Capture the raw `(...)` text
@@ -4515,7 +4592,7 @@ static AST *parseConstDecl(AetherParser *p) {
     aetherAdvance(p); /* consume 'const' */
 
     if (!aetherTokenIsIdentifierLike(&p->current)) {
-        fprintf(stderr, "L%d: expected name after 'const'.\n", p->current.line);
+        aetherDiagf( "L%d: expected name after 'const'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -4530,7 +4607,7 @@ static AST *parseConstDecl(AetherParser *p) {
         aetherAdvance(p); /* consume ':' */
         if (p->current.type == REA_TOKEN_EOF || p->current.type == REA_TOKEN_EQUAL ||
             p->current.type == REA_TOKEN_SEMICOLON) {
-            fprintf(stderr, "L%d: expected type after ':'.\n", p->current.line);
+            aetherDiagf( "L%d: expected type after ':'.\n", p->current.line);
             p->hadError = true;
             freeToken(nameTok);
             return NULL;
@@ -4545,7 +4622,7 @@ static AST *parseConstDecl(AetherParser *p) {
     }
 
     if (p->current.type != REA_TOKEN_EQUAL) {
-        fprintf(stderr, "L%d: const declaration requires '= value'.\n", p->current.line);
+        aetherDiagf( "L%d: const declaration requires '= value'.\n", p->current.line);
         p->hadError = true;
         freeToken(nameTok);
         if (typeNode) freeAST(typeNode);
@@ -4619,7 +4696,7 @@ static AST *parseTypeDecl(AetherParser *p) {
     aetherAdvance(p); /* consume 'type' */
 
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
-        fprintf(stderr, "L%d: expected a type name after 'type'.\n", p->current.line);
+        aetherDiagf( "L%d: expected a type name after 'type'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -4677,7 +4754,7 @@ static AST *parseTypeDecl(AetherParser *p) {
                 }
                 aetherAdvance(p); /* consume field name */
                 if (p->current.type != REA_TOKEN_COLON) {
-                    fprintf(stderr, "L%d: expected ':' after field name in type.\n",
+                    aetherDiagf( "L%d: expected ':' after field name in type.\n",
                             p->current.line);
                     p->hadError = true;
                     freeToken(fieldTok);
@@ -4711,7 +4788,7 @@ static AST *parseTypeDecl(AetherParser *p) {
                 /* A reserved word/type name where a field name should be (e.g.
                  * `word: Text;`): name the collision instead of the bare error. */
                 if (!reportReservedMemberName(&p->current, "field")) {
-                    fprintf(stderr, "L%d: unexpected token in type body.\n", p->current.line);
+                    aetherDiagf( "L%d: unexpected token in type body.\n", p->current.line);
                 }
                 p->hadError = true;
                 break;
@@ -4788,7 +4865,7 @@ static AST *parseUse(AetherParser *p) {
         if (path) { memcpy(path, p->current.start, len); path[len] = '\0'; }
         aetherAdvance(p);
     } else {
-        fprintf(stderr, "L%d: expected a module name after 'use'.\n", p->current.line);
+        aetherDiagf( "L%d: expected a module name after 'use'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -4871,7 +4948,7 @@ static AST *parseModuleMember(AetherParser *p) {
     } else if (aetherIsModKeyword(p)) {
         decl = NULL; /* nested modules are not part of Aether's surface syntax */
     } else {
-        fprintf(stderr, "L%d: expected a declaration inside 'mod'.\n", p->current.line);
+        aetherDiagf( "L%d: expected a declaration inside 'mod'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -4887,7 +4964,7 @@ static AST *parseModuleDecl(AetherParser *p) {
     int modLine = p->current.line;
     aetherAdvance(p); /* consume 'mod' */
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
-        fprintf(stderr, "L%d: expected a module name after 'mod'.\n", p->current.line);
+        aetherDiagf( "L%d: expected a module name after 'mod'.\n", p->current.line);
         p->hadError = true;
         return NULL;
     }
@@ -4895,7 +4972,7 @@ static AST *parseModuleDecl(AetherParser *p) {
     if (!nameTok) return NULL;
     aetherAdvance(p); /* consume module name */
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        fprintf(stderr, "L%d: expected '{' to begin module body.\n", p->current.line);
+        aetherDiagf( "L%d: expected '{' to begin module body.\n", p->current.line);
         p->hadError = true;
         freeToken(nameTok);
         return NULL;
@@ -4925,7 +5002,7 @@ static AST *parseModuleDecl(AetherParser *p) {
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
         aetherAdvance(p);
     } else {
-        fprintf(stderr, "L%d: expected '}' to close module body.\n", p->current.line);
+        aetherDiagf( "L%d: expected '}' to close module body.\n", p->current.line);
         p->hadError = true;
     }
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
@@ -5133,6 +5210,105 @@ static void aetherImportTypeSink(void *ctxv, const char *name, const char *aethe
     }
 }
 
+/* True if `node`'s subtree declares a function/procedure whose (mangled) name
+ * matches `mangled`, case-insensitively (mirroring the compiler's lookup, which
+ * lowercases). Used to decide whether a `Type.method` call resolves to a real
+ * method. */
+static bool aetherProcDefined(AST *node, const char *mangled) {
+    if (!node || !mangled) return false;
+    if ((node->type == AST_FUNCTION_DECL || node->type == AST_PROCEDURE_DECL) &&
+        node->token && node->token->value &&
+        strcasecmp(node->token->value, mangled) == 0) {
+        return true;
+    }
+    AST *c0 = node->child_count > 0 ? node->children[0] : NULL;
+    if (node->left && node->left != c0 && aetherProcDefined(node->left, mangled)) return true;
+    if (node->right && aetherProcDefined(node->right, mangled)) return true;
+    if (node->extra && aetherProcDefined(node->extra, mangled)) return true;
+    for (int i = 0; i < node->child_count; i++) {
+        if (aetherProcDefined(node->children[i], mangled)) return true;
+    }
+    return false;
+}
+
+/* True if the AST_RECORD_TYPE `recordAst` declares a field named `field`
+ * (case-insensitive). Only immediate fields -- callers that reach here have already
+ * excluded types with a parent, so inherited fields cannot matter. */
+static bool aetherRecordHasField(AST *recordAst, const char *field) {
+    if (!recordAst || !field) return false;
+    for (int i = 0; i < recordAst->child_count; i++) {
+        AST *decl = recordAst->children[i];
+        if (!decl || decl->type != AST_VAR_DECL) continue;
+        for (int j = 0; j < decl->child_count; j++) {
+            AST *v = decl->children[j];
+            if (v && v->token && v->token->value &&
+                strcasecmp(v->token->value, field) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* Walk the whole program; for every `Type.member(...)` call where the parser
+ * mangled a record-receiver method, verify the method exists. Emits a compile-time
+ * [SCOPE-001] for each undefined method and returns the count. Conservative by
+ * construction so it never rejects a valid benchmark-corpus program:
+ *   - the pre-dot segment must name a real user record type (lookupType), never a
+ *     module/unit qualifier or a builtin;
+ *   - the record must have NO parent type -- inheritance can define the method on
+ *     an ancestor under a different mangling, so skip to stay safe;
+ *   - a matching field is left alone (not our concern here);
+ *   - only single-dot names (the `Type.method` mangling) are considered. */
+static int aetherCheckMemberCalls(AST *node, AST *decls) {
+    if (!node) return 0;
+    int errs = 0;
+    if (node->type == AST_PROCEDURE_CALL && node->token && node->token->value) {
+        const char *name = node->token->value;
+        const char *dot = strchr(name, '.');
+        if (dot && dot != name && dot[1] != '\0' && strchr(dot + 1, '.') == NULL) {
+            size_t tlen = (size_t)(dot - name);
+            char typeName[128];
+            if (tlen > 0 && tlen < sizeof(typeName)) {
+                memcpy(typeName, name, tlen);
+                typeName[tlen] = '\0';
+                const char *member = dot + 1;
+                AST *rec = lookupType(typeName);
+                /* Resolved if EITHER a true method `Type.member` exists, OR a plain
+                 * top-level `fn member(self: Type, ...)` extension method exists --
+                 * those stay un-mangled in the AST (registered as `Type.member` only
+                 * in funcReturns), and a `recv.member()` call site is still valid via
+                 * UFCS. Checking the un-mangled `member` decl covers that without a
+                 * false positive; missing an unrelated same-named fn only *under*-
+                 * reports, which is the safe direction. */
+                if (rec && rec->type == AST_RECORD_TYPE && rec->extra == NULL &&
+                    !aetherProcDefined(decls, name) &&
+                    !aetherProcDefined(decls, member) &&
+                    !aetherRecordHasField(rec, member)) {
+                    const char *path = aetherSemanticGetSourcePath();
+                    int line = node->token->line > 0 ? node->token->line : 1;
+                    if (path && *path) aetherDiagf("%s:%d: ", path, line);
+                    aetherDiagf("[SCOPE-001] Aether method error: method '%s' is not defined on "
+                                "type '%s'.\n", member, typeName);
+                    aetherDiagf("hint: define `fn %s(...)` inside `type %s { ... }`, or fix the "
+                                "method name (methods do not capture outer locals -- METH-001).\n",
+                                member, typeName);
+                    aetherReportGuideHelp("SCOPE-001");
+                    errs++;
+                }
+            }
+        }
+    }
+    AST *c0 = node->child_count > 0 ? node->children[0] : NULL;
+    if (node->left && node->left != c0) errs += aetherCheckMemberCalls(node->left, decls);
+    if (node->right) errs += aetherCheckMemberCalls(node->right, decls);
+    if (node->extra) errs += aetherCheckMemberCalls(node->extra, decls);
+    for (int i = 0; i < node->child_count; i++) {
+        errs += aetherCheckMemberCalls(node->children[i], decls);
+    }
+    return errs;
+}
+
 AST *parseAetherAst(const char *rawSource) {
     if (!rawSource) return NULL;
 
@@ -5215,6 +5391,11 @@ AST *parseAetherAst(const char *rawSource) {
     aetherRunForwardScan(source, &bindings, &funcReturns, &tuples, &nextTupleTypeId, decls);
     aetherUnmuteStderr(savedStderr);
 
+    /* From here on, every diagnostic is authoritative + visible. Reset the counter
+     * so the silent-failure backstop (after the loop) can tell whether this real
+     * pass said anything; the forward scan's muted increments are discarded. */
+    g_aetherAstDiagCount = 0;
+
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
         collectPendingAnnotations(&p);
@@ -5223,11 +5404,11 @@ AST *parseAetherAst(const char *rawSource) {
          * Match the rewriter's ANN-001 diagnostic, pointed at the annotation line. */
         if (p.pendingAnnotCount > 0 && !isAetherKeyword(&p.current, "fn")) {
             const char *path = aetherSemanticGetSourcePath();
-            if (path && *path) fprintf(stderr, "%s:%d: ", path, p.pendingAnnotLine);
-            fprintf(stderr,
+            if (path && *path) aetherDiagf( "%s:%d: ", path, p.pendingAnnotLine);
+            aetherDiagf(
                     "[ANN-001] Aether contract error: @%s must annotate the next function declaration.\n",
                     p.pendingAnnotName);
-            fprintf(stderr,
+            aetherDiagf(
                     "help: see ANN-001 in the Aether guide (aether_for_llms_with_small_contexts.md)\n");
             p.hadError = true;
             break;
@@ -5259,6 +5440,41 @@ AST *parseAetherAst(const char *rawSource) {
     }
 
     aetherFreePending(&p.pending);
+
+    /* Undefined method on a record -> SCOPE-001 at compile time. The parser lowers
+     * `recv.method()` on a user record to a call to the mangled global `Type.method`
+     * (parsePostfix); with no such method it would otherwise degrade to an
+     * undefined-global read that fails only at runtime ("Undefined global variable
+     * 'Point.distance'"). Field reads are already caught (compiler.c FIELD-002);
+     * this closes the same gap for method calls. Runs only on an otherwise-clean
+     * parse, before the silent backstop so a precise message wins. */
+    if (!p.hadError && aetherCheckMemberCalls(program, decls) > 0) {
+        p.hadError = true;
+    }
+
+    /* Silent-failure backstop: a parse failure that set p.hadError but reported
+     * nothing (a NULL propagated up a chain that only set the flag) used to exit 1
+     * with empty stderr + empty --diagnostics-json -- the worst case for humans and
+     * the LLM repair loop (nothing to react to). Emit a coded [SYN-001] anchored at
+     * wherever parsing stalled so there is always something to react to. */
+    if (p.hadError && g_aetherAstDiagCount == 0) {
+        const char *bpath = aetherSemanticGetSourcePath();
+        int bline = p.current.line > 0 ? p.current.line : 1;
+        if (bpath && *bpath) aetherDiagf("%s:%d: ", bpath, bline);
+        if (p.current.type == REA_TOKEN_EOF) {
+            aetherDiagf("[SYN-001] Aether syntax error: unexpected end of input; "
+                        "a declaration or statement is incomplete.\n");
+        } else {
+            aetherDiagf("[SYN-001] Aether syntax error: unexpected token '%.*s'; "
+                        "this construct could not be parsed.\n",
+                        p.current.start ? (int)p.current.length : 1,
+                        p.current.start ? p.current.start : "?");
+        }
+        aetherDiagf("hint: check this line against the Aether guide "
+                    "(fn/type/let/const/loop/if/fx/par forms).\n");
+        aetherReportGuideHelp("SYN-001");
+    }
+
     if (p.hadError) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);

@@ -12,6 +12,62 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-1
+
+**Three silent-failure gaps in the AST frontend now produce coded diagnostics
+instead of an empty exit 1 or a crash.** The common thread: a program that failed
+with a nonzero exit code but *no message at all* (empty stderr, empty
+`--diagnostics-json`) — or that crashed the VM — is the worst case for both humans
+and the LLM repair loop, because there is nothing to react to. All three are on the
+default AST path (`ast_parser.c`).
+
+1. **Silent parse failures → `[SYN-001]` backstop.** A parse error that set the
+   parser's error flag but reported nothing (a `NULL` propagating up a chain that
+   only set `p->hadError`) used to exit 1 with empty output. Every parser
+   diagnostic now funnels through one counting sink (`aetherDiagf`); after the
+   authoritative parse, if it bailed with `hadError` but emitted nothing, a coded
+   `[SYN-001]` is emitted, anchored at the token where parsing stalled. Example: a
+   non-keyword top-level construct such as `rec Point { ... }` (a common slip for
+   `type`) now reports `unexpected token ':'` instead of nothing.
+
+2. **Undefined method on a record → `[SCOPE-001]` at compile time.** The parser
+   lowers `recv.method()` on a user record to a call to the mangled global
+   `Type.method`; with no such method it silently degraded to an undefined-global
+   read that failed only at runtime (`Undefined global variable 'Point.distance'`).
+   A post-parse walk (`aetherCheckMemberCalls`) verifies each `Type.method` call
+   resolves to a defined method, mirroring the field-read check that already emits
+   `FIELD-002`. Conservative by construction (only a real user record type with no
+   parent, and only when the name is neither a method nor a field), so it does not
+   reject valid corpus programs.
+
+   ```
+   let p: Point = Point { x: 1, y: 2 };
+   fx { println(p.distance()); }   // before: runtime "Undefined global variable 'Point.distance'"
+                                   // now:    [SCOPE-001] method 'distance' is not defined on type 'Point'
+   ```
+
+   (Code note: `SCOPE-001`, not `METH-001` — the latter already denotes the
+   "methods do not capture outer locals" rule in the guide; the hint cross-references
+   it.)
+
+3. **`par` branches sharing a record → `[PAR-001]` at compile time.** Handing the
+   *same* pointer-backed record to more than one `par` branch makes the spawned
+   threads write it concurrently, a heap double-free that aborts the VM
+   (SIGABRT/SIGTRAP) with no diagnostic. `parseParBlock` now rejects the aliased
+   record at compile time; the safe idiom (each branch its own record, combined
+   after the block) is unaffected. Only user aggregate args are flagged — scalars
+   are value-copied per thread and are never shared.
+
+   ```
+   par {
+       setname(a, "one");   // before: intermittent SIGABRT (concurrent double-free)
+       setname(a, "two");   // now:    [PAR-001] record 'a' is shared by more than one par branch
+   }
+   ```
+
+Regressions: `tests/method_undefined_fail.aether`, `tests/par_shared_record_fail.aether`,
+`tests/unknown_construct_fail.aether` (full `tests/run.sh` green under the AST frontend).
+
 ## 2026-06-30-4
 
 **A `@pre`/`@post` contract predicate that compares a whole collection to a

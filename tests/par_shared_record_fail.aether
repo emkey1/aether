@@ -1,0 +1,19 @@
+// Passing the same pointer-backed record to more than one par branch makes the
+// spawned threads write it concurrently -> a heap double-free (SIGABRT/SIGTRAP),
+// silent today. This must be a compile-time [PAR-001], not a crash. The safe
+// idiom is one record per branch, combined after the block.
+type Box { name: Text; }
+fn setname(out: Box, s: Text) -> Void {
+    fx { sleep(1); }
+    out.name = s + s;
+    ret;
+}
+fn main() -> Void {
+    let a: Box = new Box();
+    par {
+        setname(a, "one");   // both branches write the SAME record `a`
+        setname(a, "two");
+    }
+    fx { println(a.name); }
+    ret;
+}

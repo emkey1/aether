@@ -19,6 +19,43 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### Three silent-failure gaps in the AST frontend now emit coded diagnostics — *fixed 2026-07-01-1*
+A program that exits non-zero with **no message at all** (empty stderr, empty
+`--diagnostics-json`) — or that crashes the VM outright — is the worst case for
+both humans and the LLM repair loop: there is nothing to react to. Three such
+cases on the default AST path were closed (all in `ast_parser.c`):
+
+1. **Silent parse failures → `[SYN-001]` backstop.** Only 11 of the parser's ~50
+   diagnostic sites emitted a message; the rest set `p->hadError` and returned
+   `NULL`, so any failure that propagated up such a chain exited 1 silently (e.g.
+   `rec Point { ... }` — `rec` is not a keyword, a common slip for `type`). Every
+   parser diagnostic now funnels through one counting sink (`aetherDiagf`); after
+   the authoritative parse, `hadError` with a zero count emits a coded `[SYN-001]`
+   at the stalled token. This is a *class* fix — it backstops every current and
+   future silent parse path, not just the ones found.
+2. **Undefined method on a record → `[SCOPE-001]` (compile time).** `recv.method()`
+   on a user record lowers to a mangled `Type.method` global call; with no such
+   method it degraded to an undefined-global read that failed only at runtime
+   (`Undefined global variable 'Point.distance'`). `aetherCheckMemberCalls` walks
+   the parsed program and verifies each `Type.method` resolves, mirroring the
+   existing `FIELD-002` field check. Conservative (real record type, no parent,
+   not a field) — no corpus false positives. Uses `SCOPE-001` because `METH-001`
+   already names the "no outer-local capture" rule.
+3. **`par` branches sharing a record → `[PAR-001]` (compile time).** Reproduced
+   the crash the sweeps flagged (below): the *same* pointer-backed record handed
+   to two `par` branches is written concurrently → heap double-free
+   (`malloc: pointer being freed was not allocated`), aborting with SIGABRT/SIGTRAP
+   and no message (30/30 on a 2-branch shared-Text-field repro). Making the VM
+   heap thread-safe is out of scope (and leaves write-ordering undefined), so
+   `parseParBlock` rejects the aliased record at compile time; each-branch-its-own-
+   record (the documented idiom) is unaffected, and scalar args are never flagged.
+
+Regressions: `tests/{method_undefined_fail,par_shared_record_fail,unknown_construct_fail}.aether`.
+Guides updated (PAR-001 rule + the SCOPE-001 method line in both). **Follow-up idea:**
+the `--diagnostics-json` collector (`rea/src/rea/main.c`) turns each `help: see <CODE>`
+line into a spurious `code:null` entry (pre-existing for every coded diagnostic);
+folding `help:` like `hint:` would clean the JSON for the repair loop.
+
 ### Builtin reference shipped into the training corpus — *done 2026-06-28*
 The specialization reference corpus shipped only the prose guide, so trained
 models never saw the real builtin surface (the guide documents a curated subset
@@ -502,4 +539,6 @@ Hit by `a3b-coder30b-cs-aug2-builtins`. **Action:** either accept + concatenate 
 (println-consistent), or emit a compile-time ARITY error instead of the late `YyjsonRead` runtime one;
 document building the string first (`let s: Text = "..." + rawNow + "..."; toon_parse(s)`).
 *(scheduler-coordinated sweep, 2026-06-29. Also reconfirmed this sweep: array-of-record literals fail
-to parse (seed-oss), and `par` blocks calling user functions can crash silently (qwen3-coder-next).)*
+to parse (seed-oss), and `par` blocks calling user functions can crash silently (qwen3-coder-next) —
+**the par crash is fixed 2026-07-01-1**, root-caused to a shared-record data race and now rejected as
+`PAR-001`; see the resolved silent-failure entry under **Open ideas**.)*

@@ -1,0 +1,11 @@
+// Calling a method that is not defined on a record must be a compile-time
+// [SCOPE-001], not a silent lowering to an undefined-global read that only
+// fails at runtime ("Undefined global variable 'Point.distance'"). The parser
+// lowers `p.distance()` to a `Point.distance` call; aetherCheckMemberCalls
+// verifies the method exists. Field reads are already caught (FIELD-002).
+type Point { x: Int; y: Int; }
+fn main() -> Void {
+    let p: Point = Point { x: 1, y: 2 };
+    fx { println(p.distance()); }   // distance() is not a method of Point
+    ret;
+}

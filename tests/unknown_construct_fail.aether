@@ -1,0 +1,9 @@
+// An unparseable top-level construct (here the non-keyword `rec`, a common
+// mistake for `type`) must NOT exit 1 with empty stderr + empty
+// --diagnostics-json. The silent-failure backstop guarantees a coded [SYN-001]
+// anchored where parsing stalled, so humans and the LLM repair loop always have
+// something to react to.
+rec Point { x: Int; y: Int; }
+fn main() -> Void {
+    ret;
+}

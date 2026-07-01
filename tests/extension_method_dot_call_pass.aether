@@ -1,0 +1,13 @@
+// An extension method -- a top-level `fn m(self: T, ...)` -- may be called with
+// method syntax `recv.m(...)` (UFCS). Its declaration stays un-mangled (`average`),
+// so the undefined-method check (aetherCheckMemberCalls / SCOPE-001) must NOT flag
+// the dotted call. Regression for a false positive that rejected valid programs.
+type Stats { count: Int; sum: Int; }
+fn total(self: Stats) -> Int {
+    ret self.count + self.sum;
+}
+fn main() -> Void {
+    let s: Stats = Stats { count: 2, sum: 10 };
+    fx { println(s.total()); }   // dotted call to an extension method -> UFCS, valid
+    ret;
+}
