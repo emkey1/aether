@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-3*
+*Guide version: 2026-07-01-4*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -1184,8 +1184,8 @@ Larger examples: `Examples/aether/showcase/agent_report`,
 The compiler tags every rejection with a stable code in brackets, and on newer
 builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
-SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, MUT-001, FIELD-002, and
-NAME-001; the finer rule names below map onto them.
+SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, FLOW-002, MUT-001, FIELD-002,
+PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
@@ -1217,12 +1217,17 @@ NAME-001; the finer rule names below map onto them.
   the type explicitly if the prompt really requires that field.
 - **[FLOW-001]** a fallthrough path with no return value → add an explicit final
   `ret ...` on every reachable top-level path in the non-`Void` helper.
+- **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)
+  → give the return a value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
 - **[TUP-001]** tuple misuse → destructure a direct top-level call only.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
+- **[PAR-002]** a non-call statement inside `par { ... }` (an assignment, `fx`,
+  loop, …) → `par` bodies allow only direct call statements; wrap the work in a
+  `fn` and call that inside `par`.
 
 The compiler cannot check *output correctness*. If the program compiles but the
 result is wrong, no code is printed — these are authoring rules: integer result

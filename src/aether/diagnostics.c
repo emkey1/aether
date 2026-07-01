@@ -96,6 +96,18 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
     if (strstr(detail, "fallthrough path with no return value")) {
         return "FLOW-001";
     }
+    /* Empty `ret;` in a non-Void function. Distinct from FLOW-001 (fallthrough):
+     * here a return statement exists but supplies no value, so the fix differs
+     * ("give the return a value" vs "add a return"). */
+    if (strstr(detail, "return requires a value")) {
+        return "FLOW-002";
+    }
+    /* Non-call statement inside a `par { ... }` block. Distinct from PAR-001
+     * (the shared-record data race, emitted with a hardcoded [PAR-001]); this is
+     * the par-arity rule (only direct call statements are allowed). */
+    if (strstr(detail, "only direct call statements")) {
+        return "PAR-002";
+    }
     if (strstr(detail, "let mut") || strstr(detail, "`mut` is ignored")) {
         return "MUT-001";
     }

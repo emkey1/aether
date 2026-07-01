@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let s: Nope = new Nope();
+    s.go();
+    ret;
+}

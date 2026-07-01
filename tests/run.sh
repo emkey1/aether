@@ -54,6 +54,8 @@ FUNCTION_RETURN_INFERENCE_PASS_FIXTURE="$TESTS_DIR/function_return_inference_pas
 FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE="$TESTS_DIR/function_missing_return_type_fail.aether"
 FUNCTION_FORWARD_DECL_PASS_FIXTURE="$TESTS_DIR/function_forward_decl_pass.aether"
 FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_missing_value_return_fail.aether"
+FUNCTION_EMPTY_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_empty_return_fail.aether"
+BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE="$TESTS_DIR/backend_unknown_field_coded_fail.aether"
 OBJECT_INFERENCE_PASS_FIXTURE="$TESTS_DIR/object_inference_pass.aether"
 OBJECT_DEFAULT_INIT_PASS_FIXTURE="$TESTS_DIR/object_default_init_pass.aether"
 STRING_LEN_INFERENCE_PASS_FIXTURE="$TESTS_DIR/string_len_inference_pass.aether"
@@ -193,6 +195,8 @@ for fixture in \
     "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" \
     "$FUNCTION_FORWARD_DECL_PASS_FIXTURE" \
     "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" \
+    "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" \
+    "$BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE" \
     "$OBJECT_INFERENCE_PASS_FIXTURE" \
     "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" \
     "$STRING_LEN_INFERENCE_PASS_FIXTURE" \
@@ -1321,6 +1325,27 @@ if ! grep -q 'hint: add `ret value;` on the top-level path that can reach the cl
     cat /tmp/aether_function_missing_value_return_fail.out >&2
     exit 1
 fi
+# FLOW-002: an empty `ret;` in a non-Void function (a return statement exists but
+# supplies no value) is a coded diagnostic, distinct from the FLOW-001 fallthrough
+# rule above -- the fix differs (give the return a value vs add a return).
+if "$AETHER_BIN" --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >/tmp/aether_function_empty_return_fail.out 2>&1; then
+    echo "expected empty-return rewrite failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "Aether function rewrite error: return requires a value" /tmp/aether_function_empty_return_fail.out; then
+    echo "missing empty-return rewrite failure message" >&2
+    cat /tmp/aether_function_empty_return_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >/tmp/aether_function_empty_return_json.out 2>&1; then
+    echo "expected empty-return diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"FLOW-002"' /tmp/aether_function_empty_return_json.out; then
+    echo "missing empty-return diagnostics-json code FLOW-002" >&2
+    cat /tmp/aether_function_empty_return_json.out >&2
+    exit 1
+fi
 if "$AETHER_BIN" --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >/tmp/aether_type_field_comma_fail.out 2>&1; then
     echo "expected type field comma rewrite failure but program succeeded" >&2
     exit 1
@@ -1519,6 +1544,31 @@ fi
 if ! grep -q "Aether par rewrite error: only direct call statements are allowed inside par blocks" /tmp/aether_par_fail_non_call.out; then
     echo "missing par rewrite failure message" >&2
     cat /tmp/aether_par_fail_non_call.out >&2
+    exit 1
+fi
+# PAR-002: the par-arity rule (only direct call statements inside par) is coded,
+# distinct from the PAR-001 shared-record data race below.
+if "$AETHER_BIN" --diagnostics-json --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >/tmp/aether_par_fail_non_call_json.out 2>&1; then
+    echo "expected par non-call diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"PAR-002"' /tmp/aether_par_fail_non_call_json.out; then
+    echo "missing par non-call diagnostics-json code PAR-002" >&2
+    cat /tmp/aether_par_fail_non_call_json.out >&2
+    exit 1
+fi
+# FIELD-002 backstop: a method call on a receiver of an unresolved type lowers to a
+# backend field lookup that emits the raw, uncoded "Compiler error: Unknown field
+# 'T.m'." at codegen -- past rea's semantic FIELD-002 check. The --diagnostics-json
+# collector must backfill the code via frontend inference so the repair loop sees
+# FIELD-002 rather than code:null.
+if "$AETHER_BIN" --diagnostics-json --no-cache "$BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE" >/tmp/aether_backend_unknown_field_json.out 2>&1; then
+    echo "expected backend unknown-field diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"FIELD-002"' /tmp/aether_backend_unknown_field_json.out; then
+    echo "missing backend unknown-field diagnostics-json code FIELD-002 (collector backstop regressed?)" >&2
+    cat /tmp/aether_backend_unknown_field_json.out >&2
     exit 1
 fi
 

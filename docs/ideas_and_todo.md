@@ -581,6 +581,39 @@ map them to a guide section:
 - an edge of undefined-field access emits a raw `Compiler error: Unknown field 'X'` from the backend
   (the clean case is correctly `FIELD-002`). **Action:** route these through the coded-diagnostic path.
 
+**Resolved (2026-07-01-3).** All three now carry a code (default AST path only;
+`translate.c` untouched). (1) Bare `ret;` in a non-Void fn is now `FLOW-002`:
+`parseRet` (`ast_parser.c`) routes the empty return through `reportAetherAstError`
+(kind `function`) instead of a raw `aetherDiagf`, so it emits `[FLOW-002]` + hint +
+guide pointer. New code because the fix differs from the `FLOW-001` fallthrough
+rule (give the return a value vs add a return). (2) The par-arity rule is now
+`PAR-002`: it already went through `reportAetherAstError` (kind `par`) but no `par`
+case existed in `aetherInferDiagnosticCode`; added, distinct from the `PAR-001`
+shared-record crash. (3) The undefined-field edge was subtler than the note
+assumed. The cited `state.state` case (and ~18 field-access shapes probed:
+self/nested/array-element/param/inferred receivers) is already `FIELD-002` on
+`2026-07-01-2` because rea's semantic pass (`resolveExprClass`) catches a
+*resolvable* receiver first, so the devstral observation predated the current
+binary. The raw codegen error (`compiler.c:5951`, bracket-less `Compiler error:
+Unknown field 'X'`) is only reachable when the receiver's record type is
+*unresolvable* (e.g. a method call on a variable of an undefined type,
+`let s: Nope = new Nope(); s.go();`), which slips past semantics. Rather than teach
+the shared backend about codes, the `--diagnostics-json` collector
+(`rea/src/rea/main.c`, `extractDiagnosticCode`) now backfills the code for any
+bracket-less line via the registered frontend's `reaFrontendInferDiagnosticCode`,
+so that backend string carries `FIELD-002` (and any other uncoded-but-recognized
+backend message gets its code) instead of `code: null`. This is a class fix, not a
+single-site patch. Regressions: `tests/{function_empty_return_fail,
+backend_unknown_field_coded_fail}.aether` + a `PAR-002` diagnostics-json assertion
+on the existing `par_fail_non_call` fixture. Both guides gained `FLOW-002`/`PAR-002`
+rows.
+
+*Note (unchanged, separately tracked):* every coded diagnostic still double-emits
+in `--diagnostics-json` because the `help: see <CODE>` line is parsed as its own
+`code:null` entry (the papercut recorded above under the `help:` gap). The backstop
+does not touch it (a `help:` line matches no inference pattern, so it stays
+uncoded).
+
 ### `--diagnostics-json` emits the `help:` guide pointer as a spurious extra diagnostic — *gap (verified)*
 Every coded diagnostic's `help: see <CODE> in the Aether guide (...)` line (from `aetherReportGuideHelp`)
 is captured off stderr by `collectDiagnosticsFromText` (`rea/src/rea/main.c`) and, because it is not a

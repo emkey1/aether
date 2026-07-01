@@ -3235,7 +3235,13 @@ static AST *parseRet(AetherParser *p) {
         p->current.type != REA_TOKEN_EOF) {
         value = parseExpr(p);
     } else if (p->currentFunctionType != TYPE_VOID) {
-        aetherDiagf( "L%d: return requires a value.\n", line);
+        /* Empty `ret;` in a non-Void function. Route through the coded path so the
+         * diagnostic carries a code (FLOW-002) + guide pointer, matching its
+         * FLOW-001 fallthrough sibling instead of a raw uncoded stderr line. */
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "function",
+                             "return requires a value.",
+                             "supply a value: `ret <expr>;` (a non-Void function must "
+                             "return a value), or declare the function `-> Void`.");
         p->hadError = true;
     }
     if (p->current.type == REA_TOKEN_SEMICOLON) {

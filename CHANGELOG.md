@@ -12,6 +12,46 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-3
+
+**Three compiler errors that were still raw (no `code` in `--diagnostics-json`,
+plain stderr) now join the coded set, so models and the repair loop can map each
+to its guide section.** All fixes are on the default AST path (`ast_parser.c` /
+the shared engine); the legacy `translate.c` rewriter (`AETHER_PARSER=rewriter`)
+is untouched. A generative-testing pass 2 flagged these as the remaining uncoded
+tier after the 2026-07-01 diagnostic work.
+
+1. **Bare `ret;` in a non-`Void` function -> `FLOW-002`.** An empty `ret;` where a
+   value is required used to emit a raw `L<n>: return requires a value.` with no
+   code. It now routes through `reportAetherAstError` (kind `function`), emitting
+   `[FLOW-002]`, a hint (`ret <expr>;`, or declare `-> Void`), and the guide-help
+   pointer. `FLOW-002` is distinct from `FLOW-001` (the fallthrough rule) because
+   the fix differs: give the existing return a value vs add a return.
+2. **Non-call statement inside `par { ... }` -> `PAR-002`.** The par-arity rule
+   ("only direct call statements are allowed inside par blocks") already routed
+   through `reportAetherAstError` (kind `par`) but was uncoded because no `par`
+   case existed in `aetherInferDiagnosticCode`. It now maps to `PAR-002`, distinct
+   from `PAR-001` (the shared-record data-race crash, which is emitted separately).
+3. **Backend `Unknown field` -> `FIELD-002` via a collector backstop.** rea's
+   semantic pass already codes undefined-field access as `FIELD-002` for a
+   resolvable receiver (the `state.state` case the pass flagged is caught here,
+   already coded). But a receiver whose record type is *unresolvable* (e.g. a
+   method call on a variable of an undefined type) slips past semantics to
+   codegen, which emits a raw, uncoded `L<n>: Compiler error: Unknown field
+   'T.m'.` The `--diagnostics-json` collector (`rea/src/rea/main.c`) now backfills
+   the code for any bracket-less line via the registered frontend's inference, so
+   that backend string (and any other uncoded-but-recognized message) carries its
+   code in the JSON rather than `code: null`.
+
+`aetherInferDiagnosticCode` (the single source of truth for the message-to-code
+map) gains the `return requires a value` -> `FLOW-002` and `only direct call
+statements` -> `PAR-002` entries. Both LLM guides gain `FLOW-002` and `PAR-002`
+troubleshooting rows (and the enumerated code list in the long guide now includes
+`PAR-001`/`PAR-002`, previously omitted). Locked in by `--diagnostics-json`
+`"code"` assertions in `tests/run.sh` for all three (`function_empty_return_fail`,
+`par_fail_non_call`, `backend_unknown_field_coded_fail`). No language capability
+changed.
+
 ## 2026-07-01-2
 
 **The tuple-destructuring diagnostic now carries the real `TUP-001` code (was the

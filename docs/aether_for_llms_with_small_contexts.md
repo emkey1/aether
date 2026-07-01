@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-3*
+*Guide version: 2026-07-01-4*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -622,12 +622,16 @@ The compiler prints a stable code in brackets, and on newer builds a
   to the type if the prompt truly requires it).
 - **[FLOW-001]** a fallthrough path with no return value → add a final `ret ...`
   on every reachable top-level path.
+- **[FLOW-002]** an empty `ret;` in a non-`Void` function → give the return a
+  value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
 - **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
+- **[PAR-002]** a non-call statement inside `par { ... }` → `par` bodies allow
+  only direct call statements; wrap the work in a `fn` and call that inside `par`.
 
 If the program *compiles* but the output is wrong — extra headings, wrong
 spacing or precision (an integer where decimals are expected → add a `Real`
