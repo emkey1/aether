@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-2*
+*Guide version: 2026-07-01-3*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -30,8 +30,10 @@ compiler, and VM. It is not a separate runtime.
 11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays.
 12. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
-    top-level helper call only. Never `let value = pair();`. Tuple `@post`
-    checks must use positional slots like `result.0`, `result.1`.
+    top-level helper call only. Never `let value = pair();`. If the producer is
+    a method, undefined, or an expression, return a record/object and read its
+    fields instead. Tuple `@post` checks must use positional slots like
+    `result.0`, `result.1`.
 13. **OUT-001.** Return raw Aether source only. No Markdown fences.
 14. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
@@ -622,7 +624,7 @@ The compiler prints a stable code in brackets, and on newer builds a
   on every reachable top-level path.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct call only, `let (a, b) = pair();`.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.

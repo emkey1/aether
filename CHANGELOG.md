@@ -12,6 +12,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-2
+
+**The tuple-destructuring diagnostic now carries the real `TUP-001` code (was the
+placeholder `feature`) and, on the default AST path, an actionable hint.** A
+generative-testing pass caught models reaching for multi-value destructuring
+(`let (name, age, score) = parseLine(line);`) against a callee that is not a
+defined top-level tuple-return function. That correctly fails, but the diagnostic
+reported `code: "feature"` in `--diagnostics-json` and emitted no hint, so it did
+not feed the code-to-guide-section map that the compiler and guide self-correction
+loop rely on.
+
+1. **Every tuple feature-limitation diagnostic now resolves to `TUP-001`:**
+   destructure target is not a known tuple-return function, arity mismatch,
+   "requires a direct call", binding a tuple-return call to a single name, and
+   tuple-return methods. The former placeholder kind `feature` is now the semantic
+   kind `tuple`, mapped to `TUP-001` in `aetherInferDiagnosticCode` (the single
+   source of truth), so both the default AST path (`ast_parser.c`) and the legacy
+   rewriter (`AETHER_PARSER=rewriter`, `translate.c`) agree.
+2. **The AST-path destructuring diagnostics gained a hint.** The three were raw
+   `aetherDiagf` calls with a hardcoded `[feature]` bracket and no hint; they now
+   route through `reportAetherAstError`, emitting `TUP-001`, a hint (previously
+   `null` in `--diagnostics-json`), and the guide-help pointer, byte-for-byte
+   identical to the rewriter path.
+3. **No language capability changed.** Destructuring a direct call to a defined
+   top-level tuple-return function (`let (a, b) = pair();` where `pair -> (Int,
+   Int)`) still compiles. Both LLM guides now document the alternative for the
+   cases that legitimately cannot destructure (a method, an undefined helper, or a
+   nested expression): return a record/object and read its fields.
+
 ## 2026-07-01-1
 
 **Three silent-failure gaps in the AST frontend now produce coded diagnostics

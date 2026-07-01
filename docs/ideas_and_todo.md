@@ -560,6 +560,18 @@ destructuring binds from tuple-returning fns (or document the single-return + re
 (b) give this diagnostic a real code (e.g. `TUP-001`) — a placeholder `code:feature` breaks the
 code→guide-section mapping. Hit by `ornith-1.0-35b-nvfp4`.
 
+**Resolved (2026-07-01-2).** Both parts done. (a) The feature is supported as-is: `let (a, b) = f();`
+compiles when `f` is a defined top-level tuple-return function (`f -> (Int, Int)`). The diagnostic only
+fires for the cases that genuinely cannot destructure (a method, an undefined helper, or a nested
+expression), and both guides now document the record/fields alternative for those (return a record and
+read its fields). (b) The placeholder `code:"feature"` is now the real `TUP-001` across every tuple
+feature-limitation diagnostic on both the AST (`ast_parser.c`) and rewriter (`translate.c`) paths: the
+placeholder kind `feature` became the semantic kind `tuple`, mapped to `TUP-001` in
+`aetherInferDiagnosticCode`. The three AST-path destructuring diagnostics were raw `aetherDiagf`
+`[feature]` calls with no hint; they now route through `reportAetherAstError`, so they also emit a hint
+(was `null` in `--diagnostics-json`) and the guide-help pointer, byte-for-byte with the rewriter path.
+Locked in by a `--diagnostics-json` `"code":"TUP-001"` + hint assertion in `tests/run.sh`.
+
 ### A few compiler errors are still uncoded (should join the coded set) — *gap (verified)*
 The recent work coded the worst offenders; these remain raw (no `code`, plain stderr) so models can't
 map them to a guide section:
@@ -568,6 +580,16 @@ map them to a guide section:
   (the 2026-07-01 fix coded the shared-record par *crash* as PAR-001, but not this par-arity rule).
 - an edge of undefined-field access emits a raw `Compiler error: Unknown field 'X'` from the backend
   (the clean case is correctly `FIELD-002`). **Action:** route these through the coded-diagnostic path.
+
+### `--diagnostics-json` emits the `help:` guide pointer as a spurious extra diagnostic — *gap (verified)*
+Every coded diagnostic's `help: see <CODE> in the Aether guide (...)` line (from `aetherReportGuideHelp`)
+is captured off stderr by `collectDiagnosticsFromText` (`rea/src/rea/main.c`) and, because it is not a
+`hint: ` line, parsed as its own diagnostic object: `code:null`, `message:"help: see <CODE>..."`. So a
+single error yields **two** JSON entries, which inflates any consumer that counts array length as an
+error count. This is not tuple-specific (it affects FX-001, SYN-001, TUP-001, all of them); noticed
+while fixing TUP-001. **Action:** either attach the `help:` text to the preceding diagnostic (like
+`hint:`) or skip `help:`-prefixed lines in `collectDiagnosticsFromText`. Low severity (the human `hint`
+already carries the actionable guidance), but the doubled array is a real papercut for JSON consumers.
 
 *(Also worth a small harness fix, not a language gap: the idea-miner classifies a runtime failure whose
 message lands on STDOUT — e.g. `Aether @post failed in f` from a legitimately-violated contract — as a

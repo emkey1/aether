@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-2*
+*Guide version: 2026-07-01-3*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -254,8 +254,33 @@ fn main() -> Void {
 ```
 
 Limits: top-level helper functions only; destructuring must be a direct call;
-no binding to a single name; no tuple-return methods. `@post` is allowed on
-tuple-return helpers, but only with positional result slots:
+no binding to a single name; no tuple-return methods.
+
+When the values do not come from a direct call to a defined top-level
+tuple-return function (for example a method, an undefined helper, or a nested
+expression), the compiler reports `TUP-001` ("tuple destructuring target is not
+a known tuple-return function"). Return a record/object instead and read its
+fields:
+
+```aether
+type Pair {
+    first: Int;
+    second: Int;
+}
+
+fn split_pair(s: Text) -> Pair {
+    ret Pair { first: 3, second: 7 };
+}
+
+fn main() -> Void {
+    let r: Pair = split_pair("x");
+    fx { println(r.first, " ", r.second); }
+    ret;
+}
+```
+
+`@post` is allowed on tuple-return helpers, but only with positional result
+slots:
 
 ```aether
 @post result.0 <= result.1

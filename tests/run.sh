@@ -601,6 +601,23 @@ if ! grep -q "tuple-return @post checks must reference slots explicitly" /tmp/ae
     cat /tmp/aether_tuple_post_invalid_result_fail.out >&2
     exit 1
 fi
+# The tuple destructuring diagnostic must carry the real TUP-001 code (not the
+# former placeholder `feature`) so --diagnostics-json feeds the code->guide map,
+# and must include an actionable hint pointing at the record alternative.
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >/tmp/aether_tuple_bad_destructure_json.out 2>&1; then
+    echo "expected tuple destructure diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"TUP-001"' /tmp/aether_tuple_bad_destructure_json.out; then
+    echo "missing tuple diagnostics-json code TUP-001 (regression: placeholder code?)" >&2
+    cat /tmp/aether_tuple_bad_destructure_json.out >&2
+    exit 1
+fi
+if ! grep -q '"hint":"the callee must be a top-level tuple-return function' /tmp/aether_tuple_bad_destructure_json.out; then
+    echo "missing tuple diagnostics-json hint (record alternative)" >&2
+    cat /tmp/aether_tuple_bad_destructure_json.out >&2
+    exit 1
+fi
 # A @post contract comparing a whole collection to a scalar (`result > 0` on a
 # `T[]` return) must be rejected at COMPILE time (ANN-001), not lowered to a
 # guard that crashes the VM with "Operands not comparable" at runtime.

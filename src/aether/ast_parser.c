@@ -2751,7 +2751,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     if (init && init->type == AST_PROCEDURE_CALL && init->token && init->token->value &&
         p->tuples &&
         tupleTableGet(p->tuples, init->token->value, strlen(init->token->value))) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "feature",
+        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple",
                              "tuple-return calls must be destructured directly.",
                              "use `let (a, b) = pair();` rather than binding the tuple call to one name.");
         p->hadError = true;
@@ -3034,9 +3034,9 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
 
     /* The right side must be a direct call `name(args)` to a tuple-return fn. */
     if (p->current.type != REA_TOKEN_IDENTIFIER) {
-        const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
-        aetherDiagf( "[feature] tuple destructuring currently requires a direct call to a known tuple-return function.\n");
+        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple",
+                             "tuple destructuring currently requires a direct call to a known tuple-return function.",
+                             "use `let tmp = fnCall();` and then read fields, or destructure a direct tuple-return call.");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
@@ -3047,17 +3047,17 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     calleeName[cl] = '\0';
     const AetherTupleSig *sig = tupleTableGet(p->tuples, calleeName, strlen(calleeName));
     if (!sig) {
-        const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
-        aetherDiagf( "[feature] tuple destructuring target is not a known tuple-return function.\n");
+        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple",
+                             "tuple destructuring target is not a known tuple-return function.",
+                             "the callee must be a top-level tuple-return function defined in this module; otherwise return a record/object and read its fields.");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
     }
     if (sig->itemCount != nameCount) {
-        const char *path = aetherSemanticGetSourcePath();
-        if (path && *path) aetherDiagf( "%s:%d: ", path, kwLine);
-        aetherDiagf( "[feature] tuple destructuring arity does not match the function return tuple.\n");
+        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple",
+                             "tuple destructuring arity does not match the function return tuple.",
+                             "make the number of bindings match the number of returned tuple elements.");
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
@@ -4295,7 +4295,7 @@ static AST *parseFnDecl(AetherParser *p) {
             }
             if (parseTupleTypeList(tupleStart, tupleEnd, &tupleItemTypes, &tupleItemCount)) {
                 if (isMethod) {
-                    reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "feature",
+                    reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "tuple",
                                          "tuple return types are currently only supported on top-level functions.",
                                          "return a record/object from methods, or move tuple-return logic to a top-level helper function.");
                     p->hadError = true;

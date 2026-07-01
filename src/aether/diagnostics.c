@@ -31,6 +31,17 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "redeclaration") == 0) {
             return "NAME-001";
         }
+        /* Tuple feature-limitation diagnostics (narrow tuple returns): a
+         * tuple-return call bound to one name, destructuring a non-tuple/undefined
+         * callee, an arity mismatch, or a tuple-return method. These all point at
+         * the same TUP-001 guide section. Kept as a distinct "tuple" kind (not the
+         * former placeholder "feature") so the code->guide map resolves and the
+         * human message reads "Aether tuple rewrite error". Internal "tuple ...
+         * rewrite failed" defects and @post-slot errors use other kinds, so they
+         * are intentionally not captured here. */
+        if (strcmp(kind, "tuple") == 0) {
+            return "TUP-001";
+        }
     }
 
     if (!detail) {

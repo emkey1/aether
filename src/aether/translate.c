@@ -6140,7 +6140,7 @@ static char *translateTupleDestructureLetLine(const char *lineStart,
     if (!extractDirectTupleCallName(exprStart, exprEnd, &callNameStart, &callNameLen)) {
         reportAetherRewriteError(path,
                                  lineNumber,
-                                 "feature",
+                                 "tuple",
                                  "tuple destructuring currently requires a direct call to a known tuple-return function.",
                                  "use `let tmp = fnCall();` and then read fields, or destructure a direct tuple-return call.");
         freeTupleItemTypes(names, nameCount);
@@ -6150,16 +6150,16 @@ static char *translateTupleDestructureLetLine(const char *lineStart,
     if (!tupleSig) {
         reportAetherRewriteError(path,
                                  lineNumber,
-                                 "feature",
+                                 "tuple",
                                  "tuple destructuring target is not a known tuple-return function.",
-                                 "destructure only direct calls to tuple-return Aether functions in the current module.");
+                                 "the callee must be a top-level tuple-return function defined in this module; otherwise return a record/object and read its fields.");
         freeTupleItemTypes(names, nameCount);
         return NULL;
     }
     if (tupleSig->itemCount != nameCount) {
         reportAetherRewriteError(path,
                                  lineNumber,
-                                 "feature",
+                                 "tuple",
                                  "tuple destructuring arity does not match the function return tuple.",
                                  "make the number of bindings match the number of returned tuple elements.");
         freeTupleItemTypes(names, nameCount);
@@ -9212,7 +9212,7 @@ char *aetherRewriteSource(const char *source, const char *path) {
                 if (findTupleInitializerCallee(body, lineEnd, &tupleTable)) {
                     reportAetherRewriteError(path,
                                              lineNumber,
-                                             "feature",
+                                             "tuple",
                                              "tuple-return calls must be destructured directly.",
                                              "use `let (a, b) = pair();` rather than binding the tuple call to one name.");
                     freePendingContracts(&pending);
@@ -9508,7 +9508,7 @@ char *aetherRewriteSource(const char *source, const char *path) {
                 if (typeState.active) {
                     reportAetherRewriteError(path,
                                              lineNumber,
-                                             "feature",
+                                             "tuple",
                                              "tuple return types are currently only supported on top-level functions.",
                                              "return a record/object from methods, or move tuple-return logic to a top-level helper function.");
                     freeTupleItemTypes(tupleItemTypes, tupleItemCount);
