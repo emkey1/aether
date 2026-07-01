@@ -624,10 +624,12 @@ while fixing TUP-001. **Action:** either attach the `help:` text to the precedin
 `hint:`) or skip `help:`-prefixed lines in `collectDiagnosticsFromText`. Low severity (the human `hint`
 already carries the actionable guidance), but the doubled array is a real papercut for JSON consumers.
 
-*(Also worth a small harness fix, not a language gap: the idea-miner classifies a runtime failure whose
-message lands on STDOUT — e.g. `Aether @post failed in f` from a legitimately-violated contract — as a
-"silent" failure, because it only inspects stderr+diagnostics. It should also scan stdout for the known
-runtime-error prefixes.)*
+*(Harness accuracy fix, not a language gap. RESOLVED 2026-07-01: the idea-miner used to classify a runtime
+failure whose message lands on STDOUT (e.g. `Aether @post failed in f` from a legitimately-violated contract)
+as a "silent" failure, because it only inspected stderr + diagnostics. `analyze_failure` in
+`tools/aether_idea_miner.py` now also scans stdout for the known runtime-error prefixes (`Aether @post failed`,
+`Aether @pre failed`, `Runtime Error`, `Compiler error`) and fingerprints them as runtime rather than silent;
+covered by `Tests/aether_doc_bench/test_miner_offline.py`.)*
 
 ### Models write `fn m(self: T)` free functions instead of methods — *idea (verified, 2 models)*
 Folding GLM-5-Turbo/5.2 into pass 2 (both very clean: 9/10 programs compiled): the one gap was models
