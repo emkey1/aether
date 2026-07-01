@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-4*
+*Guide version: 2026-07-01-5*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -343,9 +343,16 @@ type JobSummary {
 ```
 
 - use `type`, never `class`; fields are `name: Type;` (semicolons)
-- inside methods use lowercase `self`, never `Self`
+- **define methods inside the `type` block; `self` is implicit — never give a
+  method a `self` parameter.** Inside a method use lowercase `self`, never `Self`.
+- **only a method declared inside the `type` binds `self`, so only its
+  `@pre`/`@post` may reference `self.field`** (e.g. `@pre self.v >= 0`). A
+  `self`-referencing contract on a top-level `fn` fails `[SCOPE-001] identifier
+  'self' not in scope` (contrast below).
 - top-level helpers whose first parameter is `self: Type` are extension-style
-  methods; call them with method syntax (`counter.bump()`)
+  methods; call them with method syntax (`counter.bump()`) — but such a top-level
+  `fn` cannot carry a `@pre`/`@post` that names `self`; put the method and its
+  contract inside the `type` instead
 - methods do not implicitly capture outer loop locals or helper locals from
   another scope; pass needed context in the parameter list
 - if a local and a field share a name, bare `name` means the local and
@@ -362,6 +369,24 @@ type JobSummary {
   write `fn new()` (nor `fn __init__` / `Type.new()`); allocate with `new T()`
   and assign fields, or add a top-level factory `fn makeT(...) -> T` with a
   non-reserved name.
+
+A record method goes **inside** the `type` with an implicit `self`, and its
+contract may then reference `self`. A free-standing `fn` with an explicit `self`
+parameter plus a `self`-referencing contract does not compile:
+
+```aether
+// WRONG — free-standing method + explicit self → [SCOPE-001] 'self' not in scope
+type C { v: Int; }
+@pre self.v >= 0
+fn get(self: C) -> Int { ret self.v; }
+
+// RIGHT — method inside the type; self is implicit; the contract may name self
+type C {
+    v: Int;
+    @pre self.v >= 0
+    fn get() -> Int { ret self.v; }
+}
+```
 
 Record values are pointer-backed: passing a record to a function or method
 and mutating its fields is visible to the caller.
@@ -605,6 +630,10 @@ fn clamp(score: Int) -> Int {
 - `@pure` functions reject effectful builtins and calls into known non-pure
   Aether functions
 - `@pre` / `@post` take expressions; `@post` may reference `result`
+- a method's `@pre`/`@post` may reference `self.field`, but only when the method
+  is declared inside its `type` block (where `self` is implicit); the same
+  contract on a top-level `fn` with an explicit `self` parameter fails
+  `[SCOPE-001] identifier 'self' not in scope`
 - on a collection return (`-> T[]`), a contract must compare a *property* of the
   collection, not the collection itself: `@post length(result) > 0`, never
   `@post result > 0` (an array is not comparable to a scalar, so the whole-array

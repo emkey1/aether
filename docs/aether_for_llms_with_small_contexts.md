@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-4*
+*Guide version: 2026-07-01-5*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -143,12 +143,18 @@ type Counter {
 }
 ```
 
+- methods live **inside** the `type` with an **implicit `self`** — never give one
+  a `self` parameter; a method's `@pre`/`@post` may reference `self.field`
+  (`@pre self.value >= 0` above `fn bump`). A free-standing `fn bump(self: Counter)`
+  with a `self`-referencing contract fails `[SCOPE-001] identifier 'self' not in
+  scope`.
 - `new Counter()` zeroes fields (Int `0`, Real `0.0`, Bool `false`, Text empty)
 - canonical init: `Point { x: 3, y: 4 }`; `Point(x: 3, y: 4)` accepted
 - records are pointer-backed: mutations through a callee are visible to the
   caller
-- a top-level `fn bump(self: Counter) -> Int` is an extension method; call it
-  as `counter.bump()`
+- a top-level `fn bump(self: Counter) -> Int` is an extension method, called as
+  `counter.bump()` — but it cannot carry a `@pre`/`@post` that names `self` (put
+  the method and its contract inside the `type`)
 - **field & method names must not be reserved words** — a member named after a
   type (`word`, `text`, `int`, `byte`, `bool`), a keyword (`new`, `for`, `if`,
   `match`), or an operator word (`mul`, `div`, `mod`, `xor`) fails SYN-001

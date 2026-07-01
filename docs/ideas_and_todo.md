@@ -638,3 +638,10 @@ implicit `self`) with `@pre self.v >= 0` compiles+runs fine; only the explicit-`
 form fails. Hit by `glm-5.2` and (pass 2) `mistralai/devstral-small-2-2512`. **Action:** guide note in
 the method/constructor section — methods live INSIDE the `type` block with implicit `self`; do not write
 `fn m(self: T)` free functions; `@pre`/`@post` on a proper method may reference `self`.
+
+**Resolved (docs-only, 2026-07-01).** Both guides now state this in the `type`/method section. The long
+guide (`aether_for_llms_and_others.md`) gains implicit-`self` bullets, a WRONG/RIGHT `[SCOPE-001]` contrast,
+and a `@pre`/`@post`-may-reference-`self.field` note in *Purity and contracts*; the concise guide gains a
+terse implicit-`self` bullet. Re-verified on `aether 2026-07-01-3`: in-`type` method with `@pre self.v >= 0`
+compiles+runs; the free-standing `fn get(self: C)` + `@pre self.v` form fails `[SCOPE-001]`; extension
+methods without a `self`-referencing contract still work. No `VERSION` bump (no language change).
