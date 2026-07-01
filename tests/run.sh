@@ -20,6 +20,7 @@ TOON_ALIAS_PASS_FIXTURE="$TESTS_DIR/toon_alias_pass.aether"
 CONTRACT_PASS_FIXTURE="$TESTS_DIR/contracts_pass.aether"
 CONTRACT_LAYOUT_PASS_FIXTURE="$TESTS_DIR/contract_layout_pass.aether"
 CONTRACT_STRING_LEN_PASS_FIXTURE="$TESTS_DIR/contract_string_len_pass.aether"
+CONTRACT_COMMENT_PASS_FIXTURE="$TESTS_DIR/contract_annotation_comment_pass.aether"
 COST_PASS_FIXTURE="$TESTS_DIR/cost_annotation_pass.aether"
 COST_ZERO_FAIL_FIXTURE="$TESTS_DIR/cost_annotation_zero_fail.aether"
 COST_UNIT_FAIL_FIXTURE="$TESTS_DIR/cost_annotation_unit_fail.aether"
@@ -154,6 +155,7 @@ for fixture in \
     "$CONTRACT_PASS_FIXTURE" \
     "$CONTRACT_LAYOUT_PASS_FIXTURE" \
     "$CONTRACT_STRING_LEN_PASS_FIXTURE" \
+    "$CONTRACT_COMMENT_PASS_FIXTURE" \
     "$COST_PASS_FIXTURE" \
     "$COST_ZERO_FAIL_FIXTURE" \
     "$COST_UNIT_FAIL_FIXTURE" \
@@ -288,6 +290,17 @@ fi
 if ! grep -qx "10" /tmp/aether_contract_string_len_pass.out; then
     echo "unexpected contract string_len output" >&2
     cat /tmp/aether_contract_string_len_pass.out >&2
+    exit 1
+fi
+# A `//` line comment trailing a @pre/@post annotation must be stripped before
+# the contract expression is lowered to a guard (comment text is not code), and
+# a `//` inside a string literal in the expression must be preserved. A leak in
+# either direction turns this into a compile error instead of the 1/42 output.
+"$AETHER_BIN" --no-cache "$CONTRACT_COMMENT_PASS_FIXTURE" >/tmp/aether_contract_comment_pass.out
+printf '1\n42\n' >/tmp/aether_contract_comment_expected.out
+if ! cmp -s /tmp/aether_contract_comment_expected.out /tmp/aether_contract_comment_pass.out; then
+    echo "unexpected contract annotation comment output (regression: // comment leaked into guard, or in-literal // stripped)" >&2
+    cat /tmp/aether_contract_comment_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$COST_PASS_FIXTURE" >/tmp/aether_cost_pass.out

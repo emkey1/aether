@@ -12,6 +12,31 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-30-2
+
+**Trailing `//` comments on `@pre`/`@post` annotations no longer leak into the
+contract guard.** The AST frontend captured the whole physical remainder of an
+annotation line as the contract expression, so a trailing line comment was
+lowered into the runtime guard and parsed as code. A comment that happened to
+contain an undeclared word failed compilation, e.g.
+
+```
+@post result >= 1 // Factorial of 0 is 1, otherwise positive
+   -> [SCOPE-001] identifier 'Factorial' not in scope.
+```
+
+whereas a comment whose words all resolved compiled silently — the diagnostic
+depended on the *prose*, not the code. `collectPendingAnnotations` now stops the
+expression at the first unquoted `//`, so comment text is stripped unconditionally
+before lowering; a `//` inside a string literal in the expression (e.g.
+`@post result != "http://none"`) is preserved. The guard itself is unchanged, so
+a contract that should fire still fires. The legacy text-rewriter fallback
+(`AETHER_PARSER=rewriter`, `extractAnnotationExpr`) got the symmetric fix, so both
+frontends agree. **Not breaking:** programs that compiled
+before still compile; programs that erred only because of an annotation comment
+now compile. Companion to the still-open "malformed `@cost` is silently dropped"
+gap. (Surfaced by generative-model testing; `gemini-3.1-pro-preview`.)
+
 ## 2026-06-30-1
 
 **Reserved-word / member-name collisions now name the collision (SYN-001).** A

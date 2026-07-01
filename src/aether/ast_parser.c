@@ -3734,6 +3734,32 @@ static void aetherResyncToNextLine(AetherParser *p) {
     aetherAdvance(p);
 }
 
+/* Return a pointer to the start of an unquoted `//` line comment within
+ * [start, lineEnd), or lineEnd if there is none. String ("...") and char
+ * ('...') literals -- honoring backslash escapes -- are skipped so a `//`
+ * inside a literal (e.g. `result != "http://x"`) is not mistaken for a
+ * comment. This mirrors the literal/comment handling in semantic.c's
+ * sanitizeAetherSourceForSemanticScan, keeping the parser's raw contract-text
+ * capture in step with the comment-sanitized text the semantic layer scans. */
+static const char *aetherAnnotationExprEnd(const char *start, const char *lineEnd) {
+    const char *c = start;
+    while (c < lineEnd) {
+        if (*c == '"' || *c == '\'') {
+            char quote = *c++;
+            while (c < lineEnd && *c != quote) {
+                c += (*c == '\\' && c + 1 < lineEnd) ? 2 : 1;
+            }
+            if (c < lineEnd) c++; /* consume the closing quote */
+            continue;
+        }
+        if (*c == '/' && c + 1 < lineEnd && c[1] == '/') {
+            return c;
+        }
+        c++;
+    }
+    return lineEnd;
+}
+
 /* Collect a run of `@pre`/`@post`/`@pure`/`@cost` annotation lines that precede a
  * `fn`/method decl into `p->pending`. The shared Rea lexer yields `@` as
  * REA_TOKEN_UNKNOWN("@"); we read the directive identifier, then capture the rest
@@ -3763,10 +3789,13 @@ static void collectPendingAnnotations(AetherParser *p) {
             p->pendingAnnotLine = p->current.line;
         }
         p->pendingAnnotCount++;
-        /* Raw expression = trimmed remainder of the line after the directive. */
+        /* Raw expression = trimmed remainder of the line after the directive,
+         * stopping at a trailing `//` line comment so comment text is never
+         * lowered into the contract guard. A `//` inside a string literal is
+         * preserved. */
         const char *exprStart = dEnd;
         while (exprStart < lineEnd && isspace((unsigned char)*exprStart)) exprStart++;
-        const char *exprEnd = lineEnd;
+        const char *exprEnd = aetherAnnotationExprEnd(exprStart, lineEnd);
         while (exprEnd > exprStart && isspace((unsigned char)exprEnd[-1])) exprEnd--;
         char *exprText = NULL;
         if (exprEnd > exprStart) {

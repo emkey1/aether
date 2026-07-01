@@ -375,19 +375,25 @@ the workaround for) record literals inside array literals. At minimum, the guide
 should state arrays require an explicit type and show building an array-of-records
 by appending in a loop.
 
-### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *gap (verified bug)*
-The annotation rewriter takes the rest of an annotation line as the contract
-expression **without stripping a trailing `//` comment**, so the comment text is
+### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *fixed 2026-06-30-2*
+The AST frontend captured the rest of an annotation line as the contract
+expression **without stripping a trailing `//` comment**, so the comment text was
 parsed as code:
 ```
 @post result >= 1 // Factorial of 0 is 1, otherwise positive
 fn calculateFactorial(n: Int) -> Int { ... }
    -> [SCOPE-001] identifier 'Factorial' not in scope.
 ```
-Hit by `gemini-3.1-pro-preview` (fixed only after deleting the comment).
-**Action:** strip `//` line comments from annotation lines before lowering
-`@pre`/`@post`/`@cost`. (Companion to the existing "malformed `@cost` silently
-dropped" gap.)
+The diagnostic depended on the comment *prose* (an undeclared word errored; one
+that resolved compiled silently), not the code. Hit by `gemini-3.1-pro-preview`
+(worked around only by deleting the comment).
+**Resolved (2026-06-30-2).** `collectPendingAnnotations` (`ast_parser.c`) now
+stops the contract-expression capture at the first unquoted `//`, so a trailing
+line comment is stripped unconditionally before lowering; a `//` inside a string
+literal (e.g. `@post result != "http://none"`) is preserved. The legacy rewriter
+fallback's `extractAnnotationExpr` (`translate.c`) got the symmetric fix, so both
+frontends agree. Regression: `tests/contract_annotation_comment_pass.aether`.
+(Companion to the still-open "malformed `@cost` is silently dropped" gap below.)
 
 ### Models reach for `loop x in collection` (foreach) — *idea / decision needed*
 `loop v in values { ... }` → `expected '<low>..<high>' in loop range`; only

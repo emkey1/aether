@@ -1,0 +1,29 @@
+// Regression: `//` line comments trailing a @pre/@post annotation must be
+// stripped before the contract expression is lowered to a runtime guard, so
+// the comment text is never parsed as code. A `//` *inside a string literal*
+// in the expression must be preserved (it is data, not a comment).
+//
+// If the trailing comment leaked, `Factorial ...` would parse as identifiers
+// and fail scope resolution (SCOPE-001) at compile time -- the program would
+// not run. If the in-literal `//` were mistaken for a comment, `"a//b"` would
+// be truncated to a broken string literal and also fail to compile. Either
+// regression turns the expected `1` / `42` output into a compile error.
+@pre n >= 0 // input must be non-negative
+@post result >= 1 // Factorial of 0 is 1, otherwise positive
+fn calculateFactorial(n: Int) -> Int {
+    ret 1;
+}
+
+@pre string_len("a//b") == 4 // the // inside the literal is data, not a comment
+@post result > 0
+fn slashesInLiteral() -> Int {
+    ret 42;
+}
+
+fn main() -> Void {
+    fx {
+        println(calculateFactorial(3));
+        println(slashesInLiteral());
+    }
+    ret;
+}

@@ -4240,6 +4240,30 @@ static char *appendContractExpr(char *existing, const char *expr) {
     return out.data;
 }
 
+/* Return the start of an unquoted `//` line comment within [start, lineEnd), or
+ * lineEnd if there is none. String/char literals (honoring backslash escapes)
+ * are skipped so a `//` inside a literal is not mistaken for a comment -- same
+ * handling as findToonMarker above and the AST frontend's
+ * collectPendingAnnotations. */
+static const char *annotationExprEnd(const char *start, const char *lineEnd) {
+    const char *c = start;
+    while (c < lineEnd) {
+        if (*c == '"' || *c == '\'') {
+            char quote = *c++;
+            while (c < lineEnd && *c != quote) {
+                c += (*c == '\\' && c + 1 < lineEnd) ? 2 : 1;
+            }
+            if (c < lineEnd) c++; /* consume the closing quote */
+            continue;
+        }
+        if (*c == '/' && c + 1 < lineEnd && c[1] == '/') {
+            return c;
+        }
+        c++;
+    }
+    return lineEnd;
+}
+
 static char *extractAnnotationExpr(const char *body, const char *lineEnd, const char *directive) {
     const char *exprStart;
     if (!directive) {
@@ -4249,7 +4273,9 @@ static char *extractAnnotationExpr(const char *body, const char *lineEnd, const 
     while (exprStart < lineEnd && isspace((unsigned char)*exprStart)) {
         exprStart++;
     }
-    return trimmedCopy(exprStart, lineEnd);
+    /* Stop at a trailing `//` line comment so comment text is never lowered into
+     * the contract guard; a `//` inside a string literal is preserved. */
+    return trimmedCopy(exprStart, annotationExprEnd(exprStart, lineEnd));
 }
 
 static char *rewriteInlineIfExpression(const char *exprStart,
