@@ -56,6 +56,12 @@ include_directories(
 # tools/bump_version.py, never per build, so the date means "semantics last
 # changed" -- which makes node version-skew self-evident.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" AETHER_LANG_VERSION LIMIT_COUNT 1)
+# file(STRINGS) reads VERSION at configure time and bakes it into PROGRAM_VERSION
+# below, so a plain incremental build after a VERSION bump would keep reporting
+# the stale version. Register VERSION as a configure dependency so any change to
+# it forces a reconfigure (and thus a recompile of the version string).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 if(NOT AETHER_LANG_VERSION)
     set(AETHER_LANG_VERSION "unknown")
 endif()
