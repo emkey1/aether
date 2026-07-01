@@ -40,9 +40,9 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
   not a partition** — they do not sum to N (`Compiled ≥ Correct ≥ Fixed`,
   `Fixed ⊆ Retried`, and `Correct` already includes the fixes). A task that never
   produced a usable program counts 0 in all four (and shows up as `Correct < N`).
-- **Cohort.** A curated set from a 120B MoE down to a 7B, served on claw1 (Ollama),
-  m5t (LM Studio / MLX), and the Gemini API. For the broad 2B–122B model list, see
-  the archive.
+- **Cohort.** A curated set from a 120B MoE down to a 7B, served on the two GB10
+  claws (claw1/claw2, Ollama), m5t (LM Studio / MLX), and the Gemini API. For the
+  broad 2B–122B model list, see the archive.
 
 ## Simple (30 tasks): core language fluency
 
@@ -53,13 +53,18 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `gemini-2.5-flash` | — · cloud | **30**/30/1/1 | **30**/30/1/1 |
 | `glm-5.2` | — · cloud | **30**/30/0/0 | **30**/30/0/0 |
 | `glm-5-turbo` | — · cloud | **30**/30/1/1 | 29/29/2/1 |
+| `gemma3-27b` | 27B · claw2 | **30**/29/6/5 | 26/26/9/5 |
 | `devstral-24b` | 24B · m5t | 29/29/3/2 | 28/28/4/3 |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 29/28/4/2 | 28/28/2/0 |
 | `mistral-small-24b` | 24B · claw1 | 28/28/6/4 | 28/27/7/4 |
+| `phi4` | 14B · claw2 | 28/27/13/10 | 26/25/6/1 |
 | `qwen3.5-9b` | 9B · m5t | 27/27/1/1 | 26/26/2/2 |
+| `exaone3.5-32b` | 32B · claw1 | 25/24/10/4 | 23/22/11/3 |
+| `llama3.1-8b` | 8B · claw2 | 22/19/13/2 | 26/20/13/3 |
 | `granite4-tiny-7b` | 7B · m5t | 19/15/20/5 | 21/13/17/0 |
+| `granite3.3-8b` | 8B · claw1 | 18/14/20/4 | 21/18/13/1 |
 
-*~6 more m5t models are still landing — see Status.*
+*More claw1/claw2 models (small + large + Ornith) are still landing — see Status.*
 
 ## Large (8 tasks): bigger inputs, layered logic
 
@@ -71,10 +76,15 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `glm-5-turbo` | — · cloud | 7/7/0/0 | **8**/8/0/0 |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | **8**/8/2/2 | 7/7/1/0 |
 | `devstral-24b` | 24B · m5t | 7/7/2/1 | 7/7/8/7 |
+| `gemma3-27b` | 27B · claw2 | 7/7/8/7 | 7/7/8/7 |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 6/6/4/2 | 7/7/5/4 |
 | `mistral-small-24b` | 24B · claw1 | 7/7/1/0 | 7/7/2/1 |
+| `phi4` | 14B · claw2 | 7/7/8/7 | 1/1/8/1 |
 | `qwen3.5-9b` | 9B · m5t | 5/5/4/4 | 6/6/6/6 |
+| `exaone3.5-32b` | 32B · claw1 | 2/1/7/0 | 3/2/8/2 |
 | `granite4-tiny-7b` | 7B · m5t | 0/0/8/0 | 1/0/8/0 |
+| `llama3.1-8b` | 8B · claw2 | 1/0/8/0 | 1/0/8/0 |
+| `granite3.3-8b` | 8B · claw1 | 2/0/8/0 | 1/0/8/0 |
 
 ## CS-classics (19 tasks): textbook algorithms
 
@@ -86,10 +96,15 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 17/17/2/2 | 18/**18**/2/1 |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | 17/17/6/4 | 17/17/8/6 |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 12/10/10/1 | 14/**13**/8/2 |
+| `exaone3.5-32b` | 32B · claw1 | 10/8/14/3 | 7/7/14/2 |
 | `qwen3.5-9b` | 9B · m5t | 8/8/0/0 | 14/**13**/4/3 |
 | `devstral-24b` | 24B · m5t | 15/11/11/3 | 13/11/11/3 |
+| `gemma3-27b` | 27B · claw2 | 11/7/14/2 | 13/12/12/5 |
 | `mistral-small-24b` | 24B · claw1 | 9/7/12/0 | 10/7/14/2 |
+| `phi4` | 14B · claw2 | 6/6/14/2 | 5/5/14/0 |
 | `granite4-tiny-7b` | 7B · m5t | 4/2/18/1 | 6/4/16/1 |
+| `granite3.3-8b` | 8B · claw1 | 4/2/17/0 | 5/3/16/0 |
+| `llama3.1-8b` | 8B · claw2 | 5/1/18/0 | 5/2/17/0 |
 
 *All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
 model.*
@@ -150,9 +165,11 @@ This is the finalized-guide / repair-on cohort, regenerated from the per-model
 result JSONs. The two cloud **GLM** models (`glm-5-turbo`, `glm-5.2`) are served via
 the autoglm/autoclaw proxy, which is slow (~23 tok/s); GLM's verbose reasoning can run
 a hard task past the request time budget, so a couple of their large/cs cells reflect a
-proxy/verbosity timeout rather than a capability miss. **In progress:** roughly six m5t
-models (exaone, lfm2, glm-4.7-flash, gemma4-31b, olmo-think, deepseek-r1-14b, qwq) are
-still benchmarking and will be folded in as they land. (`seed-oss-36b` was dropped —
-impractically slow to serve in this setup.) The broad single-pass 2B–122B sweep —
+proxy/verbosity timeout rather than a capability miss. **In progress:** the two GB10
+Sparks (claw1/claw2) are benchmarking a broad tail in parallel — more small models
+(qwen3 1.7-8b, deepseek-r1) and larger ones (gemma3-12b, llama3.3-70b, command-r-plus,
+nemotron) plus the **Ornith-1.0-35B** agentic-coding model — folding in as they land.
+(The original m5t laptop tail was moved to the claws, which serve 32B models far faster;
+`seed-oss-36b` stays dropped — impractically slow.) The broad single-pass 2B–122B sweep —
 including the cloud flagships that ace
 every board — remains in the [archive](archive/aether_guided_benchmark.md).
