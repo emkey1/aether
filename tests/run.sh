@@ -31,6 +31,8 @@ CONTRACT_POST_DETACHED_FAIL_FIXTURE="$TESTS_DIR/contract_annotation_post_detache
 CONTRACT_PURE_TRAILING_FAIL_FIXTURE="$TESTS_DIR/contract_annotation_pure_trailing_fail.aether"
 CONTRACT_FAIL_PRE_FIXTURE="$TESTS_DIR/contracts_fail_pre.aether"
 CONTRACT_FAIL_POST_FIXTURE="$TESTS_DIR/contracts_fail_post.aether"
+CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE="$TESTS_DIR/contract_collection_result_fail.aether"
+CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE="$TESTS_DIR/contract_collection_length_pass.aether"
 EFFECTS_FAIL_FIXTURE="$TESTS_DIR/effects_fail_outside_fx.aether"
 PRINT_ALIAS_PASS_FIXTURE="$TESTS_DIR/print_alias_pass.aether"
 PRINT_ALIAS_FAIL_FIXTURE="$TESTS_DIR/print_alias_fail_outside_fx.aether"
@@ -167,6 +169,8 @@ for fixture in \
     "$CONTRACT_PURE_TRAILING_FAIL_FIXTURE" \
     "$CONTRACT_FAIL_PRE_FIXTURE" \
     "$CONTRACT_FAIL_POST_FIXTURE" \
+    "$CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE" \
+    "$CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE" \
     "$EFFECTS_FAIL_FIXTURE" \
     "$PRINT_ALIAS_PASS_FIXTURE" \
     "$PRINT_ALIAS_FAIL_FIXTURE" \
@@ -578,6 +582,35 @@ fi
 if ! grep -q "tuple-return @post checks must reference slots explicitly" /tmp/aether_tuple_post_invalid_result_fail.out; then
     echo "missing tuple @post positional failure message" >&2
     cat /tmp/aether_tuple_post_invalid_result_fail.out >&2
+    exit 1
+fi
+# A @post contract comparing a whole collection to a scalar (`result > 0` on a
+# `T[]` return) must be rejected at COMPILE time (ANN-001), not lowered to a
+# guard that crashes the VM with "Operands not comparable" at runtime.
+if "$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE" >/tmp/aether_contract_collection_result_fail.out 2>&1; then
+    echo "expected collection-vs-scalar contract failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "arrays and scalars are not comparable" /tmp/aether_contract_collection_result_fail.out; then
+    echo "missing collection-vs-scalar contract failure message" >&2
+    cat /tmp/aether_contract_collection_result_fail.out >&2
+    exit 1
+fi
+if ! grep -q "ANN-001" /tmp/aether_contract_collection_result_fail.out; then
+    echo "collection contract diagnostic missing ANN-001 code" >&2
+    cat /tmp/aether_contract_collection_result_fail.out >&2
+    exit 1
+fi
+if grep -q "Operands not comparable" /tmp/aether_contract_collection_result_fail.out; then
+    echo "collection contract crashed at runtime instead of failing at compile time" >&2
+    cat /tmp/aether_contract_collection_result_fail.out >&2
+    exit 1
+fi
+# The documented fix -- `length(result) > 0` -- must still compile and run.
+"$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE" >/tmp/aether_contract_collection_length_pass.out
+if ! grep -qx "3" /tmp/aether_contract_collection_length_pass.out; then
+    echo "unexpected collection length contract output" >&2
+    cat /tmp/aether_contract_collection_length_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$PURE_PASS_FIXTURE" >/dev/null

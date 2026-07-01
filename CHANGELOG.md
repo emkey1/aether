@@ -12,6 +12,45 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-06-30-4
+
+**A `@pre`/`@post` contract predicate that compares a whole collection to a
+scalar is now rejected at compile time (`ANN-001`) instead of crashing the VM at
+runtime.** A contract like `@post result > 0` on a `T[]`-returning function lowers
+to a runtime guard `if (!(result > 0)) ...`; because pscal-core cannot compare an
+array to an integer, that guard aborted with
+`Runtime Error: Operands not comparable for operator '>'. Left operand: ARRAY,
+Right operand: Int` — a runtime failure for what is really a type error in the
+annotation:
+
+```
+@post result > 0
+fn make(n: Int) -> Int[] { ... ret xs; }   // before: compiled, crashed at runtime
+                                            // now:    ANN-001 at compile time
+```
+
+The AST frontend now type-checks each contract comparison as it lowers the guard
+(`checkContractComparisons` in `ast_parser.c`): a bare `result` in a `@post`
+resolves to the function's return-type name, every other operand goes through the
+existing binding/return-type inference, and a comparison with exactly one array
+operand and one scalar operand is reported with a coded diagnostic that points at
+the fix:
+
+```
+prog.aether:7: [ANN-001] Aether contract rewrite error: @post predicate compares
+an array (`Int[]`) to a scalar (`Int`) with `>`; arrays and scalars are not comparable.
+hint: use a collection predicate, for example `length(result) > 0`.
+```
+
+The check is deliberately conservative to avoid false positives on the benchmark
+corpus: it fires only for the unambiguous array-vs-scalar case (`< > <= >= == !=`)
+and leaves array-vs-array and any operand whose type cannot be named untouched.
+The documented fix — a collection predicate such as `length(result) > 0` — and all
+scalar contracts (`@post result > value` on an `Int` return) compile unchanged.
+The same check covers `@pre` predicates over array parameters. Reported by
+`qwen3-coder-next`, which hit the runtime crash from a Sieve of Eratosthenes whose
+`@post` compared the returned array to `0`.
+
 ## 2026-06-30-3
 
 **A `-> Void` method now compiles on an object whose type was *inferred* from

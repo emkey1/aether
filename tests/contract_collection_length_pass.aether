@@ -1,0 +1,20 @@
+// The compile-time collection-contract check must NOT reject a well-typed
+// collection predicate: `length(result) > 0` compares two Ints and is the
+// documented fix for the array-vs-scalar mistake. Companion pass fixture to
+// contract_collection_result_fail.aether.
+@pure
+@pre n >= 1
+@post length(result) > 0
+fn build(n: Int) -> Int[] {
+    let xs: Int[] = [];
+    loop i in 0..n { xs = xs + [i]; }
+    ret xs;
+}
+
+fn main() -> Void {
+    let v: Int[] = build(3);
+    fx {
+        println(length(v));
+    }
+    ret;
+}

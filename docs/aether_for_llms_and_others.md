@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-06-30-2*
+*Guide version: 2026-07-01-1*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -576,6 +576,11 @@ fn clamp(score: Int) -> Int {
 - `@pure` functions reject effectful builtins and calls into known non-pure
   Aether functions
 - `@pre` / `@post` take expressions; `@post` may reference `result`
+- on a collection return (`-> T[]`), a contract must compare a *property* of the
+  collection, not the collection itself: `@post length(result) > 0`, never
+  `@post result > 0` (an array is not comparable to a scalar, so the whole-array
+  form is rejected at compile time with ANN-001). The same applies to a `@pre`
+  over an array parameter: `@pre length(xs) > 0`
 - for tuple-return helpers, `@post` must use positional slots such as
   `result.0` and `result.1`
 - multiple `@pre` and `@post` lines may stack on one function

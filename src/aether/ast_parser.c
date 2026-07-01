@@ -380,6 +380,10 @@ typedef struct {
      * there is no @post. */
     const char *currentPostExpr;
     const char *currentFunctionName;    /* unmangled name, for guard messages      */
+    /* Aether return-type name of the function whose body is being parsed (e.g.
+     * "Int", "Int[]"), so a `@post` predicate's bare `result` can be type-checked
+     * for comparability. NULL for Void fns and outside any fn body. */
+    const char *currentReturnTypeName;
     bool currentFunctionIsMethod;
     /* When true, bare identifiers that name a current-class field lower to
      * `myself.<field>` (contract expressions inside a method). */
@@ -523,6 +527,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->currentTupleSig = NULL;
     p->currentPostExpr = NULL;
     p->currentFunctionName = NULL;
+    p->currentReturnTypeName = NULL;
     p->currentFunctionIsMethod = false;
     p->inMethodContract = false;
     p->forwardScan = false;
@@ -2079,6 +2084,114 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     return expr;
 }
 
+/* ------------------------------------------------------------------ */
+/* Contract predicate operand type-checking (ANN-001)                  */
+/* ------------------------------------------------------------------ */
+
+/* Broad comparability class of an Aether type *name*. Used to reject an
+ * ill-typed contract comparison (e.g. `@post result > 0` where `result` is an
+ * array) at compile time rather than letting it lower to a runtime assert that
+ * crashes pscal-core's VM with "Operands not comparable". UNKNOWN means "cannot
+ * judge" -- the checker never rejects when either side is UNKNOWN, so inference
+ * gaps stay permissive instead of producing false-positive compile errors. */
+typedef enum {
+    AETHER_CMP_UNKNOWN = 0,
+    AETHER_CMP_SCALAR,      /* Int / Real / Bool / Text -- pscal comparable scalars */
+    AETHER_CMP_COLLECTION   /* any `T[]` array                                       */
+} AetherCmpClass;
+
+static AetherCmpClass aetherCmpClassOfName(const char *name) {
+    if (!name) return AETHER_CMP_UNKNOWN;
+    size_t n = strlen(name);
+    if (n >= 2 && name[n - 2] == '[' && name[n - 1] == ']') return AETHER_CMP_COLLECTION;
+    if (strcmp(name, "Int") == 0 || strcmp(name, "Real") == 0 ||
+        strcmp(name, "Bool") == 0 || strcmp(name, "Text") == 0 ||
+        strcmp(name, "str") == 0)
+        return AETHER_CMP_SCALAR;
+    /* class / record / opaque handle (ToonDoc, ToonNode, ...) -> don't judge. */
+    return AETHER_CMP_UNKNOWN;
+}
+
+/* Aether type *name* of a contract-predicate operand, for the comparability
+ * check. A bare `result` in a `@post` resolves to the function's return-type
+ * name (inferLetTypeName cannot see it -- `result` is never entered in the
+ * binding table); every other operand defers to inferLetTypeName. Caller frees. */
+static char *contractOperandTypeName(AetherParser *p, AST *node, bool isPost) {
+    if (!node) return NULL;
+    if (isPost && node->type == AST_VARIABLE && node->token && node->token->value &&
+        strcmp(node->token->value, "result") == 0 && p->currentReturnTypeName) {
+        return strdup(p->currentReturnTypeName);
+    }
+    return inferLetTypeName(p, node);
+}
+
+/* Recursively scan a parsed contract predicate for a comparison whose operand
+ * types can never compare at runtime -- exactly one side an array, the other a
+ * scalar. Reports an ANN-001 diagnostic and sets p->hadError on the first such
+ * mismatch. `kind` is "pre"/"post" (only "post" resolves `result`); `line` is
+ * the directive's source line (contract sub-nodes are lexed off a detached text
+ * buffer, so their own token lines are not meaningful). Returns true if a
+ * mismatch was reported. */
+static bool checkContractComparisons(AetherParser *p, AST *node,
+                                     const char *kind, int line) {
+    if (!node || p->forwardScan) return false;
+    if (node->type == AST_BINARY_OP && node->token &&
+        (node->token->type == TOKEN_GREATER || node->token->type == TOKEN_GREATER_EQUAL ||
+         node->token->type == TOKEN_LESS || node->token->type == TOKEN_LESS_EQUAL ||
+         node->token->type == TOKEN_EQUAL || node->token->type == TOKEN_NOT_EQUAL)) {
+        bool isPost = (kind && strcmp(kind, "post") == 0);
+        char *lt = contractOperandTypeName(p, node->left, isPost);
+        char *rt = contractOperandTypeName(p, node->right, isPost);
+        AetherCmpClass lc = aetherCmpClassOfName(lt);
+        AetherCmpClass rc = aetherCmpClassOfName(rt);
+        /* Reject only the unambiguous array-vs-scalar case. Array-vs-array and
+         * anything UNKNOWN are left permissive to avoid false positives. */
+        bool mismatch = (lc == AETHER_CMP_COLLECTION && rc == AETHER_CMP_SCALAR) ||
+                        (lc == AETHER_CMP_SCALAR && rc == AETHER_CMP_COLLECTION);
+        if (mismatch) {
+            const char *op = node->token->value ? node->token->value : "?";
+            const char *arrName = (lc == AETHER_CMP_COLLECTION) ? lt : rt;
+            const char *sclName = (lc == AETHER_CMP_COLLECTION) ? rt : lt;
+            AST *arrNode = (lc == AETHER_CMP_COLLECTION) ? node->left : node->right;
+            const char *arrDisp = (arrNode && arrNode->type == AST_VARIABLE &&
+                                   arrNode->token && arrNode->token->value)
+                                  ? arrNode->token->value : NULL;
+            char detail[320];
+            snprintf(detail, sizeof(detail),
+                     "@%s predicate compares an array (`%s`) to a scalar (`%s`) with `%s`; "
+                     "arrays and scalars are not comparable.",
+                     kind ? kind : "post", arrName ? arrName : "T[]",
+                     sclName ? sclName : "scalar", op);
+            char hint[256];
+            if (arrDisp) {
+                snprintf(hint, sizeof(hint),
+                         "use a collection predicate, for example `length(%s) %s 0`.",
+                         arrDisp, op);
+            } else {
+                snprintf(hint, sizeof(hint),
+                         "use a collection predicate on a length/element, for example `length(...) %s 0`.",
+                         op);
+            }
+            reportAetherAstError(aetherSemanticGetSourcePath(), line, "contract",
+                                 detail, hint);
+            p->hadError = true;
+            free(lt);
+            free(rt);
+            return true;
+        }
+        free(lt);
+        free(rt);
+    }
+    /* Recurse through combined predicates (`&&`/`||`) and any nested operands. */
+    if (checkContractComparisons(p, node->left, kind, line)) return true;
+    if (checkContractComparisons(p, node->right, kind, line)) return true;
+    if (checkContractComparisons(p, node->extra, kind, line)) return true;
+    for (int i = 0; i < node->child_count; i++) {
+        if (checkContractComparisons(p, node->children[i], kind, line)) return true;
+    }
+    return false;
+}
+
 /* Build the runtime contract guard the rewriter emits as text:
  *     if (!(EXPR)) { writeln("Aether @KIND failed in FN"); halt(1); }
  * as an AST_IF whose condition is AST_UNARY_OP(NOT, EXPR), then-branch a
@@ -2090,6 +2203,14 @@ static AST *buildContractGuard(AetherParser *p, const char *exprText,
     if (!exprText || !*exprText) return NULL;
     AST *cond = parseExprFromText(p, exprText, line, p->currentFunctionIsMethod);
     if (!cond) return NULL;
+
+    /* Reject a contract predicate that compares an array to a scalar (e.g.
+     * `@post result > 0` on a `T[]` return) at compile time -- otherwise it
+     * lowers to a runtime assert that crashes with "Operands not comparable". */
+    if (checkContractComparisons(p, cond, kind, line)) {
+        freeAST(cond);
+        return NULL;
+    }
 
     /* NOT(cond) */
     Token *notTok = newToken(TOKEN_NOT, "!", line, 0);
@@ -4142,7 +4263,12 @@ static AST *parseFnDecl(AetherParser *p) {
             }
         }
     }
-    free(retTypeName);
+    /* Retain the return-type name (transfer ownership) for the duration of the
+     * body, so a `@post` predicate's bare `result` can be resolved and its
+     * comparability type-checked (see checkContractComparisons). A Void fn has no
+     * meaningful `result`. Freed in the context-restore below. */
+    char *fnReturnTypeName = (vtype != TYPE_VOID) ? retTypeName : NULL;
+    if (vtype == TYPE_VOID) free(retTypeName);
     retTypeName = NULL;
 
     /* --- Contract + tuple body context (MILESTONE 3) --- */
@@ -4182,6 +4308,7 @@ static AST *parseFnDecl(AetherParser *p) {
             freeToken(nameTok);
             free(preExpr);
             free(postExpr);
+            free(fnReturnTypeName);
             return NULL;
         }
     }
@@ -4224,6 +4351,7 @@ static AST *parseFnDecl(AetherParser *p) {
     const AetherTupleSig *prevTupleSig = p->currentTupleSig;
     const char *prevPostExpr = p->currentPostExpr;
     const char *prevFnName = p->currentFunctionName;
+    const char *prevReturnTypeName = p->currentReturnTypeName;
     bool prevIsMethod = p->currentFunctionIsMethod;
     p->currentTupleSig = hasTupleReturn ? tupleSig : NULL;
     /* The guard message uses the unmangled name (e.g. "area"), matching the
@@ -4235,6 +4363,7 @@ static AST *parseFnDecl(AetherParser *p) {
     }
     p->currentFunctionName = guardName;
     p->currentFunctionIsMethod = isMethod;
+    p->currentReturnTypeName = fnReturnTypeName;
     p->currentPostExpr = postExpr; /* parseRet consumes it for value/tuple returns */
 
     /* Body. */
@@ -4319,9 +4448,11 @@ static AST *parseFnDecl(AetherParser *p) {
     p->currentTupleSig = prevTupleSig;
     p->currentPostExpr = prevPostExpr;
     p->currentFunctionName = prevFnName;
+    p->currentReturnTypeName = prevReturnTypeName;
     p->currentFunctionIsMethod = prevIsMethod;
     free(preExpr);
     free(postExpr);
+    free(fnReturnTypeName);
 
     if (p->hadError) {
         freeAST(params);

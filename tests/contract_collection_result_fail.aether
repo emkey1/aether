@@ -1,0 +1,21 @@
+// A @post contract on a collection return must use a collection predicate.
+// Comparing the whole array to a scalar (`result > 0`) is not comparable at
+// runtime, so it must be rejected at COMPILE time with an ANN-001 diagnostic
+// rather than lowering to a guard that crashes the VM with
+// "Operands not comparable". Regression for the qwen3-coder-next Sieve crash.
+@pure
+@pre n >= 1
+@post result > 0
+fn build(n: Int) -> Int[] {
+    let xs: Int[] = [];
+    loop i in 0..n { xs = xs + [i]; }
+    ret xs;
+}
+
+fn main() -> Void {
+    let v: Int[] = build(3);
+    fx {
+        println(length(v));
+    }
+    ret;
+}

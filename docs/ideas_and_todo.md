@@ -463,7 +463,7 @@ pattern.
 models thrash on the coded diagnostic while capable ones self-correct; no new
 action beyond the existing FX-001 guidance.
 
-### `@pre`/`@post` predicate operand types aren't checked — array-return contract crashes at runtime — *gap (verified)*
+### `@pre`/`@post` predicate operand types aren't checked — array-return contract crashes at runtime — *fixed 2026-06-30-4*
 A contract that compares the whole `result` to a scalar, on a function returning a collection, is
 not type-checked at compile time and fails at RUNTIME:
 ```
@@ -472,9 +472,16 @@ fn make(n: Int) -> Int[] { let xs: Int[] = []; loop i in 0..n { xs = xs + [i]; }
    -> Runtime Error: Operands not comparable for operator '>'. Left operand: ARRAY, Right operand: Int
 ```
 Hit by `qwen3-coder-next` (a Sieve of Eratosthenes with `@post result > 0`, via the
-scheduler-coordinated sweep). **Action:** type-check `@pre`/`@post` predicate operands at compile
-time (reject `array > int` with an ANN-001/TYPE-001-style error), or document that contracts on
-collection returns must use collection predicates (e.g. `length(result) > 0`). *(2026-06-29, sweep 2.)*
+scheduler-coordinated sweep).
+**Resolved (2026-06-30-4).** The AST frontend now type-checks each contract comparison as it lowers
+the guard (`checkContractComparisons` in `ast_parser.c`): a bare `result` in a `@post` resolves to the
+function's return-type name (new `currentReturnTypeName` on the parser), every other operand goes
+through the existing `inferLetTypeName`, and a comparison (`< > <= >= == !=`) with exactly one array
+operand and one scalar operand is rejected with a coded `ANN-001` diagnostic pointing at
+`length(result) > 0`. Conservative by design — array-vs-array and un-nameable operands are left alone,
+so no benchmark-corpus false positives; scalar contracts and `length(result) > 0` compile unchanged.
+Regression: `contract_collection_result_fail.aether` + `contract_collection_length_pass.aether`.
+*(reported 2026-06-29, sweep 2.)*
 
 ### `loop ... step N` (stepped range) is unsupported — *gap (verified)*
 Models reach for a stepped loop; only unit-step `loop i in a..b` exists:
