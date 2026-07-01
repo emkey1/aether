@@ -647,3 +647,49 @@ and a `@pre`/`@post`-may-reference-`self.field` note in *Purity and contracts*; 
 terse implicit-`self` bullet. Re-verified on `aether 2026-07-01-3`: in-`type` method with `@pre self.v >= 0`
 compiles+runs; the free-standing `fn get(self: C)` + `@pre self.v` form fails `[SCOPE-001]`; extension
 methods without a `self`-referencing contract still work. No `VERSION` bump (no language change).
+
+## Generative pass 3 — 2026-07-01 (after the diagnostic/guide fixes + field-default work queued)
+10-model cohort (Ornith-1.0, claw2 trained a3b/mistral, m5 qwen3-coder/devstral/olmo3-think, 2× Gemini,
+2× GLM), 5 free-form programs each, T'Ra-routed. 41/59 (69%) compiled+ran; the capable models were clean
+(qwen3-coder 5/5, both Gemini 5/5, both GLM 4/5, Ornith 14/18). The previously-coded diagnostics all fired
+correctly (`FX-001`, `NAME-001`, `PAR-001`, `SCOPE-001`), i.e. no regressions from the recent fixes. The
+one dominant failure cluster — a3b's 0/5 — was **record field defaults** (`value: Int = 0`), already queued
+as its own piece of work; the remaining genuinely-new, verified findings are below.
+
+### Ranged `loop` accepts no `step` clause — *idea (verified)*
+`mistralai/devstral` writing a prime sieve reached for a strided range in the inner loop:
+`loop j in i*i..n step i { ... }` → `L?: expected '{' to open loop body`. The `..` range itself parses
+fine inside a loop (`loop j in 0..10 { }` compiles and prints `0..9`); the parser gets *past* the range
+and chokes on `step`. This is the idiomatic strided range (Python `range(a, b, step)`, Rust `.step_by`).
+**Action:** accept an optional `step <expr>` clause on the ranged `loop ... in a..b` form and lower it to
+the existing loop with the given increment. Bounded — it stays inside the `loop`, where ranges already
+live, and needs no first-class range/`Range` value type.
+
+### Word-operators `not` / `and` / `or` misreport as undefined identifiers — *idea (verified)*
+Models reach for Pascal/Python-style boolean word-operators: `allenai/olmo-3-32b-think` wrote
+`if not toon_is_int(node)` three times, and `a and b` / `a or b` fail the same way. Each yields a
+*misleading* `[SCOPE-001] identifier 'not' not in scope` — the lexer treats the keyword as an undefined
+variable, so the diagnostic sends the model hunting for a missing binding instead of telling it to use the
+C-style operator. `!b`, `a && b`, `a || b` all work. **Action:** cheapest win is a targeted diagnostic —
+when `not`/`and`/`or` appear in operator position, emit a `SYN-*` (or dedicated code) saying "Aether uses
+C-style boolean operators `!` / `&&` / `||`", not `SCOPE-001`. Optionally alias them outright (they are
+common enough to consider), but at minimum stop misclassifying them as scope errors.
+
+### Integer division (`div` / `//`) is undiscoverable; `/`-then-`%` gives a cryptic runtime error — *gap (verified)*
+`openrouter_glm-5.2` (Rule-110 cellular automaton): `ret (rule / power_of_two(index)) % 2 == 1;` fails at
+runtime with `Runtime Error: Operands for 'mod' must be integers. Got REAL and INTEGER`, because `/` is
+*always* real division. This is **not** a missing feature — `7 div 2` and `7 // 2` both already return `3`.
+The gap is discoverability + diagnostic quality: models default to `/` then `%`, and the runtime error names
+the type mismatch without pointing at the integer-division operators. **Action:** (a) document `div` and
+`//` for integer division prominently in the guide's arithmetic/operator section (and note that `/` yields
+`Real`); (b) make the `mod`-on-`Real` runtime error hint "use `div` or `//` for integer division, or
+convert the operands to `Int`." Same `/`-is-real friction as the earlier collatz `n/2` Real→Int coercion
+fix (pscal-core `da08d77`), surfaced at `%` this time.
+
+**Triaged, not curated (pass 3).** The **range operator *outside* a loop** (`..` as a first-class value)
+was considered and *declined*: `..` inside a loop already works, the sole out-of-loop occurrence was a
+single ambiguous `ornith` line with no captured intent, and making `..` a standalone value would pull in a
+whole `Range` type (lazy vs materialized, inclusive/exclusive, indexable) for near-zero demand — the real,
+bounded want is the `step` clause above. **Record field defaults** (`value: Int = 0`, 3× a3b) are being
+implemented separately. A missing `join(sep, arr)` string builtin (1×) is a minor wishlist item. One
+generation artifact (a literal `<<<SOURCE>>>` template marker echoed into a program) is not a language gap.
