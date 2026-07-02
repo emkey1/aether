@@ -141,6 +141,8 @@ dword_t sys_pread(fd_t f, addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t buf_size, off_t_ off);
 dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off);
 dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off);
+dword_t sys_preadv_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, off_t_ off);
+dword_t sys_pwritev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, off_t_ off);
 dword_t sys_ioctl(fd_t f, dword_t cmd, dword_t arg);
 dword_t sys_ioctl_guest(fd_t f, dword_t cmd, guest_addr_t arg);
 dword_t sys_fcntl(fd_t f, dword_t cmd, dword_t arg);

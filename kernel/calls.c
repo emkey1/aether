@@ -1523,7 +1523,7 @@ static syscall_t amd64_syscall_table[453] = {
 // this reuse is safe: the arm64 stack/heap are now kept low like amd64's,
 // so these functions' addr_t/dword_t-narrow argument marshalling doesn't
 // truncate real guest pointers).
-static syscall_t arm64_syscall_table[450] = {
+static syscall_t arm64_syscall_table[454] = {
     // I/O
     [2]   = (syscall_t) syscall_stub, // io_submit
     [5 ... 16] = (syscall_t) sys_xattr_stub,
@@ -1677,6 +1677,94 @@ static syscall_t arm64_syscall_table[450] = {
     [195] = (syscall_t) sys_shmctl,
     [196] = (syscall_t) sys_shmat,
     [197] = (syscall_t) sys_shmdt,
+    // OpenMinis-parity sweep: every aarch64 syscall their table covers
+    // (plus fchmodat2), so guests get a real implementation or a clean
+    // errno instead of a "missing syscall" SIGSYS kill. All of these
+    // dispatch natively (full-width); the entries exist to pass the
+    // NULL check. syscall_stub entries keep the "stub" log visible.
+    [0] = (syscall_t) syscall_stub, // io_setup
+    [1] = (syscall_t) syscall_stub, // io_destroy
+    [3] = (syscall_t) syscall_stub, // io_cancel
+    [4] = (syscall_t) syscall_stub, // io_getevents
+    [18] = (syscall_t) syscall_stub, // lookup_dcookie
+    [41] = (syscall_t) syscall_stub, // pivot_root
+    [42] = (syscall_t) syscall_stub, // nfsservctl
+    [60] = (syscall_t) syscall_stub, // quotactl
+    [69] = (syscall_t) syscall_stub_silent, // preadv
+    [70] = (syscall_t) syscall_stub_silent, // pwritev
+    [74] = (syscall_t) syscall_stub_silent, // signalfd4
+    [75] = (syscall_t) syscall_stub, // vmsplice
+    [77] = (syscall_t) syscall_stub, // tee
+    [84] = (syscall_t) syscall_stub_silent, // sync_file_range
+    [89] = (syscall_t) syscall_stub, // acct
+    [104] = (syscall_t) syscall_stub, // kexec_load
+    [105] = (syscall_t) syscall_stub, // init_module
+    [106] = (syscall_t) syscall_stub, // delete_module
+    [118] = (syscall_t) syscall_stub, // sched_setparam
+    [127] = (syscall_t) syscall_stub, // sched_rr_get_interval
+    [128] = (syscall_t) syscall_stub, // restart_syscall
+    [162] = (syscall_t) syscall_stub, // setdomainname
+    [168] = (syscall_t) syscall_stub_silent, // getcpu
+    [171] = (syscall_t) syscall_stub, // adjtimex
+    [180] = (syscall_t) syscall_stub, // mq_open
+    [181] = (syscall_t) syscall_stub, // mq_unlink
+    [182] = (syscall_t) syscall_stub, // mq_timedsend
+    [183] = (syscall_t) syscall_stub, // mq_timedreceive
+    [184] = (syscall_t) syscall_stub, // mq_notify
+    [185] = (syscall_t) syscall_stub, // mq_getsetattr
+    [186] = (syscall_t) syscall_stub, // msgget
+    [187] = (syscall_t) syscall_stub, // msgctl
+    [188] = (syscall_t) syscall_stub, // msgrcv
+    [189] = (syscall_t) syscall_stub, // msgsnd
+    [190] = (syscall_t) syscall_stub, // semget
+    [191] = (syscall_t) syscall_stub, // semctl
+    [192] = (syscall_t) syscall_stub, // semtimedop
+    [193] = (syscall_t) syscall_stub, // semop
+    [213] = (syscall_t) syscall_stub_silent, // readahead
+    [217] = (syscall_t) syscall_stub, // add_key
+    [218] = (syscall_t) syscall_stub, // request_key
+    [219] = (syscall_t) syscall_stub, // keyctl
+    [224] = (syscall_t) syscall_stub, // swapon
+    [225] = (syscall_t) syscall_stub, // swapoff
+    [234] = (syscall_t) syscall_stub, // remap_file_pages
+    [236] = (syscall_t) syscall_stub_silent, // get_mempolicy
+    [237] = (syscall_t) syscall_stub_silent, // set_mempolicy
+    [238] = (syscall_t) syscall_stub, // migrate_pages
+    [239] = (syscall_t) syscall_stub, // move_pages
+    [240] = (syscall_t) syscall_stub_silent, // rt_tgsigqueueinfo
+    [241] = (syscall_t) syscall_stub, // perf_event_open
+    [262] = (syscall_t) syscall_stub, // fanotify_init
+    [263] = (syscall_t) syscall_stub, // fanotify_mark
+    [264] = (syscall_t) syscall_stub_silent, // name_to_handle_at
+    [265] = (syscall_t) syscall_stub_silent, // open_by_handle_at
+    [266] = (syscall_t) syscall_stub_silent, // clock_adjtime
+    [267] = (syscall_t) syscall_stub, // syncfs
+    [268] = (syscall_t) syscall_stub, // setns
+    [270] = (syscall_t) syscall_stub_silent, // process_vm_readv
+    [271] = (syscall_t) syscall_stub, // process_vm_writev
+    [272] = (syscall_t) syscall_stub, // kcmp
+    [273] = (syscall_t) syscall_stub, // finit_module
+    [274] = (syscall_t) syscall_stub, // sched_setattr
+    [275] = (syscall_t) syscall_stub, // sched_getattr
+    [277] = (syscall_t) syscall_stub_silent, // seccomp
+    [280] = (syscall_t) syscall_stub, // bpf
+    [282] = (syscall_t) syscall_stub, // userfaultfd
+    [284] = (syscall_t) syscall_stub, // mlock2
+    [286] = (syscall_t) syscall_stub, // preadv2
+    [287] = (syscall_t) syscall_stub, // pwritev2
+    [288] = (syscall_t) syscall_stub, // pkey_mprotect
+    [289] = (syscall_t) syscall_stub, // pkey_alloc
+    [290] = (syscall_t) syscall_stub, // pkey_free
+    [293] = (syscall_t) syscall_stub_silent, // rseq
+    [294] = (syscall_t) syscall_stub, // kexec_file_load
+    [424] = (syscall_t) syscall_stub, // pidfd_send_signal
+    [425] = (syscall_t) syscall_stub, // io_uring_setup
+    [426] = (syscall_t) syscall_stub, // io_uring_enter
+    [427] = (syscall_t) syscall_stub, // io_uring_register
+    [434] = (syscall_t) syscall_stub, // pidfd_open
+    [438] = (syscall_t) syscall_stub, // pidfd_getfd
+    [440] = (syscall_t) syscall_stub, // process_madvise
+    [452] = (syscall_t) syscall_stub_silent, // fchmodat2
     [198] = (syscall_t) sys_socket,
     [199] = (syscall_t) sys_socketpair,
     [200] = (syscall_t) sys_bind,
@@ -2148,6 +2236,44 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 195: result = (dword_t) sys_shmctl_guest((int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // shmctl (64-bit shmid_ds)
     case 197: result = (dword_t) sys_shmdt_guest(raw_args[0]); break; // shmdt
     case 223: result = 0; break; // fadvise64: advisory, ignored (64-bit off/len args)
+    // -- OpenMinis-parity sweep (see the table comment) --
+    // real implementations
+    case 69: result = (dword_t) sys_preadv_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (off_t_) (raw_args[3] | (raw_args[4] << 32))); break; // preadv (lo/hi offset words per kernel ABI)
+    case 70: result = (dword_t) sys_pwritev_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (off_t_) (raw_args[3] | (raw_args[4] << 32))); break; // pwritev
+    case 74: result = (dword_t) sys_signalfd4_guest((int_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (int_t) raw_args[3]); break; // signalfd4
+    case 236: result = (dword_t) sys_get_mempolicy_guest(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]); break; // get_mempolicy
+    case 237: result = (dword_t) sys_set_mempolicy_guest((int) raw_args[0], raw_args[1], raw_args[2]); break; // set_mempolicy
+    case 240: result = (dword_t) sys_rt_tgsigqueueinfo_guest((pid_t_) raw_args[0], (pid_t_) raw_args[1], (dword_t) raw_args[2], raw_args[3]); break; // rt_tgsigqueueinfo
+    case 266: result = (dword_t) sys_clock_adjtime_amd64_guest((dword_t) raw_args[0], raw_args[1]); break; // clock_adjtime (EPERM inside)
+    case 270: result = (dword_t) sys_process_vm_readv_guest((pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3], (dword_t) raw_args[4], (dword_t) raw_args[5]); break; // process_vm_readv
+    case 279: result = (dword_t) sys_memfd_create_guest(raw_args[0], (uint_t) raw_args[1]); break; // memfd_create (was a silent stub)
+    case 283: result = (dword_t) sys_membarrier((dword_t) raw_args[0], (dword_t) raw_args[1], 0); break; // membarrier (2-arg base ABI; 3rd reg is caller garbage)
+    case 293: result = (dword_t) sys_rseq_guest(raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]); break; // rseq
+    case 452: result = (dword_t) sys_fchmodat2_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]); break; // fchmodat2 (tar)
+    // advisory no-ops (amd64 parity)
+    case 84:  // sync_file_range
+    case 168: // getcpu
+    case 213: // readahead
+        result = 0; break;
+    // EOPNOTSUPP probes (amd64 parity: elogind/systemd fall back)
+    case 264: // name_to_handle_at
+    case 265: // open_by_handle_at
+    case 277: // seccomp
+        result = _EOPNOTSUPP; break;
+    // clean ENOSYS: known syscalls with no implementation; native so
+    // 64-bit pointer args never trip the legacy-marshal validation
+    case 0: case 1: case 2: case 3: case 4: case 18: case 41: case 42:
+    case 60: case 75: case 77: case 89: case 104: case 105: case 106:
+    case 118: case 127: case 128: case 162: case 171:
+    case 180: case 181: case 182: case 183: case 184: case 185:
+    case 186: case 187: case 188: case 189: case 190: case 191:
+    case 192: case 193: case 217: case 218: case 219: case 224:
+    case 225: case 234: case 238: case 239: case 241: case 262:
+    case 263: case 267: case 268: case 271: case 272: case 273:
+    case 274: case 275: case 280: case 282: case 284: case 286:
+    case 287: case 288: case 289: case 290: case 294: case 424:
+    case 425: case 426: case 427: case 434: case 438: case 440:
+        result = _ENOSYS; break;
     default:
         return false; // not handled here: fall through to the legacy-marshalled table
     }
