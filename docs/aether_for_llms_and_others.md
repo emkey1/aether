@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-7*
+*Guide version: 2026-07-01-8*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -262,7 +262,9 @@ fn main() -> Void {
 ```
 
 Limits: top-level helper functions only; destructuring must be a direct call;
-no binding to a single name; no tuple-return methods.
+no binding to a single name; no tuple-return methods. A tuple-return function
+must not call itself (the tuple slots are not reentrant); direct recursion is
+rejected with `TUP-001` -- return a record instead.
 
 When the values do not come from a direct call to a defined top-level
 tuple-return function (for example a method, an undefined helper, or a nested

@@ -1,0 +1,15 @@
+// Plain (non-tuple) direct recursion must keep parsing and running: the
+// TUP-001 self-call guard applies ONLY to tuple-return functions.
+fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        ret 1;
+    }
+    ret n * factorial(n - 1);
+}
+
+fn main() -> Void {
+    fx {
+        println(factorial(5));
+    }
+    ret;
+}

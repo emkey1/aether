@@ -1,0 +1,8 @@
+// A call argument list missing its ')' must be a hard SYN-001 (regression:
+// parseArgListEx used to consume-if-present, silently tolerating the gap).
+fn main() -> Void {
+    fx {
+        println("hi" ;
+    }
+    ret;
+}

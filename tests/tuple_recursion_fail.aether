@@ -1,0 +1,20 @@
+// Tuple returns lower to per-slot globals (__aether_tuple_N_itemK), so a
+// tuple-return function calling ITSELF corrupts its own results. The direct
+// case is a compile-time TUP-001; non-tuple recursion stays legal (see
+// recursion_pass.aether / examples/base/recursion).
+fn pair(n: Int) -> (Int, Int) {
+    if n <= 0 {
+        ret (0, 0);
+    }
+    let (a, b) = pair(n - 1);
+    ret (a + 1, b + 2);
+}
+
+fn main() -> Void {
+    let (x, y) = pair(3);
+    fx {
+        println(x);
+        println(y);
+    }
+    ret;
+}

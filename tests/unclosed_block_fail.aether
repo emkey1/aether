@@ -1,0 +1,7 @@
+// A function body whose closing '}' is missing must be a hard SYN-001 at EOF
+// (regression: parseBlock used to consume-if-present and parse this silently).
+fn main() -> Void {
+    fx {
+        println("start");
+    }
+    ret;

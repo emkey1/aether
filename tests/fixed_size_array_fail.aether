@@ -1,0 +1,8 @@
+// Fixed-size array types (Int[3]) are not Aether syntax. The type parser must
+// emit one clear SYN-001 with the Int[] hint and resync past the ']' so no
+// unrelated downstream diagnostic appears (regression: it used to abandon the
+// stream after consuming '[').
+fn main() -> Void {
+    let xs: Int[3] = [1, 2, 3];
+    ret;
+}

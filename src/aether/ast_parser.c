@@ -1201,14 +1201,21 @@ static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
     while (p->current.type == REA_TOKEN_LEFT_BRACKET) {
         aetherAdvance(p); /* consume '[' */
         /* Only the open dimension `[]` is part of Aether's surface type syntax.
-         * A `[N]` fixed-size suffix is not produced by Aether sources, so we treat
-         * a non-empty bracket as not-a-type and stop (the caller will see the '['
-         * still pending). */
+         * A `[N]` fixed-size suffix (e.g. `Int[3]`) is a hard error: the `[` is
+         * already consumed and cannot be pushed back, so silently bailing here
+         * used to leave the stream misaligned and surface an unrelated
+         * downstream diagnostic. Report SYN-001 and consume through the
+         * matching `]` so this is the only error the user sees. */
         if (p->current.type != REA_TOKEN_RIGHT_BRACKET) {
-            /* Not an open array dimension; we cannot represent it here. Push back
-             * is impossible cleanly, so flag an error matching rea's stricter
-             * "Missing array size" intent only if truly malformed. For Aether this
-             * path is unreachable in practice; bail without corrupting the node. */
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "fixed-size array types are not supported.",
+                    "use `Int[]` (dynamic array) and size it at runtime.");
+            p->hadError = true;
+            while (p->current.type != REA_TOKEN_RIGHT_BRACKET &&
+                   p->current.type != REA_TOKEN_EOF) {
+                aetherAdvance(p);
+            }
+            if (p->current.type == REA_TOKEN_RIGHT_BRACKET) aetherAdvance(p);
             break;
         }
         aetherAdvance(p); /* consume ']' */
@@ -1555,7 +1562,15 @@ static AST *parseWriteArg(AetherParser *p) {
     if (!expr) return NULL;
     if (p->current.type != REA_TOKEN_COLON) return expr;
     aetherAdvance(p); /* consume ':' */
-    if (p->current.type != REA_TOKEN_NUMBER) return expr;
+    if (p->current.type != REA_TOKEN_NUMBER) {
+        /* The ':' has been consumed; silently returning here used to leave the
+         * stream misaligned and produce an unrelated downstream error. */
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected a number after ':' in print format spec.",
+                "write value:width or value:width:precision (e.g. println(x:8:2)).");
+        p->hadError = true;
+        return expr;
+    }
     char *wlex = (char *)malloc(p->current.length + 1);
     if (!wlex) return expr;
     memcpy(wlex, p->current.start, p->current.length);
@@ -1575,6 +1590,11 @@ static AST *parseWriteArg(AetherParser *p) {
                 free(plex);
             }
             aetherAdvance(p);
+        } else {
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "expected a number after ':' in print format spec.",
+                    "write value:width or value:width:precision (e.g. println(x:8:2)).");
+            p->hadError = true;
         }
     }
     char fmtbuf[32];
@@ -1592,6 +1612,7 @@ static AST *parseWriteArg(AetherParser *p) {
  * parsed as a write argument so `expr:w:p` format specifiers are honored (the
  * caller passes this for the write builtins, matching rea's isWriteBuiltin). */
 static AST *parseArgListEx(AetherParser *p, bool isWrite) {
+    int openLine = p->current.line;
     aetherAdvance(p); /* consume '(' */
     AST *args = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
@@ -1606,6 +1627,11 @@ static AST *parseArgListEx(AetherParser *p, bool isWrite) {
     }
     if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
         aetherAdvance(p);
+    } else if (!p->hadError) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "expected ')' to close argument list (opened at line %d).", openLine);
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+        p->hadError = true;
     }
     return args;
 }
@@ -1709,10 +1735,16 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
     while (p->current.type == REA_TOKEN_DOT || p->current.type == REA_TOKEN_LEFT_BRACKET) {
         if (p->current.type == REA_TOKEN_LEFT_BRACKET) {
             /* array index: base[expr] -> AST_ARRAY_ACCESS (rea parseArrayAccess). */
+            int openLine = p->current.line;
             aetherAdvance(p); /* consume '[' */
             AST *index = parseExpr(p);
             if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
                 aetherAdvance(p);
+            } else if (!p->hadError) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "expected ']' to close index expression (opened at line %d).", openLine);
+                reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+                p->hadError = true;
             }
             AST *acc = newASTNode(AST_ARRAY_ACCESS, NULL);
             setLeft(acc, node);
@@ -1884,7 +1916,16 @@ static AST *parseIfExpr(AetherParser *p) {
     aetherAdvance(p); /* consume '{' */
     AST *thenExpr = parseExpr(p);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
-    if (p->current.type == REA_TOKEN_RIGHT_BRACE) aetherAdvance(p);
+    if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+        aetherAdvance(p);
+    } else if (!p->hadError) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected '}' to close if-expression branch.", NULL);
+        p->hadError = true;
+        freeAST(cond);
+        if (thenExpr) freeAST(thenExpr);
+        return NULL;
+    }
     if (!thenExpr) { p->hadError = true; freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_ELSE) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
@@ -1904,7 +1945,16 @@ static AST *parseIfExpr(AetherParser *p) {
     aetherAdvance(p); /* consume '{' */
     AST *elseExpr = parseExpr(p);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
-    if (p->current.type == REA_TOKEN_RIGHT_BRACE) aetherAdvance(p);
+    if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+        aetherAdvance(p);
+    } else if (!p->hadError) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected '}' to close if-expression branch.", NULL);
+        p->hadError = true;
+        freeAST(cond); freeAST(thenExpr);
+        if (elseExpr) freeAST(elseExpr);
+        return NULL;
+    }
     if (!elseExpr) { p->hadError = true; freeAST(cond); freeAST(thenExpr); return NULL; }
 
     Token *tok = newToken(TOKEN_IF, "?", line, 0);
@@ -1951,10 +2001,16 @@ static AST *parsePrimary(AetherParser *p) {
     }
     /* Parenthesized expression */
     if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+        int openLine = p->current.line;
         aetherAdvance(p);
         AST *expr = parseExpr(p);
         if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
             aetherAdvance(p);
+        } else if (!p->hadError) {
+            char msg[104];
+            snprintf(msg, sizeof(msg), "expected ')' to close parenthesized expression (opened at line %d).", openLine);
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+            p->hadError = true;
         }
         return expr;
     }
@@ -2073,6 +2129,21 @@ static AST *parsePrimary(AetherParser *p) {
         aetherAdvance(p); /* consume identifier */
 
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+            /* Direct recursion inside a tuple-return function: tuple returns
+             * lower to per-slot GLOBALS (__aether_tuple_N_itemK), so a
+             * self-call silently corrupts the caller's own results. Reject the
+             * direct case at parse time (TUP-001); indirect recursion is not
+             * detected. */
+            if (p->currentTupleSig && p->currentTupleSig->functionName &&
+                tok->value &&
+                strcmp(tok->value, p->currentTupleSig->functionName) == 0) {
+                reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple",
+                        "tuple-return functions cannot call themselves (tuple slots are not reentrant).",
+                        "return a record instead and read its fields.");
+                p->hadError = true;
+                freeToken(tok);
+                return NULL;
+            }
             /* Only names that are immediately called get the stdlib alias
              * treatment, matching the rewriter (it rewrites `name(` spans).
              * When an alias fires, the surface spelling is kept aside so the
@@ -3334,7 +3405,15 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
         if (p->current.type == REA_TOKEN_COMMA) { aetherAdvance(p); continue; }
         break;
     }
-    if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
+    if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
+        aetherAdvance(p);
+    } else if (!p->hadError) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected ')' to close tuple return.", NULL);
+        p->hadError = true;
+        freeAST(outer);
+        return NULL;
+    }
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
     if (idx != sig->itemCount) {
         reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple",
@@ -3390,7 +3469,15 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         if (p->current.type == REA_TOKEN_COMMA) { aetherAdvance(p); continue; }
         break;
     }
-    if (p->current.type == REA_TOKEN_RIGHT_PAREN) aetherAdvance(p);
+    if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
+        aetherAdvance(p);
+    } else if (!p->hadError) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected ')' to close tuple destructuring pattern.", NULL);
+        p->hadError = true;
+        for (size_t i = 0; i < nameCount; i++) free(names[i]);
+        return NULL;
+    }
     /* Optional type annotation: `let (a, b): (T0, T1) = ...`. The rewriter accepts
      * and ignores it (the slot globals below carry the real per-item types); skip
      * from ':' to the '=' so the assignment check still fires. */
@@ -3660,12 +3747,25 @@ static AST *parseRet(AetherParser *p) {
  * effect wrapper rules don't apply here; this is the statement form. */
 static AST *parseIfStmt(AetherParser *p) {
     aetherAdvance(p); /* consume 'if' */
+    /* Parens around the condition are optional, but they must balance: only
+     * consume a ')' when we consumed the matching '(' (a stray ')' after an
+     * unparenthesized condition is malformed input, not ours to swallow). */
+    bool sawParen = false;
+    int openLine = p->current.line;
     if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+        sawParen = true;
         aetherAdvance(p);
     }
     AST *condition = parseExpr(p);
-    if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
-        aetherAdvance(p);
+    if (sawParen) {
+        if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
+            aetherAdvance(p);
+        } else if (!p->hadError) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "expected ')' to close if condition (opened at line %d).", openLine);
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+            p->hadError = true;
+        }
     }
     AST *thenBranch = NULL;
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
@@ -4215,11 +4315,23 @@ static AST *parseStatement(AetherParser *p) {
 
 static AST *parseBlock(AetherParser *p) {
     if (p->current.type != REA_TOKEN_LEFT_BRACE) return NULL;
+    int openLine = p->current.line;
     aetherAdvance(p); /* consume '{' */
     AST *block = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF) {
         AST *stmt = parseStatement(p);
-        if (!stmt) break;
+        if (!stmt) {
+            /* A NULL statement with no reported error means the parser stalled
+             * on a token it cannot start a statement with. Silently breaking
+             * here used to truncate the rest of the block; make it a hard
+             * SYN-001 instead. */
+            if (!p->hadError) {
+                reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                        "unexpected token in block; expected a statement.", NULL);
+                p->hadError = true;
+            }
+            break;
+        }
         /* Splice a declaration-group wrapper (object-init expansion, i_val==1) so
          * its var-decl + field assignments become siblings of this block -- the
          * flat shape the rewriter emits, keeping the new variable in scope for
@@ -4237,6 +4349,11 @@ static AST *parseBlock(AetherParser *p) {
     }
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
         aetherAdvance(p);
+    } else if (!p->hadError) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "expected '}' to close block (opened at line %d).", openLine);
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+        p->hadError = true;
     }
     return block;
 }
@@ -4632,6 +4749,10 @@ static AST *parseFnDecl(AetherParser *p) {
     }
     if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
         aetherAdvance(p);
+    } else if (!p->hadError) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "expected ')' to close parameter list.", NULL);
+        p->hadError = true;
     }
 
     /* Extension method: a top-level `fn f(self: T, ...)` whose first parameter is
@@ -5365,6 +5486,10 @@ static AST *parseTypeDecl(AetherParser *p) {
         }
         if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
             aetherAdvance(p);
+        } else if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "expected '}' to close type body.", NULL);
+            p->hadError = true;
         }
     }
 

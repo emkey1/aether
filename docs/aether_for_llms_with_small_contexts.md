@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-7*
+*Guide version: 2026-07-01-8*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -650,7 +650,7 @@ The compiler prints a stable code in brackets, and on newer builds a
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields. Tuple-return functions must not call themselves (TUP-001): tuple slots are not reentrant, so use a record for recursive helpers.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.

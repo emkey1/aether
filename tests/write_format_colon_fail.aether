@@ -1,0 +1,9 @@
+// A print format spec whose ':' is not followed by a number must be SYN-001
+// (regression: parseWriteArg used to swallow the ':' and misalign the stream).
+fn main() -> Void {
+    let pi: Real = 3.14159;
+    fx {
+        println(pi:width);
+    }
+    ret;
+}

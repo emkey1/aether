@@ -12,6 +12,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-7
+
+**The parser no longer tolerates malformed input silently.** Four
+strictness/correctness fixes, all emitting standard coded diagnostics:
+
+- **Missing closers are hard errors.** An unclosed block, argument list, index
+  expression, parenthesized expression, if-expression branch, if-condition
+  paren, tuple return/destructure pattern, parameter list, or `type` body now
+  emits `[SYN-001] expected '<closer>' to close ... (opened at line N)` instead
+  of parsing "successfully". A statement the parser cannot recognize mid-block
+  is likewise a `[SYN-001]` instead of silently truncating the block.
+- **Fixed-size array types diagnose cleanly.** `let xs: Int[3]` used to
+  half-consume the suffix and corrupt the token stream (unrelated downstream
+  error); it is now a single `[SYN-001] fixed-size array types are not
+  supported.` with a hint pointing at `Int[]`.
+- **Malformed print format specs diagnose cleanly.** A `:` in a
+  `print`/`println` argument with no number after it (width or precision
+  position) used to be swallowed, misaligning the stream; now
+  `[SYN-001] expected a number after ':' in print format spec.`
+- **Tuple-return functions may not call themselves.** Tuple returns lower to
+  per-slot globals, so direct recursion silently corrupted results; it is now
+  rejected at compile time with `[TUP-001] tuple-return functions cannot call
+  themselves (tuple slots are not reentrant)` and a return-a-record hint.
+  (Indirect recursion remains undetected; the guides note the rule.)
+
+Regressions: `unclosed_block_fail`, `unclosed_call_fail`,
+`fixed_size_array_fail`, `write_format_colon_fail`, `tuple_recursion_fail`,
+`recursion_pass` (non-tuple recursion unaffected).
+
 ## 2026-07-01-6
 
 **Every frontend diagnostic is now coded, and name/type tracking is scoped per

@@ -702,14 +702,14 @@ generation artifact (a literal `<<<SOURCE>>>` template marker echoed into a prog
 diagnostics.c, tests/, examples/, translate.c status). Items marked (verified) were reproduced on the
 current local build; the rest are code-read findings with file:line cites.*
 
-### Alias prepass rewrites inside string literals — *gap (verified, output corruption)*
+### Alias prepass rewrites inside string literals — *FIXED 2026-07-01-5*
 `applyJsonAliasesToLine` (`ast_prepasses.c` ~2959) does not skip string literals, so any user string
 containing an aliased builtin name followed by `(` is rewritten: `println("call sleep(5) now");` prints
 `call delay(5) now`. Stage 1 (`rewriteAetherBuiltinAliases`) skips strings/comments correctly; stage 2
 forgot to. Silent wrong OUTPUT from a correct program — worst-severity class for the exact-stdout
 benchmark. Fix: share stage 1's string/comment skipper; add a regression fixture.
 
-### The fx fence is line-textual, with a verified escape and a false positive — *gap (verified)*
+### The fx fence is line-textual, with a verified escape and a false positive — *FIXED 2026-07-01-5 (fx/purity now AST-based)*
 `semantic.c` enforces FX-001 by scanning physical source lines, not the AST (the parser erases `fx`
 before semantics, `ast_parser.c` ~3734). Two consequences, both verified:
 - **Escape:** an effectful call split across lines (`println` on one line, `("...")` on the next)
@@ -723,33 +723,33 @@ single-variable `currentPureFunctionName` (~2106) is not a stack (nested fns cle
 scope frame stack `stack[1024]` (~2108) increments depth unconditionally (~2177) → OOB read/write past
 1024 nesting depth.
 
-### Parser inference state is program-global, not scoped — *gap*
+### Parser inference state is program-global, not scoped — *FIXED 2026-07-01-6 (function-scoped tables)*
 `ast_parser.c` keeps one flat binding table for the whole parse (~5470-5482), never pushed/popped per
 function: a `let x` in fn A leaks into fn B's inference (last-write-wins), affecting inferred types,
 method mangling, and PAR-001 verdicts when names collide across functions. `funcReturns` is likewise
 keyed on bare names. Same flat-table pattern in `semantic.c` (`addScalarBinding` overwrites, ~552).
 Fix: scope-aware tables (push/pop on fn entry/exit).
 
-### Tuple returns lower to globals — non-reentrant — *gap*
+### Tuple returns lower to globals — non-reentrant — *gap (direct recursion now rejected 2026-07-01; globals design still open)*
 `ret (a, b)` lowers each slot to a global `__aether_tuple_N_itemK`, so a recursive tuple-return fn, a
 nested tuple call, or two `par` branches calling tuple fns silently corrupt each other's results. Also
 tuple-fn registration is a raw-text scan that only recognizes column-0 `fn` lines (~5205-5269), so an
 indented tuple fn degrades. Fix direction: per-call temporaries (locals in the caller), or document the
 limitation and reject recursive/par use of tuple fns.
 
-### Parser silently tolerates missing closing delimiters — *gap*
+### Parser silently tolerates missing closing delimiters — *FIXED 2026-07-01-7*
 `parseBlock` (~3846), `parseArgListEx` (~1271), `parsePostfix` (~1375) all "consume the closer if
 present, else continue": an unclosed fn body / arg list / index at EOF parses without error. And a
 `parseStatement` returning NULL breaks the block loop *without* setting hadError (~3830), so mid-block
 garbage can silently truncate a body. Both defeat the 2026-07-01 silent-failure backstop from the other
 side (accepted-but-wrong rather than rejected-but-silent). Fix: require closers; error on NULL stmt.
 
-### Fixed-size array suffix `[N]` half-consumed — corrupts the token stream — *gap (minor)*
+### Fixed-size array suffix `[N]` half-consumed — corrupts the token stream — *FIXED 2026-07-01-7*
 The type parser consumes `[` for `Int[3]` then abandons the path (~865-876), leaving the stream
 misaligned and producing an unrelated downstream error. Same pattern: `parseWriteArg` (~1221) swallows
 `:` when no NUMBER follows. Emit a real diagnostic ("fixed-size arrays are not supported; use Int[]").
 
-### Diagnostic code inference is substring-matching on message text — *gap (fragility)*
+### Diagnostic code inference is substring-matching on message text — *FIXED 2026-07-01-6 (explicit codes at all sites; inference is backstop-only)*
 `aetherInferDiagnosticCode` (`diagnostics.c:59-129`) maps messages to codes by strstr on English
 wording — the wording is load-bearing (a copyedit silently changes/loses the code), and the
 `" first argument"` pattern maps any message containing it to TOON-001. Meanwhile the scalar/opaque
@@ -763,7 +763,7 @@ The helper arg/return-kind tables live in `semantic.c` (~1216, ~1310), `ast_prep
 `translate.c` — already drifting (`toon_null` has a return-kind but no arg-kind entry, semantic.c
 ~1302). Single-source the table (one header, or generate from the pscal-core metadata array).
 
-### Legacy rewriter fallback is frozen and diverging — *decision needed*
+### Legacy rewriter fallback is frozen and diverging — *RESOLVED 2026-07-01-5: deleted*
 Since the P7 cutover, `translate.c` has had no substantive updates (CHANGELOG 2026-07-01-3 says so
 explicitly) while the AST path gained FIELD-003 field defaults, FLOW-002/PAR-002, ANN-001 collection
 checks, and the inferred-`new` fix. Nothing in `tests/run.sh` sets `AETHER_PARSER`, so the advertised
@@ -772,7 +772,7 @@ checks, and the inferred-`new` fix. Nothing in `tests/run.sh` sets `AETHER_PARSE
 keep the fallback honestly characterized, or (b) schedule its retirement per the roadmap clause. The
 current state (unmaintained but advertised as reversible) is the worst of both.
 
-### Test-suite shape: one coarse CTest, fail-fast, examples not executed — *idea (infra)*
+### Test-suite shape: one coarse CTest, fail-fast, examples not executed — *partially done 2026-07-01 (aether_examples compile lap added; run.sh granularity still open)*
 All ~149 assertions run inside a single `add_test` via the ~1850-line `tests/run.sh` with
 `set -e` fail-fast: one failure hides everything downstream and CTest granularity is 1, not 127.
 Only `showcase/agent_report` is CI-executed; the ~55 `examples/base` programs can rot silently (two

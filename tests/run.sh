@@ -89,6 +89,12 @@ PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
 PAR_SHARED_RECORD_FAIL_FIXTURE="$TESTS_DIR/par_shared_record_fail.aether"
 METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
 UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
+UNCLOSED_BLOCK_FAIL_FIXTURE="$TESTS_DIR/unclosed_block_fail.aether"
+UNCLOSED_CALL_FAIL_FIXTURE="$TESTS_DIR/unclosed_call_fail.aether"
+FIXED_SIZE_ARRAY_FAIL_FIXTURE="$TESTS_DIR/fixed_size_array_fail.aether"
+WRITE_FORMAT_COLON_FAIL_FIXTURE="$TESTS_DIR/write_format_colon_fail.aether"
+TUPLE_RECURSION_FAIL_FIXTURE="$TESTS_DIR/tuple_recursion_fail.aether"
+RECURSION_PASS_FIXTURE="$TESTS_DIR/recursion_pass.aether"
 FOR_RANGE_PASS_FIXTURE="$TESTS_DIR/for_range_pass.aether"
 LOOP_FORMS_PASS_FIXTURE="$TESTS_DIR/loop_forms_pass.aether"
 ARRAY_RETURN_PASS_FIXTURE="$TESTS_DIR/array_return_pass.aether"
@@ -233,6 +239,12 @@ for fixture in \
     "$PAR_SHARED_RECORD_FAIL_FIXTURE" \
     "$METHOD_UNDEFINED_FAIL_FIXTURE" \
     "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" \
+    "$UNCLOSED_BLOCK_FAIL_FIXTURE" \
+    "$UNCLOSED_CALL_FAIL_FIXTURE" \
+    "$FIXED_SIZE_ARRAY_FAIL_FIXTURE" \
+    "$WRITE_FORMAT_COLON_FAIL_FIXTURE" \
+    "$TUPLE_RECURSION_FAIL_FIXTURE" \
+    "$RECURSION_PASS_FIXTURE" \
     "$FOR_RANGE_PASS_FIXTURE" \
     "$LOOP_FORMS_PASS_FIXTURE" \
     "$ARRAY_RETURN_PASS_FIXTURE" \
@@ -1758,13 +1770,90 @@ if "$AETHER_BIN" --no-cache "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" >/tmp/aether_unkno
     echo "expected SYN-001 for an unparseable construct but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\] Aether syntax error:" /tmp/aether_unknown_construct_fail.out; then
+# Accept either the parser's own anchored diagnostic ("Aether parser rewrite
+# error", emitted since the block parser stopped tolerating stalled statements)
+# or the silent-failure backstop's wording ("Aether syntax error"); both are
+# coded SYN-001 and anchored where parsing stalled.
+if ! grep -q "\[SYN-001\] Aether \(syntax\|parser rewrite\) error:" /tmp/aether_unknown_construct_fail.out; then
     echo "missing SYN-001 backstop diagnostic (silent parse failure regressed)" >&2
     cat /tmp/aether_unknown_construct_fail.out >&2
     exit 1
 fi
 if ! [ -s /tmp/aether_unknown_construct_fail.out ]; then
     echo "backstop produced empty output for an unparseable construct" >&2
+    exit 1
+fi
+
+# Missing closing delimiters are hard SYN-001 errors, never silently tolerated
+# (regression: parseBlock/parseArgListEx used to consume-if-present, so an
+# unclosed body at EOF or an unclosed call arg list parsed without error).
+if "$AETHER_BIN" --no-cache "$UNCLOSED_BLOCK_FAIL_FIXTURE" >/tmp/aether_unclosed_block_fail.out 2>&1; then
+    echo "expected unclosed-block failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\].*expected '}' to close block (opened at line 3)" /tmp/aether_unclosed_block_fail.out; then
+    echo "missing unclosed-block SYN-001 diagnostic" >&2
+    cat /tmp/aether_unclosed_block_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$UNCLOSED_CALL_FAIL_FIXTURE" >/tmp/aether_unclosed_call_fail.out 2>&1; then
+    echo "expected unclosed-call failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\].*expected ')' to close argument list" /tmp/aether_unclosed_call_fail.out; then
+    echo "missing unclosed-call SYN-001 diagnostic" >&2
+    cat /tmp/aether_unclosed_call_fail.out >&2
+    exit 1
+fi
+# Fixed-size array types (Int[3]) are a single clear SYN-001 with the Int[]
+# hint, and the type parser resyncs past the ']' so no unrelated downstream
+# diagnostic appears (regression: consumed '[' then abandoned the stream).
+if "$AETHER_BIN" --no-cache "$FIXED_SIZE_ARRAY_FAIL_FIXTURE" >/tmp/aether_fixed_size_array_fail.out 2>&1; then
+    echo "expected fixed-size array failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\].*fixed-size array types are not supported" /tmp/aether_fixed_size_array_fail.out; then
+    echo "missing fixed-size array SYN-001 diagnostic" >&2
+    cat /tmp/aether_fixed_size_array_fail.out >&2
+    exit 1
+fi
+if ! grep -q "hint: use \`Int\[\]\`" /tmp/aether_fixed_size_array_fail.out; then
+    echo "missing fixed-size array dynamic-array hint" >&2
+    cat /tmp/aether_fixed_size_array_fail.out >&2
+    exit 1
+fi
+if [ "$(grep -c "\[SYN-001\]" /tmp/aether_fixed_size_array_fail.out)" != "1" ]; then
+    echo "fixed-size array should produce exactly one SYN-001 (stream resync regressed)" >&2
+    cat /tmp/aether_fixed_size_array_fail.out >&2
+    exit 1
+fi
+# A print format spec whose ':' is not followed by a number is SYN-001
+# (regression: parseWriteArg swallowed the ':' and misaligned the stream).
+if "$AETHER_BIN" --no-cache "$WRITE_FORMAT_COLON_FAIL_FIXTURE" >/tmp/aether_write_format_colon_fail.out 2>&1; then
+    echo "expected write-format colon failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\].*expected a number after ':' in print format spec" /tmp/aether_write_format_colon_fail.out; then
+    echo "missing write-format colon SYN-001 diagnostic" >&2
+    cat /tmp/aether_write_format_colon_fail.out >&2
+    exit 1
+fi
+# Direct recursion in a tuple-return fn is TUP-001 at compile time (tuple
+# returns lower to per-slot globals, so a self-call corrupts its own results)...
+if "$AETHER_BIN" --no-cache "$TUPLE_RECURSION_FAIL_FIXTURE" >/tmp/aether_tuple_recursion_fail.out 2>&1; then
+    echo "expected tuple-recursion failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[TUP-001\].*tuple-return functions cannot call themselves" /tmp/aether_tuple_recursion_fail.out; then
+    echo "missing tuple-recursion TUP-001 diagnostic" >&2
+    cat /tmp/aether_tuple_recursion_fail.out >&2
+    exit 1
+fi
+# ...while plain (non-tuple) direct recursion still parses and runs.
+"$AETHER_BIN" --no-cache "$RECURSION_PASS_FIXTURE" >/tmp/aether_recursion_pass.out 2>&1
+if ! grep -qx "120" /tmp/aether_recursion_pass.out; then
+    echo "unexpected non-tuple recursion output (TUP-001 guard overreached?)" >&2
+    cat /tmp/aether_recursion_pass.out >&2
     exit 1
 fi
 
