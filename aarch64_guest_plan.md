@@ -600,20 +600,54 @@ New in this batch:
 - MRS/MSR TPIDR_EL0 gadgets + `cpu_state.arm64_tpidr` (the TLS base),
   constant CTR_EL0/DCZID_EL0 (DZP=1 so libc never attempts DC ZVA).
 
-**Known next blockers** (both found by running real applets, both
-currently failing cleanly):
+**arm64 signal delivery (DONE — full shell semantics work)**: the
+aarch64 rt_sigframe (generic-64-bit siginfo reused from the amd64
+marshaling + arm64 ucontext with the kernel's 128-byte sigmask
+reservation + mcontext with regs[31]/sp/pc/pstate and an
+fpsimd_context record chain in __reserved), an on-stack sigreturn
+trampoline (`movz x8, #139; svc #0` — no arm64 vDSO yet; the kernel's
+SA_RESTORER flag honored, and musl's unset restorer field correctly
+NOT trusted without it), `sys_rt_sigreturn_arm64`, sigaction
+marshalling routed by guest_abi_is_64bit (aarch64's sigaction ==
+amd64's layout; it was falling into the i386 branch), altstack per
+SA_ONSTACK for 64-bit ABIs, and `current_user_sp`/`current_fault_ip`
+arm64 cases. busybox sh now runs pipelines, for-loops, subshells,
+command substitution, and full fork/exec/SIGCHLD/wait cycles.
 
-1. **arm64 signal delivery** — `receive_signal` (kernel/signal.c) only
-   builds i386/amd64 frames; an arm64 task with a handler falls into
-   the i386 path and corrupts state (observed: busybox sh crashes when
-   SIGCHLD fires after a child exits). Needs the aarch64 rt_sigframe
-   (siginfo + ucontext + mcontext with regs[31]/sp/pc/pstate), an
-   on-stack sigreturn trampoline (no arm64 vDSO yet), and rt_sigreturn
-   (syscall 139).
-2. **Scalar FP arithmetic** — busybox awk dies on `fmov d15, d0`
+**The deepest bug of the port so far — mid-block fault restart**
+(found chasing the busybox-sh crash; the isolated signal test passed,
+signal delivery itself was NEVER the bug): when a memory gadget
+faulted mid-block with INT_PF and the kernel resolved the fault (the
+everyday case: first write to a copy-on-write page after fork),
+execution resumed at the BLOCK-START pc — re-executing every
+instruction before the faulting one. musl's `__syscall_ret` errno
+block does `mov x1, x0; ...; mov x0, #-1; str w2, [x1]`: the store
+CoW-faulted after x0 was already clobbered, and the re-run computed
+the errno pointer from x0=-1. (The bogus "-1 read" flavor: address -1
+lands in the crosspage path, whose fill is a read.) Root-caused with a
+16-entry block-entry ring buffer showing the same block executing
+twice. Fix mirrors i386's per-access orig_ip discipline: every
+memory-touching gadget's LAST code-stream word is its instruction's
+guest address, and `arm64_segfault_read/write` rewind CPU_pc to it
+(fixed `[_ip, #-8]` slot) — INT_PF now resumes at the FAULTING
+instruction, which is idempotent (writeback happens after the access
+in every load/store gadget).
+
+**Known next blockers**:
+
+1. **Scalar FP arithmetic** — busybox awk dies on `fmov d15, d0`
    (FP data-processing); the whole scalar FP ISA (FMOV-reg, FADD/FSUB/
    FMUL/FDIV, FCMP, FCVT*, SCVTF/UCVTF) is unported. Same
    blocker-driven approach: port what awk/real userland actually hits.
+2. Minor: `ls / | grep ...` pipelines produce empty output (plain `ls /`
+   works) — likely a non-tty stat/ioctl behavior difference, not a JIT
+   gap.
+3. `block->end_addr` is wrong for arm64 blocks (gen_end uses the i386
+   `state->ip`, which never advances) — page-registration/invalidation
+   only sees the first byte. Not yet observed to misbehave (code pages
+   aren't being invalidated in current workloads) but a real landmine
+   for self-modifying/JIT-in-guest workloads; fix alongside the next
+   jit.c change.
 
 ## Testing Strategy — New Oracle Required
 

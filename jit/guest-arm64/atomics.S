@@ -40,7 +40,7 @@
 .macro ldxr_gadget name, bits, ldinsn, reg
 .gadget \name
     ldr x8, [_ip]
-    add _ip, _ip, #8
+    add _ip, _ip, #16         // params + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // rt
     ubfx x22, x8, #8, #5      // rn (31 = SP)
 
@@ -76,7 +76,7 @@
 .macro stxr_gadget name, bits, ldinsn, stinsn, reg, valmask
 .gadget \name
     ldr x8, [_ip]
-    add _ip, _ip, #8
+    add _ip, _ip, #16         // params + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // rt (value to store)
     ubfx x22, x8, #8, #5      // rn (31 = SP)
     ubfx x19, x8, #16, #5     // rs (status out)
@@ -133,7 +133,7 @@ stxr_done_\name :
 .macro cas_gadget name, bits, ldinsn, stinsn, reg, valmask
 .gadget \name
     ldr x8, [_ip]
-    add _ip, _ip, #8
+    add _ip, _ip, #16         // params + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // rt (new value)
     ubfx x22, x8, #8, #5      // rn (31 = SP)
     ubfx x19, x8, #16, #5     // rs (expected in, old value out)

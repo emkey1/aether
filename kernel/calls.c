@@ -1911,6 +1911,14 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     dword_t result;
     switch (syscall_num) {
     // -- full-width results --
+    case 139: { // rt_sigreturn: restores the whole register file; only
+                // overwrite X0 on error (mirrors amd64's case-15 handling)
+        qword_t sigreturn_result = sys_rt_sigreturn_arm64();
+        sqword_t signed_result = (sqword_t) sigreturn_result;
+        if (signed_result < 0 && signed_result >= -4095)
+            arm64_syscall_result_qword(cpu, sigreturn_result);
+        return true;
+    }
     case 62: // lseek
         arm64_syscall_result_qword(cpu, (qword_t) sys_lseek_amd64_guest(
                 (fd_t) raw_args[0], (off_t_) raw_args[1], (dword_t) raw_args[2]));
@@ -3455,7 +3463,11 @@ static void record_guest_fault_event(const char *kind, const struct cpu_state *c
 }
 
 static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
-    return current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip;
+    if (current->abi == GUEST_ABI_AMD64)
+        return cpu->amd64_rip;
+    if (current->abi == GUEST_ABI_ARM64)
+        return cpu->arm64_pc;
+    return cpu->eip;
 }
 
 void handle_page_fault_interrupt(struct cpu_state *cpu) {
@@ -3466,9 +3478,21 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
         printk("ERROR: %d(%s) page fault on %#llx at %#llx%s\n",
                current->pid, current->comm,
                (unsigned long long) cpu->segfault_addr,
-               (unsigned long long) (current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip),
+               (unsigned long long) current_fault_ip(cpu),
                cpu->segfault_was_write ? " (write)" : " (read)");
-        dump_opcode_window(current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip);
+        if (current->abi == GUEST_ABI_ARM64) {
+            for (int i = 0; i < 31; i += 4)
+                printk("  x%d=%#llx x%d=%#llx x%d=%#llx x%d=%#llx\n",
+                       i, (unsigned long long) cpu->arm64_regs[i],
+                       i + 1, i + 1 < 31 ? (unsigned long long) cpu->arm64_regs[i + 1] : 0,
+                       i + 2, i + 2 < 31 ? (unsigned long long) cpu->arm64_regs[i + 2] : 0,
+                       i + 3, i + 3 < 31 ? (unsigned long long) cpu->arm64_regs[i + 3] : 0);
+            printk("  sp=%#llx pc=%#llx tpidr=%#llx\n",
+                   (unsigned long long) cpu->arm64_sp,
+                   (unsigned long long) cpu->arm64_pc,
+                   (unsigned long long) cpu->arm64_tpidr);
+        }
+        dump_opcode_window(current_fault_ip(cpu));
         if (current->abi == GUEST_ABI_AMD64) {
             dump_amd64_regs(cpu);
             dump_fault_pt_state(cpu->segfault_addr);

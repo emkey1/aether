@@ -74,8 +74,25 @@
 .extern __tlb_read_cross_page
 .extern __tlb_write_cross_page
 
+// Both segfault paths also rewind the guest PC to the FAULTING
+// INSTRUCTION, read from the fixed [-8] slot of the just-consumed code
+// stream: every memory-touching gadget's LAST parameter word is its
+// instruction's guest address (emitted by gen_step_arm64), and every
+// gadget advances _ip past all its params before any prep macro can
+// fault, so [_ip, #-8] is always that address here. Without this, an
+// INT_PF resolved by the kernel (the everyday case: first write to a
+// copy-on-write page after fork) resumed at the BLOCK-START pc,
+// re-executing every instruction before the faulting one — real bug:
+// busybox sh crashed post-fork because musl's __syscall_ret block did
+// `mov x0,#-1` before the errno store, the store CoW-faulted, and the
+// rerun computed the errno pointer from the clobbered x0. Re-executing
+// just the faulting instruction is sound: its inputs are untouched at
+// fault time (writeback in the load/store gadgets happens after the
+// access).
 .global arm64_segfault_read
 arm64_segfault_read:
+    ldur x9, [_ip, #-8]
+    str x9, [_cpu, #CPU_pc]
     ldr x8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
     str x8, [_cpu, #CPU_segfault_addr]
     strb wzr, [_cpu, #CPU_segfault_was_write]
@@ -84,6 +101,8 @@ arm64_segfault_read:
 
 .global arm64_segfault_write
 arm64_segfault_write:
+    ldur x9, [_ip, #-8]
+    str x9, [_cpu, #CPU_pc]
     ldr x8, [_tlb, #(-TLB_entries+TLB_segfault_addr)]
     str x8, [_cpu, #CPU_segfault_addr]
     mov w9, #1
@@ -213,7 +232,7 @@ arm64_crosspage_store:
 .gadget \name
     ldr x8, [_ip]
     ldr x19, [_ip, #8]        // signed scaled offset
-    add _ip, _ip, #16
+    add _ip, _ip, #24         // params + offset + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // rt
     ubfx x21, x8, #8, #5      // rt2
     ubfx x22, x8, #16, #5     // rn
@@ -264,7 +283,7 @@ arm64_crosspage_store:
 .gadget \name
     ldr x8, [_ip]
     ldr x19, [_ip, #8]
-    add _ip, _ip, #16
+    add _ip, _ip, #24         // params + offset + trailing orig_ip (fault restart)
     and x20, x8, #0x1f         // rt
     ubfx x21, x8, #8, #5       // rt2
     ubfx x22, x8, #16, #5      // rn
@@ -401,7 +420,7 @@ store_single store64,  64, str,  x17
 .gadget \name
     ldr x20, [_ip]            // rt
     ldr x7, [_ip, #8]         // absolute guest address
-    add _ip, _ip, #16
+    add _ip, _ip, #24         // rt + address + trailing orig_ip (fault restart)
     read_prep \bits, \name
     \ldinsn \reg, [_addr]
     add x9, _cpu, #CPU_x0

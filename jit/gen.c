@@ -918,6 +918,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
         gen(state, (uint64_t) offset);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -959,6 +960,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16)); // mode 0: no writeback
         gen(state, imm12 << size);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -989,6 +991,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
         gen(state, (uint64_t) imm9);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1018,6 +1021,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | (3ULL << 16));
         gen(state, rm | ((uint64_t) option << 8) | ((uint64_t) shift << 16));
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1039,6 +1043,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt);
         gen(state, addr);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1068,6 +1073,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
         gen(state, imm12 << size_log2); // scaled by the ACCESS size, incl. Q's 16
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1094,6 +1100,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
         gen(state, (uint64_t) imm9);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1121,6 +1128,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | (3ULL << 16));
         gen(state, rm | ((uint64_t) option << 8) | ((uint64_t) shift << 16));
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1159,6 +1167,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) (is_load ? vldp_gadgets[opc] : vstp_gadgets[opc]));
         gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
         gen(state, (uint64_t) offset);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1319,6 +1328,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         };
         gen(state, (unsigned long) cas_gadgets[size]);
         gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16));
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 
@@ -1356,6 +1366,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, (unsigned long) gadget);
             gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
             gen(state, 0);
+            gen(state, state->arm64_orig_ip); // fault-restart address
             return 1;
         }
         static void *const ldxr_gadgets[4] = {
@@ -1368,6 +1379,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         };
         gen(state, (unsigned long) (L ? ldxr_gadgets[size] : stxr_gadgets[size]));
         gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16));
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
     }
 

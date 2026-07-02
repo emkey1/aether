@@ -1377,7 +1377,6 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
         }
 
         TRACE("%d %08llx --- cycle %ld (arm64)\n", current_pid(current), (unsigned long long) ip, frame->cpu.cycle);
-
         bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
         if (force_block_boundary_break)
             __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);

@@ -76,7 +76,7 @@ vstore_single vstore128, 128, str, q31
 .gadget \name
     ldr x8, [_ip]
     ldr x19, [_ip, #8]
-    add _ip, _ip, #16
+    add _ip, _ip, #24         // params + offset + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // vt
     ubfx x21, x8, #8, #5      // vt2
     ubfx x22, x8, #16, #5     // rn (31 = SP)
@@ -124,7 +124,7 @@ vstore_single vstore128, 128, str, q31
 .gadget \name
     ldr x8, [_ip]
     ldr x19, [_ip, #8]
-    add _ip, _ip, #16
+    add _ip, _ip, #24         // params + offset + trailing orig_ip (fault restart)
     and x20, x8, #0x1f        // vt
     ubfx x21, x8, #8, #5      // vt2
     ubfx x22, x8, #16, #5     // rn

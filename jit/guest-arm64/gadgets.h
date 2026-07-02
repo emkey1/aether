@@ -251,10 +251,14 @@ back_write_done_\id :
 // mode 3, read the base (rn: 31 = SP), leave the effective address in
 // x7 (= _addr) ready for a prep macro. Leaves rt in x20, rn in x22,
 // mode in x23, base in x24, resolved offset in x19.
+// Code stream (all single-register load/store gadgets, integer and SIMD):
+// [rt | rn<<8 | mode<<16][offset word][orig_ip] — the trailing orig_ip is
+// the fault-restart address consumed by arm64_segfault_read/write
+// (memory.S) at a fixed [_ip, #-8].
 .macro ldst_single_setup
     ldr x8, [_ip]
     ldr x19, [_ip, #8]
-    add _ip, _ip, #16
+    add _ip, _ip, #24
     and x20, x8, #0x1f        // rt
     ubfx x22, x8, #8, #5      // rn
     ubfx x23, x8, #16, #2     // mode

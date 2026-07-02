@@ -185,8 +185,64 @@ struct rt_sigframe_amd64 {
     char retcode[8];
 };
 
+// ---- AArch64 signal frame (arch/arm64 rt_sigframe layout) ----------------
+// siginfo and stack_t reuse the amd64 marshaled structs: the generic
+// 64-bit siginfo layout and stack_t are byte-identical on aarch64.
+// The mcontext's __reserved area carries a chain of context records; the
+// kernel always writes an fpsimd_context first, so real userspace
+// (setjmp-out-of-handler, unwinders) expects one — followed by a null
+// terminator record.
+#define ARM64_FPSIMD_MAGIC 0x46508001u
+
+struct arm64_fpsimd_context_ {
+    dword_t magic;
+    dword_t size; // sizeof(struct arm64_fpsimd_context_) = 528
+    dword_t fpsr;
+    dword_t fpcr;
+    union xmm_reg vregs[32];
+};
+
+static_assert(sizeof(struct arm64_fpsimd_context_) == 528, "arm64 fpsimd_context layout mismatch");
+
+struct arm64_mcontext_ {
+    qword_t fault_address;
+    qword_t regs[31];
+    qword_t sp;
+    qword_t pc;
+    qword_t pstate;
+    char reserved[4096] __attribute__((aligned(16)));
+};
+
+struct arm64_ucontext_ {
+    qword_t flags;
+    qword_t link;
+    struct amd64_stack_t_marshaled stack;
+    sigset_t_ sigmask;
+    // The kernel reserves 128 bytes for the sigmask area (uc_sigmask is
+    // declared sigset_t but followed by __unused padding out to 128);
+    // userspace's ucontext_t declares uc_sigmask as the full 128 bytes.
+    char sigmask_pad[128 - sizeof(sigset_t_)];
+    struct arm64_mcontext_ mcontext; // aligned(16) via the member type
+};
+
+struct rt_sigframe_arm64 {
+    struct amd64_siginfo_ info;
+    struct arm64_ucontext_ uc;
+    // Not part of the kernel's frame: the sigreturn trampoline. Real
+    // Linux points X30 at the vDSO's __kernel_rt_sigreturn; this port
+    // has no arm64 vDSO yet, so the trampoline lives on the stack like
+    // i386's retcode (the JIT reads guest code through the normal
+    // readable-page path, so no PROT_EXEC concern under emulation).
+    dword_t retcode[2]; // movz x8, #139 ; svc #0
+};
+
 static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct sigaction_ *action) {
-    if (task->abi == GUEST_ABI_AMD64) {
+    // arm64 shares the amd64 marshaling: aarch64's struct sigaction is the
+    // same {handler, flags, restorer, mask} qword layout (arm64 defines
+    // SA_RESTORER, so the field is present). Routing arm64 through the
+    // i386 branch here was why busybox sh's SIGCHLD handler registration
+    // read garbage before the arm64 frame support landed.
+    if (guest_abi_is_64bit(task->abi)) {
         struct sigaction_amd64_marshaled user_action;
         if (user_get(user_addr, user_action))
             return _EFAULT;
@@ -211,7 +267,7 @@ static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct
 }
 
 static int sigaction_to_user(struct task *task, guest_addr_t user_addr, const struct sigaction_ *action) {
-    if (task->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(task->abi)) { // arm64 shares the amd64 layout, see sigaction_from_user
         struct sigaction_amd64_marshaled user_action = {
             .handler = action->handler,
             .flags = action->flags,
@@ -298,6 +354,8 @@ static bool wake_waiting_task(struct task *task) {
 static guest_addr_t current_user_sp(struct task *task) {
     if (task->abi == GUEST_ABI_AMD64)
         return task->cpu.amd64_regs[amd64_rsp];
+    if (task->abi == GUEST_ABI_ARM64)
+        return task->cpu.arm64_sp;
     return task->cpu.esp;
 }
 
@@ -1193,6 +1251,87 @@ static void setup_rt_sigframe_amd64(struct siginfo_ *info, struct rt_sigframe_am
     memcpy(frame->retcode, &rt_retcode, sizeof(rt_retcode));
 }
 
+static void setup_rt_sigframe_arm64(struct siginfo_ *info, struct rt_sigframe_arm64 *frame) {
+    struct cpu_state *cpu = &current->cpu;
+    memset(frame, 0, sizeof(*frame));
+    siginfo_to_amd64_user(&frame->info, info); // generic 64-bit siginfo layout, same on arm64
+    frame->uc.flags = 0;
+    frame->uc.link = 0;
+    frame->uc.stack = (struct amd64_stack_t_marshaled) {
+        .stack = current->altstack,
+        .flags = current_altstack_flags(current),
+        .size = current->altstack_size,
+    };
+    frame->uc.sigmask = current->blocked;
+
+    struct arm64_mcontext_ *mc = &frame->uc.mcontext;
+    mc->fault_address = info->sig == SIGSEGV_ || info->sig == SIGBUS_ ? info->fault.addr : 0;
+    for (int i = 0; i < 31; i++)
+        mc->regs[i] = cpu->arm64_regs[i];
+    mc->sp = cpu->arm64_sp;
+    mc->pc = cpu->arm64_pc;
+    mc->pstate = cpu->arm64_nzcv; // NZCV in bits 31:28, the only PSTATE this port models
+
+    // Context-record chain in __reserved: fpsimd_context, then a null
+    // terminator (the kernel always writes fpsimd first; unwinders and
+    // sigsetjmp paths expect to find it).
+    struct arm64_fpsimd_context_ fpsimd = {
+        .magic = ARM64_FPSIMD_MAGIC,
+        .size = sizeof(fpsimd),
+        .fpsr = cpu->arm64_fpsr,
+        .fpcr = cpu->arm64_fpcr,
+    };
+    memcpy(fpsimd.vregs, cpu->arm64_v, sizeof(fpsimd.vregs));
+    memcpy(mc->reserved, &fpsimd, sizeof(fpsimd));
+    // terminator: magic 0, size 0 — already zero from the memset
+
+    // Trampoline: movz x8, #__NR_rt_sigreturn (139) ; svc #0
+    frame->retcode[0] = 0xd2800008u | (139u << 5);
+    frame->retcode[1] = 0xd4000001u;
+}
+
+static void restore_arm64_mcontext(struct rt_sigframe_arm64 *frame, struct cpu_state *cpu) {
+    struct arm64_mcontext_ *mc = &frame->uc.mcontext;
+    for (int i = 0; i < 31; i++)
+        cpu->arm64_regs[i] = mc->regs[i];
+    cpu->arm64_sp = mc->sp;
+    cpu->arm64_pc = mc->pc;
+    cpu->arm64_nzcv = (dword_t) mc->pstate & 0xf0000000u;
+
+    // Restore FP state if the handler's frame still carries the fpsimd
+    // record (it might have been overwritten by a longjmp-mangled frame;
+    // treat a missing record as "leave FP state alone", like the kernel's
+    // optional-record parsing).
+    struct arm64_fpsimd_context_ fpsimd;
+    memcpy(&fpsimd, mc->reserved, sizeof(fpsimd));
+    if (fpsimd.magic == ARM64_FPSIMD_MAGIC && fpsimd.size == sizeof(fpsimd)) {
+        cpu->arm64_fpsr = fpsimd.fpsr;
+        cpu->arm64_fpcr = fpsimd.fpcr;
+        memcpy(cpu->arm64_v, fpsimd.vregs, sizeof(fpsimd.vregs));
+    }
+}
+
+qword_t sys_rt_sigreturn_arm64(void) {
+    struct cpu_state *cpu = &current->cpu;
+    struct rt_sigframe_arm64 frame;
+    // At handler entry SP = &frame; the handler's return through the
+    // trampoline restores SP to exactly that point before the SVC.
+    guest_addr_t frame_addr = cpu->arm64_sp;
+    if (user_get(frame_addr, frame)) {
+        deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+        return _EFAULT;
+    }
+
+    restore_arm64_mcontext(&frame, cpu);
+
+    lock(&current->sighand->lock, 0);
+    restore_altstack(frame_addr, frame.uc.stack.stack,
+            frame.uc.stack.size, frame.uc.stack.flags);
+    sigmask_set(frame.uc.sigmask);
+    unlock(&current->sighand->lock);
+    return cpu->arm64_regs[arm64_x0];
+}
+
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
@@ -1222,7 +1361,9 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     bool need_siginfo = action->flags & SA_SIGINFO_;
 
     guest_addr_t sp = current_user_sp(current);
-    if (current->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(current->abi)) {
+        // amd64 and arm64: architected behavior — the altstack is used
+        // only when the action asks for it.
         if ((action->flags & SA_ONSTACK_) && current->altstack && !is_on_altstack(sp, current))
             sp = current->altstack + current->altstack_size;
     } else {
@@ -1231,6 +1372,49 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
         // one is configured, regardless of SA_ONSTACK.
         if (current->altstack && !is_on_altstack(sp, current))
             sp = current->altstack + current->altstack_size;
+    }
+
+    if (current->abi == GUEST_ABI_ARM64) {
+        struct rt_sigframe_arm64 frame;
+        setup_rt_sigframe_arm64(info, &frame);
+
+        sp -= sizeof(frame);
+        sp &= ~0xfull; // AAPCS64: SP 16-byte aligned at all public interfaces
+
+        current->cpu.arm64_sp = sp;
+        current->cpu.arm64_pc = action->handler;
+        // arm64 has only rt signals: x1/x2 always point at info/ucontext
+        // regardless of SA_SIGINFO (the flag only changes the handler's
+        // declared signature, not the frame), matching the kernel.
+        current->cpu.arm64_regs[arm64_x0] = info->sig;
+        current->cpu.arm64_regs[arm64_x1] = sp + offsetof(struct rt_sigframe_arm64, info);
+        current->cpu.arm64_regs[arm64_x2] = sp + offsetof(struct rt_sigframe_arm64, uc);
+        // 0x04000000 = SA_RESTORER (arm64 defines it; the kernel honors an
+        // explicit restorer and otherwise uses the vDSO trampoline — here,
+        // the on-stack retcode, since there's no arm64 vDSO yet). Don't
+        // read action->restorer without the flag: musl leaves the field
+        // unset on aarch64.
+        guest_addr_t restorer = action->flags & 0x04000000u ? action->restorer : 0;
+        if (restorer == 0)
+            restorer = sp + offsetof(struct rt_sigframe_arm64, retcode);
+        current->cpu.arm64_regs[arm64_x30] = restorer;
+
+        if (!(action->flags & SA_NODEFER_))
+            sigset_add(&current->blocked, info->sig);
+        current->blocked |= action->mask;
+
+        if (user_write(sp, &frame, sizeof(frame))) {
+            // See the amd64 path below: kill like Linux force_sigsegv
+            // instead of self-deadlocking through deliver_signal.
+            printk("WARNING: failed to install arm64 frame for %d at %#llx, killing\n",
+                   info->sig, (unsigned long long) sp);
+            unlock(&sighand->lock);
+            do_exit_group(SIGSEGV_);
+        }
+
+        if (action->flags & SA_RESETHAND_)
+            *action = (struct sigaction_) {.handler = SIG_DFL_};
+        return;
     }
 
     if (current->abi == GUEST_ABI_AMD64) {
