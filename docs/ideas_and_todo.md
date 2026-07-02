@@ -788,3 +788,47 @@ value — fragile if the lexer grows heap state); unchecked `realloc` in the tup
 share a line; `bindingTableSet` casts away const at ~8 sites; contract expressions are captured as raw
 line text and re-parsed (cannot span lines; inner nodes keep detached-buffer line numbers,
 `parseExprFromText` ~2109 restamps only the root).
+
+## Mined from historical bench logs — 2026-07-01 (post-hardening retest)
+
+*Source: `Tests/aether_specialization/bench_failure_mining_2026-07-01.md` (umbrella).
+817 final-state failures from the 2026-06-27/28 guided + trained boards and 4
+idea-miner runs, each retested on aether 2026-07-01-8. 584/587 compile failures
+still reproduce (genuine prior signal); the big fixed-since class is the silent
+rc=1 exits (188/190 now emit coded diagnostics). Wrong-prior drills are being
+added to the corpus; the entries below are the LANGUAGE-side candidates.*
+
+### Arrays are value copies; records are pointer-backed — in-place mutation silently no-ops — *gap (top finding, 10 families)*
+A function that sorts/mutates an array parameter compiles and runs but the
+caller sees the ORIGINAL array (arrays pass by value; records by reference).
+17 identical unsorted quick_sort outputs across 10 families including gpt-oss,
+gemini, and the trained boards — the single largest compiled-but-wrong class.
+Options: (a) make array params reference-backed like records (consistency, but
+a semantics change across the suite); (b) reject mutation of array params
+without a return (frontend analysis); (c) corpus-only (return-the-array idiom
+drill, being added). The asymmetry itself is the trap; decide deliberately.
+
+### `new Int[](5)` compiles then crashes the VM — *gap (verified)*
+Sized-array allocation syntax is accepted by the frontend and dies at runtime.
+Either support it or reject it at parse time with the append-loop hint.
+
+### `xs + ys` array concat compiles, fails at runtime — *gap (verified, 4 families)*
+`ARRAY + ARRAY` passes the frontend and errors in the VM. Reject at compile
+time with a loop-append hint, or implement concat (models expect it).
+
+### No `else if` in if-EXPRESSION position — *idea (28x, 8 families)*
+`let g: Text = if x > 8 { "A" } else if x > 6 { "B" } else { "C" };` fails;
+statement-position `else if` works. Either support the chain in expression
+position or emit a targeted diagnostic (nest `else { if ... }`).
+
+### Array slicing `arr[a..b]` — *idea (~30x, 13 families)*
+Most-reached-for missing collection op. Related: tuple-element arrays. Weigh
+against the no-Range-type decision (2026-07-01 pass-3 triage) — a slice
+SUGAR inside indexing brackets need not introduce a first-class range value.
+
+### Misleading diagnostics to sharpen — *idea*
+1-based string indexing trips ~25 runtime errors (0-based prior): consider a
+hint on out-of-range string ops; nested-fn declarations get a misleading
+diagnostic; `match` statements (8 families) could get a targeted "use if"
+SYN-001 the way not/and/or word-ops are being handled.
+
