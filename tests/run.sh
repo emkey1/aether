@@ -1354,8 +1354,11 @@ if ! grep -q '"file":"'"$INFERRED_LET_UNKNOWN_FAIL_FIXTURE"'"' /tmp/aether_infer
     cat /tmp/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
-if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`."' /tmp/aether_inferred_let_unknown_json.out; then
-    echo "missing diagnostics-json hint" >&2
+# The guide-pointer `help: see <CODE> ...` line is folded into the preceding
+# diagnostic's hint by the collector (no separate junk entry), so the hint is
+# the original text plus the folded guide pointer.
+if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`.; see TYPE-001 in the Aether guide' /tmp/aether_inferred_let_unknown_json.out; then
+    echo "missing diagnostics-json hint (with folded help pointer)" >&2
     cat /tmp/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
