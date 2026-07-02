@@ -428,16 +428,37 @@ all fixed and documented in `memory.S`/`gadgets.h`'s own comments:
    specific address in `arm64_prologue.s` never crosses a page), so it
    has no dedicated regression test yet.
 
-**Phase C (not started)**: LDXR/STXR/CAS, Logical (immediate and
-shifted-register), DP_REG (register-form ADD/SUB/MOV/logical-shifted-
+**Phase C, part 1 (Logical immediate — DONE, validated)**: added
+`jit/guest-arm64/logical.S`'s `logical_imm` gadget (AND/ORR/EOR/ANDS,
+including the ORR-with-Rn=XZR "MOV (bitmask immediate)" alias, which
+falls out for free since Rn=31 already loads 0). Independently written,
+not adapted from OpenMinis — the bitmask-immediate pattern
+(immN:imms:immr, ARM's "DecodeBitMasks") is decoded once at JIT-compile
+time by `gen_step_arm64` calling `arm64_decode_bitmask_imm` (moved from
+`emu/arm64_interp.c` into the shared `emu/arch/arm64/decode.h` so both
+the interpreter and the JIT compile-time decoder call the same
+implementation — the branch sign-extension bug from earlier in Phase B
+is exactly why duplicating this logic a second time wasn't worth the
+risk) and packed into the code stream as a plain 64-bit value, so the
+gadget itself never needs to reimplement DecodeBitMasks in assembly.
+ANDS's NZCV semantics (N,Z from the result, C,V always cleared) fall out
+for free from the host's own native `ands` instruction — no
+special-casing needed on a same-architecture host. Validated via
+`tests/arm64/arm64_logical.s` (AND/ORR-alias/EOR/ANDS together, exit 0)
+— this is significant because patch 5's real-rootfs testing found
+Logical (immediate) is literally the first instruction musl's dynamic
+linker executes, so this closes that specific gap for the gadget path.
+
+**Phase C, part 2 (not started)**: LDXR/STXR/CAS, Logical
+(shifted-register), DP_REG (register-form ADD/SUB/MOV/logical-shifted-
 register — confirmed by patch 5's real-rootfs test as the actual next
-blocker for any dynamic-linked userland), MUL — enough to get
-`tests/arm64/arm64_atomics.s` and `arm64_logical.s` passing via gadgets,
-then the real Alpine `/bin/busybox` test (see patch 5's "Real-rootfs
-findings" in `tests/arm64/README.md`) as the next real-world validation
-target. Should follow the same "port what real testing shows is next"
-priority used throughout this port, not a speculative ISA-manual-ordered
-pass.
+blocker immediately after Logical-immediate, for any dynamic-linked
+userland), MUL — enough to get `tests/arm64/arm64_atomics.s` passing via
+gadgets and get past DP_REG in a real `ld.so`, then the real Alpine
+`/bin/busybox` test (see patch 5's "Real-rootfs findings" in
+`tests/arm64/README.md`) as the next real-world validation target.
+Should follow the same "port what real testing shows is next" priority
+used throughout this port, not a speculative ISA-manual-ordered pass.
 
 ## Testing Strategy — New Oracle Required
 

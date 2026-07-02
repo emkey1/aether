@@ -103,6 +103,18 @@ credits file supports.
   `aarch64_guest_plan.md`'s Phase B section and inline in `memory.S`/
   `gadgets.h`.
 
+- `jit/guest-arm64/logical.S` (new file, Phase C part 1) — independently
+  written, not adapted from OpenMinis' equivalent. Decodes the bitmask
+  immediate at JIT-compile time via `arm64_decode_bitmask_imm` (moved
+  from `emu/arm64_interp.c` into the shared
+  `emu/arch/arm64/decode.h` — see that header for why: same "one
+  implementation, not two chances to get it wrong" discipline the
+  branch-offset sign-extension bug taught this port), so the gadget
+  itself never reimplements ARM's DecodeBitMasks pseudocode a third
+  time (interpreter, gen.c, AND assembly). ANDS uses the host's own
+  native `ands` instruction directly — its NZCV semantics fall out
+  correctly for free on a same-architecture host.
+
 ## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their

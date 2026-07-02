@@ -183,51 +183,9 @@ static uint64_t arm64_apply_shift(uint64_t val, unsigned shift_type, unsigned am
     }
 }
 
-// ---- Bitmask immediate decode (AArch64 "DecodeBitMasks", immN:imms:immr
-// form) ---------------------------------------------------------------
-// Adapted from OpenMinis/ish-arm64's asbestos/guest-arm64/gen.c:1018
-// (GPLv3, see /CREDITS-aarch64.md). This is a direct translation of the
-// ARM ARM's DecodeBitMasks pseudocode — algorithmically an ISA fact, not
-// really anyone's expression — but the code structure (loop-based
-// highest-set-bit search rather than a De Bruijn/clz trick, the specific
-// variable names) came from their file, so it's credited as adapted
-// rather than independently derived. Added when patch 3's original
-// "logical (immediate) deferred" scope cut turned out to block literally
-// the first instruction executed by musl's dynamic linker on real Alpine
-// aarch64 userland — see aarch64_guest_plan.md's patch-3 addendum.
-static bool arm64_decode_bitmask_imm(uint32_t n, uint32_t imms, uint32_t immr, bool is64, uint64_t *result) {
-    uint32_t len = 0;
-    uint32_t combined = (n << 6) | (~imms & 0x3f);
-    bool found = false;
-    for (int i = 6; i >= 0; i--) {
-        if (combined & (1u << i)) {
-            len = (uint32_t) i;
-            found = true;
-            break;
-        }
-    }
-    if (!found || len < 1)
-        return false;
-
-    uint32_t size = 1u << len;
-    uint32_t s = imms & (size - 1);
-    uint32_t r = immr & (size - 1);
-    if (s == size - 1)
-        return false;
-
-    uint64_t pattern = (1ULL << (s + 1)) - 1;
-    if (r > 0) {
-        pattern = (pattern >> r) | (pattern << (size - r));
-        pattern &= (size < 64) ? ((1ULL << size) - 1) : ~0ULL;
-    }
-
-    *result = 0;
-    for (uint32_t i = 0; i < 64; i += size)
-        *result |= pattern << i;
-    if (!is64)
-        *result &= 0xffffffffu;
-    return true;
-}
+// arm64_decode_bitmask_imm() moved to emu/arch/arm64/decode.h so
+// gen_step_arm64 (jit/gen.c) can share the same implementation at JIT-compile
+// time instead of reimplementing it — see that header for the full comment.
 
 // ---- Instruction execution ----------------------------------------------
 // Returns INT_NONE on success, or an interrupt code (INT_UNDEFINED,

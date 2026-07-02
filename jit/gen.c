@@ -612,6 +612,38 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // Logical (immediate): AND/ORR/EOR/ANDS — mask matches
+    // arm64_execute()'s (bits[28:23]=100100). The bitmask immediate itself
+    // (immN:imms:immr) is decoded once here at compile time via
+    // arm64_decode_bitmask_imm (emu/arch/arm64/decode.h, shared with the
+    // interpreter -- same "one implementation" discipline as the branch
+    // sign-extension fix) and packed into the code stream as a plain
+    // 64-bit value; logical.S's gadget never needs to reimplement
+    // DecodeBitMasks in assembly. Params: rd | rn<<8 | opc<<16 | sf<<24,
+    // then the decoded imm as a second 64-bit word.
+    if ((insn & 0x1f800000) == 0x12000000) {
+        extern void gadget_arm64_logical_imm(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned opc = (insn >> 29) & 0x3;
+        unsigned N = (insn >> 22) & 1;
+        unsigned immr = (insn >> 16) & 0x3f;
+        unsigned imms = (insn >> 10) & 0x3f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        uint64_t imm;
+        if ((!sf && N != 0) || !arm64_decode_bitmask_imm(N, imms, immr, sf, &imm)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_logical_imm);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) opc << 16) | ((uint64_t) sf << 24));
+        gen(state, imm);
+        return 1;
+    }
+
     // Load/store pair (LDP/STP), GPR only (V=0) — mask matches
     // arm64_execute()'s (bits[29:25]=10100, V=bit26=0). Params packed to
     // match jit/guest-arm64/memory.S's ldp64/ldp32/stp64/stp32 gadgets

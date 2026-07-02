@@ -168,4 +168,46 @@ static inline int64_t arm64_adr_imm(uint32_t insn) {
     return arm64_sign_extend((immhi << 2) | immlo, 21);
 }
 
+// Bitmask immediate decode (AArch64 "DecodeBitMasks", immN:imms:immr form).
+// Adapted from OpenMinis/ish-arm64's asbestos/guest-arm64/gen.c:1018 (GPLv3,
+// see /CREDITS-aarch64.md) -- moved here (was file-local to
+// emu/arm64_interp.c) so gen_step_arm64 (jit/gen.c) can call the same
+// proven-correct implementation at JIT-compile time instead of
+// reimplementing it a second time -- the exact "one implementation, not two
+// chances to get it wrong" lesson the branch-offset sign-extension bug
+// (aarch64_guest_plan.md's Phase B writeup) already taught this port.
+static inline bool arm64_decode_bitmask_imm(uint32_t n, uint32_t imms, uint32_t immr, bool is64, uint64_t *result) {
+    uint32_t len = 0;
+    uint32_t combined = (n << 6) | (~imms & 0x3f);
+    bool found = false;
+    for (int i = 6; i >= 0; i--) {
+        if (combined & (1u << i)) {
+            len = (uint32_t) i;
+            found = true;
+            break;
+        }
+    }
+    if (!found || len < 1)
+        return false;
+
+    uint32_t size = 1u << len;
+    uint32_t s = imms & (size - 1);
+    uint32_t r = immr & (size - 1);
+    if (s == size - 1)
+        return false;
+
+    uint64_t pattern = (1ULL << (s + 1)) - 1;
+    if (r > 0) {
+        pattern = (pattern >> r) | (pattern << (size - r));
+        pattern &= (size < 64) ? ((1ULL << size) - 1) : ~0ULL;
+    }
+
+    *result = 0;
+    for (uint32_t i = 0; i < 64; i += size)
+        *result |= pattern << i;
+    if (!is64)
+        *result &= 0xffffffffu;
+    return true;
+}
+
 #endif
