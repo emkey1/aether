@@ -230,19 +230,21 @@ struct cpu_state {
     qword_t arm64_regs[arm64_reg_count];
     qword_t arm64_sp;
     qword_t arm64_pc;
-    // NZCV condition flags, stored decoded (not packed into a raw PSTATE
-    // word) since every consumer — arm64_cond_check() in decode.h, the
-    // interpreter's flag-setting instructions — wants them as individual
-    // bits. OpenMinis' ish-arm64 (emu/arch/arm64/cpu.h) keeps both this
-    // decoded form AND a redundant packed `nzcv` field manually kept in
-    // sync via arm64_set_nzcv()/arm64_sync_nzcv(); we deliberately don't
-    // carry that redundant field — one representation, no sync-drift class
-    // of bug. A packed-NZCV accessor can be added later (e.g. for ptrace
-    // NT_PRSTATUS) as a pure function computed from these fields, not a
-    // second stored copy. Named arm64_-prefixed because bare `nf`/`zf`/`cf`
-    // would collide with the existing i386 eflags-bitfield field names
-    // above (cpu->cf, cpu->zf) in this same shared struct.
-    bool arm64_nf, arm64_zf, arm64_cf, arm64_vf;
+    // NZCV condition flags, packed into bits 31:28 (N=31,Z=30,C=29,V=28)
+    // matching AArch64 PSTATE/CPSR layout exactly, so the JIT gadget path
+    // (jit/guest-arm64/) can load/store this with a single `msr nzcv, x`/
+    // `mrs x, nzcv` pair instead of four separate bit-field touches.
+    //
+    // REVERSED from patch 2/3's original decoded-bool-fields design (one
+    // representation, no sync-drift risk) once the project's direction
+    // changed to porting OpenMinis' JIT gadget set directly rather than
+    // building out an interpreter — see aarch64_guest_plan.md. With gadget
+    // throughput as the actual goal, matching their packed representation
+    // (their arm64_set_nzcv()/arm64_sync_nzcv() dance, emu/arch/arm64/
+    // cpu.h) is the right tradeoff; the interpreter (emu/arm64_interp.c)
+    // is no longer being extended and pays a small decode cost per flag
+    // touch instead, which is fine since it's not the performance path.
+    dword_t arm64_nzcv;
     // Exclusive monitor for LDXR/STXR (and CAS's fallback path). addr is
     // the guest address covered by the last LDXR; UINT64_MAX means "no
     // outstanding exclusive". Cleared on STXR/STLXR regardless of success,

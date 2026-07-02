@@ -77,14 +77,31 @@ credits file supports.
 - `struct cpu_state`'s arm64 register fields (`emu/cpu.h`) — structurally
   similar to their `emu/arch/arm64/cpu.h` (same register set, same choice to
   reuse a 128-bit union for V0-V31) but written as siblings within a shared
-  multi-ABI struct rather than a per-arch-build struct, and deliberately
-  without their redundant packed-`nzcv`-kept-in-sync-with-decoded-flags
-  representation (one representation here, no sync-drift risk).
+  multi-ABI struct rather than a per-arch-build struct.
+
+  **Reversal**: originally deliberately *without* their redundant packed-
+  `nzcv`-kept-in-sync-with-decoded-flags representation, on the reasoning
+  that a single representation avoids a sync-drift bug class. Reverted once
+  the project's direction changed (see below) — `cpu->arm64_nzcv` is now a
+  single packed field in their exact PSTATE bit layout (31:28 = N,Z,C,V),
+  matching their design, because the reason for the original choice
+  (interpreter-first correctness) no longer applies once the interpreter is
+  no longer the target of ongoing work.
 - `emu/arm64_interp.c`'s overall structure (register/memory access helpers,
   step-and-dispatch loop, `cpu_run_to_interrupt_arm64` driver) mirrors this
   codebase's own `emu/amd64_interp.c`, not OpenMinis' code — they have no
-  interpreter (their arm64 support is JIT-only; this codebase does
-  interpreter-first, JIT-later per `aarch64_guest_plan.md`).
+  interpreter (their arm64 support is JIT-only).
+
+  **Direction change**: `aarch64_guest_plan.md` originally called for
+  interpreter-first, JIT-later (mirroring the amd64 port's discipline). The
+  project's direction changed to directly porting OpenMinis' JIT gadget set
+  instead — see the plan doc's "JIT gadget port (direction change)" section
+  and `jit/guest-arm64/` (new). `emu/arm64_interp.c` is left as-is
+  (committed, still builds, still passes its regression tests, already
+  caught two real bugs) but is no longer being extended with new
+  instruction coverage. Unlike the amd64 port, there is no interpreter
+  fallback wired into the gadget path — matching i386's own no-fallback
+  precedent, per the sibling-fork research that motivated this change.
 
 ## Adapted (curation) / independently written (implementation): syscall table
 

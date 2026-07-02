@@ -126,18 +126,24 @@ static inline bool arm64_mem_write(struct cpu_state *cpu, struct tlb *tlb,
 // ---- Flag computation ---------------------------------------------------
 // NZCV for ADD/SUB, computed generically over a 32- or 64-bit operand width.
 // a, b, and result are the *unmasked* 64-bit values; width comes from sf.
+// Packs directly into cpu->arm64_nzcv (bits 31:28) — see emu/cpu.h.
+
+static inline void arm64_set_nzcv(struct cpu_state *cpu, bool n, bool z, bool c, bool v) {
+    cpu->arm64_nzcv = ((dword_t) n << 31) | ((dword_t) z << 30) | ((dword_t) c << 29) | ((dword_t) v << 28);
+}
 
 static inline void arm64_set_flags_add(struct cpu_state *cpu, uint64_t a, uint64_t b, bool sf) {
     unsigned width = sf ? 64 : 32;
     uint64_t mask = sf ? UINT64_MAX : 0xffffffffu;
     uint64_t am = a & mask, bm = b & mask;
     uint64_t res = (am + bm) & mask;
-    cpu->arm64_nf = (res >> (width - 1)) & 1;
-    cpu->arm64_zf = (res == 0);
     unsigned __int128 wide = (unsigned __int128) am + (unsigned __int128) bm;
-    cpu->arm64_cf = ((wide >> width) & 1) != 0;
     bool sa = (am >> (width - 1)) & 1, sb = (bm >> (width - 1)) & 1, sr = (res >> (width - 1)) & 1;
-    cpu->arm64_vf = (sa == sb) && (sr != sa);
+    arm64_set_nzcv(cpu,
+        (res >> (width - 1)) & 1,
+        res == 0,
+        ((wide >> width) & 1) != 0,
+        (sa == sb) && (sr != sa));
 }
 
 static inline void arm64_set_flags_sub(struct cpu_state *cpu, uint64_t a, uint64_t b, bool sf) {
@@ -145,12 +151,36 @@ static inline void arm64_set_flags_sub(struct cpu_state *cpu, uint64_t a, uint64
     uint64_t mask = sf ? UINT64_MAX : 0xffffffffu;
     uint64_t am = a & mask, bm = b & mask;
     uint64_t res = (am - bm) & mask;
-    cpu->arm64_nf = (res >> (width - 1)) & 1;
-    cpu->arm64_zf = (res == 0);
-    // SUB's carry is "NOT borrow": set when no borrow was needed, i.e. am >= bm.
-    cpu->arm64_cf = (am >= bm);
     bool sa = (am >> (width - 1)) & 1, sb = (bm >> (width - 1)) & 1, sr = (res >> (width - 1)) & 1;
-    cpu->arm64_vf = (sa != sb) && (sr != sa);
+    arm64_set_nzcv(cpu,
+        (res >> (width - 1)) & 1,
+        res == 0,
+        am >= bm, // SUB's carry is "NOT borrow": set when no borrow was needed
+        (sa != sb) && (sr != sa));
+}
+
+// ---- Register shift application (LSL/LSR/ASR/ROR, shift_type 0-3) -----
+// Shared by Logical(shifted-register) and Add/subtract(shifted-register).
+// val is assumed already masked to `sf`'s width by the caller.
+static uint64_t arm64_apply_shift(uint64_t val, unsigned shift_type, unsigned amount, bool sf) {
+    unsigned width = sf ? 64 : 32;
+    uint64_t wmask = sf ? UINT64_MAX : 0xffffffffu;
+    if (amount == 0)
+        return val;
+    switch (shift_type) {
+    case 0b00: // LSL
+        return (val << amount) & wmask;
+    case 0b01: // LSR
+        return val >> amount;
+    case 0b10: { // ASR
+        int64_t sv = sf ? (int64_t) val : (int64_t) (int32_t) val;
+        return ((uint64_t) (sv >> amount)) & wmask;
+    }
+    case 0b11: // ROR
+        return ((val >> amount) | (val << (width - amount))) & wmask;
+    default:
+        return val;
+    }
 }
 
 // ---- Bitmask immediate decode (AArch64 "DecodeBitMasks", immN:imms:immr
@@ -275,10 +305,10 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
         case 0b10: result = src ^ imm; break;  // EOR
         case 0b11:                              // ANDS
             result = src & imm;
-            cpu->arm64_nf = (result >> (sf ? 63 : 31)) & 1;
-            cpu->arm64_zf = (sf ? result == 0 : (result & 0xffffffffu) == 0);
-            cpu->arm64_cf = false; // ANDS always clears C and V
-            cpu->arm64_vf = false;
+            arm64_set_nzcv(cpu,
+                (result >> (sf ? 63 : 31)) & 1,
+                sf ? result == 0 : (result & 0xffffffffu) == 0,
+                false, false); // ANDS always clears C and V
             break;
         default:
             return INT_UNDEFINED;

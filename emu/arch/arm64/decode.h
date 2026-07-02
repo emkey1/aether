@@ -61,18 +61,24 @@ enum arm64_cond {
     COND_NV = 15,  // Always (same as AL)
 };
 
-// Evaluate a condition code against the current flags
+// Evaluate a condition code against the current flags. Reads the packed
+// NZCV field (bits 31:28) rather than decoded bools — see emu/cpu.h's
+// arm64_nzcv comment for why this changed from the original design.
 static inline bool arm64_cond_check(struct cpu_state *cpu, enum arm64_cond cond) {
+    bool nf = (cpu->arm64_nzcv >> 31) & 1;
+    bool zf = (cpu->arm64_nzcv >> 30) & 1;
+    bool cf = (cpu->arm64_nzcv >> 29) & 1;
+    bool vf = (cpu->arm64_nzcv >> 28) & 1;
     bool result;
     switch (cond >> 1) {
-        case 0: result = cpu->arm64_zf; break;                          // EQ/NE
-        case 1: result = cpu->arm64_cf; break;                          // CS/CC
-        case 2: result = cpu->arm64_nf; break;                          // MI/PL
-        case 3: result = cpu->arm64_vf; break;                          // VS/VC
-        case 4: result = cpu->arm64_cf && !cpu->arm64_zf; break;        // HI/LS
-        case 5: result = cpu->arm64_nf == cpu->arm64_vf; break;         // GE/LT
-        case 6: result = !cpu->arm64_zf && (cpu->arm64_nf == cpu->arm64_vf); break; // GT/LE
-        case 7: result = true; break;                                   // AL/NV
+        case 0: result = zf; break;                    // EQ/NE
+        case 1: result = cf; break;                    // CS/CC
+        case 2: result = nf; break;                    // MI/PL
+        case 3: result = vf; break;                    // VS/VC
+        case 4: result = cf && !zf; break;              // HI/LS
+        case 5: result = nf == vf; break;               // GE/LT
+        case 6: result = !zf && (nf == vf); break;       // GT/LE
+        case 7: result = true; break;                    // AL/NV
         default: result = false; break;
     }
     // Invert result for odd condition codes (except AL/NV)

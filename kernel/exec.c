@@ -866,7 +866,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     memset(save->cpu.arm64_regs, 0, sizeof(save->cpu.arm64_regs));
     save->cpu.arm64_pc = entry;
     save->cpu.arm64_sp = sp;
-    save->cpu.arm64_nf = save->cpu.arm64_zf = save->cpu.arm64_cf = save->cpu.arm64_vf = false;
+    save->cpu.arm64_nzcv = 0;
     save->cpu.arm64_excl_addr = UINT64_MAX;
     save->cpu.arm64_excl_val = 0;
     save->cpu.arm64_fpsr = 0;
