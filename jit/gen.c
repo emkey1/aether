@@ -708,6 +708,50 @@ static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
     return table[cond];
 }
 
+// Host optional-ISA probe for gadget selection. The crypto/CRC gadgets
+// execute the corresponding host instruction natively, but those are
+// optional extensions Apple only added over time: FEAT_CRC32 with A10,
+// FEAT_SHA512/SHA3 with A13 — and we support devices back to A7-class
+// hardware (iOS 14 baseline is A8/A9). On hosts that lack them, gen
+// emits the soft-fallback gadgets (crc32_soft, sha512_soft) instead, so
+// the guest-visible feature set (AT_HWCAP, ID_AA64ISAR0) stays identical
+// on every device. The SHA3 data ops need no gating: their gadgets are
+// synthesized from baseline NEON (crypto.S).
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+static bool arm64_host_flag(const char *feat, const char *legacy) {
+    uint32_t val = 0;
+    size_t size = sizeof(val);
+    if (sysctlbyname(feat, &val, &size, NULL, 0) == 0 && val)
+        return true;
+    val = 0; size = sizeof(val);
+    return sysctlbyname(legacy, &val, &size, NULL, 0) == 0 && val;
+}
+#elif defined(__linux__)
+#include <sys/auxv.h>
+#endif
+static bool arm64_host_has_sha512;
+static bool arm64_host_has_crc32;
+__attribute__((constructor)) static void arm64_probe_host_caps(void) {
+#if defined(__APPLE__)
+    // New-style names first (iOS 15+/macOS 12+), then the legacy spellings.
+    arm64_host_has_sha512 = arm64_host_flag("hw.optional.arm.FEAT_SHA512",
+                                            "hw.optional.armv8_2_sha512");
+    arm64_host_has_crc32 = arm64_host_flag("hw.optional.arm.FEAT_CRC32",
+                                           "hw.optional.armv8_crc32");
+#elif defined(__linux__)
+    unsigned long hwcap = getauxval(AT_HWCAP);
+    arm64_host_has_sha512 = hwcap & (1ul << 21); // HWCAP_SHA512
+    arm64_host_has_crc32 = hwcap & (1ul << 7);   // HWCAP_CRC32
+#endif
+    // Anything unprobed stays false: the soft paths are always correct.
+    // Test escape hatch: exercise the pre-A13/pre-A10 soft paths on a
+    // host that has the native instructions.
+    const char *force = getenv("ISH_ARM64_FORCE_SOFT_CRYPTO");
+    if (force != NULL && *force == '1')
+        arm64_host_has_sha512 = arm64_host_has_crc32 = false;
+}
+
 // -O0 idiom fusion (see memory.S's "Fused -O0 idioms" section): starting
 // from a plain fast-eligible LDR (unsigned-imm form, 32/64-bit, rt != 31),
 // peek at the following instructions and fuse gcc's stack-slot patterns
@@ -3576,8 +3620,13 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
     if ((insn & 0xfffffc00) == 0xcec08000) { // SHA512SU0 (two-reg)
-        extern void gadget_arm64_sha512su0(void);
+        extern void gadget_arm64_sha512su0(void), gadget_arm64_sha512_soft(void);
         unsigned rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        if (!arm64_host_has_sha512) { // pre-A13 host: run the op in C
+            gen(state, (unsigned long) gadget_arm64_sha512_soft);
+            gen(state, rd | ((uint64_t) rn << 8) | (3ULL << 24)); // op 3 = SU0
+            return 1;
+        }
         gen(state, (unsigned long) gadget_arm64_sha512su0);
         gen(state, rd | ((uint64_t) rn << 8));
         return 1;
@@ -3586,9 +3635,15 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             (insn & 0xffe0fc00) == 0xce608400 || // SHA512H2
             (insn & 0xffe0fc00) == 0xce608800) { // SHA512SU1
         extern void gadget_arm64_sha512h(void), gadget_arm64_sha512h2(void);
-        extern void gadget_arm64_sha512su1(void);
+        extern void gadget_arm64_sha512su1(void), gadget_arm64_sha512_soft(void);
         unsigned sel = (insn >> 10) & 3;
         unsigned rm = (insn >> 16) & 0x1f, rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        if (!arm64_host_has_sha512) { // pre-A13 host: run the op in C
+            gen(state, (unsigned long) gadget_arm64_sha512_soft);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
+                | ((uint64_t) sel << 24)); // op: 0=H 1=H2 2=SU1
+            return 1;
+        }
         void *gadget = sel == 0 ? (void *) gadget_arm64_sha512h
                      : sel == 1 ? (void *) gadget_arm64_sha512h2
                      : (void *) gadget_arm64_sha512su1;
@@ -4028,9 +4083,9 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     }
 
     // Data-processing (2 source): UDIV/SDIV/LSLV/LSRV/ASRV/RORV, plus the
-    // CRC32{B,H,W,X}/CRC32C{B,H,W,X} opcodes (0x10-0x17; the host has the
-    // instructions and ID_AA64ISAR0/HWCAP advertise them). PACGA stays
-    // unimplemented.
+    // CRC32{B,H,W,X}/CRC32C{B,H,W,X} opcodes (0x10-0x17; ID_AA64ISAR0/
+    // HWCAP advertise them, computed natively when the host has FEAT_CRC32
+    // — A10+ — and in C otherwise). PACGA stays unimplemented.
     if ((insn & 0x7fe00000) == 0x1ac00000) {
         extern void gadget_arm64_dp2src(void);
         extern void gadget_arm64_crc32(void);
@@ -4042,11 +4097,13 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         if (opcode >= 0x10 && opcode <= 0x17) {
             // CRC32: sz = opcode<1:0> (b/h/w/x), C variant = opcode<2>.
             // The X form requires sf=1, the others sf=0.
+            extern void gadget_arm64_crc32_soft(void);
             unsigned crc_sz = opcode & 3;
             bool crc_c = opcode & 4;
             if ((crc_sz == 3) != sf)
                 return gen_arm64_undefined(state);
-            gen(state, (unsigned long) gadget_arm64_crc32);
+            gen(state, (unsigned long) (arm64_host_has_crc32
+                    ? gadget_arm64_crc32 : gadget_arm64_crc32_soft));
             gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
                 | ((uint64_t) crc_sz << 24) | ((uint64_t) crc_c << 26));
             return 1;
@@ -4247,9 +4304,12 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // MRS of the CPU-feature ID registers (Linux traps and emulates these
     // for EL0, so real binaries do read them — musl/glibc feature probes).
     // Values advertise exactly what this JIT implements: base FP+AdvSIMD
-    // (PFR0), AES+PMULL / SHA1 / SHA256 / CRC32 (ISAR0). The rest read as
-    // zero. Ported from OpenMinis' d5300000 sysreg fallback, with the
-    // values matched to OUR feature set rather than theirs.
+    // (PFR0), AES+PMULL / SHA1 / SHA2+SHA512 / SHA3 / CRC32 / LSE atomics
+    // (ISAR0). SHA512/SHA3/CRC32 hold on every host: gadgets fall back to
+    // soft implementations where the host instruction is missing. The
+    // rest read as zero. Ported from OpenMinis' d5300000 sysreg fallback,
+    // with the values matched to OUR feature set rather than theirs.
+    // Kept in sync with AT_HWCAP (kernel/exec.c).
     if ((insn & 0xfff00000) == 0xd5300000) {
         unsigned op1 = (insn >> 16) & 7, crn = (insn >> 12) & 0xf;
         unsigned crm = (insn >> 8) & 0xf, op2 = (insn >> 5) & 7;
@@ -4260,7 +4320,9 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         else if (op1 == 0 && crn == 0 && crm == 4 && (op2 == 1 || op2 == 4))
             value = 0;    // ID_AA64PFR1_EL1 / ID_AA64ZFR0_EL1
         else if (op1 == 0 && crn == 0 && crm == 6 && op2 == 0)
-            value = 0x11120; // ID_AA64ISAR0_EL1: AES=2(+PMULL) SHA1=1 SHA2=1 CRC32=1
+            // ID_AA64ISAR0_EL1: AES=2(+PMULL) SHA1=1 SHA2=2(+SHA512)
+            // CRC32=1 Atomics=2(LSE) SHA3=1
+            value = 0x212120 | (1ULL << 32);
         else if (op1 == 0 && crn == 0 && crm == 6 && op2 == 1)
             value = 0;    // ID_AA64ISAR1_EL1
         else if (op1 == 0 && crn == 0 && crm == 7 && (op2 == 0 || op2 == 1 || op2 == 2))

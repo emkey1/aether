@@ -134,7 +134,10 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
             proc_printf(buf, "processor       : %d\n", cpu);
             proc_printf(buf, "model name      : iSH Virtual aarch64-compatible CPU @ 1.066GHz\n");
             proc_printf(buf, "BogoMIPS        : 1066.00\n");
-            proc_printf(buf, "Features        : fp asimd cpuid aes pmull sha1 sha2 crc32\n");
+            // Real Linux derives this string from AT_HWCAP — keep it in
+            // lockstep with kernel/exec.c's hwcap (uniform on every host
+            // device: SHA512/CRC32 fall back to soft gadgets pre-A13/A10).
+            proc_printf(buf, "Features        : fp asimd cpuid aes pmull sha1 sha2 crc32 atomics sha3 sha512\n");
             proc_printf(buf, "CPU implementer : 0x61\n"); // Apple (the silicon underneath)
             proc_printf(buf, "CPU architecture: 8\n");
             proc_printf(buf, "CPU variant     : 0x0\n");

@@ -616,9 +616,11 @@ dp3_store:
     str x20, [x10, x19, lsl #3]
 1:  gret
 
-// CRC32{B,H,W,X} / CRC32C{B,H,W,X}: Wd = crc(Wn, Rm<sz>). The host has
-// FEAT_CRC32 everywhere we run, but Xcode's default -arch arm64 assembler
-// target doesn't advertise it — enable it explicitly for this file.
+// CRC32{B,H,W,X} / CRC32C{B,H,W,X}: Wd = crc(Wn, Rm<sz>). FEAT_CRC32 is
+// optional in v8.0 and Apple only added it with A10 — gen.c hands this
+// native gadget out only when the host has it (crc32_soft below covers
+// the rest). Xcode's default -arch arm64 assembler target doesn't
+// advertise the extension — enable it explicitly for this file.
 // [gadget][rd | rn<<8 | rm<<16 | sz<<24 | c<<26]
 .arch_extension crc
 .gadget crc32
@@ -673,6 +675,39 @@ crc32_st:
     b.eq 9f
     str x15, [x14, x9, lsl #3] // Wd zero-extends
 9:  gret
+
+// Soft CRC32 fallback for hosts without FEAT_CRC32 (pre-A10): computes
+// in C (arm64_crc32_soft, emu/tlb.c). Same code stream as crc32 above:
+// [gadget][rd | rn<<8 | rm<<16 | sz<<24 | c<<26]
+.gadget crc32_soft
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    save_c
+    and x19, x8, #0x1f          // rd, callee-saved across the C call
+    ubfx x9, x8, #8, #5         // rn
+    ubfx x10, x8, #16, #5       // rm
+    add x11, _cpu, #CPU_x0
+    mov x0, #0
+    cmp x9, #31
+    b.eq 1f
+    // w-sized load can't use `lsl #3` addressing (see memory.S header,
+    // bug #2): compute the 8-byte-strided slot address separately.
+    add x12, x11, x9, lsl #3
+    ldr w0, [x12]               // Wn (acc)
+1:  mov x1, #0
+    cmp x10, #31
+    b.eq 2f
+    ldr x1, [x11, x10, lsl #3]  // Rm (value)
+2:  ubfx x2, x8, #24, #2        // size: 0=b 1=h 2=w 3=x
+    ubfx x3, x8, #26, #1        // 1 = CRC32C
+    bl NAME(arm64_crc32_soft)
+    mov w20, w0                 // zero-extend: Wd write clears the top
+    restore_c
+    cmp x19, #31
+    b.eq 3f
+    add x10, _cpu, #CPU_x0
+    str x20, [x10, x19, lsl #3]
+3:  gret
 
 # vim: ft=gas
 
