@@ -571,6 +571,107 @@ dp3_store:
     str x9, [x10]
 1:  gret
 
+// MRS Xt, NZCV / MSR NZCV, Xt: the guest flags live at CPU_nzcv in the
+// architectural bit positions (31:28), so this is a plain 32-bit
+// load/store. Ported from OpenMinis' d53b4200/d51b4200 branches.
+// [gadget][rt]
+.gadget mrs_nzcv
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x8, x8, #0x1f
+    cmp x8, #31
+    b.eq 1f
+    ldr w9, [_cpu, #CPU_nzcv]
+    add x10, _cpu, #CPU_x0
+    str x9, [x10, x8, lsl #3]
+1:  gret
+
+.gadget msr_nzcv
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x8, x8, #0x1f
+    mov x9, #0
+    cmp x8, #31
+    b.eq 1f
+    add x10, _cpu, #CPU_x0
+    ldr x9, [x10, x8, lsl #3]
+1:  and w9, w9, #0xf0000000
+    str w9, [_cpu, #CPU_nzcv]
+    gret
+
+// MRS Xt, CNTVCT_EL0: virtual counter read at runtime from the host
+// monotonic clock (nanoseconds; CNTFRQ_EL0 reports 1 GHz to match).
+// [gadget][rt]
+.gadget mrs_cntvct
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x19, x8, #0x1f         // rt, callee-saved across the C call
+    save_c
+    bl NAME(arm64_cntvct)
+    mov x20, x0                // result; x0 itself is restored by restore_c
+    restore_c
+    cmp x19, #31
+    b.eq 1f
+    add x10, _cpu, #CPU_x0
+    str x20, [x10, x19, lsl #3]
+1:  gret
+
+// CRC32{B,H,W,X} / CRC32C{B,H,W,X}: Wd = crc(Wn, Rm<sz>). The host has
+// FEAT_CRC32 everywhere we run. [gadget][rd | rn<<8 | rm<<16 | sz<<24 |
+// c<<26]
+.gadget crc32
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    ubfx x12, x8, #24, #2      // size: 0=b 1=h 2=w 3=x
+    ubfx x13, x8, #26, #1      // 1 = CRC32C
+    add x14, _cpu, #CPU_x0
+    mov x15, #0
+    cmp x10, #31
+    b.eq 1f
+    add x17, x14, x10, lsl #3
+    ldr w15, [x17]             // Wn (acc)
+1:  mov x16, #0
+    cmp x11, #31
+    b.eq 2f
+    ldr x16, [x14, x11, lsl #3] // Rm
+2:  cbnz x13, crc32_c
+    cmp x12, #0
+    b.eq 3f
+    cmp x12, #1
+    b.eq 4f
+    cmp x12, #2
+    b.eq 5f
+    crc32x w15, w15, x16
+    b crc32_st
+3:  crc32b w15, w15, w16
+    b crc32_st
+4:  crc32h w15, w15, w16
+    b crc32_st
+5:  crc32w w15, w15, w16
+    b crc32_st
+crc32_c:
+    cmp x12, #0
+    b.eq 6f
+    cmp x12, #1
+    b.eq 7f
+    cmp x12, #2
+    b.eq 8f
+    crc32cx w15, w15, x16
+    b crc32_st
+6:  crc32cb w15, w15, w16
+    b crc32_st
+7:  crc32ch w15, w15, w16
+    b crc32_st
+8:  crc32cw w15, w15, w16
+crc32_st:
+    cmp x9, #31
+    b.eq 9f
+    str x15, [x14, x9, lsl #3] // Wd zero-extends
+9:  gret
+
 # vim: ft=gas
 
 // MRS/MSR FPCR and FPSR: stored in cpu_state (arm64_fpcr/arm64_fpsr) but

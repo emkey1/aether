@@ -154,3 +154,12 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
     unlock(&timer->lock);
     return 0;
 }
+
+// Virtual counter for the arm64 guest's MRS CNTVCT_EL0 (see
+// jit/guest-arm64/dpextra.S's mrs_cntvct): host monotonic nanoseconds,
+// paired with a constant 1 GHz CNTFRQ_EL0.
+uint64_t arm64_cntvct(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
+}

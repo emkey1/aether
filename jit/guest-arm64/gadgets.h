@@ -206,20 +206,28 @@ slow_write_\id :
         b back_\id
 fast_write_\id :
     .endif
-    and w9, w7, #0xfffff000
+    // 64-bit page math throughout: this macro was copied from the i386
+    // gadget set, whose w-register page compare and unmasked `eor ..,
+    // lsr #22` index are only correct for 32-bit guest addresses. arm64
+    // guest addresses are 48-bit: the unmasked eor indexed OUTSIDE the
+    // 1024-entry TLB array (ld crashed the whole app dereferencing a
+    // garbage data_minus_addr), and the 32-bit page compare would treat
+    // any two pages 4GiB apart as aliases — silent wrong-memory access.
+    and x9, x7, #0xfffffffffffff000
     .ifc \type,write
-        str w9, [_tlb, #(-TLB_entries+TLB_dirty_page)]
+        str x9, [_tlb, #(-TLB_entries+TLB_dirty_page)]
     .endif
     ubfx x10, x7, #12, #10
     eor x10, x10, x7, lsr #22
+    and x10, x10, #(1 << TLB_BITS) - 1
     mov w11, #TLB_ENTRY_SIZE
     madd x10, x10, x11, _tlb
     .ifc \type,read
-        ldr w11, [x10, #TLB_ENTRY_page]
+        ldr x11, [x10, #TLB_ENTRY_page]
     .else
-        ldr w11, [x10, #TLB_ENTRY_page_if_writable]
+        ldr x11, [x10, #TLB_ENTRY_page_if_writable]
     .endif
-    cmp w9, w11
+    cmp x9, x11
     b.ne handle_miss_\id
     ldr x11, [x10, #TLB_ENTRY_data_minus_addr]
     add x7, x11, x7, uxtx

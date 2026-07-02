@@ -623,3 +623,95 @@ ld1st1_fault:
     str x19, [_cpu, #CPU_pc]   // rewind PC to this instruction (idempotent retry)
     mov w0, w27                // INT_PF
     b jit_exit
+
+// AdvSIMD structured load/store: interleaved LD2-4/ST2-4 (multiple),
+// single-lane LD1-4/ST1-4, and LD1R-LD4R replicate — all through the
+// crosspage-safe arm64_vldst_struct C helper (emu/tlb.c). Same shape as
+// ld1st1_multi above. Code stream:
+//   [gadget][rt | rn<<5 | count<<10 | q<<13 | is_load<<14 | mode<<15 |
+//            rm<<17 | kind<<22 | esize_log2<<24 | lane<<26][orig_ip]
+.gadget ldst_struct
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]         // orig_ip (fault restart), callee-saved
+    add _ip, _ip, #16
+    and x20, x8, #0x1f         // rt
+    ubfx x21, x8, #5, #5       // rn
+    ubfx x22, x8, #10, #3      // count
+    ubfx x23, x8, #13, #1      // q
+    ubfx x24, x8, #14, #1      // is_load
+    ubfx x25, x8, #15, #2      // mode
+    ubfx x26, x8, #17, #5      // rm
+    ubfx x12, x8, #22, #2      // kind
+    ubfx x13, x8, #24, #2      // esize_log2
+    ubfx x14, x8, #26, #4      // lane
+
+    // base address (rn: 31 = SP), into x7
+    add x9, _cpu, #CPU_x0
+    cmp x21, #31
+    b.eq 1f
+    add x10, x9, x21, lsl #3
+    ldr x7, [x10]
+    b 2f
+1:  ldr x7, [_cpu, #CPU_sp]
+2:
+    // spec = count | esize_log2<<4 | q<<6 | lane<<8 | kind<<12 | is_load<<14
+    orr x11, x22, x13, lsl #4
+    orr x11, x11, x23, lsl #6
+    orr x11, x11, x14, lsl #8
+    orr x11, x11, x12, lsl #12
+    orr x11, x11, x24, lsl #14
+    save_c
+    mov x3, x20                // rt
+    mov x4, x11                // spec
+    mov x0, x1                 // cpu
+    sub x1, x2, #TLB_entries   // struct tlb *
+    mov x2, x7                 // addr
+    bl NAME(arm64_vldst_struct)
+    mov x27, x0                // result (0 / INT_PF), callee-saved
+    restore_c
+
+    cbnz x27, ldst_struct_fault
+
+    // writeback
+    cbz x25, ldst_struct_done
+    // recompute total bytes (x22/x23/x12/x13 are callee-saved and intact)
+    cmp x12, #1
+    b.ne 7f
+    mov x15, #8
+    cbz x23, 8f
+    mov x15, #16
+8:  mul x15, x22, x15
+    b 9f
+7:  mov x15, #1
+    lsl x15, x15, x13
+    mul x15, x22, x15
+9:
+    add x9, _cpu, #CPU_x0
+    cmp x21, #31
+    b.eq 10f
+    add x10, x9, x21, lsl #3
+    ldr x16, [x10]
+    b 11f
+10: ldr x16, [_cpu, #CPU_sp]
+11: cmp x25, #2
+    b.eq 12f
+    add x16, x16, x15          // mode 1: += total bytes
+    b 13f
+12: cmp x26, #31               // mode 2: += Xrm
+    b.eq 13f
+    add x10, x9, x26, lsl #3
+    ldr x15, [x10]
+    add x16, x16, x15
+13: cmp x21, #31
+    b.eq 14f
+    add x10, x9, x21, lsl #3
+    str x16, [x10]
+    b ldst_struct_done
+14: str x16, [_cpu, #CPU_sp]
+ldst_struct_done:
+    gret
+
+ldst_struct_fault:
+    str x19, [_cpu, #CPU_pc]
+    mov w0, w27
+    b jit_exit

@@ -260,11 +260,16 @@ arm64_crosspage_store:
     cmp x20, #31
     b.eq 5f
     add x26, x9, x20, lsl #3
-    str \ldr_reg1, [x26]
+    // Always store the full X register: the 32-bit form's `ldr wN`
+    // zero-extended it, and `ldp w0, w1` must CLEAR the destination's
+    // upper 32 bits. Storing only 4 bytes here left the old upper half
+    // in the guest register file — ld computed a pointer from such a
+    // register and crashed on garbage high bits.
+    str x17, [x26]
 5:  cmp x21, #31
     b.eq 6f
     add x26, x9, x21, lsl #3
-    str \ldr_reg2, [x26]
+    str x25, [x26]
 6:
     cmp x23, #2                // mode 2 (offset, no writeback): done
     b.eq 8f

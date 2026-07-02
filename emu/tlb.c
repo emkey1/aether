@@ -44,6 +44,100 @@ int arm64_vldst_multi(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
     return 0;
 }
 
+// AdvSIMD structured load/store forms beyond the contiguous LD1/ST1
+// above (same crosspage-safety reasoning; OpenMinis splits these across
+// per-element micro-gadgets instead). spec packs the shape:
+//   [3:0] count  [5:4] esize_log2  [6] q  [11:8] lane
+//   [13:12] kind (1=interleaved multiple, 2=single lane, 3=replicate)
+//   [14] is_load
+// Returns 0 on success (see the INT_NONE note above), INT_PF on fault.
+int arm64_vldst_struct(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+                       unsigned rt, unsigned spec) {
+    unsigned count = spec & 0xf;
+    unsigned esize = 1u << ((spec >> 4) & 3);
+    unsigned q = (spec >> 6) & 1;
+    unsigned lane = (spec >> 8) & 0xf;
+    unsigned kind = (spec >> 12) & 3;
+    int is_load = (spec >> 14) & 1;
+    unsigned regbytes = q ? 16 : 8;
+
+    if (kind == 1) {
+        // LD2/LD3/LD4 (multiple structures): de-interleave count registers'
+        // worth of elements; ST2-4 interleave. Whole transfer buffered so a
+        // fault mid-way never leaves half-updated guest registers.
+        unsigned lanes = regbytes / esize;
+        unsigned total = count * regbytes;
+        uint8_t buf[64];
+        if (is_load) {
+            if (!tlb_read(tlb, addr, buf, total)) {
+                cpu->segfault_addr = tlb->segfault_addr;
+                cpu->segfault_was_write = false;
+                return INT_PF;
+            }
+            for (unsigned r = 0; r < count; r++) {
+                union xmm_reg tmp = {};
+                for (unsigned e = 0; e < lanes; e++)
+                    memcpy(&tmp.u8[e * esize], &buf[(e * count + r) * esize], esize);
+                cpu->arm64_v[(rt + r) & 31] = tmp;
+            }
+        } else {
+            for (unsigned r = 0; r < count; r++)
+                for (unsigned e = 0; e < lanes; e++)
+                    memcpy(&buf[(e * count + r) * esize],
+                           &cpu->arm64_v[(rt + r) & 31].u8[e * esize], esize);
+            if (!tlb_write(tlb, addr, buf, total)) {
+                cpu->segfault_addr = tlb->segfault_addr;
+                cpu->segfault_was_write = true;
+                return INT_PF;
+            }
+        }
+        return 0;
+    }
+
+    if (kind == 2) {
+        // LD1-4/ST1-4 (single structure): one element per register at a
+        // fixed lane; loads leave the register's other lanes intact.
+        for (unsigned r = 0; r < count; r++) {
+            unsigned v = (rt + r) & 31;
+            if (is_load) {
+                uint8_t tmp[8];
+                if (!tlb_read(tlb, addr, tmp, esize)) {
+                    cpu->segfault_addr = tlb->segfault_addr;
+                    cpu->segfault_was_write = false;
+                    return INT_PF;
+                }
+                memcpy(&cpu->arm64_v[v].u8[lane * esize], tmp, esize);
+            } else {
+                if (!tlb_write(tlb, addr, &cpu->arm64_v[v].u8[lane * esize], esize)) {
+                    cpu->segfault_addr = tlb->segfault_addr;
+                    cpu->segfault_was_write = true;
+                    return INT_PF;
+                }
+            }
+            addr += esize;
+        }
+        return 0;
+    }
+
+    // kind == 3: LD1R-LD4R — load one element per register and replicate
+    // it across the register's arrangement (upper 64 bits zero if Q=0).
+    for (unsigned r = 0; r < count; r++) {
+        unsigned v = (rt + r) & 31;
+        uint8_t tmp[8];
+        if (!tlb_read(tlb, addr, tmp, esize)) {
+            cpu->segfault_addr = tlb->segfault_addr;
+            cpu->segfault_was_write = false;
+            return INT_PF;
+        }
+        union xmm_reg rep = {};
+        for (unsigned e = 0; e < regbytes / esize; e++)
+            memcpy(&rep.u8[e * esize], tmp, esize);
+        cpu->arm64_v[v] = rep;
+        addr += esize;
+    }
+    return 0;
+}
+
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     if (tlb->mmu == mmu &&
             tlb->mem_changes == atomic_load_explicit(&mmu->changes, memory_order_relaxed)) {
