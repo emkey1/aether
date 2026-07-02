@@ -116,6 +116,7 @@ if jit_cpu_family == 'aarch64'
         'jit/guest-arm64/control.S',
         'jit/guest-arm64/memory.S',
         'jit/guest-arm64/logical.S',
+        'jit/guest-arm64/dpreg.S',
     ]
 endif
 

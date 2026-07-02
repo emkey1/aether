@@ -644,6 +644,72 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // Logical (shifted register): AND/ORR/EOR/ANDS/BIC/ORN/EON/BICS,
+    // including the "MOV (register)" alias (ORR, Rn=XZR, shift_amount=0).
+    // Mask matches bits[28:24]=01010. Params packed to match
+    // jit/guest-arm64/dpreg.S's logical_reg gadget (independently
+    // written, see that file's header): rd | rn<<5 | rm<<10 |
+    // shift_type<<15 | shift_amount<<17 | sf<<23 | opc<<24 | N<<26.
+    if ((insn & 0x1f000000) == 0x0a000000) {
+        extern void gadget_arm64_logical_reg(void);
+        unsigned rd = insn & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned imm6 = (insn >> 10) & 0x3f;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned N = (insn >> 21) & 1;
+        unsigned shift_type = (insn >> 22) & 0x3;
+        unsigned opc = (insn >> 29) & 0x3;
+        bool sf = (insn >> 31) & 1;
+        if (!sf && (imm6 & 0x20)) {
+            // 32-bit form only allows a 5-bit shift amount (bit5 of imm6
+            // must be 0) -- unallocated otherwise.
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        uint64_t params = rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
+            | ((uint64_t) shift_type << 15) | ((uint64_t) imm6 << 17)
+            | ((uint64_t) sf << 23) | ((uint64_t) opc << 24) | ((uint64_t) N << 26);
+        gen(state, (unsigned long) gadget_arm64_logical_reg);
+        gen(state, params);
+        return 1;
+    }
+
+    // Add/subtract (shifted register): ADD/SUB/ADDS/SUBS. Mask matches
+    // bits[28:24]=01011 with bit21=0 (the extended-register variant has
+    // bit21=1 and a different imm6-field meaning, not handled here).
+    // Params packed to match dpreg.S's addsub_reg gadget: rd | rn<<5 |
+    // rm<<10 | shift_type<<15 | shift_amount<<17 | sf<<23 | op<<24 |
+    // S<<26.
+    if ((insn & 0x1f200000) == 0x0b000000) {
+        extern void gadget_arm64_addsub_reg(void);
+        unsigned rd = insn & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned imm6 = (insn >> 10) & 0x3f;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned shift_type = (insn >> 22) & 0x3;
+        bool S = (insn >> 29) & 1;
+        bool op_sub = (insn >> 30) & 1;
+        bool sf = (insn >> 31) & 1;
+        if (shift_type == 3 || (!sf && (imm6 & 0x20))) {
+            // shift_type=3 (ROR) is unallocated for add/subtract (only
+            // logical allows ROR); 32-bit form only allows a 5-bit shift.
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        uint64_t params = rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
+            | ((uint64_t) shift_type << 15) | ((uint64_t) imm6 << 17)
+            | ((uint64_t) sf << 23) | ((uint64_t) op_sub << 24) | ((uint64_t) S << 26);
+        gen(state, (unsigned long) gadget_arm64_addsub_reg);
+        gen(state, params);
+        return 1;
+    }
+
     // Load/store pair (LDP/STP), GPR only (V=0) — mask matches
     // arm64_execute()'s (bits[29:25]=10100, V=bit26=0). Params packed to
     // match jit/guest-arm64/memory.S's ldp64/ldp32/stp64/stp32 gadgets

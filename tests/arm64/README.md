@@ -21,12 +21,16 @@ harness problem.
 | `arm64_prologue.s` | Function prologue/epilogue (STP/LDP pre/post-index), BL/RET, ADD-immediate (incl. the `mov xd, sp` alias), SUBS-immediate, B.cond, CBZ. Expected: exits 0. |
 | `arm64_atomics.s` | LDXR/STXR (success case), CAS (success and expected-value-mismatch/failure cases). Expected: exits 0. |
 | `arm64_logical.s` | Logical (immediate): AND, ORR (incl. the MOV-alias via Rn=XZR), EOR, ANDS. Expected: exits 0. |
+| `arm64_dpreg.s` | Data-processing (register): Logical (shifted register) incl. the `mov x1, x0` register alias, Add/subtract (shifted register) with LSL/LSR shifts, ROR (logical-only). Expected: exits 0. |
 
-Deliberately avoid register-form ADD/SUB (`add x0, x0, x1`) and the
+`arm64_hello.s`/`arm64_prologue.s`/`arm64_atomics.s`/`arm64_logical.s`
+deliberately avoid register-form ADD/SUB (`add x0, x0, x1`) and the
 register-form MOV alias (`mov x0, x1`) — both are DP_REG (logical/add-sub
-shifted register), a documented patch-3 scope cut, confirmed still-missing
-by the real-rootfs test below. Using them will hit `INT_UNDEFINED`/SIGILL,
-which is expected until that scope lands, not a regression in these tests.
+shifted register), a documented patch-3 scope cut, confirmed as the
+actual next real-rootfs blocker by the section below once Logical
+(immediate) was ported. Now covered by `arm64_dpreg.s` (JIT gadget port
+Phase C part 2); the older tests stay register-form-free so they still
+exercise a minimal instruction set each.
 
 ## Building
 

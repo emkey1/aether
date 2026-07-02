@@ -449,12 +449,41 @@ special-casing needed on a same-architecture host. Validated via
 Logical (immediate) is literally the first instruction musl's dynamic
 linker executes, so this closes that specific gap for the gadget path.
 
-**Phase C, part 2 (not started)**: LDXR/STXR/CAS, Logical
-(shifted-register), DP_REG (register-form ADD/SUB/MOV/logical-shifted-
-register — confirmed by patch 5's real-rootfs test as the actual next
-blocker immediately after Logical-immediate, for any dynamic-linked
-userland), MUL — enough to get `tests/arm64/arm64_atomics.s` passing via
-gadgets and get past DP_REG in a real `ld.so`, then the real Alpine
+**Phase C, part 2 (DP_REG — DONE, validated)**: added new
+`jit/guest-arm64/dpreg.S` with two gadgets, `logical_reg` (AND/ORR/EOR/
+ANDS + the N=1 NOT variants BIC/ORN/EON/BICS, shifted register) and
+`addsub_reg` (ADD/SUB/ADDS/SUBS, shifted register). Independently
+written, not adapted from OpenMinis. The shift *type* and *amount* are
+compile-time constants (encoded in the instruction) but the shifted
+*operand*'s value (Rm) is only known at runtime, so a reused gadget body
+can't bake the shift in as an immediate — instead of software-emulating
+LSL/LSR/ASR/ROR, this uses AArch64's own register-form shift
+instructions (`lsl/lsr/asr/ror xD, xN, xM`, shift amount taken from a
+register), letting the host CPU do the shift natively. Confirmed against
+the ARM ARM before writing (not discovered by a failing test) that the
+shifted-register encoding of add/subtract never treats register 31 as
+SP — unlike the immediate form, SP is only reachable via ADD/SUB
+immediate or the extended-register encoding, so both gadgets always
+treat 31 as XZR for Rd/Rn/Rm. The `mov x1, x0` register-MOV alias falls
+out for free (ORR, Rn=XZR, shift_amount=0) exactly like the immediate
+form's MOV-bitmask alias.
+
+`gen_step_arm64` also rejects two genuinely-unallocated encodings at
+compile time (32-bit form with a 6-bit shift amount when only 5 bits are
+valid; ROR as a shift type for add/subtract, which only Logical
+allows) via `gadget_interrupt`+`INT_UNDEFINED`, matching this port's
+"clean SIGILL, not silent misexecution" discipline for anything not
+handled.
+
+Validated via new `tests/arm64/arm64_dpreg.s` (MOV-register alias,
+shifted ADD/SUB with LSL/LSR, AND/SUB with a shifted operand, ROR)
+passing first try, plus full regression of every prior Phase A/B/C-1
+test. This closes patch 5's real-rootfs-confirmed next blocker
+(register-form ADD/SUB/MOV/logical-shifted-register) immediately after
+Logical (immediate).
+
+**Phase C, part 3 (not started)**: LDXR/STXR/CAS, MUL — enough to get
+`tests/arm64/arm64_atomics.s` passing via gadgets, then the real Alpine
 `/bin/busybox` test (see patch 5's "Real-rootfs findings" in
 `tests/arm64/README.md`) as the next real-world validation target.
 Should follow the same "port what real testing shows is next" priority

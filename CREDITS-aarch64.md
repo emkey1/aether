@@ -115,6 +115,17 @@ credits file supports.
   native `ands` instruction directly — its NZCV semantics fall out
   correctly for free on a same-architecture host.
 
+- `jit/guest-arm64/dpreg.S` (new file, Phase C part 2) — independently
+  written, not adapted from OpenMinis' equivalents. Uses AArch64's own
+  register-form shift instructions (`lsl/lsr/asr/ror` with a register
+  shift amount) since the shifted operand's *value* is only known at
+  runtime, letting the host CPU compute the shift natively rather than
+  software-emulating it — same same-architecture-dispatch principle
+  applied throughout this port. Confirmed against the ARM ARM (not
+  discovered by a failing test) that the shifted-register encoding of
+  add/subtract never treats register 31 as SP, unlike the immediate
+  form.
+
 ## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their
