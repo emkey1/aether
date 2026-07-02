@@ -108,19 +108,33 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             .abi = abi,
             // 256 TiB canonical user range (48-bit VA) for 4 KiB guest pages.
             .page_limit = (page_t) 1 << 36,
+            // REVERSED from this field's original patch-2 value (top of the
+            // 48-bit space) once patch 4 (syscall table) made the conflict
+            // concrete: kernel/calls.c's syscall_t is `dword_t(*)(dword_t x5)`
+            // — a 64-bit guest pointer argument gets silently truncated to 32
+            // bits unless that specific syscall number has a hand-written
+            // qword_t-safe dispatch case (the amd64 path builds these
+            // one-by-one; see handle_syscall_interrupt's special-casing
+            // around sys_open_guest/sys_write_guest/etc). amd64's own
+            // mmap_floor/stack comment already states this exact rule ("keep
+            // the initial exec stack low... because most syscall pointer
+            // marshalling is still 32-bit") — arm64 needs the same discipline
+            // for the same reason, not an exemption from it. The V8
+            // CodeRange-collision rationale from patch 2 is deferred along
+            // with V8/Node support generally (see aarch64_guest_plan.md's
+            // Non-Goals) until the qword_t-safe dispatch exists for whatever
+            // syscalls a real V8 needs; PIE binaries already get dynamic
+            // placement via find_hole_for_elf() regardless of this bias
+            // (kernel/exec.c), so this doesn't reopen that collision.
             .mmap_floor = (page_t) 0x1000,
-            // Leave a large gap below the stack rather than reusing amd64's
-            // low-address compat placement: arm64 syscall marshalling is new
-            // code with no legacy 32-bit-pointer assumptions to work around,
-            // so there's no reason to avoid the top of the address space.
-            // This also sidesteps the V8 CodeRange collision that OpenMinis'
-            // ish-arm64 fork specifically had to work around by switching
-            // PIE binaries to dynamic placement (find_hole_for_elf) instead
-            // of a fixed low bias — see kernel/exec.c's PIE bias branch.
-            .mmap_ceiling = ((page_t) 1 << 36) - 0x10000,
+            // Same mmap window scale as amd64 (128 TiB), not i386's much
+            // smaller one — arm64 is a 64-bit ABI, it's only the *stack*
+            // placement that's deliberately kept low here, matching amd64's
+            // own rationale, not the whole address space.
+            .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
             .user_addr_max = guest_abi_user_addr_max(abi),
-            .stack_page = ((page_t) 1 << 36) - 2,
-            .stack_pointer = (guest_addr_t) (((qword_t) 1 << 36) - 1) << PAGE_BITS,
+            .stack_page = (page_t) 0xffffe,
+            .stack_pointer = 0xfffff000u,
         };
     case GUEST_ABI_I386:
     default:
