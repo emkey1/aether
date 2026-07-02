@@ -1206,6 +1206,9 @@ static inline void i386_syscall_result(struct cpu_state *cpu, dword_t result);
 static inline qword_t amd64_syscall_number(const struct cpu_state *cpu);
 static inline void amd64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
 static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result);
+static inline qword_t arm64_syscall_number(const struct cpu_state *cpu);
+static inline void arm64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
+static inline void arm64_syscall_result(struct cpu_state *cpu, dword_t result);
 void handle_syscall_interrupt(struct cpu_state *cpu);
 
 struct syscall_abi_dispatch {
@@ -1499,6 +1502,226 @@ static syscall_t amd64_syscall_table[453] = {
     [452] = (syscall_t) sys_fchmodat2,
 };
 
+// AArch64 Linux syscall table. Numbering (asm-generic based — no
+// socketcall()/ipc() multiplexers, 64-bit stat structures only) and the
+// real-vs-stub curation are adapted from OpenMinis/ish-arm64's
+// kernel/arch/arm64/calls.c (GPLv3, see /CREDITS-aarch64.md); the syscall
+// *numbers* themselves are Linux ABI facts, not their expression, but the
+// choice of which ~120 of ~450 syscalls are worth real implementations
+// reflects real engineering effort (curated against what busybox/musl/
+// glibc/Node/Python/git actually call) that's fair to credit even where
+// not literally copyrightable.
+//
+// Function names are iSH-AOK's own, not OpenMinis' (their arm64-only build
+// has different function names throughout kernel/). Reused directly from
+// the existing i386/amd64_syscall_table entries above wherever a name
+// matches by syscall semantics — mostly the plain names (sys_read,
+// sys_openat, etc.) and the `_amd64`-suffixed 64-bit-stat/time variants,
+// which are named for amd64 but implement the Linux 64-bit ABI shape
+// generically, not anything x86-specific; there was nothing to adapt
+// there, just direct reuse (see kernel/abi.h's arm64 vm_layout fix for why
+// this reuse is safe: the arm64 stack/heap are now kept low like amd64's,
+// so these functions' addr_t/dword_t-narrow argument marshalling doesn't
+// truncate real guest pointers).
+static syscall_t arm64_syscall_table[450] = {
+    // I/O
+    [2]   = (syscall_t) syscall_stub, // io_submit
+    [5 ... 16] = (syscall_t) sys_xattr_stub,
+    [17]  = (syscall_t) sys_getcwd,
+    [19]  = (syscall_t) sys_eventfd2,
+    [20]  = (syscall_t) sys_epoll_create,
+    [21]  = (syscall_t) sys_epoll_ctl,
+    [22]  = (syscall_t) sys_epoll_pwait,
+    [23]  = (syscall_t) sys_dup,
+    [24]  = (syscall_t) sys_dup3,
+    [25]  = (syscall_t) sys_fcntl,
+    [26]  = (syscall_t) sys_inotify_init1,
+    [27]  = (syscall_t) sys_inotify_add_watch,
+    [28]  = (syscall_t) sys_inotify_rm_watch,
+    [29]  = (syscall_t) sys_ioctl,
+    [30]  = (syscall_t) sys_ioprio_set,
+    [31]  = (syscall_t) sys_ioprio_get,
+    [32]  = (syscall_t) sys_flock,
+    [33]  = (syscall_t) sys_mknodat,
+    [34]  = (syscall_t) sys_mkdirat,
+    [35]  = (syscall_t) sys_unlinkat,
+    [36]  = (syscall_t) sys_symlinkat,
+    [37]  = (syscall_t) sys_linkat,
+    [38]  = (syscall_t) sys_renameat,
+    [39]  = (syscall_t) sys_umount2,
+    [40]  = (syscall_t) sys_mount,
+    [43]  = (syscall_t) sys_statfs_amd64,
+    [44]  = (syscall_t) sys_fstatfs_amd64,
+    [45]  = (syscall_t) sys_truncate_amd64,
+    [46]  = (syscall_t) sys_ftruncate_amd64,
+    [47]  = (syscall_t) sys_fallocate_amd64,
+    [48]  = (syscall_t) sys_faccessat,
+    [49]  = (syscall_t) sys_chdir,
+    [50]  = (syscall_t) sys_fchdir,
+    [51]  = (syscall_t) sys_chroot,
+    [52]  = (syscall_t) sys_fchmod,
+    [53]  = (syscall_t) sys_fchmodat,
+    [54]  = (syscall_t) sys_fchownat,
+    [55]  = (syscall_t) sys_fchown_amd64,
+    [56]  = (syscall_t) sys_openat,
+    [57]  = (syscall_t) sys_close,
+    [58]  = (syscall_t) syscall_success_stub, // vhangup (tty-cleanup no-op, matches i386/amd64 tables)
+    [59]  = (syscall_t) sys_pipe2,
+    [61]  = (syscall_t) sys_getdents_amd64,
+    [62]  = (syscall_t) sys_lseek_amd64,
+    [63]  = (syscall_t) sys_read,
+    [64]  = (syscall_t) sys_write,
+    [65]  = (syscall_t) sys_readv_amd64,
+    [66]  = (syscall_t) sys_writev_amd64,
+    [67]  = (syscall_t) sys_pread_amd64,
+    [68]  = (syscall_t) sys_pwrite_amd64,
+    [71]  = (syscall_t) sys_sendfile64,
+    [72]  = (syscall_t) sys_pselect_amd64,
+    [73]  = (syscall_t) sys_ppoll_amd64,
+    [76]  = (syscall_t) sys_splice,
+    [78]  = (syscall_t) sys_readlinkat,
+    [79]  = (syscall_t) sys_newfstatat_amd64,
+    [80]  = (syscall_t) sys_fstat_amd64,
+    [81]  = (syscall_t) syscall_success_stub, // sync
+    [82]  = (syscall_t) sys_fsync,
+    [83]  = (syscall_t) sys_fsync, // fdatasync (matches i386/amd64 tables' treatment)
+    [85]  = (syscall_t) sys_timerfd_create,
+    [86]  = (syscall_t) sys_timerfd_settime,
+    [87]  = (syscall_t) sys_timerfd_gettime,
+    [88]  = (syscall_t) sys_utimensat,
+    [90]  = (syscall_t) sys_capget,
+    [91]  = (syscall_t) sys_capset,
+    [92]  = (syscall_t) sys_personality,
+    [93]  = (syscall_t) sys_exit,
+    [94]  = (syscall_t) sys_exit_group,
+    [95]  = (syscall_t) sys_waitid,
+    [96]  = (syscall_t) sys_set_tid_address,
+    [98]  = (syscall_t) sys_futex,
+    [99]  = (syscall_t) sys_set_robust_list_amd64,
+    [100] = (syscall_t) sys_get_robust_list_amd64,
+    [101] = (syscall_t) sys_nanosleep_amd64,
+    [103] = (syscall_t) sys_setitimer_amd64,
+    [107] = (syscall_t) sys_timer_create_amd64,
+    [108] = (syscall_t) sys_timer_gettime,
+    [109] = (syscall_t) sys_timer_getoverrun,
+    [110] = (syscall_t) sys_timer_settime,
+    [111] = (syscall_t) sys_timer_delete,
+    [112] = (syscall_t) sys_clock_settime,
+    [113] = (syscall_t) sys_clock_gettime_amd64,
+    [114] = (syscall_t) sys_clock_getres_amd64,
+    [115] = (syscall_t) sys_clock_nanosleep_amd64,
+    [116] = (syscall_t) sys_syslog,
+    [117] = (syscall_t) sys_ptrace,
+    [119] = (syscall_t) sys_sched_setscheduler,
+    [120] = (syscall_t) sys_sched_getscheduler,
+    [121] = (syscall_t) sys_sched_getparam,
+    [122] = (syscall_t) sys_sched_setaffinity,
+    [123] = (syscall_t) sys_sched_getaffinity,
+    [124] = (syscall_t) sys_sched_yield,
+    [125] = (syscall_t) sys_sched_get_priority_max,
+    [126] = (syscall_t) sys_sched_get_priority_min,
+    [129] = (syscall_t) sys_kill,
+    [130] = (syscall_t) sys_tkill,
+    [131] = (syscall_t) sys_tgkill,
+    [132] = (syscall_t) sys_sigaltstack,
+    [133] = (syscall_t) sys_rt_sigsuspend,
+    [134] = (syscall_t) sys_rt_sigaction,
+    [135] = (syscall_t) sys_rt_sigprocmask,
+    [136] = (syscall_t) sys_rt_sigpending,
+    [137] = (syscall_t) sys_rt_sigtimedwait,
+    [138] = (syscall_t) sys_rt_sigqueueinfo,
+    [139] = (syscall_t) sys_rt_sigreturn,
+    [140] = (syscall_t) sys_setpriority,
+    [141] = (syscall_t) sys_getpriority,
+    [142] = (syscall_t) sys_reboot,
+    [143] = (syscall_t) sys_setregid,
+    [144] = (syscall_t) sys_setgid,
+    [145] = (syscall_t) sys_setreuid,
+    [146] = (syscall_t) sys_setuid,
+    [147] = (syscall_t) sys_setresuid,
+    [148] = (syscall_t) sys_getresuid,
+    [149] = (syscall_t) sys_setresgid,
+    [150] = (syscall_t) sys_getresgid,
+    [151] = (syscall_t) sys_setfsuid,
+    [152] = (syscall_t) sys_setfsgid,
+    [153] = (syscall_t) sys_times,
+    [154] = (syscall_t) sys_setpgid,
+    [155] = (syscall_t) sys_getpgid,
+    [156] = (syscall_t) sys_getsid,
+    [157] = (syscall_t) sys_setsid,
+    [158] = (syscall_t) sys_getgroups,
+    [159] = (syscall_t) sys_setgroups,
+    [160] = (syscall_t) sys_uname,
+    [161] = (syscall_t) sys_sethostname,
+    [163] = (syscall_t) sys_getrlimit64,
+    [164] = (syscall_t) sys_setrlimit64,
+    [165] = (syscall_t) sys_getrusage,
+    [166] = (syscall_t) sys_umask,
+    [167] = (syscall_t) sys_prctl,
+    [169] = (syscall_t) sys_gettimeofday_amd64,
+    [170] = (syscall_t) sys_settimeofday,
+    [172] = (syscall_t) sys_getpid,
+    [173] = (syscall_t) sys_getppid,
+    [174] = (syscall_t) sys_getuid32,
+    [175] = (syscall_t) sys_geteuid32,
+    [176] = (syscall_t) sys_getgid32,
+    [177] = (syscall_t) sys_getegid32,
+    [178] = (syscall_t) sys_gettid,
+    [179] = (syscall_t) sys_sysinfo,
+    // Socket syscalls: aarch64 has no socketcall() multiplexer, unlike i386
+    [198] = (syscall_t) sys_socket,
+    [199] = (syscall_t) sys_socketpair,
+    [200] = (syscall_t) sys_bind,
+    [201] = (syscall_t) sys_listen,
+    [202] = (syscall_t) sys_accept,
+    [203] = (syscall_t) sys_connect,
+    [204] = (syscall_t) sys_getsockname,
+    [205] = (syscall_t) sys_getpeername,
+    [206] = (syscall_t) sys_sendto,
+    [207] = (syscall_t) sys_recvfrom,
+    [208] = (syscall_t) sys_setsockopt_amd64,
+    [209] = (syscall_t) sys_getsockopt_amd64,
+    [210] = (syscall_t) sys_shutdown,
+    [211] = (syscall_t) sys_sendmsg_amd64,
+    [212] = (syscall_t) sys_recvmsg_amd64,
+    [214] = (syscall_t) sys_brk,
+    [215] = (syscall_t) sys_munmap,
+    [216] = (syscall_t) sys_mremap,
+    [220] = (syscall_t) sys_clone,
+    [221] = (syscall_t) sys_execve,
+    [222] = (syscall_t) sys_mmap_amd64,
+    [226] = (syscall_t) sys_mprotect,
+    [227] = (syscall_t) sys_msync,
+    [228] = (syscall_t) sys_mlock,
+    [230] = (syscall_t) sys_mlockall,
+    [231] = (syscall_t) sys_munlockall,
+    [232] = (syscall_t) sys_mincore,
+    [233] = (syscall_t) sys_madvise,
+    [235] = (syscall_t) sys_mbind,
+    [242] = (syscall_t) sys_accept4,
+    [243] = (syscall_t) sys_recvmmsg_amd64,
+    [260] = (syscall_t) sys_wait4,
+    [261] = (syscall_t) sys_prlimit64,
+    [269] = (syscall_t) sys_sendmmsg_amd64,
+    [276] = (syscall_t) sys_renameat2,
+    [278] = (syscall_t) sys_getrandom,
+    [279] = (syscall_t) syscall_stub_silent, // memfd_create — matches i386/amd64 tables' treatment (see sys_memfd_create's own callers elsewhere for why it's silenced)
+    [281] = (syscall_t) sys_execveat,
+    [283] = (syscall_t) syscall_stub_silent, // membarrier
+    [285] = (syscall_t) sys_copy_file_range,
+    [291] = (syscall_t) sys_statx_amd64,
+    // Linux 5.x+ syscalls — mostly stubbed, letting glibc/musl fall back to
+    // older ABI paths, matching this file's existing amd64 table policy.
+    [292 ... 423] = (syscall_t) syscall_stub_silent,
+    [425 ... 427] = (syscall_t) syscall_stub_silent, // io_uring_setup/enter/register
+    [435] = (syscall_t) sys_clone3,
+    [436] = (syscall_t) sys_close_range,
+    [437] = (syscall_t) sys_openat2,
+    [439] = (syscall_t) sys_faccessat, // faccessat2 reuses sys_faccessat, matches i386/amd64 tables
+    [441] = (syscall_t) sys_epoll_pwait2,
+    [449] = (syscall_t) syscall_stub, // futex_waitv
+};
+
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
     .abi = GUEST_ABI_I386,
     .name = "i386",
@@ -1519,10 +1742,22 @@ static const struct syscall_abi_dispatch amd64_syscall_dispatch = {
     .syscall_result = amd64_syscall_result,
 };
 
+static const struct syscall_abi_dispatch arm64_syscall_dispatch = {
+    .abi = GUEST_ABI_ARM64,
+    .name = "arm64",
+    .table = arm64_syscall_table,
+    .num_syscalls = sizeof(arm64_syscall_table) / sizeof(arm64_syscall_table[0]),
+    .syscall_number = arm64_syscall_number,
+    .syscall_args = arm64_syscall_args,
+    .syscall_result = arm64_syscall_result,
+};
+
 static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_abi abi) {
     switch (abi) {
     case GUEST_ABI_AMD64:
         return &amd64_syscall_dispatch;
+    case GUEST_ABI_ARM64:
+        return &arm64_syscall_dispatch;
     case GUEST_ABI_I386:
     default:
         return &i386_syscall_dispatch;
@@ -1600,6 +1835,30 @@ static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result) {
     cpu->eax = result;
     cpu->amd64_regs[amd64_rcx] = cpu->amd64_rip;
     cpu->amd64_regs[amd64_r11] = cpu->eflags;
+}
+
+// AArch64 syscall ABI: number in X8, args in X0-X5, result in X0. No
+// rcx/r11-clobber equivalent — that's a side effect of the x86 SYSCALL
+// instruction specifically (amd64_syscall_result mirrors it because real
+// hardware does it), not something ARM's SVC exception entry does.
+static inline qword_t arm64_syscall_number(const struct cpu_state *cpu) {
+    return cpu->arm64_regs[arm64_x8];
+}
+
+static inline void arm64_syscall_args(const struct cpu_state *cpu, qword_t args[6]) {
+    args[0] = cpu->arm64_regs[arm64_x0];
+    args[1] = cpu->arm64_regs[arm64_x1];
+    args[2] = cpu->arm64_regs[arm64_x2];
+    args[3] = cpu->arm64_regs[arm64_x3];
+    args[4] = cpu->arm64_regs[arm64_x4];
+    args[5] = cpu->arm64_regs[arm64_x5];
+}
+
+static inline void arm64_syscall_result(struct cpu_state *cpu, dword_t result) {
+    if (syscall_result_is_errno(result))
+        cpu->arm64_regs[arm64_x0] = (qword_t) (sqword_t) syscall_result_errno(result);
+    else
+        cpu->arm64_regs[arm64_x0] = (qword_t) result;
 }
 
 static inline void amd64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {

@@ -168,25 +168,42 @@ computed values; full instruction-level correctness deferred to differential
 testing against the new oracle VM (see Testing Strategy) once patches 4-5
 make real guest execution possible.
 
-### 4. AArch64 Syscall Table
+### 4. AArch64 Syscall Table — DONE (scaffolding; not yet reachable)
 
-Files: new `kernel/arch/arm64/calls.c` or `kernel/calls.c` addition, `kernel/calls.h`
+Files: `kernel/calls.c`
 
-Work:
-- New `arm64_syscall_table[]` + `syscall_abi_dispatch` entry
-  (`kernel/calls.c:1211-1220` pattern), following the amd64 table's existing
-  precedent for direct socket syscalls (no `socketcall`/`ipc` multiplexer —
-  aarch64 never had one, so this is actually less work than amd64 was).
-- 64-bit stat structures only (no `stat64`/`fstat64` legacy variants).
-- Reuse existing `sys_*` implementations; add arm64-specific marshalling only
-  where the amd64 marshalling (already split per step 8 of the amd64 plan)
-  doesn't already cover the layout.
-- Adapt syscall numbering from OpenMinis' `kernel/arch/arm64/calls.c` (numbers
-  are asm-generic Linux ABI facts, not their IP — safe to use directly, credit
-  the table-shape reference regardless per policy above).
+Landed: `arm64_syscall_table[450]`, `arm64_syscall_number/args/result`
+(X8/X0-X5/X0, no rcx/r11-clobber — that's an x86-SYSCALL-instruction side
+effect, not an ARM SVC one), and an `arm64_syscall_dispatch` entry wired
+into `syscall_dispatch_for_abi`. ~120 real slots, curation adapted from
+OpenMinis (see `CREDITS-aarch64.md`), implementations 100% reused from
+existing i386/amd64 `sys_*` functions — cross-checked against the exact
+names already used in this file's own tables, not typed from memory. Build
+resolved every reused name on the first real compile after fixing a
+definition-ordering bug (arm64_syscall_result referenced
+`syscall_result_is_errno`/`syscall_result_errno` before their definitions).
 
-Exit criteria: tiny arm64 asm syscall tests pass for `write`, `exit`,
-`openat`, `read`, `mmap`, `mprotect`, `brk`, `clone`.
+**Correctness note, not a formality**: this table only works because of
+the patch-2-reversal commit above — `kernel/calls.c`'s `syscall_t` is
+`dword_t(*)(dword_t x5)`, so every reused `sys_*_amd64` function's pointer
+arguments get silently truncated to 32 bits unless the actual guest address
+fits in 32 bits, which is only true because the arm64 stack/heap are now
+kept low. This is the exact same constraint amd64 lives under for its own
+narrow-table entries; genuine 64-bit-pointer safety for syscalls that need
+it (large mmap offsets, etc.) requires the same kind of hand-written
+`qword_t`-safe special-casing amd64 has in `handle_syscall_interrupt`
+(the `sys_open_guest`/`sys_write_guest`/etc. dispatch switch) — not
+attempted for arm64 yet, scoped as a follow-up once real execution exists
+to motivate which syscalls actually need it.
+
+**Still unreachable**: `kernel/exec.c`'s patch-1 `ENOEXEC` guard still
+blocks arm64 exec, so this table has zero live callers yet. That's
+intentional — patch 5 (ELF loading) is next, and lifting the guard is that
+patch's job, not this one's.
+
+Exit criteria (unchanged, still pending patch 5): tiny arm64 asm syscall
+tests pass for `write`, `exit`, `openat`, `read`, `mmap`, `mprotect`,
+`brk`, `clone`.
 
 ### 5. ELF64 aarch64 Loading and Stack Bootstrap
 

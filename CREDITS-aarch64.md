@@ -53,9 +53,12 @@ credits file supports.
   against iSH-AOK's existing `guest_abi` dispatch machinery (which
   OpenMinis' fork does not have; their arm64 support is a compile-time
   `#ifdef GUEST_ARM64` build variant, not a per-task runtime ABI). The
-  48-bit VA / top-of-address-space stack placement choice mirrors their
-  rationale (avoiding a V8 CodeRange collision) but the mechanism differs
-  because the surrounding infrastructure differs.
+  48-bit VA size mirrors their choice; the *stack placement* within it does
+  not (patch 2 initially copied their top-of-space placement to dodge a V8
+  CodeRange collision, then reversed it once patch 4's syscall-table work
+  made concrete that this codebase's narrow `dword_t`-arg `syscall_t` needs
+  a low stack/heap the same way amd64's does — see the dedicated commit
+  fixing this).
 - `struct cpu_state`'s arm64 register fields (`emu/cpu.h`) — structurally
   similar to their `emu/arch/arm64/cpu.h` (same register set, same choice to
   reuse a 128-bit union for V0-V31) but written as siblings within a shared
@@ -68,11 +71,27 @@ credits file supports.
   interpreter (their arm64 support is JIT-only; this codebase does
   interpreter-first, JIT-later per `aarch64_guest_plan.md`).
 
-## Syscall numbering reference
+## Adapted (curation) / independently written (implementation): syscall table
 
-Linux aarch64 syscall numbers (asm-generic based) are ABI facts, not
-copyrightable expression — using the standard numbering is not "adapted
-from" anyone. OpenMinis' `kernel/arch/arm64/calls.c` is still worth
-consulting as a reference for table shape and stub choices when patch 4
-(syscall table) lands, and will be credited here if any structure beyond the
-numbers themselves is reused.
+`kernel/calls.c`'s `arm64_syscall_table` — Linux aarch64 syscall *numbers*
+(asm-generic based) are ABI facts, not copyrightable expression, so the
+numbering itself isn't "adapted from" anyone. What IS adapted from
+OpenMinis' `kernel/arch/arm64/calls.c` is the **curation**: which ~120 of
+~450 syscall slots are worth a real implementation versus a stub, reflecting
+their real-world experience of what busybox/musl/glibc/Node/Python/git
+actually call. That curation choice is credited even though the underlying
+facts (numbers) aren't copyrightable — it's real engineering judgment, and
+crediting it is simply accurate and fair.
+
+The actual implementations wired into each slot are 100% iSH-AOK's own —
+OpenMinis' function names don't exist in this codebase at all (different
+kernel/ entirely). Every slot reuses an existing i386/amd64 `sys_*`
+function, verified against the exact names already used in this file's
+`i386_syscall_table`/`amd64_syscall_table` above it. Notably, the several
+`_amd64`-suffixed functions reused here (`sys_stat_amd64`,
+`sys_mmap_amd64`, `sys_newfstatat_amd64`, etc.) are named for amd64 but
+implement the Linux 64-bit-ABI shape (64-bit stat, direct 64-bit pointer
+args) generically, not anything x86-specific — safe and correct to reuse
+verbatim for arm64's identical 64-bit-ABI requirements, once the stack/heap
+placement fix above made that reuse's narrow-argument-marshalling
+assumption hold for arm64 too.
