@@ -12,6 +12,19 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-01-8
+
+**`@pure` above `export fn` now compiles when the module file is the direct
+compile target.** The textual annotation validator only accepted a bare `fn`
+on the line after an annotation, so the guide-canonical module form
+(`@pure` above `export fn`) failed `[ANN-001] @pure must annotate the next
+function declaration` when a module file was compiled directly — imports were
+unaffected because only the main source runs through that validator.
+Surfaced by the 2026-07-01 training-corpus re-verification (12 of 14 module
+candidates hit it); pre-existing, not introduced by the -5/-7 batch.
+A truly detached annotation (e.g. `@pure` above `export const`) still fails.
+Regression: `module_pure_export_direct_pass`.
+
 ## 2026-07-01-7
 
 **The parser no longer tolerates malformed input silently.** Four

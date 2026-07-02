@@ -1186,7 +1186,12 @@ static void validateContractAnnotations(const char *source) {
                                   "duplicate @cost annotation before function declaration.");
             }
             pendingCostLine = line;
-        } else if (startsWithWord(body, lineEnd, "fn")) {
+        } else if (startsWithWord(body, lineEnd, "fn") ||
+                   (startsWithWord(body, lineEnd, "export") &&
+                    startsWithWord(skipInlineSpaces(body + 6, lineEnd), lineEnd, "fn"))) {
+            /* `export fn` is the guide-canonical form inside a module body
+             * (`@pure` sits above `export fn`), so it satisfies the annotation
+             * the same way a bare `fn` does. */
             pendingPreLine = 0;
             pendingPostLine = 0;
             pendingPureLine = 0;

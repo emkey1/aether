@@ -1,0 +1,12 @@
+// R1 regression: a module file whose exports carry @pure (the guide-canonical
+// "@pure above export fn" form) must compile DIRECTLY, not only via `use`.
+// The textual annotation validator used to treat `export fn` as a detached
+// annotation (ANN-001) because it only accepted a bare `fn` on the next line.
+mod PureExportDirect {
+    export const DefaultScore: Int = 50;
+    @pure
+    export fn clampSupport(score: Int) -> Int {
+        if score > 100 { ret 100; }
+        ret score;
+    }
+}

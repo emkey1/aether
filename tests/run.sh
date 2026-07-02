@@ -104,6 +104,7 @@ MULTILINE_INLINE_IF_DECL_PASS_FIXTURE="$TESTS_DIR/multiline_inline_if_decl_pass.
 RETURN_OBJECT_INIT_PASS_FIXTURE="$TESTS_DIR/return_object_init_pass.aether"
 STRING_EQ_ALIAS_PASS_FIXTURE="$TESTS_DIR/string_eq_alias_pass.aether"
 MODULE_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_import_pass.aether"
+MODULE_PURE_EXPORT_DIRECT_PASS_FIXTURE="$TESTS_DIR/module_pure_export_direct_pass.aether"
 MODULE_SUPPORT_FIXTURE="$TESTS_DIR/module_math"
 MODULE_CONST_SUPPORT_FIXTURE="$TESTS_DIR/module_consts"
 MODULE_CONST_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_const_import_pass.aether"
@@ -703,6 +704,13 @@ fi
 if ! grep -qx "42" /tmp/aether_module_import_pass.out; then
     echo "unexpected module import output" >&2
     cat /tmp/aether_module_import_pass.out >&2
+    exit 1
+fi
+# R1 regression: @pure above `export fn` must compile when the module FILE is
+# the direct compile target (not only when imported via use).
+if ! "$AETHER_BIN" --no-cache "$MODULE_PURE_EXPORT_DIRECT_PASS_FIXTURE" >/tmp/aether_module_pure_export_direct.out 2>&1; then
+    echo "direct compile of a module with @pure export fn failed" >&2
+    cat /tmp/aether_module_pure_export_direct.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$MODULE_CONST_IMPORT_PASS_FIXTURE" >/tmp/aether_module_const_import_pass.out
