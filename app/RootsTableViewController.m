@@ -43,6 +43,9 @@
     if ([self _bundledChoiceRequiresAMD64Bringup:choice]) {
         return @"x86_64 (amd64) guest rootfs.";
     }
+    if ([choice[@"guestABI"] isEqualToString:@"arm64"]) {
+        return @"arm64 (native AArch64) guest rootfs.";
+    }
     return @"i386 guest rootfs.";
 }
 

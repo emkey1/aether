@@ -77,6 +77,17 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootGuestABIKey: @"amd64",
             },
             @{
+                kBundledRootIdentifierKey: @"alpine3214arm64",
+                kBundledRootDisplayNameKey: @"Alpine3.21.4(arm64)",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.21.4-aarch64",
+                // Native AArch64 guest (same-architecture dispatch on Apple
+                // silicon — see aarch64_guest_plan.md). Import name follows
+                // the RootNameIsValid rules like the x86_64 entry above.
+                kBundledRootImportNameKey: @"Alpine3.21.4-arm64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"arm64",
+            },
+            @{
                 kBundledRootIdentifierKey: @"devuan6x86",
                 kBundledRootDisplayNameKey: @"Devuan 6 (excalibur)",
                 kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86",
