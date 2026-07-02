@@ -531,6 +531,45 @@ static void *gen_arm64_ldst_single_gadget(unsigned size, unsigned opc) {
     return table[size & 3][opc & 3];
 }
 
+// Fast-path variants of the single-register set (jit/guest-arm64/
+// memory.S's *_fast family): offset addressing only (no writeback),
+// rt != 31, with the cpu_state slot offsets precomputed here instead of
+// decoded at runtime. Same (size, opc) shape as the generic table; the
+// callers only consult this after the generic lookup verified the
+// combination is allocated.
+static void *gen_arm64_ldst_single_fast_gadget(unsigned size, unsigned opc) {
+    extern void gadget_arm64_load8_fast(void), gadget_arm64_load16_fast(void);
+    extern void gadget_arm64_load32_fast(void), gadget_arm64_load64_fast(void);
+    extern void gadget_arm64_loads8_32_fast(void), gadget_arm64_loads8_64_fast(void);
+    extern void gadget_arm64_loads16_32_fast(void), gadget_arm64_loads16_64_fast(void);
+    extern void gadget_arm64_loads32_64_fast(void);
+    extern void gadget_arm64_store8_fast(void), gadget_arm64_store16_fast(void);
+    extern void gadget_arm64_store32_fast(void), gadget_arm64_store64_fast(void);
+    static void *const table[4][4] = {
+        { (void *) gadget_arm64_store8_fast, (void *) gadget_arm64_load8_fast,
+          (void *) gadget_arm64_loads8_64_fast, (void *) gadget_arm64_loads8_32_fast },
+        { (void *) gadget_arm64_store16_fast, (void *) gadget_arm64_load16_fast,
+          (void *) gadget_arm64_loads16_64_fast, (void *) gadget_arm64_loads16_32_fast },
+        { (void *) gadget_arm64_store32_fast, (void *) gadget_arm64_load32_fast,
+          (void *) gadget_arm64_loads32_64_fast, NULL },
+        { (void *) gadget_arm64_store64_fast, (void *) gadget_arm64_load64_fast,
+          NULL, NULL },
+    };
+    return table[size & 3][opc & 3];
+}
+
+// cpu_state byte offset of a guest register slot for the fast load/store
+// param word. r=31 is SP in load/store base position (never XZR there).
+// Both offsets must fit the param word's 16-bit fields.
+static uint64_t gen_arm64_reg_slot(unsigned r) {
+    _Static_assert(offsetof(struct cpu_state, arm64_sp) < 0x10000 &&
+                   offsetof(struct cpu_state, arm64_regs) + 31 * 8 < 0x10000,
+                   "arm64 register file must sit in cpu_state's first 64k");
+    if (r == 31)
+        return offsetof(struct cpu_state, arm64_sp);
+    return offsetof(struct cpu_state, arm64_regs) + r * 8;
+}
+
 // cond -> condition-evaluation gadget (jit/guest-arm64/dpextra.S's
 // cond_* family). AL and NV are both architecturally "always" for the
 // consuming instructions here (CSEL/CCMP never invert them the way
@@ -669,6 +708,217 @@ static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
     return table[cond];
 }
 
+// -O0 idiom fusion (see memory.S's "Fused -O0 idioms" section): starting
+// from a plain fast-eligible LDR (unsigned-imm form, 32/64-bit, rt != 31),
+// peek at the following instructions and fuse gcc's stack-slot patterns
+// into one gadget:
+//
+//   ldr Xt,[B,#o]; add/sub Xt,Xt,#imm (no flags); str Xt,[B,#o]
+//     -> rmw_{add,sub}i_fast{32,64}
+//   ldr Xa,[B1,#o1]; ldr Xb,[B2,#o2]; OP Xd,Xa,Xb; str Xd,[B3,#o3]
+//     -> ldld{op}_st_fast{32,64}   (OP: plain add/sub/and/orr/eor, shift 0)
+//
+// Aliasing guards keep the fault-restart contract sound (a replayed
+// sub-instruction must see exactly the register state the unfused
+// sequence would have had — see memory.S): Xa != Xb, B2 != Xa, the store
+// base is none of {Xa, Xb, Xd}, and the RMW form's base is not its data
+// register. SUB fuses only in Xa - Xb operand order; the commutative ops
+// accept either order. Same lookahead-consume precedent as
+// gen_arm64_peek_bcond. Returns true if a fused gadget was emitted (the
+// extra instructions are consumed); false leaves state untouched.
+static bool gen_arm64_try_ldst_fusion(struct gen_state *state, struct tlb *tlb,
+        unsigned size, unsigned rt, unsigned rn, uint64_t off) {
+    extern void gadget_arm64_rmw_addi_fast64(void), gadget_arm64_rmw_subi_fast64(void);
+    extern void gadget_arm64_rmw_addi_fast32(void), gadget_arm64_rmw_subi_fast32(void);
+    extern void gadget_arm64_ldldadd_st_fast64(void), gadget_arm64_ldldsub_st_fast64(void);
+    extern void gadget_arm64_ldldand_st_fast64(void), gadget_arm64_ldldorr_st_fast64(void);
+    extern void gadget_arm64_ldldeor_st_fast64(void);
+    extern void gadget_arm64_ldldadd_st_fast32(void), gadget_arm64_ldldsub_st_fast32(void);
+    extern void gadget_arm64_ldldand_st_fast32(void), gadget_arm64_ldldorr_st_fast32(void);
+    extern void gadget_arm64_ldldeor_st_fast32(void);
+    unsigned sf = size == 3;
+    uint32_t str_match = ((uint32_t) size << 30) | 0x39000000; // same-width STR (unsigned imm)
+    uint32_t i2;
+    if (!tlb_read(tlb, state->arm64_ip, &i2, sizeof(i2)))
+        return false;
+
+    // ldr; ldr; op; str
+    if ((i2 & 0xffc00000) == (str_match | 0x00400000)) { // same-width LDR (opc=1)
+        unsigned rb = i2 & 0x1f, rn2 = (i2 >> 5) & 0x1f;
+        uint64_t off2 = (uint64_t) ((i2 >> 10) & 0xfff) << size;
+        uint32_t i3, i4;
+        if (rb == 31 || rb == rt || rn2 == rt ||
+                !tlb_read(tlb, state->arm64_ip + 4, &i3, sizeof(i3)) ||
+                !tlb_read(tlb, state->arm64_ip + 8, &i4, sizeof(i4)))
+            goto try_rmw;
+        // plain shifted-register ALU op, shift amount 0, no flags, right sf
+        static void *const ldld_table[5][2] = {
+            {(void *) gadget_arm64_ldldadd_st_fast32, (void *) gadget_arm64_ldldadd_st_fast64},
+            {(void *) gadget_arm64_ldldsub_st_fast32, (void *) gadget_arm64_ldldsub_st_fast64},
+            {(void *) gadget_arm64_ldldand_st_fast32, (void *) gadget_arm64_ldldand_st_fast64},
+            {(void *) gadget_arm64_ldldorr_st_fast32, (void *) gadget_arm64_ldldorr_st_fast64},
+            {(void *) gadget_arm64_ldldeor_st_fast32, (void *) gadget_arm64_ldldeor_st_fast64},
+        };
+        int op;
+        switch (i3 & 0x7fe0fc00) {
+        case 0x0b000000: op = 0; break; // ADD (shifted reg), shift 0
+        case 0x4b000000: op = 1; break; // SUB
+        case 0x0a000000: op = 2; break; // AND
+        case 0x2a000000: op = 3; break; // ORR
+        case 0x4a000000: op = 4; break; // EOR
+        default: goto try_rmw;
+        }
+        if (((i3 >> 31) & 1) != sf)
+            goto try_rmw;
+        unsigned rn3 = (i3 >> 5) & 0x1f, rm3 = (i3 >> 16) & 0x1f, rd3 = i3 & 0x1f;
+        bool in_order = rn3 == rt && rm3 == rb;
+        bool swapped = rn3 == rb && rm3 == rt;
+        if (rd3 == 31 || !(in_order || (swapped && op != 1)))
+            goto try_rmw;
+        if ((i4 & 0xffc00000) != str_match)
+            goto try_rmw;
+        unsigned rt4 = i4 & 0x1f, rn4 = (i4 >> 5) & 0x1f;
+        if (rt4 != rd3 || rn4 == rt || rn4 == rb || rn4 == rd3)
+            goto try_rmw;
+        uint64_t off3 = (uint64_t) ((i4 >> 10) & 0xfff) << size;
+        gen(state, (unsigned long) ldld_table[op][sf]);
+        gen(state, gen_arm64_reg_slot(rt) | (gen_arm64_reg_slot(rn) << 16));
+        gen(state, off);
+        gen(state, state->arm64_orig_ip);
+        gen(state, gen_arm64_reg_slot(rb) | (gen_arm64_reg_slot(rn2) << 16));
+        gen(state, off2);
+        gen(state, state->arm64_orig_ip + 4);
+        gen(state, gen_arm64_reg_slot(rd3) | (gen_arm64_reg_slot(rn4) << 16));
+        gen(state, off3);
+        gen(state, state->arm64_orig_ip + 12);
+        state->arm64_ip += 12; // consume ldr2 + op + str
+        return true;
+    }
+
+try_rmw:
+    // ldr; add/sub-imm in place; str back to the same slot
+    {
+        // ADD/SUB (immediate), no flags: sf|op|0|100010|sh|imm12|rn|rd
+        // (mask leaves op free — bit 30 picks add vs sub below — and
+        // pins S=0: flag-setting forms keep the generic path.)
+        if ((i2 & 0x3f800000) != 0x11000000 || ((i2 >> 31) & 1) != sf)
+            return false;
+        unsigned rd2 = i2 & 0x1f, rn2 = (i2 >> 5) & 0x1f;
+        if (rd2 != rt || rn2 != rt || rn == rt)
+            return false;
+        uint64_t imm = (i2 >> 10) & 0xfff;
+        if ((i2 >> 22) & 1)
+            imm <<= 12;
+        uint32_t i3;
+        if (!tlb_read(tlb, state->arm64_ip + 4, &i3, sizeof(i3)))
+            return false;
+        if ((i3 & 0xffc00000) != str_match)
+            return false;
+        unsigned rt3 = i3 & 0x1f, rn3 = (i3 >> 5) & 0x1f;
+        if (rt3 != rt || rn3 != rn || (uint64_t) (((i3 >> 10) & 0xfff)) << size != off)
+            return false;
+        bool is_sub = (i2 >> 30) & 1;
+        static void *const rmw_table[2][2] = {
+            {(void *) gadget_arm64_rmw_addi_fast32, (void *) gadget_arm64_rmw_addi_fast64},
+            {(void *) gadget_arm64_rmw_subi_fast32, (void *) gadget_arm64_rmw_subi_fast64},
+        };
+        gen(state, (unsigned long) rmw_table[is_sub][sf]);
+        gen(state, gen_arm64_reg_slot(rt) | (gen_arm64_reg_slot(rn) << 16));
+        gen(state, off);
+        gen(state, state->arm64_orig_ip);
+        gen(state, imm);
+        gen(state, state->arm64_orig_ip + 8);
+        state->arm64_ip += 8; // consume the ALU op + str
+        return true;
+    }
+}
+
+// Load + compare + branch fusion (control.S's fused_ldcmpr family): the
+// -O0 loop-exit idiom
+//
+//   ldr Xt,[B,#o]; [movz/movk chain -> Xc]; cmp Rn, Rm; b.cond
+//
+// becomes [mov_const Xc] + ONE gadget. The optional constant chain between
+// the load and the compare is folded and emitted BEFORE the load —
+// reorder-safe because Xc is guarded away from the load's base and target
+// (and a load-fault replay recomputes the identical constant), and
+// guest-invisible otherwise since no fault point separates them in the
+// fused block. Returns true with the block ended (caller returns 0).
+static bool gen_arm64_try_ld_cmp_fusion(struct gen_state *state, struct tlb *tlb,
+        unsigned size, unsigned rt, unsigned rn, uint64_t off) {
+    extern void gadget_arm64_mov_const(void);
+    extern void *const arm64_fused_ldcmpr64_table[14];
+    extern void *const arm64_fused_ldcmpr32_table[14];
+    unsigned sf = size == 3;
+    uint64_t scan = state->arm64_ip;
+    uint32_t next;
+    if (!tlb_read(tlb, scan, &next, sizeof(next)))
+        return false;
+    // Optional MOVZ/MOVN(+MOVK chain) materializing a compare operand.
+    bool have_const = false;
+    unsigned rc = 0;
+    uint64_t cval = 0;
+    if ((next & 0x1f800000) == 0x12800000) {
+        unsigned copc = (next >> 29) & 3, chw = (next >> 21) & 3;
+        unsigned csf = (next >> 31) & 1;
+        rc = next & 0x1f;
+        if ((copc != 0b00 && copc != 0b10) || rc == 31 || rc == rt || rc == rn ||
+                (!csf && chw >= 2))
+            return false;
+        cval = ((uint64_t) ((next >> 5) & 0xffff)) << (chw * 16);
+        if (copc == 0b00)
+            cval = ~cval;
+        if (!csf)
+            cval &= 0xffffffff;
+        scan += 4;
+        while (tlb_read(tlb, scan, &next, sizeof(next)) &&
+                (next & 0x7f800000) == 0x72800000 && // MOVK
+                ((next >> 31) & 1) == csf && (next & 0x1f) == rc &&
+                (csf || ((next >> 21) & 0x3) < 2)) {
+            unsigned hw2 = (next >> 21) & 0x3;
+            uint64_t imm2 = (next >> 5) & 0xffff;
+            cval = (cval & ~(0xffffULL << (hw2 * 16))) | (imm2 << (hw2 * 16));
+            scan += 4;
+        }
+        have_const = true;
+        if (!tlb_read(tlb, scan, &next, sizeof(next)))
+            return false;
+    }
+    // CMP = SUBS to ZR, shifted register, shift 0, width matching the load.
+    // ZR compare operands keep the generic path (no slot to read them from).
+    if ((next & 0x7fe0fc00) != 0x6b000000 || (next & 0x1f) != 31 ||
+            ((next >> 31) & 1) != sf)
+        return false;
+    unsigned cmp_rn = (next >> 5) & 0x1f, cmp_rm = (next >> 16) & 0x1f;
+    if (cmp_rn == 31 || cmp_rm == 31)
+        return false;
+    scan += 4;
+    if (!tlb_read(tlb, scan, &next, sizeof(next)) ||
+            (next & 0xff000010) != 0x54000000 || (next & 0xf) >= 14)
+        return false;
+    uint64_t taken = scan + (uint64_t) arm64_branch_imm19(next);
+    uint64_t fallthrough = scan + 4;
+    scan += 4;
+
+    if (have_const) {
+        gen(state, (unsigned long) gadget_arm64_mov_const);
+        gen(state, gen_arm64_reg_slot(rc));
+        gen(state, cval);
+    }
+    void *const *table = sf ? arm64_fused_ldcmpr64_table : arm64_fused_ldcmpr32_table;
+    gen(state, (unsigned long) table[next & 0xf]);
+    gen(state, gen_arm64_reg_slot(rt) | (gen_arm64_reg_slot(rn) << 16) |
+               (gen_arm64_reg_slot(cmp_rn) << 32) | (gen_arm64_reg_slot(cmp_rm) << 48));
+    gen(state, off);
+    gen(state, state->arm64_orig_ip);
+    gen(state, taken | 0x8000000000000000ULL);
+    state->jump_ip[0] = state->size - 1;
+    gen(state, fallthrough | 0x8000000000000000ULL);
+    state->jump_ip[1] = state->size - 1;
+    state->arm64_ip = scan;
+    return true;
+}
+
 // AArch64 guest code generator — Phase A of the JIT gadget port
 // (aarch64_guest_plan.md). Emits gadget-array entries for jit/guest-arm64/'s
 // ported gadgets instead of computing results directly, the same relationship
@@ -765,17 +1015,63 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, state->arm64_orig_ip);
             return 0;
         }
-        void *gadget;
-        switch (opc) {
-        case 0b00: gadget = (void *) gadget_arm64_movn; break;
-        case 0b10: gadget = (void *) gadget_arm64_movz; break;
-        case 0b11: gadget = (void *) gadget_arm64_movk; break;
-        default:
+        if (opc == 0b01) {
             gen(state, (unsigned long) gadget_interrupt);
             gen(state, INT_UNDEFINED);
             gen(state, state->arm64_orig_ip);
             gen(state, state->arm64_orig_ip);
             return 0;
+        }
+        if (rd != 31 && opc != 0b11) {
+            // MOVZ/MOVN: the result is fully compile-time known. Fold any
+            // immediately-following MOVKs to the same rd/sf into the
+            // constant (gcc's standard big-immediate/address build), same
+            // lookahead-consume precedent as gen_arm64_peek_bcond. An
+            // sf=0 MOVK with hw>=2 is unallocated — decline to fold it so
+            // it reaches its own gen_step and takes the undefined path.
+            extern void gadget_arm64_mov_const(void);
+            uint64_t value = imm16 << (hw * 16);
+            if (opc == 0b00)
+                value = ~value;
+            if (!sf)
+                value &= 0xffffffff;
+            uint32_t next;
+            while (tlb_read(tlb, state->arm64_ip, &next, sizeof(next)) &&
+                    (next & 0x7f800000) == 0x72800000 && // MOVK
+                    ((next >> 31) & 1) == (unsigned) sf &&
+                    (next & 0x1f) == rd &&
+                    (sf || ((next >> 21) & 0x3) < 2)) {
+                unsigned hw2 = (next >> 21) & 0x3;
+                uint64_t imm2 = (next >> 5) & 0xffff;
+                value = (value & ~(0xffffULL << (hw2 * 16))) | (imm2 << (hw2 * 16));
+                state->arm64_ip += 4; // consume the MOVK too
+            }
+            gen(state, (unsigned long) gadget_arm64_mov_const);
+            gen(state, offsetof(struct cpu_state, arm64_regs) + rd * 8);
+            gen(state, value);
+            return 1;
+        }
+        if (rd != 31 && opc == 0b11) {
+            // MOVK with a runtime-live old value: compile-time-shifted
+            // insert under a keep-mask (math.S's movk_fast). The sf=0
+            // upper-32 clear rides in the mask.
+            extern void gadget_arm64_movk_fast(void);
+            uint64_t mask = ~(0xffffULL << (hw * 16));
+            if (!sf)
+                mask &= 0xffffffff;
+            gen(state, (unsigned long) gadget_arm64_movk_fast);
+            gen(state, offsetof(struct cpu_state, arm64_regs) + rd * 8);
+            gen(state, imm16 << (hw * 16));
+            gen(state, mask);
+            return 1;
+        }
+        // rd == 31: the write is discarded — keep the generic gadgets'
+        // proven handling of that corner rather than special-casing it.
+        void *gadget;
+        switch (opc) {
+        case 0b00: gadget = (void *) gadget_arm64_movn; break;
+        case 0b10: gadget = (void *) gadget_arm64_movz; break;
+        default:   gadget = (void *) gadget_arm64_movk; break;
         }
         gen(state, (unsigned long) gadget);
         gen(state, rd | ((uint64_t) hw << 8) | (imm16 << 16) | ((uint64_t) sf << 32));
@@ -1184,8 +1480,19 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, state->arm64_orig_ip);
             return 0;
         }
-        gen(state, (unsigned long) gadget);
-        gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16)); // mode 0: no writeback
+        if (opc == 1 && size >= 2 && rt != 31) {
+            if (gen_arm64_try_ldst_fusion(state, tlb, size, rt, rn, imm12 << size))
+                return 1; // fused -O0 idiom (see memory.S)
+            if (gen_arm64_try_ld_cmp_fusion(state, tlb, size, rt, rn, imm12 << size))
+                return 0; // fused load+cmp+b.cond ends the block
+        }
+        if (rt != 31) { // fast path: offset mode, precomputed slot offsets
+            gen(state, (unsigned long) gen_arm64_ldst_single_fast_gadget(size, opc));
+            gen(state, gen_arm64_reg_slot(rt) | (gen_arm64_reg_slot(rn) << 16));
+        } else {
+            gen(state, (unsigned long) gadget);
+            gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16)); // mode 0: no writeback
+        }
         gen(state, imm12 << size);
         gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;
@@ -1215,8 +1522,13 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, state->arm64_orig_ip);
             return 0;
         }
-        gen(state, (unsigned long) gadget);
-        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
+        if (mode == 0 && rt != 31) { // LDUR/STUR/LDTR/STTR: same fast form
+            gen(state, (unsigned long) gen_arm64_ldst_single_fast_gadget(size, opc));
+            gen(state, gen_arm64_reg_slot(rt) | (gen_arm64_reg_slot(rn) << 16));
+        } else {
+            gen(state, (unsigned long) gadget);
+            gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
+        }
         gen(state, (uint64_t) imm9);
         gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
         return 1;

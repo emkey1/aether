@@ -473,6 +473,194 @@ store_single store16,  16, strh, w17
 store_single store32,  32, str,  w17
 store_single store64,  64, str,  x17
 
+// ---- Fast-path single-register load/store (the specialization pass) -----
+// Same idea as math.S's fast_alu_* family: the generic gadgets above
+// re-decode rt/rn/mode and resolve the addressing form through a branch
+// tree at RUNTIME, on every execution (~20 host instructions and ~8
+// branches before the TLB walk even starts, then the full writeback-mode
+// compare chain after it). These variants serve the single hottest form —
+// offset addressing, no writeback (unsigned-imm, LDUR, LDTR/STTR) — with
+// everything but the TLB walk baked at compile time: gen_step_arm64
+// precomputes the cpu_state BYTE OFFSETS of rt's and rn's register slots
+// (CPU_sp for rn=31: an SP-base access, the dominant case in -O0 stack
+// traffic, costs nothing here where the generic path pays a compare+branch)
+// and the final scaled/sign-extended offset. rt=31 falls back to the
+// generic gadget (LDR-to-XZR and STR-XZR are rare outside prologues).
+// Profiled on the iSH_benchmark bmm integer loop (-O0, all traffic
+// [sp, #imm]): the generic single load/store path was 68% of total
+// runtime; this form covers every load and store in that loop.
+//
+// Code stream: [gadget][rt_slot | rn_slot<<16][offset][orig_ip]
+// — 3 param words, same trailing-orig_ip fault-restart contract at
+// [_ip, #-8] as the generic family (see arm64_segfault_read/write).
+//
+// Register discipline: x8 (the param word) must survive the prep macro —
+// the fast path only clobbers x9-x11, and the miss/crosspage helpers
+// bracket their C calls with save_c/restore_c (x0-x18 + lr) — the same
+// guarantee the generic store gadgets already rely on for x17's ride
+// across write_prep.
+.macro load_single_fast name, bits, ldinsn, reg
+.gadget \name
+    ldp x8, x19, [_ip]        // [rt_slot | rn_slot<<16], offset
+    add _ip, _ip, #24
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]       // base
+    add x7, x10, x19
+    read_prep \bits, \name
+    \ldinsn \reg, [_addr]
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // full X store: 32-bit loads must clear the upper half
+    gret
+    read_bullshit \bits, \name
+.endm
+
+.macro store_single_fast name, bits, stinsn, reg
+.gadget \name
+    ldp x8, x19, [_ip]        // [rt_slot | rn_slot<<16], offset
+    add _ip, _ip, #24
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]       // base
+    and x9, x8, #0xffff
+    ldr x17, [_cpu, x9]       // value (x17 survives write_prep's helpers)
+    add x7, x10, x19
+    write_prep \bits, \name
+    \stinsn \reg, [_addr]
+    write_done \bits, \name   // clobbers x9 — rt_slot already consumed
+    gret
+    write_bullshit \bits, \name
+.endm
+
+load_single_fast load8_fast,      8, ldrb,  w17
+load_single_fast load16_fast,    16, ldrh,  w17
+load_single_fast load32_fast,    32, ldr,   w17
+load_single_fast load64_fast,    64, ldr,   x17
+load_single_fast loads8_32_fast,  8, ldrsb, w17
+load_single_fast loads8_64_fast,  8, ldrsb, x17
+load_single_fast loads16_32_fast, 16, ldrsh, w17
+load_single_fast loads16_64_fast, 16, ldrsh, x17
+load_single_fast loads32_64_fast, 32, ldrsw, x17
+store_single_fast store8_fast,    8, strb, w17
+store_single_fast store16_fast,  16, strh, w17
+store_single_fast store32_fast,  32, str,  w17
+store_single_fast store64_fast,  64, str,  x17
+
+// ---- Fused -O0 idioms (the pattern-fusion pass) --------------------------
+// The single-gadget fast path above brought per-gadget cost to parity with
+// the amd64 engine, but unoptimized RISC output needs ~2x the instructions
+// (= dispatches) of the equivalent -O0 x86 for the same statement: x86
+// folds load-op-store into ONE guest instruction (add %rax,-16(%rbp));
+// AArch64 spells it out. These gadgets fuse gcc -O0's two signature
+// multi-instruction idioms back into one dispatch, chosen by
+// gen_step_arm64's lookahead (same consume-the-next-instruction precedent
+// as compare+branch fusion):
+//
+//   rmw_<op>i:   ldr Xt,[B,#o]; add/sub Xt,Xt,#imm; str Xt,[B,#o]
+//                (every `i++` / `x -= c` on a stack slot)
+//   ldld<op>st:  ldr Xa,[B1,#o1]; ldr Xb,[B2,#o2]; op Xd,Xa,Xb; str Xd,[B3,#o3]
+//                (every `x = a OP b` through stack slots)
+//
+// FAULT-RESTART CONTRACT: a fused gadget has several faultable accesses,
+// but arm64_segfault_read/write always report the guest PC from the fixed
+// [_ip, #-8] slot. So the code stream carries one orig_ip word per
+// faultable access, and _ip advances in STAGES — past each access's param
+// group (ending in its orig_ip) right before that access — so [-8] always
+// names the sub-instruction that would fault. Every guest-visible register
+// result is COMMITTED to its cpu_state slot before the next faultable
+// access: a restart at sub-instruction N recompiles a block starting
+// there, which reads its inputs from the register file — they must
+// already hold everything sub-instructions 0..N-1 wrote. gen.c's guards
+// (gen_arm64_try_ldst_fusion) reject register aliasing that would make
+// a replayed sub-instruction read a base register the fused group itself
+// modified.
+//
+// Register discipline: x21 carries the first loaded value across the
+// second read_prep — callee-saved per AAPCS64 (survives the miss helpers'
+// C calls, same argument as the generic ldp/stp gadgets' x19-x26 state)
+// and untouched by the prep macros' x9-x11 scratch. x8/x17/x19 usage
+// matches the fast single gadgets above.
+
+// Code stream: [gadget][rt_slot | rn_slot<<16][offset][ip_ld][imm][ip_st]
+.macro rmw_alu_imm name, bits, op, opreg, immreg
+.gadget \name
+    ldp x8, x19, [_ip]        // [rt_slot | rn_slot<<16], offset
+    add _ip, _ip, #24         // past slots+offset+ip_ld: [-8] = ip_ld
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]       // base
+    add x7, x10, x19
+    mov x21, x7               // guest address again for the store side
+    read_prep \bits, \name\()_rd
+    ldr \opreg, [_addr]
+    ldr x11, [_ip]            // imm (pre-shifted)
+    add _ip, _ip, #16         // past imm+ip_st: [-8] = ip_st
+    \op \opreg, \opreg, \immreg
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // commit Xt before the faultable store
+    mov x7, x21
+    write_prep \bits, \name\()_wr
+    str \opreg, [_addr]
+    write_done \bits, \name\()_wr
+    gret
+    read_bullshit \bits, \name\()_rd
+    write_bullshit \bits, \name\()_wr
+.endm
+
+rmw_alu_imm rmw_addi_fast64, 64, add, x17, x11
+rmw_alu_imm rmw_subi_fast64, 64, sub, x17, x11
+rmw_alu_imm rmw_addi_fast32, 32, add, w17, w11
+rmw_alu_imm rmw_subi_fast32, 32, sub, w17, w11
+
+// Code stream: [gadget][a_slot | b1_slot<<16][off1][ip1]
+//                      [b_slot | b2_slot<<16][off2][ip2]
+//                      [d_slot | b3_slot<<16][off3][ip3]
+.macro ldld_op_st name, bits, op, ldinsn, stinsn, dreg, areg
+.gadget \name
+    ldp x8, x19, [_ip]
+    add _ip, _ip, #24         // [-8] = ip1
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]
+    add x7, x10, x19
+    read_prep \bits, \name\()_r1
+    \ldinsn \dreg, [_addr]
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // commit Xa
+    mov x21, x17              // Xa value (zero-extended for 32-bit)
+    ldp x8, x19, [_ip]
+    add _ip, _ip, #24         // [-8] = ip2
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]       // base2 slot read AFTER Xa commit (no aliasing: gen.c guards B2 != Xa anyway)
+    add x7, x10, x19
+    read_prep \bits, \name\()_r2
+    \ldinsn \dreg, [_addr]
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // commit Xb
+    ldp x8, x19, [_ip]
+    add _ip, _ip, #24         // [-8] = ip3
+    \op \dreg, \areg, \dreg   // Xd = op(Xa, Xb) — w-form zero-extends x17
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // commit Xd before the faultable store
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]       // base3
+    add x7, x10, x19
+    write_prep \bits, \name\()_wr
+    \stinsn \dreg, [_addr]
+    write_done \bits, \name\()_wr
+    gret
+    read_bullshit \bits, \name\()_r1
+    read_bullshit \bits, \name\()_r2
+    write_bullshit \bits, \name\()_wr
+.endm
+
+ldld_op_st ldldadd_st_fast64, 64, add, ldr, str, x17, x21
+ldld_op_st ldldsub_st_fast64, 64, sub, ldr, str, x17, x21
+ldld_op_st ldldand_st_fast64, 64, and, ldr, str, x17, x21
+ldld_op_st ldldorr_st_fast64, 64, orr, ldr, str, x17, x21
+ldld_op_st ldldeor_st_fast64, 64, eor, ldr, str, x17, x21
+ldld_op_st ldldadd_st_fast32, 32, add, ldr, str, w17, w21
+ldld_op_st ldldsub_st_fast32, 32, sub, ldr, str, w17, w21
+ldld_op_st ldldand_st_fast32, 32, and, ldr, str, w17, w21
+ldld_op_st ldldorr_st_fast32, 32, orr, ldr, str, w17, w21
+ldld_op_st ldldeor_st_fast32, 32, eor, ldr, str, w17, w21
+
 // ---- LDR (literal): PC-relative load. The address is compile-time
 // known (PC + imm19*4, computed by gen_step_arm64), so the code stream
 // just carries it directly: [gadget][rt][absolute address].

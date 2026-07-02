@@ -396,3 +396,52 @@ fused_table arm64_fused_cmpr32_table,  fused_cmpr32
 fused_table arm64_fused_subsi64_table, fused_subsi64
 fused_table arm64_fused_subsi32_table, fused_subsi32
 .text
+
+// ---- Load + compare + branch fusion --------------------------------------
+// The -O0 loop-exit idiom: `ldr Xt,[B,#o]; [movz/movk Xc, folded away by
+// gen.c into a preceding mov_const]; cmp Rn, Rm; b.cond` — three or more
+// dispatches collapsed to one (plus the mov_const). The load commits Xt to
+// its slot first (fault-restart + guest visibility), then BOTH compare
+// operands are re-read from their slots — post-commit, so Rn/Rm may be Xt
+// or the just-materialized constant register, or anything else — and the
+// branch tests live host flags exactly like fused_cmpr above.
+// The load can fault: the stream carries orig_ip at the fixed [_ip, #-8]
+// slot (same contract as memory.S's fast loads), and the taken/
+// fallthrough words sit AFTER it at [_ip], [_ip, #8].
+//
+// Stream: [gadget][Xt_slot | B_slot<<16 | Rn_slot<<32 | Rm_slot<<48]
+//         [offset][orig_ip][taken][fallthrough]
+.macro fused_ldcmpr name, bits, ldreg, zr, rv1, rv2, cc
+.gadget \name
+    ldp x8, x19, [_ip]
+    add _ip, _ip, #24         // past slots+offset+orig_ip: [-8] = orig_ip
+    ubfx x9, x8, #16, #16
+    ldr x10, [_cpu, x9]
+    add x7, x10, x19
+    read_prep \bits, \name
+    ldr \ldreg, [_addr]
+    and x9, x8, #0xffff
+    str x17, [_cpu, x9]       // commit Xt (w-load already zero-extended)
+    ubfx x9, x8, #32, #16
+    ldr x15, [_cpu, x9]       // cmp Rn, from its slot (post-commit)
+    ubfx x9, x8, #48, #16
+    ldr x13, [_cpu, x9]       // cmp Rm
+    subs \zr, \rv1, \rv2
+    store_flags
+    b.\cc 1f
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
+    read_bullshit \bits, \name
+.endm
+
+.irp cc, CC_LIST
+fused_ldcmpr fused_ldcmpr64_\cc, 64, x17, xzr, x15, x13, \cc
+fused_ldcmpr fused_ldcmpr32_\cc, 32, w17, wzr, w15, w13, \cc
+.endr
+
+.data
+fused_table arm64_fused_ldcmpr64_table, fused_ldcmpr64
+fused_table arm64_fused_ldcmpr32_table, fused_ldcmpr32
+.text

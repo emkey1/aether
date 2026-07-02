@@ -98,6 +98,37 @@
     str x14, [x13, x9, lsl #3]
 3:  gret
 
+// ---- Fast-path move-wide (the specialization pass) ----------------------
+// MOVZ/MOVN write a fully compile-time-known value, so the generic
+// gadgets' runtime hw-shift/sf-mask/rd-decode branch tree (above) is pure
+// overhead. gen_step_arm64 also FOLDS any immediately-following MOVKs to
+// the same rd/sf into the constant (same next-instruction-lookahead
+// precedent as compare+branch fusion, gen_arm64_peek_bcond), so gcc's
+// standard 2-4 instruction big-immediate/address build becomes ONE
+// dispatch. rd=31 keeps the generic path (the store is discarded there).
+// Profiled on the iSH_benchmark bmm integer loop: the generic movz+movk
+// pair materializing the loop bound was ~11% of total runtime.
+// Code stream: [gadget][rd_slot][value]
+.gadget mov_const
+    ldp x8, x9, [_ip]
+    add _ip, _ip, #16
+    str x9, [_cpu, x8]
+    gret
+
+// MOVK not preceded by a fusable MOVZ/MOVN (old value is live at runtime):
+// insert the compile-time-shifted 16 bits under a compile-time keep-mask.
+// The sf=0 form's upper-32 clear is baked into the mask by gen_step_arm64.
+// Code stream: [gadget][rd_slot][shifted value][keep mask]
+.gadget movk_fast
+    ldp x8, x9, [_ip]
+    ldr x10, [_ip, #16]
+    add _ip, _ip, #24
+    ldr x11, [_cpu, x8]
+    and x11, x11, x10
+    orr x11, x11, x9
+    str x11, [_cpu, x8]
+    gret
+
 .gadget movn
     ldr x8, [_ip]
     add _ip, _ip, #8
