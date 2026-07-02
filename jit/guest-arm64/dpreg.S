@@ -364,3 +364,68 @@ addsub_ext_store:
 12: str x21, [_cpu, #CPU_sp]
 addsub_ext_out:
     gret
+
+// ---- Add/subtract with carry: ADC/ADCS/SBC/SBCS (and NGC/NGCS aliases) --
+// Code stream: [gadget][rd | rn<<5 | rm<<10 | sf<<15 | op<<16 | S<<17]
+// The host carry flag is loaded from guest NZCV (load_flags) before the
+// operation, exactly the architected data flow. load_flags/store_flags
+// clobber x17 — nothing here holds state in x17.
+.gadget adcsbc
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f          // rd
+    ubfx x10, x8, #5, #5       // rn
+    ubfx x11, x8, #10, #5      // rm
+    ubfx x12, x8, #15, #1      // sf
+    ubfx x13, x8, #16, #1      // op: 0=adc, 1=sbc
+    ubfx x14, x8, #17, #1      // S
+
+    add x15, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 1f
+    add x16, x15, x10, lsl #3
+    ldr x16, [x16]
+    b 2f
+1:  mov x16, #0
+2:  cmp x11, #31
+    b.eq 3f
+    add x19, x15, x11, lsl #3
+    ldr x19, [x19]
+    b 4f
+3:  mov x19, #0
+4:
+    load_flags
+    cbz x14, adcsbc_noflags
+    cbz x12, adcsbc_s32
+    cbz x13, 5f
+    sbcs x20, x16, x19
+    b adcsbc_flags_done
+5:  adcs x20, x16, x19
+    b adcsbc_flags_done
+adcsbc_s32:
+    cbz x13, 6f
+    sbcs w20, w16, w19
+    b adcsbc_flags_done
+6:  adcs w20, w16, w19
+adcsbc_flags_done:
+    store_flags
+    b adcsbc_store
+adcsbc_noflags:
+    cbz x12, adcsbc_n32
+    cbz x13, 7f
+    sbc x20, x16, x19
+    b adcsbc_store
+7:  adc x20, x16, x19
+    b adcsbc_store
+adcsbc_n32:
+    cbz x13, 8f
+    sbc w20, w16, w19
+    b adcsbc_store
+8:  adc w20, w16, w19
+adcsbc_store:
+    cmp x9, #31
+    b.eq 9f
+    add x15, _cpu, #CPU_x0     // re-derive: paranoia vs future flags-macro scratch
+    add x15, x15, x9, lsl #3
+    str x20, [x15]
+9:  gret

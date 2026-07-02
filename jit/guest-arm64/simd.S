@@ -363,3 +363,95 @@ vext_store:
     b 4f
 3:  str x16, [x15]
 4:  gret
+
+// ---- AdvSIMD three-same bitwise: AND/BIC/ORR/ORN/EOR/BSL/BIT/BIF ---------
+// Whole-register bitwise ops (element size irrelevant); includes the
+// vector MOV alias (ORR with Rn==Rm), which is how compilers copy V
+// registers. BSL/BIT/BIF additionally read Rd (insert semantics), which
+// the host instruction handles natively. Q=0 forms zero the upper half,
+// which host ops on the .8b arrangement do architecturally.
+// Code stream: [gadget][rd | rn<<8 | rm<<16]
+.macro vbitwise name, op, arr
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x12, _cpu, #CPU_v0
+    add x13, x12, x9, lsl #4
+    ldr q29, [x13]             // current Rd (BSL/BIT/BIF read it; harmless otherwise)
+    add x14, x12, x10, lsl #4
+    ldr q30, [x14]
+    add x14, x12, x11, lsl #4
+    ldr q31, [x14]
+    \op v29\arr, v30\arr, v31\arr
+    str q29, [x13]
+    gret
+.endm
+
+// The 2-operand forms overwrite v29 outright; the 3-with-insert forms
+// (bsl/bit/bif) use v29 as the architected Rd input/output.
+.macro vbitwise2 name, op, arr
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #5
+    add x12, _cpu, #CPU_v0
+    add x14, x12, x10, lsl #4
+    ldr q30, [x14]
+    add x14, x12, x11, lsl #4
+    ldr q31, [x14]
+    \op v29\arr, v30\arr, v31\arr
+    add x13, x12, x9, lsl #4
+    str q29, [x13]
+    gret
+.endm
+
+vbitwise2 vand_16b, and, .16b
+vbitwise2 vand_8b,  and, .8b
+vbitwise2 vbic_16b, bic, .16b
+vbitwise2 vbic_8b,  bic, .8b
+vbitwise2 vorr_16b, orr, .16b
+vbitwise2 vorr_8b,  orr, .8b
+vbitwise2 vorn_16b, orn, .16b
+vbitwise2 vorn_8b,  orn, .8b
+vbitwise2 veor_16b, eor, .16b
+vbitwise2 veor_8b,  eor, .8b
+vbitwise vbsl_16b, bsl, .16b
+vbitwise vbsl_8b,  bsl, .8b
+vbitwise vbit_16b, bit, .16b
+vbitwise vbit_8b,  bit, .8b
+vbitwise vbif_16b, bif, .16b
+vbitwise vbif_8b,  bif, .8b
+
+// ---- AdvSIMD scalar shift by immediate (D size): SHL/USHR/SSHR ----------
+// musl's strtod builds the double's exponent field with `shl d, d, #52`.
+// The shift amount is a compile-time field but a runtime parameter to the
+// shared gadget, so the shift runs as an integer register-amount shift on
+// the low 64 bits of the slot (bit-identical to the scalar SIMD op), and
+// the store zeroes the upper half like the architected scalar write.
+// Code stream: [gadget][rd | rn<<8 | shift<<16 | op<<24 (0=shl,1=ushr,2=sshr)]
+.gadget vshift_d
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x11, x8, #16, #6
+    ubfx x13, x8, #24, #2
+    add x12, _cpu, #CPU_v0
+    add x14, x12, x10, lsl #4
+    ldr x16, [x14]            // low 64 bits of Vn
+    cmp x13, #1
+    b.lo 1f
+    b.eq 2f
+    asr x16, x16, x11
+    b 3f
+1:  lsl x16, x16, x11
+    b 3f
+2:  lsr x16, x16, x11
+3:  add x14, x12, x9, lsl #4
+    stp x16, xzr, [x14]       // scalar D write zeroes the upper half
+    gret

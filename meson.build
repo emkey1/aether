@@ -120,6 +120,7 @@ if jit_cpu_family == 'aarch64'
         'jit/guest-arm64/atomics.S',
         'jit/guest-arm64/dpextra.S',
         'jit/guest-arm64/simd.S',
+        'jit/guest-arm64/fp.S',
     ]
 endif
 

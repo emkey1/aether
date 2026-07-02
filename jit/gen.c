@@ -867,6 +867,22 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // Add/subtract with carry: ADC/ADCS/SBC/SBCS (and the NGC/NGCS
+    // aliases). Mask matches bits[28:21]=11010000 with bits[15:10]=0.
+    if ((insn & 0x1fe0fc00) == 0x1a000000) {
+        extern void gadget_arm64_adcsbc(void);
+        unsigned rd = insn & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rm = (insn >> 16) & 0x1f;
+        bool S = (insn >> 29) & 1;
+        bool op_sbc = (insn >> 30) & 1;
+        bool sf = (insn >> 31) & 1;
+        gen(state, (unsigned long) gadget_arm64_adcsbc);
+        gen(state, rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
+            | ((uint64_t) sf << 15) | ((uint64_t) op_sbc << 16) | ((uint64_t) S << 17));
+        return 1;
+    }
+
     // Add/subtract (extended register): ADD/SUB/ADDS/SUBS with an
     // extended Rm operand — the SP-capable register form (bit21=1, which
     // the shifted-register decode above deliberately excludes). Mask
@@ -1287,6 +1303,352 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned vd = insn & 0x1f;
         gen(state, (unsigned long) gadget_arm64_vins_gpr);
         gen(state, vd | ((uint64_t) rn << 8) | (8ULL << 16) | (3ULL << 24));
+        return 1;
+    }
+
+    // ---- Scalar floating point (jit/guest-arm64/fp.S) ---------------------
+    // S and D precision only; half (type=11) and the fixed-point conversion
+    // forms reject. The exact FMOV general<->FP matches above run first, so
+    // the FP<->integer family here only sees the rounding conversions and
+    // SCVTF/UCVTF.
+
+    // FP<->integer conversions: sf|0|0|11110|type|1|rmode|opcode|000000|rn|rd
+    if ((insn & 0x5f20fc00) == 0x1e200000) {
+        extern void gadget_arm64_scvtf_ws(void), gadget_arm64_scvtf_xs(void);
+        extern void gadget_arm64_scvtf_wd(void), gadget_arm64_scvtf_xd(void);
+        extern void gadget_arm64_ucvtf_ws(void), gadget_arm64_ucvtf_xs(void);
+        extern void gadget_arm64_ucvtf_wd(void), gadget_arm64_ucvtf_xd(void);
+        extern void gadget_arm64_fcvtzs_sw(void), gadget_arm64_fcvtzs_sx(void);
+        extern void gadget_arm64_fcvtzs_dw(void), gadget_arm64_fcvtzs_dx(void);
+        extern void gadget_arm64_fcvtzu_sw(void), gadget_arm64_fcvtzu_sx(void);
+        extern void gadget_arm64_fcvtzu_dw(void), gadget_arm64_fcvtzu_dx(void);
+        extern void gadget_arm64_fcvtns_sw(void), gadget_arm64_fcvtns_sx(void);
+        extern void gadget_arm64_fcvtns_dw(void), gadget_arm64_fcvtns_dx(void);
+        extern void gadget_arm64_fcvtms_sw(void), gadget_arm64_fcvtms_sx(void);
+        extern void gadget_arm64_fcvtms_dw(void), gadget_arm64_fcvtms_dx(void);
+        extern void gadget_arm64_fcvtps_sw(void), gadget_arm64_fcvtps_sx(void);
+        extern void gadget_arm64_fcvtps_dw(void), gadget_arm64_fcvtps_dx(void);
+        extern void gadget_arm64_fcvtas_sw(void), gadget_arm64_fcvtas_sx(void);
+        extern void gadget_arm64_fcvtas_dw(void), gadget_arm64_fcvtas_dx(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned rmode = (insn >> 19) & 0x3;
+        unsigned opcode = (insn >> 16) & 0x7;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        void *gadget = NULL;
+        if (type <= 1) {
+            bool is_d = type == 1;
+            // idx: [is_d][sf] for the 4-way variants
+            if (rmode == 0 && opcode == 2) { // SCVTF
+                static void *const t[2][2] = {
+                    {(void *) gadget_arm64_scvtf_ws, (void *) gadget_arm64_scvtf_xs},
+                    {(void *) gadget_arm64_scvtf_wd, (void *) gadget_arm64_scvtf_xd}};
+                gadget = t[is_d][sf];
+            } else if (rmode == 0 && opcode == 3) { // UCVTF
+                static void *const t[2][2] = {
+                    {(void *) gadget_arm64_ucvtf_ws, (void *) gadget_arm64_ucvtf_xs},
+                    {(void *) gadget_arm64_ucvtf_wd, (void *) gadget_arm64_ucvtf_xd}};
+                gadget = t[is_d][sf];
+            } else if (opcode == 0) { // FCVT{N,P,M,Z}S by rmode
+                static void *const t[4][2][2] = {
+                    {{(void *) gadget_arm64_fcvtns_sw, (void *) gadget_arm64_fcvtns_sx},
+                     {(void *) gadget_arm64_fcvtns_dw, (void *) gadget_arm64_fcvtns_dx}},
+                    {{(void *) gadget_arm64_fcvtps_sw, (void *) gadget_arm64_fcvtps_sx},
+                     {(void *) gadget_arm64_fcvtps_dw, (void *) gadget_arm64_fcvtps_dx}},
+                    {{(void *) gadget_arm64_fcvtms_sw, (void *) gadget_arm64_fcvtms_sx},
+                     {(void *) gadget_arm64_fcvtms_dw, (void *) gadget_arm64_fcvtms_dx}},
+                    {{(void *) gadget_arm64_fcvtzs_sw, (void *) gadget_arm64_fcvtzs_sx},
+                     {(void *) gadget_arm64_fcvtzs_dw, (void *) gadget_arm64_fcvtzs_dx}}};
+                gadget = t[rmode][is_d][sf];
+            } else if (rmode == 3 && opcode == 1) { // FCVTZU
+                static void *const t[2][2] = {
+                    {(void *) gadget_arm64_fcvtzu_sw, (void *) gadget_arm64_fcvtzu_sx},
+                    {(void *) gadget_arm64_fcvtzu_dw, (void *) gadget_arm64_fcvtzu_dx}};
+                gadget = t[is_d][sf];
+            } else if (rmode == 0 && opcode == 4) { // FCVTAS
+                static void *const t[2][2] = {
+                    {(void *) gadget_arm64_fcvtas_sw, (void *) gadget_arm64_fcvtas_sx},
+                    {(void *) gadget_arm64_fcvtas_dw, (void *) gadget_arm64_fcvtas_dx}};
+                gadget = t[is_d][sf];
+            }
+        }
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8));
+        return 1;
+    }
+
+    // FP data-processing (1 source): FMOV/FABS/FNEG/FSQRT, FCVT S<->D,
+    // FRINT*. opcode bits20:15.
+    if ((insn & 0xff207c00) == 0x1e204000) {
+        extern void gadget_arm64_fmov_s(void), gadget_arm64_fmov_d(void);
+        extern void gadget_arm64_fabs_s(void), gadget_arm64_fabs_d(void);
+        extern void gadget_arm64_fneg_s(void), gadget_arm64_fneg_d(void);
+        extern void gadget_arm64_fsqrt_s(void), gadget_arm64_fsqrt_d(void);
+        extern void gadget_arm64_fcvt_sd(void), gadget_arm64_fcvt_ds(void);
+        extern void gadget_arm64_frintn_s(void), gadget_arm64_frintn_d(void);
+        extern void gadget_arm64_frintp_s(void), gadget_arm64_frintp_d(void);
+        extern void gadget_arm64_frintm_s(void), gadget_arm64_frintm_d(void);
+        extern void gadget_arm64_frintz_s(void), gadget_arm64_frintz_d(void);
+        extern void gadget_arm64_frinta_s(void), gadget_arm64_frinta_d(void);
+        extern void gadget_arm64_frintx_s(void), gadget_arm64_frintx_d(void);
+        extern void gadget_arm64_frinti_s(void), gadget_arm64_frinti_d(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned opcode = (insn >> 15) & 0x3f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        void *gadget = NULL;
+        if (type <= 1) {
+            bool is_d = type == 1;
+            switch (opcode) {
+            case 0x00: gadget = is_d ? (void *) gadget_arm64_fmov_d : (void *) gadget_arm64_fmov_s; break;
+            case 0x01: gadget = is_d ? (void *) gadget_arm64_fabs_d : (void *) gadget_arm64_fabs_s; break;
+            case 0x02: gadget = is_d ? (void *) gadget_arm64_fneg_d : (void *) gadget_arm64_fneg_s; break;
+            case 0x03: gadget = is_d ? (void *) gadget_arm64_fsqrt_d : (void *) gadget_arm64_fsqrt_s; break;
+            case 0x04: gadget = is_d ? (void *) gadget_arm64_fcvt_ds : NULL; break; // FCVT Sd, Dn
+            case 0x05: gadget = is_d ? NULL : (void *) gadget_arm64_fcvt_sd; break; // FCVT Dd, Sn
+            case 0x08: gadget = is_d ? (void *) gadget_arm64_frintn_d : (void *) gadget_arm64_frintn_s; break;
+            case 0x09: gadget = is_d ? (void *) gadget_arm64_frintp_d : (void *) gadget_arm64_frintp_s; break;
+            case 0x0a: gadget = is_d ? (void *) gadget_arm64_frintm_d : (void *) gadget_arm64_frintm_s; break;
+            case 0x0b: gadget = is_d ? (void *) gadget_arm64_frintz_d : (void *) gadget_arm64_frintz_s; break;
+            case 0x0c: gadget = is_d ? (void *) gadget_arm64_frinta_d : (void *) gadget_arm64_frinta_s; break;
+            case 0x0e: gadget = is_d ? (void *) gadget_arm64_frintx_d : (void *) gadget_arm64_frintx_s; break;
+            case 0x0f: gadget = is_d ? (void *) gadget_arm64_frinti_d : (void *) gadget_arm64_frinti_s; break;
+            }
+        }
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8));
+        return 1;
+    }
+
+    // FP data-processing (2 source). opcode bits15:12.
+    if ((insn & 0xff200c00) == 0x1e200800) {
+        extern void gadget_arm64_fmul_s(void), gadget_arm64_fmul_d(void);
+        extern void gadget_arm64_fdiv_s(void), gadget_arm64_fdiv_d(void);
+        extern void gadget_arm64_fadd_s(void), gadget_arm64_fadd_d(void);
+        extern void gadget_arm64_fsub_s(void), gadget_arm64_fsub_d(void);
+        extern void gadget_arm64_fmax_s(void), gadget_arm64_fmax_d(void);
+        extern void gadget_arm64_fmin_s(void), gadget_arm64_fmin_d(void);
+        extern void gadget_arm64_fmaxnm_s(void), gadget_arm64_fmaxnm_d(void);
+        extern void gadget_arm64_fminnm_s(void), gadget_arm64_fminnm_d(void);
+        extern void gadget_arm64_fnmul_s(void), gadget_arm64_fnmul_d(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned opcode = (insn >> 12) & 0xf;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        static void *const t[9][2] = {
+            {(void *) gadget_arm64_fmul_s, (void *) gadget_arm64_fmul_d},
+            {(void *) gadget_arm64_fdiv_s, (void *) gadget_arm64_fdiv_d},
+            {(void *) gadget_arm64_fadd_s, (void *) gadget_arm64_fadd_d},
+            {(void *) gadget_arm64_fsub_s, (void *) gadget_arm64_fsub_d},
+            {(void *) gadget_arm64_fmax_s, (void *) gadget_arm64_fmax_d},
+            {(void *) gadget_arm64_fmin_s, (void *) gadget_arm64_fmin_d},
+            {(void *) gadget_arm64_fmaxnm_s, (void *) gadget_arm64_fmaxnm_d},
+            {(void *) gadget_arm64_fminnm_s, (void *) gadget_arm64_fminnm_d},
+            {(void *) gadget_arm64_fnmul_s, (void *) gadget_arm64_fnmul_d},
+        };
+        if (type > 1 || opcode > 8) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) t[opcode][type]);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+
+    // FCMP/FCMPE (register and #0.0 forms). FCMPE lowers to the quiet
+    // compare — identical NZCV, no FP exception modeling (see fp.S).
+    if ((insn & 0xff203c00) == 0x1e202000) {
+        extern void gadget_arm64_fcmp_s(void), gadget_arm64_fcmp_d(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned opcode2 = insn & 0x1f;
+        bool cmp0 = (opcode2 & 0x8) != 0;
+        if (type > 1 || (opcode2 & 0x7) != 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) (type ? gadget_arm64_fcmp_d : gadget_arm64_fcmp_s));
+        gen(state, rn | ((uint64_t) rm << 8) | ((uint64_t) cmp0 << 16));
+        return 1;
+    }
+
+    // FCCMP/FCCMPE — same [cond gadget][consumer] pattern as CCMP.
+    if ((insn & 0xff200c00) == 0x1e200400) {
+        extern void gadget_arm64_fccmp(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned cond = (insn >> 12) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned nzcv = insn & 0xf;
+        if (type > 1) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
+        gen(state, (unsigned long) gadget_arm64_fccmp);
+        gen(state, rn | ((uint64_t) rm << 8) | ((uint64_t) type << 16) | ((uint64_t) nzcv << 17));
+        return 1;
+    }
+
+    // FCSEL — same [cond gadget][consumer] pattern as CSEL.
+    if ((insn & 0xff200c00) == 0x1e200c00) {
+        extern void gadget_arm64_fcsel(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned cond = (insn >> 12) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        if (type > 1) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
+        gen(state, (unsigned long) gadget_arm64_fcsel);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+
+    // FMOV (scalar immediate): VFPExpandImm == the AdvSIMD cmode=1111
+    // expansion already implemented in gen_arm64_expand_imm; write the
+    // constant into the low lane via the vconst gadget.
+    if ((insn & 0xff201fe0) == 0x1e201000) {
+        extern void gadget_arm64_vconst(void);
+        unsigned type = (insn >> 22) & 0x3;
+        uint64_t imm8 = (insn >> 13) & 0xff;
+        unsigned rd = insn & 0x1f;
+        uint64_t imm64;
+        if (type > 1 || !gen_arm64_expand_imm(type == 1 ? 1 : 0, 15, imm8, &imm64)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        if (type == 0)
+            imm64 &= 0xffffffffu; // single: 32-bit constant in the low word
+        gen(state, (unsigned long) gadget_arm64_vconst);
+        gen(state, rd);
+        gen(state, imm64);
+        gen(state, 0);
+        return 1;
+    }
+
+    // FP data-processing (3 source): FMADD/FMSUB/FNMADD/FNMSUB.
+    if ((insn & 0xff000000) == 0x1f000000) {
+        extern void gadget_arm64_fmadd_s(void), gadget_arm64_fmadd_d(void);
+        extern void gadget_arm64_fmsub_s(void), gadget_arm64_fmsub_d(void);
+        extern void gadget_arm64_fnmadd_s(void), gadget_arm64_fnmadd_d(void);
+        extern void gadget_arm64_fnmsub_s(void), gadget_arm64_fnmsub_d(void);
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned o1 = (insn >> 21) & 1;
+        unsigned o0 = (insn >> 15) & 1;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned ra = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        static void *const t[2][2][2] = { // [o1][o0][type]
+            {{(void *) gadget_arm64_fmadd_s, (void *) gadget_arm64_fmadd_d},
+             {(void *) gadget_arm64_fmsub_s, (void *) gadget_arm64_fmsub_d}},
+            {{(void *) gadget_arm64_fnmadd_s, (void *) gadget_arm64_fnmadd_d},
+             {(void *) gadget_arm64_fnmsub_s, (void *) gadget_arm64_fnmsub_d}},
+        };
+        if (type > 1) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) t[o1][o0][type]);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) | ((uint64_t) ra << 24));
+        return 1;
+    }
+
+    // AdvSIMD scalar shift by immediate, D size: SHL/USHR/SSHR (musl
+    // strtod's exponent construction). immh<3>=1 selects the 64-bit
+    // element; smaller scalar element sizes are unallocated here.
+    if ((insn & 0xff80fc00) == 0x5f005400          // SHL (U=0, opcode 01010)
+            || (insn & 0xff80fc00) == 0x7f000400   // USHR (U=1, opcode 00000)
+            || (insn & 0xff80fc00) == 0x5f000400) { // SSHR (U=0, opcode 00000)
+        extern void gadget_arm64_vshift_d(void);
+        unsigned immhb = (insn >> 16) & 0x7f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        bool is_shl = ((insn >> 11) & 0x1f) == 0x0a;
+        bool is_ushr = !is_shl && ((insn >> 29) & 1);
+        if ((immhb & 0x40) == 0) { // immh<3> must be 1 for the D form
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned shift = is_shl ? immhb - 64 : 128 - immhb;
+        unsigned op = is_shl ? 0 : is_ushr ? 1 : 2;
+        gen(state, (unsigned long) gadget_arm64_vshift_d);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) shift << 16) | ((uint64_t) op << 24));
+        return 1;
+    }
+
+    // AdvSIMD three-same bitwise: AND/BIC/ORR/ORN (U=0) and EOR/BSL/BIT/
+    // BIF (U=1), selected by the size field. Includes the vector MOV
+    // alias (ORR, Rn==Rm) — how compilers copy V registers.
+    if ((insn & 0xbf20fc00) == 0x0e201c00) {
+        extern void gadget_arm64_vand_16b(void), gadget_arm64_vand_8b(void);
+        extern void gadget_arm64_vbic_16b(void), gadget_arm64_vbic_8b(void);
+        extern void gadget_arm64_vorr_16b(void), gadget_arm64_vorr_8b(void);
+        extern void gadget_arm64_vorn_16b(void), gadget_arm64_vorn_8b(void);
+        extern void gadget_arm64_veor_16b(void), gadget_arm64_veor_8b(void);
+        extern void gadget_arm64_vbsl_16b(void), gadget_arm64_vbsl_8b(void);
+        extern void gadget_arm64_vbit_16b(void), gadget_arm64_vbit_8b(void);
+        extern void gadget_arm64_vbif_16b(void), gadget_arm64_vbif_8b(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned u = (insn >> 29) & 1;
+        unsigned size = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        static void *const t[2][4][2] = { // [u][size][q]
+            {{(void *) gadget_arm64_vand_8b, (void *) gadget_arm64_vand_16b},
+             {(void *) gadget_arm64_vbic_8b, (void *) gadget_arm64_vbic_16b},
+             {(void *) gadget_arm64_vorr_8b, (void *) gadget_arm64_vorr_16b},
+             {(void *) gadget_arm64_vorn_8b, (void *) gadget_arm64_vorn_16b}},
+            {{(void *) gadget_arm64_veor_8b, (void *) gadget_arm64_veor_16b},
+             {(void *) gadget_arm64_vbsl_8b, (void *) gadget_arm64_vbsl_16b},
+             {(void *) gadget_arm64_vbit_8b, (void *) gadget_arm64_vbit_16b},
+             {(void *) gadget_arm64_vbif_8b, (void *) gadget_arm64_vbif_16b}},
+        };
+        gen(state, (unsigned long) t[u][size][q]);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
         return 1;
     }
 
@@ -1730,6 +2092,33 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     if ((insn & 0xffffffe0) == 0xd51bd040) {
         extern void gadget_arm64_msr_tpidr(void);
         gen(state, (unsigned long) gadget_arm64_msr_tpidr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+
+    // MRS/MSR FPCR and FPSR — stored in cpu_state, not installed on the
+    // host (see fp.S's rounding-mode note).
+    if ((insn & 0xffffffe0) == 0xd53b4400) {
+        extern void gadget_arm64_mrs_fpcr(void);
+        gen(state, (unsigned long) gadget_arm64_mrs_fpcr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+    if ((insn & 0xffffffe0) == 0xd51b4400) {
+        extern void gadget_arm64_msr_fpcr(void);
+        gen(state, (unsigned long) gadget_arm64_msr_fpcr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+    if ((insn & 0xffffffe0) == 0xd53b4420) {
+        extern void gadget_arm64_mrs_fpsr(void);
+        gen(state, (unsigned long) gadget_arm64_mrs_fpsr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+    if ((insn & 0xffffffe0) == 0xd51b4420) {
+        extern void gadget_arm64_msr_fpsr(void);
+        gen(state, (unsigned long) gadget_arm64_msr_fpsr);
         gen(state, insn & 0x1f);
         return 1;
     }

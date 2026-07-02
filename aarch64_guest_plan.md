@@ -633,21 +633,51 @@ guest address, and `arm64_segfault_read/write` rewind CPU_pc to it
 instruction, which is idempotent (writeback happens after the access
 in every load/store gadget).
 
-**Known next blockers**:
+**Scalar FP (DONE — busybox awk fully works)**: `jit/guest-arm64/fp.S`
+covers the scalar FP ISA via host instructions (IEEE semantics for
+free): FP 1-source (FMOV/FABS/FNEG/FSQRT, FCVT S<->D, all FRINT*),
+2-source (FADD/FSUB/FMUL/FDIV/FMAX*/FMIN*/FNMUL), 3-source (FMADD
+family), FCMP/FCMPE incl. #0.0 forms, FCSEL/FCCMP via the cond_* w10
+handoff, SCVTF/UCVTF and FCVT{Z,N,M,P,A}S+FCVTZU to/from GPRs, FMOV
+scalar immediate (reusing gen_arm64_expand_imm — VFPExpandImm is the
+AdvSIMD cmode=1111 case), MRS/MSR FPCR/FPSR (stored, not installed on
+the host — see fp.S's rounding-mode note). Plus ADC/SBC (dpreg.S), the
+AdvSIMD three-same bitwise family (AND/BIC/ORR/ORN/EOR/BSL/BIT/BIF —
+ORR Rn==Rm is the vector MOV compilers emit), and scalar SHL/USHR/SSHR
+by immediate (musl strtod's exponent construction). Validated: awk
+arithmetic/printf/sqrt/exp/log/trig, atan2 in all four quadrants, FP
+literal parsing, a 10k-sqrt stress loop, and the new arm64_fp.s smoke
+test (11 checks).
 
-1. **Scalar FP arithmetic** — busybox awk dies on `fmov d15, d0`
-   (FP data-processing); the whole scalar FP ISA (FMOV-reg, FADD/FSUB/
-   FMUL/FDIV, FCMP, FCVT*, SCVTF/UCVTF) is unported. Same
-   blocker-driven approach: port what awk/real userland actually hits.
+One real bug in the batch, and it's the sneakiest kind: the fcsel
+gadget parsed its rn field into x10 — the register the preceding
+cond_* gadget hands the condition over in — so every FP select became
+"rn index != 0". musl's atan returned -atan(x) for every input while
+all four basic ops tested correct; root-caused by probing awk with
+integer-only literals (FP literal parsing was ALSO broken, by the
+missing scalar SHL). RULE, now documented in fp.S: parameter parsing
+in any w10-consuming gadget must avoid x10.
+
+**Benchmarks (2026-07-02, -O2 CLI build, busybox workloads, best of 2)**:
+sh-loop 20k iterations: i386 2.96s / x86_64 2.74s / arm64 4.27s (0.6x);
+sha256 16MB: 1.78 / 2.29 / 1.87s (parity); fork+exec x100: 0.22 / 0.24
+/ 0.28s. arm64 is at compute parity but ~40% behind on branch-heavy
+code — the known cost of no block chaining (every branch is an
+exit-to-C round trip) plus the memory-based register file. Chaining is
+the next perf lever, deliberately deferred behind correctness.
+
+**Known next work**:
+
+1. **Block chaining for arm64 branches** — the biggest perf lever (see
+   benchmark). The jump_ip[]/old_jump_ip machinery and the arm64 loop's
+   patching support already exist; the branch gadgets need the
+   amd64-style tagged-target scheme (guest ip with a tag bit vs patched
+   host code pointer).
 2. Minor: `ls / | grep ...` pipelines produce empty output (plain `ls /`
    works) — likely a non-tty stat/ioctl behavior difference, not a JIT
    gap.
-3. `block->end_addr` is wrong for arm64 blocks (gen_end uses the i386
-   `state->ip`, which never advances) — page-registration/invalidation
-   only sees the first byte. Not yet observed to misbehave (code pages
-   aren't being invalidated in current workloads) but a real landmine
-   for self-modifying/JIT-in-guest workloads; fix alongside the next
-   jit.c change.
+3. Wider SIMD (vector arithmetic beyond bitwise) and the remaining
+   unsigned FCVT rounding variants — blocker-driven, as always.
 
 ## Testing Strategy — New Oracle Required
 

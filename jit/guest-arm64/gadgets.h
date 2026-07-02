@@ -49,6 +49,8 @@
 #define CPU_excl_val CPU_arm64_excl_val
 #define CPU_tpidr CPU_arm64_tpidr
 #define CPU_v0 CPU_arm64_v
+#define CPU_fpsr CPU_arm64_fpsr
+#define CPU_fpcr CPU_arm64_fpcr
 
 _cpu    .req x1
 _tlb    .req x2

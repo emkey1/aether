@@ -572,3 +572,38 @@ dp3_store:
 1:  gret
 
 # vim: ft=gas
+
+// MRS/MSR FPCR and FPSR: stored in cpu_state (arm64_fpcr/arm64_fpsr) but
+// NOT installed on the host — see fp.S's header on rounding modes. The
+// guest reads back exactly what it wrote, which satisfies musl's
+// save/restore-around-conversion pattern.
+// Code stream: [gadget][rt]
+.macro fpsysreg_gadgets name, field
+.gadget mrs_\name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x8, x8, #0x1f
+    cmp x8, #31
+    b.eq 1f
+    ldr w9, [_cpu, #\field]
+    add x10, _cpu, #CPU_x0
+    add x10, x10, x8, lsl #3
+    str x9, [x10]
+1:  gret
+
+.gadget msr_\name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x8, x8, #0x1f
+    mov x9, #0
+    cmp x8, #31
+    b.eq 1f
+    add x10, _cpu, #CPU_x0
+    add x10, x10, x8, lsl #3
+    ldr x9, [x10]
+1:  str w9, [_cpu, #\field]
+    gret
+.endm
+
+fpsysreg_gadgets fpcr, CPU_fpcr
+fpsysreg_gadgets fpsr, CPU_fpsr

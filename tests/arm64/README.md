@@ -23,6 +23,7 @@ harness problem.
 | `arm64_logical.s` | Logical (immediate): AND, ORR (incl. the MOV-alias via Rn=XZR), EOR, ANDS. Expected: exits 0. |
 | `arm64_dpreg.s` | Data-processing (register): Logical (shifted register) incl. the `mov x1, x0` register alias, Add/subtract (shifted register) with LSL/LSR shifts, ROR (logical-only). Expected: exits 0. |
 | `arm64_dpextra.s` | Phase C part 3 batch: single-register loads/stores (imm/post/pre/register-offset, sign-extending), bitfield aliases, EXTR, CSEL/CSET, CCMP, MUL/MADD/UDIV/SDIV, CLZ/RBIT/REV, extended-register add/sub on SP, MRS/MSR TPIDR_EL0, flag-setting shifted-register ops, and a page-straddling store/load (crosspage write path). Expected: exits 0 (a non-zero exit is the number of the first failed check). |
+| `arm64_fp.s` | Scalar FP: FMOV-imm, FADD/FSUB/FMUL/FDIV, FCMP/FCCMP, FCSEL both senses (the w10-handoff regression), FNEG/FABS/FSQRT, SCVTF/FCVTZS round trips, FMADD/FMSUB, FCVT S<->D, scalar SHL #52 (strtod pattern). Expected: exits 0 (non-zero = first failed check). |
 | `arm64_signal.s` | Signal delivery + rt_sigreturn: rt_sigaction, kill(self), handler-ran marker, register survival across delivery/sigreturn, and the mrs-tpidr-after-bl errno pattern from the busybox-sh SIGCHLD crash investigation. Expected: exits 0 (non-zero = first failed check). |
 
 `arm64_hello.s`/`arm64_prologue.s`/`arm64_atomics.s`/`arm64_logical.s`
