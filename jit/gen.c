@@ -685,6 +685,17 @@ static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
 // i386 JIT for the same purpose — reused directly, not re-implemented) with
 // INT_UNDEFINED, ending the block there. No interpreter fallback, matching
 // i386's own precedent (aarch64_guest_plan.md's direction-change rationale).
+// Emit an INT_UNDEFINED interrupt for an unallocated (or unported) arm64
+// encoding and end the block, so the guest gets SIGILL at the right PC.
+static int gen_arm64_undefined(struct gen_state *state) {
+    extern void gadget_interrupt(void);
+    gen(state, (unsigned long) gadget_interrupt);
+    gen(state, INT_UNDEFINED);
+    gen(state, state->arm64_orig_ip);
+    gen(state, state->arm64_orig_ip);
+    return 0;
+}
+
 int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_interrupt(void);
     extern void gadget_arm64_movz(void);
@@ -1941,6 +1952,254 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         };
         gen(state, (unsigned long) t[u][size][q]);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+
+    // AdvSIMD three-same, vector (integer + FP): ported from OpenMinis'
+    // gen.c three-same decode (mask 0x9f200400) and its U/opcode table,
+    // with fixes: per-op element-size validity is enforced here (theirs
+    // only rejects size=3 for ADD/SUB/SHSUB/UHSUB and lets e.g. `smax .2d`
+    // silently zero Vd), and the FMAXNMP/FMINNMP rows (U=1, opcode 0x18)
+    // absent from their table are filled in. The bitwise opcode-0x03 group
+    // never reaches here — the dedicated branch above matches it first.
+    if ((insn & 0x9f200400) == 0x0e200400) {
+        extern void gadget_arm64_vshadd(void), gadget_arm64_vuhadd(void);
+        extern void gadget_arm64_vsrhadd(void), gadget_arm64_vurhadd(void);
+        extern void gadget_arm64_vshsub(void), gadget_arm64_vuhsub(void);
+        extern void gadget_arm64_vsqadd(void), gadget_arm64_vuqadd(void);
+        extern void gadget_arm64_vsqsub(void), gadget_arm64_vuqsub(void);
+        extern void gadget_arm64_vcmgt(void), gadget_arm64_vcmge(void);
+        extern void gadget_arm64_vcmhi(void), gadget_arm64_vcmhs(void);
+        extern void gadget_arm64_vcmeq(void), gadget_arm64_vcmtst(void);
+        extern void gadget_arm64_vsshl(void), gadget_arm64_vushl(void);
+        extern void gadget_arm64_vsrshl(void), gadget_arm64_vurshl(void);
+        extern void gadget_arm64_vsqshl(void), gadget_arm64_vuqshl(void);
+        extern void gadget_arm64_vsqrshl(void), gadget_arm64_vuqrshl(void);
+        extern void gadget_arm64_vsmax(void), gadget_arm64_vsmin(void);
+        extern void gadget_arm64_vumax(void), gadget_arm64_vumin(void);
+        extern void gadget_arm64_vsabd(void), gadget_arm64_vuabd(void);
+        extern void gadget_arm64_vsaba(void), gadget_arm64_vuaba(void);
+        extern void gadget_arm64_vadd(void), gadget_arm64_vsub(void);
+        extern void gadget_arm64_vmla(void), gadget_arm64_vmls(void);
+        extern void gadget_arm64_vmul(void), gadget_arm64_vpmul(void);
+        extern void gadget_arm64_vsmaxp(void), gadget_arm64_vsminp(void);
+        extern void gadget_arm64_vumaxp(void), gadget_arm64_vuminp(void);
+        extern void gadget_arm64_vsqdmulh(void), gadget_arm64_vsqrdmulh(void);
+        extern void gadget_arm64_vaddp(void);
+        extern void gadget_arm64_vfmaxnm(void), gadget_arm64_vfminnm(void);
+        extern void gadget_arm64_vfmaxnmp(void), gadget_arm64_vfminnmp(void);
+        extern void gadget_arm64_vfmla(void), gadget_arm64_vfmls(void);
+        extern void gadget_arm64_vfadd(void), gadget_arm64_vfsub(void);
+        extern void gadget_arm64_vfabd(void), gadget_arm64_vfaddp(void);
+        extern void gadget_arm64_vfmulx(void), gadget_arm64_vfmul(void);
+        extern void gadget_arm64_vfcmeq(void), gadget_arm64_vfcmge(void);
+        extern void gadget_arm64_vfcmgt(void);
+        extern void gadget_arm64_vfacge(void), gadget_arm64_vfacgt(void);
+        extern void gadget_arm64_vfmax(void), gadget_arm64_vfmin(void);
+        extern void gadget_arm64_vfmaxp(void), gadget_arm64_vfminp(void);
+        extern void gadget_arm64_vfrecps(void), gadget_arm64_vfrsqrts(void);
+        extern void gadget_arm64_vfdiv(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned u = (insn >> 29) & 1;
+        unsigned size = (insn >> 22) & 3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned opcode = (insn >> 11) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        void *gadget = NULL;
+        if (opcode < 0x18) {
+            // Integer rows. Validity classes: D = all element sizes but
+            // .1d needs Q; NOD = no 64-bit elements at all; HS = 16/32-bit
+            // only (SQDMULH/SQRDMULH); B = bytes only (PMUL).
+            enum { V_D, V_NOD, V_HS, V_B } valid = V_D;
+            switch ((u << 5) | opcode) {
+            case 0x00: gadget = gadget_arm64_vshadd; valid = V_NOD; break;
+            case 0x20: gadget = gadget_arm64_vuhadd; valid = V_NOD; break;
+            case 0x01: gadget = gadget_arm64_vsqadd; break;
+            case 0x21: gadget = gadget_arm64_vuqadd; break;
+            case 0x02: gadget = gadget_arm64_vsrhadd; valid = V_NOD; break;
+            case 0x22: gadget = gadget_arm64_vurhadd; valid = V_NOD; break;
+            case 0x04: gadget = gadget_arm64_vshsub; valid = V_NOD; break;
+            case 0x24: gadget = gadget_arm64_vuhsub; valid = V_NOD; break;
+            case 0x05: gadget = gadget_arm64_vsqsub; break;
+            case 0x25: gadget = gadget_arm64_vuqsub; break;
+            case 0x06: gadget = gadget_arm64_vcmgt; break;
+            case 0x26: gadget = gadget_arm64_vcmhi; break;
+            case 0x07: gadget = gadget_arm64_vcmge; break;
+            case 0x27: gadget = gadget_arm64_vcmhs; break;
+            case 0x08: gadget = gadget_arm64_vsshl; break;
+            case 0x28: gadget = gadget_arm64_vushl; break;
+            case 0x09: gadget = gadget_arm64_vsqshl; break;
+            case 0x29: gadget = gadget_arm64_vuqshl; break;
+            case 0x0a: gadget = gadget_arm64_vsrshl; break;
+            case 0x2a: gadget = gadget_arm64_vurshl; break;
+            case 0x0b: gadget = gadget_arm64_vsqrshl; break;
+            case 0x2b: gadget = gadget_arm64_vuqrshl; break;
+            case 0x0c: gadget = gadget_arm64_vsmax; valid = V_NOD; break;
+            case 0x2c: gadget = gadget_arm64_vumax; valid = V_NOD; break;
+            case 0x0d: gadget = gadget_arm64_vsmin; valid = V_NOD; break;
+            case 0x2d: gadget = gadget_arm64_vumin; valid = V_NOD; break;
+            case 0x0e: gadget = gadget_arm64_vsabd; valid = V_NOD; break;
+            case 0x2e: gadget = gadget_arm64_vuabd; valid = V_NOD; break;
+            case 0x0f: gadget = gadget_arm64_vsaba; valid = V_NOD; break;
+            case 0x2f: gadget = gadget_arm64_vuaba; valid = V_NOD; break;
+            case 0x10: gadget = gadget_arm64_vadd; break;
+            case 0x30: gadget = gadget_arm64_vsub; break;
+            case 0x11: gadget = gadget_arm64_vcmtst; break;
+            case 0x31: gadget = gadget_arm64_vcmeq; break;
+            case 0x12: gadget = gadget_arm64_vmla; valid = V_NOD; break;
+            case 0x32: gadget = gadget_arm64_vmls; valid = V_NOD; break;
+            case 0x13: gadget = gadget_arm64_vmul; valid = V_NOD; break;
+            case 0x33: gadget = gadget_arm64_vpmul; valid = V_B; break;
+            case 0x14: gadget = gadget_arm64_vsmaxp; valid = V_NOD; break;
+            case 0x34: gadget = gadget_arm64_vumaxp; valid = V_NOD; break;
+            case 0x15: gadget = gadget_arm64_vsminp; valid = V_NOD; break;
+            case 0x35: gadget = gadget_arm64_vuminp; valid = V_NOD; break;
+            case 0x16: gadget = gadget_arm64_vsqdmulh; valid = V_HS; break;
+            case 0x36: gadget = gadget_arm64_vsqrdmulh; valid = V_HS; break;
+            case 0x17: gadget = gadget_arm64_vaddp; break;
+            }
+            if (gadget == NULL)
+                return gen_arm64_undefined(state);
+            if ((valid == V_D && size == 3 && q == 0) ||
+                    (valid == V_NOD && size == 3) ||
+                    (valid == V_HS && (size == 0 || size == 3)) ||
+                    (valid == V_B && size != 0))
+                return gen_arm64_undefined(state);
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                       ((uint64_t) size << 24) | ((uint64_t) q << 26));
+            return 1;
+        }
+        // FP rows (opcodes 0x18-0x1f): size<1> is the operation-variant
+        // bit 'a', size<0> is the precision (0=.2s/.4s, 1=.2d).
+        unsigned sz = size & 1, a = size >> 1;
+        switch (opcode) {
+        case 0x18:
+            if (!u) gadget = a ? gadget_arm64_vfminnm : gadget_arm64_vfmaxnm;
+            else    gadget = a ? gadget_arm64_vfminnmp : gadget_arm64_vfmaxnmp;
+            break;
+        case 0x19:
+            if (!u) gadget = a ? gadget_arm64_vfmls : gadget_arm64_vfmla;
+            break;
+        case 0x1a:
+            if (!u) gadget = a ? gadget_arm64_vfsub : gadget_arm64_vfadd;
+            else    gadget = a ? gadget_arm64_vfabd : gadget_arm64_vfaddp;
+            break;
+        case 0x1b:
+            if (!a) gadget = u ? gadget_arm64_vfmul : gadget_arm64_vfmulx;
+            break;
+        case 0x1c:
+            if (!u && !a) gadget = gadget_arm64_vfcmeq;
+            else if (u)   gadget = a ? gadget_arm64_vfcmgt : gadget_arm64_vfcmge;
+            break;
+        case 0x1d:
+            if (u) gadget = a ? gadget_arm64_vfacgt : gadget_arm64_vfacge;
+            break;
+        case 0x1e:
+            if (!u) gadget = a ? gadget_arm64_vfmin : gadget_arm64_vfmax;
+            else    gadget = a ? gadget_arm64_vfminp : gadget_arm64_vfmaxp;
+            break;
+        case 0x1f:
+            if (!u)     gadget = a ? gadget_arm64_vfrsqrts : gadget_arm64_vfrecps;
+            else if (!a) gadget = gadget_arm64_vfdiv;
+            break;
+        }
+        if (gadget == NULL || (sz && !q)) // no .1d arrangement
+            return gen_arm64_undefined(state);
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                   ((uint64_t) sz << 24) | ((uint64_t) q << 26));
+        return 1;
+    }
+
+    // AdvSIMD three-same, scalar: ported from OpenMinis' scalar decode
+    // (mask 0xdf200400), which only covers the D-size integer ops and
+    // FABD and silently falls through otherwise; extended here with the
+    // saturating b/h/s/d ops, SQDMULH/SQRDMULH, CMTST, the rounding
+    // shifts, and the FP register compares/reciprocal steps.
+    if ((insn & 0xdf200400) == 0x5e200400) {
+        extern void gadget_arm64_sadd(void), gadget_arm64_ssub(void);
+        extern void gadget_arm64_scmeq(void), gadget_arm64_scmtst(void);
+        extern void gadget_arm64_scmgt(void), gadget_arm64_scmge(void);
+        extern void gadget_arm64_scmhi(void), gadget_arm64_scmhs(void);
+        extern void gadget_arm64_ssshl(void), gadget_arm64_sushl(void);
+        extern void gadget_arm64_ssrshl(void), gadget_arm64_surshl(void);
+        extern void gadget_arm64_ssqadd(void), gadget_arm64_suqadd(void);
+        extern void gadget_arm64_ssqsub(void), gadget_arm64_suqsub(void);
+        extern void gadget_arm64_ssqshl(void), gadget_arm64_suqshl(void);
+        extern void gadget_arm64_ssqrshl(void), gadget_arm64_suqrshl(void);
+        extern void gadget_arm64_ssqdmulh(void), gadget_arm64_ssqrdmulh(void);
+        extern void gadget_arm64_sfabd(void), gadget_arm64_sfmulx(void);
+        extern void gadget_arm64_sfrecps(void), gadget_arm64_sfrsqrts(void);
+        extern void gadget_arm64_sfcmeq(void), gadget_arm64_sfcmge(void);
+        extern void gadget_arm64_sfcmgt(void);
+        extern void gadget_arm64_sfacge(void), gadget_arm64_sfacgt(void);
+        unsigned u = (insn >> 29) & 1;
+        unsigned size = (insn >> 22) & 3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned opcode = (insn >> 11) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        void *gadget = NULL;
+        if (opcode < 0x18) {
+            bool any_size = false, hs_only = false;
+            switch ((u << 5) | opcode) {
+            // D-size only (size must be 3)
+            case 0x10: gadget = gadget_arm64_sadd; break;
+            case 0x30: gadget = gadget_arm64_ssub; break;
+            case 0x06: gadget = gadget_arm64_scmgt; break;
+            case 0x26: gadget = gadget_arm64_scmhi; break;
+            case 0x07: gadget = gadget_arm64_scmge; break;
+            case 0x27: gadget = gadget_arm64_scmhs; break;
+            case 0x08: gadget = gadget_arm64_ssshl; break;
+            case 0x28: gadget = gadget_arm64_sushl; break;
+            case 0x0a: gadget = gadget_arm64_ssrshl; break;
+            case 0x2a: gadget = gadget_arm64_surshl; break;
+            case 0x11: gadget = gadget_arm64_scmtst; break;
+            case 0x31: gadget = gadget_arm64_scmeq; break;
+            // saturating: b/h/s/d, size in the code stream
+            case 0x01: gadget = gadget_arm64_ssqadd; any_size = true; break;
+            case 0x21: gadget = gadget_arm64_suqadd; any_size = true; break;
+            case 0x05: gadget = gadget_arm64_ssqsub; any_size = true; break;
+            case 0x25: gadget = gadget_arm64_suqsub; any_size = true; break;
+            case 0x09: gadget = gadget_arm64_ssqshl; any_size = true; break;
+            case 0x29: gadget = gadget_arm64_suqshl; any_size = true; break;
+            case 0x0b: gadget = gadget_arm64_ssqrshl; any_size = true; break;
+            case 0x2b: gadget = gadget_arm64_suqrshl; any_size = true; break;
+            case 0x16: gadget = gadget_arm64_ssqdmulh; hs_only = true; break;
+            case 0x36: gadget = gadget_arm64_ssqrdmulh; hs_only = true; break;
+            }
+            if (gadget == NULL)
+                return gen_arm64_undefined(state);
+            if (hs_only ? (size == 0 || size == 3) : (!any_size && size != 3))
+                return gen_arm64_undefined(state);
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                       ((uint64_t) size << 24));
+            return 1;
+        }
+        // FP scalar rows: size<1> is 'a', size<0> is precision (S/D).
+        unsigned sz = size & 1, a = size >> 1;
+        switch (opcode) {
+        case 0x1a: if (u && a) gadget = gadget_arm64_sfabd; break;
+        case 0x1b: if (!u && !a) gadget = gadget_arm64_sfmulx; break;
+        case 0x1c:
+            if (!u && !a) gadget = gadget_arm64_sfcmeq;
+            else if (u)   gadget = a ? gadget_arm64_sfcmgt : gadget_arm64_sfcmge;
+            break;
+        case 0x1d:
+            if (u) gadget = a ? gadget_arm64_sfacgt : gadget_arm64_sfacge;
+            break;
+        case 0x1f:
+            if (!u) gadget = a ? gadget_arm64_sfrsqrts : gadget_arm64_sfrecps;
+            break;
+        }
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                   ((uint64_t) sz << 24));
         return 1;
     }
 
@@ -6199,6 +6458,20 @@ void gen_end(struct gen_state *state) {
 
 void gen_exit(struct gen_state *state) {
     extern void gadget_exit(void);
+    if (state->arm64) {
+        // The block hit the size cap mid-straight-line. Continue at the
+        // next instruction through the normal branch gadget (tagged
+        // chainable target), exactly as an unconditional branch to
+        // arm64_ip would. The old path fell through to gadget_exit with
+        // state->ip — the i386 field, which arm64 never advances — so any
+        // straight-line run past the cap (big unrolled loops, generated
+        // code) resumed at garbage and crashed.
+        extern void gadget_arm64_b(void);
+        gen(state, (unsigned long) gadget_arm64_b);
+        gen(state, state->arm64_ip | 0x8000000000000000ULL);
+        state->jump_ip[0] = state->size - 1;
+        return;
+    }
     if (state->amd64) {
         gen_amd64_flush_reg_cache(state);
         gen_amd64_flush_rip(state);
