@@ -507,6 +507,71 @@ FAMILIES["addr"] = mem_tests(
     # tests in tests/arm64/ cover that.
 )
 
+FAMILIES["shift_elem"] = (
+    # accumulating / rounding / insert shifts
+    [t for op, arrs, amts in [
+        ("ssra", ARR_D, (1, 7)), ("usra", ARR_D, (3,)),
+        ("srsra", ARR_D, (2,)), ("ursra", ARR_D, (5,)),
+        ("srshr", ARR_D, (1, 4)), ("urshr", ARR_D, (6,)),
+        ("sli", ARR_D, (0, 3)), ("sri", ARR_D, (1, 5)),
+        ("sqshl", ARR_D, (2,)), ("uqshl", ARR_D, (3,)),
+    ] for arr in arrs for amt in amts
+      for t in raw_tests([(f"{op}.{arr}.{amt}",
+                           f"{op} v0.{arr}, v1.{arr}, #{min(amt if op not in ('ssra','usra','srsra','ursra','srshr','urshr','sri') else amt+1, {'8b':7,'16b':7,'4h':15,'8h':15,'2s':31,'4s':31,'2d':63}[arr]) if op in ('sli','sqshl','uqshl') else min(amt+1, {'8b':8,'16b':8,'4h':16,'8h':16,'2s':32,'4s':32,'2d':64}[arr])}")],
+                          acc=True)]
+    # narrowing shifts (both halves)
+    + [t for op in ["shrn", "rshrn", "sqshrn", "sqrshrn", "uqshrn", "uqrshrn",
+                    "sqshrun", "sqrshrun"]
+       for t in raw_tests([(f"{op}.8b", f"{op} v0.8b, v1.8h, #3"),
+                           (f"{op}2.16b", f"{op}2 v0.16b, v1.8h, #5"),
+                           (f"{op}.4h", f"{op} v0.4h, v1.4s, #7"),
+                           (f"{op}2.8h", f"{op}2 v0.8h, v1.4s, #12"),
+                           (f"{op}.2s", f"{op} v0.2s, v1.2d, #9"),
+                           (f"{op}2.4s", f"{op}2 v0.4s, v1.2d, #23")], acc=True)]
+    # fixed-point converts
+    + raw_tests([("scvtf.4s.7", "scvtf v0.4s, v1.4s, #7"),
+                 ("ucvtf.2s.11", "ucvtf v0.2s, v1.2s, #11"),
+                 ("scvtf.2d.20", "scvtf v0.2d, v1.2d, #20"),
+                 ("ucvtf.2d.1", "ucvtf v0.2d, v1.2d, #1")])
+    + raw_tests([("fcvtzs.4s.5", "fcvtzs v0.4s, v1.4s, #5"),
+                 ("fcvtzu.2s.3", "fcvtzu v0.2s, v1.2s, #3"),
+                 ("fcvtzs.2d.10", "fcvtzs v0.2d, v1.2d, #10"),
+                 ("fcvtzu.2d.30", "fcvtzu v0.2d, v1.2d, #30")], fp=True)
+    # scalar shift-imm extension
+    + raw_tests([("ssra.d", "ssra d0, d1, #5"), ("usra.d", "usra d0, d1, #17"),
+                 ("srsra.d", "srsra d0, d1, #2"), ("ursra.d", "ursra d0, d1, #40"),
+                 ("srshr.d", "srshr d0, d1, #9"), ("urshr.d", "urshr d0, d1, #33")], acc=True)
+    + raw_tests([(f"sqshl.{k}", f"sqshl {k}0, {k}1, #{a}") for k, a in
+                 (("b", 2), ("h", 7), ("s", 11), ("d", 30))]
+                + [(f"uqshl.{k}", f"uqshl {k}0, {k}1, #{a}") for k, a in
+                   (("b", 3), ("h", 1), ("s", 20), ("d", 5))]
+                + [(f"{op}.{k}", f"{op} {k[0]}0, {k[1]}1, #{a}") for op in
+                   ("sqshrn", "sqrshrn", "uqshrn", "uqrshrn", "sqshrun", "sqrshrun")
+                   for k, a in (("bh", 3), ("hs", 9), ("sd", 15))])
+    # by-element: vector int
+    + [t for op, acc in [("mul", 0), ("mla", 1), ("mls", 1),
+                         ("sqdmulh", 0), ("sqrdmulh", 0)]
+       for t in raw_tests([(f"{op}e.4h", f"{op} v0.4h, v1.4h, v2.h[3]"),
+                           (f"{op}e.8h", f"{op} v0.8h, v1.8h, v2.h[7]"),
+                           (f"{op}e.2s", f"{op} v0.2s, v1.2s, v2.s[1]"),
+                           (f"{op}e.4s", f"{op} v0.4s, v1.4s, v2.s[3]")], acc=bool(acc))]
+    # by-element: widening
+    + [t for op, acc in [("smull", 0), ("umull", 0), ("sqdmull", 0),
+                         ("smlal", 1), ("umlal", 1), ("smlsl", 1), ("umlsl", 1),
+                         ("sqdmlal", 1), ("sqdmlsl", 1)]
+       for t in raw_tests([(f"{op}e.4s", f"{op} v0.4s, v1.4h, v2.h[2]"),
+                           (f"{op}e2.4s", f"{op}2 v0.4s, v1.8h, v2.h[5]"),
+                           (f"{op}e.2d", f"{op} v0.2d, v1.2s, v2.s[0]"),
+                           (f"{op}e2.2d", f"{op}2 v0.2d, v1.4s, v2.s[2]")], acc=bool(acc))]
+    # by-element: FP vector + scalar
+    + [t for op, acc in [("fmul", 0), ("fmulx", 0), ("fmla", 1), ("fmls", 1)]
+       for t in raw_tests([(f"{op}e.2s", f"{op} v0.2s, v1.2s, v2.s[3]"),
+                           (f"{op}e.4s", f"{op} v0.4s, v1.4s, v2.s[1]"),
+                           (f"{op}e.2d", f"{op} v0.2d, v1.2d, v2.d[1]"),
+                           (f"{op}e.s", f"{op} s0, s1, v2.s[2]"),
+                           (f"{op}e.d", f"{op} d0, d1, v2.d[0]")], acc=bool(acc), fp=True)]
+)
+
 LINUX_PROLOGUE = """\
 .text
 .global _start

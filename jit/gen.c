@@ -1978,12 +1978,16 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
-    // AdvSIMD vector shift by immediate: SSHR/USHR/SHL and SSHLL/USHLL
-    // (incl. the SXTL/UXTL widen aliases — Alpine getty crash-looped on
-    // `ushll v31.2d, v31.2s, #0` on-device). Lowered to the register-form
-    // vector shifts with the amount broadcast at runtime; negative
-    // amounts shift right. Modified-immediate (MOVI) shares this space
-    // with immh=0 and is matched by its own earlier check.
+    // AdvSIMD vector shift by immediate — the FULL opcode space (ported
+    // against OpenMinis' per-op branches, unified): SSHR/USHR, SSRA/USRA,
+    // SRSHR/URSHR, SRSRA/URSRA, SRI/SLI, SQSHL/UQSHL #imm, SHL,
+    // SHRN/RSHRN + the saturating narrows, SSHLL/USHLL, and the
+    // fixed-point converts. Host shift-immediates can't take runtime
+    // amounts, so everything lowers to broadcast register-form shifts
+    // (negative = right); see simd_shift.S. SQSHLU (U=1, opcode 0x0c) has
+    // no register form and stays UNDEFINED (OpenMinis lacks it too).
+    // Modified-immediate (MOVI) shares this space with immh=0 and is
+    // matched by its own earlier check.
     if ((insn & 0x9f800400) == 0x0f000400 && ((insn >> 19) & 0xf) != 0) {
         extern void gadget_arm64_vshl_s_8b(void), gadget_arm64_vshl_s_16b(void);
         extern void gadget_arm64_vshl_s_4h(void), gadget_arm64_vshl_s_8h(void);
@@ -1993,12 +1997,58 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         extern void gadget_arm64_vshl_u_4h(void), gadget_arm64_vshl_u_8h(void);
         extern void gadget_arm64_vshl_u_2s(void), gadget_arm64_vshl_u_4s(void);
         extern void gadget_arm64_vshl_u_2d(void);
+        extern void gadget_arm64_vrshl_s_8b(void), gadget_arm64_vrshl_s_16b(void);
+        extern void gadget_arm64_vrshl_s_4h(void), gadget_arm64_vrshl_s_8h(void);
+        extern void gadget_arm64_vrshl_s_2s(void), gadget_arm64_vrshl_s_4s(void);
+        extern void gadget_arm64_vrshl_s_2d(void);
+        extern void gadget_arm64_vrshl_u_8b(void), gadget_arm64_vrshl_u_16b(void);
+        extern void gadget_arm64_vrshl_u_4h(void), gadget_arm64_vrshl_u_8h(void);
+        extern void gadget_arm64_vrshl_u_2s(void), gadget_arm64_vrshl_u_4s(void);
+        extern void gadget_arm64_vrshl_u_2d(void);
+        extern void gadget_arm64_vsra_s_8b(void), gadget_arm64_vsra_s_16b(void);
+        extern void gadget_arm64_vsra_s_4h(void), gadget_arm64_vsra_s_8h(void);
+        extern void gadget_arm64_vsra_s_2s(void), gadget_arm64_vsra_s_4s(void);
+        extern void gadget_arm64_vsra_s_2d(void);
+        extern void gadget_arm64_vsra_u_8b(void), gadget_arm64_vsra_u_16b(void);
+        extern void gadget_arm64_vsra_u_4h(void), gadget_arm64_vsra_u_8h(void);
+        extern void gadget_arm64_vsra_u_2s(void), gadget_arm64_vsra_u_4s(void);
+        extern void gadget_arm64_vsra_u_2d(void);
+        extern void gadget_arm64_vrsra_s_8b(void), gadget_arm64_vrsra_s_16b(void);
+        extern void gadget_arm64_vrsra_s_4h(void), gadget_arm64_vrsra_s_8h(void);
+        extern void gadget_arm64_vrsra_s_2s(void), gadget_arm64_vrsra_s_4s(void);
+        extern void gadget_arm64_vrsra_s_2d(void);
+        extern void gadget_arm64_vrsra_u_8b(void), gadget_arm64_vrsra_u_16b(void);
+        extern void gadget_arm64_vrsra_u_4h(void), gadget_arm64_vrsra_u_8h(void);
+        extern void gadget_arm64_vrsra_u_2s(void), gadget_arm64_vrsra_u_4s(void);
+        extern void gadget_arm64_vrsra_u_2d(void);
+        extern void gadget_arm64_vqshli_s_8b(void), gadget_arm64_vqshli_s_16b(void);
+        extern void gadget_arm64_vqshli_s_4h(void), gadget_arm64_vqshli_s_8h(void);
+        extern void gadget_arm64_vqshli_s_2s(void), gadget_arm64_vqshli_s_4s(void);
+        extern void gadget_arm64_vqshli_s_2d(void);
+        extern void gadget_arm64_vqshli_u_8b(void), gadget_arm64_vqshli_u_16b(void);
+        extern void gadget_arm64_vqshli_u_4h(void), gadget_arm64_vqshli_u_8h(void);
+        extern void gadget_arm64_vqshli_u_2s(void), gadget_arm64_vqshli_u_4s(void);
+        extern void gadget_arm64_vqshli_u_2d(void);
+        extern void gadget_arm64_vsli_8b(void), gadget_arm64_vsli_16b(void);
+        extern void gadget_arm64_vsli_4h(void), gadget_arm64_vsli_8h(void);
+        extern void gadget_arm64_vsli_2s(void), gadget_arm64_vsli_4s(void);
+        extern void gadget_arm64_vsli_2d(void);
+        extern void gadget_arm64_vsri_8b(void), gadget_arm64_vsri_16b(void);
+        extern void gadget_arm64_vsri_4h(void), gadget_arm64_vsri_8h(void);
+        extern void gadget_arm64_vsri_2s(void), gadget_arm64_vsri_4s(void);
+        extern void gadget_arm64_vsri_2d(void);
         extern void gadget_arm64_vshll_s_8b(void), gadget_arm64_vshll_s2_16b(void);
         extern void gadget_arm64_vshll_s_4h(void), gadget_arm64_vshll_s2_8h(void);
         extern void gadget_arm64_vshll_s_2s(void), gadget_arm64_vshll_s2_4s(void);
         extern void gadget_arm64_vshll_u_8b(void), gadget_arm64_vshll_u2_16b(void);
         extern void gadget_arm64_vshll_u_4h(void), gadget_arm64_vshll_u2_8h(void);
         extern void gadget_arm64_vshll_u_2s(void), gadget_arm64_vshll_u2_4s(void);
+        extern void gadget_arm64_vshrn(void), gadget_arm64_vrshrn(void);
+        extern void gadget_arm64_vsqshrn(void), gadget_arm64_vsqrshrn(void);
+        extern void gadget_arm64_vuqshrn(void), gadget_arm64_vuqrshrn(void);
+        extern void gadget_arm64_vsqshrun(void), gadget_arm64_vsqrshrun(void);
+        extern void gadget_arm64_vscvtf_fix(void), gadget_arm64_vucvtf_fix(void);
+        extern void gadget_arm64_vfcvtzs_fix(void), gadget_arm64_vfcvtzu_fix(void);
         unsigned q = (insn >> 30) & 1;
         unsigned u = (insn >> 29) & 1;
         unsigned immhb = (insn >> 16) & 0x7f;
@@ -2008,47 +2058,294 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rd = insn & 0x1f;
         int esize_log2 = immh & 8 ? 3 : immh & 4 ? 2 : immh & 2 ? 1 : 0;
         unsigned esize = 8u << esize_log2;
-        // [esize_log2][q]
-        static void *const vshl_s[4][2] = {
-            {(void *) gadget_arm64_vshl_s_8b, (void *) gadget_arm64_vshl_s_16b},
-            {(void *) gadget_arm64_vshl_s_4h, (void *) gadget_arm64_vshl_s_8h},
-            {(void *) gadget_arm64_vshl_s_2s, (void *) gadget_arm64_vshl_s_4s},
-            {NULL, (void *) gadget_arm64_vshl_s_2d}};
-        static void *const vshl_u[4][2] = {
-            {(void *) gadget_arm64_vshl_u_8b, (void *) gadget_arm64_vshl_u_16b},
-            {(void *) gadget_arm64_vshl_u_4h, (void *) gadget_arm64_vshl_u_8h},
-            {(void *) gadget_arm64_vshl_u_2s, (void *) gadget_arm64_vshl_u_4s},
-            {NULL, (void *) gadget_arm64_vshl_u_2d}};
-        static void *const vshll_s[3][2] = {
-            {(void *) gadget_arm64_vshll_s_8b, (void *) gadget_arm64_vshll_s2_16b},
-            {(void *) gadget_arm64_vshll_s_4h, (void *) gadget_arm64_vshll_s2_8h},
-            {(void *) gadget_arm64_vshll_s_2s, (void *) gadget_arm64_vshll_s2_4s}};
-        static void *const vshll_u[3][2] = {
-            {(void *) gadget_arm64_vshll_u_8b, (void *) gadget_arm64_vshll_u2_16b},
-            {(void *) gadget_arm64_vshll_u_4h, (void *) gadget_arm64_vshll_u2_8h},
-            {(void *) gadget_arm64_vshll_u_2s, (void *) gadget_arm64_vshll_u2_4s}};
+        unsigned rshift = 2 * esize - immhb; // right-shift amount
+        unsigned lshift = immhb - esize;     // left-shift amount
+        // [esize_log2][q] gadget tables
+        static void *const t_shl_s[4][2] = {
+            {gadget_arm64_vshl_s_8b, gadget_arm64_vshl_s_16b},
+            {gadget_arm64_vshl_s_4h, gadget_arm64_vshl_s_8h},
+            {gadget_arm64_vshl_s_2s, gadget_arm64_vshl_s_4s},
+            {NULL, gadget_arm64_vshl_s_2d}};
+        static void *const t_shl_u[4][2] = {
+            {gadget_arm64_vshl_u_8b, gadget_arm64_vshl_u_16b},
+            {gadget_arm64_vshl_u_4h, gadget_arm64_vshl_u_8h},
+            {gadget_arm64_vshl_u_2s, gadget_arm64_vshl_u_4s},
+            {NULL, gadget_arm64_vshl_u_2d}};
+        static void *const t_rshl_s[4][2] = {
+            {gadget_arm64_vrshl_s_8b, gadget_arm64_vrshl_s_16b},
+            {gadget_arm64_vrshl_s_4h, gadget_arm64_vrshl_s_8h},
+            {gadget_arm64_vrshl_s_2s, gadget_arm64_vrshl_s_4s},
+            {NULL, gadget_arm64_vrshl_s_2d}};
+        static void *const t_rshl_u[4][2] = {
+            {gadget_arm64_vrshl_u_8b, gadget_arm64_vrshl_u_16b},
+            {gadget_arm64_vrshl_u_4h, gadget_arm64_vrshl_u_8h},
+            {gadget_arm64_vrshl_u_2s, gadget_arm64_vrshl_u_4s},
+            {NULL, gadget_arm64_vrshl_u_2d}};
+        static void *const t_sra_s[4][2] = {
+            {gadget_arm64_vsra_s_8b, gadget_arm64_vsra_s_16b},
+            {gadget_arm64_vsra_s_4h, gadget_arm64_vsra_s_8h},
+            {gadget_arm64_vsra_s_2s, gadget_arm64_vsra_s_4s},
+            {NULL, gadget_arm64_vsra_s_2d}};
+        static void *const t_sra_u[4][2] = {
+            {gadget_arm64_vsra_u_8b, gadget_arm64_vsra_u_16b},
+            {gadget_arm64_vsra_u_4h, gadget_arm64_vsra_u_8h},
+            {gadget_arm64_vsra_u_2s, gadget_arm64_vsra_u_4s},
+            {NULL, gadget_arm64_vsra_u_2d}};
+        static void *const t_rsra_s[4][2] = {
+            {gadget_arm64_vrsra_s_8b, gadget_arm64_vrsra_s_16b},
+            {gadget_arm64_vrsra_s_4h, gadget_arm64_vrsra_s_8h},
+            {gadget_arm64_vrsra_s_2s, gadget_arm64_vrsra_s_4s},
+            {NULL, gadget_arm64_vrsra_s_2d}};
+        static void *const t_rsra_u[4][2] = {
+            {gadget_arm64_vrsra_u_8b, gadget_arm64_vrsra_u_16b},
+            {gadget_arm64_vrsra_u_4h, gadget_arm64_vrsra_u_8h},
+            {gadget_arm64_vrsra_u_2s, gadget_arm64_vrsra_u_4s},
+            {NULL, gadget_arm64_vrsra_u_2d}};
+        static void *const t_qshl_s[4][2] = {
+            {gadget_arm64_vqshli_s_8b, gadget_arm64_vqshli_s_16b},
+            {gadget_arm64_vqshli_s_4h, gadget_arm64_vqshli_s_8h},
+            {gadget_arm64_vqshli_s_2s, gadget_arm64_vqshli_s_4s},
+            {NULL, gadget_arm64_vqshli_s_2d}};
+        static void *const t_qshl_u[4][2] = {
+            {gadget_arm64_vqshli_u_8b, gadget_arm64_vqshli_u_16b},
+            {gadget_arm64_vqshli_u_4h, gadget_arm64_vqshli_u_8h},
+            {gadget_arm64_vqshli_u_2s, gadget_arm64_vqshli_u_4s},
+            {NULL, gadget_arm64_vqshli_u_2d}};
+        static void *const t_sli[4][2] = {
+            {gadget_arm64_vsli_8b, gadget_arm64_vsli_16b},
+            {gadget_arm64_vsli_4h, gadget_arm64_vsli_8h},
+            {gadget_arm64_vsli_2s, gadget_arm64_vsli_4s},
+            {NULL, gadget_arm64_vsli_2d}};
+        static void *const t_sri[4][2] = {
+            {gadget_arm64_vsri_8b, gadget_arm64_vsri_16b},
+            {gadget_arm64_vsri_4h, gadget_arm64_vsri_8h},
+            {gadget_arm64_vsri_2s, gadget_arm64_vsri_4s},
+            {NULL, gadget_arm64_vsri_2d}};
+        static void *const t_shll_s[3][2] = {
+            {gadget_arm64_vshll_s_8b, gadget_arm64_vshll_s2_16b},
+            {gadget_arm64_vshll_s_4h, gadget_arm64_vshll_s2_8h},
+            {gadget_arm64_vshll_s_2s, gadget_arm64_vshll_s2_4s}};
+        static void *const t_shll_u[3][2] = {
+            {gadget_arm64_vshll_u_8b, gadget_arm64_vshll_u2_16b},
+            {gadget_arm64_vshll_u_4h, gadget_arm64_vshll_u2_8h},
+            {gadget_arm64_vshll_u_2s, gadget_arm64_vshll_u2_4s}};
+        static void *const t_shrn[2][4] = { // [u][opcode-0x10]
+            {gadget_arm64_vshrn, gadget_arm64_vrshrn,
+             gadget_arm64_vsqshrn, gadget_arm64_vsqrshrn},
+            {gadget_arm64_vsqshrun, gadget_arm64_vsqrshrun,
+             gadget_arm64_vuqshrn, gadget_arm64_vuqrshrn}};
         void *gadget = NULL;
         int64_t amount = 0;
-        if (opcode == 0x00) { // SSHR/USHR: shift right by 2*esize - immhb
-            gadget = (u ? vshl_u : vshl_s)[esize_log2][q];
-            amount = -(int64_t) (2 * esize - immhb);
-        } else if (opcode == 0x0a) { // SHL: left by immhb - esize (same for s/u)
-            gadget = vshl_u[esize_log2][q];
-            amount = (int64_t) (immhb - esize);
-        } else if (opcode == 0x14 && esize_log2 < 3) { // SSHLL/USHLL: widen + left shift
-            gadget = (u ? vshll_u : vshll_s)[esize_log2][q];
-            amount = (int64_t) (immhb - esize);
+        uint64_t mask = 0;
+        int extra = 0; // 1: emit mask word too (SLI/SRI)
+        switch (opcode) {
+        case 0x00: // SSHR/USHR
+            gadget = (u ? t_shl_u : t_shl_s)[esize_log2][q];
+            amount = -(int64_t) rshift;
+            break;
+        case 0x02: // SSRA/USRA
+            gadget = (u ? t_sra_u : t_sra_s)[esize_log2][q];
+            amount = -(int64_t) rshift;
+            break;
+        case 0x04: // SRSHR/URSHR
+            gadget = (u ? t_rshl_u : t_rshl_s)[esize_log2][q];
+            amount = -(int64_t) rshift;
+            break;
+        case 0x06: // SRSRA/URSRA
+            gadget = (u ? t_rsra_u : t_rsra_s)[esize_log2][q];
+            amount = -(int64_t) rshift;
+            break;
+        case 0x08: // SRI (U=1 only)
+            if (u) {
+                gadget = t_sri[esize_log2][q];
+                amount = -(int64_t) rshift;
+                // per-lane bits that take the shifted source, repeated to 64
+                uint64_t lane = rshift >= esize ? 0
+                    : (esize == 64 ? ~0ull >> rshift
+                                   : ((1ull << (esize - rshift)) - 1));
+                for (unsigned p = 0; p < 64; p += esize)
+                    mask |= lane << p;
+                extra = 1;
+            }
+            break;
+        case 0x0a: // SHL (U=0) / SLI (U=1)
+            if (!u) {
+                gadget = t_shl_u[esize_log2][q]; // same for s/u
+                amount = (int64_t) lshift;
+            } else {
+                gadget = t_sli[esize_log2][q];
+                amount = (int64_t) lshift;
+                uint64_t elem_mask = esize == 64 ? ~0ull : (1ull << esize) - 1;
+                uint64_t lane = (elem_mask << lshift) & elem_mask;
+                for (unsigned p = 0; p < 64; p += esize)
+                    mask |= lane << p;
+                extra = 1;
+            }
+            break;
+        case 0x0e: // SQSHL/UQSHL #imm
+            gadget = (u ? t_qshl_u : t_qshl_s)[esize_log2][q];
+            amount = (int64_t) lshift;
+            break;
+        case 0x10: case 0x11: case 0x12: case 0x13: { // narrowing shifts
+            if (esize_log2 >= 3)
+                return gen_arm64_undefined(state);
+            gadget = t_shrn[u][opcode - 0x10];
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) |
+                       ((uint64_t) esize_log2 << 16) | ((uint64_t) q << 18));
+            gen(state, (uint64_t) -(int64_t) rshift);
+            return 1;
         }
-        if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+        case 0x14: // SSHLL/USHLL
+            if (esize_log2 < 3) {
+                gadget = (u ? t_shll_u : t_shll_s)[esize_log2][q];
+                amount = (int64_t) lshift;
+            }
+            break;
+        case 0x1c: case 0x1f: { // fixed-point converts
+            extern void gadget_arm64_vscvtf_fix(void), gadget_arm64_vucvtf_fix(void);
+            if (esize_log2 < 2) // FP16 forms unsupported
+                return gen_arm64_undefined(state);
+            unsigned sz = esize_log2 == 3;
+            if (sz && !q)
+                return gen_arm64_undefined(state);
+            unsigned fbits = rshift;
+            uint64_t scale;
+            if (opcode == 0x1c) { // SCVTF/UCVTF: multiply by 2^-fbits after
+                gadget = u ? (void *) gadget_arm64_vucvtf_fix
+                           : (void *) gadget_arm64_vscvtf_fix;
+                scale = sz ? (uint64_t) (1023 - fbits) << 52
+                           : (uint64_t) ((127 - fbits) << 23);
+            } else {              // FCVTZS/FCVTZU: multiply by 2^+fbits first
+                gadget = u ? (void *) gadget_arm64_vfcvtzu_fix
+                           : (void *) gadget_arm64_vfcvtzs_fix;
+                scale = sz ? (uint64_t) (1023 + fbits) << 52
+                           : (uint64_t) ((127 + fbits) << 23);
+            }
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) |
+                       ((uint64_t) sz << 16) | ((uint64_t) q << 18));
+            gen(state, scale);
+            return 1;
         }
+        }
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
         gen(state, (unsigned long) gadget);
         gen(state, rd | ((uint64_t) rn << 8));
         gen(state, (uint64_t) amount);
+        if (extra)
+            gen(state, mask);
+        return 1;
+    }
+
+    // AdvSIMD by-element (indexed) multiplies, vector: ported from
+    // OpenMinis' 0x0f000000 branch (elem_setup/elem_op_store). The element
+    // is read from the V file at a compile-time byte offset, dup'd, and
+    // run through the plain three-same op (simd_shift.S).
+    if ((insn & 0x9f000400) == 0x0f000000) {
+        extern void gadget_arm64_velem_mul(void), gadget_arm64_velem_mla(void);
+        extern void gadget_arm64_velem_mls(void);
+        extern void gadget_arm64_velem_sqdmulh(void), gadget_arm64_velem_sqrdmulh(void);
+        extern void gadget_arm64_velem_smull(void), gadget_arm64_velem_umull(void);
+        extern void gadget_arm64_velem_smlal(void), gadget_arm64_velem_umlal(void);
+        extern void gadget_arm64_velem_smlsl(void), gadget_arm64_velem_umlsl(void);
+        extern void gadget_arm64_velem_sqdmull(void), gadget_arm64_velem_sqdmlal(void);
+        extern void gadget_arm64_velem_sqdmlsl(void);
+        extern void gadget_arm64_velem_fmul(void), gadget_arm64_velem_fmulx(void);
+        extern void gadget_arm64_velem_fmla(void), gadget_arm64_velem_fmls(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned u = (insn >> 29) & 1;
+        unsigned size = (insn >> 22) & 3;
+        unsigned l = (insn >> 21) & 1;
+        unsigned m = (insn >> 20) & 1;
+        unsigned rm4 = (insn >> 16) & 0xf;
+        unsigned opcode = (insn >> 12) & 0xf;
+        unsigned h = (insn >> 11) & 1;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        unsigned rm, index;
+        if (size == 1) {        // H
+            index = (h << 2) | (l << 1) | m;
+            rm = rm4;
+        } else if (size == 2) { // S
+            index = (h << 1) | l;
+            rm = (m << 4) | rm4;
+        } else if (size == 3) { // D (FP only)
+            index = h;
+            rm = (m << 4) | rm4;
+        } else {
+            return gen_arm64_undefined(state);
+        }
+        unsigned byteoff = index << (size == 1 ? 1 : size == 2 ? 2 : 3);
+        void *gadget = NULL;
+        bool is_fp = false;
+        switch ((u << 4) | opcode) {
+        case 0x08: gadget = gadget_arm64_velem_mul; break;
+        case 0x10: gadget = gadget_arm64_velem_mla; break;
+        case 0x14: gadget = gadget_arm64_velem_mls; break;
+        case 0x0c: gadget = gadget_arm64_velem_sqdmulh; break;
+        case 0x0d: gadget = gadget_arm64_velem_sqrdmulh; break;
+        case 0x0a: gadget = gadget_arm64_velem_smull; break;
+        case 0x1a: gadget = gadget_arm64_velem_umull; break;
+        case 0x02: gadget = gadget_arm64_velem_smlal; break;
+        case 0x12: gadget = gadget_arm64_velem_umlal; break;
+        case 0x06: gadget = gadget_arm64_velem_smlsl; break;
+        case 0x16: gadget = gadget_arm64_velem_umlsl; break;
+        case 0x0b: gadget = gadget_arm64_velem_sqdmull; break;
+        case 0x03: gadget = gadget_arm64_velem_sqdmlal; break;
+        case 0x07: gadget = gadget_arm64_velem_sqdmlsl; break;
+        case 0x09: gadget = gadget_arm64_velem_fmul; is_fp = true; break;
+        case 0x19: gadget = gadget_arm64_velem_fmulx; is_fp = true; break;
+        case 0x01: gadget = gadget_arm64_velem_fmla; is_fp = true; break;
+        case 0x05: gadget = gadget_arm64_velem_fmls; is_fp = true; break;
+        }
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
+        if (is_fp) {
+            if (size < 2 || (size == 3 && !q))
+                return gen_arm64_undefined(state);
+        } else {
+            if (size != 1 && size != 2)
+                return gen_arm64_undefined(state);
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                   ((uint64_t) size << 24) | ((uint64_t) q << 26) |
+                   ((uint64_t) byteoff << 27));
+        return 1;
+    }
+
+    // AdvSIMD by-element, scalar: FMUL/FMULX/FMLA/FMLS Sd/Dd, Vm.T[i].
+    if ((insn & 0xdf000400) == 0x5f000000) {
+        extern void gadget_arm64_selem_fmul(void), gadget_arm64_selem_fmulx(void);
+        extern void gadget_arm64_selem_fmla(void), gadget_arm64_selem_fmls(void);
+        unsigned u = (insn >> 29) & 1;
+        unsigned size = (insn >> 22) & 3;
+        unsigned l = (insn >> 21) & 1;
+        unsigned m = (insn >> 20) & 1;
+        unsigned rm4 = (insn >> 16) & 0xf;
+        unsigned opcode = (insn >> 12) & 0xf;
+        unsigned h = (insn >> 11) & 1;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        if (size < 2)
+            return gen_arm64_undefined(state);
+        unsigned rm = (m << 4) | rm4;
+        unsigned index = size == 2 ? ((h << 1) | l) : h;
+        unsigned byteoff = index << (size == 2 ? 2 : 3);
+        void *gadget = NULL;
+        switch ((u << 4) | opcode) {
+        case 0x09: gadget = gadget_arm64_selem_fmul; break;
+        case 0x19: gadget = gadget_arm64_selem_fmulx; break;
+        case 0x01: gadget = gadget_arm64_selem_fmla; break;
+        case 0x05: gadget = gadget_arm64_selem_fmls; break;
+        }
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                   ((uint64_t) size << 24) | ((uint64_t) byteoff << 27));
         return 1;
     }
 
@@ -2076,6 +2373,65 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget_arm64_vshift_d);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) shift << 16) | ((uint64_t) op << 24));
         return 1;
+    }
+
+    // AdvSIMD scalar shift by immediate, remaining opcodes: SSRA/USRA,
+    // SRSHR/URSHR, SRSRA/URSRA (D), SQSHL/UQSHL #imm (B/H/S/D), and the
+    // saturating narrows SQSHRN/UQSHRN/SQRSHRN/UQRSHRN/SQSHRUN/SQRSHRUN
+    // (B/H/S results). Same register-form lowering as the vector space.
+    if ((insn & 0xdf800400) == 0x5f000400 && ((insn >> 19) & 0xf) != 0) {
+        extern void gadget_arm64_ssrshr_d(void), gadget_arm64_surshr_d(void);
+        extern void gadget_arm64_sssra_d(void), gadget_arm64_susra_d(void);
+        extern void gadget_arm64_ssrsra_d(void), gadget_arm64_sursra_d(void);
+        extern void gadget_arm64_ssqshli(void), gadget_arm64_suqshli(void);
+        extern void gadget_arm64_ssqshrn(void), gadget_arm64_ssqrshrn(void);
+        extern void gadget_arm64_suqshrn(void), gadget_arm64_suqrshrn(void);
+        extern void gadget_arm64_ssqshrun(void), gadget_arm64_ssqrshrun(void);
+        unsigned u = (insn >> 29) & 1;
+        unsigned immhb = (insn >> 16) & 0x7f;
+        unsigned immh = immhb >> 3;
+        unsigned opcode = (insn >> 11) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        int esize_log2 = immh & 8 ? 3 : immh & 4 ? 2 : immh & 2 ? 1 : 0;
+        unsigned esize = 8u << esize_log2;
+        unsigned rshift = 2 * esize - immhb;
+        unsigned lshift = immhb - esize;
+        void *gadget = NULL;
+        switch (opcode) {
+        case 0x02: case 0x04: case 0x06: // D-only accumulate/rounding
+            if (esize_log2 != 3)
+                return gen_arm64_undefined(state);
+            gadget = opcode == 0x02 ? (u ? (void *) gadget_arm64_susra_d : (void *) gadget_arm64_sssra_d)
+                   : opcode == 0x04 ? (u ? (void *) gadget_arm64_surshr_d : (void *) gadget_arm64_ssrshr_d)
+                   : (u ? (void *) gadget_arm64_sursra_d : (void *) gadget_arm64_ssrsra_d);
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8));
+            gen(state, (uint64_t) -(int64_t) rshift);
+            return 1;
+        case 0x0e: // SQSHL/UQSHL #imm, any element size
+            gadget = u ? (void *) gadget_arm64_suqshli : (void *) gadget_arm64_ssqshli;
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) esize_log2 << 16));
+            gen(state, (uint64_t) lshift);
+            return 1;
+        case 0x10: case 0x11: case 0x12: case 0x13: { // saturating narrows
+            if (esize_log2 >= 3)
+                return gen_arm64_undefined(state);
+            static void *const t[2][4] = {
+                {NULL, NULL, gadget_arm64_ssqshrn, gadget_arm64_ssqrshrn},
+                {gadget_arm64_ssqshrun, gadget_arm64_ssqrshrun,
+                 gadget_arm64_suqshrn, gadget_arm64_suqrshrn}};
+            gadget = t[u][opcode - 0x10];
+            if (gadget == NULL) // scalar SHRN/RSHRN don't exist (U=0 10/11)
+                return gen_arm64_undefined(state);
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) esize_log2 << 16));
+            gen(state, (uint64_t) -(int64_t) rshift);
+            return 1;
+        }
+        }
+        return gen_arm64_undefined(state);
     }
 
     // AdvSIMD three-same bitwise: AND/BIC/ORR/ORN (U=0) and EOR/BSL/BIT/

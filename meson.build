@@ -122,6 +122,7 @@ if jit_cpu_family == 'aarch64'
         'jit/guest-arm64/simd.S',
         'jit/guest-arm64/simd_arith.S',
         'jit/guest-arm64/simd_misc.S',
+        'jit/guest-arm64/simd_shift.S',
         'jit/guest-arm64/fp.S',
     ]
 endif
