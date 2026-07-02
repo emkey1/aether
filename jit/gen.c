@@ -1765,6 +1765,80 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // AdvSIMD vector shift by immediate: SSHR/USHR/SHL and SSHLL/USHLL
+    // (incl. the SXTL/UXTL widen aliases — Alpine getty crash-looped on
+    // `ushll v31.2d, v31.2s, #0` on-device). Lowered to the register-form
+    // vector shifts with the amount broadcast at runtime; negative
+    // amounts shift right. Modified-immediate (MOVI) shares this space
+    // with immh=0 and is matched by its own earlier check.
+    if ((insn & 0x9f800400) == 0x0f000400 && ((insn >> 19) & 0xf) != 0) {
+        extern void gadget_arm64_vshl_s_8b(void), gadget_arm64_vshl_s_16b(void);
+        extern void gadget_arm64_vshl_s_4h(void), gadget_arm64_vshl_s_8h(void);
+        extern void gadget_arm64_vshl_s_2s(void), gadget_arm64_vshl_s_4s(void);
+        extern void gadget_arm64_vshl_s_2d(void);
+        extern void gadget_arm64_vshl_u_8b(void), gadget_arm64_vshl_u_16b(void);
+        extern void gadget_arm64_vshl_u_4h(void), gadget_arm64_vshl_u_8h(void);
+        extern void gadget_arm64_vshl_u_2s(void), gadget_arm64_vshl_u_4s(void);
+        extern void gadget_arm64_vshl_u_2d(void);
+        extern void gadget_arm64_vshll_s_8b(void), gadget_arm64_vshll_s2_16b(void);
+        extern void gadget_arm64_vshll_s_4h(void), gadget_arm64_vshll_s2_8h(void);
+        extern void gadget_arm64_vshll_s_2s(void), gadget_arm64_vshll_s2_4s(void);
+        extern void gadget_arm64_vshll_u_8b(void), gadget_arm64_vshll_u2_16b(void);
+        extern void gadget_arm64_vshll_u_4h(void), gadget_arm64_vshll_u2_8h(void);
+        extern void gadget_arm64_vshll_u_2s(void), gadget_arm64_vshll_u2_4s(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned u = (insn >> 29) & 1;
+        unsigned immhb = (insn >> 16) & 0x7f;
+        unsigned immh = immhb >> 3;
+        unsigned opcode = (insn >> 11) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        int esize_log2 = immh & 8 ? 3 : immh & 4 ? 2 : immh & 2 ? 1 : 0;
+        unsigned esize = 8u << esize_log2;
+        // [esize_log2][q]
+        static void *const vshl_s[4][2] = {
+            {(void *) gadget_arm64_vshl_s_8b, (void *) gadget_arm64_vshl_s_16b},
+            {(void *) gadget_arm64_vshl_s_4h, (void *) gadget_arm64_vshl_s_8h},
+            {(void *) gadget_arm64_vshl_s_2s, (void *) gadget_arm64_vshl_s_4s},
+            {NULL, (void *) gadget_arm64_vshl_s_2d}};
+        static void *const vshl_u[4][2] = {
+            {(void *) gadget_arm64_vshl_u_8b, (void *) gadget_arm64_vshl_u_16b},
+            {(void *) gadget_arm64_vshl_u_4h, (void *) gadget_arm64_vshl_u_8h},
+            {(void *) gadget_arm64_vshl_u_2s, (void *) gadget_arm64_vshl_u_4s},
+            {NULL, (void *) gadget_arm64_vshl_u_2d}};
+        static void *const vshll_s[3][2] = {
+            {(void *) gadget_arm64_vshll_s_8b, (void *) gadget_arm64_vshll_s2_16b},
+            {(void *) gadget_arm64_vshll_s_4h, (void *) gadget_arm64_vshll_s2_8h},
+            {(void *) gadget_arm64_vshll_s_2s, (void *) gadget_arm64_vshll_s2_4s}};
+        static void *const vshll_u[3][2] = {
+            {(void *) gadget_arm64_vshll_u_8b, (void *) gadget_arm64_vshll_u2_16b},
+            {(void *) gadget_arm64_vshll_u_4h, (void *) gadget_arm64_vshll_u2_8h},
+            {(void *) gadget_arm64_vshll_u_2s, (void *) gadget_arm64_vshll_u2_4s}};
+        void *gadget = NULL;
+        int64_t amount = 0;
+        if (opcode == 0x00) { // SSHR/USHR: shift right by 2*esize - immhb
+            gadget = (u ? vshl_u : vshl_s)[esize_log2][q];
+            amount = -(int64_t) (2 * esize - immhb);
+        } else if (opcode == 0x0a) { // SHL: left by immhb - esize (same for s/u)
+            gadget = vshl_u[esize_log2][q];
+            amount = (int64_t) (immhb - esize);
+        } else if (opcode == 0x14 && esize_log2 < 3) { // SSHLL/USHLL: widen + left shift
+            gadget = (u ? vshll_u : vshll_s)[esize_log2][q];
+            amount = (int64_t) (immhb - esize);
+        }
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8));
+        gen(state, (uint64_t) amount);
+        return 1;
+    }
+
     // AdvSIMD scalar shift by immediate, D size: SHL/USHR/SSHR (musl
     // strtod's exponent construction). immh<3>=1 selects the 64-bit
     // element; smaller scalar element sizes are unallocated here.

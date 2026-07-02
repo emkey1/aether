@@ -455,3 +455,80 @@ vbitwise vbif_8b,  bif, .8b
 3:  add x14, x12, x9, lsl #4
     stp x16, xzr, [x14]       // scalar D write zeroes the upper half
     gret
+
+// ---- AdvSIMD vector shift by immediate: SSHR/USHR/SHL + SSHLL/USHLL -----
+// (Found as an on-device crash-loop: Alpine getty executes
+// `ushll v31.2d, v31.2s, #0` — the UXTL alias.) The host's immediate-form
+// shifts can't take a runtime amount, but the REGISTER-form vector
+// shifts (sshl/ushl) shift each lane by a per-lane amount from a
+// register, with negative amounts shifting right — so one gadget per
+// (arrangement, signedness) covers SSHR (sshl, negative), USHR (ushl,
+// negative), and SHL (ushl, positive), with gen_step_arm64 encoding the
+// direction in the sign of the streamed amount.
+// Code stream: [gadget][rd | rn<<8][amount (signed)]
+.macro vshift_gadget name, shiftop, arr, dupw
+.gadget \name
+    ldr x8, [_ip]
+    ldr x9, [_ip, #8]
+    add _ip, _ip, #16
+    and x10, x8, #0x1f
+    ubfx x11, x8, #8, #5
+    add x12, _cpu, #CPU_v0
+    add x13, x12, x11, lsl #4
+    ldr q30, [x13]
+    dup v29\arr, \dupw
+    \shiftop v30\arr, v30\arr, v29\arr
+    add x13, x12, x10, lsl #4
+    str q30, [x13]
+    gret
+.endm
+
+vshift_gadget vshl_s_8b,  sshl, .8b,  w9
+vshift_gadget vshl_s_16b, sshl, .16b, w9
+vshift_gadget vshl_s_4h,  sshl, .4h,  w9
+vshift_gadget vshl_s_8h,  sshl, .8h,  w9
+vshift_gadget vshl_s_2s,  sshl, .2s,  w9
+vshift_gadget vshl_s_4s,  sshl, .4s,  w9
+vshift_gadget vshl_s_2d,  sshl, .2d,  x9
+vshift_gadget vshl_u_8b,  ushl, .8b,  w9
+vshift_gadget vshl_u_16b, ushl, .16b, w9
+vshift_gadget vshl_u_4h,  ushl, .4h,  w9
+vshift_gadget vshl_u_8h,  ushl, .8h,  w9
+vshift_gadget vshl_u_2s,  ushl, .2s,  w9
+vshift_gadget vshl_u_4s,  ushl, .4s,  w9
+vshift_gadget vshl_u_2d,  ushl, .2d,  x9
+
+// SSHLL/USHLL (and the SXTL/UXTL #0 aliases): widen with sxtl/uxtl
+// (fixed-immediate #0 forms), then apply the runtime shift with the
+// register-form left shift on the widened arrangement.
+// Code stream: [gadget][rd | rn<<8][amount]
+.macro vshll_gadget name, xtl, srcarr, dstarr, dupw
+.gadget \name
+    ldr x8, [_ip]
+    ldr x9, [_ip, #8]
+    add _ip, _ip, #16
+    and x10, x8, #0x1f
+    ubfx x11, x8, #8, #5
+    add x12, _cpu, #CPU_v0
+    add x13, x12, x11, lsl #4
+    ldr q30, [x13]
+    \xtl v30\dstarr, v30\srcarr
+    dup v29\dstarr, \dupw
+    ushl v30\dstarr, v30\dstarr, v29\dstarr
+    add x13, x12, x10, lsl #4
+    str q30, [x13]
+    gret
+.endm
+
+vshll_gadget vshll_s_8b,  sxtl,  .8b, .8h, w9
+vshll_gadget vshll_s2_16b, sxtl2, .16b, .8h, w9
+vshll_gadget vshll_s_4h,  sxtl,  .4h, .4s, w9
+vshll_gadget vshll_s2_8h,  sxtl2, .8h, .4s, w9
+vshll_gadget vshll_s_2s,  sxtl,  .2s, .2d, x9
+vshll_gadget vshll_s2_4s,  sxtl2, .4s, .2d, x9
+vshll_gadget vshll_u_8b,  uxtl,  .8b, .8h, w9
+vshll_gadget vshll_u2_16b, uxtl2, .16b, .8h, w9
+vshll_gadget vshll_u_4h,  uxtl,  .4h, .4s, w9
+vshll_gadget vshll_u2_8h,  uxtl2, .8h, .4s, w9
+vshll_gadget vshll_u_2s,  uxtl,  .2s, .2d, x9
+vshll_gadget vshll_u2_4s,  uxtl2, .4s, .2d, x9
