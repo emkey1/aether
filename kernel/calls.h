@@ -262,6 +262,8 @@ dword_t sys_fstat_amd64(fd_t fd_no, addr_t statbuf_addr);
 dword_t sys_fstat_amd64_guest(fd_t fd_no, guest_addr_t statbuf_addr);
 dword_t sys_newfstatat_amd64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags);
 dword_t sys_newfstatat_amd64_guest(fd_t at, guest_addr_t path_addr, guest_addr_t statbuf_addr, dword_t flags);
+dword_t sys_newfstatat_arm64_guest(fd_t at, guest_addr_t path_addr, guest_addr_t statbuf_addr, dword_t flags);
+dword_t sys_fstat_arm64_guest(fd_t fd_no, guest_addr_t statbuf_addr);
 dword_t sys_statx(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr);
 dword_t sys_statx_guest(fd_t at_f, guest_addr_t path_addr, dword_t flags, dword_t mask, guest_addr_t statxbuf_addr);
 dword_t sys_statx_amd64(fd_t at_f, addr_t path_addr, dword_t flags, dword_t mask, addr_t statxbuf_addr);

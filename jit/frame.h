@@ -14,7 +14,10 @@ struct jit_frame {
     // 32 bits (str w/ldr w against the same symbolic LOCAL_value_addr
     // offset), which stays correct on a little-endian 64-bit field.
     uint64_t value_addr;
-    uint64_t value[2]; // buffer for crosspage crap
+    // 32 bytes: sized for the largest crosspage access any gadget can
+    // produce — an arm64 STP/LDP of two 128-bit Q registers
+    // (jit/guest-arm64/simd.S). i386/amd64 use at most 16 of it.
+    uint64_t value[4]; // buffer for crosspage crap
     struct jit_block *last_block;
     long ret_cache[JIT_RETURN_CACHE_SIZE]; // a map of ip to pointer-to-call-gadget-arguments
 };

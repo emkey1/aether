@@ -1792,6 +1792,13 @@ static void prepare_syscall_restart(struct cpu_state *cpu, const struct syscall_
         cpu->eip = (dword_t) cpu->amd64_rip;
         return;
     }
+    if (dispatch->abi == GUEST_ABI_ARM64) {
+        // X8 still holds the syscall number (nothing clobbers it across
+        // the SVC); rewind PC over the 4-byte SVC to re-execute it.
+        cpu->arm64_regs[arm64_x8] = syscall_num;
+        cpu->arm64_pc -= 4;
+        return;
+    }
 
     cpu->eax = (dword_t) syscall_num;
     cpu->eip -= 2;
@@ -1877,6 +1884,112 @@ static inline void amd64_syscall_result_qword(struct cpu_state *cpu, qword_t res
 
 static bool syscall_arg_fits_legacy_dword(qword_t arg) {
     return arg <= UINT32_MAX || (arg >> 32) == UINT32_MAX;
+}
+
+static inline void arm64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
+    cpu->arm64_regs[arm64_x0] = result;
+}
+
+// AArch64 full-width syscall dispatch: the arm64 counterpart of
+// handle_amd64_native_memory_syscall below, for the same reason — the
+// legacy syscall_t signature marshals every argument through dword_t,
+// silently truncating 64-bit guest pointers, and arm64 binaries live
+// well above 4 GiB (the loader places PIEs high in the 47-bit mmap
+// window; kernel/abi.h). Same sys_*_guest implementations the amd64
+// path uses (they're 64-bit-ABI-shaped, not x86-shaped — see the
+// arm64_syscall_table comment), keyed by AArch64 (asm-generic) syscall
+// numbers. Note clone's argument order: AArch64 follows the generic
+// (flags, stack, parent_tid, tls, child_tid) order — tls and child_tid
+// are SWAPPED relative to amd64's — so the sys_clone_guest call below
+// deliberately differs from the amd64 case's argument positions.
+//
+// dword-returning cases funnel through the shared restart/sign-extend
+// tail; the three address-returning calls (brk/mmap/mremap) and lseek
+// set the full 64-bit result directly.
+static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_num,
+        const qword_t raw_args[6]) {
+    dword_t result;
+    switch (syscall_num) {
+    // -- full-width results --
+    case 62: // lseek
+        arm64_syscall_result_qword(cpu, (qword_t) sys_lseek_amd64_guest(
+                (fd_t) raw_args[0], (off_t_) raw_args[1], (dword_t) raw_args[2]));
+        return true;
+    case 214: // brk
+        arm64_syscall_result_qword(cpu, sys_brk_guest(raw_args[0]));
+        return true;
+    case 216: // mremap
+        arm64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
+                raw_args[2], (dword_t) raw_args[3]));
+        return true;
+    case 222: // mmap
+        arm64_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], raw_args[1],
+                (dword_t) raw_args[2], (dword_t) raw_args[3], (fd_t) raw_args[4],
+                raw_args[5]));
+        return true;
+
+    // -- dword results (shared restart/sign-extend tail below) --
+    case 17: result = sys_getcwd_guest(raw_args[0], (dword_t) raw_args[1]); break;
+    case 25: result = sys_fcntl_amd64_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
+    case 29: result = sys_ioctl_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
+    case 34: result = sys_mkdirat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2]); break;
+    case 35: result = sys_unlinkat_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
+    case 37: result = sys_linkat_guest((fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]); break;
+    case 38: result = sys_renameat_guest((fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]); break;
+    case 43: result = sys_statfs_amd64_guest(raw_args[0], raw_args[1]); break;
+    case 44: result = sys_fstatfs_amd64_guest((fd_t) raw_args[0], raw_args[1]); break;
+    case 48: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]); break;
+    case 49: result = sys_chdir_guest(raw_args[0]); break;
+    case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
+    case 56: result = sys_openat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (mode_t_) raw_args[3]); break;
+    case 61: result = sys_getdents64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 63: result = sys_read_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 64: result = sys_write_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 65: result = sys_readv_amd64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 66: result = sys_writev_amd64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 67: result = sys_pread_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (off_t_) raw_args[3]); break;
+    case 68: result = sys_pwrite_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (off_t_) raw_args[3]); break;
+    case 72: result = sys_pselect_amd64_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5]); break;
+    case 73: result = sys_ppoll_amd64_guest(raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3], (dword_t) raw_args[4]); break;
+    case 78: result = sys_readlinkat_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break;
+    // stat family: arm64-layout marshalling, NOT the amd64 struct — the
+    // asm-generic struct stat swaps mode/nlink and resizes fields
+    // (fs/stat.h's arm64_stat_ comment; found via busybox ls treating
+    // every directory as a file).
+    case 79: result = sys_newfstatat_arm64_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break;
+    case 80: result = sys_fstat_arm64_guest((fd_t) raw_args[0], raw_args[1]); break;
+    case 88: result = sys_utimensat_amd64_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break;
+    case 96: result = (dword_t) sys_set_tid_address_guest(raw_args[0]); break;
+    case 98: result = sys_futex_guest(raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], raw_args[4], (dword_t) raw_args[5]); break;
+    case 99: result = (dword_t) sys_set_robust_list_amd64_guest(raw_args[0], (dword_t) raw_args[1]); break;
+    case 100: result = (dword_t) sys_get_robust_list_amd64_guest((pid_t_) raw_args[0], raw_args[1], raw_args[2]); break;
+    case 113: result = sys_clock_gettime_amd64_guest((dword_t) raw_args[0], raw_args[1]); break;
+    case 134: result = sys_rt_sigaction_guest((dword_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break;
+    case 135: result = sys_rt_sigprocmask_guest((dword_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break;
+    case 160: result = sys_uname_guest(raw_args[0]); break;
+    case 215: result = (dword_t) sys_munmap_guest(raw_args[0], raw_args[1]); break;
+    case 220: // clone — AArch64 argument order, see the function comment
+        result = sys_clone_guest(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]);
+        break;
+    case 221: result = (dword_t) sys_execve_guest(raw_args[0], raw_args[1], raw_args[2]); break;
+    case 226: result = (dword_t) sys_mprotect_guest(raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
+    case 233: result = sys_madvise_guest(raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
+    case 260: result = sys_wait4_guest((pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3]); break;
+    case 278: result = sys_getrandom_guest(raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2]); break;
+    case 291: result = sys_statx_amd64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4]); break;
+    default:
+        return false; // not handled here: fall through to the legacy-marshalled table
+    }
+    if (syscall_result_should_restart(result)) {
+        prepare_syscall_restart(cpu, &arm64_syscall_dispatch, syscall_num);
+        return true;
+    }
+    // Sign-extend: a dword -errno (or any negative 32-bit result, e.g.
+    // wait4's -1... which IS an errno encoding here) widens to the 64-bit
+    // negative X0 the guest's errno check expects.
+    arm64_syscall_result_qword(cpu, (qword_t) (sqword_t) (sdword_t) result);
+    return true;
 }
 
 static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t syscall_num,
@@ -3211,6 +3324,13 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         amd64_enomem_syscall_trace(syscall_num, raw_args, result);
         amd64_tracked_proc_trace_exit(syscall_num, raw_args, result);
         amd64_tty2_shell_syscall_trace_exit(syscall_num, result);
+        if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
+                current->ptrace.syscall_stopped)
+            ptrace_syscall_stop(cpu);
+        return;
+    }
+    if (dispatch->abi == GUEST_ABI_ARM64 &&
+            handle_arm64_native_syscall(cpu, syscall_num, raw_args)) {
         if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
                 current->ptrace.syscall_stopped)
             ptrace_syscall_stop(cpu);

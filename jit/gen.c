@@ -546,6 +546,95 @@ static void *gen_arm64_cond_gadget(unsigned cond) {
     return table[cond & 0xf];
 }
 
+// SIMD/FP single-register load/store gadget by access size (log2 bytes,
+// 0..4 = B/H/S/D/Q). Same parameter format as the integer set — the
+// gadgets share ldst_single_setup/-writeback (gadgets.h).
+static void *gen_arm64_vldst_single_gadget(unsigned size_log2, bool is_load) {
+    extern void gadget_arm64_vload8(void), gadget_arm64_vload16(void);
+    extern void gadget_arm64_vload32(void), gadget_arm64_vload64(void);
+    extern void gadget_arm64_vload128(void);
+    extern void gadget_arm64_vstore8(void), gadget_arm64_vstore16(void);
+    extern void gadget_arm64_vstore32(void), gadget_arm64_vstore64(void);
+    extern void gadget_arm64_vstore128(void);
+    static void *const loads[5] = {
+        (void *) gadget_arm64_vload8, (void *) gadget_arm64_vload16,
+        (void *) gadget_arm64_vload32, (void *) gadget_arm64_vload64,
+        (void *) gadget_arm64_vload128,
+    };
+    static void *const stores[5] = {
+        (void *) gadget_arm64_vstore8, (void *) gadget_arm64_vstore16,
+        (void *) gadget_arm64_vstore32, (void *) gadget_arm64_vstore64,
+        (void *) gadget_arm64_vstore128,
+    };
+    if (size_log2 > 4)
+        return NULL;
+    return is_load ? loads[size_log2] : stores[size_log2];
+}
+
+// SIMD/FP load/store size decode: the access size is size:opc<1>
+// (0..4 = B/H/S/D/Q); opc<0> is the load bit. Returns size_log2 or -1
+// for the unallocated size=Q-with-size!=00 combinations.
+static int gen_arm64_vldst_size(unsigned size, unsigned opc, bool *is_load) {
+    *is_load = opc & 1;
+    if (opc & 2) {
+        // Q access: only size=00 is allocated
+        if (size != 0)
+            return -1;
+        return 4;
+    }
+    return (int) size;
+}
+
+// AdvSIMDExpandImm (ARM ARM): expand the MOVI/MVNI/FMOV-immediate
+// abc:defgh byte + cmode + op into the 64-bit element pattern. Direct
+// transcription of the pseudocode's cmode<3:1> switch. Returns false
+// for the one unallocated combination (op=1, cmode=1111, handled by
+// the caller as Q-only FMOV .2d, which this covers too).
+static bool gen_arm64_expand_imm(unsigned op, unsigned cmode, uint64_t imm8, uint64_t *out) {
+    uint64_t imm32;
+    switch (cmode >> 1) {
+    case 0: imm32 = imm8; break;
+    case 1: imm32 = imm8 << 8; break;
+    case 2: imm32 = imm8 << 16; break;
+    case 3: imm32 = imm8 << 24; break;
+    case 4: // 16-bit elements
+        *out = imm8 | (imm8 << 16) | (imm8 << 32) | (imm8 << 48);
+        return true;
+    case 5:
+        *out = (imm8 << 8) | (imm8 << 24) | (imm8 << 40) | (imm8 << 56);
+        return true;
+    case 6: // MSL: ones shifted in from the bottom
+        imm32 = (cmode & 1) ? ((imm8 << 16) | 0xffff) : ((imm8 << 8) | 0xff);
+        break;
+    default: { // cmode 111x
+        uint64_t a = (imm8 >> 7) & 1, b = (imm8 >> 6) & 1;
+        if (cmode == 14 && op == 0) { // bytes
+            imm32 = imm8 | (imm8 << 8) | (imm8 << 16) | (imm8 << 24);
+            break;
+        }
+        if (cmode == 14 && op == 1) { // each imm8 bit -> one 0x00/0xff byte
+            uint64_t v = 0;
+            for (int i = 0; i < 8; i++)
+                if (imm8 & (1u << i))
+                    v |= 0xffULL << (i * 8);
+            *out = v;
+            return true;
+        }
+        if (cmode == 15 && op == 0) { // FMOV single: a:~b:bbbbb:cdefgh:0*19, per 32 bits
+            imm32 = (a << 31) | ((b ? 0x3e0ULL : 0x400ULL) << 20) | ((imm8 & 0x3f) << 19);
+            break;
+        }
+        if (cmode == 15 && op == 1) { // FMOV double: a:~b:bbbbbbbb:cdefgh:0*48
+            *out = (a << 63) | ((b ? 0x3fcULL : 0x400ULL) << 52) | ((imm8 & 0x3f) << 48);
+            return true;
+        }
+        return false;
+    }
+    }
+    *out = imm32 | (imm32 << 32);
+    return true;
+}
+
 // AArch64 guest code generator — Phase A of the JIT gadget port
 // (aarch64_guest_plan.md). Emits gadget-array entries for jit/guest-arm64/'s
 // ported gadgets instead of computing results directly, the same relationship
@@ -950,6 +1039,264 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt);
         gen(state, addr);
+        return 1;
+    }
+
+    // ---- SIMD/FP loads/stores and register constants (Phase D) -----------
+    // The blocker-driven minimal subset for musl memset/memcpy and
+    // compiler-generated struct zeroing — see jit/guest-arm64/simd.S.
+
+    // SIMD/FP load/store (unsigned immediate): V=1 counterpart of the
+    // integer family above. Access size is size:opc<1> (B/H/S/D/Q).
+    if ((insn & 0x3f000000) == 0x3d000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        uint64_t imm12 = (insn >> 10) & 0xfff;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        bool is_load;
+        int size_log2 = gen_arm64_vldst_size(size, opc, &is_load);
+        void *gadget = size_log2 < 0 ? NULL
+            : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
+        gen(state, imm12 << size_log2); // scaled by the ACCESS size, incl. Q's 16
+        return 1;
+    }
+
+    // SIMD/FP load/store (imm9): unscaled/post-index/pre-index, V=1.
+    if ((insn & 0x3f200000) == 0x3c000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        int64_t imm9 = arm64_sign_extend((insn >> 12) & 0x1ff, 9);
+        unsigned insn_mode = (insn >> 10) & 0x3;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        unsigned mode = insn_mode == 1 ? 1 : insn_mode == 3 ? 2 : 0;
+        bool is_load;
+        int size_log2 = gen_arm64_vldst_size(size, opc, &is_load);
+        void *gadget = size_log2 < 0 ? NULL
+            : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
+        if (gadget == NULL || insn_mode == 2 /* no LDTR/STTR in SIMD space */) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
+        gen(state, (uint64_t) imm9);
+        return 1;
+    }
+
+    // SIMD/FP load/store (register offset), V=1.
+    if ((insn & 0x3f200c00) == 0x3c200800) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned option = (insn >> 13) & 0x7;
+        unsigned S = (insn >> 12) & 1;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        bool is_load;
+        int size_log2 = gen_arm64_vldst_size(size, opc, &is_load);
+        void *gadget = size_log2 < 0 ? NULL
+            : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
+        if (gadget == NULL || (option & 0x2) == 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned shift = S ? (unsigned) size_log2 : 0;
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | (3ULL << 16));
+        gen(state, rm | ((uint64_t) option << 8) | ((uint64_t) shift << 16));
+        return 1;
+    }
+
+    // SIMD/FP load/store pair (LDP/STP, V=1): opc 00=S, 01=D, 10=Q.
+    if ((insn & 0x3a000000) == 0x28000000 && ((insn >> 26) & 1) == 1) {
+        extern void gadget_arm64_vldp32(void), gadget_arm64_vldp64(void);
+        extern void gadget_arm64_vldp128(void);
+        extern void gadget_arm64_vstp32(void), gadget_arm64_vstp64(void);
+        extern void gadget_arm64_vstp128(void);
+        unsigned opc = (insn >> 30) & 0x3;
+        unsigned mode = (insn >> 23) & 0x7; // 1=post, 2=offset, 3=pre
+        bool is_load = (insn >> 22) & 1;
+        int32_t imm7 = (insn >> 15) & 0x7f;
+        if (imm7 & 0x40)
+            imm7 |= ~0x7f;
+        unsigned rt2 = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (opc > 2 || (mode != 1 && mode != 2 && mode != 3)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned esize = 4u << opc; // bytes per element: 4/8/16
+        int64_t offset = (int64_t) imm7 * esize;
+        static void *const vldp_gadgets[3] = {
+            (void *) gadget_arm64_vldp32, (void *) gadget_arm64_vldp64,
+            (void *) gadget_arm64_vldp128,
+        };
+        static void *const vstp_gadgets[3] = {
+            (void *) gadget_arm64_vstp32, (void *) gadget_arm64_vstp64,
+            (void *) gadget_arm64_vstp128,
+        };
+        gen(state, (unsigned long) (is_load ? vldp_gadgets[opc] : vstp_gadgets[opc]));
+        gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
+        gen(state, (uint64_t) offset);
+        return 1;
+    }
+
+    // DUP (general register to all vector lanes) — musl memset's opener.
+    if ((insn & 0xbfe0fc00) == 0x0e000c00) {
+        extern void gadget_arm64_dup_gen(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned imm5 = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        // lowest set bit of imm5 selects the element size
+        int size = imm5 & 1 ? 0 : imm5 & 2 ? 1 : imm5 & 4 ? 2 : imm5 & 8 ? 3 : -1;
+        if (size < 0 || (size == 3 && !q)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_dup_gen);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) size << 16) | ((uint64_t) q << 19));
+        return 1;
+    }
+
+    // UMOV/SMOV (vector element -> general register). All lowered to an
+    // integer load from the V slot at a compile-time byte offset — see
+    // simd.S's vext_to_gpr.
+    if ((insn & 0xbfe0fc00) == 0x0e003c00 || (insn & 0xbfe0fc00) == 0x0e002c00) {
+        extern void gadget_arm64_vext_to_gpr(void);
+        bool is_smov = ((insn >> 11) & 0x7) == 0x5; // bits13:11: 111=UMOV, 101=SMOV
+        unsigned q = (insn >> 30) & 1;
+        unsigned imm5 = (insn >> 16) & 0x1f;
+        unsigned vn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        int size = imm5 & 1 ? 0 : imm5 & 2 ? 1 : imm5 & 4 ? 2 : imm5 & 8 ? 3 : -1;
+        // UMOV: Q=0 allows B/H/S, Q=1 allows D only (the S-with-Q form is
+        // MOV's alias space but unallocated as a distinct transfer).
+        // SMOV: Q selects the GPR width; B/H valid either way, S needs Q=1.
+        bool valid = size >= 0 &&
+            (is_smov ? (size <= 1 || (size == 2 && q))
+                     : (q ? size == 3 : size <= 2));
+        if (!valid) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned byteoff = (imm5 >> (size + 1)) << size;
+        unsigned sf = is_smov ? q : (size == 3);
+        gen(state, (unsigned long) gadget_arm64_vext_to_gpr);
+        gen(state, rd | ((uint64_t) vn << 8) | ((uint64_t) byteoff << 16)
+            | ((uint64_t) size << 24) | ((uint64_t) is_smov << 26) | ((uint64_t) sf << 27));
+        return 1;
+    }
+
+    // INS (general register -> vector element, preserving other lanes).
+    if ((insn & 0xffe0fc00) == 0x4e001c00) {
+        extern void gadget_arm64_vins_gpr(void);
+        unsigned imm5 = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned vd = insn & 0x1f;
+        int size = imm5 & 1 ? 0 : imm5 & 2 ? 1 : imm5 & 4 ? 2 : imm5 & 8 ? 3 : -1;
+        if (size < 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned byteoff = (imm5 >> (size + 1)) << size;
+        gen(state, (unsigned long) gadget_arm64_vins_gpr);
+        gen(state, vd | ((uint64_t) rn << 8) | ((uint64_t) byteoff << 16)
+            | ((uint64_t) size << 24));
+        return 1;
+    }
+
+    // FMOV, scalar general<->FP forms: same slot-integer-move lowering.
+    // To-FP writes zero the rest of the V register (vmov_from_gpr);
+    // to-general is a plain extract. The v.d[1] forms move the top half.
+    if ((insn & 0xfffffc00) == 0x1e260000    // FMOV Wd, Sn
+            || (insn & 0xfffffc00) == 0x9e660000   // FMOV Xd, Dn
+            || (insn & 0xfffffc00) == 0x9eae0000) { // FMOV Xd, Vn.D[1]
+        extern void gadget_arm64_vext_to_gpr(void);
+        unsigned vn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        bool is_64 = (insn >> 31) & 1;
+        unsigned byteoff = (insn & 0xfffffc00) == 0x9eae0000 ? 8 : 0;
+        gen(state, (unsigned long) gadget_arm64_vext_to_gpr);
+        gen(state, rd | ((uint64_t) vn << 8) | ((uint64_t) byteoff << 16)
+            | ((uint64_t) (is_64 ? 3 : 2) << 24));
+        return 1;
+    }
+    if ((insn & 0xfffffc00) == 0x1e270000    // FMOV Sd, Wn
+            || (insn & 0xfffffc00) == 0x9e670000) { // FMOV Dd, Xn
+        extern void gadget_arm64_vmov_from_gpr(void);
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned vd = insn & 0x1f;
+        bool is_64 = (insn >> 31) & 1;
+        gen(state, (unsigned long) gadget_arm64_vmov_from_gpr);
+        gen(state, vd | ((uint64_t) rn << 8) | ((uint64_t) (is_64 ? 3 : 2) << 16));
+        return 1;
+    }
+    if ((insn & 0xfffffc00) == 0x9eaf0000) { // FMOV Vd.D[1], Xn (preserves low half)
+        extern void gadget_arm64_vins_gpr(void);
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned vd = insn & 0x1f;
+        gen(state, (unsigned long) gadget_arm64_vins_gpr);
+        gen(state, vd | ((uint64_t) rn << 8) | (8ULL << 16) | (3ULL << 24));
+        return 1;
+    }
+
+    // AdvSIMD modified immediate: MOVI/MVNI/FMOV-imm — compiler struct
+    // zeroing is `movi v0.2d, #0; stp q0, q0` everywhere. The ORR/BIC
+    // register-modifying cmode variants stay unimplemented (reject).
+    if ((insn & 0x9ff80c00) == 0x0f000400) {
+        extern void gadget_arm64_vconst(void);
+        unsigned q = (insn >> 30) & 1;
+        unsigned op = (insn >> 29) & 1;
+        unsigned cmode = (insn >> 12) & 0xf;
+        uint64_t imm8 = (((insn >> 16) & 0x7) << 5) | ((insn >> 5) & 0x1f);
+        unsigned rd = insn & 0x1f;
+        uint64_t imm64;
+        bool is_orr_bic = (cmode & 1) && cmode < 12;
+        if (is_orr_bic || !gen_arm64_expand_imm(op, cmode, imm8, &imm64)
+                || (op == 1 && cmode == 15 && !q) /* FMOV .2d needs Q */) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        if (op == 1 && cmode <= 13)
+            imm64 = ~imm64; // MVNI
+        gen(state, (unsigned long) gadget_arm64_vconst);
+        gen(state, rd);
+        gen(state, imm64);
+        gen(state, q ? imm64 : 0);
         return 1;
     }
 

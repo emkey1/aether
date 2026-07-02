@@ -192,6 +192,27 @@ static struct amd64_stat_ stat_convert_amd64(struct statbuf stat) {
     return out;
 }
 
+static struct arm64_stat_ stat_convert_arm64(struct statbuf stat) {
+    struct arm64_stat_ out = {};
+    out.dev = stat.dev;
+    out.ino = stat.inode;
+    out.mode = stat.mode;
+    out.nlink = stat.nlink;
+    out.uid = stat.uid;
+    out.gid = stat.gid;
+    out.rdev = stat.rdev;
+    out.size = stat.size;
+    out.blksize = (sdword_t) stat.blksize;
+    out.blocks = stat.blocks;
+    out.atime = stat.atime;
+    out.atime_nsec = stat.atime_nsec;
+    out.mtime = stat.mtime;
+    out.mtime_nsec = stat.mtime_nsec;
+    out.ctime = stat.ctime;
+    out.ctime_nsec = stat.ctime_nsec;
+    return out;
+}
+
 static int stat_convert_newstat(struct statbuf stat, struct newstat *out) {
     if (stat.dev > UINT32_MAX ||
             stat.mode > UINT16_MAX ||
@@ -354,6 +375,44 @@ dword_t sys_newfstatat_amd64_guest(fd_t at, guest_addr_t path_addr, guest_addr_t
 }
 dword_t sys_newfstatat_amd64(fd_t at, addr_t path_addr, addr_t statbuf_addr, dword_t flags) {
     return sys_newfstatat_amd64_guest(at, path_addr, statbuf_addr, flags);
+}
+
+// AArch64 stat family: same 64-bit statbuf sourcing as the amd64 pair
+// above, marshalled through struct arm64_stat_ (fs/stat.h) — the
+// asm-generic layout, which genuinely differs from amd64's.
+dword_t sys_newfstatat_arm64_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t statbuf_addr, dword_t flags) {
+    int err;
+    char path[MAX_PATH];
+    int path_err = user_read_path(path_addr, path, sizeof(path));
+    if (path_err)
+        return path_err;
+    STRACE("newfstatat_arm64(at=%d, path=\"%s\", statbuf=0x%llx, flags=0x%x)", at_f, path,
+           (unsigned long long) statbuf_addr, flags);
+    struct fd *at = at_fd(at_f);
+    if (at == NULL)
+        return _EBADF;
+    struct statbuf stat = {};
+    if ((err = generic_statat(at, path, &stat, (int) flags)) < 0)
+        return err;
+    struct arm64_stat_ guest_stat = stat_convert_arm64(stat);
+    if (user_put(statbuf_addr, guest_stat))
+        return _EFAULT;
+    return 0;
+}
+
+dword_t sys_fstat_arm64_guest(fd_t fd_no, guest_addr_t statbuf_addr) {
+    STRACE("fstat_arm64(%d, 0x%llx)", fd_no, (unsigned long long) statbuf_addr);
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL)
+        return _EBADF;
+    struct statbuf stat = {};
+    int err = fd->mount->fs->fstat(fd, &stat);
+    if (err < 0)
+        return err;
+    struct arm64_stat_ guest_stat = stat_convert_arm64(stat);
+    if (user_put(statbuf_addr, guest_stat))
+        return _EFAULT;
+    return 0;
 }
 
 dword_t sys_stat64(addr_t path_addr, addr_t statbuf_addr) {

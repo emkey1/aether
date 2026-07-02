@@ -48,6 +48,7 @@
 #define CPU_excl_addr CPU_arm64_excl_addr
 #define CPU_excl_val CPU_arm64_excl_val
 #define CPU_tpidr CPU_arm64_tpidr
+#define CPU_v0 CPU_arm64_v
 
 _cpu    .req x1
 _tlb    .req x2
@@ -240,6 +241,78 @@ crosspage_store_\id :
     b.eq crosspage_store_\id
 back_write_done_\id :
 .endm
+
+// ---- Single-register load/store shared prologue/epilogue ----------------
+// Used by both the integer gadgets (memory.S) and the SIMD/FP gadgets
+// (simd.S) -- lives here because assembler macros do not cross
+// translation units. See memory.S's "Single-register load/store"
+// section comment for the addressing-family/mode documentation.
+// Shared prologue: parse params, resolve the register-offset form if
+// mode 3, read the base (rn: 31 = SP), leave the effective address in
+// x7 (= _addr) ready for a prep macro. Leaves rt in x20, rn in x22,
+// mode in x23, base in x24, resolved offset in x19.
+.macro ldst_single_setup
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]
+    add _ip, _ip, #16
+    and x20, x8, #0x1f        // rt
+    ubfx x22, x8, #8, #5      // rn
+    ubfx x23, x8, #16, #2     // mode
+
+    cmp x23, #3               // register-offset: resolve x19 = extend(Rm) << shift
+    b.ne 10f
+    and x10, x19, #0x1f       // rm
+    ubfx x11, x19, #8, #3     // option: 010=UXTW 011=LSL/UXTX 110=SXTW 111=SXTX
+    ubfx x12, x19, #16, #4    // shift amount (0 or log2(size))
+    add x9, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 11f
+    add x26, x9, x10, lsl #3
+    ldr x13, [x26]
+    b 12f
+11: mov x13, #0               // Rm=31 is XZR here, never SP
+12: tbnz x11, #0, 13f         // option bit0: 64-bit index, use Xm as-is
+    tbnz x11, #2, 14f         // option bit2: signed 32-bit index
+    mov w13, w13              // UXTW
+    b 13f
+14: sxtw x13, w13             // SXTW
+13: lsl x19, x13, x12
+10:
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x26, x9, x22, lsl #3
+    ldr x24, [x26]            // base
+    b 2f
+1:  ldr x24, [_cpu, #CPU_sp]
+2:
+    cmp x23, #1               // post-index accesses at base; all others at base+offset
+    b.eq 3f
+    add x7, x24, x19
+    b 4f
+3:  mov x7, x24
+4:
+.endm
+
+// Shared epilogue: writeback base+offset to rn for modes 1 (post) and 2
+// (pre) only; modes 0 (no writeback) and 3 (register offset, no
+// writeback) skip it.
+.macro ldst_single_writeback
+    cmp x23, #1
+    b.lo 9f
+    cmp x23, #2
+    b.hi 9f
+    add x25, x24, x19
+    cmp x22, #31
+    b.eq 8f
+    add x9, _cpu, #CPU_x0
+    add x26, x9, x22, lsl #3
+    str x25, [x26]
+    b 9f
+8:  str x25, [_cpu, #CPU_sp]
+9:  gret
+.endm
+
 
 .macro save_c
     stp x0, x1, [sp, -0xa0]!

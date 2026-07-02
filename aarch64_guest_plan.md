@@ -558,12 +558,62 @@ regression). Real Alpine busybox now decodes EVERY instruction on its
 startup path — the remaining gap is SIMD/FP (`dup v0.16b, w1` in
 musl's memset is the current first blocker), which is Phase D.
 
-**Phase D (not started)**: SIMD/FP — musl's memset/memcpy/strlen use
-vector loads/stores (LDR/STR Q), DUP, CMEQ, UMAXP/ADDP, SHRN and
-friends. Needs V-register file access gadgets (cpu_state.arm64_v is
-already present) and 128-bit TLB-path loads/stores. Follow the same
-blocker-driven priority: port what busybox's actual startup path uses
-first, not the whole SIMD ISA.
+**Phase D part 1 + the syscall layer (DONE — REAL ALPINE BUSYBOX RUNS)**:
+the milestone the whole port has been driving toward. `/bin/busybox`
+(real Alpine 3.21 aarch64, dynamic musl PIE) runs end-to-end through the
+JIT gadget path: help text, `echo`, `uname -a`, `ls /` (full listing),
+`cat`, `wc`, `id`, and `sh -c` including fork+exec of child binaries.
+
+New in this batch:
+
+- `jit/guest-arm64/simd.S` (new): the blocker-driven minimal SIMD
+  subset — single vector/FP loads/stores (B/H/S/D/Q, all four
+  addressing families, sharing the integer gadgets'
+  ldst_single_setup/-writeback macros, now moved into gadgets.h),
+  SIMD LDP/STP pairs (S/D/Q; the 256-bit Q-pair case is why
+  jit_frame.value grew to 32 bytes), DUP (general), MOVI/MVNI/FMOV-imm
+  via a compile-time AdvSIMDExpandImm (`gen_arm64_expand_imm`), and the
+  element-move family (UMOV/SMOV/INS/FMOV-scalar), all lowered to
+  integer loads/stores against the V slot in cpu_state at compile-time
+  byte offsets — no host vector state held across anything that can
+  call C (there is NO fully callee-saved 128-bit register in AAPCS64;
+  stores load their value AFTER write_prep for exactly this reason).
+- **arm64 native syscall dispatch** (`handle_arm64_native_syscall`,
+  kernel/calls.c): the arm64 counterpart of amd64's native-memory
+  switch, for the same reason — the legacy syscall_t marshals args
+  through dword_t, truncating 64-bit guest pointers, and arm64 PIEs
+  live above 4 GiB. ~45 pointer-bearing syscalls wired to the existing
+  `sys_*_guest` implementations by AArch64 (asm-generic) numbers,
+  including clone with the AArch64 argument order (tls/child_tid are
+  swapped relative to amd64). `prepare_syscall_restart` gained the
+  missing arm64 case (rewind PC by 4; X8 still holds the number).
+- **fork fixes** (kernel/fork.c): the child's X0 was never zeroed for
+  arm64 (it resumed with the parent's clone-flags argument as its
+  "pid" — the actual first-fork failure), CLONE_SETTLS now sets
+  arm64_tpidr directly (it was falling into i386's user_desc-pointer
+  path), and clone's stack argument now sets arm64_sp.
+- **arm64 stat layout** (fs/stat.h/.c): `struct arm64_stat_` + fstat/
+  newfstatat variants — the asm-generic layout genuinely differs from
+  amd64's (mode/nlink swapped, 32-bit blksize, explicit pads); reusing
+  the amd64 marshalling made busybox `ls` treat every directory as a
+  file.
+- MRS/MSR TPIDR_EL0 gadgets + `cpu_state.arm64_tpidr` (the TLS base),
+  constant CTR_EL0/DCZID_EL0 (DZP=1 so libc never attempts DC ZVA).
+
+**Known next blockers** (both found by running real applets, both
+currently failing cleanly):
+
+1. **arm64 signal delivery** — `receive_signal` (kernel/signal.c) only
+   builds i386/amd64 frames; an arm64 task with a handler falls into
+   the i386 path and corrupts state (observed: busybox sh crashes when
+   SIGCHLD fires after a child exits). Needs the aarch64 rt_sigframe
+   (siginfo + ucontext + mcontext with regs[31]/sp/pc/pstate), an
+   on-stack sigreturn trampoline (no arm64 vDSO yet), and rt_sigreturn
+   (syscall 139).
+2. **Scalar FP arithmetic** — busybox awk dies on `fmov d15, d0`
+   (FP data-processing); the whole scalar FP ISA (FMOV-reg, FADD/FSUB/
+   FMUL/FDIV, FCMP, FCVT*, SCVTF/UCVTF) is unported. Same
+   blocker-driven approach: port what awk/real userland actually hits.
 
 ## Testing Strategy — New Oracle Required
 

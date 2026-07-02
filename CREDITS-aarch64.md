@@ -136,6 +136,16 @@ credits file supports.
   shift lowering, cond_*-gadget w10 handoff, and extended-register
   add/sub are all derived directly from the ARM ARM.
 
+- `jit/guest-arm64/simd.S` (Phase D part 1), the arm64 native syscall
+  dispatch (`handle_arm64_native_syscall`, kernel/calls.c), the arm64
+  clone/TLS/stat fixes (kernel/fork.c, fs/stat.[ch]) — independently
+  written against this codebase's own amd64 precedents (the
+  native-syscall switch mirrors `handle_amd64_native_memory_syscall`;
+  the stat marshalling mirrors `stat_convert_amd64`), not adapted from
+  OpenMinis. The AdvSIMDExpandImm compile-time expansion
+  (jit/gen.c's `gen_arm64_expand_imm`) is a direct transcription of the
+  ARM ARM pseudocode.
+
 ## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their
