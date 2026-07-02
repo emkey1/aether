@@ -1986,6 +1986,28 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 260: result = sys_wait4_guest((pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3]); break;
     case 278: result = sys_getrandom_guest(raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2]); break;
     case 291: result = sys_statx_amd64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4]); break;
+    // Socket family: all pointer-bearing (sockaddr/msghdr/optval), so the
+    // legacy dword marshalling truncates the 64-bit guest pointers — which
+    // is exactly why busybox login's NSS group lookup failed on device
+    // ("can't set groups": a high-stack sockaddr connect() truncated to a
+    // garbage 32-bit address returned EINVAL). Same *_guest implementations
+    // the amd64 native path uses (64-bit-pointer-safe), keyed by AArch64
+    // numbers. socket/listen/shutdown are all-integer and handled fine by
+    // the legacy table, so they're omitted here.
+    case 199: result = sys_socketpair((dword_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3]); break;
+    case 200: result = sys_bind_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break;
+    case 202: result = sys_accept_guest((fd_t) raw_args[0], raw_args[1], raw_args[2]); break;
+    case 203: result = sys_connect_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break;
+    case 204: result = sys_getsockname_guest((fd_t) raw_args[0], raw_args[1], raw_args[2]); break;
+    case 205: result = sys_getpeername_guest((fd_t) raw_args[0], raw_args[1], raw_args[2]); break;
+    case 206: result = sys_sendto_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4], (dword_t) raw_args[5]); break;
+    case 207: result = sys_recvfrom_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4], raw_args[5]); break;
+    case 208: result = sys_setsockopt_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], (dword_t) raw_args[4]); break;
+    case 209: result = sys_getsockopt_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], raw_args[4]); break;
+    case 211: result = sys_sendmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
+    case 212: result = sys_recvmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
+    case 242: result = sys_accept4_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], (int_t) raw_args[3]); break;
+    case 269: result = sys_sendmmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3]); break;
     default:
         return false; // not handled here: fall through to the legacy-marshalled table
     }

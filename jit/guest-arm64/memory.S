@@ -279,6 +279,60 @@ arm64_crosspage_store:
     read_bullshit \bits, \name\()_1
 .endm
 
+// LDPSW: load pair of signed words — two 32-bit loads, each sign-extended
+// to 64 bits (opc=01 in the LDP/STP encoding; su/busybox login uses it).
+// Same structure as ldp_gadget but with ldrsw into the full x-registers.
+.macro ldpsw_gadget name
+.gadget \name
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]
+    add _ip, _ip, #24
+    and x20, x8, #0x1f
+    ubfx x21, x8, #8, #5
+    ubfx x22, x8, #16, #5
+    ubfx x23, x8, #24, #2
+
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x26, x9, x22, lsl #3
+    ldr x24, [x26]
+    b 2f
+1:  ldr x24, [_cpu, #CPU_sp]
+2:
+    cmp x23, #1
+    b.eq 3f
+    add x7, x24, x19
+    b 4f
+3:  mov x7, x24
+4:
+    read_prep 64, \name\()_1
+    ldrsw x17, [_addr]
+    ldrsw x25, [_addr, #4]
+
+    add x9, _cpu, #CPU_x0
+    cmp x20, #31
+    b.eq 5f
+    add x26, x9, x20, lsl #3
+    str x17, [x26]
+5:  cmp x21, #31
+    b.eq 6f
+    add x26, x9, x21, lsl #3
+    str x25, [x26]
+6:
+    cmp x23, #2
+    b.eq 8f
+    add x25, x24, x19
+    cmp x22, #31
+    b.eq 7f
+    add x26, x9, x22, lsl #3
+    str x25, [x26]
+    b 8f
+7:  str x25, [_cpu, #CPU_sp]
+8:  gret
+    read_bullshit 64, \name\()_1
+.endm
+
 .macro stp_gadget name, bits, bytes, str_reg1, str_reg2
 .gadget \name
     ldr x8, [_ip]
@@ -343,6 +397,7 @@ arm64_crosspage_store:
 // comparing against their reference before testing, not after a crash.
 ldp_gadget ldp64, 128, 8, x17, x25
 ldp_gadget ldp32, 64, 4, w17, w25
+ldpsw_gadget ldpsw
 stp_gadget stp64, 128, 8, x17, x25
 stp_gadget stp32, 64, 4, w17, w25
 

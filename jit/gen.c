@@ -1101,7 +1101,11 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rt2 = (insn >> 10) & 0x1f;
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
-        if ((opc != 0b00 && opc != 0b10) || (mode != 1 && mode != 2 && mode != 3)) {
+        // opc: 00=32-bit, 10=64-bit, 01=LDPSW (load-only; su/busybox login
+        // uses it). opc=01 with a store is unallocated.
+        bool is_ldpsw = opc == 0b01;
+        if ((opc == 0b11) || (is_ldpsw && !is_load) ||
+                (mode != 1 && mode != 2 && mode != 3)) {
             gen(state, (unsigned long) gadget_interrupt);
             gen(state, INT_UNDEFINED);
             gen(state, state->arm64_orig_ip);
@@ -1109,10 +1113,17 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             return 0;
         }
         bool sf = opc == 0b10;
+        // LDPSW accesses 4-byte elements; the scaled offset uses 4 too.
         int64_t offset = (int64_t) imm7 * (sf ? 8 : 4);
-        void *gadget = sf
-            ? (is_load ? (void *) gadget_arm64_ldp64 : (void *) gadget_arm64_stp64)
-            : (is_load ? (void *) gadget_arm64_ldp32 : (void *) gadget_arm64_stp32);
+        void *gadget;
+        if (is_ldpsw) {
+            extern void gadget_arm64_ldpsw(void);
+            gadget = (void *) gadget_arm64_ldpsw;
+        } else {
+            gadget = sf
+                ? (is_load ? (void *) gadget_arm64_ldp64 : (void *) gadget_arm64_stp64)
+                : (is_load ? (void *) gadget_arm64_ldp32 : (void *) gadget_arm64_stp32);
+        }
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
         gen(state, (uint64_t) offset);
