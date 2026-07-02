@@ -1498,6 +1498,12 @@ static int cpu_single_step_amd64_frontend(struct cpu_state *cpu, struct tlb *tlb
 }
 
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    // Interpreter-only per aarch64_guest_plan.md's priority order — the
+    // native gadget engine (jit/guest-arm64/) is later work (plan patch 8),
+    // same discipline the amd64 port followed (interpreter first, JIT once
+    // the interpreter's correctness is established).
+    if (current != NULL && current->abi == GUEST_ABI_ARM64)
+        return cpu_run_to_interrupt_arm64(cpu, tlb);
     if (current != NULL && current->abi == GUEST_ABI_AMD64) {
         if (cpu->amd64_rip == 0 && strcmp(current->comm, "apk") == 0) {
             printk("[amd64-jit] run entry apk rip=0 eip=%#x rsp=%#llx rax=%#llx rcx=%#llx\n",

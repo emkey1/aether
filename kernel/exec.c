@@ -478,14 +478,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     struct elf_info header;
     if ((err = read_header(fd, &header)) < 0)
         return err;
-    // GUEST_ABI_ARM64 is recognized by elf_abi_detect() (aarch64_guest_plan.md
-    // patch 1: ABI scaffolding only) but there is no arm64 register file,
-    // decoder, or syscall table yet (patches 2-4). Without this guard an
-    // aarch64 ELF would fall through to the i386 JIT/interpreter and have its
-    // instruction bytes misdecoded as x86 — reject cleanly instead. Remove
-    // this guard once the arm64 execution engine lands.
-    if (header.abi == GUEST_ABI_ARM64)
-        return _ENOEXEC;
+    // The patch-1 ENOEXEC guard here (rejecting GUEST_ABI_ARM64) is removed
+    // as of aarch64_guest_plan.md patch 5: the register file (patch 2),
+    // interpreter (patch 3), syscall table (patch 4), and the
+    // cpu_run_to_interrupt() dispatch wiring below now exist, so an aarch64
+    // ELF has somewhere real to go instead of falling through to the i386
+    // JIT and having its instruction bytes misdecoded as x86.
     size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
     bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
@@ -860,6 +858,20 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     save->cpu.ebp = 0;
     collapse_flags(&save->cpu);
     save->cpu.eflags = 0;
+
+    // Unconditional like the i386/amd64 blocks above — struct cpu_state's
+    // arm64 fields are always-present siblings (aarch64_guest_plan.md
+    // patch 2), so there's no harm initializing them for a non-arm64 task;
+    // only the abi-matched engine ever reads them.
+    memset(save->cpu.arm64_regs, 0, sizeof(save->cpu.arm64_regs));
+    save->cpu.arm64_pc = entry;
+    save->cpu.arm64_sp = sp;
+    save->cpu.arm64_nf = save->cpu.arm64_zf = save->cpu.arm64_cf = save->cpu.arm64_vf = false;
+    save->cpu.arm64_excl_addr = UINT64_MAX;
+    save->cpu.arm64_excl_val = 0;
+    save->cpu.arm64_fpsr = 0;
+    save->cpu.arm64_fpcr = 0;
+    memset(save->cpu.arm64_v, 0, sizeof(save->cpu.arm64_v));
 
     err = 0;
 out_free_interp:

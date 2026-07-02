@@ -3095,6 +3095,24 @@ static void amd64_syscall_seed_legacy_regs(struct cpu_state *cpu) {
     cpu->amd64_syscall.r11 = cpu->eflags;
 }
 
+static void handle_arm64_syscall_interrupt(struct cpu_state *cpu) {
+    if (current->abi != GUEST_ABI_ARM64) {
+        printk("ERROR: %d(%s) arm64 SVC in non-arm64 task at pc=%#llx\n",
+               current->pid, current->comm, (unsigned long long) cpu->arm64_pc);
+        struct siginfo_ info = {
+            .code = ILL_ILLOPC_,
+            .fault.addr = current_fault_ip(cpu),
+        };
+        deliver_signal(current, SIGILL_, info);
+        return;
+    }
+    // No legacy-register-seeding equivalent to amd64_syscall_seed_legacy_regs
+    // below: that exists because amd64 grew out of the i386-only register
+    // file and some code paths still read the i386 mirror fields. arm64
+    // never had that history — nothing reads cpu->eax/etc for an arm64 task.
+    handle_syscall_interrupt(cpu);
+}
+
 static void handle_amd64_syscall_interrupt(struct cpu_state *cpu) {
     qword_t rip_before = cpu->amd64_rip;
     if (current->abi != GUEST_ABI_AMD64) {
@@ -4459,6 +4477,9 @@ void handle_interrupt(int interrupt) {
             break;
         case INT_AMD64_SYSCALL:
             handle_amd64_syscall_interrupt(cpu);
+            break;
+        case INT_ARM64_SVC:
+            handle_arm64_syscall_interrupt(cpu);
             break;
         case INT_PF:
             handle_page_fault_interrupt(cpu);

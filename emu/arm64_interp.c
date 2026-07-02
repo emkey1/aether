@@ -374,6 +374,39 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
         return INT_NONE;
     }
 
+    // CAS (LSE atomic compare-and-swap) — adapted mask and field layout
+    // (OpenMinis gen.c:2134): size:001000:1:A:1:Rs:R:11111:Rn:Rt. Acquire/
+    // release (A/R) barrier semantics are not modeled — see this file's
+    // header comment. MUST be checked before the load/store-exclusive
+    // family below: CAS's encoding (bits 29:24 = 001000, same top-level
+    // "atomic" group) also matches that check's broader 0x3f000000 mask —
+    // OpenMinis' gen.c checks CAS first (line 2134) for exactly this
+    // reason (their load/store-exclusive check is at line 2942, later in
+    // the same file); getting this ordering backwards was an actual bug
+    // caught by running a real CAS instruction through this interpreter
+    // (it fell into the load/store-exclusive handler's `o2 != 0` reject
+    // path and raised INT_UNDEFINED instead of executing the CAS).
+    if ((insn & 0x3f200c00) == 0x08200c00) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned rs = (insn >> 16) & 0x1f; // expected value in, old value out
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn); // new value
+        unsigned bytes = 1u << size;
+        uint64_t addr = arm64_reg_get_sp(cpu, rn);
+        uint64_t cur = 0;
+        if (!arm64_mem_read(cpu, tlb, addr, &cur, bytes))
+            return INT_PF;
+        uint64_t mask = bytes == 8 ? UINT64_MAX : ((uint64_t) 1 << (bytes * 8)) - 1;
+        uint64_t expected = arm64_reg_get_zr(cpu, rs) & mask;
+        if (cur == expected) {
+            uint64_t newval = arm64_reg_get_zr(cpu, rt);
+            if (!arm64_mem_write(cpu, tlb, addr, &newval, bytes))
+                return INT_PF;
+        }
+        arm64_reg_set_discard(cpu, rs, size == 3, cur); // CAS always writes old value back
+        return INT_NONE;
+    }
+
     // Load/store exclusive register (LDXR/STXR), non-pair, non-STLR* form
     // (o2=0, o1=0) — adapted mask and field layout (OpenMinis gen.c:2942):
     // size:001000:o2:L:o1:Rs:o0:Rt2:Rn:Rt. Pair exclusives (o2=0,o1=1) and
@@ -424,31 +457,6 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
             cpu->arm64_excl_addr = UINT64_MAX; // monitor clears on any STXR, success or not
             arm64_reg_set_discard(cpu, rs, false, ok ? 0 : 1);
         }
-        return INT_NONE;
-    }
-
-    // CAS (LSE atomic compare-and-swap) — adapted mask and field layout
-    // (OpenMinis gen.c:2134): size:001000:1:A:1:Rs:R:11111:Rn:Rt. Acquire/
-    // release (A/R) barrier semantics are not modeled — see this file's
-    // header comment.
-    if ((insn & 0x3f200c00) == 0x08200c00) {
-        unsigned size = (insn >> 30) & 0x3;
-        unsigned rs = (insn >> 16) & 0x1f; // expected value in, old value out
-        unsigned rn = ARM64_RN(insn);
-        unsigned rt = ARM64_RT(insn); // new value
-        unsigned bytes = 1u << size;
-        uint64_t addr = arm64_reg_get_sp(cpu, rn);
-        uint64_t cur = 0;
-        if (!arm64_mem_read(cpu, tlb, addr, &cur, bytes))
-            return INT_PF;
-        uint64_t mask = bytes == 8 ? UINT64_MAX : ((uint64_t) 1 << (bytes * 8)) - 1;
-        uint64_t expected = arm64_reg_get_zr(cpu, rs) & mask;
-        if (cur == expected) {
-            uint64_t newval = arm64_reg_get_zr(cpu, rt);
-            if (!arm64_mem_write(cpu, tlb, addr, &newval, bytes))
-                return INT_PF;
-        }
-        arm64_reg_set_discard(cpu, rs, size == 3, cur); // CAS always writes old value back
         return INT_NONE;
     }
 

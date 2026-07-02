@@ -46,6 +46,16 @@ credits file supports.
   value-check semantics instead, flagged in comments as needing real
   differential testing once multiple guest threads are exercised.
 
+  **Validated the adaptation was worth doing**: patch 5's real-hardware
+  test binaries (`tests/arm64/*.s`) caught a genuine ordering bug — CAS's
+  encoding also matches the broader load/store-exclusive mask, and this
+  file's if-chain checked load/store-exclusive first, misclassifying every
+  CAS instruction. OpenMinis' `gen.c` checks CAS before load/store-exclusive
+  (line 2134 vs 2942) for exactly this reason; the masks I adapted from them
+  were correct, but I got the ordering backwards when transcribing them into
+  a flat if-chain instead of their structure. Fixed by matching their
+  ordering. See `tests/arm64/README.md`.
+
 ## Independently written, informed by their design
 
 - `kernel/abi/arm64.h`, the `GUEST_ABI_ARM64` enum value, and the

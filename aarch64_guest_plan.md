@@ -205,19 +205,56 @@ Exit criteria (unchanged, still pending patch 5): tiny arm64 asm syscall
 tests pass for `write`, `exit`, `openat`, `read`, `mmap`, `mprotect`,
 `brk`, `clone`.
 
-### 5. ELF64 aarch64 Loading and Stack Bootstrap
+### 5. ELF64 aarch64 Loading and Stack Bootstrap — DONE, exit criteria MET
 
-Files: `kernel/exec.c`, `kernel/uname.c`
+Files: `kernel/exec.c`, `jit/jit.c`, `kernel/calls.c`, `emu/cpu.h`, `emu/arm64_interp.c`
 
-Work:
-- Reuse existing ELF64 struct parsing (already present for amd64); only new
-  work is the arm64-specific auxv entries (`AT_PLATFORM = "aarch64"`,
-  `AT_HWCAP`/`AT_HWCAP2` bits for NEON and whatever crypto extensions are
-  actually implemented — start conservative, expand later).
-- `uname -m` reports `aarch64` for arm64 tasks.
+Landed, smaller than expected: exec.c's ELF64/stack/auxv machinery
+(`is_64bit`, `task_abi_desc().elf_platform`, `guest_abi_vm_layout()`) was
+already fully abi-generic from the amd64 port — `AT_PLATFORM` and
+`uname -m` needed zero changes, they just work via patch 1's
+`guest_abi_desc()`. What patch 5 actually needed:
 
-Exit criteria: a trivial static arm64 binary reaches `_start` and exits
-successfully.
+1. Removed the patch-1 `ENOEXEC` guard in `kernel/exec.c`.
+2. Wired `cpu_run_to_interrupt_arm64` into `jit/jit.c`'s
+   `cpu_run_to_interrupt()` — this was originally scoped to patch 8
+   ("Ptrace, Then Native Gadget Engine") but that's wrong: patch 8 is about
+   the *native gadget engine*, and the plain interpreter dispatch needed to
+   exist much earlier for any arm64 code to run at all. Moved here.
+3. Added the unconditional arm64 register-init block in `elf_exec()`
+   (mirrors the existing unconditional i386/amd64 blocks — cpu_state's
+   arm64 fields are always-present siblings, so initializing them for a
+   non-arm64 task is harmless).
+4. Wired `INT_ARM64_SVC` into `kernel/calls.c`'s `handle_interrupt()`
+   switch via a new `handle_arm64_syscall_interrupt()` — **this was missing
+   entirely** and is why the first real test run exited with code 2 instead
+   of running anything: `INT_ARM64_SVC` (258) fell through to
+   `handle_interrupt`'s `default:` case, which does `sys_exit(interrupt)`,
+   and `258 & 0xff == 2`. Not caught by any earlier patch's build check
+   because nothing had ever actually triggered an SVC through the full
+   stack before.
+
+**Exit criteria verified for real**, not just "compiles clean" — three
+hand-assembled test binaries (`tests/arm64/*.s`, built with
+`clang -target aarch64-linux-gnu` + `lld`, no libc) run through the full
+CLI `ish -r / <binary>` path:
+- `arm64_hello.s`: write(2)+exit(2) via SVC — prints "hi", exits 42.
+- `arm64_prologue.s`: STP/LDP prologue+epilogue, BL/RET, ADD-immediate,
+  SUBS-immediate, B.cond, CBZ — exits 0.
+- `arm64_atomics.s`: LDXR/STXR, CAS (success and mismatch/failure cases) —
+  exits 0.
+
+**A real bug found and fixed by this testing**: `arm64_atomics.s` initially
+hit `INT_UNDEFINED` on the CAS instruction. CAS's encoding also matches the
+broader load/store-exclusive family's mask (same top-level "atomic"
+encoding group), and since that check ran first in `arm64_execute`'s
+if-chain, it intercepted CAS and misclassified it. OpenMinis' `gen.c`
+checks CAS before load/store-exclusive for exactly this reason (line 2134
+vs 2942) — I had the masks right but the ordering backwards. Fixed by
+reordering the checks; see `tests/arm64/README.md` for the full story.
+This is precisely the class of bug patch 3's documentation warned "no
+test coverage" would leave undetected — confirmed by finding one the
+moment real testing happened.
 
 ### 6. VDSO
 
@@ -327,15 +364,20 @@ some overhead they don't have to pay).
 
 ## Priority Order
 
-1. ABI scaffolding (patch 1)
-2. Register file + CPU state (patch 2)
-3. Decoder + interpreter core (patch 3)
-4. Syscall table (patch 4)
-5. ELF64 loading + stack bootstrap (patch 5)
+1. ABI scaffolding (patch 1) — DONE
+2. Register file + CPU state (patch 2) — DONE
+3. Decoder + interpreter core (patch 3) — DONE (scope-cut)
+4. Syscall table (patch 4) — DONE (scaffolding)
+5. ELF64 loading + stack bootstrap, interpreter wired into jit.c dispatch,
+   INT_ARM64_SVC wired into handle_interrupt (patch 5) — DONE, exit
+   criteria verified with real hand-assembled test binaries
 6. TLS/threads/signals (patch 7) — VDSO (patch 6) can interleave or lag
-7. Dynamic userland bring-up (milestone 3-4)
-8. Ptrace (patch 8, interpreter-only)
-9. Native gadget engine (patch 8, second half)
+7. Dynamic userland bring-up (milestone 3-4) — needs an arm64 rootfs, not
+   yet built
+8. Ptrace (originally scoped here; the interpreter-dispatch wiring itself
+   moved to patch 5 once it became clear ptrace needs something to observe,
+   which needs real execution, which needs that wiring)
+9. Native gadget engine (still patch 8)
 10. Mixed-arch validation (milestone 6)
 
 ## Notes

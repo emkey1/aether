@@ -16,9 +16,9 @@ struct tlb;
 struct task;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
-// Not yet wired into jit.c's dispatch (aarch64_guest_plan.md patch 8) — only
-// reachable directly, e.g. from tests that hand-assemble arm64 instructions
-// into a tlb and call this. kernel/exec.c still rejects GUEST_ABI_ARM64 exec.
+// Wired into jit.c's cpu_run_to_interrupt() dispatch as of
+// aarch64_guest_plan.md patch 5 — interpreter-only, no native gadget
+// engine yet (that's patch 8, jit/guest-arm64/).
 int cpu_run_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu);
