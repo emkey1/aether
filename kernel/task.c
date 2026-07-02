@@ -447,6 +447,16 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
             atomic_fetch_add_explicit(&quiesce_pokes_skipped, 1, memory_order_relaxed);
             continue;
         }
+        // Same reasoning for a sibling parked in task_wait_for_mem_quiesce
+        // (quiesce_parked, task.h): it holds no read lock, and under a
+        // barrier storm (one mprotect per pthread_create in the thread
+        // benchmark) re-signalling every parked sibling each poke round is
+        // exactly the SIGUSR1 flood that melted the host scheduler. Same
+        // stale-read recovery contract as io_block above.
+        if (atomic_load_explicit(&other->quiesce_parked, memory_order_relaxed)) {
+            atomic_fetch_add_explicit(&quiesce_pokes_skipped, 1, memory_order_relaxed);
+            continue;
+        }
         pthread_kill(other->thread, SIGUSR1);
         atomic_fetch_add_explicit(&quiesce_pokes_sent, 1, memory_order_relaxed);
         if (other->cpu.poked_ptr == NULL)
@@ -458,11 +468,17 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
 
 static void task_wait_for_mem_quiesce(struct task *task) {
     struct mem *mem = task != NULL ? task->mem : NULL;
+    if (mem == NULL ||
+            atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) == 0)
+        return;
+    // No mem read lock is held in here, so poking us can't help the barrier
+    // writer — flag ourselves skippable (quiesce_parked, task.h). Cleared
+    // before returning: the caller takes the read lock right after.
+    atomic_store_explicit(&task->quiesce_parked, true, memory_order_relaxed);
     int spins = 0;
-    while (mem != NULL &&
-           atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0) {
-        mem_quiesce_backoff(&spins);
-    }
+    while (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0)
+        mem_quiesce_wait(mem, &spins);
+    atomic_store_explicit(&task->quiesce_parked, false, memory_order_relaxed);
 }
 
 void task_run_current(void) {

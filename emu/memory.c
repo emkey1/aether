@@ -52,6 +52,26 @@ void quiesce_stats_dump(const char *tag) {
         atomic_load_explicit(&quiesce_pokes_skipped, memory_order_relaxed));
 }
 
+// Quiesce parking lot (see memory.h's mem_quiesce_wait). No missed wakeup:
+// the parker re-checks quiesce_requested UNDER the mutex, and the release
+// side broadcasts UNDER the same mutex after decrementing — if the parker
+// saw the count still up, the writer's broadcast necessarily happens after
+// the parker is in pthread_cond_wait. SIGUSR1 pokes landing on a parked
+// thread just bounce off pthread_cond_wait's internal restart (the re-check
+// loop absorbs spurious wakeups either way).
+void mem_quiesce_park(struct mem *mem) {
+    pthread_mutex_lock(&mem->quiesce_park_lock);
+    while (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0)
+        pthread_cond_wait(&mem->quiesce_park_cond, &mem->quiesce_park_lock);
+    pthread_mutex_unlock(&mem->quiesce_park_lock);
+}
+
+void mem_quiesce_wake_parked(struct mem *mem) {
+    pthread_mutex_lock(&mem->quiesce_park_lock);
+    pthread_cond_broadcast(&mem->quiesce_park_cond);
+    pthread_mutex_unlock(&mem->quiesce_park_lock);
+}
+
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
 extern dword_t extra_lock_pid;
@@ -344,6 +364,8 @@ void mem_init(struct mem *mem) {
     mem->mmap_floor = MEM_DEFAULT_MMAP_FLOOR;
     mem->mmap_ceiling = MEM_DEFAULT_MMAP_CEILING;
     atomic_init(&mem->quiesce_requested, 0);
+    pthread_mutex_init(&mem->quiesce_park_lock, NULL);
+    pthread_cond_init(&mem->quiesce_park_cond, NULL);
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.requires_write_revalidate = mem_uses_host_page_mirroring();
 #if ENGINE_JIT
@@ -387,6 +409,8 @@ void mem_destroy(struct mem *mem) {
 
     write_unlock_and_destroy(&mem->lock);
     pthread_mutex_destroy(&mem->pt_alloc_lock);
+    pthread_mutex_destroy(&mem->quiesce_park_lock);
+    pthread_cond_destroy(&mem->quiesce_park_cond);
 }
 
 void mem_set_page_limit(struct mem *mem, page_t limit) {

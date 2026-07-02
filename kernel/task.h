@@ -127,6 +127,13 @@ struct task {
     bool zombie;
     bool exiting;
     bool io_block;
+    // Set while this task sits in task_wait_for_mem_quiesce (no mem read lock
+    // held), cleared before it can re-take one. Lets task_poke_shared_mem skip
+    // the SIGUSR1 the same way it skips io_block tasks: a parked sibling holds
+    // no read lock, so poking it can't help the barrier writer. Relaxed
+    // atomics; a stale read is recovered by the writer's every-64-attempts
+    // re-poke, same recovery contract as the io_block skip.
+    _Atomic bool quiesce_parked;
 
     // this structure is allocated on the stack of the parent's clone() call
     struct vfork_info {
