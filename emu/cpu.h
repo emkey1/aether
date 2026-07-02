@@ -115,6 +115,22 @@ enum amd64_reg {
     amd64_reg_count = 16,
 };
 
+// AArch64 X0-X30. SP and PC are architecturally distinct registers (not
+// X31 — X31 decodes to either XZR or SP depending on instruction context)
+// so they get their own cpu_state fields instead of a 32nd array slot.
+enum arm64_reg {
+    arm64_x0 = 0, arm64_x1 = 1, arm64_x2 = 2, arm64_x3 = 3,
+    arm64_x4 = 4, arm64_x5 = 5, arm64_x6 = 6, arm64_x7 = 7,
+    arm64_x8 = 8, arm64_x9 = 9, arm64_x10 = 10, arm64_x11 = 11,
+    arm64_x12 = 12, arm64_x13 = 13, arm64_x14 = 14, arm64_x15 = 15,
+    arm64_x16 = 16, arm64_x17 = 17, arm64_x18 = 18, arm64_x19 = 19,
+    arm64_x20 = 20, arm64_x21 = 21, arm64_x22 = 22, arm64_x23 = 23,
+    arm64_x24 = 24, arm64_x25 = 25, arm64_x26 = 26, arm64_x27 = 27,
+    arm64_x28 = 28, arm64_x29 = 29, // x29 is the frame pointer by convention
+    arm64_x30 = 30, // link register (LR) by convention
+    arm64_reg_count = 31,
+};
+
 // Full guest-visible amd64 register state is still a separate bring-up task.
 // Until then, keep syscall-entry registers in a shadow block so the kernel can
 // route amd64 syscalls without forcing the interpreter/JIT state layout over in
@@ -202,6 +218,24 @@ struct cpu_state {
     struct amd64_syscall_state amd64_syscall;
     struct amd64_store_trace amd64_store_trace[AMD64_STORE_TRACE_COUNT];
     unsigned amd64_store_trace_next;
+
+    // AArch64 guest register file. Siblings of the i386/amd64 fields above,
+    // not a union — same pattern as amd64_regs, so i386/amd64 tasks pay
+    // nothing but the (currently zero-initialized, unused) memory. SP and PC
+    // are separate from arm64_regs[] per the arm64_reg enum comment above.
+    // PSTATE is stored raw (NZCV + DAIF + other bits) rather than decoded
+    // into per-flag bitfields the way eflags is — lazy NZCV flag computation
+    // mirroring collapse_flags()/expand_flags() is decode-time work that
+    // belongs with the interpreter (aarch64_guest_plan.md patch 3), not here.
+    qword_t arm64_regs[arm64_reg_count];
+    qword_t arm64_sp;
+    qword_t arm64_pc;
+    dword_t arm64_pstate;
+    // V0-V31 are 128-bit, same layout as SSE's xmm[16] — reuse union xmm_reg
+    // rather than duplicating an identical union under a new name.
+    union xmm_reg arm64_v[32];
+    dword_t arm64_fpsr;
+    dword_t arm64_fpcr;
 
     // flags
     union {
