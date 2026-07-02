@@ -617,8 +617,10 @@ dp3_store:
 1:  gret
 
 // CRC32{B,H,W,X} / CRC32C{B,H,W,X}: Wd = crc(Wn, Rm<sz>). The host has
-// FEAT_CRC32 everywhere we run. [gadget][rd | rn<<8 | rm<<16 | sz<<24 |
-// c<<26]
+// FEAT_CRC32 everywhere we run, but Xcode's default -arch arm64 assembler
+// target doesn't advertise it — enable it explicitly for this file.
+// [gadget][rd | rn<<8 | rm<<16 | sz<<24 | c<<26]
+.arch_extension crc
 .gadget crc32
     ldr x8, [_ip]
     add _ip, _ip, #8

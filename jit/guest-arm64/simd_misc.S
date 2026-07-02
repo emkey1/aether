@@ -20,6 +20,11 @@
 
 #include "gadgets.h"
 
+// PMULL/PMULL2's 1Q form is in the AES/crypto extension, which Xcode's
+// default -arch arm64 assembler target doesn't advertise (every host we
+// run on has it). Enable it explicitly for this file.
+.arch_extension aes
+
 .text
 
 // ---- two-reg misc, integer: Vd = op(Vn), per-size validity ---------------
