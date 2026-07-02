@@ -31,10 +31,15 @@ credits file supports.
   no equivalent in their arm64-only build.
 - `emu/arm64_interp.c` — the bit-field masks and layouts for the trickier
   encodings (load/store exclusive LDXR/STXR, CAS, LDP/STP, LDR/STR
-  unsigned-immediate, MOVN/MOVZ/MOVK, ADD/SUB immediate, B/BL/B.cond/CBZ/
-  CBNZ/TBZ/TBNZ/BR/BLR/RET, ADR/ADRP, SVC) are adapted from their
-  `asbestos/guest-arm64/gen.c`, cited by source line number in the comment
-  above each decode site in this file. Their file is a JIT code generator
+  unsigned-immediate, MOVN/MOVZ/MOVK, ADD/SUB immediate, Logical immediate
+  AND/ORR/EOR/ANDS, B/BL/B.cond/CBZ/CBNZ/TBZ/TBNZ/BR/BLR/RET, ADR/ADRP, SVC)
+  are adapted from their `asbestos/guest-arm64/gen.c`, cited by source line
+  number in the comment above each decode site in this file. Also includes
+  `arm64_decode_bitmask_imm`, a direct translation of their
+  `decode_bitmask_imm` (gen.c:1018) — itself a transcription of the ARM
+  ARM's DecodeBitMasks pseudocode, so algorithmically an ISA fact, but the
+  code structure (loop-based highest-set-bit search, variable naming) came
+  from their file. Their file is a JIT code generator
   (decode and gadget-emission fused together); only the decode/field-layout
   logic is adapted here — the actual arithmetic and flag-computation
   semantics are original, since a same-architecture JIT has no portable-C

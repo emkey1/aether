@@ -153,6 +153,52 @@ static inline void arm64_set_flags_sub(struct cpu_state *cpu, uint64_t a, uint64
     cpu->arm64_vf = (sa != sb) && (sr != sa);
 }
 
+// ---- Bitmask immediate decode (AArch64 "DecodeBitMasks", immN:imms:immr
+// form) ---------------------------------------------------------------
+// Adapted from OpenMinis/ish-arm64's asbestos/guest-arm64/gen.c:1018
+// (GPLv3, see /CREDITS-aarch64.md). This is a direct translation of the
+// ARM ARM's DecodeBitMasks pseudocode — algorithmically an ISA fact, not
+// really anyone's expression — but the code structure (loop-based
+// highest-set-bit search rather than a De Bruijn/clz trick, the specific
+// variable names) came from their file, so it's credited as adapted
+// rather than independently derived. Added when patch 3's original
+// "logical (immediate) deferred" scope cut turned out to block literally
+// the first instruction executed by musl's dynamic linker on real Alpine
+// aarch64 userland — see aarch64_guest_plan.md's patch-3 addendum.
+static bool arm64_decode_bitmask_imm(uint32_t n, uint32_t imms, uint32_t immr, bool is64, uint64_t *result) {
+    uint32_t len = 0;
+    uint32_t combined = (n << 6) | (~imms & 0x3f);
+    bool found = false;
+    for (int i = 6; i >= 0; i--) {
+        if (combined & (1u << i)) {
+            len = (uint32_t) i;
+            found = true;
+            break;
+        }
+    }
+    if (!found || len < 1)
+        return false;
+
+    uint32_t size = 1u << len;
+    uint32_t s = imms & (size - 1);
+    uint32_t r = immr & (size - 1);
+    if (s == size - 1)
+        return false;
+
+    uint64_t pattern = (1ULL << (s + 1)) - 1;
+    if (r > 0) {
+        pattern = (pattern >> r) | (pattern << (size - r));
+        pattern &= (size < 64) ? ((1ULL << size) - 1) : ~0ULL;
+    }
+
+    *result = 0;
+    for (uint32_t i = 0; i < 64; i += size)
+        *result |= pattern << i;
+    if (!is64)
+        *result &= 0xffffffffu;
+    return true;
+}
+
 // ---- Instruction execution ----------------------------------------------
 // Returns INT_NONE on success, or an interrupt code (INT_UNDEFINED,
 // INT_PF, INT_ARM64_SVC) to unwind to the caller. cpu->arm64_pc has already
@@ -197,6 +243,49 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
             // Non-flag-setting variant: Rd=31 is a real destination (SP).
             arm64_reg_set_sp(cpu, rd, sf, result);
         }
+        return INT_NONE;
+    }
+
+    // Logical (immediate): AND/ORR/EOR/ANDS — mask derived to match
+    // bits[28:23]=100100 (adjacent to, but distinct from, MOVN/MOVZ/MOVK's
+    // 100101 below — the two differ only in bit 23). Field layout per
+    // OpenMinis gen.c:1469-1476; the ORR-with-Rn=XZR case is the "MOV
+    // (bitmask immediate)" alias, handled for free since arm64_reg_get_zr
+    // already returns 0 for Rn=31 — no special-casing needed. Added after
+    // patch 5 testing showed this is the very first instruction musl's
+    // dynamic linker executes, not a rarely-hit case.
+    if ((insn & 0x1f800000) == 0x12000000) {
+        bool sf = ARM64_SF(insn);
+        unsigned opc = (insn >> 29) & 0x3;
+        unsigned N = (insn >> 22) & 1;
+        unsigned immr = (insn >> 16) & 0x3f;
+        unsigned imms = (insn >> 10) & 0x3f;
+        unsigned rn = ARM64_RN(insn);
+        unsigned rd = ARM64_RD(insn);
+        if (!sf && N != 0)
+            return INT_UNDEFINED; // N=1 with sf=0 is unallocated
+        uint64_t imm;
+        if (!arm64_decode_bitmask_imm(N, imms, immr, sf, &imm))
+            return INT_UNDEFINED;
+        uint64_t src = arm64_reg_get(cpu, rn, sf);
+        uint64_t result;
+        switch (opc) {
+        case 0b00: result = src & imm; break;  // AND
+        case 0b01: result = src | imm; break;  // ORR (Rn=31 -> MOV alias)
+        case 0b10: result = src ^ imm; break;  // EOR
+        case 0b11:                              // ANDS
+            result = src & imm;
+            cpu->arm64_nf = (result >> (sf ? 63 : 31)) & 1;
+            cpu->arm64_zf = (sf ? result == 0 : (result & 0xffffffffu) == 0);
+            cpu->arm64_cf = false; // ANDS always clears C and V
+            cpu->arm64_vf = false;
+            break;
+        default:
+            return INT_UNDEFINED;
+        }
+        // Not SP-capable (unlike ADD/SUB immediate) — Rd=31 is always XZR
+        // discard here, never SP.
+        arm64_reg_set_discard(cpu, rd, sf, result);
         return INT_NONE;
     }
 

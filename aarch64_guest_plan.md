@@ -141,25 +141,33 @@ a standalone scratch check.
 
 **Explicitly deferred** (raises `INT_UNDEFINED`, does not silently
 misexecute):
-- Logical (immediate): AND/ORR/EOR/ANDS — needs the ARM "DecodeBitMasks"
-  bitmask-immediate algorithm, substantial enough to warrant its own pass.
+- ~~Logical (immediate): AND/ORR/EOR/ANDS~~ — **added post-patch-5**, see
+  below. Turned out to be far more urgent than "substantial enough to
+  warrant its own pass" suggested.
 - Data-processing (register): logical-shifted-register (incl. the
   register-form MOV alias), add/subtract shifted/extended register,
-  conditional select, 1-/2-source ops (MUL, UDIV/SDIV, CLZ, etc).
+  conditional select, 1-/2-source ops (MUL, UDIV/SDIV, CLZ, etc). **Now
+  confirmed as the actual next blocker** — see patch 5's real-rootfs
+  findings below and `tests/arm64/README.md`.
 - LDXP/STXP (pair exclusives), STLR/LDAR (non-exclusive acquire/release),
   LSE atomic RMW beyond CAS (LDADD/LDCLR/etc).
 - LDR (literal, PC-relative), sign-extending LDRSB/LDRSH/LDRSW.
 - All SIMD/FP instructions.
 
-**Not yet exercised by any test.** The memory-touching paths (LDR/STR/LDP/
-STP/LDXR/STXR/CAS) compile clean but have no test coverage yet — this
-codebase's convention (see `emu/amd64_interp.c`'s sibling tests) is to
-exercise the interpreter via real guest binaries through the full stack,
-not host-side unit tests with a mocked `tlb`/`mmu`. That path doesn't exist
-until patch 4 (syscall table) and patch 5 (ELF loading) land and the
-patch-1 `ENOEXEC` guard in `kernel/exec.c` can be lifted. Treat the
-memory-touching instruction handlers as unverified until then — this is a
-real gap, not a formality.
+**Was "not yet exercised by any test" — now is, and testing paid off
+immediately.** Once patch 5 lifted the `ENOEXEC` guard and wired real
+execution end-to-end, three hand-assembled test binaries (`tests/arm64/`)
+validated the memory-touching paths for real and caught a genuine bug (CAS
+mask-ordering, see patch 5 below). Testing against the real Alpine aarch64
+rootfs went further and found that Logical (immediate) — deferred here as
+lower-priority — is literally the first instruction musl's dynamic linker
+executes. Added `arm64_decode_bitmask_imm` (adapted from OpenMinis'
+`decode_bitmask_imm`) and full AND/ORR/EOR/ANDS support in response,
+validated with a fourth test (`arm64_logical.s`) and confirmed to unblock
+2 more real instructions of `ld.so` before hitting the next (DP_REG)
+blocker. This is the priority-inversion risk of planning instruction
+coverage from the ISA manual instead of from what real code actually
+executes first — corrected as soon as real data was available.
 
 Revised exit criteria (the original "hand-written asm tests pass" bar
 assumed a test harness that doesn't fit this codebase's conventions):
