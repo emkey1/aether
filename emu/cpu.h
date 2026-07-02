@@ -16,6 +16,10 @@ struct tlb;
 struct task;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
+// Not yet wired into jit.c's dispatch (aarch64_guest_plan.md patch 8) — only
+// reachable directly, e.g. from tests that hand-assemble arm64 instructions
+// into a tlb and call this. kernel/exec.c still rejects GUEST_ABI_ARM64 exec.
+int cpu_run_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu);
 int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb);
@@ -223,14 +227,28 @@ struct cpu_state {
     // not a union — same pattern as amd64_regs, so i386/amd64 tasks pay
     // nothing but the (currently zero-initialized, unused) memory. SP and PC
     // are separate from arm64_regs[] per the arm64_reg enum comment above.
-    // PSTATE is stored raw (NZCV + DAIF + other bits) rather than decoded
-    // into per-flag bitfields the way eflags is — lazy NZCV flag computation
-    // mirroring collapse_flags()/expand_flags() is decode-time work that
-    // belongs with the interpreter (aarch64_guest_plan.md patch 3), not here.
     qword_t arm64_regs[arm64_reg_count];
     qword_t arm64_sp;
     qword_t arm64_pc;
-    dword_t arm64_pstate;
+    // NZCV condition flags, stored decoded (not packed into a raw PSTATE
+    // word) since every consumer — arm64_cond_check() in decode.h, the
+    // interpreter's flag-setting instructions — wants them as individual
+    // bits. OpenMinis' ish-arm64 (emu/arch/arm64/cpu.h) keeps both this
+    // decoded form AND a redundant packed `nzcv` field manually kept in
+    // sync via arm64_set_nzcv()/arm64_sync_nzcv(); we deliberately don't
+    // carry that redundant field — one representation, no sync-drift class
+    // of bug. A packed-NZCV accessor can be added later (e.g. for ptrace
+    // NT_PRSTATUS) as a pure function computed from these fields, not a
+    // second stored copy. Named arm64_-prefixed because bare `nf`/`zf`/`cf`
+    // would collide with the existing i386 eflags-bitfield field names
+    // above (cpu->cf, cpu->zf) in this same shared struct.
+    bool arm64_nf, arm64_zf, arm64_cf, arm64_vf;
+    // Exclusive monitor for LDXR/STXR (and CAS's fallback path). addr is
+    // the guest address covered by the last LDXR; UINT64_MAX means "no
+    // outstanding exclusive". Cleared on STXR/STLXR regardless of success,
+    // per the architecture (a local monitor covers exactly one reservation).
+    qword_t arm64_excl_addr;
+    qword_t arm64_excl_val;
     // V0-V31 are 128-bit, same layout as SSE's xmm[16] — reuse union xmm_reg
     // rather than duplicating an identical union under a new name.
     union xmm_reg arm64_v[32];

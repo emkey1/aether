@@ -1,0 +1,491 @@
+// AArch64 guest interpreter. Per aarch64_guest_plan.md patch 3: a bounded
+// but real instruction set — enough for a hand-assembled function prologue/
+// epilogue, a PLT-style ADRP+load+branch sequence, LDXR/STXR/CAS atomic
+// update loops, and SVC entry — mirroring emu/amd64_interp.c's structure
+// (interpreter first, JIT later) and I/O conventions (tlb_read/tlb_write,
+// segfault_addr on fault, INT_* return codes).
+//
+// Bit-field masks for the trickier encodings (load/store exclusive, CAS,
+// LDP/STP indexing modes) are adapted from OpenMinis/ish-arm64's
+// asbestos/guest-arm64/gen.c, a GPLv3 fork of ish-app/ish — see
+// /CREDITS-aarch64.md. That file is a JIT code generator (decode + gadget
+// selection fused together); the actual arithmetic/flag semantics here are
+// original, since a same-architecture JIT has no portable-C expression of
+// "what ADD means" to adapt — the real hardware executes it. Only the
+// decode.h helpers (kernel/abi.h-adjacent bit extraction, condition-code
+// evaluation) and the specific mask/field layouts cited in comments below
+// are adapted; the interpreter dispatch loop, register/memory helpers, and
+// flag computation are written against this codebase's own conventions.
+//
+// Deliberately NOT implemented in this patch (all follow-up work):
+//   - Logical (immediate) AND/ORR/EOR/ANDS — needs the ARM "DecodeBitMasks"
+//     bitmask-immediate algorithm, substantial enough to warrant its own
+//     pass rather than being rushed into this one.
+//   - Data-processing (register): logical-shifted-register, add/subtract
+//     shifted/extended register, conditional select, 1-/2-source (MUL,
+//     UDIV/SDIV, CLZ, etc). Function prologues in practice route around
+//     needing these (MOV Xd,SP is ADD-immediate with imm=0; simple
+//     register moves can be avoided in hand-written test code).
+//   - LDXP/STXP (pair exclusives), STLR/LDAR (non-exclusive acquire/
+//     release), LSE atomic RMW (LDADD/LDCLR/etc, distinct from CAS).
+//   - LDR (literal, PC-relative), sign-extending LDRSB/LDRSH/LDRSW.
+//   - All SIMD/FP instructions.
+// Anything not decoded below raises INT_UNDEFINED, matching how i386/amd64
+// handle unimplemented opcodes — no silent misexecution.
+
+#include "misc.h"
+#include "emu/cpu.h"
+#include "emu/tlb.h"
+#include "emu/interrupt.h"
+#include "emu/arch/arm64/decode.h"
+#include "kernel/abi.h"
+
+// ---- Register access -------------------------------------------------
+//
+// AArch64's register field 31 is context-dependent: in most data-processing
+// instructions it means XZR (reads as zero, writes discarded); in the
+// immediate add/subtract family and in load/store base-register position it
+// means SP. Each decode site below picks the right accessor explicitly
+// rather than trying to infer it generically.
+
+static inline uint64_t arm64_reg_get_zr(const struct cpu_state *cpu, unsigned n) {
+    if (n == 31)
+        return 0;
+    return cpu->arm64_regs[n];
+}
+
+static inline uint64_t arm64_reg_get_sp(const struct cpu_state *cpu, unsigned n) {
+    if (n == 31)
+        return cpu->arm64_sp;
+    return cpu->arm64_regs[n];
+}
+
+// sf: true = 64-bit (Xn), false = 32-bit (Wn, zero-extended on read here
+// only insofar as the stored value is always the full 64-bit register —
+// callers that want the 32-bit view mask the result themselves).
+static inline uint64_t arm64_reg_get(const struct cpu_state *cpu, unsigned n, bool sf) {
+    uint64_t v = arm64_reg_get_zr(cpu, n);
+    return sf ? v : (v & 0xffffffffu);
+}
+
+// Writing Wd (sf=false) zero-extends into the full Xd register — an
+// architectural rule, not an implementation choice (ARM ARM, "Register
+// arguments" preamble to A64 instruction descriptions).
+static inline void arm64_reg_set_discard(struct cpu_state *cpu, unsigned n, bool sf, uint64_t val) {
+    if (n == 31)
+        return; // XZR: write discarded
+    cpu->arm64_regs[n] = sf ? val : (val & 0xffffffffu);
+}
+
+static inline void arm64_reg_set_sp(struct cpu_state *cpu, unsigned n, bool sf, uint64_t val) {
+    uint64_t masked = sf ? val : (val & 0xffffffffu);
+    if (n == 31)
+        cpu->arm64_sp = masked;
+    else
+        cpu->arm64_regs[n] = masked;
+}
+
+// ---- Memory access -----------------------------------------------------
+// Mirrors amd64_mem_read/amd64_mem_write's fault-reporting contract
+// (emu/amd64_interp.c:3488-3529): validate the address range for this ABI,
+// then tlb_read/tlb_write, recording segfault_addr/segfault_was_write and
+// returning false on either failure so the caller can return INT_PF.
+
+static inline bool arm64_mem_read(struct cpu_state *cpu, struct tlb *tlb,
+        guest_addr_t addr, void *out, unsigned size) {
+    if (!guest_abi_range_valid(GUEST_ABI_ARM64, addr, size)) {
+        cpu->segfault_addr = addr;
+        cpu->segfault_was_write = false;
+        return false;
+    }
+    tlb->segfault_addr = 0;
+    if (!tlb_read(tlb, addr, out, size)) {
+        cpu->segfault_addr = tlb->segfault_addr != 0 ? tlb->segfault_addr : addr;
+        cpu->segfault_was_write = false;
+        return false;
+    }
+    return true;
+}
+
+static inline bool arm64_mem_write(struct cpu_state *cpu, struct tlb *tlb,
+        guest_addr_t addr, const void *value, unsigned size) {
+    if (!guest_abi_range_valid(GUEST_ABI_ARM64, addr, size)) {
+        cpu->segfault_addr = addr;
+        cpu->segfault_was_write = true;
+        return false;
+    }
+    tlb->segfault_addr = 0;
+    if (!tlb_write(tlb, addr, value, size)) {
+        cpu->segfault_addr = tlb->segfault_addr != 0 ? tlb->segfault_addr : addr;
+        cpu->segfault_was_write = true;
+        return false;
+    }
+    return true;
+}
+
+// ---- Flag computation ---------------------------------------------------
+// NZCV for ADD/SUB, computed generically over a 32- or 64-bit operand width.
+// a, b, and result are the *unmasked* 64-bit values; width comes from sf.
+
+static inline void arm64_set_flags_add(struct cpu_state *cpu, uint64_t a, uint64_t b, bool sf) {
+    unsigned width = sf ? 64 : 32;
+    uint64_t mask = sf ? UINT64_MAX : 0xffffffffu;
+    uint64_t am = a & mask, bm = b & mask;
+    uint64_t res = (am + bm) & mask;
+    cpu->arm64_nf = (res >> (width - 1)) & 1;
+    cpu->arm64_zf = (res == 0);
+    unsigned __int128 wide = (unsigned __int128) am + (unsigned __int128) bm;
+    cpu->arm64_cf = ((wide >> width) & 1) != 0;
+    bool sa = (am >> (width - 1)) & 1, sb = (bm >> (width - 1)) & 1, sr = (res >> (width - 1)) & 1;
+    cpu->arm64_vf = (sa == sb) && (sr != sa);
+}
+
+static inline void arm64_set_flags_sub(struct cpu_state *cpu, uint64_t a, uint64_t b, bool sf) {
+    unsigned width = sf ? 64 : 32;
+    uint64_t mask = sf ? UINT64_MAX : 0xffffffffu;
+    uint64_t am = a & mask, bm = b & mask;
+    uint64_t res = (am - bm) & mask;
+    cpu->arm64_nf = (res >> (width - 1)) & 1;
+    cpu->arm64_zf = (res == 0);
+    // SUB's carry is "NOT borrow": set when no borrow was needed, i.e. am >= bm.
+    cpu->arm64_cf = (am >= bm);
+    bool sa = (am >> (width - 1)) & 1, sb = (bm >> (width - 1)) & 1, sr = (res >> (width - 1)) & 1;
+    cpu->arm64_vf = (sa != sb) && (sr != sa);
+}
+
+// ---- Instruction execution ----------------------------------------------
+// Returns INT_NONE on success, or an interrupt code (INT_UNDEFINED,
+// INT_PF, INT_ARM64_SVC) to unwind to the caller. cpu->arm64_pc has already
+// been advanced past the just-fetched instruction; branch/call handlers
+// overwrite it explicitly.
+
+static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, guest_addr_t insn_addr) {
+    // ADR/ADRP — adapted mask (OpenMinis gen.c:1314): bits[28:24]=10000.
+    if ((insn & 0x1f000000) == 0x10000000) {
+        unsigned rd = ARM64_RD(insn);
+        bool is_adrp = (insn >> 31) & 1;
+        int64_t imm = arm64_adr_imm(insn);
+        uint64_t target = is_adrp
+            ? (insn_addr & ~(uint64_t) 0xfff) + ((uint64_t) imm << 12)
+            : insn_addr + (uint64_t) imm;
+        arm64_reg_set_discard(cpu, rd, true, target);
+        return INT_NONE;
+    }
+
+    // Add/subtract (immediate) — adapted mask (OpenMinis gen.c:1372, flattened
+    // to a standalone bits[28:24]=10001 test — see this file's header comment
+    // for why the two-stage form in their code is equivalent).
+    if ((insn & 0x1f000000) == 0x11000000) {
+        bool sf = ARM64_SF(insn);
+        bool op_sub = (insn >> 30) & 1;
+        bool S = (insn >> 29) & 1;
+        bool sh = (insn >> 22) & 1;
+        uint64_t imm12 = (insn >> 10) & 0xfff;
+        unsigned rn = ARM64_RN(insn);
+        unsigned rd = ARM64_RD(insn);
+        uint64_t value = imm12 << (sh ? 12 : 0);
+        uint64_t base = arm64_reg_get_sp(cpu, rn);
+        uint64_t result = op_sub ? (base - value) : (base + value);
+        if (S) {
+            if (op_sub)
+                arm64_set_flags_sub(cpu, base, value, sf);
+            else
+                arm64_set_flags_add(cpu, base, value, sf);
+            // Flag-setting variant: Rd=31 is the CMP/CMN alias (discard to ZR).
+            arm64_reg_set_discard(cpu, rd, sf, result);
+        } else {
+            // Non-flag-setting variant: Rd=31 is a real destination (SP).
+            arm64_reg_set_sp(cpu, rd, sf, result);
+        }
+        return INT_NONE;
+    }
+
+    // Move wide (immediate): MOVN/MOVZ/MOVK — adapted mask (OpenMinis
+    // gen.c:1566): bits[28:23]=100101.
+    if ((insn & 0x1f800000) == 0x12800000) {
+        bool sf = ARM64_SF(insn);
+        unsigned opc = (insn >> 29) & 0x3;
+        unsigned hw = (insn >> 21) & 0x3;
+        uint64_t imm16 = (insn >> 5) & 0xffff;
+        unsigned rd = ARM64_RD(insn);
+        if (!sf && hw >= 2)
+            return INT_UNDEFINED; // hw=2,3 only valid for 64-bit
+        unsigned shift = hw * 16;
+        switch (opc) {
+        case 0b00: // MOVN
+            arm64_reg_set_discard(cpu, rd, sf, ~(imm16 << shift));
+            break;
+        case 0b10: // MOVZ
+            arm64_reg_set_discard(cpu, rd, sf, imm16 << shift);
+            break;
+        case 0b11: { // MOVK — replace one 16-bit field, keep the rest
+            uint64_t cur = arm64_reg_get(cpu, rd, sf);
+            uint64_t field_mask = (uint64_t) 0xffff << shift;
+            arm64_reg_set_discard(cpu, rd, sf, (cur & ~field_mask) | (imm16 << shift));
+            break;
+        }
+        default:
+            return INT_UNDEFINED; // opc=01 is unallocated
+        }
+        return INT_NONE;
+    }
+
+    // B, BL — adapted mask (OpenMinis gen.c:1726): bits[30:26]=00101.
+    if ((insn & 0x7c000000) == 0x14000000) {
+        bool is_bl = (insn >> 31) & 1;
+        int64_t offset = arm64_branch_imm26(insn);
+        if (is_bl)
+            arm64_reg_set_discard(cpu, arm64_x30, true, cpu->arm64_pc);
+        cpu->arm64_pc = insn_addr + (uint64_t) offset;
+        return INT_NONE;
+    }
+
+    // B.cond — adapted mask (OpenMinis gen.c:1765): bits[31:25]=0101010, bit4=0.
+    if ((insn & 0xff000010) == 0x54000000) {
+        enum arm64_cond cond = insn & 0xf;
+        if (arm64_cond_check(cpu, cond))
+            cpu->arm64_pc = insn_addr + (uint64_t) arm64_branch_imm19(insn);
+        return INT_NONE;
+    }
+
+    // CBZ, CBNZ — adapted mask (OpenMinis gen.c:1815): bits[30:25]=011010.
+    if ((insn & 0x7e000000) == 0x34000000) {
+        bool sf = ARM64_SF(insn);
+        bool is_cbnz = (insn >> 24) & 1;
+        unsigned rt = insn & 0x1f;
+        uint64_t val = arm64_reg_get(cpu, rt, sf);
+        if ((val == 0) != is_cbnz)
+            cpu->arm64_pc = insn_addr + (uint64_t) arm64_branch_imm19(insn);
+        return INT_NONE;
+    }
+
+    // TBZ, TBNZ — adapted mask (OpenMinis gen.c:1850): bits[30:25]=011011.
+    if ((insn & 0x7e000000) == 0x36000000) {
+        bool is_tbnz = (insn >> 24) & 1;
+        unsigned b5 = (insn >> 31) & 1;
+        unsigned b40 = (insn >> 19) & 0x1f;
+        unsigned bit_pos = (b5 << 5) | b40;
+        unsigned rt = insn & 0x1f;
+        uint64_t val = arm64_reg_get_zr(cpu, rt);
+        bool bit_set = (val >> bit_pos) & 1;
+        if (bit_set == is_tbnz)
+            cpu->arm64_pc = insn_addr + (uint64_t) arm64_branch_imm14(insn);
+        return INT_NONE;
+    }
+
+    // BR, BLR, RET — adapted mask (OpenMinis gen.c:1879): bits[31:25]=1101011.
+    if ((insn & 0xfe000000) == 0xd6000000) {
+        unsigned opc = (insn >> 21) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        uint64_t target = arm64_reg_get_zr(cpu, rn);
+        switch (opc) {
+        case 0: // BR
+            cpu->arm64_pc = target;
+            break;
+        case 1: // BLR
+            arm64_reg_set_discard(cpu, arm64_x30, true, cpu->arm64_pc);
+            cpu->arm64_pc = target;
+            break;
+        case 2: // RET
+            cpu->arm64_pc = target;
+            break;
+        default:
+            return INT_UNDEFINED;
+        }
+        return INT_NONE;
+    }
+
+    // SVC — adapted mask (OpenMinis gen.c:1710): fixed encoding 0xd4000001
+    // (imm16 must be 0 for the Linux syscall convention; other values are
+    // unallocated/reserved here, not decoded).
+    if ((insn & 0xffe0001f) == 0xd4000001) {
+        // Not wired to a syscall table yet (patch 4) — see emu/interrupt.h.
+        return INT_ARM64_SVC;
+    }
+
+    // Load/store register (unsigned immediate), GPR only (V=0) — adapted
+    // mask (OpenMinis gen.c:2218): bits[29:24]=111001 with bit26(V)=0 folded
+    // into the mask/value pair below (0x3b000000/0x39000000 already forces
+    // V=0; V=1 would match 0x3d000000, a different value).
+    if ((insn & 0x3b000000) == 0x39000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        uint64_t imm12 = (insn >> 10) & 0xfff;
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn);
+        if (opc > 1)
+            return INT_UNDEFINED; // sign-extending loads (LDRSB/H/W) not yet implemented
+        bool is_load = opc == 1;
+        unsigned bytes = 1u << size;
+        uint64_t offset = imm12 << size;
+        uint64_t addr = arm64_reg_get_sp(cpu, rn) + offset;
+        if (is_load) {
+            uint64_t val = 0;
+            if (!arm64_mem_read(cpu, tlb, addr, &val, bytes))
+                return INT_PF;
+            arm64_reg_set_discard(cpu, rt, size == 3, val);
+        } else {
+            uint64_t val = arm64_reg_get_zr(cpu, rt);
+            if (!arm64_mem_write(cpu, tlb, addr, &val, bytes))
+                return INT_PF;
+        }
+        return INT_NONE;
+    }
+
+    // Load/store pair (LDP/STP), GPR only (V=0) — adapted mask (OpenMinis
+    // gen.c:2516): bits[29:25]=10100, V=bit26=0.
+    if ((insn & 0x3a000000) == 0x28000000 && ((insn >> 26) & 1) == 0) {
+        unsigned opc = (insn >> 30) & 0x3;
+        unsigned mode = (insn >> 23) & 0x7; // 1=post, 2=offset, 3=pre
+        bool is_load = (insn >> 22) & 1;
+        int64_t imm7 = (insn >> 15) & 0x7f;
+        if (imm7 & 0x40)
+            imm7 |= ~(int64_t) 0x7f; // sign-extend 7 bits
+        unsigned rt2 = ARM64_RT2(insn);
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn);
+        if (opc != 0b00 && opc != 0b10)
+            return INT_UNDEFINED; // opc=01 unallocated, opc=11 is LDPSW (not yet implemented)
+        bool sf = opc == 0b10;
+        unsigned bytes = sf ? 8 : 4;
+        int64_t offset = imm7 * bytes;
+        if (mode != 1 && mode != 2 && mode != 3)
+            return INT_UNDEFINED;
+        uint64_t base = arm64_reg_get_sp(cpu, rn);
+        uint64_t addr = (mode == 1) ? base : (uint64_t) ((int64_t) base + offset);
+        if (is_load) {
+            uint64_t v1 = 0, v2 = 0;
+            if (!arm64_mem_read(cpu, tlb, addr, &v1, bytes))
+                return INT_PF;
+            if (!arm64_mem_read(cpu, tlb, addr + bytes, &v2, bytes))
+                return INT_PF;
+            arm64_reg_set_discard(cpu, rt, sf, v1);
+            arm64_reg_set_discard(cpu, rt2, sf, v2);
+        } else {
+            uint64_t v1 = arm64_reg_get_zr(cpu, rt);
+            uint64_t v2 = arm64_reg_get_zr(cpu, rt2);
+            if (!arm64_mem_write(cpu, tlb, addr, &v1, bytes))
+                return INT_PF;
+            if (!arm64_mem_write(cpu, tlb, addr + bytes, &v2, bytes))
+                return INT_PF;
+        }
+        if (mode == 1 || mode == 3) // post- or pre-index: writeback
+            arm64_reg_set_sp(cpu, rn, true, (uint64_t) ((int64_t) base + offset));
+        return INT_NONE;
+    }
+
+    // Load/store exclusive register (LDXR/STXR), non-pair, non-STLR* form
+    // (o2=0, o1=0) — adapted mask and field layout (OpenMinis gen.c:2942):
+    // size:001000:o2:L:o1:Rs:o0:Rt2:Rn:Rt. Pair exclusives (o2=0,o1=1) and
+    // the non-exclusive acquire/release family (o2=1: STLR/LDAR/etc) are not
+    // yet implemented — see this file's header comment.
+    if ((insn & 0x3f000000) == 0x08000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned o2 = (insn >> 23) & 1;
+        unsigned L = (insn >> 22) & 1;
+        unsigned o1 = (insn >> 21) & 1;
+        unsigned rs = (insn >> 16) & 0x1f;
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn);
+        if (o2 != 0 || o1 != 0)
+            return INT_UNDEFINED; // pair / STLR-family: not yet implemented
+        unsigned bytes = 1u << size;
+        uint64_t addr = arm64_reg_get_sp(cpu, rn);
+        if (L) {
+            // LDXR: record the address and the value read for the local
+            // exclusive monitor. Single-guest-thread-step semantics only —
+            // see the header comment on struct cpu_state's arm64_excl_*
+            // fields regarding real cross-thread atomicity, which is a
+            // differential-testing follow-up, not covered by this patch.
+            uint64_t val = 0;
+            if (!arm64_mem_read(cpu, tlb, addr, &val, bytes))
+                return INT_PF;
+            arm64_reg_set_discard(cpu, rt, size == 3, val);
+            cpu->arm64_excl_addr = addr;
+            cpu->arm64_excl_val = val;
+        } else {
+            // STXR: succeeds only if the monitor is still valid for this
+            // address and the memory value hasn't changed since the LDXR.
+            // Rs receives the status (0 = success, 1 = failure) per the
+            // architecture; the store itself uses the low `bytes` of Rt.
+            bool ok = false;
+            if (cpu->arm64_excl_addr == addr) {
+                uint64_t cur = 0;
+                if (!arm64_mem_read(cpu, tlb, addr, &cur, bytes))
+                    return INT_PF;
+                uint64_t mask = bytes == 8 ? UINT64_MAX : ((uint64_t) 1 << (bytes * 8)) - 1;
+                if ((cur & mask) == (cpu->arm64_excl_val & mask)) {
+                    uint64_t val = arm64_reg_get_zr(cpu, rt);
+                    if (!arm64_mem_write(cpu, tlb, addr, &val, bytes))
+                        return INT_PF;
+                    ok = true;
+                }
+            }
+            cpu->arm64_excl_addr = UINT64_MAX; // monitor clears on any STXR, success or not
+            arm64_reg_set_discard(cpu, rs, false, ok ? 0 : 1);
+        }
+        return INT_NONE;
+    }
+
+    // CAS (LSE atomic compare-and-swap) — adapted mask and field layout
+    // (OpenMinis gen.c:2134): size:001000:1:A:1:Rs:R:11111:Rn:Rt. Acquire/
+    // release (A/R) barrier semantics are not modeled — see this file's
+    // header comment.
+    if ((insn & 0x3f200c00) == 0x08200c00) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned rs = (insn >> 16) & 0x1f; // expected value in, old value out
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn); // new value
+        unsigned bytes = 1u << size;
+        uint64_t addr = arm64_reg_get_sp(cpu, rn);
+        uint64_t cur = 0;
+        if (!arm64_mem_read(cpu, tlb, addr, &cur, bytes))
+            return INT_PF;
+        uint64_t mask = bytes == 8 ? UINT64_MAX : ((uint64_t) 1 << (bytes * 8)) - 1;
+        uint64_t expected = arm64_reg_get_zr(cpu, rs) & mask;
+        if (cur == expected) {
+            uint64_t newval = arm64_reg_get_zr(cpu, rt);
+            if (!arm64_mem_write(cpu, tlb, addr, &newval, bytes))
+                return INT_PF;
+        }
+        arm64_reg_set_discard(cpu, rs, size == 3, cur); // CAS always writes old value back
+        return INT_NONE;
+    }
+
+    return INT_UNDEFINED;
+}
+
+static inline int arm64_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
+    guest_addr_t insn_addr = cpu->arm64_pc;
+    uint32_t insn;
+    if (!arm64_read_insn(&cpu->arm64_pc, tlb, &insn)) {
+        cpu->arm64_pc = insn_addr;
+        cpu->segfault_addr = insn_addr;
+        cpu->segfault_was_write = false;
+        return INT_PF;
+    }
+    return arm64_execute(cpu, tlb, insn, insn_addr);
+}
+
+// Mirrors cpu_run_to_interrupt_amd64's driver loop (emu/amd64_interp.c:13663)
+// minus its extensive per-binary debug tracing, which arm64 has no
+// equivalent of yet (nothing to trace against until later patches land).
+int cpu_run_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
+    cpu->poked_ptr = &cpu->_poked;
+    tlb_refresh(tlb, cpu->mmu);
+
+    int steps = 0;
+    while (true) {
+        int interrupt = arm64_step_to_interrupt(cpu, tlb);
+        if (interrupt == INT_NONE && __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST))
+            interrupt = INT_TIMER;
+        if (interrupt == INT_NONE && ++steps >= 1024) {
+            steps = 0;
+            interrupt = INT_TIMER;
+        }
+        if (interrupt != INT_NONE) {
+            cpu->trapno = interrupt;
+            return interrupt;
+        }
+    }
+}

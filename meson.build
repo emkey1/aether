@@ -86,6 +86,7 @@ emu_src = [
     'emu/mmx.c',
     'emu/float80.c',
     'emu/amd64_interp.c',
+    'emu/arm64_interp.c',
     'jit/jit.c',
     'jit/gen.c',
     'jit/helpers.c',

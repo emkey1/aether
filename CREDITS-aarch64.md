@@ -19,8 +19,32 @@ credits file supports.
 
 ## Adapted / closely modeled on OpenMinis/ish-arm64
 
-_(entries added as patches land — none yet; patch 1 is scaffolding-only and
-introduces no adapted code)_
+- `emu/arch/arm64/decode.h` — adapted near-verbatim from their
+  `emu/arch/arm64/decode.h`: condition-code enum and evaluation
+  (`arm64_cond_check`), instruction classification, sign extension, and
+  branch/ADR immediate extraction. Field names renamed with an `arm64_`
+  prefix (`cpu->arm64_nf` instead of `cpu->nf`) because this codebase's
+  `struct cpu_state` is shared across i386/amd64/arm64 tasks and bare
+  `zf`/`cf` already name the i386 eflags-bitfield fields; `addr_t` (32-bit,
+  i386-specific here) swapped for `guest_addr_t` (64-bit) in
+  `arm64_read_insn`; added a `guest_abi_range_valid` bounds check that has
+  no equivalent in their arm64-only build.
+- `emu/arm64_interp.c` — the bit-field masks and layouts for the trickier
+  encodings (load/store exclusive LDXR/STXR, CAS, LDP/STP, LDR/STR
+  unsigned-immediate, MOVN/MOVZ/MOVK, ADD/SUB immediate, B/BL/B.cond/CBZ/
+  CBNZ/TBZ/TBNZ/BR/BLR/RET, ADR/ADRP, SVC) are adapted from their
+  `asbestos/guest-arm64/gen.c`, cited by source line number in the comment
+  above each decode site in this file. Their file is a JIT code generator
+  (decode and gadget-emission fused together); only the decode/field-layout
+  logic is adapted here — the actual arithmetic and flag-computation
+  semantics are original, since a same-architecture JIT has no portable-C
+  expression of instruction semantics to adapt (the host CPU executes the
+  real instruction natively; there's nothing written down in C to copy).
+  Their exclusive-monitor comment ("For single-threaded emulation, we can
+  treat these as simple loads/stores") is explicitly NOT followed — this
+  codebase is SMP-aware, so LDXR/STXR here implement local-monitor-plus-
+  value-check semantics instead, flagged in comments as needing real
+  differential testing once multiple guest threads are exercised.
 
 ## Independently written, informed by their design
 
@@ -32,6 +56,17 @@ introduces no adapted code)_
   48-bit VA / top-of-address-space stack placement choice mirrors their
   rationale (avoiding a V8 CodeRange collision) but the mechanism differs
   because the surrounding infrastructure differs.
+- `struct cpu_state`'s arm64 register fields (`emu/cpu.h`) — structurally
+  similar to their `emu/arch/arm64/cpu.h` (same register set, same choice to
+  reuse a 128-bit union for V0-V31) but written as siblings within a shared
+  multi-ABI struct rather than a per-arch-build struct, and deliberately
+  without their redundant packed-`nzcv`-kept-in-sync-with-decoded-flags
+  representation (one representation here, no sync-drift risk).
+- `emu/arm64_interp.c`'s overall structure (register/memory access helpers,
+  step-and-dispatch loop, `cpu_run_to_interrupt_arm64` driver) mirrors this
+  codebase's own `emu/amd64_interp.c`, not OpenMinis' code — they have no
+  interpreter (their arm64 support is JIT-only; this codebase does
+  interpreter-first, JIT-later per `aarch64_guest_plan.md`).
 
 ## Syscall numbering reference
 

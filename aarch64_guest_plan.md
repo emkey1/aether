@@ -125,24 +125,48 @@ Work:
 Exit criteria: arm64 register state can be initialized, copied on fork, and
 dumped in crash logs, with i386/amd64 unaffected.
 
-### 3. AArch64 Decoder
+### 3. AArch64 Decoder — DONE (scope-cut), see below
 
-Files: new `emu/arch/arm64/decode.h` or equivalent, new `emu/arm64_interp.c`
+Files: `emu/arch/arm64/decode.h`, `emu/arm64_interp.c`
 
-Work:
-- Fixed-width 32-bit instruction decode (structurally simpler than x86's
-  variable-length decode — no prefix/ModRM/SIB complexity).
-- Reference OpenMinis' `emu/arch/arm64/decode.h` for instruction-class
-  coverage scope, write decode logic to match iSH-AOK's existing interpreter
-  conventions (see `emu/amd64_interp.c` as the sibling to mirror).
-- Required core for dynamic-loader/libc bring-up first: data processing
-  (ADD/SUB/AND/ORR/EOR/MOV variants), load/store (LDR/STR/LDP/STP + addressing
-  modes), branches (B/BL/BR/BLR/RET/CBZ/CBNZ/TBZ/TBNZ/B.cond), SVC (syscall
-  entry).
+Landed: ADR/ADRP, ADD/SUB (immediate, with SP source/dest handling),
+MOVN/MOVZ/MOVK, B/BL, B.cond, CBZ/CBNZ, TBZ/TBNZ, BR/BLR/RET, SVC (traps to
+`INT_ARM64_SVC`, not yet dispatched — patch 4), LDR/STR (unsigned immediate,
+GPR only), LDP/STP (post/pre/signed-offset, GPR only), LDXR/STXR (register,
+non-pair), CAS. Decode masks for the trickier encodings adapted from
+OpenMinis' `asbestos/guest-arm64/gen.c` — see `CREDITS-aarch64.md`.
+Pure-logic pieces (sign extension, branch-immediate decode, ADD/SUB flag
+computation, condition evaluation) verified against hand-computed values in
+a standalone scratch check.
 
-Exit criteria: hand-written arm64 asm tests pass for function prologues,
-PLT-style calls, atomic update loops (LDXR/STXR/CAS), and SVC transitions —
-mirrors amd64 port step 6's exit bar.
+**Explicitly deferred** (raises `INT_UNDEFINED`, does not silently
+misexecute):
+- Logical (immediate): AND/ORR/EOR/ANDS — needs the ARM "DecodeBitMasks"
+  bitmask-immediate algorithm, substantial enough to warrant its own pass.
+- Data-processing (register): logical-shifted-register (incl. the
+  register-form MOV alias), add/subtract shifted/extended register,
+  conditional select, 1-/2-source ops (MUL, UDIV/SDIV, CLZ, etc).
+- LDXP/STXP (pair exclusives), STLR/LDAR (non-exclusive acquire/release),
+  LSE atomic RMW beyond CAS (LDADD/LDCLR/etc).
+- LDR (literal, PC-relative), sign-extending LDRSB/LDRSH/LDRSW.
+- All SIMD/FP instructions.
+
+**Not yet exercised by any test.** The memory-touching paths (LDR/STR/LDP/
+STP/LDXR/STXR/CAS) compile clean but have no test coverage yet — this
+codebase's convention (see `emu/amd64_interp.c`'s sibling tests) is to
+exercise the interpreter via real guest binaries through the full stack,
+not host-side unit tests with a mocked `tlb`/`mmu`. That path doesn't exist
+until patch 4 (syscall table) and patch 5 (ELF loading) land and the
+patch-1 `ENOEXEC` guard in `kernel/exec.c` can be lifted. Treat the
+memory-touching instruction handlers as unverified until then — this is a
+real gap, not a formality.
+
+Revised exit criteria (the original "hand-written asm tests pass" bar
+assumed a test harness that doesn't fit this codebase's conventions):
+build passes; pure-logic decode/flag functions verified against hand-
+computed values; full instruction-level correctness deferred to differential
+testing against the new oracle VM (see Testing Strategy) once patches 4-5
+make real guest execution possible.
 
 ### 4. AArch64 Syscall Table
 
