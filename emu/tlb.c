@@ -138,6 +138,100 @@ int arm64_vldst_struct(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr
     return 0;
 }
 
+// LSE atomic read-modify-write (LDADD/LDCLR/LDEOR/LDSET/LDSMAX/LDSMIN/
+// LDUMAX/LDUMIN and SWP). GENUINELY host-atomic: it resolves the guest
+// address to its backing host pointer and runs a real host __atomic RMW
+// there, so concurrent guest threads (each on its own host pthread) don't
+// lose updates. LSE requires natural alignment, so a valid access never
+// crosses a page — one host pointer suffices. size_bytes is 1/2/4/8;
+// op 0-7 are the arithmetic forms, op 8 is SWP. Returns 0 / INT_PF.
+//
+// The min/max variants and the sub-64-bit widths are done with a
+// compare-exchange loop (there's no direct __atomic_fetch_max, and byte/
+// half atomics still lower to LL/SC on the host anyway), which is itself
+// lock-free and race-free.
+int arm64_lse_rmw(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+                  unsigned size_bytes, unsigned op, uint64_t operand,
+                  uint64_t *old_out) {
+    void *ptr = tlb_write_ptr_slow(tlb, addr);
+    if (ptr == NULL) {
+        cpu->segfault_addr = tlb->segfault_addr;
+        cpu->segfault_was_write = true;
+        return INT_PF;
+    }
+    unsigned bits = size_bytes * 8;
+    uint64_t smask = bits < 64 ? (1ull << (bits - 1)) : 0;
+
+#define LSE_RMW_AT(TYPE) do {                                             \
+        TYPE *p = ptr;                                                    \
+        TYPE arg = (TYPE) operand;                                        \
+        TYPE old = __atomic_load_n(p, __ATOMIC_RELAXED), neu;            \
+        do {                                                             \
+            switch (op) {                                                \
+                case 0: neu = (TYPE) (old + arg); break;   /* LDADD */   \
+                case 1: neu = (TYPE) (old & ~arg); break;  /* LDCLR */   \
+                case 2: neu = (TYPE) (old ^ arg); break;   /* LDEOR */   \
+                case 3: neu = (TYPE) (old | arg); break;   /* LDSET */   \
+                case 4: neu = (int64_t) ((old ^ smask) - smask) >         \
+                              (int64_t) ((arg ^ smask) - smask)           \
+                              ? old : arg; break;          /* LDSMAX */  \
+                case 5: neu = (int64_t) ((old ^ smask) - smask) <         \
+                              (int64_t) ((arg ^ smask) - smask)           \
+                              ? old : arg; break;          /* LDSMIN */  \
+                case 6: neu = old > arg ? old : arg; break; /* LDUMAX */ \
+                case 7: neu = old < arg ? old : arg; break; /* LDUMIN */ \
+                default: neu = arg; break;                 /* SWP */     \
+            }                                                            \
+        } while (!__atomic_compare_exchange_n(p, &old, neu, true,        \
+                     __ATOMIC_SEQ_CST, __ATOMIC_RELAXED));               \
+        *old_out = (uint64_t) old;                                       \
+    } while (0)
+
+    switch (size_bytes) {
+        case 1: LSE_RMW_AT(uint8_t); break;
+        case 2: LSE_RMW_AT(uint16_t); break;
+        case 4: LSE_RMW_AT(uint32_t); break;
+        default: LSE_RMW_AT(uint64_t); break;
+    }
+#undef LSE_RMW_AT
+    return 0;
+}
+
+// Host-atomic compare-and-swap for the LSE CAS gadget and the STXR
+// store-conditional. Compares memory at size_bytes against `expected`; if
+// equal, atomically stores `desired` and sets *swapped=1, else leaves it
+// and sets *swapped=0. Always returns the observed old value (zero-
+// extended) in *old_out. Genuinely atomic against concurrent guest
+// threads — replaces the old load-compare-store, which had an ABA race
+// (two threads could both pass the compare and both store). Returns
+// 0 / INT_PF.
+int arm64_cas(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+              unsigned size_bytes, uint64_t expected, uint64_t desired,
+              uint64_t *old_out, uint32_t *swapped) {
+    void *ptr = tlb_write_ptr_slow(tlb, addr);
+    if (ptr == NULL) {
+        cpu->segfault_addr = tlb->segfault_addr;
+        cpu->segfault_was_write = true;
+        return INT_PF;
+    }
+#define LSE_CAS_AT(TYPE) do {                                            \
+        TYPE exp = (TYPE) expected;                                      \
+        bool ok = __atomic_compare_exchange_n((TYPE *) ptr, &exp,        \
+                     (TYPE) desired, false, __ATOMIC_SEQ_CST,            \
+                     __ATOMIC_SEQ_CST);                                  \
+        *swapped = ok ? 1 : 0;                                           \
+        *old_out = (uint64_t) exp; /* CAS writes the observed value on fail */ \
+    } while (0)
+    switch (size_bytes) {
+        case 1: LSE_CAS_AT(uint8_t); break;
+        case 2: LSE_CAS_AT(uint16_t); break;
+        case 4: LSE_CAS_AT(uint32_t); break;
+        default: LSE_CAS_AT(uint64_t); break;
+    }
+#undef LSE_CAS_AT
+    return 0;
+}
+
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     if (tlb->mmu == mmu &&
             tlb->mem_changes == atomic_load_explicit(&mmu->changes, memory_order_relaxed)) {

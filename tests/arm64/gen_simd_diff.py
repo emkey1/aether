@@ -607,6 +607,23 @@ FAMILIES["crypto"] = (
       ] for t in raw_tests([(name, ins)], acc=True)]
 )
 
+def lse_tests():
+    ops = [("ldadd","ldadd"),("ldclr","ldclr"),("ldeor","ldeor"),("ldset","ldset"),
+           ("ldsmax","ldsmax"),("ldsmin","ldsmin"),("ldumax","ldumax"),("ldumin","ldumin"),
+           ("swp","swp")]
+    items = []
+    for name, ins in ops:
+        for w, xw, sz in [("x","x",8),("w","w",4)]:
+            # operand = a distinctive value; seed memory from B, operand from A
+            items.append((f"{name}.{w}",
+                [f"mov {xw}12, {xw}2",                      # operand
+                 f"{ins} {xw}12, {xw}13, [x9]",             # old -> w/x13
+                 f"str x13, [x19], #16",                    # dump old (x-reg, zero-ext)
+                 f"ldr x14, [x9]", "str x14, [x19], #16"])) # dump new memory
+    return mem_tests(items)
+
+FAMILIES["lse"] = lse_tests()
+
 LINUX_PROLOGUE = """\
 .text
 .global _start

@@ -3343,6 +3343,39 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // LSE atomic memory operations: LDADD/LDCLR/LDEOR/LDSET/LDSMAX/
+    // LDSMIN/LDUMAX/LDUMIN (opc 0-7) and SWP (opc 8). A/R
+    // acquire/release bits accepted and ignored (single-stepped-CPU
+    // model). Ported from OpenMinis' 0x38200000 branch; unlike theirs
+    // (multi-gadget with separate barriers) this is one C-helper gadget.
+    // The ...AL/...L "st" store-only aliases share this encoding with
+    // Rt==31 (result discarded) and decode identically.
+    if ((insn & 0x3f200c00) == 0x38200000) {
+        extern void gadget_arm64_lse_rmw(void);
+        unsigned size = (insn >> 30) & 3;
+        unsigned rs = (insn >> 16) & 0x1f;
+        unsigned opc = (insn >> 12) & 7;
+        unsigned ar = (insn >> 22) & 3; // bit23=A, bit22=R (accepted, ignored)
+        unsigned o3 = (insn >> 15) & 1; // 0 = LD<op>/ST<op>, 1 = SWP when opc=0
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        (void) ar;
+        // SWP is opc=0 with bit15(o3)=1; the eight LD<op> forms have o3=0.
+        unsigned op;
+        if (o3) {
+            if (opc != 0)
+                return gen_arm64_undefined(state);
+            op = 8; // SWP
+        } else {
+            op = opc;
+        }
+        gen(state, (unsigned long) gadget_arm64_lse_rmw);
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16) |
+                   ((uint64_t) size << 24) | ((uint64_t) op << 26));
+        gen(state, state->arm64_orig_ip);
+        return 1;
+    }
+
     // CAS (LSE compare-and-swap) — mask and field layout match
     // arm64_execute()'s, INCLUDING the ordering constraint documented
     // there: this check must come before the broader exclusive-family

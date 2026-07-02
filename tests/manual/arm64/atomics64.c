@@ -283,6 +283,70 @@ static void check_stress(void) {
         test_logf("acquire/release message passing ok\n");
 }
 
+// Cross-thread atomicity of BOTH lowerings: with 4 threads each doing N
+// increments, the total must be exactly 4*N — any lost update means the
+// RMW wasn't atomic. Runs the count once via the LL/SC exclusive monitor
+// (explicit ldxr/stxr loop) and once via a direct LSE ldadd, so a
+// regression in either path is caught. (The emulator's exclusive monitor
+// and LSE ldadd both had ABA / non-atomic bugs that lost updates here.)
+#define AT_THREADS 4
+#define AT_ITERS 250000
+
+static uint64_t llsc_counter;
+static uint64_t lse_counter;
+static int have_lse;
+
+static void *llsc_worker(void *arg) {
+    (void) arg;
+    for (int i = 0; i < AT_ITERS; i++) {
+        uint64_t tmp;
+        uint32_t fail;
+        __asm__ volatile(
+            "1:\n\t"
+            "ldxr %[t], [%[p]]\n\t"
+            "add %[t], %[t], #1\n\t"
+            "stxr %w[f], %[t], [%[p]]\n\t"
+            "cbnz %w[f], 1b\n\t"
+            : [t] "=&r"(tmp), [f] "=&r"(fail), "+m"(llsc_counter)
+            : [p] "r"(&llsc_counter)
+            : "memory");
+    }
+    return NULL;
+}
+
+static void *lse_worker(void *arg) {
+    (void) arg;
+    for (int i = 0; i < AT_ITERS; i++)
+        __asm__ volatile(".arch_extension lse\n\tldadd %x0, xzr, [%1]"
+                         :: "r"(1ull), "r"(&lse_counter) : "memory");
+    return NULL;
+}
+
+static void check_cross_thread_atomic(void) {
+    pthread_t t[AT_THREADS];
+    for (int i = 0; i < AT_THREADS; i++)
+        pthread_create(&t[i], NULL, llsc_worker, NULL);
+    for (int i = 0; i < AT_THREADS; i++)
+        pthread_join(t[i], NULL);
+    if (llsc_counter != (uint64_t) AT_THREADS * AT_ITERS)
+        failf("ll/sc cross-thread count", llsc_counter, 0, 0,
+              (uint64_t) AT_THREADS * AT_ITERS, 0, 0);
+    else
+        test_logf("ll/sc cross-thread atomic ok\n");
+
+    if (have_lse) {
+        for (int i = 0; i < AT_THREADS; i++)
+            pthread_create(&t[i], NULL, lse_worker, NULL);
+        for (int i = 0; i < AT_THREADS; i++)
+            pthread_join(t[i], NULL);
+        if (lse_counter != (uint64_t) AT_THREADS * AT_ITERS)
+            failf("lse cross-thread count", lse_counter, 0, 0,
+                  (uint64_t) AT_THREADS * AT_ITERS, 0, 0);
+        else
+            test_logf("lse cross-thread atomic ok\n");
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     check_ldxr_stxr64();
@@ -291,8 +355,10 @@ int main(int argc, char **argv) {
     check_acquire_release_pair();
     check_clrex_path();
     check_ldar_stlr();
+    have_lse = (getauxval(AT_HWCAP) & HWCAP_ATOMICS) != 0;
     check_lse_if_present();
     check_builtins();
     check_stress();
+    check_cross_thread_atomic();
     return finish_suite("atomics64");
 }
