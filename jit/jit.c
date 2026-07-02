@@ -1354,8 +1354,11 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
                     if (last_block->jump_ip[i] != NULL &&
                             (*last_block->jump_ip[i] >> 63) != 0 &&
                             (*last_block->jump_ip[i] & 0xffffffffffffULL) == block->addr) {
-                        if (block->addr <= last_block->addr)
-                            continue;
+                        // Backward edges (loops) ARE linked here, unlike the
+                        // i386/amd64 loops: arm64_chain enforces a per-entry
+                        // chain budget (jit_frame.chain_budget), so a chained
+                        // loop returns to C every few thousand dispatches and
+                        // cannot starve jetsam writers or the cycle counter.
                         __atomic_store_n(last_block->jump_ip[i], (unsigned long) block->code, __ATOMIC_RELEASE);
                         list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
                     }
@@ -1386,6 +1389,7 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
         bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
         if (force_block_boundary_break)
             __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
+        frame->chain_budget = 8192; // see jit_frame.chain_budget
         interrupt = jit_enter(block, frame, tlb);
         if (interrupt == INT_NONE && jit_should_yield(jit, cpu))
             interrupt = INT_TIMER;

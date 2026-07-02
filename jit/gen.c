@@ -448,6 +448,7 @@ bool gen_start(guest_addr_t addr, struct gen_state *state) {
     // into the arm64 decoder — instant INT_UNDEFINED/SIGILL for every
     // x86-guest binary.
     state->arm64 = false;
+    state->arm64_flags_live = false;
     state->arm64_ip = addr;
     state->arm64_orig_ip = addr;
     state->amd64 = false;
@@ -645,6 +646,29 @@ static bool gen_arm64_expand_imm(unsigned op, unsigned cmode, uint64_t imm8, uin
     return true;
 }
 
+// Compare+branch fusion: peek at the instruction after a fast compare;
+// if it's a B.cond, return the gadget from the given per-condition table
+// and compute its targets. The caller then emits ONE fused gadget for
+// the pair (one dispatch instead of two, and the branch tests live host
+// flags — no msr nzcv reload). Returns NULL when the next instruction
+// isn't a fusable B.cond (or can't be fetched — page-crossing decode
+// just declines to fuse).
+static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
+        void *const table[14], uint64_t *taken_out, uint64_t *fallthrough_out) {
+    uint32_t next;
+    if (!tlb_read(tlb, state->arm64_ip, &next, sizeof(next)))
+        return NULL;
+    if ((next & 0xff000010) != 0x54000000)
+        return NULL;
+    unsigned cond = next & 0xf;
+    if (cond >= 14)
+        return NULL; // AL/NV: plain unconditional, no fusion needed
+    *taken_out = state->arm64_ip + (uint64_t) arm64_branch_imm19(next);
+    *fallthrough_out = state->arm64_ip + 4;
+    state->arm64_ip += 4; // consume the B.cond too
+    return table[cond];
+}
+
 // AArch64 guest code generator — Phase A of the JIT gadget port
 // (aarch64_guest_plan.md). Emits gadget-array entries for jit/guest-arm64/'s
 // ported gadgets instead of computing results directly, the same relationship
@@ -691,6 +715,12 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
 
     state->arm64_orig_ip = state->arm64_ip;
     state->orig_ip_extra = 0;
+    // Compare+branch fusion bookkeeping: consume the previous
+    // instruction's flags-live claim, and default to NOT live for this
+    // one (only the fast flag-setting paths below re-assert it).
+    bool arm64_flags_were_live = state->arm64_flags_live;
+    state->arm64_flags_live = false;
+    (void) arm64_flags_were_live;
 
     uint32_t insn;
     if (!tlb_read(tlb, state->arm64_ip, &insn, sizeof(insn))) {
@@ -775,13 +805,50 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             extern void gadget_arm64_cmni_fast64(void), gadget_arm64_cmni_fast32(void);
             uint64_t imm = (uint64_t) imm12 << (sh ? 12 : 0);
             if (S && rd == 31) {
+                if (op_sub) { // CMP: try single-gadget fusion with a following B.cond
+                    extern void *const arm64_fused_cmpi64_table[14];
+                    extern void *const arm64_fused_cmpi32_table[14];
+                    uint64_t taken, fallthrough;
+                    void *fused = gen_arm64_peek_bcond(state, tlb,
+                            sf ? arm64_fused_cmpi64_table : arm64_fused_cmpi32_table,
+                            &taken, &fallthrough);
+                    if (fused != NULL) {
+                        gen(state, (unsigned long) fused);
+                        gen(state, rn);
+                        gen(state, imm);
+                        gen(state, taken | 0x8000000000000000ULL);
+                        state->jump_ip[0] = state->size - 1;
+                        gen(state, fallthrough | 0x8000000000000000ULL);
+                        state->jump_ip[1] = state->size - 1;
+                        return 0; // the fused pair ends the block
+                    }
+                }
                 static void *const cmp_t[2][2] = { // [op_sub][sf]
                     {(void *) gadget_arm64_cmni_fast32, (void *) gadget_arm64_cmni_fast64},
                     {(void *) gadget_arm64_cmpi_fast32, (void *) gadget_arm64_cmpi_fast64}};
                 gen(state, (unsigned long) cmp_t[op_sub][sf]);
                 gen(state, rn);
                 gen(state, imm);
+                state->arm64_flags_live = true;
                 return 1;
+            }
+            if (S && op_sub) { // SUBS with result (loop counters): try fusion
+                extern void *const arm64_fused_subsi64_table[14];
+                extern void *const arm64_fused_subsi32_table[14];
+                uint64_t taken, fallthrough;
+                void *fused = gen_arm64_peek_bcond(state, tlb,
+                        sf ? arm64_fused_subsi64_table : arm64_fused_subsi32_table,
+                        &taken, &fallthrough);
+                if (fused != NULL) {
+                    gen(state, (unsigned long) fused);
+                    gen(state, rd | ((uint64_t) rn << 8));
+                    gen(state, imm);
+                    gen(state, taken | 0x8000000000000000ULL);
+                    state->jump_ip[0] = state->size - 1;
+                    gen(state, fallthrough | 0x8000000000000000ULL);
+                    state->jump_ip[1] = state->size - 1;
+                    return 0;
+                }
             }
             static void *const t[2][2][2] = { // [op_sub][S][sf]
                 {{(void *) gadget_arm64_addi_fast32, (void *) gadget_arm64_addi_fast64},
@@ -791,6 +858,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, (unsigned long) t[op_sub][S][sf]);
             gen(state, rd | ((uint64_t) rn << 8));
             gen(state, imm);
+            state->arm64_flags_live = S;
             return 1;
         }
         uint64_t params = rd | ((uint64_t) rn << 8) | ((uint64_t) imm12 << 16)
@@ -880,6 +948,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
                     {(void *) gadget_arm64_andsr_fast32, (void *) gadget_arm64_andsr_fast64}};
                 gen(state, (unsigned long) t[opc][sf]);
                 gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+                state->arm64_flags_live = opc == 3; // ANDS
                 return 1;
             }
         }
@@ -927,11 +996,29 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             extern void gadget_arm64_cmpr_fast64(void), gadget_arm64_cmpr_fast32(void);
             extern void gadget_arm64_cmnr_fast64(void), gadget_arm64_cmnr_fast32(void);
             if (S && rd == 31) {
+                if (op_sub) { // CMP (register): try fusion
+                    extern void *const arm64_fused_cmpr64_table[14];
+                    extern void *const arm64_fused_cmpr32_table[14];
+                    uint64_t taken, fallthrough;
+                    void *fused = gen_arm64_peek_bcond(state, tlb,
+                            sf ? arm64_fused_cmpr64_table : arm64_fused_cmpr32_table,
+                            &taken, &fallthrough);
+                    if (fused != NULL) {
+                        gen(state, (unsigned long) fused);
+                        gen(state, rn | ((uint64_t) rm << 8));
+                        gen(state, taken | 0x8000000000000000ULL);
+                        state->jump_ip[0] = state->size - 1;
+                        gen(state, fallthrough | 0x8000000000000000ULL);
+                        state->jump_ip[1] = state->size - 1;
+                        return 0;
+                    }
+                }
                 static void *const cmp_t[2][2] = { // [op_sub][sf]
                     {(void *) gadget_arm64_cmnr_fast32, (void *) gadget_arm64_cmnr_fast64},
                     {(void *) gadget_arm64_cmpr_fast32, (void *) gadget_arm64_cmpr_fast64}};
                 gen(state, (unsigned long) cmp_t[op_sub][sf]);
                 gen(state, rn | ((uint64_t) rm << 8));
+                state->arm64_flags_live = true;
                 return 1;
             }
             static void *const t[2][2][2] = { // [op_sub][S][sf]
@@ -941,6 +1028,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
                  {(void *) gadget_arm64_subsr_fast32, (void *) gadget_arm64_subsr_fast64}}};
             gen(state, (unsigned long) t[op_sub][S][sf]);
             gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+            state->arm64_flags_live = S;
             return 1;
         }
         uint64_t params = rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
@@ -1888,11 +1976,37 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             [12] = (void *) gadget_arm64_bcond_gt, [13] = (void *) gadget_arm64_bcond_le,
             [14] = (void *) gadget_arm64_b, [15] = (void *) gadget_arm64_b, // AL/NV: always taken
         };
+        extern void gadget_arm64_bcond_nf_eq(void), gadget_arm64_bcond_nf_ne(void);
+        extern void gadget_arm64_bcond_nf_cs(void), gadget_arm64_bcond_nf_cc(void);
+        extern void gadget_arm64_bcond_nf_mi(void), gadget_arm64_bcond_nf_pl(void);
+        extern void gadget_arm64_bcond_nf_vs(void), gadget_arm64_bcond_nf_vc(void);
+        extern void gadget_arm64_bcond_nf_hi(void), gadget_arm64_bcond_nf_ls(void);
+        extern void gadget_arm64_bcond_nf_ge(void), gadget_arm64_bcond_nf_lt(void);
+        extern void gadget_arm64_bcond_nf_gt(void), gadget_arm64_bcond_nf_le(void);
+        static void *const bcond_nf_gadgets[14] = {
+            (void *) gadget_arm64_bcond_nf_eq, (void *) gadget_arm64_bcond_nf_ne,
+            (void *) gadget_arm64_bcond_nf_cs, (void *) gadget_arm64_bcond_nf_cc,
+            (void *) gadget_arm64_bcond_nf_mi, (void *) gadget_arm64_bcond_nf_pl,
+            (void *) gadget_arm64_bcond_nf_vs, (void *) gadget_arm64_bcond_nf_vc,
+            (void *) gadget_arm64_bcond_nf_hi, (void *) gadget_arm64_bcond_nf_ls,
+            (void *) gadget_arm64_bcond_nf_ge, (void *) gadget_arm64_bcond_nf_lt,
+            (void *) gadget_arm64_bcond_nf_gt, (void *) gadget_arm64_bcond_nf_le,
+        };
         if (cond >= 14) {
             // Always-taken: just an unconditional branch to the target.
             gen(state, (unsigned long) gadget_arm64_b);
             gen(state, taken | 0x8000000000000000ULL);
             state->jump_ip[0] = state->size - 1;
+        } else if (arm64_flags_were_live) {
+            // Compare+branch fusion: host NZCV is still live from the
+            // immediately preceding fast flag-setting gadget — branch on
+            // it directly, skipping load_flags' serializing msr nzcv.
+            gen(state, (unsigned long) bcond_nf_gadgets[cond]);
+            gen(state, taken | 0x8000000000000000ULL);
+            state->jump_ip[0] = state->size - 1;
+            gen(state, fallthrough | 0x8000000000000000ULL);
+            state->jump_ip[1] = state->size - 1;
+            return 0;
         } else {
             gen(state, (unsigned long) bcond_gadgets[cond]);
             gen(state, taken | 0x8000000000000000ULL);

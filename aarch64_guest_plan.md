@@ -687,6 +687,40 @@ i386 3.24s / x86_64 3.07s / **arm64 2.62s (1.2x both)** — was 4.27s
 (0.6x) before chaining. sha256 16MB: 2.05 / 2.63 / **1.80s**. fork+exec
 x100: 0.28 / 0.36 / **0.28s**. arm64 leads on every benchmark.
 
+**Perf campaign, round 2 (DONE — the same-architecture advantage
+finally shows)**: three stacked changes, each validated by the
+50M-iteration hand-written loop pair (arm64 vs i386, identical logic):
+
+1. **ldar dispatch** (gadgets.h gret): the per-gadget `dmb ishld` cost
+   tens of cycles with loads in flight; a load-acquire on the gadget
+   pointer gives the same publication guarantee nearly free.
+   1.94s -> 1.68s.
+2. **Compare+branch fusion** (control.S + gen.c): fast CMP-imm/CMP-reg/
+   SUBS-imm gadgets peek at the next instruction; a following B.cond
+   becomes ONE fused gadget (84 macro-generated per-form-per-cc bodies,
+   pointer tables exported from asm) that compares natively, stores
+   guest NZCV (later readers stay correct), and branches on live host
+   flags — no msr nzcv reload, one dispatch instead of two. Plus a
+   bcond_nf_* family for the unfused-but-flags-live case
+   (state->arm64_flags_live tracking; gret provably preserves host
+   flags).
+3. **Backward-edge chaining with a chain budget** (frame.h/jit.c/
+   control.S): the i386/amd64 loops forbid backward links because an
+   in-JIT loop never returns to C and starves jetsam writers and the
+   cycle counter. arm64 instead links loops and bounds time-in-JIT with
+   jit_frame.chain_budget (8192 chained dispatches per jit_enter,
+   decremented in arm64_chain; expiry exits like a poke, resuming at
+   the destination block). A hot loop runs gadget-to-gadget with a
+   perfectly-predicted self-loop branch and ~0.03%% C-loop overhead.
+   1.68s -> **0.083s** — the pure loop is now 26x i386.
+
+**Benchmarks after round 2** (same -O2 CLI, best-of runs): sh-loop 20k
+1.36s (2.1-2.3x vs x86 guests, was 4.27s this morning); sha256 16MB
+0.58s (3.2-4.1x, digests verified bit-identical to the host); fork+exec
+x100 0.13s (1.8-2x); awk int/fp 1.4-2x; hand-written 50M loop 26x.
+This is OpenMinis-claim territory measured against a much stronger
+baseline than theirs (iSH-AOK's tuned x86 engines, not upstream).
+
 **Known next work**:
 
 1. Minor: `ls / | grep ...` pipelines produce empty output (plain `ls /`
@@ -694,8 +728,9 @@ x100: 0.28 / 0.36 / **0.28s**. arm64 leads on every benchmark.
    gap.
 2. Wider SIMD (vector arithmetic beyond bitwise) and the remaining
    unsigned FCVT rounding variants — blocker-driven, as always.
-3. Perf, next tier: a return cache for RET (i386 has one), and the
-   memory-based register file (profile before optimizing).
+3. Perf, next tier: fused CBZ/CBNZ (same peek pattern), load/store
+   fast-path specialization, a return cache for RET, ldar-style
+   dispatch for the i386/amd64 gret (helps the x86 guests too).
 
 ## Testing Strategy — New Oracle Required
 

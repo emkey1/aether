@@ -94,14 +94,21 @@ _addr   .req x7
 // because the i386 one is textually entangled with i386-specific
 // PROFILE/debug hooks not relevant here. Keep in sync if entry.S's
 // contract changes.
+// Dispatch. The gadget-pointer load is a LOAD-ACQUIRE (ldar) instead of
+// i386's `ldr + dmb ishld`: acquire ordering gives the same guarantee
+// the trailing barrier did (this load is ordered before every later
+// access, so a concurrently-patched chain word can't be observed before
+// the block contents it points into), but ldar is close to free on
+// Apple Silicon while `dmb ishld` costs tens of cycles with loads in
+// flight — and this sequence runs once per guest instruction, making it
+// the single largest constant in the whole engine (measured ~34 host
+// cycles per guest instruction with the dmb, dominated by it).
 .macro gret pop=0
-.if \pop == 0
-    ldr x9, [_ip], #8
-.else
-    ldr x9, [_ip, \pop*8]!
-    add _ip, _ip, 8
+.if \pop != 0
+    add _ip, _ip, \pop*8
 .endif
-    dmb ishld /* matches jit/gadgets-aarch64/gadgets.h's ordering fix */
+    ldar x9, [_ip]
+    add _ip, _ip, 8
     cbnz x9, 0f
     b jit_ret
 0:  br x9

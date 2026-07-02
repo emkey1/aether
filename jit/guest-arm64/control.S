@@ -77,11 +77,18 @@ arm64_chain:
     ldr x8, [_cpu, #CPU_poked_ptr]
     ldrb w8, [x8]
     cbnz w8, arm64_chain_poked
+    // Chain budget: bounded time-in-JIT is what makes chaining BACKWARD
+    // edges (loops) safe — see jit_frame.chain_budget. Expiry exits to C
+    // exactly like a poke, at the destination block's start.
+    ldr x8, [_cpu, #LOCAL_chain_budget]
+    subs x8, x8, #1
+    str x8, [_cpu, #LOCAL_chain_budget]
+    b.le arm64_chain_poked
     sub x8, _ip, #JIT_BLOCK_code       // recover the block pointer for the
     str x8, [_cpu, #LOCAL_last_block]  // C loop's chaining bookkeeping
     gret
 arm64_chain_poked:
-    // Poked mid-chain: resume point is the DESTINATION block's start.
+    // Poked or out of budget mid-chain: resume at the DESTINATION block.
     ldur x8, [_ip, #(JIT_BLOCK_addr - JIT_BLOCK_code)]
     str x8, [_cpu, #CPU_pc]
     b jit_ret
@@ -238,6 +245,40 @@ not_taken_tbnz:
     b arm64_branch_dispatch
 .endm
 
+// bcond_nf_* — B.cond WITHOUT the load_flags reload, for use directly
+// after a fast flag-setting gadget (compare+branch fusion): the host
+// NZCV is still live from that gadget's adds/subs/ands, because nothing
+// in its tail (store_flags is just mrs+str) nor in gret's dispatch
+// sequence (ldr/dmb/cbnz/br) writes flags. `msr nzcv` is serializing on
+// Apple cores, so skipping it (plus the flags load) is the single
+// biggest per-iteration saving in compare-branch loops. gen_step_arm64
+// only emits these when the immediately preceding instruction in the
+// SAME block set the flags via a fast gadget (state->arm64_flags_live);
+// everything else keeps the reloading bcond_* family above.
+.macro bcond_nf_gadget name, cc
+.gadget \name
+    b.\cc 1f
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
+.endm
+
+bcond_nf_gadget bcond_nf_eq, eq
+bcond_nf_gadget bcond_nf_ne, ne
+bcond_nf_gadget bcond_nf_cs, cs
+bcond_nf_gadget bcond_nf_cc, cc
+bcond_nf_gadget bcond_nf_mi, mi
+bcond_nf_gadget bcond_nf_pl, pl
+bcond_nf_gadget bcond_nf_vs, vs
+bcond_nf_gadget bcond_nf_vc, vc
+bcond_nf_gadget bcond_nf_hi, hi
+bcond_nf_gadget bcond_nf_ls, ls
+bcond_nf_gadget bcond_nf_ge, ge
+bcond_nf_gadget bcond_nf_lt, lt
+bcond_nf_gadget bcond_nf_gt, gt
+bcond_nf_gadget bcond_nf_le, le
+
 bcond_gadget bcond_eq, eq
 bcond_gadget bcond_ne, ne
 bcond_gadget bcond_cs, cs
@@ -252,3 +293,106 @@ bcond_gadget bcond_ge, ge
 bcond_gadget bcond_lt, lt
 bcond_gadget bcond_gt, gt
 bcond_gadget bcond_le, le
+
+// ---- Single-gadget compare+branch fusion ---------------------------------
+// One dispatch instead of two for the compare-and-branch pairs that
+// dominate loop code. The compare executes natively, guest NZCV is still
+// stored (later instructions may read the flags), and the branch tests
+// the live host flags — no msr reload, no second gadget dispatch.
+// gen_step_arm64 peeks at the next instruction when emitting a fast
+// compare; on a B.cond it emits one of these instead of the pair.
+//
+// Per-condition gadget POINTER TABLES are exported from here (one .quad
+// table per form) so gen.c indexes extern arrays instead of declaring
+// 84 gadget symbols.
+//
+// Streams:
+//   fused_cmpi:  [gadget][rn][imm][taken][fallthrough]
+//   fused_cmpr:  [gadget][rn | rm<<8][taken][fallthrough]
+//   fused_subsi: [gadget][rd | rn<<8][imm][taken][fallthrough]
+
+.macro fused_cmpi name, cmpop, zr, r15, r11, cc
+.gadget \name
+    ldr x10, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    \cmpop \zr, \r15, \r11
+    store_flags
+    b.\cc 1f
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
+.endm
+
+.macro fused_cmpr name, cmpop, zr, r15, r13, cc
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x10, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    \cmpop \zr, \r15, \r13
+    store_flags
+    b.\cc 1f
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
+.endm
+
+.macro fused_subsi name, subop, r16, r15, r11, cc
+.gadget \name
+    ldr x8, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    \subop \r16, \r15, \r11
+    store_flags
+    str x16, [x14, x9, lsl #3]
+    b.\cc 1f
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
+.endm
+
+#define CC_LIST eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le
+
+.irp cc, CC_LIST
+fused_cmpi  fused_cmpi64_\cc,  subs, xzr, x15, x11, \cc
+fused_cmpi  fused_cmpi32_\cc,  subs, wzr, w15, w11, \cc
+fused_cmpr  fused_cmpr64_\cc,  subs, xzr, x15, x13, \cc
+fused_cmpr  fused_cmpr32_\cc,  subs, wzr, w15, w13, \cc
+fused_subsi fused_subsi64_\cc, subs, x16, x15, x11, \cc
+fused_subsi fused_subsi32_\cc, subs, w16, w15, w11, \cc
+.endr
+
+// Condition order in every table matches enum arm64_cond (decode.h):
+// EQ,NE,CS,CC,MI,PL,VS,VC,HI,LS,GE,LT,GT,LE.
+// Pointer tables live in .data — putting .quad symbol references in
+// .text is an illegal text relocation on Mach-O.
+.data
+.macro fused_table name, prefix
+    .global NAME(\name)
+    .balign 8
+NAME(\name) :
+    .irp cc, CC_LIST
+    .quad NAME(gadget_arm64_\prefix\()_\cc)
+    .endr
+.endm
+
+fused_table arm64_fused_cmpi64_table,  fused_cmpi64
+fused_table arm64_fused_cmpi32_table,  fused_cmpi32
+fused_table arm64_fused_cmpr64_table,  fused_cmpr64
+fused_table arm64_fused_cmpr32_table,  fused_cmpr32
+fused_table arm64_fused_subsi64_table, fused_subsi64
+fused_table arm64_fused_subsi32_table, fused_subsi32
+.text
