@@ -703,7 +703,9 @@ static void siginfo_to_amd64_user(struct amd64_siginfo_ *out, const struct sigin
 
 static int siginfo_from_user(struct task *task, guest_addr_t user_addr, struct siginfo_ *info) {
     memset(info, 0, sizeof(*info));
-    if (task->abi == GUEST_ABI_AMD64) {
+    // Both 64-bit ABIs share the generic siginfo layout (arm64 was
+    // falling into the i386 branch and reading garbage fields).
+    if (guest_abi_is_64bit(task->abi)) {
         struct amd64_siginfo_ user_info;
         if (user_get(user_addr, user_info))
             return _EFAULT;
@@ -748,7 +750,7 @@ static int siginfo_from_user(struct task *task, guest_addr_t user_addr, struct s
 }
 
 int siginfo_to_user(struct task *task, guest_addr_t user_addr, const struct siginfo_ *info) {
-    if (task->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(task->abi)) {
         struct amd64_siginfo_ user_info;
         siginfo_to_amd64_user(&user_info, info);
         if (user_put(user_addr, user_info))
@@ -2012,7 +2014,8 @@ static void altstack_to_i386_user(struct task *task, struct stack_t_ *user_stack
 
 static int altstack_to_user(struct task *task, guest_addr_t user_addr) {
     dword_t flags = current_altstack_flags(task);
-    if (task->abi == GUEST_ABI_AMD64) {
+    // arm64 stack_t == amd64 stack_t (generic 64-bit layout).
+    if (guest_abi_is_64bit(task->abi)) {
         struct amd64_stack_t_marshaled user_stack = {
             .stack = task->altstack,
             .flags = flags,
@@ -2033,7 +2036,7 @@ static int altstack_to_user(struct task *task, guest_addr_t user_addr) {
 }
 
 static int altstack_from_user(struct task *task, guest_addr_t user_addr, guest_addr_t *stack_out, guest_addr_t *size_out, dword_t *flags_out) {
-    if (task->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(task->abi)) {
         struct amd64_stack_t_marshaled user_stack;
         if (user_get(user_addr, user_stack))
             return _EFAULT;
@@ -2140,7 +2143,7 @@ static int_t sys_rt_sigtimedwait_common(guest_addr_t set_addr, guest_addr_t info
         // the high half of tv_sec — always 0 for any sub-second timeout — so
         // the EINVAL range check never fired and sub-second waits collapsed to
         // an immediate EAGAIN. amd64 must always read the 64-bit layout.
-        bool read64 = timeout_time64 || current->abi == GUEST_ABI_AMD64;
+        bool read64 = timeout_time64 || guest_abi_is_64bit(current->abi);
         if (read64) {
             struct timespec64_ fake_timeout;
             if (user_get(timeout_addr, fake_timeout))

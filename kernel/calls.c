@@ -1600,6 +1600,7 @@ static syscall_t arm64_syscall_table[450] = {
     [99]  = (syscall_t) sys_set_robust_list_amd64,
     [100] = (syscall_t) sys_get_robust_list_amd64,
     [101] = (syscall_t) sys_nanosleep_amd64,
+    [102] = (syscall_t) sys_getitimer_amd64, // dispatched natively (full-width); entry needed to pass the NULL check
     [103] = (syscall_t) sys_setitimer_amd64,
     [107] = (syscall_t) sys_timer_create_amd64,
     [108] = (syscall_t) sys_timer_gettime,
@@ -1669,6 +1670,12 @@ static syscall_t arm64_syscall_table[450] = {
     [178] = (syscall_t) sys_gettid,
     [179] = (syscall_t) sys_sysinfo,
     // Socket syscalls: aarch64 has no socketcall() multiplexer, unlike i386
+    // SysV shm (aarch64 direct syscalls; i386 only has ipc(2)). All four
+    // dispatch natively (full-width); entries needed to pass the NULL check.
+    [194] = (syscall_t) sys_shmget,
+    [195] = (syscall_t) sys_shmctl,
+    [196] = (syscall_t) sys_shmat,
+    [197] = (syscall_t) sys_shmdt,
     [198] = (syscall_t) sys_socket,
     [199] = (syscall_t) sys_socketpair,
     [200] = (syscall_t) sys_bind,
@@ -1953,6 +1960,10 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 214: // brk
         arm64_syscall_result_qword(cpu, sys_brk_guest(raw_args[0]));
         return true;
+    case 196: // shmat: returns an address
+        arm64_syscall_result_qword(cpu, (qword_t) sys_shmat_guest(
+                (int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
+        return true;
     case 216: // mremap
         arm64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
                 raw_args[2], (dword_t) raw_args[3]));
@@ -2056,12 +2067,85 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 205: result = sys_getpeername_guest((fd_t) raw_args[0], raw_args[1], raw_args[2]); break;
     case 206: result = sys_sendto_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4], (dword_t) raw_args[5]); break;
     case 207: result = sys_recvfrom_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], raw_args[4], raw_args[5]); break;
-    case 208: result = sys_setsockopt_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], (dword_t) raw_args[4]); break;
-    case 209: result = sys_getsockopt_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], raw_args[4]); break;
+    // the plain sockopt wrappers hardcode the I386 struct layouts
+    // (timeval &c); aarch64 uses the generic 64-bit ones == amd64's.
+    case 208: result = sys_setsockopt_amd64_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], (dword_t) raw_args[4]); break;
+    case 209: result = sys_getsockopt_amd64_guest((fd_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3], raw_args[4]); break;
     case 211: result = sys_sendmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
     case 212: result = sys_recvmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
     case 242: result = sys_accept4_guest((fd_t) raw_args[0], raw_args[1], raw_args[2], (int_t) raw_args[3]); break;
     case 269: result = sys_sendmmsg_amd64_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3]); break;
+    // -- audit batch: every remaining pointer-taking syscall in the arm64
+    // legacy table, routed through the same 64-bit-shaped sys_*_guest
+    // wrappers the amd64 native dispatch uses (bodies mirror those cases;
+    // the *_amd64_/*64_ variants are the generic 64-bit ABI layouts, which
+    // aarch64 shares). Before this, dmesg-style silent pointer truncation
+    // applied to all of them.
+    case 21: result = (dword_t) sys_epoll_ctl_guest( (fd_t) raw_args[0], (int_t) raw_args[1], (fd_t) raw_args[2], raw_args[3]); break; // epoll_ctl
+    case 22: result = (dword_t) sys_epoll_pwait_guest( (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2], (int_t) raw_args[3], raw_args[4], (dword_t) raw_args[5]); break; // epoll_pwait
+    case 27: result = (dword_t) sys_inotify_add_watch_guest( (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break; // inotify_add_watch
+    case 33: result = (dword_t) sys_mknodat_guest( (fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dev_t_) raw_args[3]); break; // mknodat
+    case 36: result = (dword_t) sys_symlinkat_guest( raw_args[0], (fd_t) raw_args[1], raw_args[2]); break; // symlinkat
+    case 39: result = (dword_t) sys_umount2_guest( raw_args[0], (dword_t) raw_args[1]); break; // umount2
+    case 40: result = (dword_t) sys_mount_guest( raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], raw_args[4]); break; // mount
+    case 51: result = (dword_t) sys_chroot_guest(raw_args[0]); break; // chroot
+    case 59: result = (dword_t) sys_pipe2( raw_args[0], (int_t) raw_args[1]); break; // pipe2
+    case 86: result = (dword_t) sys_timerfd_settime64_guest( (fd_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]); break; // timerfd_settime
+    case 87: result = (dword_t) sys_timerfd_gettime64_guest( (fd_t) raw_args[0], raw_args[1]); break; // timerfd_gettime
+    case 90: result = (dword_t) sys_capget_guest( raw_args[0], raw_args[1]); break; // capget
+    case 91: result = (dword_t) sys_capset_guest( raw_args[0], raw_args[1]); break; // capset
+    case 95: result = (dword_t) sys_waitid_guest( (int_t) raw_args[0], (pid_t_) raw_args[1], raw_args[2], (int_t) raw_args[3]); break; // waitid
+    case 103: result = (dword_t) sys_setitimer_amd64_guest( (int_t) raw_args[0], raw_args[1], raw_args[2]); break; // setitimer
+    case 102: result = (dword_t) sys_getitimer_amd64_guest((int_t) raw_args[0], raw_args[1]); break; // getitimer (was entirely missing)
+    case 107: result = (dword_t) sys_timer_create_amd64_guest( (dword_t) raw_args[0], raw_args[1], raw_args[2]); break; // timer_create
+    case 108: result = (dword_t) sys_timer_gettime64_guest( (dword_t) raw_args[0], raw_args[1]); break; // timer_gettime
+    case 110: result = (dword_t) sys_timer_settime64_guest( (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]); break; // timer_settime
+    case 112: result = (dword_t) sys_clock_settime( (dword_t) raw_args[0], 0); break; // clock_settime
+    case 114: result = (dword_t) sys_clock_getres_amd64_guest( (dword_t) raw_args[0], raw_args[1]); break; // clock_getres
+    case 115: result = (dword_t) sys_clock_nanosleep_amd64_guest( (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]); break; // clock_nanosleep
+    case 117: result = (dword_t) sys_ptrace_guest( (dword_t) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]); break; // ptrace
+    case 119: result = (dword_t) sys_sched_setscheduler_guest( (pid_t_) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // sched_setscheduler
+    case 121: result = (dword_t) sys_sched_getparam_guest( (pid_t_) raw_args[0], raw_args[1]); break; // sched_getparam
+    case 122: result = (dword_t) sys_sched_setaffinity_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break; // sched_setaffinity
+    case 123: result = (dword_t) sys_sched_getaffinity_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break; // sched_getaffinity
+    case 132: result = (dword_t) sys_sigaltstack_guest( raw_args[0], raw_args[1]); break; // sigaltstack
+    case 133: result = (dword_t) sys_rt_sigsuspend_guest( raw_args[0], (uint_t) raw_args[1]); break; // rt_sigsuspend
+    case 136: result = (dword_t) sys_rt_sigpending_guest(raw_args[0]); break; // rt_sigpending
+    case 137: result = (dword_t) sys_rt_sigtimedwait_guest( raw_args[0], raw_args[1], raw_args[2], (uint_t) raw_args[3]); break; // rt_sigtimedwait
+    case 138: result = (dword_t) sys_rt_sigqueueinfo_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break; // rt_sigqueueinfo
+    case 153: result = (dword_t) sys_times_guest(raw_args[0]); break; // times
+    case 158: result = (dword_t) sys_getgroups_guest( (dword_t) raw_args[0], raw_args[1]); break; // getgroups
+    case 159: result = (dword_t) sys_setgroups_guest( (dword_t) raw_args[0], raw_args[1]); break; // setgroups
+    case 161: result = (dword_t) sys_sethostname_guest( raw_args[0], (dword_t) raw_args[1]); break; // sethostname
+    case 163: result = (dword_t) sys_getrlimit64_guest( (dword_t) raw_args[0], raw_args[1]); break; // getrlimit (64-bit layout)
+    case 164: result = (dword_t) sys_setrlimit64_guest( (dword_t) raw_args[0], raw_args[1]); break; // setrlimit
+    case 165: result = (dword_t) sys_getrusage_guest( (dword_t) raw_args[0], raw_args[1]); break; // getrusage
+    case 167: result = (dword_t) sys_prctl_guest( (dword_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4]); break; // prctl
+    case 169: result = (dword_t) sys_gettimeofday_amd64_guest( raw_args[0], raw_args[1]); break; // gettimeofday
+    case 179: result = (dword_t) sys_sysinfo_guest(raw_args[0]); break; // sysinfo
+    case 227: result = (dword_t) sys_msync_guest(raw_args[0], raw_args[1], (int_t) raw_args[2]); break; // msync
+    case 228: result = (dword_t) sys_mlock_guest(raw_args[0], raw_args[1]); break; // mlock
+    case 229: result = (dword_t) sys_munlock_guest(raw_args[0], raw_args[1]); break; // munlock
+    case 232: result = (dword_t) sys_mincore_guest(raw_args[0], raw_args[1], raw_args[2]); break; // mincore
+    case 235: result = (dword_t) sys_mbind_guest( raw_args[0], raw_args[1], (int_t) raw_args[2], raw_args[3], raw_args[4], (uint_t) raw_args[5]); break; // mbind
+    case 243: result = (dword_t) sys_recvmmsg_amd64_guest( (fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], (int_t) raw_args[3], raw_args[4]); break; // recvmmsg
+    case 261: result = (dword_t) sys_prlimit64_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]); break; // prlimit64
+    case 276: result = (dword_t) sys_renameat2_guest( (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3], (int_t) raw_args[4]); break; // renameat2
+    case 281: result = (dword_t) sys_execveat_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], raw_args[3], (int_t) raw_args[4]); break; // execveat
+    case 285: result = (dword_t) sys_copy_file_range_guest( (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3], raw_args[4], (uint_t) raw_args[5]); break; // copy_file_range
+    case 435: result = (dword_t) sys_clone3_guest( raw_args[0], (dword_t) raw_args[1]); break; // clone3
+    case 437: result = (dword_t) sys_openat2_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break; // openat2
+    case 441: result = (dword_t) sys_epoll_pwait2_guest( (fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2], raw_args[3], raw_args[4], (dword_t) raw_args[5]); break; // epoll_pwait2
+    // splice and settimeofday are argument-ignoring stubs (EINVAL/EPERM);
+    // dispatch natively with zeros so 64-bit pointers can't be rejected or
+    // truncated on the way to code that never reads them.
+    case 76: result = sys_splice(0, 0, 0, 0, 0, 0); break; // splice (stub)
+    case 170: result = sys_settimeofday(0, 0); break; // settimeofday (stub)
+    case 148: result = (dword_t) sys_getresuid_guest(raw_args[0], raw_args[1], raw_args[2]); break; // getresuid
+    case 150: result = (dword_t) sys_getresgid_guest(raw_args[0], raw_args[1], raw_args[2]); break; // getresgid
+    case 194: result = (dword_t) sys_shmget_guest((dword_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // shmget
+    case 195: result = (dword_t) sys_shmctl_guest((int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // shmctl (64-bit shmid_ds)
+    case 197: result = (dword_t) sys_shmdt_guest(raw_args[0]); break; // shmdt
     default:
         return false; // not handled here: fall through to the legacy-marshalled table
     }
@@ -3158,6 +3242,83 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     }
 }
 
+
+// Argument count for the AArch64 syscalls still dispatched through the
+// legacy 32-bit-marshalled table. Everything listed takes only ints/fds
+// that fit in 32 bits; unused arg registers hold caller garbage (the
+// raw-syscall() lesson from the amd64 port), so validation must only
+// look at the args a syscall actually has. Any number NOT listed
+// defaults to 6 = validate everything, so a pointer-taking syscall
+// added to the legacy table by mistake fails loudly with SIGSYS
+// instead of silently truncating (how dmesg broke).
+static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
+    switch (syscall_num) {
+    case 124: // sched_yield
+    case 157: // setsid
+    case 172: // getpid
+    case 173: // getppid
+    case 174: // getuid
+    case 175: // geteuid
+    case 176: // getgid
+    case 177: // getegid
+    case 178: // gettid
+    case 231: // munlockall
+        return 0;
+    case 20:  // epoll_create1
+    case 23:  // dup
+    case 26:  // inotify_init1
+    case 50:  // fchdir
+    case 57:  // close
+    case 82:  // fsync
+    case 83:  // fdatasync
+    case 92:  // personality
+    case 93:  // exit
+    case 94:  // exit_group
+    case 109: // timer_getoverrun
+    case 111: // timer_delete
+    case 120: // sched_getscheduler
+    case 125: // sched_get_priority_max
+    case 126: // sched_get_priority_min
+    case 144: // setgid
+    case 146: // setuid
+    case 151: // setfsuid
+    case 152: // setfsgid
+    case 155: // getpgid
+    case 156: // getsid
+    case 166: // umask
+    case 230: // mlockall
+        return 1;
+    case 19:  // eventfd2
+    case 28:  // inotify_rm_watch
+    case 31:  // ioprio_get
+    case 32:  // flock
+    case 52:  // fchmod
+    case 85:  // timerfd_create
+    case 129: // kill
+    case 130: // tkill
+    case 141: // getpriority
+    case 143: // setregid
+    case 145: // setreuid
+    case 154: // setpgid
+    case 201: // listen
+    case 210: // shutdown
+        return 2;
+    case 24:  // dup3
+    case 30:  // ioprio_set
+    case 55:  // fchown
+    case 131: // tgkill
+    case 140: // setpriority
+    case 142: // reboot (4th arg is a pointer sys_reboot never reads)
+    case 147: // setresuid
+    case 149: // setresgid
+    case 198: // socket
+    case 436: // close_range
+        return 3;
+    default:
+        return 6;
+    }
+}
+
 static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
         const qword_t raw_args[6], dword_t args[6]) {
     if (abi == GUEST_ABI_AMD64) {
@@ -3232,9 +3393,15 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
         }
     }
 
-    unsigned arg_count = abi == GUEST_ABI_AMD64 ? amd64_syscall_legacy_arg_count(syscall_num) : 6;
+    unsigned arg_count = abi == GUEST_ABI_AMD64 ? amd64_syscall_legacy_arg_count(syscall_num)
+                       : abi == GUEST_ABI_ARM64 ? arm64_syscall_legacy_arg_count(syscall_num)
+                       : 6;
     for (unsigned i = 0; i < arg_count; i++) {
-        if (abi == GUEST_ABI_AMD64 && !syscall_arg_fits_legacy_dword(raw_args[i]))
+        // Both 64-bit ABIs validate: a 64-bit value reaching the 32-bit
+        // marshalling is a dispatch bug, and failing loudly here (SIGSYS)
+        // beats silently truncating a pointer (how arm64 dmesg broke).
+        if ((abi == GUEST_ABI_AMD64 || abi == GUEST_ABI_ARM64) &&
+                !syscall_arg_fits_legacy_dword(raw_args[i]))
             return false;
         args[i] = (dword_t) raw_args[i];
     }

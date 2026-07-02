@@ -66,7 +66,7 @@ static ssize_t read_execve_user_args(guest_addr_t argv_addr, guest_addr_t envp_a
 static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
 static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
-static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph, pages_t headroom);
 static int elf_load_addr_candidate(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias,
         guest_addr_t *addr_out);
 static void amd64_trace_exec_attempt(const char *file, const char *argv);
@@ -394,7 +394,15 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
     return 0;
 }
 
-static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
+// headroom: extra free pages requested ABOVE the image (the hole is
+// found for image+headroom and the image is placed at its bottom).
+// Used for the arm64 main executable so start_brk — which sits directly
+// after the image — has real room to grow: pt_find_hole hands back the
+// top of the mmap window, and parking the image there capped the heap
+// at (nearly) zero bytes. Same failure mode as the amd64 32-MiB-brk bug
+// fixed by pinning that ABI's PIE low; arm64 keeps dynamic placement
+// (see the V8 CodeRange note at the call site) and reserves instead.
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph, pages_t headroom) {
     bool found = false;
     page_t first_page = 0;
     page_t last_page = 0;
@@ -427,7 +435,7 @@ static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_in
             return 0;
         size = last_page - first_page;
     }
-    page_t hole = pt_find_hole(current->mem, size);
+    page_t hole = pt_find_hole(current->mem, size + headroom);
     if (hole == BAD_PAGE)
         return 0;
     guest_addr_t base = ((guest_addr_t) hole - first_page) << PAGE_BITS;
@@ -586,7 +594,8 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                 // GUEST_ABI_ARM64 case in guest_abi_vm_layout() (kernel/abi.h)
                 // for why — avoids the V8 CodeRange collision that OpenMinis'
                 // ish-arm64 fork hit with a fixed low bias.
-                bias = find_hole_for_elf(&header, ph);
+                // 1 GiB of brk headroom above the image (see the helper).
+                bias = find_hole_for_elf(&header, ph, 0x40000000 >> PAGE_BITS);
         }
 
         if ((err = load_entry(header.abi, ph[i], bias, fd)) < 0)
@@ -619,7 +628,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     guest_addr_t interp_base = 0;
 
     if (interp_name) {
-        interp_base = find_hole_for_elf(&interp_header, interp_ph);
+        interp_base = find_hole_for_elf(&interp_header, interp_ph, 0);
         for (int i = interp_header.phent_count - 1; i >= 0; i--) {
             if (interp_ph[i].type != PT_LOAD)
                 continue;
