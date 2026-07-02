@@ -440,6 +440,16 @@ __attribute__((unused)) static bool amd64_jit_low8_reg(unsigned reg) {
 }
 
 bool gen_start(guest_addr_t addr, struct gen_state *state) {
+    // Real bug (branch-wide i386/amd64 SIGILL regression, caught by the
+    // cross-arch benchmark run, bisected to Phase A): gen_start_arm64 sets
+    // state->arm64 = true but plain gen_start never set it false, so
+    // i386/amd64 block compiles read UNINITIALIZED stack garbage here and,
+    // whenever it happened to be nonzero, gen_step() dispatched x86 bytes
+    // into the arm64 decoder — instant INT_UNDEFINED/SIGILL for every
+    // x86-guest binary.
+    state->arm64 = false;
+    state->arm64_ip = addr;
+    state->arm64_orig_ip = addr;
     state->amd64 = false;
     state->amd64_fallback_to_interp = false;
     state->amd64_abort_block_to_interp = false;
@@ -5445,6 +5455,16 @@ void gen_end(struct gen_state *state) {
     if (state->amd64) {
         if (block->addr != state->amd64_ip)
             block->end_addr = state->amd64_ip - 1;
+        else
+            block->end_addr = block->addr;
+    } else if (state->arm64) {
+        // arm64 advances arm64_ip, not the i386 state->ip — without this
+        // branch every arm64 block claimed to span a single byte, so
+        // page-registration/invalidation only saw the block's first byte
+        // (a landmine for any code-page invalidation, flagged in
+        // aarch64_guest_plan.md before it ever misfired).
+        if (block->addr != state->arm64_ip)
+            block->end_addr = state->arm64_ip - 1;
         else
             block->end_addr = block->addr;
     } else if (block->addr != state->ip)
