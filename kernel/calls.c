@@ -1981,6 +1981,10 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 48: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], 0); break;
     case 439: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]); break;
     case 49: result = sys_chdir_guest(raw_args[0]); break;
+    // syslog's buffer pointer must come through full-width: the legacy
+    // table truncated it to 32 bits, so dmesg read into a garbage address
+    // and printed an empty/blank buffer.
+    case 116: result = (dword_t) sys_syslog_guest((int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
     case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
     // truncate/ftruncate/fallocate carry 64-bit sizes in SINGLE registers
