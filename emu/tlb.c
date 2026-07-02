@@ -1,7 +1,48 @@
 #include "emu/cpu.h"
 #include "emu/tlb.h"
+#include "emu/interrupt.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
+
+// AdvSIMD LD1/ST1 (load/store multiple single-element structures,
+// contiguous form): transfer `count` consecutive V registers (wrapping
+// mod 32) of `regbytes` (8 for the .8b/.4h/.2s arrangements, 16 for the
+// .16b/... Q=1 arrangements) each, starting at `addr`. Done in C because
+// the whole transfer can span page boundaries per register — reusing the
+// crosspage-capable tlb_read/tlb_write is far simpler and safer than
+// hand-rolling the multi-register crosspage assembly. Returns INT_NONE on
+// success, or INT_PF (with cpu->segfault_addr/was_write set from the tlb)
+// on the first faulting access; the calling gadget rewinds PC and exits.
+// The scalar-write zero-extension (Q=0 clears the upper 64 bits) falls out
+// of copying through a zero-initialized union.
+//
+// Success returns 0, NOT INT_NONE (which is -1) — the gadget branches to
+// its fault path on a nonzero result, so INT_NONE would take the fault
+// path on every success. (Real bug: it did exactly that — every
+// successful ld1 exited INT_PF and the block re-ran forever.)
+int arm64_vldst_multi(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+                      unsigned rt, unsigned count, unsigned regbytes, int is_load) {
+    for (unsigned r = 0; r < count; r++) {
+        unsigned v = (rt + r) & 31;
+        if (is_load) {
+            union xmm_reg tmp = {};
+            if (!tlb_read(tlb, addr, &tmp, regbytes)) {
+                cpu->segfault_addr = tlb->segfault_addr;
+                cpu->segfault_was_write = false;
+                return INT_PF;
+            }
+            cpu->arm64_v[v] = tmp;
+        } else {
+            if (!tlb_write(tlb, addr, &cpu->arm64_v[v], regbytes)) {
+                cpu->segfault_addr = tlb->segfault_addr;
+                cpu->segfault_was_write = true;
+                return INT_PF;
+            }
+        }
+        addr += regbytes;
+    }
+    return 0;
+}
 
 void tlb_refresh(struct tlb *tlb, struct mmu *mmu) {
     if (tlb->mmu == mmu &&

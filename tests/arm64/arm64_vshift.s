@@ -3,6 +3,7 @@
 // on-device on `ushll v31.2d, v31.2s, #0` (the UXTL alias) — init
 // respawning getty made the failure a boot-blocking loop. Expected:
 // exits 0; non-zero = number of the first failed check.
+.global _start
 .text
 _start:
     movz x27, #1              // 1: UXTL (ushll #0): 2x32 -> 2x64

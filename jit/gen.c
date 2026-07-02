@@ -1776,6 +1776,41 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // AdvSIMD load/store multiple structures (contiguous LD1/ST1 only —
+    // musl's getcwd/string ops use them, e.g. `ld1 {v30.16b,v31.16b},[x2]`
+    // crashed `cd /AOK` on-device). The interleaving LD2/3/4 opcodes are
+    // NOT handled (different semantics) and fall through to SIGILL.
+    // No-offset form: bits[31,29:23]=0,0011000. Post-index: bit23=1.
+    if ((insn & 0xbfbf0000) == 0x0c000000 || (insn & 0xbfa00000) == 0x0c800000) {
+        extern void gadget_arm64_ld1st1_multi(void);
+        bool post = (insn >> 23) & 1;
+        unsigned q = (insn >> 30) & 1;
+        bool is_load = (insn >> 22) & 1;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned opcode = (insn >> 12) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        // opcode -> register count for the contiguous LD1/ST1 forms.
+        // Anything else (LD2/3/4 interleaved, or reserved) is not handled.
+        unsigned count = opcode == 0x7 ? 1 : opcode == 0xa ? 2
+                       : opcode == 0x6 ? 3 : opcode == 0x2 ? 4 : 0;
+        if (count == 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        // mode: 0=none, 1=post-index by total (Rm==31), 2=post-index by Xrm
+        unsigned mode = !post ? 0 : (rm == 31 ? 1 : 2);
+        gen(state, (unsigned long) gadget_arm64_ld1st1_multi);
+        gen(state, rt | ((uint64_t) rn << 5) | ((uint64_t) count << 10)
+            | ((uint64_t) q << 13) | ((uint64_t) is_load << 14)
+            | ((uint64_t) mode << 15) | ((uint64_t) rm << 17));
+        gen(state, state->arm64_orig_ip); // fault-restart address
+        return 1;
+    }
+
     // AdvSIMD vector shift by immediate: SSHR/USHR/SHL and SSHLL/USHLL
     // (incl. the SXTL/UXTL widen aliases — Alpine getty crash-looped on
     // `ushll v31.2d, v31.2s, #0` on-device). Lowered to the register-form

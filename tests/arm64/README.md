@@ -26,6 +26,7 @@ harness problem.
 | `arm64_fp.s` | Scalar FP: FMOV-imm, FADD/FSUB/FMUL/FDIV, FCMP/FCCMP, FCSEL both senses (the w10-handoff regression), FNEG/FABS/FSQRT, SCVTF/FCVTZS round trips, FMADD/FMSUB, FCVT S<->D, scalar SHL #52 (strtod pattern). Expected: exits 0 (non-zero = first failed check). |
 | `arm64_vshift.s` | AdvSIMD vector shift-by-immediate: UXTL/USHLL/SSHLL widening, SSHR/USHR, SHL (the Alpine getty on-device crash-loop). Expected: exits 0 (non-zero = first failed check). |
 | `arm64_ldpsw.s` | LDPSW (load pair of signed words): sign-extended 32->64 loads, offset and pre-index-writeback forms (busybox su/login NSS path). Expected: exits 0 (non-zero = first failed check). |
+| `arm64_ld1.s` | AdvSIMD LD1/ST1 (load/store multiple, contiguous): 1- and 2-register loads, post-index writeback, ST1 (musl getcwd/string ops; `cd /AOK` crash-loop on-device). Expected: exits 0 (non-zero = first failed check). |
 | `arm64_signal.s` | Signal delivery + rt_sigreturn: rt_sigaction, kill(self), handler-ran marker, register survival across delivery/sigreturn, and the mrs-tpidr-after-bl errno pattern from the busybox-sh SIGCHLD crash investigation. Expected: exits 0 (non-zero = first failed check). |
 
 `arm64_hello.s`/`arm64_prologue.s`/`arm64_atomics.s`/`arm64_logical.s`

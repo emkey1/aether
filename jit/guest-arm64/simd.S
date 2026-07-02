@@ -532,3 +532,94 @@ vshll_gadget vshll_u_4h,  uxtl,  .4h, .4s, w9
 vshll_gadget vshll_u2_8h,  uxtl2, .8h, .4s, w9
 vshll_gadget vshll_u_2s,  uxtl,  .2s, .2d, x9
 vshll_gadget vshll_u2_4s,  uxtl2, .4s, .2d, x9
+
+// ---- AdvSIMD LD1/ST1 (load/store multiple, contiguous) ------------------
+// The interleaving LD2/3/4 forms are NOT handled here (different
+// semantics); gen only routes the contiguous LD1/ST1 opcodes (1-4 regs)
+// to this gadget. All the page-crossing work is in the C helper
+// arm64_vldst_multi (emu/tlb.c); this gadget just marshals args, handles
+// the fault return, and does the post-index writeback.
+//
+// Code stream: [gadget][packed][orig_ip]
+//   packed: rt(0:4) | rn(5:9) | count(10:12) | q(13) | is_load(14) |
+//           mode(15:16) | rm(17:21)
+//   mode: 0 = no writeback, 1 = post-index by total bytes (imm form),
+//         2 = post-index by Xrm (register form)
+.extern arm64_vldst_multi
+
+.gadget ld1st1_multi
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]         // orig_ip (fault restart), callee-saved
+    add _ip, _ip, #16
+    and x20, x8, #0x1f         // rt
+    ubfx x21, x8, #5, #5       // rn
+    ubfx x22, x8, #10, #3      // count
+    ubfx x23, x8, #13, #1      // q
+    ubfx x24, x8, #14, #1      // is_load
+    ubfx x25, x8, #15, #2      // mode
+    ubfx x26, x8, #17, #5      // rm
+
+    // base address (rn: 31 = SP), into x7
+    add x9, _cpu, #CPU_x0
+    cmp x21, #31
+    b.eq 1f
+    add x10, x9, x21, lsl #3
+    ldr x7, [x10]
+    b 2f
+1:  ldr x7, [_cpu, #CPU_sp]
+2:
+    // regbytes = q ? 16 : 8
+    mov x11, #8
+    cbz x23, 3f
+    mov x11, #16
+3:
+    save_c                     // saves x0-x18+lr; x7/x11 spill+restore too
+    // AAPCS64 args. Set the non-conflicting ones first (from callee-saved
+    // sources), then chain x0<-x1(cpu), x1<-x2(tlb), x2<-x7(addr): x1 and
+    // x2 are both source and destination, so this exact order is the only
+    // safe one (same hazard as the crosspage helpers).
+    mov x3, x20                // rt
+    mov x4, x22                // count
+    mov x5, x11                // regbytes
+    mov x6, x24                // is_load
+    mov x0, x1                 // cpu  (x1 still intact)
+    sub x1, x2, #TLB_entries   // real `struct tlb *` (_tlb points at tlb->entries)
+    mov x2, x7                 // addr
+    bl NAME(arm64_vldst_multi)
+    mov x27, x0                // stash result (INT_NONE=0 / INT_PF) in callee-saved
+    restore_c
+
+    cbnz x27, ld1st1_fault
+
+    // writeback
+    cbz x25, ld1st1_done
+    add x9, _cpu, #CPU_x0
+    cmp x21, #31
+    b.eq 4f
+    add x10, x9, x21, lsl #3
+    ldr x13, [x10]
+    b 5f
+4:  ldr x13, [_cpu, #CPU_sp]
+5:  cmp x25, #2
+    b.eq 6f
+    mul x14, x22, x11          // mode 1: += count * regbytes
+    add x13, x13, x14
+    b 7f
+6:  cmp x26, #31              // mode 2: += Xrm (rm=31 -> +0, defensive)
+    b.eq 7f
+    add x10, x9, x26, lsl #3
+    ldr x14, [x10]
+    add x13, x13, x14
+7:  cmp x21, #31
+    b.eq 8f
+    add x10, x9, x21, lsl #3
+    str x13, [x10]
+    b ld1st1_done
+8:  str x13, [_cpu, #CPU_sp]
+ld1st1_done:
+    gret
+
+ld1st1_fault:
+    str x19, [_cpu, #CPU_pc]   // rewind PC to this instruction (idempotent retry)
+    mov w0, w27                // INT_PF
+    b jit_exit
