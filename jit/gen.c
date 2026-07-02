@@ -294,6 +294,8 @@ static void amd64_jit_debug(const char *fmt, ...) {
 }
 
 int gen_step(struct gen_state *state, struct tlb *tlb) {
+    if (state->arm64)
+        return gen_step_arm64(state, tlb);
     state->orig_ip = state->ip;
     state->orig_ip_extra = 0;
     if (state->amd64)
@@ -474,6 +476,120 @@ bool gen_start_amd64(guest_addr_t addr, struct gen_state *state) {
         return false;
     state->amd64 = true;
     return true;
+}
+
+bool gen_start_arm64(guest_addr_t addr, struct gen_state *state) {
+    if (!gen_start(addr, state))
+        return false;
+    state->arm64 = true;
+    state->arm64_ip = addr;
+    state->arm64_orig_ip = addr;
+    return true;
+}
+
+// AArch64 guest code generator — Phase A of the JIT gadget port
+// (aarch64_guest_plan.md). Emits gadget-array entries for jit/guest-arm64/'s
+// ported gadgets instead of computing results directly, the same relationship
+// emu/arm64_interp.c's arm64_execute() has to real semantics but one level
+// removed (that file computes results now; this one emits an instruction
+// for the host CPU to compute them later, in the compiled block). Field
+// extraction here deliberately mirrors arm64_execute()'s masks exactly —
+// same bit layout, same instruction subset (movz/movk/movn, adr/adrp, svc
+// in this first slice) — so a reader comparing the two files sees the same
+// decode logic, just packing gadget parameters instead of registers.
+//
+// Undefined/unhandled instructions emit the existing shared gadget_interrupt
+// (jit/gadgets-aarch64/entry.S's `.gadget interrupt`, already used by the
+// i386 JIT for the same purpose — reused directly, not re-implemented) with
+// INT_UNDEFINED, ending the block there. No interpreter fallback, matching
+// i386's own precedent (aarch64_guest_plan.md's direction-change rationale).
+int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
+    extern void gadget_interrupt(void);
+    extern void gadget_arm64_movz(void);
+    extern void gadget_arm64_movk(void);
+    extern void gadget_arm64_movn(void);
+    extern void gadget_arm64_adr(void);
+    extern void gadget_arm64_svc(void);
+
+    state->arm64_orig_ip = state->arm64_ip;
+    state->orig_ip_extra = 0;
+
+    uint32_t insn;
+    if (!tlb_read(tlb, state->arm64_ip, &insn, sizeof(insn))) {
+        gen(state, (unsigned long) gadget_interrupt);
+        gen(state, INT_UNDEFINED);
+        gen(state, state->arm64_orig_ip);
+        gen(state, state->arm64_orig_ip);
+        return 0;
+    }
+    state->arm64_ip += sizeof(insn);
+
+    // Move wide (immediate): MOVN/MOVZ/MOVK — same mask as
+    // emu/arm64_interp.c's arm64_execute() (bits[28:23]=100101).
+    if ((insn & 0x1f800000) == 0x12800000) {
+        bool sf = (insn >> 31) & 1;
+        unsigned opc = (insn >> 29) & 0x3;
+        unsigned hw = (insn >> 21) & 0x3;
+        uint64_t imm16 = (insn >> 5) & 0xffff;
+        unsigned rd = insn & 0x1f;
+        if (!sf && hw >= 2) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        void *gadget;
+        switch (opc) {
+        case 0b00: gadget = (void *) gadget_arm64_movn; break;
+        case 0b10: gadget = (void *) gadget_arm64_movz; break;
+        case 0b11: gadget = (void *) gadget_arm64_movk; break;
+        default:
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) hw << 8) | (imm16 << 16) | ((uint64_t) sf << 32));
+        return 1;
+    }
+
+    // ADR/ADRP — mask matches arm64_execute()'s (bits[28:24]=10000). Target
+    // is computed here at compile time (PC is compile-time known) rather
+    // than by the gadget at runtime — see math.S's adr gadget comment.
+    if ((insn & 0x1f000000) == 0x10000000) {
+        unsigned rd = insn & 0x1f;
+        bool is_adrp = (insn >> 31) & 1;
+        uint64_t immlo = (insn >> 29) & 0x3;
+        uint64_t immhi = (insn >> 5) & 0x7ffff;
+        uint64_t raw = (immhi << 2) | immlo;
+        int64_t imm = (raw & (1ULL << 20)) ? (int64_t) (raw | (~0ULL << 21)) : (int64_t) raw;
+        uint64_t target = is_adrp
+            ? (state->arm64_orig_ip & ~(uint64_t) 0xfff) + ((uint64_t) imm << 12)
+            : state->arm64_orig_ip + (uint64_t) imm;
+        gen(state, (unsigned long) gadget_arm64_adr);
+        gen(state, (rd & 0x1f) | ((target & 0xffffffffffffULL) << 8));
+        return 1;
+    }
+
+    // SVC — fixed encoding, matches arm64_execute()'s mask.
+    if ((insn & 0xffe0001f) == 0xd4000001) {
+        gen(state, (unsigned long) gadget_arm64_svc);
+        gen(state, state->arm64_ip); // next instruction, already advanced above
+        return 0; // block ends: SVC always exits to the main loop
+    }
+
+    // Not yet ported to a gadget — raise INT_UNDEFINED and end the block
+    // here (everything decoded so far in this block still runs; this
+    // instruction, when reached, cleanly signals SIGILL instead of being
+    // silently misexecuted).
+    gen(state, (unsigned long) gadget_interrupt);
+    gen(state, INT_UNDEFINED);
+    gen(state, state->arm64_orig_ip);
+    gen(state, state->arm64_orig_ip);
+    return 0;
 }
 
 static bool gen_fetch_amd64(struct gen_state *state, struct tlb *tlb, void *out, size_t size) {

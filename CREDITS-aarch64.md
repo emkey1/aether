@@ -17,7 +17,69 @@ its commit message in addition to the entry added here.
 See [aarch64_guest_plan.md](aarch64_guest_plan.md) for the overall plan this
 credits file supports.
 
-## Adapted / closely modeled on OpenMinis/ish-arm64
+## Adapted / closely modeled on OpenMinis/ish-arm64 — JIT gadget port
+
+- `jit/guest-arm64/gadgets.h`, `jit/guest-arm64/math.S`, `jit/guest-arm64/control.S`
+  — the JIT gadget port itself (aarch64_guest_plan.md's direction change).
+  Gadget bodies (`movz`/`movk`/`movn`/`adr`/`load_reg`/`store_reg`) are
+  adapted near-verbatim from `asbestos/guest-arm64/gadgets-aarch64/math.S`;
+  register-access macros (`load_guest_reg`/`store_guest_reg`/`load_guest_sp`/
+  `load_guest_pc`/`load_flags`/`store_flags`) from their `gadgets.h`.
+  Mechanical rename: `_pc` → `_ip` (this codebase's i386-guest convention
+  for the code-stream pointer, which this file matches exactly — verified
+  by direct investigation that `jit_enter`/`gret`/`jit_exit`
+  (`jit/gadgets-aarch64/entry.S`) are guest-ABI-agnostic and safely
+  reusable unmodified: `jit/jit.c:1444` calls the exact same `jit_enter`
+  for amd64 blocks already, and `jit/jit.c:1467` explicitly re-syncs
+  `frame->cpu.eip` from `amd64_rip` right after, proving the codebase
+  already treats `load_regs`/`save_regs`'s i386-field touching as
+  harmless/ignorable for non-i386 guests — no separate entry.S needed).
+
+  **Real adaptation, not mechanical**: their `svc` gadget uses
+  `INT_SYSCALL` (0x80, i386's interrupt number); changed to
+  `INT_ARM64_SVC`, this codebase's dedicated arm64 SVC interrupt code
+  (patch 5). Their TLB fast-path macro (`read_prep`/`write_prep` in their
+  `gadgets.h`) assumes `TLB_BITS=13` and a 32-byte `tlb_entry` stride —
+  this codebase's is `TLB_BITS=10`/24-byte stride (`emu/tlb.h`) — so
+  this file's `read_prep`/`write_prep` is instead adapted from
+  `jit/gadgets-aarch64/gadgets.h`'s own already-correct, already-tested
+  version (i386's host-gadget TLB lookup), not from OpenMinis' version;
+  see that macro's comment for the full reasoning.
+
+  **A real bug found by testing**: the first real run crashed (SIGSEGV)
+  with zero output. Bisected with temporary tracing to `jit_should_yield()`
+  → `cpu_take_poke()` dereferencing `cpu->poked_ptr`, which was never
+  initialized for arm64 tasks — `cpu_run_to_interrupt()`'s arm64 branch
+  returned early, before the line (shared with i386/amd64) that sets
+  `cpu->poked_ptr = &cpu->_poked`. One-line fix; see the commit for
+  reasoning. Confirms the value of testing against the actual JIT
+  execution path rather than only reading code for correctness.
+
+- `jit/offsets.c`'s new `arm64()` function and `MACRO(TLB_BITS)`/
+  `MACRO(PAGE_BITS)` additions — independently written (this codebase's
+  own `offsets.c`/`staticdefine.sh` mechanism has no OpenMinis
+  equivalent to adapt from), but exists specifically to let the ported
+  gadget files above reference this codebase's actual struct layout via
+  symbolic `CPU_arm64_*` names, aliased to the bare `CPU_x0`/`CPU_sp`/
+  `CPU_pc`/`CPU_nzcv` names their gadget bodies use (see gadgets.h's
+  `#undef CPU_sp` comment for why a plain alias isn't safe — a real
+  collision with i386's own `sp` field, caught by the compiler, not
+  hypothetical).
+
+- `jit/gen.c`'s `gen_start_arm64`/`gen_step_arm64` and `jit/jit.c`'s
+  `jit_block_compile_arm64`/`cpu_step_to_interrupt_arm64` — independently
+  written against this codebase's own amd64-frontend precedent (mirrors
+  `gen_start_amd64`/`gen_step_amd64` and `cpu_step_to_interrupt`'s
+  jetsam-lock/crash-recovery/block-cache/block-chaining structure almost
+  exactly), not adapted from OpenMinis (their `gen.c` fuses decode and
+  gadget-emission differently, and they have no equivalent to this
+  codebase's jetsam/crash-recovery machinery to adapt from). Field
+  extraction inside `gen_step_arm64` deliberately mirrors
+  `emu/arm64_interp.c`'s `arm64_execute()` masks exactly — see that
+  function's own credits entry for which of those masks came from
+  OpenMinis originally.
+
+## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their
   `emu/arch/arm64/decode.h`: condition-code enum and evaluation

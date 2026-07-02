@@ -74,4 +74,29 @@ void cpu() {
     OFFSET(TLB_ENTRY, tlb_entry, page_if_writable);
     OFFSET(TLB_ENTRY, tlb_entry, data_minus_addr);
     MACRO(TLB_ENTRY_SIZE);
+    MACRO(TLB_BITS);
+    MACRO(PAGE_BITS);
+}
+
+// AArch64 guest register file, for jit/guest-arm64/'s ported gadgets
+// (aarch64_guest_plan.md's JIT-gadget-port direction change). Symbol names
+// intentionally match this codebase's own OFFSET(CPU, cpu_state, ...)
+// convention (CPU_arm64_regs etc), not OpenMinis' bare CPU_x0/CPU_sp/
+// CPU_pc/CPU_nzcv naming (their struct is arm64-only so has no collision
+// risk; this codebase's struct is shared across i386/amd64/arm64, and
+// CPU_sp/CPU_pc would collide with i386's own `sp` field and nothing-named-
+// pc respectively if used bare). jit/guest-arm64/gadgets.h defines
+// CPU_x0/CPU_sp/CPU_pc/CPU_nzcv as aliases to these, once, in one place,
+// rather than renaming every reference across the ~22K lines of ported
+// gadget assembly.
+void arm64() {
+    OFFSET(CPU, cpu_state, arm64_regs);
+    OFFSET(CPU, cpu_state, arm64_sp);
+    OFFSET(CPU, cpu_state, arm64_pc);
+    OFFSET(CPU, cpu_state, arm64_nzcv);
+    OFFSET(CPU, cpu_state, arm64_excl_addr);
+    OFFSET(CPU, cpu_state, arm64_excl_val);
+    OFFSET(CPU, cpu_state, arm64_v);
+    OFFSET(CPU, cpu_state, arm64_fpsr);
+    OFFSET(CPU, cpu_state, arm64_fpcr);
 }

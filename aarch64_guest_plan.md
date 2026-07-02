@@ -292,35 +292,83 @@ Work:
 Exit criteria: dynamic glibc/musl arm64 binaries start; `pthread_create`,
 `sigaltstack`, basic signal delivery work.
 
-### 8. Ptrace, Then Native Gadget Engine
+### 8. Native Gadget Engine — DIRECTION CHANGE, Phase A DONE and validated
 
-Files: `kernel/ptrace.c`, new `jit/guest-arm64/` (gadgets + gen logic for the
-new guest backend), `jit/jit.c`
+Files: new `jit/guest-arm64/{gadgets.h,math.S,control.S}`, `jit/gen.{c,h}`,
+`jit/jit.c`, `jit/offsets.c`, `meson.build`
 
-**Naming note**: iSH-AOK's `jit/gadgets-aarch64/` is the *host*-CPU gadget
-set (Apple Silicon host, any guest ABI) — completely orthogonal to a new
-*guest*-arm64 backend. OpenMinis hit the same collision and resolved it by
-splitting into `asbestos/guest-x86/` vs `asbestos/guest-arm64/` top-level
-dirs. `jit/guest-arm64/` is the confirmed name for the new guest backend —
-do not overload the existing `gadgets-aarch64` name (that stays the host
-gadget set, unrelated to this port).
+**Direction change** (superseding this patch's original "ptrace first,
+interpreter-only" framing): the project's direction changed to porting
+OpenMinis' JIT gadget set directly instead of building out interpreter
+coverage — the whole reason Open Minis is faster is same-architecture
+gadget dispatch, and there's no interest in an interpreter as an
+intermediate step. `emu/arm64_interp.c` (patches 3-5) is left committed,
+still builds, still passes its tests, but is no longer extended or called
+from `cpu_run_to_interrupt()`. No interpreter fallback is wired into the
+gadget path — matching i386's own no-fallback precedent (confirmed by
+dedicated research into this codebase's JIT integration points before
+writing any gadget code).
 
-Work:
-- Ptrace register set support for arm64 (`NT_PRSTATUS` aarch64 shape) first,
-  interpreter-only, before any native gadget work — mirrors amd64 port step
-  12's ordering ("interpreter-only userland is stable before the JIT
-  starts").
-- Then the native gadget engine: since host == guest arch here (unlike the
-  amd64-on-arm64 cross-arch case), most gadgets are near-1:1 passthrough —
-  reference OpenMinis' `asbestos/guest-arm64/gadgets-aarch64/{bits,control,
-  entry,math,memory}.S` for instruction-class coverage and organization,
-  write gadget bodies against iSH-AOK's own TLB/gadget-frame conventions
-  (see `jit/gen.c`'s existing `gen_step`/`gen_step_amd64` split as the
-  pattern a `gen_step_arm64` would follow).
+**Naming note** (still applies): `jit/gadgets-aarch64/` is the *host*-CPU
+gadget set (Apple Silicon host, any guest ABI) — orthogonal to the new
+*guest*-arm64 backend. `jit/guest-arm64/` is the confirmed name.
 
-Exit criteria: interpreter-only arm64 userland stable; native gadget engine
-validated against the interpreter on the same binaries before being trusted
-as the default execution path.
+**Phase A (this session) — DONE, validated end-to-end**: the smallest
+possible complete vertical slice through the whole new subsystem, proven
+before expanding gadget coverage (same incremental, test-driven approach
+that worked for the interpreter):
+
+- `jit/offsets.c`: new `arm64()` function emitting `CPU_arm64_*` symbolic
+  offsets; `MACRO(TLB_BITS)`/`MACRO(PAGE_BITS)` additions.
+- `jit/guest-arm64/gadgets.h`: `CPU_x0`/`CPU_sp`/`CPU_pc`/`CPU_nzcv` alias
+  layer; `_cpu`/`_tlb`/`_ip` matching iSH-AOK's own i386-guest convention
+  exactly (verified reusable, see CREDITS); `gret`; memory-access
+  `read_prep`/`write_prep` adapted from `jit/gadgets-aarch64/gadgets.h`'s
+  own proven-correct TLB macro (not OpenMinis' — their `TLB_BITS`/entry
+  stride assumptions don't match this codebase's actual layout).
+- `jit/guest-arm64/math.S`: `movz`/`movk`/`movn`/`adr`/`load_reg`/
+  `store_reg` gadgets, adapted from OpenMinis' `math.S`.
+- `jit/guest-arm64/control.S`: `svc` gadget, adapted with a real fix
+  (their `INT_SYSCALL` → this codebase's `INT_ARM64_SVC`).
+- `jit/gen.c`: `gen_start_arm64`/`gen_step_arm64` — emits gadget-array
+  entries for MOVZ/MOVK/MOVN/ADR/ADRP/SVC, mirroring
+  `emu/arm64_interp.c`'s decode masks exactly; unrecognized instructions
+  emit the existing shared `gadget_interrupt` with `INT_UNDEFINED`
+  (reused directly from i386's own mechanism, not reimplemented) — no
+  silent misexecution, same guarantee the interpreter had.
+- `jit/jit.c`: `jit_block_compile_arm64`, `cpu_step_to_interrupt_arm64`
+  (mirrors `cpu_step_to_interrupt`'s jetsam-lock/crash-recovery/block-
+  cache/block-chaining structure, sans i386's GPF-retry dance — not shown
+  to apply here, added later only if real testing shows an equivalent
+  need); wired into `cpu_run_to_interrupt()`, replacing the interpreter
+  dispatch.
+
+**A real bug found and fixed**: first real run crashed (SIGSEGV, zero
+output). Bisected with temporary tracing to `cpu->poked_ptr` being NULL
+for arm64 tasks — `cpu_run_to_interrupt()`'s arm64 branch returned early,
+skipping the line (shared with i386/amd64) that initializes it. One-line
+fix. See `CREDITS-aarch64.md` for the full story.
+
+**Validated**: `tests/arm64/arm64_hello.s` (write+exit via SVC, using only
+ported gadgets: MOVZ/ADR/SVC) passes end-to-end through the real JIT
+path — compiled by `gen_step_arm64`, cached, executed via `jit_enter`,
+correct output ("hi") and exit code (42). The other three regression
+tests (`arm64_prologue.s`, `arm64_atomics.s`, `arm64_logical.s`), which
+use instructions not yet ported to gadgets (STP/LDP, ADD/SUB-immediate,
+Logical-immediate, branches), correctly hit `SIGILL` via
+`gadget_interrupt`+`INT_UNDEFINED` — the same "clean failure, not silent
+misexecution" guarantee the interpreter had, now proven to hold through
+the gadget path too.
+
+**Phase B (not started)**: expand `jit/guest-arm64/` coverage — ADD/SUB
+immediate and shifted-register, Logical immediate and shifted-register,
+LDR/STR/LDP/STP, LDXR/STXR/CAS, B/BL/B.cond/CBZ/CBNZ/BR/BLR/RET — enough
+to get `tests/arm64/`'s other three binaries passing via gadgets, then
+the real Alpine `/bin/busybox` test (see patch 5's "Real-rootfs findings"
+in `tests/arm64/README.md`) as the next real-world validation target.
+Should follow the same "port what real testing shows is next" priority
+used for the interpreter's Logical-immediate addition, not a speculative
+ISA-manual-ordered pass.
 
 ## Testing Strategy — New Oracle Required
 
