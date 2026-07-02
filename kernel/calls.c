@@ -1670,6 +1670,7 @@ static syscall_t arm64_syscall_table[450] = {
     [178] = (syscall_t) sys_gettid,
     [179] = (syscall_t) sys_sysinfo,
     // Socket syscalls: aarch64 has no socketcall() multiplexer, unlike i386
+    [223] = (syscall_t) syscall_success_stub, // fadvise64 (advisory; ignored)
     // SysV shm (aarch64 direct syscalls; i386 only has ipc(2)). All four
     // dispatch natively (full-width); entries needed to pass the NULL check.
     [194] = (syscall_t) sys_shmget,
@@ -2146,6 +2147,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 194: result = (dword_t) sys_shmget_guest((dword_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // shmget
     case 195: result = (dword_t) sys_shmctl_guest((int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // shmctl (64-bit shmid_ds)
     case 197: result = (dword_t) sys_shmdt_guest(raw_args[0]); break; // shmdt
+    case 223: result = 0; break; // fadvise64: advisory, ignored (64-bit off/len args)
     default:
         return false; // not handled here: fall through to the legacy-marshalled table
     }
