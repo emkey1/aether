@@ -1346,7 +1346,13 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
             lock(&jit->lock, 0);
             if (!last_block->is_jetsam && !block->is_jetsam) {
                 for (int i = 0; i <= 1; i++) {
+                    // Unchained arm64 targets carry bit 63 (control.S's
+                    // tagged-word scheme); a patched word is a host code
+                    // pointer with bit 63 clear. Requiring the tag makes
+                    // re-checking an already-patched slot a no-op instead
+                    // of a (low-probability) false re-patch.
                     if (last_block->jump_ip[i] != NULL &&
+                            (*last_block->jump_ip[i] >> 63) != 0 &&
                             (*last_block->jump_ip[i] & 0xffffffffffffULL) == block->addr) {
                         if (block->addr <= last_block->addr)
                             continue;

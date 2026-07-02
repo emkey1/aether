@@ -666,18 +666,36 @@ code — the known cost of no block chaining (every branch is an
 exit-to-C round trip) plus the memory-based register file. Chaining is
 the next perf lever, deliberately deferred behind correctness.
 
+**Block chaining (DONE — arm64 is now the fastest guest)**: the
+amd64-style tagged-word scheme, re-expressed for this port (see
+control.S's chaining header): compile-time branch targets are emitted
+with bit 63 set and their stream indices recorded in jump_ip[]; the C
+loop patches them in place with the destination block's host `code`
+pointer; branch gadgets route through `arm64_branch_dispatch` — tag
+still set means strip-and-exit-to-C as before, tag clear means dispatch
+straight into the next block after a poke check (signals must not
+starve). Forward-only edges (the loop guard) keep every loop's backward
+edge exiting to C — the amd64-era jetsam-starvation lesson inherited,
+not relearned. B/BL/B.cond/CBZ/CBNZ/TBZ/TBNZ all chain; dynamic-target
+BR/BLR/RET stay unchained. One improvement over the amd64 precedent:
+the patch condition also requires the tag bit, making a re-check of an
+already-patched slot a no-op instead of a low-probability false
+re-patch.
+
+**Benchmarks after chaining (same workloads as above)**: sh-loop 20k:
+i386 3.24s / x86_64 3.07s / **arm64 2.62s (1.2x both)** — was 4.27s
+(0.6x) before chaining. sha256 16MB: 2.05 / 2.63 / **1.80s**. fork+exec
+x100: 0.28 / 0.36 / **0.28s**. arm64 leads on every benchmark.
+
 **Known next work**:
 
-1. **Block chaining for arm64 branches** — the biggest perf lever (see
-   benchmark). The jump_ip[]/old_jump_ip machinery and the arm64 loop's
-   patching support already exist; the branch gadgets need the
-   amd64-style tagged-target scheme (guest ip with a tag bit vs patched
-   host code pointer).
-2. Minor: `ls / | grep ...` pipelines produce empty output (plain `ls /`
+1. Minor: `ls / | grep ...` pipelines produce empty output (plain `ls /`
    works) — likely a non-tty stat/ioctl behavior difference, not a JIT
    gap.
-3. Wider SIMD (vector arithmetic beyond bitwise) and the remaining
+2. Wider SIMD (vector arithmetic beyond bitwise) and the remaining
    unsigned FCVT rounding variants — blocker-driven, as always.
+3. Perf, next tier: a return cache for RET (i386 has one), and the
+   memory-based register file (profile before optimizing).
 
 ## Testing Strategy — New Oracle Required
 

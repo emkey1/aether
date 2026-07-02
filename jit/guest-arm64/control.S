@@ -3,24 +3,31 @@
 // /CREDITS-aarch64.md; see below for its INT_SYSCALL->INT_ARM64_SVC fix).
 //
 // Everything else here (b/bl/br/blr/ret/cbz/cbnz/tbz/tbnz/b.cond) is
-// independently written, NOT adapted from their equivalents. Their
-// versions use `inline_chain`/fake_ip block-linking (a compile-time-known
-// target either resolves to a direct code pointer for same-JIT-call
-// continuation, or falls back to the main loop) -- a real optimization,
-// but one that requires teaching gen_step_arm64 their fake_ip packing
-// scheme and how it interacts with this codebase's own, differently-
-// shaped block-chaining machinery (the jump_ip[]/jumps_from[] patching
-// already wired into cpu_step_to_interrupt_arm64, jit/jit.c -- ported
-// from i386's precedent, not from OpenMinis). Reconciling two different
-// chaining schemes correctly is exactly the kind of subtle-bug risk
-// worth avoiding on a first pass: every gadget here instead stores its
-// target into CPU_pc and unconditionally exits via jit_ret (shared,
-// already proven by i386), letting the existing block-lookup/compile/
-// cache loop re-dispatch normally. Slower per-branch (an exit-to-C round
-// trip every time, no inline chaining) but simple and easy to get right.
-// Revisit once broader gadget coverage is correctness-proven and chaining
-// is worth the complexity -- same "correctness first" discipline used
-// throughout this port.
+// independently written, NOT adapted from their equivalents (which use a
+// differently-shaped inline_chain/fake_ip scheme).
+//
+// BLOCK CHAINING (the port's first deliberate perf change, added after
+// the cross-arch benchmark showed branch-heavy code ~40% behind the x86
+// guests on exit-to-C round trips): compile-time-known branch targets
+// are emitted into the code stream TAGGED with bit 63 set
+// (target | 1<<63), and gen_step_arm64 records their stream indices in
+// state->jump_ip[]. When the C loop later executes destination blocks,
+// it PATCHES those words in place with the destination block's host
+// `code` pointer (bit 63 clear — a userspace host pointer). Branch
+// gadgets load their chosen target word into _ip and jump to
+// arm64_branch_dispatch: tag still set -> strip it, store CPU_pc, exit
+// to C as before; tag clear -> the word IS the next block's gadget
+// array, so after a poke check (signals/timers must not starve — the
+// same protection amd64's jit_ret_chain has) dispatch straight into it
+// with zero C round trips. The C loop only chains FORWARD edges
+// (block->addr > last_block->addr), so every loop's backward edge still
+// exits to C — the amd64-era "loop chaining starves jetsam" lesson,
+// inherited rather than relearned. Dynamic-target branches (BR/BLR/RET)
+// stay unchained.
+//
+// This is the amd64 frontend's exact tagged-word design
+// (gadget_amd64_jmp / jit_ret_chain, jit/gadgets-aarch64/), re-expressed
+// for this port's register convention and 64-bit guest PC.
 //
 // bcond_* gadgets use the host's own b.<cond> instruction after loading
 // NZCV into the host flags register (load_flags, gadgets.h) -- one gadget
@@ -57,18 +64,38 @@
 // gen_step_arm64 since PC is known at compile time). Code stream for b:
 // [gadget][target_pc]. For bl: [gadget][target_pc][return_addr] -- return
 // address is written to X30 before branching.
-.gadget b
-    ldr x8, [_ip]
+// Common branch tail: _ip holds the loaded target word. Tagged (bit 63
+// set) = unchained guest address; clear = patched host code pointer for
+// direct block-to-block dispatch. See the file header.
+.global arm64_branch_dispatch
+arm64_branch_dispatch:
+    tbz _ip, #63, arm64_chain
+    and x8, _ip, #0x7fffffffffffffff
+    str x8, [_cpu, #CPU_pc]
+    b jit_ret
+arm64_chain:
+    ldr x8, [_cpu, #CPU_poked_ptr]
+    ldrb w8, [x8]
+    cbnz w8, arm64_chain_poked
+    sub x8, _ip, #JIT_BLOCK_code       // recover the block pointer for the
+    str x8, [_cpu, #LOCAL_last_block]  // C loop's chaining bookkeeping
+    gret
+arm64_chain_poked:
+    // Poked mid-chain: resume point is the DESTINATION block's start.
+    ldur x8, [_ip, #(JIT_BLOCK_addr - JIT_BLOCK_code)]
     str x8, [_cpu, #CPU_pc]
     b jit_ret
 
+.gadget b
+    ldr _ip, [_ip]
+    b arm64_branch_dispatch
+
 .gadget bl
-    ldr x8, [_ip]
     ldr x9, [_ip, #8]
     add x10, _cpu, #CPU_x0
     str x9, [x10, #(30*8)]  // X30 = return address
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip]
+    b arm64_branch_dispatch
 
 // BR, BLR, RET — branch to a register value. Code stream: [gadget][rn].
 // For blr, code stream also has [return_addr] after rn, same as bl.
@@ -129,13 +156,11 @@
 3:  cbz w12, taken_cbz
     b not_taken_cbz
 taken_cbz:
-    ldr x8, [_ip, #8]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
 not_taken_cbz:
-    ldr x8, [_ip, #16]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #16]
+    b arm64_branch_dispatch
 
 .gadget cbnz
     ldr x8, [_ip]
@@ -153,13 +178,11 @@ not_taken_cbz:
 3:  cbnz w12, taken_cbnz
     b not_taken_cbnz
 taken_cbnz:
-    ldr x8, [_ip, #8]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
 not_taken_cbnz:
-    ldr x8, [_ip, #16]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #16]
+    b arm64_branch_dispatch
 
 // TBZ, TBNZ — code stream: [gadget][rt | bit_pos<<8][taken_pc][fallthrough_pc]
 .gadget tbz
@@ -176,13 +199,11 @@ not_taken_cbnz:
     tbz x12, #0, taken_tbz
     b not_taken_tbz
 taken_tbz:
-    ldr x8, [_ip, #8]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
 not_taken_tbz:
-    ldr x8, [_ip, #16]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #16]
+    b arm64_branch_dispatch
 
 .gadget tbnz
     ldr x8, [_ip]
@@ -198,13 +219,11 @@ not_taken_tbz:
     tbnz x12, #0, taken_tbnz
     b not_taken_tbnz
 taken_tbnz:
-    ldr x8, [_ip, #8]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
 not_taken_tbnz:
-    ldr x8, [_ip, #16]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #16]
+    b arm64_branch_dispatch
 
 // B.cond family — code stream: [gadget][taken_pc][fallthrough_pc]. One
 // gadget per condition code; gen_step_arm64 picks the right one at
@@ -213,12 +232,10 @@ not_taken_tbnz:
 .gadget \name
     load_flags
     b.\cc 1f
-    ldr x8, [_ip, #8]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
-1:  ldr x8, [_ip]
-    str x8, [_cpu, #CPU_pc]
-    b jit_ret
+    ldr _ip, [_ip, #8]
+    b arm64_branch_dispatch
+1:  ldr _ip, [_ip]
+    b arm64_branch_dispatch
 .endm
 
 bcond_gadget bcond_eq, eq

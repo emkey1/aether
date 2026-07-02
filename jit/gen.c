@@ -1772,13 +1772,18 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         // the sign extension wrong.
         int64_t offset = arm64_branch_imm26(insn);
         uint64_t target = state->arm64_orig_ip + (uint64_t) offset;
+        // Targets are emitted TAGGED (bit 63 set) and their stream indices
+        // recorded in jump_ip[] so the C loop can patch them into direct
+        // block-to-block links — see control.S's chaining header.
         if (is_bl) {
             gen(state, (unsigned long) gadget_arm64_bl);
-            gen(state, target);
+            gen(state, target | 0x8000000000000000ULL);
+            state->jump_ip[0] = state->size - 1;
             gen(state, state->arm64_ip); // return address
         } else {
             gen(state, (unsigned long) gadget_arm64_b);
-            gen(state, target);
+            gen(state, target | 0x8000000000000000ULL);
+            state->jump_ip[0] = state->size - 1;
         }
         return 0;
     }
@@ -1802,11 +1807,14 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         if (cond >= 14) {
             // Always-taken: just an unconditional branch to the target.
             gen(state, (unsigned long) gadget_arm64_b);
-            gen(state, taken);
+            gen(state, taken | 0x8000000000000000ULL);
+            state->jump_ip[0] = state->size - 1;
         } else {
             gen(state, (unsigned long) bcond_gadgets[cond]);
-            gen(state, taken);
-            gen(state, fallthrough);
+            gen(state, taken | 0x8000000000000000ULL);
+            state->jump_ip[0] = state->size - 1;
+            gen(state, fallthrough | 0x8000000000000000ULL);
+            state->jump_ip[1] = state->size - 1;
         }
         return 0;
     }
@@ -1821,8 +1829,10 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         uint64_t fallthrough = state->arm64_ip;
         gen(state, (unsigned long) (is_cbnz ? gadget_arm64_cbnz : gadget_arm64_cbz));
         gen(state, rt | ((uint64_t) sf << 8));
-        gen(state, taken);
-        gen(state, fallthrough);
+        gen(state, taken | 0x8000000000000000ULL);
+        state->jump_ip[0] = state->size - 1;
+        gen(state, fallthrough | 0x8000000000000000ULL);
+        state->jump_ip[1] = state->size - 1;
         return 0;
     }
 
@@ -1838,8 +1848,10 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         uint64_t fallthrough = state->arm64_ip;
         gen(state, (unsigned long) (is_tbnz ? gadget_arm64_tbnz : gadget_arm64_tbz));
         gen(state, rt | ((uint64_t) bit_pos << 8));
-        gen(state, taken);
-        gen(state, fallthrough);
+        gen(state, taken | 0x8000000000000000ULL);
+        state->jump_ip[0] = state->size - 1;
+        gen(state, fallthrough | 0x8000000000000000ULL);
+        state->jump_ip[1] = state->size - 1;
         return 0;
     }
 
