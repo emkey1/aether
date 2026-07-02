@@ -1,0 +1,309 @@
+# iSH-AOK aarch64 Guest Port Plan
+
+Date: 2026-07-01
+Branch: `aarch64`
+
+## Motivation
+
+Open Minis (App Store id 6759188481) ships a fork of upstream iSH,
+[`OpenMinis/ish-arm64`](https://github.com/OpenMinis/ish-arm64), that adds a
+**native AArch64 guest backend** alongside the existing i386/amd64 guest
+support. Because their host (iOS/Apple Silicon) and that guest architecture
+match, guest instructions map close to 1:1 onto host gadgets instead of going
+through full x86-semantics translation. Their own numbers: 7-12x faster than
+x86 emulation on compute-heavy workloads (`int_arith_2M` 12x, `fib(30)` 9.2x,
+`sum(1M)` 10.2x, `seq+awk 100K` 7.2x). That's the entire "Open Minis feels
+faster" effect users are reporting — not a better JIT, just skipping
+cross-architecture translation for aarch64 binaries.
+
+Both projects are GPLv3 derivatives of the same upstream (`ish-app/ish`), so
+this plan explicitly leverages their public source as a design reference and,
+where practical, ports code directly with attribution — see
+[Attribution](#attribution) below. This is not a clean-room reimplementation;
+where their `asbestos/guest-arm64/` and `kernel/arch/arm64/` code is
+GPLv3-compatible and fits our tree, we adapt it and credit it.
+
+## Why This Port Is Narrower Than the amd64 Port
+
+`amd64_port_plan.md` had to build the ABI-split infrastructure from scratch:
+per-task ABI enum, 64-bit-capable MM, ELF64 loading, a second syscall table
+mechanism. All of that now exists and is proven (see the conversation that
+produced this plan for full file:line citations):
+
+- `enum guest_abi` on `struct task` (`kernel/abi.h:9`, `kernel/task.h:30`),
+  re-derived per `execve()` from the ELF header (`kernel/exec.c:59-69`,
+  `kernel/exec.c:547`).
+- `struct syscall_abi_dispatch` selecting a table + marshalling functions per
+  ABI (`kernel/calls.c:1211-1220`, `kernel/calls.c:1522-1529`).
+- ELF64 parsing already exists (used for amd64) and needs only a new
+  `EM_AARCH64` case, not a new struct.
+- 64-bit sparse MM, canonical-address validation, and non-4GB VM layout
+  already exist (`guest_abi_vm_layout()`, `kernel/abi.h:70-98`).
+- The interpreter/PIE-load-bias and `PT_INTERP` arch-consistency check already
+  branch on `abi` (`kernel/exec.c:520-523`, `565-575`) — a third arch is a
+  new `case`, not new logic.
+
+What's genuinely new: the AArch64 register file, decoder, native gadget
+engine, and syscall table content. That's still substantial, but it's adding
+a third parallel engine (following the amd64-frontend precedent —
+`emu/amd64_interp.c` / `jit_block_compile_amd64`, dispatched via
+`current->abi == GUEST_ABI_AMD64` at `jit/jit.c:1500-1515`) rather than
+re-deriving the whole dispatch skeleton.
+
+## Attribution
+
+When patches in this series adapt or port code from `OpenMinis/ish-arm64`,
+each commit message must name the source file(s) and note "adapted from
+OpenMinis/ish-arm64, GPLv3." A `CREDITS-aarch64.md` file (added in Patch 1)
+tracks this at the file level. The top-level README gets an Acknowledgments
+line pointing to their repo once the branch has real content. Do not silently
+vendor their assembly or C files without a credit line in the file header —
+GPLv3 requires preserving notices, and it's simply the right thing to do
+given they did real engineering work here.
+
+Likely direct-port or close-adaptation candidates (verify license header
+compatibility file-by-file before copying, since GPLv3 requires attribution,
+not permission — that's already satisfied, but each file should still carry
+a provenance comment):
+
+- `kernel/arch/arm64/calls.c` — aarch64 Linux syscall numbering/table shape
+  (numbers/ABI facts aren't copyrightable, but the table structure and stub
+  choices are useful reference).
+- `vdso/arm64/{vdso.S,vdso.c,vdso.lds}` — sigreturn trampoline boilerplate is
+  largely mechanical; strong candidate for near-direct adaptation.
+- `asbestos/guest-arm64/gadgets-aarch64/*.S` — instruction-class organization
+  (bits/control/crypto/entry/math/memory) as a structural template even if
+  we write our own gadget bodies to match iSH-AOK's existing gadget/tlb
+  conventions.
+- `emu/arch/arm64/{cpu.h,decode.h}` — register file and decode-context shape.
+
+## Non-Goals for Initial Bring-Up
+
+- SVE/SVE2, MTE, PAC/BTI enforcement.
+- Full NEON crypto (AES/SHA/CRC32) — stub or trap-and-emulate until a
+  static/basic userland boots.
+- Mixed-arch same-process-tree exec (i386/amd64 parent execing an arm64
+  child, or vice versa) — architecturally unblocked by the existing `abi`
+  redetection in `execve()`, but treat as its own validation milestone after
+  arm64 alone is stable, not a day-1 requirement.
+- Multiarch rootfs (`dpkg --add-architecture arm64` inside a Devuan guest) —
+  a rootfs/provisioning concern once the kernel-level support works, not part
+  of this patch series.
+
+## Concrete Patch Series
+
+### 1. ABI Scaffolding for a Third Architecture
+
+Files: `kernel/abi.h`, `kernel/task.h`, `kernel/exec.c`, `kernel/elf.h`,
+new `CREDITS-aarch64.md`
+
+Work:
+- Add `GUEST_ABI_ARM64` to `enum guest_abi`.
+- Add `EM_AARCH64` to `kernel/elf.h` constants; extend `elf_abi_detect()`
+  (`kernel/exec.c:76-88`) with the `ELF_64BIT && EM_AARCH64` case.
+- Extend the `PT_INTERP` abi-consistency check (`kernel/exec.c:520-523`) —
+  already generic, just needs the new enum value to fall through correctly.
+- Extend `guest_abi_vm_layout()`/`guest_abi_desc()` (`kernel/abi.h:70-98`)
+  with an arm64 entry (48-bit VA, matching OpenMinis' choice and avoiding
+  V8-style high-address collisions the amd64 path already had to solve).
+- `CREDITS-aarch64.md` scaffold per [Attribution](#attribution).
+
+Exit criteria: tree still builds; i386/amd64 unaffected; `elf_abi_detect`
+correctly classifies a real aarch64 ELF without touching execution.
+
+### 2. AArch64 Register File and CPU State
+
+Files: `emu/cpu.h`, `emu/regid.h`, `kernel/task.h`
+
+Work:
+- Add arm64 fields to `struct cpu_state` as siblings (following the existing
+  `amd64_regs[]`/`amd64_rip` pattern, not a union): `arm64_regs[31]` (X0-X30),
+  `arm64_sp`, `arm64_pc`, `arm64_pstate`, NEON/FP `arm64_v[32]` (128-bit each).
+- Audit save/restore, clone, ptrace snapshot, and crash-log paths for the new
+  fields (mirrors amd64 port step 4's audit list).
+
+Exit criteria: arm64 register state can be initialized, copied on fork, and
+dumped in crash logs, with i386/amd64 unaffected.
+
+### 3. AArch64 Decoder
+
+Files: new `emu/arch/arm64/decode.h` or equivalent, new `emu/arm64_interp.c`
+
+Work:
+- Fixed-width 32-bit instruction decode (structurally simpler than x86's
+  variable-length decode — no prefix/ModRM/SIB complexity).
+- Reference OpenMinis' `emu/arch/arm64/decode.h` for instruction-class
+  coverage scope, write decode logic to match iSH-AOK's existing interpreter
+  conventions (see `emu/amd64_interp.c` as the sibling to mirror).
+- Required core for dynamic-loader/libc bring-up first: data processing
+  (ADD/SUB/AND/ORR/EOR/MOV variants), load/store (LDR/STR/LDP/STP + addressing
+  modes), branches (B/BL/BR/BLR/RET/CBZ/CBNZ/TBZ/TBNZ/B.cond), SVC (syscall
+  entry).
+
+Exit criteria: hand-written arm64 asm tests pass for function prologues,
+PLT-style calls, atomic update loops (LDXR/STXR/CAS), and SVC transitions —
+mirrors amd64 port step 6's exit bar.
+
+### 4. AArch64 Syscall Table
+
+Files: new `kernel/arch/arm64/calls.c` or `kernel/calls.c` addition, `kernel/calls.h`
+
+Work:
+- New `arm64_syscall_table[]` + `syscall_abi_dispatch` entry
+  (`kernel/calls.c:1211-1220` pattern), following the amd64 table's existing
+  precedent for direct socket syscalls (no `socketcall`/`ipc` multiplexer —
+  aarch64 never had one, so this is actually less work than amd64 was).
+- 64-bit stat structures only (no `stat64`/`fstat64` legacy variants).
+- Reuse existing `sys_*` implementations; add arm64-specific marshalling only
+  where the amd64 marshalling (already split per step 8 of the amd64 plan)
+  doesn't already cover the layout.
+- Adapt syscall numbering from OpenMinis' `kernel/arch/arm64/calls.c` (numbers
+  are asm-generic Linux ABI facts, not their IP — safe to use directly, credit
+  the table-shape reference regardless per policy above).
+
+Exit criteria: tiny arm64 asm syscall tests pass for `write`, `exit`,
+`openat`, `read`, `mmap`, `mprotect`, `brk`, `clone`.
+
+### 5. ELF64 aarch64 Loading and Stack Bootstrap
+
+Files: `kernel/exec.c`, `kernel/uname.c`
+
+Work:
+- Reuse existing ELF64 struct parsing (already present for amd64); only new
+  work is the arm64-specific auxv entries (`AT_PLATFORM = "aarch64"`,
+  `AT_HWCAP`/`AT_HWCAP2` bits for NEON and whatever crypto extensions are
+  actually implemented — start conservative, expand later).
+- `uname -m` reports `aarch64` for arm64 tasks.
+
+Exit criteria: a trivial static arm64 binary reaches `_start` and exits
+successfully.
+
+### 6. VDSO
+
+Files: new `vdso/arm64/`, `kernel/vdso.c`, `kernel/exec.c`
+
+Work:
+- Adapt OpenMinis' `vdso/arm64/{vdso.S,vdso.c,vdso.lds}` (sigreturn trampoline
+  is close to boilerplate) rather than hand-rolling from scratch.
+- Follow the amd64 port's precedent of not blocking bring-up on this if it
+  turns out to be more involved than expected (amd64 port step 10 allowed
+  deferring `AT_SYSINFO*`).
+
+Exit criteria: signal return works without relying on the i386/amd64 VDSO
+image.
+
+### 7. TLS, Threads, Signals
+
+Files: `kernel/tls.c`, `kernel/fork.c`, `kernel/signal.c`, `kernel/signal.h`
+
+Work:
+- arm64 TLS uses `TPIDR_EL0`, set via a dedicated syscall path (no
+  `arch_prctl`-style multiplexer needed — simpler than the amd64 FS-base
+  story).
+- arm64 signal frame layout (`ucontext`/`sigcontext` shape differs
+  substantially from x86 — this is genuinely new work, not reuse).
+
+Exit criteria: dynamic glibc/musl arm64 binaries start; `pthread_create`,
+`sigaltstack`, basic signal delivery work.
+
+### 8. Ptrace, Then Native Gadget Engine
+
+Files: `kernel/ptrace.c`, new `jit/gadgets-arm64guest/` (naming TBD to avoid
+clashing with the existing host-arch `jit/gadgets-aarch64/` directory, which
+is unrelated — see note below), `jit/gen.c`/new `gen_arm64.c`, `jit/jit.c`
+
+**Naming note**: iSH-AOK's `jit/gadgets-aarch64/` is the *host*-CPU gadget
+set (Apple Silicon host, any guest ABI) — completely orthogonal to a new
+*guest*-arm64 backend. OpenMinis hit the same collision and resolved it by
+splitting into `asbestos/guest-x86/` vs `asbestos/guest-arm64/` top-level
+dirs. Adopt an analogous split (e.g. `jit/guest-arm64/`) to keep this
+unambiguous — do not overload the existing `gadgets-aarch64` name.
+
+Work:
+- Ptrace register set support for arm64 (`NT_PRSTATUS` aarch64 shape) first,
+  interpreter-only, before any native gadget work — mirrors amd64 port step
+  12's ordering ("interpreter-only userland is stable before the JIT
+  starts").
+- Then the native gadget engine: since host == guest arch here (unlike the
+  amd64-on-arm64 cross-arch case), most gadgets are near-1:1 passthrough —
+  reference OpenMinis' `asbestos/guest-arm64/gadgets-aarch64/{bits,control,
+  entry,math,memory}.S` for instruction-class coverage and organization,
+  write gadget bodies against iSH-AOK's own TLB/gadget-frame conventions
+  (see `jit/gen.c`'s existing `gen_step`/`gen_step_amd64` split as the
+  pattern a `gen_step_arm64` would follow).
+
+Exit criteria: interpreter-only arm64 userland stable; native gadget engine
+validated against the interpreter on the same binaries before being trusted
+as the default execution path.
+
+## Testing Strategy — New Oracle Required
+
+`mint` (the existing x86_64 Intel oracle host, see memory
+`reference_mint_oracle.md`) is **not usable** for this port — it's the wrong
+guest architecture. The session's own host machine is Apple Silicon
+(`arm64`, confirmed via `uname -m`), which makes it the natural new oracle:
+a local Linux aarch64 VM (Lima or UTM, same tooling already used for `mint`)
+gives real-Linux-on-real-arm64 ground truth without cross-arch emulation
+noise. Set this up as an early, parallel task — differential testing against
+a real kernel is how the amd64 port's regressions got caught, and this port
+should not skip that step just because it's "easier" (same-arch dispatch
+still has plenty of room for subtle bugs in flag semantics, atomics, and
+signal frame layout).
+
+### Milestone 1: Static asm smoke tests
+`_start`, `write`/`exit`, `SVC` transitions, LDXR/STXR atomics, branch
+coverage — differential against the new local aarch64 VM oracle.
+
+### Milestone 2: Static userland
+tiny musl arm64 binaries; `uname`, `mmap`, `mprotect`, `clone`, TLS smoke.
+
+### Milestone 3: Dynamic loader bring-up
+`ld-linux-aarch64.so.1 --help`, auxv validation, relocation coverage.
+
+### Milestone 4: Basic shell
+`/bin/sh`, coreutils smoke, pipes, signals, `wait4`.
+
+### Milestone 5: Minimal distro
+Alpine aarch64 or Devuan arm64 minbase, `apk`/`dpkg`, `apt`, Python.
+
+### Milestone 6: Mixed-arch validation (deferred, see Non-Goals)
+Once arm64-alone is stable: exec an arm64 binary from an i386/amd64 parent
+task in the same rootfs, and vice versa. Confirm the existing
+`interp_header.abi != header.abi` check (`kernel/exec.c:520-523`) correctly
+rejects a mismatched interpreter for the new arch, and that `copy_task()`
+(`kernel/fork.c:65`) inheriting `abi` at fork + re-derivation at `execve()`
+produces correct behavior for a fork'd child that execs a different-arch
+binary. This scenario is architecturally supported today but was flagged in
+research as never having been exercised for i386/amd64 either — worth a
+regression test that covers both the existing pair and the new arm64 case.
+
+### Milestone 7: Performance
+Differential vs the interpreter, vs the existing i386/amd64 JIT paths on
+equivalent workloads, and vs OpenMinis' published numbers as a sanity check
+(not a target to beat blindly — their numbers are for a compile-time-only
+single-arch build; a correctness-first, runtime-multiplexed build carries
+some overhead they don't have to pay).
+
+## Priority Order
+
+1. ABI scaffolding (patch 1)
+2. Register file + CPU state (patch 2)
+3. Decoder + interpreter core (patch 3)
+4. Syscall table (patch 4)
+5. ELF64 loading + stack bootstrap (patch 5)
+6. TLS/threads/signals (patch 7) — VDSO (patch 6) can interleave or lag
+7. Dynamic userland bring-up (milestone 3-4)
+8. Ptrace (patch 8, interpreter-only)
+9. Native gadget engine (patch 8, second half)
+10. Mixed-arch validation (milestone 6)
+
+## Notes
+
+- First implementation commit on this branch should cover patch 1 only,
+  plus `CREDITS-aarch64.md`, and should not touch execution behavior at all.
+- Interpreter-only arm64 is the first release-quality milestone, same
+  discipline as the amd64 port.
+- If forced to choose between early native-gadget work and correct
+  glibc/musl + TLS + signal semantics, always choose the latter — same rule
+  as the amd64 plan, doubly true here since the whole point of this port is
+  "does it actually run real userland," not just synthetic benchmarks.
