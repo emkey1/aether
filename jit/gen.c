@@ -11,6 +11,7 @@
 #include "emu/fpu.h"
 #include "emu/vec.h"
 #include "emu/interrupt.h"
+#include "emu/arch/arm64/decode.h"
 
 static int gen_step32(struct gen_state *state, struct tlb *tlb);
 static int gen_step16(struct gen_state *state, struct tlb *tlb);
@@ -510,6 +511,26 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_arm64_movn(void);
     extern void gadget_arm64_adr(void);
     extern void gadget_arm64_svc(void);
+    extern void gadget_arm64_b(void);
+    extern void gadget_arm64_bl(void);
+    extern void gadget_arm64_br(void);
+    extern void gadget_arm64_blr(void);
+    extern void gadget_arm64_ret(void);
+    extern void gadget_arm64_cbz(void);
+    extern void gadget_arm64_cbnz(void);
+    extern void gadget_arm64_tbz(void);
+    extern void gadget_arm64_tbnz(void);
+    extern void gadget_arm64_bcond_eq(void), gadget_arm64_bcond_ne(void);
+    extern void gadget_arm64_bcond_cs(void), gadget_arm64_bcond_cc(void);
+    extern void gadget_arm64_bcond_mi(void), gadget_arm64_bcond_pl(void);
+    extern void gadget_arm64_bcond_vs(void), gadget_arm64_bcond_vc(void);
+    extern void gadget_arm64_bcond_hi(void), gadget_arm64_bcond_ls(void);
+    extern void gadget_arm64_bcond_ge(void), gadget_arm64_bcond_lt(void);
+    extern void gadget_arm64_bcond_gt(void), gadget_arm64_bcond_le(void);
+    extern void gadget_arm64_add_imm(void);
+    extern void gadget_arm64_sub_imm(void);
+    extern void gadget_arm64_ldp64(void), gadget_arm64_ldp32(void);
+    extern void gadget_arm64_stp64(void), gadget_arm64_stp32(void);
 
     state->arm64_orig_ip = state->arm64_ip;
     state->orig_ip_extra = 0;
@@ -562,16 +583,183 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     if ((insn & 0x1f000000) == 0x10000000) {
         unsigned rd = insn & 0x1f;
         bool is_adrp = (insn >> 31) & 1;
-        uint64_t immlo = (insn >> 29) & 0x3;
-        uint64_t immhi = (insn >> 5) & 0x7ffff;
-        uint64_t raw = (immhi << 2) | immlo;
-        int64_t imm = (raw & (1ULL << 20)) ? (int64_t) (raw | (~0ULL << 21)) : (int64_t) raw;
+        int64_t imm = arm64_adr_imm(insn); // shared with emu/arm64_interp.c's decoder
         uint64_t target = is_adrp
             ? (state->arm64_orig_ip & ~(uint64_t) 0xfff) + ((uint64_t) imm << 12)
             : state->arm64_orig_ip + (uint64_t) imm;
         gen(state, (unsigned long) gadget_arm64_adr);
         gen(state, (rd & 0x1f) | ((target & 0xffffffffffffULL) << 8));
         return 1;
+    }
+
+    // Add/subtract (immediate) — mask matches arm64_execute()'s
+    // (bits[28:24]=10001, flattened form). Params packed exactly as
+    // jit/guest-arm64/math.S's add_imm/sub_imm gadgets expect
+    // (adapted from OpenMinis' math.S): rd | rn<<8 | imm12<<16 | sf<<28 |
+    // S<<29 | sh<<30.
+    if ((insn & 0x1f000000) == 0x11000000) {
+        unsigned rd = insn & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned imm12 = (insn >> 10) & 0xfff;
+        bool sh = (insn >> 22) & 1;
+        bool S = (insn >> 29) & 1;
+        bool op_sub = (insn >> 30) & 1;
+        bool sf = (insn >> 31) & 1;
+        uint64_t params = rd | ((uint64_t) rn << 8) | ((uint64_t) imm12 << 16)
+            | ((uint64_t) sf << 28) | ((uint64_t) S << 29) | ((uint64_t) sh << 30);
+        gen(state, (unsigned long) (op_sub ? gadget_arm64_sub_imm : gadget_arm64_add_imm));
+        gen(state, params);
+        return 1;
+    }
+
+    // Load/store pair (LDP/STP), GPR only (V=0) — mask matches
+    // arm64_execute()'s (bits[29:25]=10100, V=bit26=0). Params packed to
+    // match jit/guest-arm64/memory.S's ldp64/ldp32/stp64/stp32 gadgets
+    // (independently written, see that file's header comment): rt |
+    // rt2<<8 | rn<<16 | mode<<24, then the signed scaled offset as a
+    // second 64-bit word.
+    if ((insn & 0x3a000000) == 0x28000000 && ((insn >> 26) & 1) == 0) {
+        unsigned opc = (insn >> 30) & 0x3;
+        unsigned mode = (insn >> 23) & 0x7; // 1=post, 2=offset, 3=pre
+        bool is_load = (insn >> 22) & 1;
+        int32_t imm7 = (insn >> 15) & 0x7f;
+        if (imm7 & 0x40)
+            imm7 |= ~0x7f; // sign-extend 7 bits
+        unsigned rt2 = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if ((opc != 0b00 && opc != 0b10) || (mode != 1 && mode != 2 && mode != 3)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        bool sf = opc == 0b10;
+        int64_t offset = (int64_t) imm7 * (sf ? 8 : 4);
+        void *gadget = sf
+            ? (is_load ? (void *) gadget_arm64_ldp64 : (void *) gadget_arm64_stp64)
+            : (is_load ? (void *) gadget_arm64_ldp32 : (void *) gadget_arm64_stp32);
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
+        gen(state, (uint64_t) offset);
+        return 1;
+    }
+
+    // B, BL — mask matches arm64_execute()'s (bits[30:26]=00101). Target
+    // computed at compile time (PC-relative, compile-time-known). Branches
+    // always end the block — see control.S's header comment on why these
+    // gadgets exit to C via jit_ret rather than inline-chaining.
+    if ((insn & 0x7c000000) == 0x14000000) {
+        bool is_bl = (insn >> 31) & 1;
+        // Real bug caught by testing: an earlier version reimplemented this
+        // sign extension inline as `(raw << 2) | (~0u << 27)` cast to
+        // int64_t — since the intermediate OR is computed in uint32_t, the
+        // cast to int64_t zero-extends (source is unsigned) instead of
+        // sign-extending, corrupting every negative (backward) branch
+        // target by +2^32. Fixed by calling the already-correct
+        // arm64_branch_imm26 (emu/arch/arm64/decode.h), used successfully
+        // by the interpreter — one implementation, not two chances to get
+        // the sign extension wrong.
+        int64_t offset = arm64_branch_imm26(insn);
+        uint64_t target = state->arm64_orig_ip + (uint64_t) offset;
+        if (is_bl) {
+            gen(state, (unsigned long) gadget_arm64_bl);
+            gen(state, target);
+            gen(state, state->arm64_ip); // return address
+        } else {
+            gen(state, (unsigned long) gadget_arm64_b);
+            gen(state, target);
+        }
+        return 0;
+    }
+
+    // B.cond — mask matches arm64_execute()'s (bits[31:25]=0101010, bit4=0).
+    if ((insn & 0xff000010) == 0x54000000) {
+        uint32_t cond = insn & 0xf;
+        int64_t offset = arm64_branch_imm19(insn);
+        uint64_t taken = state->arm64_orig_ip + (uint64_t) offset;
+        uint64_t fallthrough = state->arm64_ip;
+        static void *const bcond_gadgets[16] = {
+            [0] = (void *) gadget_arm64_bcond_eq, [1] = (void *) gadget_arm64_bcond_ne,
+            [2] = (void *) gadget_arm64_bcond_cs, [3] = (void *) gadget_arm64_bcond_cc,
+            [4] = (void *) gadget_arm64_bcond_mi, [5] = (void *) gadget_arm64_bcond_pl,
+            [6] = (void *) gadget_arm64_bcond_vs, [7] = (void *) gadget_arm64_bcond_vc,
+            [8] = (void *) gadget_arm64_bcond_hi, [9] = (void *) gadget_arm64_bcond_ls,
+            [10] = (void *) gadget_arm64_bcond_ge, [11] = (void *) gadget_arm64_bcond_lt,
+            [12] = (void *) gadget_arm64_bcond_gt, [13] = (void *) gadget_arm64_bcond_le,
+            [14] = (void *) gadget_arm64_b, [15] = (void *) gadget_arm64_b, // AL/NV: always taken
+        };
+        if (cond >= 14) {
+            // Always-taken: just an unconditional branch to the target.
+            gen(state, (unsigned long) gadget_arm64_b);
+            gen(state, taken);
+        } else {
+            gen(state, (unsigned long) bcond_gadgets[cond]);
+            gen(state, taken);
+            gen(state, fallthrough);
+        }
+        return 0;
+    }
+
+    // CBZ, CBNZ — mask matches arm64_execute()'s (bits[30:25]=011010).
+    if ((insn & 0x7e000000) == 0x34000000) {
+        bool sf = (insn >> 31) & 1;
+        bool is_cbnz = (insn >> 24) & 1;
+        unsigned rt = insn & 0x1f;
+        int64_t offset = arm64_branch_imm19(insn);
+        uint64_t taken = state->arm64_orig_ip + (uint64_t) offset;
+        uint64_t fallthrough = state->arm64_ip;
+        gen(state, (unsigned long) (is_cbnz ? gadget_arm64_cbnz : gadget_arm64_cbz));
+        gen(state, rt | ((uint64_t) sf << 8));
+        gen(state, taken);
+        gen(state, fallthrough);
+        return 0;
+    }
+
+    // TBZ, TBNZ — mask matches arm64_execute()'s (bits[30:25]=011011).
+    if ((insn & 0x7e000000) == 0x36000000) {
+        bool is_tbnz = (insn >> 24) & 1;
+        unsigned b5 = (insn >> 31) & 1;
+        unsigned b40 = (insn >> 19) & 0x1f;
+        unsigned bit_pos = (b5 << 5) | b40;
+        unsigned rt = insn & 0x1f;
+        int64_t offset = arm64_branch_imm14(insn);
+        uint64_t taken = state->arm64_orig_ip + (uint64_t) offset;
+        uint64_t fallthrough = state->arm64_ip;
+        gen(state, (unsigned long) (is_tbnz ? gadget_arm64_tbnz : gadget_arm64_tbz));
+        gen(state, rt | ((uint64_t) bit_pos << 8));
+        gen(state, taken);
+        gen(state, fallthrough);
+        return 0;
+    }
+
+    // BR, BLR, RET — mask matches arm64_execute()'s (bits[31:25]=1101011).
+    if ((insn & 0xfe000000) == 0xd6000000) {
+        unsigned opc = (insn >> 21) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        switch (opc) {
+        case 0: // BR
+            gen(state, (unsigned long) gadget_arm64_br);
+            gen(state, rn);
+            break;
+        case 1: // BLR
+            gen(state, (unsigned long) gadget_arm64_blr);
+            gen(state, rn);
+            gen(state, state->arm64_ip); // return address
+            break;
+        case 2: // RET
+            gen(state, (unsigned long) gadget_arm64_ret);
+            gen(state, rn);
+            break;
+        default:
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            break;
+        }
+        return 0;
     }
 
     // SVC — fixed encoding, matches arm64_execute()'s mask.

@@ -16,6 +16,8 @@ harness problem.
 | Test | Covers |
 |------|--------|
 | `arm64_hello.s` | write(2)+exit(2) via SVC; ADR, MOVZ. Expected: prints "hi", exits 42. |
+| `arm64_branch_only.s` | Unconditional B (skip), CBZ (taken), CBNZ (taken), BL/RET. Expected: exits 5. |
+| `arm64_branch_only2.s` | CBZ/CBNZ not-taken paths, TBZ/TBNZ (taken), BR. Expected: exits 0. |
 | `arm64_prologue.s` | Function prologue/epilogue (STP/LDP pre/post-index), BL/RET, ADD-immediate (incl. the `mov xd, sp` alias), SUBS-immediate, B.cond, CBZ. Expected: exits 0. |
 | `arm64_atomics.s` | LDXR/STXR (success case), CAS (success and expected-value-mismatch/failure cases). Expected: exits 0. |
 | `arm64_logical.s` | Logical (immediate): AND, ORR (incl. the MOV-alias via Rn=XZR), EOR, ANDS. Expected: exits 0. |

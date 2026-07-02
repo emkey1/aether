@@ -79,6 +79,30 @@ credits file supports.
   function's own credits entry for which of those masks came from
   OpenMinis originally.
 
+- `jit/guest-arm64/control.S`'s B/BL/BR/BLR/RET/CBZ/CBNZ/TBZ/TBNZ/B.cond
+  gadgets and `jit/guest-arm64/memory.S` (new file, LDP/STP for all three
+  addressing modes) — Phase B. Independently written, NOT adapted from
+  OpenMinis' equivalents: their control-flow gadgets use `inline_chain`/
+  `fake_ip` block-linking (a real optimization requiring their own
+  differently-shaped block-chaining scheme); their LDP/STP support is
+  split across many perf-specialized fast-path gadgets. This port instead
+  reuses this codebase's own `jump_ip[]`/`jumps_from[]` chaining
+  (unconditional exit-to-`jit_ret` per branch) and one generic gadget per
+  (size, direction) for LDP/STP — correctness-first, matching the
+  discipline used throughout this port. `math.S`'s new `add_imm`/
+  `sub_imm` gadgets ARE adapted from OpenMinis' math.S (native
+  `adds`/`subs` to compute NZCV directly).
+
+  Five real bugs found and fixed getting `tests/arm64/arm64_prologue.s`
+  passing — a sign-extension bug in `gen_step_arm64`'s branch-offset
+  decoding, a symbol collision against i386's host-only TLB-miss
+  assembly, a `_cpu`/x1 register-aliasing bug, an x19 double-booking bug
+  (the caller's live LDP/STP offset vs. the shared miss-handler routines'
+  own scratch use — the dominant bug class in this port so far), and a
+  TLB cross-page label collision. Full writeups in
+  `aarch64_guest_plan.md`'s Phase B section and inline in `memory.S`/
+  `gadgets.h`.
+
 ## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their

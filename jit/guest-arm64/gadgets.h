@@ -63,6 +63,11 @@ _addr   .req x7
 
 .extern jit_ret
 .extern jit_exit
+.extern arm64_handle_read_miss
+.extern arm64_handle_write_miss
+.extern arm64_resolve_write_ptr
+.extern arm64_crosspage_load
+.extern arm64_crosspage_store
 
 .macro .gadget name
     .global NAME(gadget_arm64_\()\name)
@@ -118,14 +123,20 @@ _addr   .req x7
 // PSTATE exactly (emu/cpu.h) — load/store it directly into the host NZCV
 // flags register with mrs/msr, avoiding a decode/encode round-trip per
 // flag-setting instruction.
+//
+// Uses x17 as scratch, not x9: add_imm/sub_imm (math.S) hold `rd` live in
+// x9 across the call to store_flags (needed afterward to pick the
+// store-result-or-SP path) — x9 would be a real, silent corruption bug
+// here. x17 is dead at every call site in this port so far; if a future
+// gadget needs x17 live across a flags macro, this needs revisiting.
 .macro load_flags
-    ldr w9, [_cpu, #CPU_nzcv]
-    msr nzcv, x9
+    ldr w17, [_cpu, #CPU_nzcv]
+    msr nzcv, x17
 .endm
 
 .macro store_flags
-    mrs x9, nzcv
-    str w9, [_cpu, #CPU_nzcv]
+    mrs x17, nzcv
+    str w17, [_cpu, #CPU_nzcv]
 .endm
 
 // ---- Memory access (TLB fast path) --------------------------------------
@@ -145,7 +156,19 @@ _addr   .req x7
 .macro \type\()_prep size, id
     and w9, w7, #0xfff
     cmp x9, #(0x1000-(\size/8))
+    // Real bug caught by testing: this used to branch to the same
+    // crosspage_load_\id label regardless of \type, and \type\()_bullshit
+    // defined that label unconditionally too -- so a write access that
+    // straddled a page boundary silently called arm64_crosspage_load (a
+    // READ) instead of arm64_crosspage_store, corrupting the write and
+    // reporting a bogus read-fault address on failure. Each type now
+    // branches to its own label, defined only by that type's bullshit
+    // expansion below.
+    .ifc \type,read
     b.hi crosspage_load_\id
+    .else
+    b.hi crosspage_store_\id
+    .endif
     .ifc \type,write
         ldr x10, [_tlb, #(-TLB_entries+TLB_mmu)]
         ldr x9, [_tlb, #(-TLB_entries+TLB_mem_changes)]
@@ -155,7 +178,7 @@ _addr   .req x7
         ldrb w10, [x10, #MMU_requires_write_revalidate]
         cbz w10, fast_write_\id
 slow_write_\id :
-        bl resolve_write_ptr
+        bl arm64_resolve_write_ptr
         b back_\id
 fast_write_\id :
     .endif
@@ -181,16 +204,17 @@ back_\id:
 
 .macro \type\()_bullshit size, id
 handle_miss_\id :
-    bl handle_\type\()_miss
+    bl arm64_handle_\type\()_miss
     b back_\id
+.ifc \type,read
 crosspage_load_\id :
-    mov x19, #(\size/8)
-    bl crosspage_load
+    mov x27, #(\size/8)
+    bl arm64_crosspage_load
     b back_\id
-.ifc \type,write
+.else
 crosspage_store_\id :
-    mov x19, #(\size/8)
-    bl crosspage_store
+    mov x27, #(\size/8)
+    bl arm64_crosspage_store
     b back_write_done_\id
 .endif
 .endm

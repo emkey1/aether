@@ -114,6 +114,7 @@ if jit_cpu_family == 'aarch64'
     emu_src += [
         'jit/guest-arm64/math.S',
         'jit/guest-arm64/control.S',
+        'jit/guest-arm64/memory.S',
     ]
 endif
 

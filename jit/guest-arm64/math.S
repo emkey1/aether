@@ -141,3 +141,110 @@
     str x10, [x11, x9, lsl #3]
     gret
 1:  gret
+
+/*
+ * ADD/SUB immediate. Adapted from OpenMinis' math.S. Uses the host's own
+ * adds/subs instructions to compute NZCV directly (adds x16,x15,x11 sets
+ * the real ARM64 flags register as a side effect) then store_flags packs
+ * it into cpu->arm64_nzcv -- the whole reason same-architecture dispatch
+ * is fast: the host CPU does the semantics natively, nothing to compute
+ * in software the way emu/arm64_interp.c's arm64_set_flags_add/sub do.
+ * Code stream: [gadget addr][rd | rn<<8 | imm12<<16 | sf<<28 | S<<29 | sh<<30]
+ */
+.gadget add_imm
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #12  // imm12
+    ubfx x12, x8, #28, #1   // sf (0=32-bit, 1=64-bit)
+    ubfx x13, x8, #29, #1   // S (set flags)
+    ubfx x17, x8, #30, #1   // sh (0=no shift, 1=LSL #12)
+
+    cbz x17, 0f
+    lsl x11, x11, #12
+0:
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+    b 2f
+1:  ldr x15, [_cpu, #CPU_sp]
+2:
+    cbz x13, add_imm_no_flags
+
+    cbz x12, add_imm_adds_32
+    adds x16, x15, x11
+    b add_imm_store_flags
+add_imm_adds_32:
+    adds w16, w15, w11
+add_imm_store_flags:
+    store_flags
+    b add_imm_store_result
+
+add_imm_no_flags:
+    add x16, x15, x11
+    cbz x12, 3f
+    b add_imm_store_result
+3:  and x16, x16, #0xffffffff
+
+add_imm_store_result:
+    cmp x9, #31
+    b.eq 5f
+    str x16, [x14, x9, lsl #3]
+    gret
+5:  cbz x13, 7f
+    gret
+7:  and x16, x16, #0xffffffffffff
+    str x16, [_cpu, #CPU_sp]
+    gret
+
+.gadget sub_imm
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+
+    and x9, x8, #0x1f       // rd
+    ubfx x10, x8, #8, #5    // rn
+    ubfx x11, x8, #16, #12  // imm12
+    ubfx x12, x8, #28, #1   // sf
+    ubfx x13, x8, #29, #1   // S
+    ubfx x17, x8, #30, #1   // sh
+
+    cbz x17, 0f
+    lsl x11, x11, #12
+0:
+    add x14, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 1f
+    ldr x15, [x14, x10, lsl #3]
+    b 2f
+1:  ldr x15, [_cpu, #CPU_sp]
+2:
+    cbz x13, sub_imm_no_flags
+
+    cbz x12, sub_imm_subs_32
+    subs x16, x15, x11
+    b sub_imm_store_flags
+sub_imm_subs_32:
+    subs w16, w15, w11
+sub_imm_store_flags:
+    store_flags
+    b sub_imm_store_result
+
+sub_imm_no_flags:
+    sub x16, x15, x11
+    cbz x12, 3f
+    b sub_imm_store_result
+3:  and x16, x16, #0xffffffff
+
+sub_imm_store_result:
+    cmp x9, #31
+    b.eq 5f
+    str x16, [x14, x9, lsl #3]
+    gret
+5:  cbz x13, 7f
+    gret
+7:  and x16, x16, #0xffffffffffff
+    str x16, [_cpu, #CPU_sp]
+    gret

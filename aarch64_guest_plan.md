@@ -360,15 +360,84 @@ Logical-immediate, branches), correctly hit `SIGILL` via
 misexecution" guarantee the interpreter had, now proven to hold through
 the gadget path too.
 
-**Phase B (not started)**: expand `jit/guest-arm64/` coverage — ADD/SUB
-immediate and shifted-register, Logical immediate and shifted-register,
-LDR/STR/LDP/STP, LDXR/STXR/CAS, B/BL/B.cond/CBZ/CBNZ/BR/BLR/RET — enough
-to get `tests/arm64/`'s other three binaries passing via gadgets, then
-the real Alpine `/bin/busybox` test (see patch 5's "Real-rootfs findings"
-in `tests/arm64/README.md`) as the next real-world validation target.
-Should follow the same "port what real testing shows is next" priority
-used for the interpreter's Logical-immediate addition, not a speculative
-ISA-manual-ordered pass.
+**Phase B (branches/arithmetic/memory — DONE, validated)**: expanded
+`jit/guest-arm64/` coverage with B/BL/BR/BLR/RET/CBZ/CBNZ/TBZ/TBNZ/B.cond
+(`control.S`, independently written — see that file's header on why these
+exit to C via `jit_ret` per-branch rather than porting OpenMinis'
+`inline_chain`/`fake_ip` scheme), ADD/SUB immediate (`math.S`, adapted
+from OpenMinis, uses native `adds`/`subs` to compute NZCV directly), and
+LDP/STP for all three addressing modes (new `jit/guest-arm64/memory.S`,
+independently written — one generic gadget per (size, direction) rather
+than OpenMinis' many perf-specialized variants).
+
+Validated end-to-end via three new/existing hand-assembled tests, all
+passing through the real gadget path:
+`tests/arm64/arm64_branch_only.s` (exit 5), `arm64_branch_only2.s` (exit
+0), and `arm64_prologue.s` (STP/LDP/ADD-imm/SUBS-imm/B.eq/CBZ/BL/RET
+together, exit 0).
+
+Getting `arm64_prologue.s` from crashing to passing took five real bugs,
+all fixed and documented in `memory.S`/`gadgets.h`'s own comments:
+
+1. **Sign-extension bug** in `gen_step_arm64`'s inline branch-offset
+   reimplementations (B/BL/B.cond/CBZ/CBNZ/TBZ/TBNZ) — the OR was
+   computed in `uint32_t` before the cast to `int64_t`, zero- instead of
+   sign-extending every negative (backward) branch by +2^32. Fixed by
+   calling the already-correct `emu/arch/arm64/decode.h` helpers
+   (`arm64_branch_imm26/19/14`) instead of re-deriving the same logic a
+   second, buggier way.
+2. **TLB-miss-handler symbol collision**: the shared miss/crosspage
+   routines (`handle_read_miss` etc.) are i386-HOST assembly with i386's
+   register convention baked in, not C functions — an arm64 gadget
+   calling them by bare name silently linked against i386's copy. Fixed
+   by writing arm64-prefixed equivalents in `memory.S` that call the real
+   C functions (`tlb_handle_miss`, `tlb_write_ptr_slow`,
+   `__tlb_{read,write}_cross_page`) directly.
+3. **`_cpu`/x1 register-aliasing bug**: `arm64_crosspage_load/store`
+   computed `mov x1, _addr` (arg1) before `add x2, _cpu, #LOCAL_value`
+   (arg2) — but `_cpu` *is* x1, so the first write clobbered it before
+   the second read it, making arg2 a wild pointer near the guest address
+   instead of a valid buffer.
+4. **The big one — x19 double-booked**: `ldp_gadget`/`stp_gadget` hold
+   their live rt/rt2/rn/mode/offset state in x19-x26 across TLB-macro
+   calls specifically *because* x19-x28 are AAPCS64 callee-saved and
+   "guaranteed to survive any well-behaved C call" (memory.S's own
+   header comment) — but `arm64_handle_{read,write}_miss`,
+   `arm64_resolve_write_ptr`, and `arm64_crosspage_{load,store}` all used
+   x19 as their *own* internal scratch/argument register without
+   restoring it, silently corrupting the caller's offset on every single
+   TLB miss or crosspage access. This is why `arm64_prologue.s`'s STP
+   pre-index write succeeded but the post-index LDP that immediately
+   followed read from a garbage address computed from a stale/corrupted
+   offset. Root-caused by adding a temporary C debug shim called from
+   inside the gadget to dump live register state — confirmed the base
+   register was already garbage *before* the address arithmetic even
+   ran, which narrowed it to whatever last touched cpu->arm64_sp (STP's
+   own writeback), then to the shared helper it called through. Fixed by
+   moving all internal scratch/argument use in these five routines to
+   x27 (also callee-saved, but genuinely unused by any gadget so far).
+   Straightforward caller-vs-callee register-convention bugs have been
+   the dominant bug class in this port so far, not decode logic — worth
+   remembering for the next gadget slice.
+5. Also fixed a **label-collision bug** in `gadgets.h`'s TLB cross-page
+   macro (`\type\()_prep` always branched to `crosspage_load_\id`
+   regardless of read/write; `\type\()_bullshit` defined that label
+   unconditionally too) — a write straddling a page boundary would have
+   silently called the read crosspage helper instead of the write one.
+   Caught by code review while chasing bug 4, not by a failing test (the
+   specific address in `arm64_prologue.s` never crosses a page), so it
+   has no dedicated regression test yet.
+
+**Phase C (not started)**: LDXR/STXR/CAS, Logical (immediate and
+shifted-register), DP_REG (register-form ADD/SUB/MOV/logical-shifted-
+register — confirmed by patch 5's real-rootfs test as the actual next
+blocker for any dynamic-linked userland), MUL — enough to get
+`tests/arm64/arm64_atomics.s` and `arm64_logical.s` passing via gadgets,
+then the real Alpine `/bin/busybox` test (see patch 5's "Real-rootfs
+findings" in `tests/arm64/README.md`) as the next real-world validation
+target. Should follow the same "port what real testing shows is next"
+priority used throughout this port, not a speculative ISA-manual-ordered
+pass.
 
 ## Testing Strategy — New Oracle Required
 
