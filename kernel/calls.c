@@ -1973,12 +1973,34 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 38: result = sys_renameat_guest((fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3]); break;
     case 43: result = sys_statfs_amd64_guest(raw_args[0], raw_args[1]); break;
     case 44: result = sys_fstatfs_amd64_guest((fd_t) raw_args[0], raw_args[1]); break;
-    case 48: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]); break;
+    // faccessat (48) is a THREE-argument syscall on aarch64 (flags belong
+    // to faccessat2, 439); x3 is whatever garbage the caller left in the
+    // register — the amd64 port's "classify by MIN arity" lesson. Passing
+    // it through made gcc's access(cc1, X_OK) fail EINVAL, so the driver
+    // concluded cc1 didn't exist ("cannot execute 'cc1'").
+    case 48: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], 0); break;
+    case 439: result = sys_faccessat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2], (dword_t) raw_args[3]); break;
     case 49: result = sys_chdir_guest(raw_args[0]); break;
     case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
+    // truncate/ftruncate/fallocate carry 64-bit sizes in SINGLE registers
+    // on aarch64; the legacy table routed them to the *_amd64 shims, which
+    // expect the amd64 marshal's SPLIT low/high convention — so size_high
+    // was the next (garbage) argument register, the size became gigantic,
+    // and the host returned EFBIG. On device: apk failing to install gcc
+    // ("Failed to create usr/libexec/.../cc1: File too large").
+    case 45: result = sys_truncate64_guest(raw_args[0],
+                     (dword_t) raw_args[1], (dword_t) (raw_args[1] >> 32)); break;
+    case 46: result = sys_ftruncate64((fd_t) raw_args[0],
+                     (dword_t) raw_args[1], (dword_t) (raw_args[1] >> 32)); break;
+    case 47: result = sys_fallocate((fd_t) raw_args[0], (dword_t) raw_args[1],
+                     (dword_t) raw_args[2], (dword_t) (raw_args[2] >> 32),
+                     (dword_t) raw_args[3], (dword_t) (raw_args[3] >> 32)); break;
     case 56: result = sys_openat_guest((fd_t) raw_args[0], raw_args[1],
                      arm64_open_flags_to_internal(raw_args[2]), (mode_t_) raw_args[3]); break;
+    case 71: result = sys_sendfile_guest((fd_t) raw_args[0], (fd_t) raw_args[1],
+                     raw_args[2], raw_args[3]); break;
+    case 101: result = sys_nanosleep_amd64_guest(raw_args[0], raw_args[1]); break;
     case 61: result = sys_getdents64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 63: result = sys_read_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 64: result = sys_write_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
