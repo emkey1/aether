@@ -2251,6 +2251,10 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 293: result = (dword_t) sys_rseq_guest(raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]); break; // rseq
     case 452: result = (dword_t) sys_fchmodat2_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3]); break; // fchmodat2 (tar)
     // advisory no-ops (amd64 parity)
+    case 58:  // vhangup (0 args; the table stub predates marshal validation,
+              // which SIGSYSed it on garbage arg registers — sendfile_vhangup
+              // regression caught it)
+    case 81:  // sync
     case 84:  // sync_file_range
     case 168: // getcpu
     case 213: // readahead
@@ -2273,6 +2277,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 274: case 275: case 280: case 282: case 284: case 286:
     case 287: case 288: case 289: case 290: case 294: case 424:
     case 425: case 426: case 427: case 434: case 438: case 440:
+    case 449: // futex_waitv
         result = _ENOSYS; break;
     default:
         return false; // not handled here: fall through to the legacy-marshalled table

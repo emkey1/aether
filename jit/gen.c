@@ -3324,6 +3324,16 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     if ((insn & 0xfffff01f) == 0xd503201f)
         return 1;
 
+    // CLREX: clears the exclusive monitor. Must be matched BEFORE the
+    // barrier space below — 0xd503305f fits the barrier mask (CRm is a
+    // don't-care there) and used to decode as a plain DMB, leaving the
+    // reservation armed across the CLREX (spurious STXR success).
+    if ((insn & 0xfffff0ff) == 0xd503305f) {
+        extern void gadget_arm64_clrex(void);
+        gen(state, (unsigned long) gadget_arm64_clrex);
+        return 1;
+    }
+
     // Barrier space (DSB/DMB/ISB/SB...): one full-strength host barrier
     // covers all of them — see dpextra.S.
     if ((insn & 0xfffff01f) == 0xd503301f) {

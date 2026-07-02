@@ -1,5 +1,5 @@
 project('ish-tests', 'c')
-add_project_arguments(['-m32', '-fno-stack-protector'], language: 'c')
+add_project_arguments(['-m32', '-fno-stack-protector', '-I' + meson.current_source_dir()], language: 'c')
 add_project_link_arguments('-m32', language: 'c')
 
 # hello world
@@ -20,11 +20,11 @@ executable('signal', ['signal.c'], link_args: ['-static'])
 executable('forkexec', ['forkexec.c'])
 
 executable('thread', ['thread.c'], dependencies: dependency('threads'))
-executable('atomics32', ['atomics32.c'], dependencies: dependency('threads'))
-executable('atomic_xadd32', ['atomic_xadd32.c'], dependencies: dependency('threads'))
-executable('atomic_cmpxchg32', ['atomic_cmpxchg32.c'], dependencies: dependency('threads'))
-executable('atomic_cmpxchg8b', ['atomic_cmpxchg8b.c'], dependencies: dependency('threads'))
-executable('atomic_logic32', ['atomic_logic32.c'])
+executable('atomics32', ['x86/atomics32.c'], dependencies: dependency('threads'))
+executable('atomic_xadd32', ['x86/atomic_xadd32.c'], dependencies: dependency('threads'))
+executable('atomic_cmpxchg32', ['x86/atomic_cmpxchg32.c'], dependencies: dependency('threads'))
+executable('atomic_cmpxchg8b', ['x86/atomic_cmpxchg8b.c'], dependencies: dependency('threads'))
+executable('atomic_logic32', ['x86/atomic_logic32.c'])
 executable('signal_core', ['signal_core.c'], dependencies: dependency('threads'))
 executable('signal_restart', ['signal_restart.c'], dependencies: dependency('threads'))
 executable('signal_realtime', ['signal_realtime.c'], dependencies: dependency('threads'))

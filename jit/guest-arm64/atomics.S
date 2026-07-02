@@ -196,3 +196,12 @@ cas_gadget cas32, 32, ldr,  str,  w17, #0xffffffff
 cas_gadget cas64, 64, ldr,  str,  x17
 
 # vim: ft=gas
+
+// CLREX: drop the exclusive reservation. Was mis-decoded into the barrier
+// space (0xd503305f matches the DMB/DSB mask with CRm free), so a signal-
+// handler or context-switch CLREX left the monitor armed and a following
+// STXR could spuriously SUCCEED — found by arm64/atomics64.c's clrex check.
+.gadget clrex
+    mov x8, #-1
+    str x8, [_cpu, #CPU_excl_addr]
+    gret
