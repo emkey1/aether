@@ -208,16 +208,16 @@ Exit criteria: dynamic glibc/musl arm64 binaries start; `pthread_create`,
 
 ### 8. Ptrace, Then Native Gadget Engine
 
-Files: `kernel/ptrace.c`, new `jit/gadgets-arm64guest/` (naming TBD to avoid
-clashing with the existing host-arch `jit/gadgets-aarch64/` directory, which
-is unrelated — see note below), `jit/gen.c`/new `gen_arm64.c`, `jit/jit.c`
+Files: `kernel/ptrace.c`, new `jit/guest-arm64/` (gadgets + gen logic for the
+new guest backend), `jit/jit.c`
 
 **Naming note**: iSH-AOK's `jit/gadgets-aarch64/` is the *host*-CPU gadget
 set (Apple Silicon host, any guest ABI) — completely orthogonal to a new
 *guest*-arm64 backend. OpenMinis hit the same collision and resolved it by
 splitting into `asbestos/guest-x86/` vs `asbestos/guest-arm64/` top-level
-dirs. Adopt an analogous split (e.g. `jit/guest-arm64/`) to keep this
-unambiguous — do not overload the existing `gadgets-aarch64` name.
+dirs. `jit/guest-arm64/` is the confirmed name for the new guest backend —
+do not overload the existing `gadgets-aarch64` name (that stays the host
+gadget set, unrelated to this port).
 
 Work:
 - Ptrace register set support for arm64 (`NT_PRSTATUS` aarch64 shape) first,
