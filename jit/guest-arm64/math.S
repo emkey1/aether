@@ -248,3 +248,209 @@ sub_imm_store_result:
 7:  and x16, x16, #0xffffffffffff
     str x16, [_cpu, #CPU_sp]
     gret
+
+// ---- Fast-path ALU gadgets (the specialization pass) ---------------------
+// The generic gadgets above decode sf/S/op/shift from packed params with
+// a branch tree at RUNTIME — ~20-25 host instructions per guest ALU op,
+// which the cross-arch benchmark showed erases the same-architecture
+// advantage entirely (arm64 measured ~1x the x86 guests on tight compute
+// loops instead of the expected multiples). These variants bake
+// everything except the register INDICES at compile time: gen_step_arm64
+// picks the exact (op, width, flags) body, pre-shifts the immediate, and
+// only emits a fast form when rd/rn are plain registers (31/SP forms and
+// shifted operands fall back to the generic gadgets). Body: ~8 host
+// instructions + dispatch.
+//
+// The "immediate" is loaded from the code stream into a register and
+// applied with the REGISTER-form add/sub — bit-identical results, and it
+// lets one body serve any immediate value.
+// Code stream: [gadget][rd | rn<<8][imm (pre-shifted)]
+.macro fast_alu_imm name, op, r16, r15, r11
+.gadget \name
+    ldr x8, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    \op \r16, \r15, \r11
+    str x16, [x14, x9, lsl #3]
+    gret
+.endm
+
+.macro fast_alu_imm_flags name, op, r16, r15, r11
+.gadget \name
+    ldr x8, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    \op \r16, \r15, \r11
+    store_flags               // clobbers x17 only; x14/x9/x16 stay live
+    str x16, [x14, x9, lsl #3]
+    gret
+.endm
+
+fast_alu_imm       addi_fast64,  add,  x16, x15, x11
+fast_alu_imm       addi_fast32,  add,  w16, w15, w11
+fast_alu_imm       subi_fast64,  sub,  x16, x15, x11
+fast_alu_imm       subi_fast32,  sub,  w16, w15, w11
+fast_alu_imm_flags addsi_fast64, adds, x16, x15, x11
+fast_alu_imm_flags addsi_fast32, adds, w16, w15, w11
+fast_alu_imm_flags subsi_fast64, subs, x16, x15, x11
+fast_alu_imm_flags subsi_fast32, subs, w16, w15, w11
+
+// Flag-setting with Rd=31 (CMP/CMN aliases — extremely hot): no store at
+// all, just compute flags. Code stream: [gadget][rn][imm]
+.macro fast_cmp_imm name, op, r15, r11
+.gadget \name
+    ldr x10, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    \op xzr, \r15, \r11
+    store_flags
+    gret
+.endm
+
+fast_cmp_imm cmpi_fast64, subs, x15, x11
+fast_cmp_imm cmni_fast64, adds, x15, x11
+.gadget cmpi_fast32
+    ldr x10, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    subs wzr, w15, w11
+    store_flags
+    gret
+.gadget cmni_fast32
+    ldr x10, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    adds wzr, w15, w11
+    store_flags
+    gret
+
+// ---- Fast-path register ALU (shift amount 0, plain registers) -----------
+// Covers plain add/sub/adds/subs Xd,Xn,Xm and the whole logical family
+// including `mov xd, xm` (ORR with Rn=ZR — gen substitutes a zeroed
+// slot-read by passing rn=rm... no: rn=31 falls back to generic; instead
+// the MOV alias gets its own dedicated gadget below).
+// Code stream: [gadget][rd | rn<<8 | rm<<16]
+.macro fast_alu_reg name, op, r16, r15, r13
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    \op \r16, \r15, \r13
+    str x16, [x14, x9, lsl #3]
+    gret
+.endm
+
+.macro fast_alu_reg_flags name, op, r16, r15, r13
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    ubfx x12, x8, #16, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    \op \r16, \r15, \r13
+    store_flags
+    str x16, [x14, x9, lsl #3]
+    gret
+.endm
+
+fast_alu_reg       addr_fast64,  add,  x16, x15, x13
+fast_alu_reg       addr_fast32,  add,  w16, w15, w13
+fast_alu_reg       subr_fast64,  sub,  x16, x15, x13
+fast_alu_reg       subr_fast32,  sub,  w16, w15, w13
+fast_alu_reg_flags addsr_fast64, adds, x16, x15, x13
+fast_alu_reg_flags addsr_fast32, adds, w16, w15, w13
+fast_alu_reg_flags subsr_fast64, subs, x16, x15, x13
+fast_alu_reg_flags subsr_fast32, subs, w16, w15, w13
+fast_alu_reg       andr_fast64,  and,  x16, x15, x13
+fast_alu_reg       andr_fast32,  and,  w16, w15, w13
+fast_alu_reg       orrr_fast64,  orr,  x16, x15, x13
+fast_alu_reg       orrr_fast32,  orr,  w16, w15, w13
+fast_alu_reg       eorr_fast64,  eor,  x16, x15, x13
+fast_alu_reg       eorr_fast32,  eor,  w16, w15, w13
+fast_alu_reg_flags andsr_fast64, ands, x16, x15, x13
+fast_alu_reg_flags andsr_fast32, ands, w16, w15, w13
+
+// MOV (register) alias — ORR Xd, XZR, Xm, shift 0. The single hottest
+// register-form instruction in compiled code.
+// Code stream: [gadget][rd | rm<<8]
+.gadget movr_fast64
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    str x15, [x14, x9, lsl #3]
+    gret
+.gadget movr_fast32
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]   // w-loads don't allow lsl #3 addressing
+    mov w15, w15                  // 32-bit form: zero the upper half
+    str x15, [x14, x9, lsl #3]
+    gret
+
+// CMP/CMN (register): SUBS/ADDS with Rd=31. Code stream: [gadget][rn | rm<<8]
+.macro fast_cmp_reg name, op, r15, r13
+.gadget \name
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x10, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    \op xzr, \r15, \r13
+    store_flags
+    gret
+.endm
+
+fast_cmp_reg cmpr_fast64, subs, x15, x13
+fast_cmp_reg cmnr_fast64, adds, x15, x13
+.gadget cmpr_fast32
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x10, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    subs wzr, w15, w13
+    store_flags
+    gret
+.gadget cmnr_fast32
+    ldr x8, [_ip]
+    add _ip, _ip, #8
+    and x10, x8, #0x1f
+    ubfx x12, x8, #8, #5
+    add x14, _cpu, #CPU_x0
+    ldr x15, [x14, x10, lsl #3]
+    ldr x13, [x14, x12, lsl #3]
+    adds wzr, w15, w13
+    store_flags
+    gret

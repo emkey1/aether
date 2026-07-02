@@ -762,6 +762,37 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         bool S = (insn >> 29) & 1;
         bool op_sub = (insn >> 30) & 1;
         bool sf = (insn >> 31) & 1;
+        // Fast path (the specialization pass — see math.S's fast-gadget
+        // header): op/width/flags baked at compile time, immediate
+        // pre-shifted. SP-involving forms (rd/rn = 31) keep the generic
+        // gadget, except the very hot CMP/CMN alias (S=1, rd=31).
+        if (rn != 31 && (rd != 31 || S)) {
+            extern void gadget_arm64_addi_fast64(void), gadget_arm64_addi_fast32(void);
+            extern void gadget_arm64_subi_fast64(void), gadget_arm64_subi_fast32(void);
+            extern void gadget_arm64_addsi_fast64(void), gadget_arm64_addsi_fast32(void);
+            extern void gadget_arm64_subsi_fast64(void), gadget_arm64_subsi_fast32(void);
+            extern void gadget_arm64_cmpi_fast64(void), gadget_arm64_cmpi_fast32(void);
+            extern void gadget_arm64_cmni_fast64(void), gadget_arm64_cmni_fast32(void);
+            uint64_t imm = (uint64_t) imm12 << (sh ? 12 : 0);
+            if (S && rd == 31) {
+                static void *const cmp_t[2][2] = { // [op_sub][sf]
+                    {(void *) gadget_arm64_cmni_fast32, (void *) gadget_arm64_cmni_fast64},
+                    {(void *) gadget_arm64_cmpi_fast32, (void *) gadget_arm64_cmpi_fast64}};
+                gen(state, (unsigned long) cmp_t[op_sub][sf]);
+                gen(state, rn);
+                gen(state, imm);
+                return 1;
+            }
+            static void *const t[2][2][2] = { // [op_sub][S][sf]
+                {{(void *) gadget_arm64_addi_fast32, (void *) gadget_arm64_addi_fast64},
+                 {(void *) gadget_arm64_addsi_fast32, (void *) gadget_arm64_addsi_fast64}},
+                {{(void *) gadget_arm64_subi_fast32, (void *) gadget_arm64_subi_fast64},
+                 {(void *) gadget_arm64_subsi_fast32, (void *) gadget_arm64_subsi_fast64}}};
+            gen(state, (unsigned long) t[op_sub][S][sf]);
+            gen(state, rd | ((uint64_t) rn << 8));
+            gen(state, imm);
+            return 1;
+        }
         uint64_t params = rd | ((uint64_t) rn << 8) | ((uint64_t) imm12 << 16)
             | ((uint64_t) sf << 28) | ((uint64_t) S << 29) | ((uint64_t) sh << 30);
         gen(state, (unsigned long) (op_sub ? gadget_arm64_sub_imm : gadget_arm64_add_imm));
@@ -826,6 +857,32 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, state->arm64_orig_ip);
             return 0;
         }
+        // Fast paths: the MOV-register alias (ORR, Rn=ZR, shift 0 — the
+        // hottest register-form instruction there is) and plain unshifted
+        // AND/ORR/EOR/ANDS. Inverted (N=1) and shifted forms fall back.
+        if (imm6 == 0 && N == 0 && rd != 31) {
+            extern void gadget_arm64_movr_fast64(void), gadget_arm64_movr_fast32(void);
+            extern void gadget_arm64_andr_fast64(void), gadget_arm64_andr_fast32(void);
+            extern void gadget_arm64_orrr_fast64(void), gadget_arm64_orrr_fast32(void);
+            extern void gadget_arm64_eorr_fast64(void), gadget_arm64_eorr_fast32(void);
+            extern void gadget_arm64_andsr_fast64(void), gadget_arm64_andsr_fast32(void);
+            if (opc == 1 && rn == 31 && rm != 31) { // MOV xd, xm
+                gen(state, (unsigned long) (sf ? gadget_arm64_movr_fast64
+                                               : gadget_arm64_movr_fast32));
+                gen(state, rd | ((uint64_t) rm << 8));
+                return 1;
+            }
+            if (rn != 31 && rm != 31) {
+                static void *const t[4][2] = { // [opc][sf]
+                    {(void *) gadget_arm64_andr_fast32, (void *) gadget_arm64_andr_fast64},
+                    {(void *) gadget_arm64_orrr_fast32, (void *) gadget_arm64_orrr_fast64},
+                    {(void *) gadget_arm64_eorr_fast32, (void *) gadget_arm64_eorr_fast64},
+                    {(void *) gadget_arm64_andsr_fast32, (void *) gadget_arm64_andsr_fast64}};
+                gen(state, (unsigned long) t[opc][sf]);
+                gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+                return 1;
+            }
+        }
         uint64_t params = rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
             | ((uint64_t) shift_type << 15) | ((uint64_t) imm6 << 17)
             | ((uint64_t) sf << 23) | ((uint64_t) opc << 24) | ((uint64_t) N << 26);
@@ -858,6 +915,33 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, state->arm64_orig_ip);
             gen(state, state->arm64_orig_ip);
             return 0;
+        }
+        // Fast path: unshifted plain-register forms (the vast majority),
+        // op/width/flags baked at compile time. rn/rm = 31 (ZR here)
+        // falls back to generic; the CMP/CMN alias gets its own gadget.
+        if (imm6 == 0 && rn != 31 && rm != 31 && (rd != 31 || S)) {
+            extern void gadget_arm64_addr_fast64(void), gadget_arm64_addr_fast32(void);
+            extern void gadget_arm64_subr_fast64(void), gadget_arm64_subr_fast32(void);
+            extern void gadget_arm64_addsr_fast64(void), gadget_arm64_addsr_fast32(void);
+            extern void gadget_arm64_subsr_fast64(void), gadget_arm64_subsr_fast32(void);
+            extern void gadget_arm64_cmpr_fast64(void), gadget_arm64_cmpr_fast32(void);
+            extern void gadget_arm64_cmnr_fast64(void), gadget_arm64_cmnr_fast32(void);
+            if (S && rd == 31) {
+                static void *const cmp_t[2][2] = { // [op_sub][sf]
+                    {(void *) gadget_arm64_cmnr_fast32, (void *) gadget_arm64_cmnr_fast64},
+                    {(void *) gadget_arm64_cmpr_fast32, (void *) gadget_arm64_cmpr_fast64}};
+                gen(state, (unsigned long) cmp_t[op_sub][sf]);
+                gen(state, rn | ((uint64_t) rm << 8));
+                return 1;
+            }
+            static void *const t[2][2][2] = { // [op_sub][S][sf]
+                {{(void *) gadget_arm64_addr_fast32, (void *) gadget_arm64_addr_fast64},
+                 {(void *) gadget_arm64_addsr_fast32, (void *) gadget_arm64_addsr_fast64}},
+                {{(void *) gadget_arm64_subr_fast32, (void *) gadget_arm64_subr_fast64},
+                 {(void *) gadget_arm64_subsr_fast32, (void *) gadget_arm64_subsr_fast64}}};
+            gen(state, (unsigned long) t[op_sub][S][sf]);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+            return 1;
         }
         uint64_t params = rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
             | ((uint64_t) shift_type << 15) | ((uint64_t) imm6 << 17)
