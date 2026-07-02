@@ -3205,6 +3205,115 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // AArch64 crypto extension: AES, SHA1, SHA256, SHA512, SHA3
+    // (ported from OpenMinis' crypto decode branches). SM3/SM4/SVE stay
+    // unimplemented (no host coverage on Apple silicon).
+    if ((insn & 0xff3f0c00) == 0x4e280800) { // AES
+        extern void gadget_arm64_aese(void), gadget_arm64_aesd(void);
+        extern void gadget_arm64_aesmc(void), gadget_arm64_aesimc(void);
+        unsigned opcode = (insn >> 12) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        void *gadget = opcode == 4 ? (void *) gadget_arm64_aese
+                     : opcode == 5 ? (void *) gadget_arm64_aesd
+                     : opcode == 6 ? (void *) gadget_arm64_aesmc
+                     : opcode == 7 ? (void *) gadget_arm64_aesimc : NULL;
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8));
+        return 1;
+    }
+    if ((insn & 0xffffcc00) == 0x5e280800) { // SHA1H / SHA1SU1 / SHA256SU0
+        extern void gadget_arm64_sha1h(void), gadget_arm64_sha1su1(void);
+        extern void gadget_arm64_sha256su0(void);
+        unsigned opcode = (insn >> 12) & 3;
+        unsigned rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        void *gadget = opcode == 0 ? (void *) gadget_arm64_sha1h
+                     : opcode == 1 ? (void *) gadget_arm64_sha1su1
+                     : opcode == 2 ? (void *) gadget_arm64_sha256su0 : NULL;
+        if (gadget == NULL)
+            return gen_arm64_undefined(state);
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8));
+        return 1;
+    }
+    if ((insn & 0xffe04c00) == 0x5e000000 ||   // SHA1 three-reg (bit14=0)
+            (insn & 0xffe04c00) == 0x5e004000) { // SHA256 three-reg (bit14=1)
+        extern void gadget_arm64_sha1c(void), gadget_arm64_sha1p(void);
+        extern void gadget_arm64_sha1m(void), gadget_arm64_sha1su0(void);
+        extern void gadget_arm64_sha256h(void), gadget_arm64_sha256h2(void);
+        extern void gadget_arm64_sha256su1(void);
+        unsigned sha256 = (insn >> 14) & 1;
+        unsigned opcode = (insn >> 12) & 3;
+        unsigned rm = (insn >> 16) & 0x1f, rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        void *gadget;
+        if (!sha256)
+            gadget = opcode == 0 ? (void *) gadget_arm64_sha1c
+                   : opcode == 1 ? (void *) gadget_arm64_sha1p
+                   : opcode == 2 ? (void *) gadget_arm64_sha1m
+                   : (void *) gadget_arm64_sha1su0;
+        else {
+            gadget = opcode == 0 ? (void *) gadget_arm64_sha256h
+                   : opcode == 1 ? (void *) gadget_arm64_sha256h2
+                   : opcode == 2 ? (void *) gadget_arm64_sha256su1 : NULL;
+            if (gadget == NULL)
+                return gen_arm64_undefined(state);
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+    if ((insn & 0xfffffc00) == 0xcec08000) { // SHA512SU0 (two-reg)
+        extern void gadget_arm64_sha512su0(void);
+        unsigned rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        gen(state, (unsigned long) gadget_arm64_sha512su0);
+        gen(state, rd | ((uint64_t) rn << 8));
+        return 1;
+    }
+    if ((insn & 0xffe0fc00) == 0xce608000 ||   // SHA512H
+            (insn & 0xffe0fc00) == 0xce608400 || // SHA512H2
+            (insn & 0xffe0fc00) == 0xce608800) { // SHA512SU1
+        extern void gadget_arm64_sha512h(void), gadget_arm64_sha512h2(void);
+        extern void gadget_arm64_sha512su1(void);
+        unsigned sel = (insn >> 10) & 3;
+        unsigned rm = (insn >> 16) & 0x1f, rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        void *gadget = sel == 0 ? (void *) gadget_arm64_sha512h
+                     : sel == 1 ? (void *) gadget_arm64_sha512h2
+                     : (void *) gadget_arm64_sha512su1;
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+    if ((insn & 0xffe08c00) == 0xce608c00) { // RAX1 (three-reg, SHA3)
+        extern void gadget_arm64_rax1(void);
+        unsigned rm = (insn >> 16) & 0x1f, rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        gen(state, (unsigned long) gadget_arm64_rax1);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        return 1;
+    }
+    if ((insn & 0xffe08000) == 0xce000000 ||   // EOR3 (four-reg, SHA3)
+            (insn & 0xffe08000) == 0xce200000) { // BCAX
+        extern void gadget_arm64_eor3(void), gadget_arm64_bcax(void);
+        unsigned rm = (insn >> 16) & 0x1f, ra = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        void *gadget = (insn & 0x00200000) ? (void *) gadget_arm64_bcax
+                                           : (void *) gadget_arm64_eor3;
+        gen(state, (unsigned long) gadget);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) |
+                   ((uint64_t) ra << 24));
+        return 1;
+    }
+    if ((insn & 0xffe00000) == 0xce800000) { // XAR (SHA3, imm6 rotate)
+        extern void gadget_arm64_xar(void);
+        unsigned imm6 = (insn >> 10) & 0x3f;
+        unsigned rm = (insn >> 16) & 0x1f, rn = (insn >> 5) & 0x1f, rd = insn & 0x1f;
+        gen(state, (unsigned long) gadget_arm64_xar);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
+        gen(state, (uint64_t) -(int64_t) imm6);         // right shift
+        gen(state, (uint64_t) ((64 - imm6) & 63));      // complementary left
+        return 1;
+    }
+
     // AdvSIMD modified immediate: MOVI/MVNI/FMOV-imm — compiler struct
     // zeroing is `movi v0.2d, #0; stp q0, q0` everywhere. The ORR/BIC
     // register-modifying cmode variants stay unimplemented (reject).

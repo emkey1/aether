@@ -572,6 +572,41 @@ FAMILIES["shift_elem"] = (
                            (f"{op}e.d", f"{op} d0, d1, v2.d[0]")], acc=bool(acc), fp=True)]
 )
 
+FAMILIES["crypto"] = (
+    # AES: state in v0, round key in v1; results merge/replace v0
+    raw_tests([("aese", "aese v0.16b, v1.16b"),
+               ("aesd", "aesd v0.16b, v1.16b")], acc=True)
+    + raw_tests([("aesmc", "aesmc v0.16b, v1.16b"),
+                 ("aesimc", "aesimc v0.16b, v1.16b")])
+    # SHA1 two-reg and scalar
+    + raw_tests([("sha1su1", "sha1su1 v0.4s, v1.4s")], acc=True)
+    + raw_tests([("sha1h", "sha1h s0, s1")])
+    # SHA1 three-reg
+    + raw_tests([("sha1c", "sha1c q0, s1, v2.4s"),
+                 ("sha1p", "sha1p q0, s1, v2.4s"),
+                 ("sha1m", "sha1m q0, s1, v2.4s"),
+                 ("sha1su0", "sha1su0 v0.4s, v1.4s, v2.4s")], acc=True)
+    # SHA256
+    + raw_tests([("sha256su0", "sha256su0 v0.4s, v1.4s")], acc=True)
+    + raw_tests([("sha256h", "sha256h q0, q1, v2.4s"),
+                 ("sha256h2", "sha256h2 q0, q1, v2.4s"),
+                 ("sha256su1", "sha256su1 v0.4s, v1.4s, v2.4s")], acc=True)
+    # SHA512
+    + raw_tests([("sha512su0", "sha512su0 v0.2d, v1.2d")], acc=True)
+    + raw_tests([("sha512h", "sha512h q0, q1, v2.2d"),
+                 ("sha512h2", "sha512h2 q0, q1, v2.2d"),
+                 ("sha512su1", "sha512su1 v0.2d, v1.2d, v2.2d")], acc=True)
+    # SHA3
+    + raw_tests([("rax1", "rax1 v0.2d, v1.2d, v2.2d")])
+    + [t for name, ins in [
+        ("eor3", "eor3 v0.16b, v1.16b, v2.16b, v0.16b"),
+        ("bcax", "bcax v0.16b, v1.16b, v2.16b, v0.16b"),
+        ("xar.1", "xar v0.2d, v1.2d, v2.2d, #1"),
+        ("xar.13", "xar v0.2d, v1.2d, v2.2d, #13"),
+        ("xar.63", "xar v0.2d, v1.2d, v2.2d, #63"),
+      ] for t in raw_tests([(name, ins)], acc=True)]
+)
+
 LINUX_PROLOGUE = """\
 .text
 .global _start

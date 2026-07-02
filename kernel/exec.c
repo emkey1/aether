@@ -776,8 +776,19 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         p += sizeof(aux);
         save->mm->auxv_end = p;
     } else {
+        // AT_HWCAP: on aarch64, advertise exactly the ISA features the JIT
+        // implements, so libc/OpenSSL take their accelerated paths.
+        //   FP(0) ASIMD(1) AES(3) PMULL(4) SHA1(5) SHA2(6) CRC32(7)
+        //   SHA512(21) ASIMDDP(20) matching the ID registers gen.c serves;
+        //   ATOMICS(8) once LSE lands. amd64 keeps 0 (that path predates any
+        //   x86 HWCAP need). Kept in sync with the ID_AA64ISAR0 value.
+        qword_t hwcap = 0;
+        if (current->abi == GUEST_ABI_ARM64)
+            hwcap = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) |
+                    (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8) |
+                    (1u << 20) | (1u << 21);
         struct aux64_ent aux[] = {
-            {AX_HWCAP, 0},
+            {AX_HWCAP, hwcap},
             {AX_PAGESZ, PAGE_SIZE},
             {AX_CLKTCK, 0x64},
             {AX_PHDR, load_addr + header.prghead_off},
