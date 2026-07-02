@@ -1890,6 +1890,33 @@ static inline void arm64_syscall_result_qword(struct cpu_state *cpu, qword_t res
     cpu->arm64_regs[arm64_x0] = result;
 }
 
+// AArch64 open(2) flags -> this codebase's internal (i386-valued) flags.
+// The generic 64-bit ABI moves four O_ constants relative to x86:
+//   aarch64 O_DIRECTORY = 0x04000   x86/internal = 0x10000
+//   aarch64 O_NOFOLLOW  = 0x08000   x86/internal = 0x20000
+//   aarch64 O_DIRECT    = 0x10000   x86/internal = 0x04000
+//   aarch64 O_LARGEFILE = 0x20000   x86/internal = 0x08000
+// Without this, EVERY musl-aarch64 open() — which unconditionally ORs in
+// O_LARGEFILE — carried what the fs layer reads as O_NOFOLLOW_, so any
+// open through a final-component symlink returned ELOOP. First seen on a
+// real iPad as apk failing to load libz.so.1 ("Symbolic link loop").
+//
+// Checked against OpenMinis (the usual first stop, see
+// /CREDITS-aarch64.md): their calls_arm64.c has NO translation — raw
+// aarch64 flags flow into the same x86-valued fs layer. It's latent
+// there because upstream iSH ignores O_NOFOLLOW; it bites here because
+// iSH-AOK's fs layer enforces O_NOFOLLOW->ELOOP (fs conformance work).
+// Their tree also silently drops genuine O_DIRECTORY/O_NOFOLLOW from
+// aarch64 guests for the same reason.
+static dword_t arm64_open_flags_to_internal(qword_t flags) {
+    dword_t out = (dword_t) flags & ~0x3c000u;
+    if (flags & 0x04000) out |= 0x10000; // O_DIRECTORY
+    if (flags & 0x08000) out |= 0x20000; // O_NOFOLLOW
+    if (flags & 0x10000) out |= 0x04000; // O_DIRECT
+    if (flags & 0x20000) out |= 0x08000; // O_LARGEFILE (ignored downstream)
+    return out;
+}
+
 // AArch64 full-width syscall dispatch: the arm64 counterpart of
 // handle_amd64_native_memory_syscall below, for the same reason — the
 // legacy syscall_t signature marshals every argument through dword_t,
@@ -1950,7 +1977,8 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 49: result = sys_chdir_guest(raw_args[0]); break;
     case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
-    case 56: result = sys_openat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (mode_t_) raw_args[3]); break;
+    case 56: result = sys_openat_guest((fd_t) raw_args[0], raw_args[1],
+                     arm64_open_flags_to_internal(raw_args[2]), (mode_t_) raw_args[3]); break;
     case 61: result = sys_getdents64_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 63: result = sys_read_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 64: result = sys_write_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
