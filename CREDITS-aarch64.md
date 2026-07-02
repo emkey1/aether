@@ -126,6 +126,16 @@ credits file supports.
   add/subtract never treats register 31 as SP, unlike the immediate
   form.
 
+- `jit/guest-arm64/memory.S`'s single-register load/store gadgets,
+  `jit/guest-arm64/atomics.S`, and `jit/guest-arm64/dpextra.S` (Phase C
+  part 3) — independently written, not adapted from OpenMinis. The
+  atomics deliberately mirror this codebase's OWN interpreter's
+  excl_addr/excl_val monitor semantics (emu/arm64_interp.c) rather than
+  OpenMinis' approach or host exclusives (see atomics.S's header for
+  why host ldxr/stxr would be a livelock risk). The bitfield double-
+  shift lowering, cond_*-gadget w10 handoff, and extended-register
+  add/sub are all derived directly from the ARM ARM.
+
 ## Adapted / closely modeled on OpenMinis/ish-arm64 (interpreter, patches 3-5)
 
 - `emu/arch/arm64/decode.h` — adapted near-verbatim from their

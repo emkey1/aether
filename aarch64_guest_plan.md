@@ -482,12 +482,88 @@ test. This closes patch 5's real-rootfs-confirmed next blocker
 (register-form ADD/SUB/MOV/logical-shifted-register) immediately after
 Logical (immediate).
 
-**Phase C, part 3 (not started)**: LDXR/STXR/CAS, MUL — enough to get
-`tests/arm64/arm64_atomics.s` passing via gadgets, then the real Alpine
-`/bin/busybox` test (see patch 5's "Real-rootfs findings" in
-`tests/arm64/README.md`) as the next real-world validation target.
-Should follow the same "port what real testing shows is next" priority
-used throughout this port, not a speculative ISA-manual-ordered pass.
+**Phase C, part 3 (integer core completion — DONE, validated)**: the
+big batch. New gadget files and coverage:
+
+- `memory.S` additions: the whole single-register load/store surface —
+  one generic gadget per (size, extend) covering four encoding families
+  (unsigned-immediate, imm9 unscaled/post/pre incl. LDTR/STTR-as-normal,
+  register-offset with extend/shift resolved at runtime, LDR literal),
+  zero- and sign-extending variants (LDRB/H/W/X, LDRSB/SH/SW to both
+  widths), PRFM/PRFUM lowered to nothing.
+- `atomics.S` (new): LDXR/STXR via the interpreter's exact
+  excl_addr/excl_val monitor semantics (deliberately NOT host
+  exclusives — a host store by the same PE may clear the local monitor,
+  a livelock risk; see the file header), CAS, and acquire/release bits
+  accepted-and-ignored. LDAR/STLR lower to the plain load/store gadgets
+  in gen.c (their semantics minus the unmodeled barrier) — wider than
+  the interpreter, which still rejects them.
+- `dpextra.S` (new): bitfield SBFM/UBFM via the compile-time
+  double-shift lowering (L = R-1-imms, S = (L+immr) mod R — one
+  formula covers extract, insert-into-zeros, and every alias:
+  LSL/LSR/ASR-imm, UBFX/SBFX, SXT*/UXT*), BFM with a compile-time
+  insert mask, EXTR/ROR-imm, the cond_* condition-evaluation gadget
+  family (w10 handoff to the next gadget in the block — registers
+  persist across gret), CSEL/CSINC/CSINV/CSNEG, CCMP/CCMN, UDIV/SDIV
+  and variable shifts, RBIT/REV*/CLZ/CLS, the full 3-source multiply
+  family (MADD/MSUB/SMADDL/UMADDL/SMULH/UMULH/...), barriers (one
+  `dmb ish` for the whole DSB/DMB/ISB space), the hint space as NOP,
+  and MRS/MSR TPIDR_EL0 (new `cpu_state.arm64_tpidr` field — the TLS
+  base) plus constant MRS values for CTR_EL0/DCZID_EL0 (DZP=1 so libc
+  never attempts DC ZVA).
+- `dpreg.S` addition: add/subtract (extended register) — the
+  SP-capable form compilers use for `sub sp, sp, x2` dynamic stack
+  adjustment; found as a real Alpine busybox blocker (0xcb2263ff).
+
+Five more real bugs found and fixed in this batch:
+
+1. **The Phase B "label collision fix" was itself a misdiagnosis** —
+   i386 deliberately routes crosspage WRITES through crosspage_load
+   first (fill buffer + stash address + redirect _addr), with
+   write_done flushing via crosspage_store afterward. The earlier
+   "fix" made writes branch straight to the flush, skipping both the
+   fill and the store. Reverted to i386's design;
+   `arm64_crosspage_store` also now reloads the guest address from
+   LOCAL_value_addr (widened to 64 bits in jit/frame.h) instead of
+   using the by-then-redirected _addr.
+2. **x2/_tlb argument-aliasing in arm64_crosspage_load** — the fix for
+   the earlier x1/_cpu aliasing reordered argument setup such that
+   arg2's write to x2 destroyed _tlb before arg0 read it (AAPCS64
+   argument registers ARE the gadget convention registers; setup order
+   is load-bearing in both directions). Caught by arm64_dpextra.s's
+   page-straddling store. The only safe order consumes x2 first and
+   writes x1 last — now documented at the routine.
+3. **store_flags clobbers x17** — dpreg.S's three gadgets parked the
+   register-file base in x17 across store_flags (whose scratch is
+   x17), exactly the hazard gadgets.h's comment warned about. Host
+   EXC_BAD_ACCESS in busybox's ld.so (the smoke tests never exercised
+   a flag-setting shifted-register op); a regression check now exists
+   in arm64_dpextra.s. Fixed by re-deriving the base after every
+   store_flags.
+4. **x18 is Apple's platform-reserved register** — ldp/stp and the
+   dpreg gadgets used it as a data register; the OS is allowed to
+   trash x18 asynchronously, which would have been rare unreproducible
+   on-device corruption. Fixed by audit (x25/x22), rule documented in
+   gadgets.h.
+5. The interpreter's load/store unsigned-immediate mask
+   (`0x3b000000`) leaves the V bit unmasked and so also matches SIMD
+   loads/stores — a latent interpreter misdecode (moot while frozen).
+   gen.c uses the corrected `0x3f000000` mask; noted in the decode
+   comment rather than fixed in the frozen interpreter.
+
+Validated: all 8 smoke tests pass (`arm64_atomics.s` now runs via
+gadgets end-to-end; new `arm64_dpextra.s` covers 15 checks across the
+batch including the crosspage-write path and the store_flags/x17
+regression). Real Alpine busybox now decodes EVERY instruction on its
+startup path — the remaining gap is SIMD/FP (`dup v0.16b, w1` in
+musl's memset is the current first blocker), which is Phase D.
+
+**Phase D (not started)**: SIMD/FP — musl's memset/memcpy/strlen use
+vector loads/stores (LDR/STR Q), DUP, CMEQ, UMAXP/ADDP, SHRN and
+friends. Needs V-register file access gadgets (cpu_state.arm64_v is
+already present) and 128-bit TLB-path loads/stores. Follow the same
+blocker-driven priority: port what busybox's actual startup path uses
+first, not the whole SIMD ISA.
 
 ## Testing Strategy — New Oracle Required
 

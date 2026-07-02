@@ -47,6 +47,7 @@
 #define CPU_nzcv CPU_arm64_nzcv
 #define CPU_excl_addr CPU_arm64_excl_addr
 #define CPU_excl_val CPU_arm64_excl_val
+#define CPU_tpidr CPU_arm64_tpidr
 
 _cpu    .req x1
 _tlb    .req x2
@@ -60,6 +61,16 @@ _ip     .req x28
 _tmp    .req x0
 _tmp2   .req x8
 _addr   .req x7
+
+// RULE: never hold live gadget state in x18. It's the platform-reserved
+// register on Apple targets (iOS/macOS) -- the OS is allowed to trash it
+// asynchronously, so a value parked there can silently corrupt between
+// any two instructions. (save_c/restore_c still spill/reload the x18
+// SLOT around C calls, which is fine -- that's saving whatever garbage
+// is there, not relying on it.) An early revision of the ldp/stp and
+// dpreg gadgets used x18 as a data register; fixed by audit, not by a
+// crash -- this would have been a rare, unreproducible on-device
+// corruption.
 
 .extern jit_ret
 .extern jit_exit
@@ -156,19 +167,22 @@ _addr   .req x7
 .macro \type\()_prep size, id
     and w9, w7, #0xfff
     cmp x9, #(0x1000-(\size/8))
-    // Real bug caught by testing: this used to branch to the same
-    // crosspage_load_\id label regardless of \type, and \type\()_bullshit
-    // defined that label unconditionally too -- so a write access that
-    // straddled a page boundary silently called arm64_crosspage_load (a
-    // READ) instead of arm64_crosspage_store, corrupting the write and
-    // reporting a bogus read-fault address on failure. Each type now
-    // branches to its own label, defined only by that type's bullshit
-    // expansion below.
-    .ifc \type,read
+    // BOTH types branch to crosspage_load_\id -- this is i386's own design
+    // (jit/gadgets-aarch64/gadgets.h line 48), deliberately: for a WRITE
+    // that straddles a page boundary, arm64_crosspage_load fills
+    // LOCAL_value with the current guest bytes, stashes the guest address
+    // in LOCAL_value_addr, and redirects _addr to the LOCAL_value buffer;
+    // the gadget's store instruction then writes into the buffer, and
+    // write_done (below) detects _addr==LOCAL_value and calls
+    // arm64_crosspage_store to flush the buffer back to guest memory
+    // using the stashed address. A previous revision of this port
+    // misdiagnosed this shared branch target as a label-collision bug and
+    // "fixed" it by branching writes directly to crosspage_store_\id --
+    // which flushes the still-uninitialized buffer and skips the actual
+    // store entirely. Corrected by re-reading i386's flow end-to-end
+    // (memory.S's crosspage_load/crosspage_store pair) rather than
+    // reasoning about the prep macro in isolation.
     b.hi crosspage_load_\id
-    .else
-    b.hi crosspage_store_\id
-    .endif
     .ifc \type,write
         ldr x10, [_tlb, #(-TLB_entries+TLB_mmu)]
         ldr x9, [_tlb, #(-TLB_entries+TLB_mem_changes)]
@@ -206,12 +220,11 @@ back_\id:
 handle_miss_\id :
     bl arm64_handle_\type\()_miss
     b back_\id
-.ifc \type,read
 crosspage_load_\id :
     mov x27, #(\size/8)
     bl arm64_crosspage_load
     b back_\id
-.else
+.ifc \type,write
 crosspage_store_\id :
     mov x27, #(\size/8)
     bl arm64_crosspage_store

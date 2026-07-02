@@ -144,23 +144,36 @@ arm64_resolve_write_ptr:
     ret
 
 // Real bug caught by testing: _cpu is aliased to x1 (gadgets.h), the same
-// register the AAPCS64 call below needs for arg1 (addr). An earlier version
-// computed `mov x1, _addr` (arg1) BEFORE `add x2, _cpu, #LOCAL_value`
-// (arg2) -- clobbering _cpu before its value was read, so arg2 silently
-// became addr+LOCAL_value (a wild pointer near the faulting guest address)
-// instead of a valid cpu_state-relative buffer. __tlb_{read,write}_cross_page
-// then memcpy'd through that wild pointer, corrupting memory / raw-faulting
-// outside the normal INT_PF path. Fixed by computing every _cpu-relative
-// value before the first write to x1.
+// TWO real register-aliasing bugs caught here, one by testing, one by
+// the fix for the first: the AAPCS64 argument registers x0/x1/x2 ARE the
+// gadget convention's _tmp/_cpu/_tlb, so argument setup order is load-
+// bearing in both directions. The original wrote x1 (arg1 = addr) first,
+// clobbering _cpu before arg2 (= _cpu + LOCAL_value) read it. The first
+// "fix" moved the arg2 computation to the top -- which writes x2,
+// clobbering _tlb before arg0 (= _tlb - TLB_entries) read it, sending a
+// wild tlb pointer into __tlb_read_cross_page (caught by the page-
+// straddling case in tests/arm64/arm64_dpextra.s, host-crashing on
+// tlb->mmu). The only safe order consumes x2 first and writes x1 last:
+//   x0 <- f(x2)   (reads _tlb; x0/_tmp holds nothing live)
+//   x2 <- f(x1)   (reads _cpu, overwrites _tlb -- already consumed)
+//   x3 <- x27
+//   x1 <- x7      (overwrites _cpu -- already consumed; x7/_addr last-read here)
 // Also uses x27 (not x19) for the size argument gadgets.h's bullshit macro
 // passes in -- same x19-corrupts-the-caller's-live-offset bug as the miss
 // handlers above, just via argument-passing instead of return-stash.
+//
+// Serves BOTH reads and crosspage WRITES (i386's design, mirrored): for a
+// write, this fills LOCAL_value with the current guest bytes, stashes the
+// guest address in LOCAL_value_addr, and redirects _addr to the buffer so
+// the gadget's store writes into it; write_done then detects the redirect
+// and arm64_crosspage_store (below) flushes the buffer back to guest
+// memory at the stashed address.
 .global arm64_crosspage_load
 arm64_crosspage_load:
     save_c
-    add x2, _cpu, #LOCAL_value
     sub x0, _tlb, #TLB_entries
-    mov x3, x27             // size in bytes, set by the caller (gadgets.h's read_bullshit)
+    add x2, _cpu, #LOCAL_value
+    mov x3, x27             // size in bytes, set by the caller (gadgets.h's bullshit macro)
     mov x1, _addr
     bl NAME(__tlb_read_cross_page)
     mov x27, x0
@@ -170,13 +183,24 @@ arm64_crosspage_load:
     add _addr, _cpu, #LOCAL_value
     ret
 
+// Real bug caught by re-reading i386's flow (not by a failing test --
+// nothing exercises crosspage writes yet): this used `mov x1, _addr` for
+// the guest address, but by flush time _addr has been REDIRECTED to the
+// LOCAL_value buffer by arm64_crosspage_load above -- the guest address
+// only survives in LOCAL_value_addr, which is where i386's own
+// crosspage_store (jit/gadgets-aarch64/memory.S:138) reloads it from.
+// LOCAL_value_addr was also widened to 64 bits (jit/frame.h) since arm64
+// guest addresses don't fit the old 32-bit addr_t field.
 .global arm64_crosspage_store
 arm64_crosspage_store:
     save_c
-    add x2, _cpu, #LOCAL_value
+    // Same argument-order constraint as arm64_crosspage_load above:
+    // consume x2 (_tlb) before writing it, write x1 (_cpu) last.
     sub x0, _tlb, #TLB_entries
+    ldr x3, [_cpu, #LOCAL_value_addr] // guest addr, staged in x3 while _cpu is intact
+    add x2, _cpu, #LOCAL_value
+    mov x1, x3
     mov x3, x27             // size in bytes, set by the caller (gadgets.h's write_bullshit)
-    mov x1, _addr
     bl NAME(__tlb_write_cross_page)
     mov x27, x0
     restore_c
@@ -298,7 +322,163 @@ arm64_crosspage_store:
 // element, or a pair access straddling a page boundary between the two
 // elements would silently validate only the first half. Caught by
 // comparing against their reference before testing, not after a crash.
-ldp_gadget ldp64, 128, 8, x17, x18
-ldp_gadget ldp32, 64, 4, w17, w18
-stp_gadget stp64, 128, 8, x17, x18
-stp_gadget stp32, 64, 4, w17, w18
+ldp_gadget ldp64, 128, 8, x17, x25
+ldp_gadget ldp32, 64, 4, w17, w25
+stp_gadget stp64, 128, 8, x17, x25
+stp_gadget stp32, 64, 4, w17, w25
+
+// ---- Single-register load/store ----------------------------------------
+// One generic gadget per (size, direction, extend) covering four guest
+// encoding families through a shared parameter format, so gen_step_arm64
+// does all the per-encoding decode work once at compile time:
+//   - unsigned immediate  (mode 0, offset = imm12 << size)
+//   - unscaled LDUR/STUR  (mode 0, offset = sext(imm9))
+//   - post-index          (mode 1)
+//   - pre-index           (mode 2)
+//   - register offset     (mode 3, offset word = rm | option<<8 | shift<<16)
+// LDTR/STTR (unprivileged) also map to mode 0: the privilege distinction
+// doesn't exist under emulation, so their semantics are identical here.
+//
+// Code stream: [gadget][rt | rn<<8 | mode<<16][offset word (see above)]
+//
+// Register discipline matches ldp/stp above: everything live across a
+// read_prep/write_prep call sits in x19-x26 (callee-saved, and x27 is the
+// miss-helpers' own scratch); the data value rides in x17, which is
+// preserved across the helpers' save_c/restore_c C-call bracketing.
+
+// Shared prologue: parse params, resolve the register-offset form if
+// mode 3, read the base (rn: 31 = SP), leave the effective address in
+// x7 (= _addr) ready for a prep macro. Leaves rt in x20, rn in x22,
+// mode in x23, base in x24, resolved offset in x19.
+.macro ldst_single_setup
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]
+    add _ip, _ip, #16
+    and x20, x8, #0x1f        // rt
+    ubfx x22, x8, #8, #5      // rn
+    ubfx x23, x8, #16, #2     // mode
+
+    cmp x23, #3               // register-offset: resolve x19 = extend(Rm) << shift
+    b.ne 10f
+    and x10, x19, #0x1f       // rm
+    ubfx x11, x19, #8, #3     // option: 010=UXTW 011=LSL/UXTX 110=SXTW 111=SXTX
+    ubfx x12, x19, #16, #4    // shift amount (0 or log2(size))
+    add x9, _cpu, #CPU_x0
+    cmp x10, #31
+    b.eq 11f
+    add x26, x9, x10, lsl #3
+    ldr x13, [x26]
+    b 12f
+11: mov x13, #0               // Rm=31 is XZR here, never SP
+12: tbnz x11, #0, 13f         // option bit0: 64-bit index, use Xm as-is
+    tbnz x11, #2, 14f         // option bit2: signed 32-bit index
+    mov w13, w13              // UXTW
+    b 13f
+14: sxtw x13, w13             // SXTW
+13: lsl x19, x13, x12
+10:
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x26, x9, x22, lsl #3
+    ldr x24, [x26]            // base
+    b 2f
+1:  ldr x24, [_cpu, #CPU_sp]
+2:
+    cmp x23, #1               // post-index accesses at base; all others at base+offset
+    b.eq 3f
+    add x7, x24, x19
+    b 4f
+3:  mov x7, x24
+4:
+.endm
+
+// Shared epilogue: writeback base+offset to rn for modes 1 (post) and 2
+// (pre) only; modes 0 (no writeback) and 3 (register offset, no
+// writeback) skip it.
+.macro ldst_single_writeback
+    cmp x23, #1
+    b.lo 9f
+    cmp x23, #2
+    b.hi 9f
+    add x25, x24, x19
+    cmp x22, #31
+    b.eq 8f
+    add x9, _cpu, #CPU_x0
+    add x26, x9, x22, lsl #3
+    str x25, [x26]
+    b 9f
+8:  str x25, [_cpu, #CPU_sp]
+9:  gret
+.endm
+
+// ldinsn/reg pick both the access width and the extend: e.g. `ldrb w17`
+// zero-extends a byte, `ldrsb x17` sign-extends it to 64 bits, `ldrsb
+// w17` sign-extends to 32 with the upper 32 zeroed -- exactly the
+// architected LDR/LDRS semantics, done by the host instruction itself.
+.macro load_single name, bits, ldinsn, reg
+.gadget \name
+    ldst_single_setup
+    read_prep \bits, \name
+    \ldinsn \reg, [_addr]
+    add x9, _cpu, #CPU_x0
+    cmp x20, #31
+    b.eq 5f
+    add x26, x9, x20, lsl #3
+    str x17, [x26]
+5:  ldst_single_writeback
+    read_bullshit \bits, \name
+.endm
+
+.macro store_single name, bits, stinsn, reg
+.gadget \name
+    ldst_single_setup
+    add x9, _cpu, #CPU_x0
+    mov x17, #0
+    cmp x20, #31
+    b.eq 6f
+    add x26, x9, x20, lsl #3
+    ldr x17, [x26]
+6:  write_prep \bits, \name
+    \stinsn \reg, [_addr]
+    write_done \bits, \name
+    ldst_single_writeback
+    write_bullshit \bits, \name
+.endm
+
+load_single load8,      8, ldrb,  w17
+load_single load16,    16, ldrh,  w17
+load_single load32,    32, ldr,   w17
+load_single load64,    64, ldr,   x17
+load_single loads8_32,  8, ldrsb, w17
+load_single loads8_64,  8, ldrsb, x17
+load_single loads16_32, 16, ldrsh, w17
+load_single loads16_64, 16, ldrsh, x17
+load_single loads32_64, 32, ldrsw, x17
+store_single store8,    8, strb, w17
+store_single store16,  16, strh, w17
+store_single store32,  32, str,  w17
+store_single store64,  64, str,  x17
+
+// ---- LDR (literal): PC-relative load. The address is compile-time
+// known (PC + imm19*4, computed by gen_step_arm64), so the code stream
+// just carries it directly: [gadget][rt][absolute address].
+.macro load_literal name, bits, ldinsn, reg
+.gadget \name
+    ldr x20, [_ip]            // rt
+    ldr x7, [_ip, #8]         // absolute guest address
+    add _ip, _ip, #16
+    read_prep \bits, \name
+    \ldinsn \reg, [_addr]
+    add x9, _cpu, #CPU_x0
+    cmp x20, #31
+    b.eq 5f
+    add x26, x9, x20, lsl #3
+    str x17, [x26]
+5:  gret
+    read_bullshit \bits, \name
+.endm
+
+load_literal load_lit32,   32, ldr,   w17
+load_literal load_lit64,   64, ldr,   x17
+load_literal load_lit_sw,  32, ldrsw, x17

@@ -251,6 +251,11 @@ struct cpu_state {
     // per the architecture (a local monitor covers exactly one reservation).
     qword_t arm64_excl_addr;
     qword_t arm64_excl_val;
+    // TPIDR_EL0 — the userspace-writable software thread ID register,
+    // which every AArch64 libc uses as the TLS base pointer. Read/written
+    // by the MRS/MSR gadgets (jit/guest-arm64/dpextra.S); the arm64
+    // equivalent of i386's GDT-slot TLS / amd64's FS-base.
+    qword_t arm64_tpidr;
     // V0-V31 are 128-bit, same layout as SSE's xmm[16] — reuse union xmm_reg
     // rather than duplicating an identical union under a new name.
     union xmm_reg arm64_v[32];

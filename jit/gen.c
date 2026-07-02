@@ -488,6 +488,64 @@ bool gen_start_arm64(guest_addr_t addr, struct gen_state *state) {
     return true;
 }
 
+// (size, opc) -> single-register load/store gadget (jit/guest-arm64/
+// memory.S), shared by all four addressing families that lower to that
+// gadget set. opc semantics per the ARM ARM: size<3: 0=store, 1=load,
+// 2=LDRS-to-64, 3=LDRS-to-32; size=3: 0=store, 1=load (2=PRFM is a hint
+// the callers lower to nothing before getting here; 3=unallocated).
+// Returns NULL for unallocated combinations (size=2/3 with opc=3, size=3
+// with opc=2).
+static void *gen_arm64_ldst_single_gadget(unsigned size, unsigned opc) {
+    extern void gadget_arm64_load8(void), gadget_arm64_load16(void);
+    extern void gadget_arm64_load32(void), gadget_arm64_load64(void);
+    extern void gadget_arm64_loads8_32(void), gadget_arm64_loads8_64(void);
+    extern void gadget_arm64_loads16_32(void), gadget_arm64_loads16_64(void);
+    extern void gadget_arm64_loads32_64(void);
+    extern void gadget_arm64_store8(void), gadget_arm64_store16(void);
+    extern void gadget_arm64_store32(void), gadget_arm64_store64(void);
+    static void *const table[4][4] = {
+        // size=0 (byte)
+        { (void *) gadget_arm64_store8, (void *) gadget_arm64_load8,
+          (void *) gadget_arm64_loads8_64, (void *) gadget_arm64_loads8_32 },
+        // size=1 (halfword)
+        { (void *) gadget_arm64_store16, (void *) gadget_arm64_load16,
+          (void *) gadget_arm64_loads16_64, (void *) gadget_arm64_loads16_32 },
+        // size=2 (word)
+        { (void *) gadget_arm64_store32, (void *) gadget_arm64_load32,
+          (void *) gadget_arm64_loads32_64, NULL },
+        // size=3 (doubleword)
+        { (void *) gadget_arm64_store64, (void *) gadget_arm64_load64,
+          NULL, NULL },
+    };
+    return table[size & 3][opc & 3];
+}
+
+// cond -> condition-evaluation gadget (jit/guest-arm64/dpextra.S's
+// cond_* family). AL and NV are both architecturally "always" for the
+// consuming instructions here (CSEL/CCMP never invert them the way
+// B.cond's pseudo-encoding table might suggest).
+static void *gen_arm64_cond_gadget(unsigned cond) {
+    extern void gadget_arm64_cond_eq(void), gadget_arm64_cond_ne(void);
+    extern void gadget_arm64_cond_cs(void), gadget_arm64_cond_cc(void);
+    extern void gadget_arm64_cond_mi(void), gadget_arm64_cond_pl(void);
+    extern void gadget_arm64_cond_vs(void), gadget_arm64_cond_vc(void);
+    extern void gadget_arm64_cond_hi(void), gadget_arm64_cond_ls(void);
+    extern void gadget_arm64_cond_ge(void), gadget_arm64_cond_lt(void);
+    extern void gadget_arm64_cond_gt(void), gadget_arm64_cond_le(void);
+    extern void gadget_arm64_cond_al(void);
+    static void *const table[16] = {
+        (void *) gadget_arm64_cond_eq, (void *) gadget_arm64_cond_ne,
+        (void *) gadget_arm64_cond_cs, (void *) gadget_arm64_cond_cc,
+        (void *) gadget_arm64_cond_mi, (void *) gadget_arm64_cond_pl,
+        (void *) gadget_arm64_cond_vs, (void *) gadget_arm64_cond_vc,
+        (void *) gadget_arm64_cond_hi, (void *) gadget_arm64_cond_ls,
+        (void *) gadget_arm64_cond_ge, (void *) gadget_arm64_cond_lt,
+        (void *) gadget_arm64_cond_gt, (void *) gadget_arm64_cond_le,
+        (void *) gadget_arm64_cond_al, (void *) gadget_arm64_cond_al,
+    };
+    return table[cond & 0xf];
+}
+
 // AArch64 guest code generator — Phase A of the JIT gadget port
 // (aarch64_guest_plan.md). Emits gadget-array entries for jit/guest-arm64/'s
 // ported gadgets instead of computing results directly, the same relationship
@@ -710,6 +768,36 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // Add/subtract (extended register): ADD/SUB/ADDS/SUBS with an
+    // extended Rm operand — the SP-capable register form (bit21=1, which
+    // the shifted-register decode above deliberately excludes). Mask
+    // matches bits[28:24]=01011 with bit21=1; the `opt` field (bits
+    // 23:22) must be 00 (anything else is unallocated).
+    if ((insn & 0x1f200000) == 0x0b200000) {
+        extern void gadget_arm64_addsub_ext(void);
+        unsigned rd = insn & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned imm3 = (insn >> 10) & 0x7;
+        unsigned option = (insn >> 13) & 0x7;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned opt = (insn >> 22) & 0x3;
+        bool S = (insn >> 29) & 1;
+        bool op_sub = (insn >> 30) & 1;
+        bool sf = (insn >> 31) & 1;
+        if (opt != 0 || imm3 > 4) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_addsub_ext);
+        gen(state, rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
+            | ((uint64_t) option << 15) | ((uint64_t) imm3 << 18)
+            | ((uint64_t) sf << 21) | ((uint64_t) op_sub << 22) | ((uint64_t) S << 23));
+        return 1;
+    }
+
     // Load/store pair (LDP/STP), GPR only (V=0) — mask matches
     // arm64_execute()'s (bits[29:25]=10100, V=bit26=0). Params packed to
     // match jit/guest-arm64/memory.S's ldp64/ldp32/stp64/stp32 gadgets
@@ -741,6 +829,198 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rt2 << 8) | ((uint64_t) rn << 16) | ((uint64_t) mode << 24));
         gen(state, (uint64_t) offset);
+        return 1;
+    }
+
+    // ---- Single-register load/store families -----------------------------
+    // Four guest encodings lower to the same generic gadget set in
+    // jit/guest-arm64/memory.S (load8..load64 / loads8_32..loads32_64 /
+    // store8..store64) via the shared parameter format documented there:
+    // [rt | rn<<8 | mode<<16][offset word]. All the per-encoding decode
+    // (scaled vs. unscaled immediates, addressing mode, sign-extension
+    // width, register-offset extend/shift) happens here, once, at compile
+    // time. gadget selection is a (size, opc) table lookup; opc semantics
+    // per the ARM ARM: size<3: 0=store, 1=load, 2=LDRS-to-64, 3=LDRS-to-32;
+    // size=3: 0=store, 1=load, 2=PRFM (unsigned-imm family only; a hint,
+    // lowered to nothing), 3=unallocated.
+
+    // Load/store register (unsigned immediate), GPR only. Mask covers ALL
+    // of bits[29:24]=111001, including V=bit26=0 — deliberately stricter
+    // than arm64_execute()'s (insn & 0x3b000000) mask, which leaves V
+    // unmasked and therefore also matches SIMD loads/stores (a latent
+    // interpreter misdecode, moot there since the interpreter is frozen,
+    // but not one to replicate here: a SIMD LDR reaching a GPR gadget
+    // would silently corrupt a general register).
+    if ((insn & 0x3f000000) == 0x39000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        uint64_t imm12 = (insn >> 10) & 0xfff;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (size == 3 && opc == 2)
+            return 1; // PRFM: a prefetch hint, architecturally allowed to do nothing
+        void *gadget = gen_arm64_ldst_single_gadget(size, opc);
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16)); // mode 0: no writeback
+        gen(state, imm12 << size);
+        return 1;
+    }
+
+    // Load/store register (imm9): LDUR/STUR (unscaled, bits[11:10]=00),
+    // post-index (01), LDTR/STTR (10 — unprivileged; identical semantics
+    // under emulation, so lowered to a plain mode-0 access), pre-index
+    // (11). GPR only (bit26=0 is part of the mask).
+    if ((insn & 0x3f200000) == 0x38000000) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        int64_t imm9 = arm64_sign_extend((insn >> 12) & 0x1ff, 9);
+        unsigned insn_mode = (insn >> 10) & 0x3;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (size == 3 && opc == 2)
+            return 1; // PRFUM: prefetch hint, lowered to nothing
+        // instruction mode bits -> gadget mode: 00/10 -> 0 (no writeback),
+        // 01 -> 1 (post-index), 11 -> 2 (pre-index)
+        unsigned mode = insn_mode == 1 ? 1 : insn_mode == 3 ? 2 : 0;
+        void *gadget = gen_arm64_ldst_single_gadget(size, opc);
+        if (gadget == NULL) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
+        gen(state, (uint64_t) imm9);
+        return 1;
+    }
+
+    // Load/store register (register offset), GPR only. mode 3: the gadget
+    // resolves extend(Rm) << shift at runtime; option/shift are decoded
+    // here. Valid options (ARM ARM): 010=UXTW, 011=LSL/UXTX, 110=SXTW,
+    // 111=SXTX; anything else is unallocated.
+    if ((insn & 0x3f200c00) == 0x38200800) {
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned opc = (insn >> 22) & 0x3;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned option = (insn >> 13) & 0x7;
+        unsigned S = (insn >> 12) & 1;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (size == 3 && opc == 2)
+            return 1; // PRFM (register): prefetch hint, lowered to nothing
+        void *gadget = gen_arm64_ldst_single_gadget(size, opc);
+        if (gadget == NULL || (option & 0x2) == 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned shift = S ? size : 0;
+        gen(state, (unsigned long) gadget);
+        gen(state, rt | ((uint64_t) rn << 8) | (3ULL << 16));
+        gen(state, rm | ((uint64_t) option << 8) | ((uint64_t) shift << 16));
+        return 1;
+    }
+
+    // LDR (literal): PC-relative, address fully known at compile time.
+    // GPR only (V=bit26=0 in the mask). opc: 00=LDR Wt, 01=LDR Xt,
+    // 10=LDRSW, 11=PRFM (hint, lowered to nothing).
+    if ((insn & 0x3f000000) == 0x18000000) {
+        extern void gadget_arm64_load_lit32(void), gadget_arm64_load_lit64(void);
+        extern void gadget_arm64_load_lit_sw(void);
+        unsigned opc = (insn >> 30) & 0x3;
+        unsigned rt = insn & 0x1f;
+        if (opc == 3)
+            return 1; // PRFM (literal)
+        int64_t offset = arm64_branch_imm19(insn); // same imm19*4 field as branches
+        uint64_t addr = state->arm64_orig_ip + (uint64_t) offset;
+        void *gadget = opc == 0 ? (void *) gadget_arm64_load_lit32
+                     : opc == 1 ? (void *) gadget_arm64_load_lit64
+                                : (void *) gadget_arm64_load_lit_sw;
+        gen(state, (unsigned long) gadget);
+        gen(state, rt);
+        gen(state, addr);
+        return 1;
+    }
+
+    // CAS (LSE compare-and-swap) — mask and field layout match
+    // arm64_execute()'s, INCLUDING the ordering constraint documented
+    // there: this check must come before the broader exclusive-family
+    // check below, whose mask also matches CAS encodings. A/R
+    // (acquire/release) bits accepted and ignored, same as the
+    // interpreter. Params: [rt | rn<<8 | rs<<16].
+    if ((insn & 0x3f200c00) == 0x08200c00) {
+        extern void gadget_arm64_cas8(void), gadget_arm64_cas16(void);
+        extern void gadget_arm64_cas32(void), gadget_arm64_cas64(void);
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned rs = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        static void *const cas_gadgets[4] = {
+            (void *) gadget_arm64_cas8, (void *) gadget_arm64_cas16,
+            (void *) gadget_arm64_cas32, (void *) gadget_arm64_cas64,
+        };
+        gen(state, (unsigned long) cas_gadgets[size]);
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16));
+        return 1;
+    }
+
+    // Load/store exclusive + load-acquire/store-release family. Decode
+    // mirrors arm64_execute()'s field layout (size:001000:o2:L:o1:Rs:o0:
+    // Rt2:Rn:Rt), with one widening: o2=1,o1=0 (non-exclusive LDAR/STLR/
+    // LDLAR/STLLR) lowers to the plain single-register load/store gadgets
+    // (mode 0, offset 0) — their exact semantics minus the unmodeled
+    // barrier — where the interpreter still rejects them. o0 (LDAXR/
+    // STLXR's acquire/release bit) is accepted and ignored for the
+    // exclusive forms, same as the interpreter. Pair exclusives (o1=1)
+    // stay unimplemented.
+    if ((insn & 0x3f000000) == 0x08000000) {
+        extern void gadget_arm64_ldxr8(void), gadget_arm64_ldxr16(void);
+        extern void gadget_arm64_ldxr32(void), gadget_arm64_ldxr64(void);
+        extern void gadget_arm64_stxr8(void), gadget_arm64_stxr16(void);
+        extern void gadget_arm64_stxr32(void), gadget_arm64_stxr64(void);
+        unsigned size = (insn >> 30) & 0x3;
+        unsigned o2 = (insn >> 23) & 1;
+        unsigned L = (insn >> 22) & 1;
+        unsigned o1 = (insn >> 21) & 1;
+        unsigned rs = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (o1 != 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        if (o2 == 1) {
+            // LDAR/STLR: an ordered but non-exclusive plain access.
+            void *gadget = gen_arm64_ldst_single_gadget(size, L ? 1 : 0);
+            gen(state, (unsigned long) gadget);
+            gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
+            gen(state, 0);
+            return 1;
+        }
+        static void *const ldxr_gadgets[4] = {
+            (void *) gadget_arm64_ldxr8, (void *) gadget_arm64_ldxr16,
+            (void *) gadget_arm64_ldxr32, (void *) gadget_arm64_ldxr64,
+        };
+        static void *const stxr_gadgets[4] = {
+            (void *) gadget_arm64_stxr8, (void *) gadget_arm64_stxr16,
+            (void *) gadget_arm64_stxr32, (void *) gadget_arm64_stxr64,
+        };
+        gen(state, (unsigned long) (L ? ldxr_gadgets[size] : stxr_gadgets[size]));
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16));
         return 1;
     }
 
@@ -867,10 +1147,246 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 0; // block ends: SVC always exits to the main loop
     }
 
+    // ---- Integer data-processing batch 2 (jit/guest-arm64/dpextra.S) -----
+
+    // Bitfield: SBFM/BFM/UBFM (and all their aliases: LSL/LSR/ASR
+    // immediate, UBFX/SBFX/BFI/BFXIL, SXTB/SXTH/SXTW/UXTB/UXTH). L and S
+    // are the compile-time double-shift parameters — see dpextra.S's
+    // header for the lowering and its verification against the ARM ARM.
+    if ((insn & 0x1f800000) == 0x13000000) {
+        extern void gadget_arm64_sbfm(void), gadget_arm64_ubfm(void);
+        extern void gadget_arm64_bfm(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned opc = (insn >> 29) & 0x3;
+        unsigned N = (insn >> 22) & 1;
+        unsigned immr = (insn >> 16) & 0x3f;
+        unsigned imms = (insn >> 10) & 0x3f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        if (opc == 3 || N != sf || (!sf && ((immr | imms) & 0x20))) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        unsigned R = sf ? 64 : 32;
+        unsigned L = R - 1 - imms;
+        unsigned S = (L + immr) % R;
+        uint64_t params = rd | ((uint64_t) rn << 8) | ((uint64_t) sf << 16)
+            | ((uint64_t) L << 24) | ((uint64_t) S << 32);
+        if (opc == 1) { // BFM: also needs the insert mask
+            unsigned width = imms >= immr ? imms - immr + 1 : imms + 1;
+            unsigned lsbpos = imms >= immr ? 0 : R - immr;
+            uint64_t M = (width >= 64 ? ~0ULL : (1ULL << width) - 1) << lsbpos;
+            gen(state, (unsigned long) gadget_arm64_bfm);
+            gen(state, params);
+            gen(state, M);
+        } else {
+            gen(state, (unsigned long) (opc == 0 ? gadget_arm64_sbfm : gadget_arm64_ubfm));
+            gen(state, params);
+        }
+        return 1;
+    }
+
+    // EXTR (and the ROR-immediate alias, Rn==Rm).
+    if ((insn & 0x1f800000) == 0x13800000) {
+        extern void gadget_arm64_extr(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned op21 = (insn >> 29) & 0x3;
+        unsigned N = (insn >> 22) & 1;
+        unsigned o0 = (insn >> 21) & 1;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned imms = (insn >> 10) & 0x3f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        if (op21 != 0 || N != sf || o0 != 0 || (!sf && (imms & 0x20))) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_extr);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
+            | ((uint64_t) sf << 24) | ((uint64_t) imms << 32));
+        return 1;
+    }
+
+    // Conditional select: CSEL/CSINC/CSINV/CSNEG (and CSET/CSETM/CINC/
+    // CINV/CNEG aliases, which are just these with Rn=Rm=ZR and/or the
+    // condition inverted — handled naturally by the decode). Emitted as a
+    // [cond_<cc> gadget][csel gadget] pair — see dpextra.S's header for
+    // the w10 handoff convention.
+    if ((insn & 0x3fe00800) == 0x1a800000) {
+        extern void gadget_arm64_csel(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned op = (((insn >> 30) & 1) << 1) | ((insn >> 10) & 1);
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned cond = (insn >> 12) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
+        gen(state, (unsigned long) gadget_arm64_csel);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
+            | ((uint64_t) sf << 24) | ((uint64_t) op << 25));
+        return 1;
+    }
+
+    // Conditional compare: CCMP/CCMN, immediate and register forms. Same
+    // [cond gadget][consumer] pair as CSEL.
+    if ((insn & 0x3fe00410) == 0x3a400000) {
+        extern void gadget_arm64_ccmp(void);
+        bool sf = (insn >> 31) & 1;
+        bool is_cmn = !((insn >> 30) & 1); // op=0: CCMN (adds), op=1: CCMP (subs)
+        bool is_imm = (insn >> 11) & 1;
+        unsigned val = (insn >> 16) & 0x1f; // imm5 or Rm
+        unsigned cond = (insn >> 12) & 0xf;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned nzcv = insn & 0xf;
+        gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
+        gen(state, (unsigned long) gadget_arm64_ccmp);
+        gen(state, rn | ((uint64_t) val << 8) | ((uint64_t) is_imm << 16)
+            | ((uint64_t) is_cmn << 17) | ((uint64_t) sf << 18) | ((uint64_t) nzcv << 19));
+        return 1;
+    }
+
+    // Data-processing (2 source): UDIV/SDIV/LSLV/LSRV/ASRV/RORV. The
+    // CRC32*/PACGA opcodes in this space stay unimplemented.
+    if ((insn & 0x7fe00000) == 0x1ac00000) {
+        extern void gadget_arm64_dp2src(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned opcode = (insn >> 10) & 0x3f;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        // opcode -> gadget op: 000010 UDIV, 000011 SDIV, 001000 LSLV,
+        // 001001 LSRV, 001010 ASRV, 001011 RORV
+        int op = opcode == 0x02 ? 0 : opcode == 0x03 ? 1
+               : opcode == 0x08 ? 2 : opcode == 0x09 ? 3
+               : opcode == 0x0a ? 4 : opcode == 0x0b ? 5 : -1;
+        if (op < 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_dp2src);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
+            | ((uint64_t) sf << 24) | ((uint64_t) op << 25));
+        return 1;
+    }
+
+    // Data-processing (1 source): RBIT/REV16/REV32/REV/CLZ/CLS.
+    if ((insn & 0x7fe00000) == 0x5ac00000) {
+        extern void gadget_arm64_dp1src(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned opcode2 = (insn >> 16) & 0x1f;
+        unsigned opcode = (insn >> 10) & 0x3f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        // opcode -> gadget op (same numbering): 0 RBIT, 1 REV16,
+        // 2 REV32(x)/REV(w), 3 REV(x, 64-bit only), 4 CLZ, 5 CLS
+        if (opcode2 != 0 || opcode > 5 || (opcode == 3 && !sf)) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_dp1src);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) sf << 16)
+            | ((uint64_t) opcode << 17));
+        return 1;
+    }
+
+    // Data-processing (3 source): MADD/MSUB (and the MUL/MNEG aliases),
+    // SMADDL/SMSUBL/UMADDL/UMSUBL (and SMULL/UMULL), SMULH/UMULH.
+    if ((insn & 0x7f000000) == 0x1b000000) {
+        extern void gadget_arm64_dp3src(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned op31 = (insn >> 21) & 0x7;
+        unsigned o0 = (insn >> 15) & 1;
+        unsigned rm = (insn >> 16) & 0x1f;
+        unsigned ra = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        // (op31, o0) -> gadget op: see dpextra.S. Widening/high forms
+        // require sf=1 (the sf=0 encodings are unallocated).
+        int op = -1;
+        if (op31 == 0)
+            op = o0 ? 1 : 0; // MSUB : MADD
+        else if (op31 == 1 && sf)
+            op = o0 ? 3 : 2; // SMSUBL : SMADDL
+        else if (op31 == 2 && !o0 && sf)
+            op = 4; // SMULH
+        else if (op31 == 5 && sf)
+            op = o0 ? 6 : 5; // UMSUBL : UMADDL
+        else if (op31 == 6 && !o0 && sf)
+            op = 7; // UMULH
+        if (op < 0) {
+            gen(state, (unsigned long) gadget_interrupt);
+            gen(state, INT_UNDEFINED);
+            gen(state, state->arm64_orig_ip);
+            gen(state, state->arm64_orig_ip);
+            return 0;
+        }
+        gen(state, (unsigned long) gadget_arm64_dp3src);
+        gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
+            | ((uint64_t) ra << 24) | ((uint64_t) sf << 32) | ((uint64_t) op << 33));
+        return 1;
+    }
+
+    // Hint space (NOP/YIELD/WFE/WFI/SEV/SEVL/BTI/PACIASP...): all
+    // architecturally allowed to behave as NOP for userspace emulation.
+    if ((insn & 0xfffff01f) == 0xd503201f)
+        return 1;
+
+    // Barrier space (DSB/DMB/ISB/SB...): one full-strength host barrier
+    // covers all of them — see dpextra.S.
+    if ((insn & 0xfffff01f) == 0xd503301f) {
+        extern void gadget_arm64_barrier(void);
+        gen(state, (unsigned long) gadget_arm64_barrier);
+        return 1;
+    }
+
+    // MRS/MSR TPIDR_EL0 — the TLS base register (see cpu_state.arm64_tpidr).
+    if ((insn & 0xffffffe0) == 0xd53bd040) {
+        extern void gadget_arm64_mrs_tpidr(void);
+        gen(state, (unsigned long) gadget_arm64_mrs_tpidr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+    if ((insn & 0xffffffe0) == 0xd51bd040) {
+        extern void gadget_arm64_msr_tpidr(void);
+        gen(state, (unsigned long) gadget_arm64_msr_tpidr);
+        gen(state, insn & 0x1f);
+        return 1;
+    }
+
+    // MRS of constant system registers, via the generic mrs_const gadget:
+    // CTR_EL0 (cache-line geometry: 64-byte I/D lines, PIPT, the standard
+    // QEMU-user value) and DCZID_EL0 with DZP=1 (DC ZVA prohibited, so
+    // libc memset never tries the zeroing instruction and no DC ZVA
+    // emulation is needed).
+    if ((insn & 0xffffffe0) == 0xd53b0020 || (insn & 0xffffffe0) == 0xd53b00e0) {
+        extern void gadget_arm64_mrs_const(void);
+        bool is_ctr = (insn & 0xffffffe0) == 0xd53b0020;
+        gen(state, (unsigned long) gadget_arm64_mrs_const);
+        gen(state, insn & 0x1f);
+        gen(state, is_ctr ? 0x8444c004ULL : 0x10ULL);
+        return 1;
+    }
+
     // Not yet ported to a gadget — raise INT_UNDEFINED and end the block
     // here (everything decoded so far in this block still runs; this
     // instruction, when reached, cleanly signals SIGILL instead of being
-    // silently misexecuted).
+    // silently misexecuted). The printk names the encoding so the next
+    // bring-up gap is identifiable from a plain failure log — this is how
+    // each successive real-rootfs blocker in the port has been found.
+    printk("WARNING: arm64 JIT: no gadget for insn %#010x at pc %#llx\n",
+           insn, (unsigned long long) state->arm64_orig_ip);
     gen(state, (unsigned long) gadget_interrupt);
     gen(state, INT_UNDEFINED);
     gen(state, state->arm64_orig_ip);
