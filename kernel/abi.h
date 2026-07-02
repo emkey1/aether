@@ -5,10 +5,12 @@
 #include "emu/mmu.h"
 #include "kernel/abi/i386.h"
 #include "kernel/abi/amd64.h"
+#include "kernel/abi/arm64.h"
 
 enum guest_abi {
     GUEST_ABI_I386 = 0,
     GUEST_ABI_AMD64 = 1,
+    GUEST_ABI_ARM64 = 2,
 };
 
 struct guest_abi_desc {
@@ -32,6 +34,16 @@ static inline struct guest_abi_desc guest_abi_desc(enum guest_abi abi) {
             .pointer_size = sizeof(amd64_guest_addr_t),
             .word_size = sizeof(amd64_guest_word_t),
             .reg_size = sizeof(amd64_guest_reg_t),
+        };
+    case GUEST_ABI_ARM64:
+        return (struct guest_abi_desc) {
+            .abi = abi,
+            .name = "arm64",
+            .uname_machine = "aarch64",
+            .elf_platform = "aarch64",
+            .pointer_size = sizeof(arm64_guest_addr_t),
+            .word_size = sizeof(arm64_guest_word_t),
+            .reg_size = sizeof(arm64_guest_reg_t),
         };
     case GUEST_ABI_I386:
     default:
@@ -64,7 +76,15 @@ struct guest_vm_layout {
 // guest_abi_range_valid() runs on every instruction fetch and memory access.
 // This is the single source of truth for the value (the struct uses it too).
 static inline qword_t guest_abi_user_addr_max(enum guest_abi abi) {
-    return abi == GUEST_ABI_AMD64 ? ((qword_t) 1 << 47) : ((qword_t) 1 << 32);
+    switch (abi) {
+    case GUEST_ABI_AMD64:
+        return (qword_t) 1 << 47;
+    case GUEST_ABI_ARM64:
+        return (qword_t) 1 << 48;
+    case GUEST_ABI_I386:
+    default:
+        return (qword_t) 1 << 32;
+    }
 }
 
 static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
@@ -82,6 +102,25 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             .user_addr_max = guest_abi_user_addr_max(abi),
             .stack_page = (page_t) 0xffffe,
             .stack_pointer = 0xfffff000u,
+        };
+    case GUEST_ABI_ARM64:
+        return (struct guest_vm_layout) {
+            .abi = abi,
+            // 256 TiB canonical user range (48-bit VA) for 4 KiB guest pages.
+            .page_limit = (page_t) 1 << 36,
+            .mmap_floor = (page_t) 0x1000,
+            // Leave a large gap below the stack rather than reusing amd64's
+            // low-address compat placement: arm64 syscall marshalling is new
+            // code with no legacy 32-bit-pointer assumptions to work around,
+            // so there's no reason to avoid the top of the address space.
+            // This also sidesteps the V8 CodeRange collision that OpenMinis'
+            // ish-arm64 fork specifically had to work around by switching
+            // PIE binaries to dynamic placement (find_hole_for_elf) instead
+            // of a fixed low bias — see kernel/exec.c's PIE bias branch.
+            .mmap_ceiling = ((page_t) 1 << 36) - 0x10000,
+            .user_addr_max = guest_abi_user_addr_max(abi),
+            .stack_page = ((page_t) 1 << 36) - 2,
+            .stack_pointer = (guest_addr_t) (((qword_t) 1 << 36) - 1) << PAGE_BITS,
         };
     case GUEST_ABI_I386:
     default:

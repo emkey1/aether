@@ -77,6 +77,8 @@ static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi
     enum guest_abi abi;
     if (bitness == ELF_64BIT && machine == ELF_X86_64) {
         abi = GUEST_ABI_AMD64;
+    } else if (bitness == ELF_64BIT && machine == ELF_AARCH64) {
+        abi = GUEST_ABI_ARM64;
     } else if (bitness == ELF_32BIT && machine == ELF_X86) {
         abi = GUEST_ABI_I386;
     } else {
@@ -476,6 +478,14 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     struct elf_info header;
     if ((err = read_header(fd, &header)) < 0)
         return err;
+    // GUEST_ABI_ARM64 is recognized by elf_abi_detect() (aarch64_guest_plan.md
+    // patch 1: ABI scaffolding only) but there is no arm64 register file,
+    // decoder, or syscall table yet (patches 2-4). Without this guard an
+    // aarch64 ELF would fall through to the i386 JIT/interpreter and have its
+    // instruction bytes misdecoded as x86 — reject cleanly instead. Remove
+    // this guard once the arm64 execution engine lands.
+    if (header.abi == GUEST_ABI_ARM64)
+        return _ENOEXEC;
     size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
     bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
@@ -573,6 +583,11 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                 // brk-hungry programs like git then fail to expand the heap.
                 bias = 0x555555554000;
             else
+                // arm64 PIE binaries fall through to here intentionally:
+                // dynamic placement, not a fixed low bias. See the
+                // GUEST_ABI_ARM64 case in guest_abi_vm_layout() (kernel/abi.h)
+                // for why — avoids the V8 CodeRange collision that OpenMinis'
+                // ish-arm64 fork hit with a fixed low bias.
                 bias = find_hole_for_elf(&header, ph);
         }
 
