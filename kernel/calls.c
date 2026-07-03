@@ -1799,6 +1799,7 @@ static syscall_t arm64_syscall_table[454] = {
     [226] = (syscall_t) sys_mprotect,
     [227] = (syscall_t) sys_msync,
     [228] = (syscall_t) sys_mlock,
+    [229] = (syscall_t) sys_munlock, // dispatched natively (full-width); entry needed to pass the NULL check
     [230] = (syscall_t) sys_mlockall,
     [231] = (syscall_t) sys_munlockall,
     [232] = (syscall_t) sys_mincore,
@@ -2025,7 +2026,7 @@ static inline void arm64_syscall_result_qword(struct cpu_state *cpu, qword_t res
 // iSH-AOK's fs layer enforces O_NOFOLLOW->ELOOP (fs conformance work).
 // Their tree also silently drops genuine O_DIRECTORY/O_NOFOLLOW from
 // aarch64 guests for the same reason.
-static dword_t arm64_open_flags_to_internal(qword_t flags) {
+dword_t arm64_open_flags_to_internal(qword_t flags) {
     dword_t out = (dword_t) flags & ~0x3c000u;
     if (flags & 0x04000) out |= 0x10000; // O_DIRECTORY
     if (flags & 0x08000) out |= 0x20000; // O_NOFOLLOW
@@ -2033,6 +2034,23 @@ static dword_t arm64_open_flags_to_internal(qword_t flags) {
     if (flags & 0x20000) out |= 0x08000; // O_LARGEFILE (ignored downstream)
     return out;
 }
+
+// Exact inverse of the above, for results that carry open flags back OUT to
+// an aarch64 guest (fcntl F_GETFL). Same four relocated constants, mirrored.
+static dword_t internal_to_arm64_open_flags(dword_t flags) {
+    dword_t out = flags & ~0x3c000u;
+    if (flags & 0x10000) out |= 0x04000; // O_DIRECTORY
+    if (flags & 0x20000) out |= 0x08000; // O_NOFOLLOW
+    if (flags & 0x04000) out |= 0x10000; // O_DIRECT
+    if (flags & 0x08000) out |= 0x20000; // O_LARGEFILE
+    return out;
+}
+
+// fcntl file-status commands: values are ABI-universal (fcntl.h) and defined
+// privately in fs/fd.c; mirrored here for the arm64 flag translation in
+// handle_arm64_native_syscall's case 25.
+#define F_GETFL_ 3
+#define F_SETFL_ 4
 
 // AArch64 full-width syscall dispatch: the arm64 counterpart of
 // handle_amd64_native_memory_syscall below, for the same reason — the
@@ -2086,7 +2104,18 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
 
     // -- dword results (shared restart/sign-extend tail below) --
     case 17: result = sys_getcwd_guest(raw_args[0], (dword_t) raw_args[1]); break;
-    case 25: result = sys_fcntl_amd64_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
+    case 25: { // fcntl — F_SETFL takes, and F_GETFL returns, open flags in the
+               // aarch64 encoding; translate both directions at this boundary
+               // (same four relocated O_ constants as openat's flags, above).
+        dword_t fcntl_cmd = (dword_t) raw_args[1];
+        qword_t fcntl_arg = raw_args[2];
+        if (fcntl_cmd == F_SETFL_)
+            fcntl_arg = arm64_open_flags_to_internal(fcntl_arg);
+        result = sys_fcntl_amd64_guest((fd_t) raw_args[0], fcntl_cmd, fcntl_arg);
+        if (fcntl_cmd == F_GETFL_ && !syscall_result_is_errno(result))
+            result = internal_to_arm64_open_flags(result);
+        break;
+    }
     case 29: result = sys_ioctl_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
     case 34: result = sys_mkdirat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2]); break;
     case 35: result = sys_unlinkat_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
@@ -2108,6 +2137,21 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 116: result = (dword_t) sys_syslog_guest((int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
     case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
+    // xattr family (5-16): the legacy table's sys_xattr_stub entries are
+    // unreachable from here — the 64-bit path/name/value pointers trip the
+    // legacy marshal's full-width check, SIGSYS-killing the caller (cp -p,
+    // rsync, tar --xattrs). Dispatch natively through the same *_guest
+    // wrappers the amd64 cases (188-199) use; l-variants share the plain
+    // wrappers exactly as the amd64 dispatch does (all funnel to the
+    // ENOTSUP stub today, but full-width so nothing dies on the way).
+    case 5: case 6: result = (dword_t) sys_setxattr_guest( raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]); break; // setxattr/lsetxattr
+    case 7: result = (dword_t) sys_fsetxattr_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]); break; // fsetxattr
+    case 8: case 9: result = (dword_t) sys_getxattr_guest( raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break; // getxattr/lgetxattr
+    case 10: result = (dword_t) sys_fgetxattr_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break; // fgetxattr
+    case 11: case 12: result = (dword_t) sys_listxattr_guest( raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // listxattr/llistxattr
+    case 13: result = (dword_t) sys_flistxattr_guest( (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // flistxattr
+    case 14: case 15: result = (dword_t) sys_removexattr_guest( raw_args[0], raw_args[1]); break; // removexattr/lremovexattr
+    case 16: result = (dword_t) sys_fremovexattr_guest( (fd_t) raw_args[0], raw_args[1]); break; // fremovexattr
     // truncate/ftruncate/fallocate carry 64-bit sizes in SINGLE registers
     // on aarch64; the legacy table routed them to the *_amd64 shims, which
     // expect the amd64 marshal's SPLIT low/high convention — so size_high
