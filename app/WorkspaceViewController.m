@@ -5887,7 +5887,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
         [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:8],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
     ]];
     return card;
 }
