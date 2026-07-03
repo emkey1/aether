@@ -7813,65 +7813,88 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     return action;
 }
 
+// A menu element that DISPLAYS its keyboard shortcut. UIAction can't show a key
+// equivalent — only UIKeyCommand does — so shortcut-bearing items use this. Selecting
+// it (tap) dispatches `action` up the responder chain to this VC (which is an ancestor
+// of the menu's button, so it's always reachable).
+- (UIKeyCommand *)item:(NSString *)title symbol:(NSString *)symbol input:(NSString *)input
+                 flags:(UIKeyModifierFlags)flags action:(SEL)action {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:flags action:action];
+    command.title = title;  // title/image are read-write on UICommand, and drive the menu display
+    if (symbol.length)
+        command.image = [UIImage systemImageNamed:symbol];
+    return command;
+}
+
 - (UIMenu *)fileMenu {
-    __weak typeof(self) ws = self;
-    return [UIMenu menuWithTitle:@"File" children:@[
-        [self actionTitled:@"New" symbol:@"doc" handler:^{ [ws mpNew]; }],
-        [self actionTitled:@"Open…" symbol:@"folder" handler:^{ [ws mpOpen]; }],
-        [self actionTitled:@"Save" symbol:@"arrow.down.doc" handler:^{ [ws mpSave]; }],
-        [self actionTitled:@"Save As…" symbol:@"square.and.arrow.down" handler:^{ [ws mpSaveAs]; }],
-        [self actionTitled:@"Print…" symbol:@"printer" handler:^{ [ws mpPrint]; }],
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
+    UIMenu *docs = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"New" symbol:@"doc" input:@"n" flags:cmd action:@selector(mpNew)],
+        [self item:@"Open…" symbol:@"folder" input:@"o" flags:cmd action:@selector(mpOpen)],
+        [self item:@"Save" symbol:@"arrow.down.doc" input:@"s" flags:cmd action:@selector(mpSave)],
+        [self item:@"Save As…" symbol:@"square.and.arrow.down" input:@"s" flags:shiftCmd action:@selector(mpSaveAs)],
     ]];
+    UIMenu *printing = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"Page Setup…" symbol:@"doc.badge.gearshape" input:@"p" flags:shiftCmd action:@selector(mpPageSetup)],
+        [self item:@"Print…" symbol:@"printer" input:@"p" flags:cmd action:@selector(mpPrint)],
+    ]];
+    UIMenu *lifecycle = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"Close" symbol:@"xmark.circle" input:@"w" flags:cmd action:@selector(mpClose)],
+        [self item:@"Quit MotePad" symbol:@"power" input:@"q" flags:cmd action:@selector(mpQuit)],
+    ]];
+    return [UIMenu menuWithTitle:@"File" children:@[docs, printing, lifecycle]];
 }
 
 - (UIMenu *)editMenu {
     __weak typeof(self) ws = self;
-    UIMenu *history = [UIMenu menuWithTitle:@"" image:nil identifier:nil
-                                    options:UIMenuOptionsDisplayInline children:@[
-        [self actionTitled:@"Undo" symbol:@"arrow.uturn.backward" handler:^{ [ws editUndo]; }],
-        [self actionTitled:@"Redo" symbol:@"arrow.uturn.forward" handler:^{ [ws editRedo]; }],
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
+    UIMenu *history = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"Undo" symbol:@"arrow.uturn.backward" input:@"z" flags:cmd action:@selector(editUndo)],
+        [self item:@"Redo" symbol:@"arrow.uturn.forward" input:@"z" flags:shiftCmd action:@selector(editRedo)],
     ]];
-    UIMenu *clipboard = [UIMenu menuWithTitle:@"" image:nil identifier:nil
-                                      options:UIMenuOptionsDisplayInline children:@[
-        [self actionTitled:@"Cut" symbol:@"scissors" handler:^{ [ws editCut]; }],
-        [self actionTitled:@"Copy" symbol:@"doc.on.doc" handler:^{ [ws editCopy]; }],
-        [self actionTitled:@"Paste" symbol:@"doc.on.clipboard" handler:^{ [ws editPaste]; }],
-        [self actionTitled:@"Select All" symbol:@"selection.pin.in.out" handler:^{ [ws editSelectAll]; }],
+    UIMenu *clipboard = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"Cut" symbol:@"scissors" input:@"x" flags:cmd action:@selector(editCut)],
+        [self item:@"Copy" symbol:@"doc.on.doc" input:@"c" flags:cmd action:@selector(editCopy)],
+        [self item:@"Paste" symbol:@"doc.on.clipboard" input:@"v" flags:cmd action:@selector(editPaste)],
+        [self actionTitled:@"Delete" symbol:@"delete.left" handler:^{ [ws editDelete]; }],
+        [self item:@"Select All" symbol:@"selection.pin.in.out" input:@"a" flags:cmd action:@selector(editSelectAll)],
     ]];
-    UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil
-                                   options:UIMenuOptionsDisplayInline children:@[
-        [self actionTitled:@"Find…" symbol:@"magnifyingglass" handler:^{ [ws mpFind]; }],
-        [self actionTitled:@"Find Next" symbol:@"arrow.forward" handler:^{ [ws mpFindNext]; }],
-        [self actionTitled:@"Replace…" symbol:@"arrow.2.squarepath" handler:^{ [ws mpReplace]; }],
-        [self actionTitled:@"Go to Line…" symbol:@"number" handler:^{ [ws mpGoToLine]; }],
-        [self actionTitled:@"Insert Date and Time" symbol:@"calendar" handler:^{ [ws mpInsertDateTime]; }],
+    UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
+        [self item:@"Find…" symbol:@"magnifyingglass" input:@"f" flags:cmd action:@selector(mpFind)],
+        [self item:@"Find Next" symbol:@"arrow.forward" input:@"g" flags:cmd action:@selector(mpFindNext)],
+        [self item:@"Replace…" symbol:@"arrow.2.squarepath" input:@"f" flags:shiftCmd action:@selector(mpReplace)],
+        [self item:@"Go to Line…" symbol:@"number" input:@"l" flags:cmd action:@selector(mpGoToLine)],
+        [self item:@"Insert Date and Time" symbol:@"calendar" input:@"d" flags:cmd action:@selector(mpInsertDateTime)],
     ]];
     return [UIMenu menuWithTitle:@"Edit" children:@[history, clipboard, search]];
 }
 
 - (UIMenu *)formatMenu {
-    __weak typeof(self) ws = self;
-    UIAction *wrap = [self actionTitled:@"Word Wrap" symbol:nil handler:^{ [ws mpToggleWordWrap]; }];
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
+    UIKeyCommand *wrap = [self item:@"Word Wrap" symbol:nil input:@"w" flags:optCmd action:@selector(mpToggleWordWrap)];
     wrap.state = _wordWrap ? UIMenuElementStateOn : UIMenuElementStateOff;
     return [UIMenu menuWithTitle:@"Format" children:@[
         wrap,
-        [self actionTitled:@"Font…" symbol:@"textformat" handler:^{ [ws mpShowFonts]; }],
+        [self item:@"Show Fonts" symbol:@"textformat" input:@"t" flags:cmd action:@selector(mpShowFonts)],
     ]];
 }
 
 - (UIMenu *)viewMenu {
-    __weak typeof(self) ws = self;
-    UIAction *status = [self actionTitled:@"Status Bar" symbol:nil handler:^{ [ws mpToggleStatusBar]; }];
+    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
+    UIKeyCommand *status = [self item:@"Status Bar" symbol:nil input:@"s" flags:optCmd action:@selector(mpToggleStatusBar)];
     status.state = _statusBarVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
-    UIAction *lineNumbers = [self actionTitled:@"Line Numbers" symbol:nil handler:^{ [ws mpToggleLineNumbers]; }];
+    UIKeyCommand *lineNumbers = [self item:@"Line Numbers" symbol:nil input:@"l" flags:optCmd action:@selector(mpToggleLineNumbers)];
     lineNumbers.state = _lineNumbersVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
     return [UIMenu menuWithTitle:@"View" children:@[status, lineNumbers]];
 }
 
 - (UIMenu *)helpMenu {
-    __weak typeof(self) ws = self;
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
     return [UIMenu menuWithTitle:@"Help" children:@[
-        [self actionTitled:@"About MotePad" symbol:@"info.circle" handler:^{ [ws mpAbout]; }],
+        [self item:@"MotePad Help" symbol:@"questionmark.circle" input:@"?" flags:cmd action:@selector(mpAbout)],
     ]];
 }
 
@@ -7913,6 +7936,9 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         [self key:@"s" flags:cmd action:@selector(mpSave) title:@"Save"],
         [self key:@"s" flags:shiftCmd action:@selector(mpSaveAs) title:@"Save As…"],
         [self key:@"p" flags:cmd action:@selector(mpPrint) title:@"Print…"],
+        [self key:@"p" flags:shiftCmd action:@selector(mpPageSetup) title:@"Page Setup…"],
+        [self key:@"w" flags:cmd action:@selector(mpClose) title:@"Close"],
+        [self key:@"q" flags:cmd action:@selector(mpQuit) title:@"Quit MotePad"],
         // Edit — Undo/Redo/Cut/Copy/Paste/Select All are provided natively by UITextView.
         [self key:@"f" flags:cmd action:@selector(mpFind) title:@"Find…"],
         [self key:@"g" flags:cmd action:@selector(mpFindNext) title:@"Find Next"],
@@ -7925,6 +7951,8 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         // View
         [self key:@"s" flags:optCmd action:@selector(mpToggleStatusBar) title:@"Status Bar"],
         [self key:@"l" flags:optCmd action:@selector(mpToggleLineNumbers) title:@"Line Numbers"],
+        // Help
+        [self key:@"?" flags:cmd action:@selector(mpAbout) title:@"MotePad Help"],
     ] mutableCopy];
     // Open each in-window menu from the keyboard (Control-Option-letter).
     if (@available(iOS 17.0, *)) {
@@ -8022,6 +8050,32 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [controller presentFromRect:anchor.bounds inView:anchor animated:YES completionHandler:nil];
 }
 
+- (void)mpPageSetup {
+    // iOS folds paper size/orientation into the print sheet, so Page Setup opens the same UI.
+    [self mpPrint];
+}
+
+- (void)mpClose {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{ [ws closeHostWindow]; }];
+}
+
+- (void)mpQuit {
+    // iOS has no app-level quit; the applet's Quit just closes its window, like Close.
+    [self mpClose];
+}
+
+// Walk up to the containing Workspace window and fire its close handler (the same path
+// the window's × button uses, so the host's bookkeeping/layout save runs).
+- (void)closeHostWindow {
+    UIView *view = self.view;
+    while (view != nil && ![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+        view = view.superview;
+    ISHWorkspaceContainedWindowView *window = (ISHWorkspaceContainedWindowView *)view;
+    if (window.closeHandler != nil)
+        window.closeHandler();
+}
+
 - (BOOL)writeToGuestPath:(NSString *)path {
     NSError *error = nil;
     if (![[MotePadDocumentStore sharedStore] writeText:_textView.text toGuestPath:path error:&error]) {
@@ -8090,6 +8144,12 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 - (void)editCopy { [_textView copy:nil]; }
 - (void)editPaste { [_textView paste:nil]; }
 - (void)editSelectAll { [_textView selectAll:nil]; }
+- (void)editDelete {
+    // Remove the current selection; with an empty selection there's nothing to delete
+    // (the hardware Delete/Backspace key handles single-character deletion natively).
+    if (_textView.selectedRange.length > 0)
+        [_textView deleteBackward];
+}
 
 - (void)mpFind {
     if (@available(iOS 16.0, *)) {
