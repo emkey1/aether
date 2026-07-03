@@ -7,6 +7,8 @@
 # Produces (in OUT_DIR, default = repo root):
 #   devuan-minirootfs-6.0-x86.tar.gz      i386  (i686)
 #   devuan-minirootfs-6.0-x86_64.tar.gz   amd64 (x86_64)
+#   devuan-minirootfs-6.0-aarch64.tar.gz  arm64 (aarch64) -- matches the
+#                                         alpine-minirootfs-*-aarch64 naming
 #
 # Strategy
 # --------
@@ -15,24 +17,28 @@
 # -- exactly like the Alpine minirootfs -- so that provision-ultimate-devuan.sh
 # can do all the "ultimate terminal" heavy lifting on top.
 #
-# mmdebstrap runs inside a *matching-architecture* Debian container: on this
-# arm64 host Docker emulates linux/386 and linux/amd64 via binfmt/qemu, and by
-# matching the container arch to the target rootfs arch the package maintainer
-# scripts run "native" to the (already emulated) container -- no fragile nested
-# qemu-user binfmt setup. The Devuan archive keyring is lifted out of the
-# official `dyne/devuan:excalibur` image so the Release signature verifies.
+# mmdebstrap runs inside a *matching-architecture* Debian container: on an
+# amd64 host Docker emulates linux/386 and linux/arm64 via binfmt/qemu; on an
+# arm64 host (this project's actual dev machine) linux/arm64 runs NATIVELY and
+# only linux/386 and linux/amd64 need emulation. Either way, matching the
+# container arch to the target rootfs arch means the package maintainer
+# scripts run "native" to the (possibly emulated) container -- no fragile
+# nested qemu-user binfmt setup. The Devuan archive keyring is lifted out of
+# the official `dyne/devuan:excalibur` image so the Release signature verifies.
 #
 # This keeps the same provenance philosophy as the existing amd64 docker-export
 # images (Linux-native uid/gid/perms in the tar) while being (a) genuinely
-# minimal and (b) buildable for i386, which the amd64-only dyne image is not.
+# minimal and (b) buildable for i386/arm64, which the amd64-only dyne image is
+# not.
 #
 # Usage:
-#   tools/build-devuan-minirootfs.sh                # both arches
+#   tools/build-devuan-minirootfs.sh                # all arches
 #   ARCHES=i386 tools/build-devuan-minirootfs.sh    # just one
+#   ARCHES=arm64 tools/build-devuan-minirootfs.sh   # just arm64
 #   OUT_DIR=/tmp tools/build-devuan-minirootfs.sh   # elsewhere
 #
 # Tunables (env):
-#   ARCHES         space list of deb arches to build   (default "i386 amd64")
+#   ARCHES         space list of deb arches to build   (default "i386 amd64 arm64")
 #   SUITE          Devuan suite                         (default excalibur)
 #   VERSION        version string used in filenames     (default 6.0)
 #   DEVUAN_MIRROR  archive mirror                        (default deb.devuan.org)
@@ -46,7 +52,7 @@ SUITE="${SUITE:-excalibur}"
 VERSION="${VERSION:-6.0}"
 DEVUAN_MIRROR="${DEVUAN_MIRROR:-http://deb.devuan.org/merged}"
 BUILD_IMAGE="${BUILD_IMAGE:-debian:trixie}"
-ARCHES="${ARCHES:-i386 amd64}"
+ARCHES="${ARCHES:-i386 amd64 arm64}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT}"
 KEYRING_IMAGE="${KEYRING_IMAGE:-dyne/devuan:excalibur}"
@@ -73,11 +79,13 @@ case "$COMPRESS" in
 esac
 command -v "$COMP_TOOL" >/dev/null 2>&1 || die "compressor '$COMP_TOOL' not found in PATH"
 
-# i386 -> x86, amd64 -> x86_64 (match the Alpine minirootfs filename convention).
+# i386 -> x86, amd64 -> x86_64, arm64 -> aarch64 (match the Alpine minirootfs
+# filename convention -- see alpine-minirootfs-3.21.4-aarch64.tar.xz).
 arch_suffix() {
     case "$1" in
         i386)  echo x86 ;;
         amd64) echo x86_64 ;;
+        arm64) echo aarch64 ;;
         *)     echo "$1" ;;
     esac
 }
@@ -86,6 +94,7 @@ arch_platform() {
     case "$1" in
         i386)  echo linux/386 ;;
         amd64) echo linux/amd64 ;;
+        arm64) echo linux/arm64 ;;
         *)     die "unknown arch '$1'" ;;
     esac
 }
