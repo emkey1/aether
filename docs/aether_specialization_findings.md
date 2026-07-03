@@ -109,17 +109,25 @@ checkpoint is preserved. Tables regenerate from the per-model result JSONs.
 **Corpus:** `cs-aug3` (`Tests/aether_specialization/out_cs_aug3`, generated
 2026-07-01, corpus tag `2026-07-01-1`) — retrain of the full cs-aug2-builtins model
 set (`mistral24b`, `qwen14b`, `qwen3-8b-nothink`, `a3b-coder30b`) plus, for the first
-time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense) trained and evaluated at two
-serving precisions: Q8 GGUF/ollama and NVFP4/vLLM.
+time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense).
 **Test suite:** same three instruments/versions as above (`tasks_v2_pos.json`
 `2026-06-21-1`, `tasks_hard.json` `2026-06-21-1`, `tasks_cs.json` `2026-06-23-1`),
 `--docs none`, repair on.
-**Status as of 2026-07-02:** boards are running now, not complete. Two real bugs were
-found and fixed mid-run before any result here can be trusted: (1) the ollama
-Modelfile pinned `num_ctx 8192`, far too small for this reasoning model's thinking
-phase on harder tasks — raised to 40960; (2) `request_timeout_seconds` was set well
-under the worst-case decode time for a full 32768-token reasoning response at this
-hardware's throughput (~5.4 tok/s Q8/claw1, ~13 tok/s NVFP4/claw2) — raised to 9000s
-and 5400s respectively. Earlier partial runs that hit either bug were discarded, not
-reported. This section will be filled in once both boards complete and results are
-verified against these fixed budgets.
+**Status as of 2026-07-02:** board running now, not complete.
+
+`qwen36-27b` was evaluated at two serving precisions: **NVFP4/vLLM (claw2)** and
+**Q8 GGUF/ollama (claw1)**. Two real budget bugs were found and fixed mid-run on
+both before any result could be trusted: (1) the ollama Modelfile pinned `num_ctx
+8192`, far too small for this reasoning model's thinking phase on harder tasks —
+raised to 40960; (2) `request_timeout_seconds` was set well under the worst-case
+decode time for a full 32768-token reasoning response at this hardware's throughput
+(~5.4 tok/s Q8/claw1, ~13 tok/s NVFP4/claw2) — raised to 9000s and 5400s
+respectively. Even after both fixes, claw1's Q8/ollama board kept producing an
+unreliable signal — orphaned in-flight generations repeatedly survived client-side
+kills and wedged the server's single decode slot, plus a reproducible cluster of
+instant failures at every relaunch — and was abandoned as not worth the ongoing
+recovery cost. **The `qwen36-27b-cs-aug3` result reported here is NVFP4/vLLM on
+claw2 only**; no Q8/ollama number for this model is reported. All other cs-aug3
+models (`mistral24b`, `qwen14b`, `qwen3-8b-nothink`, `a3b-coder30b`) are unaffected
+by this and run on claw2's standard ollama as usual. This section will be filled in
+once the claw2 board completes and results are verified against the fixed budgets.
