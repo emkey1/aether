@@ -1880,7 +1880,7 @@ static sdword_t syscall_result_errno(dword_t result) {
 }
 
 static void prepare_syscall_restart(struct cpu_state *cpu, const struct syscall_abi_dispatch *dispatch,
-                                    qword_t syscall_num) {
+                                    qword_t syscall_num, qword_t orig_arg0) {
     if (dispatch->abi == GUEST_ABI_AMD64) {
         cpu->amd64_regs[amd64_rax] = syscall_num;
         cpu->eax = (dword_t) syscall_num;
@@ -1891,7 +1891,18 @@ static void prepare_syscall_restart(struct cpu_state *cpu, const struct syscall_
     if (dispatch->abi == GUEST_ABI_ARM64) {
         // X8 still holds the syscall number (nothing clobbers it across
         // the SVC); rewind PC over the 4-byte SVC to re-execute it.
+        // X0 is BOTH the return register and the first-argument register
+        // on arm64 (unlike i386/amd64, where restoring eax/rax to the
+        // syscall number suffices) — anything that wrote a result before
+        // the restart decision leaves the restarted syscall running with
+        // x0 = -ERESTART* as its first argument. The ptrace syscall-exit
+        // stop does exactly that (the tracer must see the -ERESTART
+        // result, mirroring Linux, which then restores orig_x0 just like
+        // this): `strace cmake` died on libuv's fd >= 0 assert because a
+        // restarted epoll_pwait got the exposed result as its epoll fd.
+        // Restore the original argument unconditionally, like orig_x0.
         cpu->arm64_regs[arm64_x8] = syscall_num;
+        cpu->arm64_regs[arm64_x0] = orig_arg0;
         cpu->arm64_pc -= 4;
         return;
     }
@@ -2283,7 +2294,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
         return false; // not handled here: fall through to the legacy-marshalled table
     }
     if (syscall_result_should_restart(result)) {
-        prepare_syscall_restart(cpu, &arm64_syscall_dispatch, syscall_num);
+        prepare_syscall_restart(cpu, &arm64_syscall_dispatch, syscall_num, raw_args[0]);
         return true;
     }
     // Sign-extend: a dword -errno (or any negative 32-bit result, e.g.
@@ -2304,7 +2315,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     {
         dword_t result = sys_read_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]);
         if (syscall_result_should_restart(result)) {
-            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num);
+            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num, raw_args[0]);
         } else {
             amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) result);
         }
@@ -2652,7 +2663,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3],
                 raw_args[4], (dword_t) raw_args[5]);
         if (syscall_result_should_restart(result)) {
-            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num);
+            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num, raw_args[0]);
         } else {
             amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) result);
         }
@@ -2970,7 +2981,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         dword_t result = sys_wait4_guest(
                 (pid_t_) raw_args[0], raw_args[1], (dword_t) raw_args[2], raw_args[3]);
         if (syscall_result_should_restart(result)) {
-            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, 61);
+            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, 61, raw_args[0]);
         } else {
             amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) result);
         }
@@ -2994,7 +3005,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3],
                 raw_args[4], (dword_t) raw_args[5]);
         if (syscall_result_should_restart(result)) {
-            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num);
+            prepare_syscall_restart(cpu, &amd64_syscall_dispatch, syscall_num, raw_args[0]);
         } else {
             amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) result);
         }
@@ -3751,7 +3762,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
             if (current->ptrace.syscall_stopped)
                 ptrace_syscall_stop(cpu);
         }
-        prepare_syscall_restart(cpu, dispatch, syscall_num);
+        prepare_syscall_restart(cpu, dispatch, syscall_num, raw_args[0]);
         STRACE(" = restart\n");
         return;
     }
