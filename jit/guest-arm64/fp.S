@@ -248,6 +248,80 @@ fcvti_gadget fcvtas_sx, fcvtas, x16, s30
 fcvti_gadget fcvtas_dw, fcvtas, w16, d30
 fcvti_gadget fcvtas_dx, fcvtas, x16, d30
 
+// ---- FP <-> fixed-point (the bit21=0 conversion family) ------------------
+// SCVTF/UCVTF Fd, Rn, #fbits and FCVTZS/FCVTZU Rd, Fn, #fbits (tmux's
+// server SIGILL'd on `scvtf d0, w0, #2`). The host instruction's #fbits
+// is an assemble-time immediate, so instead of 64 gadgets per form the
+// scale rides the code stream as a compile-time FP CONSTANT (2^-fbits or
+// 2^+fbits in the operand precision, built by gen_step_arm64) and the
+// gadget applies the register-form conversion plus one fmul. Bit-exact
+// vs the architected single-step operation: scaling by a power of two
+// only shifts the exponent, never the significand, so the rounding
+// decision is identical — and an fmul overflow to infinity saturates
+// FCVTZ* exactly like the direct out-of-range result (NaN -> 0 likewise).
+// The scalar fmul zeroes the upper vector lanes just like the convert,
+// matching the architected Vd write.
+// Code stream: [gadget][rd | rn<<8][scale constant bits]
+
+.macro cvtf_fix_gadget name, op, fpreg, gpreg, sclreg, sclgpr
+.gadget \name
+    ldr x8, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    mov x16, #0
+    cmp x10, #31
+    b.eq 1f
+    add x12, _cpu, #CPU_x0
+    add x12, x12, x10, lsl #3
+    ldr x16, [x12]
+1:  \op \fpreg, \gpreg
+    fmov \sclreg, \sclgpr
+    fmul \fpreg, \fpreg, \sclreg
+    vslot x12, x9
+    str q30, [x12]
+    gret
+.endm
+
+cvtf_fix_gadget scvtf_fix_ws, scvtf, s30, w16, s31, w11
+cvtf_fix_gadget scvtf_fix_xs, scvtf, s30, x16, s31, w11
+cvtf_fix_gadget scvtf_fix_wd, scvtf, d30, w16, d31, x11
+cvtf_fix_gadget scvtf_fix_xd, scvtf, d30, x16, d31, x11
+cvtf_fix_gadget ucvtf_fix_ws, ucvtf, s30, w16, s31, w11
+cvtf_fix_gadget ucvtf_fix_xs, ucvtf, s30, x16, s31, w11
+cvtf_fix_gadget ucvtf_fix_wd, ucvtf, d30, w16, d31, x11
+cvtf_fix_gadget ucvtf_fix_xd, ucvtf, d30, x16, d31, x11
+
+.macro fcvti_fix_gadget name, op, gpreg, fpreg, sclreg, sclgpr
+.gadget \name
+    ldr x8, [_ip]
+    ldr x11, [_ip, #8]
+    add _ip, _ip, #16
+    and x9, x8, #0x1f
+    ubfx x10, x8, #8, #5
+    vslot x12, x10
+    ldr q30, [x12]
+    fmov \sclreg, \sclgpr
+    fmul \fpreg, \fpreg, \sclreg
+    \op \gpreg, \fpreg
+    cmp x9, #31
+    b.eq 1f
+    add x12, _cpu, #CPU_x0
+    add x12, x12, x9, lsl #3
+    str x16, [x12]            // w-form ops zero-extended into x16 already
+1:  gret
+.endm
+
+fcvti_fix_gadget fcvtzs_fix_sw, fcvtzs, w16, s30, s31, w11
+fcvti_fix_gadget fcvtzs_fix_sx, fcvtzs, x16, s30, s31, w11
+fcvti_fix_gadget fcvtzs_fix_dw, fcvtzs, w16, d30, d31, x11
+fcvti_fix_gadget fcvtzs_fix_dx, fcvtzs, x16, d30, d31, x11
+fcvti_fix_gadget fcvtzu_fix_sw, fcvtzu, w16, s30, s31, w11
+fcvti_fix_gadget fcvtzu_fix_sx, fcvtzu, x16, s30, s31, w11
+fcvti_fix_gadget fcvtzu_fix_dw, fcvtzu, w16, d30, d31, x11
+fcvti_fix_gadget fcvtzu_fix_dx, fcvtzu, x16, d30, d31, x11
+
 // ---- FP 3-source: FMADD/FMSUB/FNMADD/FNMSUB ------------------------------
 // Code stream: [gadget][rd | rn<<8 | rm<<16 | ra<<24]
 .macro fp3src name, op, r1, r2, r3, r4

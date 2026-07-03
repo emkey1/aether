@@ -624,6 +624,64 @@ def lse_tests():
 
 FAMILIES["lse"] = lse_tests()
 
+def fixconv_tests():
+    """Scalar FP<->fixed-point conversions (the bit21=0 family): SCVTF/UCVTF
+    Fd, Rn, #fbits and FCVTZS/FCVTZU Rd, Fn, #fbits. The JIT lowers these as
+    register-form convert + power-of-two fmul; every op/width/precision is
+    swept over several fbits (edges included) against int corner values and
+    FP specials (inf/NaN/saturating magnitudes)."""
+    ints = [0, 1, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF,
+            0x123456789ABCDEF0, 0xFFFFFFFFFFFFFFFF, 0x8000000000000000]
+    fps64 = [0x3FF8000000000000,  # 1.5
+             0xC00921FB54442D18,  # -pi
+             0x7FF0000000000000,  # +inf
+             0xFFF0000000000000,  # -inf
+             0x7FF8000000000001,  # NaN
+             0x41DFFFFFFFC00000,  # 2147483647.0
+             0xC1E0000000000000,  # -2^31
+             0x3F50624DD2F1A9FC,  # ~0.001
+             0x4690000000000000]  # 2^106: saturates at any fbits
+    fps32 = [0x3FC00000, 0xC0490FDB, 0x7F800000, 0xFF800000,
+             0x7FC00001, 0x4EFFFFFF, 0xCF000000, 0x3A83126F]
+    def load_x2(v):
+        out = [f"    movz x2, #0x{v & 0xffff:04x}"]
+        for sh in (16, 32, 48):
+            out.append(f"    movk x2, #0x{(v >> sh) & 0xffff:04x}, lsl #{sh}")
+        return out
+    tests = []
+    # int -> FP: result dumped as the raw 64-bit V-register low half (the
+    # scalar write zeroes the rest, so s-forms are deterministic too).
+    for op in ("scvtf", "ucvtf"):
+        for freg, greg, fmax in (("s0", "w2", 32), ("d0", "w2", 32),
+                                 ("s0", "x2", 64), ("d0", "x2", 64)):
+            for fb in (1, 7, fmax // 2, fmax):
+                for i, v in enumerate(ints):
+                    body = load_x2(v)
+                    body.append("    movi v0.16b, #0xff")
+                    body.append(f"    {op} {freg}, {greg}, #{fb}")
+                    body.append("    fmov x0, d0")
+                    body.append("    mov x1, #0")
+                    body.append("    stp x0, x1, [x19], #16")
+                    tests.append((f"{op}.{freg}.{greg}#{fb}[{i}]", body))
+    # FP -> int: w-form results zero-extend into x0.
+    for op in ("fcvtzs", "fcvtzu"):
+        for gdst, fsrc, fmov_in, fmax, vals in (
+                ("w0", "s1", "fmov s1, w2", 32, fps32),
+                ("x0", "s1", "fmov s1, w2", 64, fps32),
+                ("w0", "d1", "fmov d1, x2", 32, fps64),
+                ("x0", "d1", "fmov d1, x2", 64, fps64)):
+            for fb in (1, fmax // 2, fmax):
+                for i, v in enumerate(vals):
+                    body = load_x2(v)
+                    body.append(f"    {fmov_in}")
+                    body.append(f"    {op} {gdst}, {fsrc}, #{fb}")
+                    body.append("    mov x1, #0")
+                    body.append("    stp x0, x1, [x19], #16")
+                    tests.append((f"{op}.{gdst}.{fsrc}#{fb}[{i}]", body))
+    return tests
+
+FAMILIES["fixconv"] = fixconv_tests()
+
 LINUX_PROLOGUE = """\
 .text
 .global _start

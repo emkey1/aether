@@ -1946,10 +1946,58 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     }
 
     // ---- Scalar floating point (jit/guest-arm64/fp.S) ---------------------
-    // S and D precision only; half (type=11) and the fixed-point conversion
-    // forms reject. The exact FMOV general<->FP matches above run first, so
-    // the FP<->integer family here only sees the rounding conversions and
-    // SCVTF/UCVTF.
+    // S and D precision only; half (type=11) rejects. The exact FMOV
+    // general<->FP matches above run first, so the FP<->integer family here
+    // only sees the rounding conversions and SCVTF/UCVTF.
+
+    // FP<->fixed-point conversions (bit21=0): SCVTF/UCVTF Fd, Rn, #fbits and
+    // FCVTZS/FCVTZU Rd, Fn, #fbits (gcc emits these for integer<->scaled-
+    // fixed arithmetic; tmux's server SIGILL'd on `scvtf d0, w0, #2`).
+    // Lowered as the register-form conversion plus an fmul by 2^±fbits — the
+    // constant is built here in the operand precision and rides the code
+    // stream; see fp.S's cvtf_fix_gadget comment for the bit-exactness
+    // argument. sf|0|0|11110|type|0|rmode|opcode|scale|rn|rd
+    if ((insn & 0x5f200000) == 0x1e000000) {
+        extern void gadget_arm64_scvtf_fix_ws(void), gadget_arm64_scvtf_fix_xs(void);
+        extern void gadget_arm64_scvtf_fix_wd(void), gadget_arm64_scvtf_fix_xd(void);
+        extern void gadget_arm64_ucvtf_fix_ws(void), gadget_arm64_ucvtf_fix_xs(void);
+        extern void gadget_arm64_ucvtf_fix_wd(void), gadget_arm64_ucvtf_fix_xd(void);
+        extern void gadget_arm64_fcvtzs_fix_sw(void), gadget_arm64_fcvtzs_fix_sx(void);
+        extern void gadget_arm64_fcvtzs_fix_dw(void), gadget_arm64_fcvtzs_fix_dx(void);
+        extern void gadget_arm64_fcvtzu_fix_sw(void), gadget_arm64_fcvtzu_fix_sx(void);
+        extern void gadget_arm64_fcvtzu_fix_dw(void), gadget_arm64_fcvtzu_fix_dx(void);
+        bool sf = (insn >> 31) & 1;
+        unsigned type = (insn >> 22) & 0x3;
+        unsigned rmode = (insn >> 19) & 0x3;
+        unsigned opcode = (insn >> 16) & 0x7;
+        unsigned fbits = 64 - ((insn >> 10) & 0x3f);
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rd = insn & 0x1f;
+        // op: 0=SCVTF 1=UCVTF (int->FP), 2=FCVTZS 3=FCVTZU (FP->int)
+        int op = rmode == 0 && opcode == 2 ? 0
+               : rmode == 0 && opcode == 3 ? 1
+               : rmode == 3 && opcode == 0 ? 2
+               : rmode == 3 && opcode == 1 ? 3 : -1;
+        if (op < 0 || type > 1 || fbits > (sf ? 64u : 32u))
+            return gen_arm64_undefined(state);
+        bool is_d = type == 1;
+        int exp = op <= 1 ? -(int) fbits : (int) fbits; // 2^-fbits in, 2^+fbits out
+        uint64_t scale_bits = is_d ? (uint64_t) (1023 + exp) << 52
+                                   : (uint64_t) (127 + exp) << 23;
+        static void *const t[4][2][2] = { // [op][is_d][sf]
+            {{(void *) gadget_arm64_scvtf_fix_ws, (void *) gadget_arm64_scvtf_fix_xs},
+             {(void *) gadget_arm64_scvtf_fix_wd, (void *) gadget_arm64_scvtf_fix_xd}},
+            {{(void *) gadget_arm64_ucvtf_fix_ws, (void *) gadget_arm64_ucvtf_fix_xs},
+             {(void *) gadget_arm64_ucvtf_fix_wd, (void *) gadget_arm64_ucvtf_fix_xd}},
+            {{(void *) gadget_arm64_fcvtzs_fix_sw, (void *) gadget_arm64_fcvtzs_fix_sx},
+             {(void *) gadget_arm64_fcvtzs_fix_dw, (void *) gadget_arm64_fcvtzs_fix_dx}},
+            {{(void *) gadget_arm64_fcvtzu_fix_sw, (void *) gadget_arm64_fcvtzu_fix_sx},
+             {(void *) gadget_arm64_fcvtzu_fix_dw, (void *) gadget_arm64_fcvtzu_fix_dx}}};
+        gen(state, (unsigned long) t[op][is_d][sf]);
+        gen(state, rd | ((uint64_t) rn << 8));
+        gen(state, scale_bits);
+        return 1;
+    }
 
     // FP<->integer conversions: sf|0|0|11110|type|1|rmode|opcode|000000|rn|rd
     if ((insn & 0x5f20fc00) == 0x1e200000) {
