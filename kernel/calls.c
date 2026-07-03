@@ -1757,13 +1757,23 @@ static syscall_t arm64_syscall_table[454] = {
     [290] = (syscall_t) syscall_stub, // pkey_free
     [293] = (syscall_t) syscall_stub_silent, // rseq
     [294] = (syscall_t) syscall_stub, // kexec_file_load
-    [424] = (syscall_t) syscall_stub, // pidfd_send_signal
-    [425] = (syscall_t) syscall_stub, // io_uring_setup
-    [426] = (syscall_t) syscall_stub, // io_uring_enter
-    [427] = (syscall_t) syscall_stub, // io_uring_register
-    [434] = (syscall_t) syscall_stub, // pidfd_open
-    [438] = (syscall_t) syscall_stub, // pidfd_getfd
-    [440] = (syscall_t) syscall_stub, // process_madvise
+    // pidfd/io_uring/process_madvise: handle_arm64_native_syscall already
+    // returns a clean ENOSYS for every one of these (its "clean ENOSYS" case
+    // group shadows the table before the entry is ever called), so the table
+    // slot here governs *logging only*. Use the SILENT stub to match the
+    // amd64/i386 tables: these are deliberate ENOSYS returns that real
+    // software falls back from (pidfd → classic wait4/kill, io_uring → epoll,
+    // process_madvise → best-effort no-op), so a benign call must not spew
+    // "ERROR: arm64 stub syscall N" on every invocation. go build's os/exec
+    // subprocess-wait hit 434 (pidfd_open) and logged an ERROR per child even
+    // though the build/run completes correctly via the wait4 fallback.
+    [424] = (syscall_t) syscall_stub_silent, // pidfd_send_signal
+    [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
+    [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
+    [427] = (syscall_t) syscall_stub_silent, // io_uring_register
+    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
+    [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
+    [440] = (syscall_t) syscall_stub_silent, // process_madvise
     [452] = (syscall_t) syscall_stub_silent, // fchmodat2
     [198] = (syscall_t) sys_socket,
     [199] = (syscall_t) sys_socketpair,
@@ -1815,7 +1825,7 @@ static syscall_t arm64_syscall_table[454] = {
     [437] = (syscall_t) sys_openat2,
     [439] = (syscall_t) sys_faccessat, // faccessat2 reuses sys_faccessat, matches i386/amd64 tables
     [441] = (syscall_t) sys_epoll_pwait2,
-    [449] = (syscall_t) syscall_stub, // futex_waitv
+    [449] = (syscall_t) syscall_stub_silent, // futex_waitv (native ENOSYS; glibc/musl fall back to plain FUTEX_WAIT)
 };
 
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
