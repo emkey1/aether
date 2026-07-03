@@ -463,7 +463,12 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
     // caught by running a real CAS instruction through this interpreter
     // (it fell into the load/store-exclusive handler's `o2 != 0` reject
     // path and raised INT_UNDEFINED instead of executing the CAS).
-    if ((insn & 0x3f200c00) == 0x08200c00) {
+    // The mask pins bit23=1 per the field layout documented above —
+    // bit23=0 in this slot is CASP (compare-and-swap PAIR), handled just
+    // below; the old mask left bit23 free and executed CASP as a
+    // byte/halfword single-register CAS, silently corrupting memory
+    // (same bug, same fix as gen_step_arm64's).
+    if ((insn & 0x3fa00c00) == 0x08a00c00) {
         unsigned size = (insn >> 30) & 0x3;
         unsigned rs = (insn >> 16) & 0x1f; // expected value in, old value out
         unsigned rn = ARM64_RN(insn);
@@ -481,6 +486,38 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
                 return INT_PF;
         }
         arm64_reg_set_discard(cpu, rs, size == 3, cur); // CAS always writes old value back
+        return INT_NONE;
+    }
+
+    // CASP/CASPA/CASPL/CASPAL (LSE compare-and-swap pair):
+    // 0:sz:001000:0:L:1:Rs:o0:11111:Rn:Rt — bit23=0 vs. CAS's 1, bit31=0
+    // vs. LDXP/STXP's 1, bit30 picks a 32- or 64-bit register pair.
+    // Same must-precede-the-exclusive-family ordering constraint as CAS.
+    // Implemented via the arm64_casp helper shared with the JIT gadgets
+    // (emu/tlb.c), which is host-atomic and enforces the 2*sz alignment
+    // requirement. Rs/Rt must be even and Rt2 must be 11111 (ARM ARM).
+    if ((insn & 0xbfa00000) == 0x08200000) {
+        unsigned sz = ((insn >> 30) & 1) ? 8 : 4;
+        unsigned rs = (insn >> 16) & 0x1f; // expected pair in, old pair out
+        unsigned rt2 = (insn >> 10) & 0x1f;
+        unsigned rn = ARM64_RN(insn);
+        unsigned rt = ARM64_RT(insn); // new (desired) pair
+        if (rt2 != 0x1f || (rs & 1) || (rt & 1))
+            return INT_UNDEFINED;
+        uint64_t addr = arm64_reg_get_sp(cpu, rn);
+        // Rs/Rt are even, so never 31; Rs+1/Rt+1 are 31 only for Rs/Rt=30,
+        // where register 31 reads as XZR / discards the write.
+        uint64_t expected[2] = { arm64_reg_get_zr(cpu, rs),
+                                 arm64_reg_get_zr(cpu, rs + 1) };
+        uint64_t desired[2] = { arm64_reg_get_zr(cpu, rt),
+                                arm64_reg_get_zr(cpu, rt + 1) };
+        uint64_t old[2];
+        uint32_t swapped;
+        int err = arm64_casp(cpu, tlb, addr, sz, expected, desired, old, &swapped);
+        if (err != 0)
+            return err;
+        arm64_reg_set_discard(cpu, rs, sz == 8, old[0]);
+        arm64_reg_set_discard(cpu, rs + 1, sz == 8, old[1]);
         return INT_NONE;
     }
 

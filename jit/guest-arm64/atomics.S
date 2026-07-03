@@ -297,3 +297,81 @@ lse_rmw_fault:
     str x19, [_cpu, #CPU_pc]
     mov w0, w27
     b jit_exit
+
+// CASP (LSE compare-and-swap pair): host-atomic 2*sz-byte CAS via the
+// arm64_casp C helper (emu/tlb.c) — same shape as the cas gadget above,
+// with the pair operands marshalled through a stack scratch block because
+// four 64-bit values plus two result slots don't fit the register-only
+// C ABI. Rs/Rs+1 always receive the observed old pair (there is no
+// status register; the LL/SC-style status is CAS-implicit). gen_step_arm64
+// guarantees Rs and Rt are even (odd encodings are UNDEFINED), so Rs/Rt
+// themselves are never 31; Rs+1/Rt+1 can be 31 only for Rs/Rt = 30, where
+// register 31 is XZR (reads 0, writes discarded).
+// [gadget][rt | rn<<8 | rs<<16][orig_ip]
+.macro casp_gadget name, sizelog
+.gadget \name
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]       // orig_ip (fault restart), callee-saved
+    add _ip, _ip, #16
+    and x20, x8, #0x1f       // rt (desired lo; rt+1 = desired hi)
+    ubfx x22, x8, #8, #5     // rn (31 = SP)
+    ubfx x23, x8, #16, #5    // rs (expected in / old out; rs+1 = hi)
+
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x10, x9, x22, lsl #3
+    ldr x21, [x10]           // guest address
+    b 2f
+1:  ldr x21, [_cpu, #CPU_sp]
+2:
+    ldr x24, [x9, x23, lsl #3]  // expected lo (Rs, even, never 31)
+    add x11, x23, #1
+    mov x25, #0
+    cmp x11, #31
+    b.eq 3f
+    ldr x25, [x9, x11, lsl #3]  // expected hi (Rs+1; 31 = XZR)
+3:
+    ldr x26, [x9, x20, lsl #3]  // desired lo (Rt, even, never 31)
+    add x11, x20, #1
+    mov x12, #0
+    cmp x11, #31
+    b.eq 4f
+    ldr x12, [x9, x11, lsl #3]  // desired hi (Rt+1; 31 = XZR)
+4:
+    sub sp, sp, #64          // scratch (survives save_c's 0xa0 frame):
+                             // [0]=old_lo [8]=old_hi [16]=swapped (unused)
+                             // [32]=exp_lo [40]=exp_hi [48]=des_lo [56]=des_hi
+    stp x24, x25, [sp, #32]
+    stp x26, x12, [sp, #48]
+    save_c
+    mov x0, x1               // cpu (x1 still intact)
+    sub x1, x2, #TLB_entries // struct tlb *
+    mov x2, x21              // addr
+    mov x3, #(1 << \sizelog) // sz: bytes per register half
+    add x4, sp, #(0xa0+32)   // expected[2]
+    add x5, sp, #(0xa0+48)   // desired[2]
+    add x6, sp, #0xa0        // old_out[2]
+    add x7, sp, #(0xa0+16)   // &swapped
+    bl NAME(arm64_casp)
+    mov x27, x0              // result (0 / INT_PF / INT_GPF)
+    restore_c
+    ldp x8, x9, [sp]         // observed old pair
+    add sp, sp, #64
+    cbnz x27, casp_fault_\name
+    add x10, _cpu, #CPU_x0
+    str x8, [x10, x23, lsl #3]  // old lo -> Rs
+    add x11, x23, #1
+    cmp x11, #31                // Rs+1 = 31 (Rs = 30) discards the hi half
+    b.eq casp_done_\name
+    str x9, [x10, x11, lsl #3]  // old hi -> Rs+1
+casp_done_\name:
+    gret
+casp_fault_\name:
+    str x19, [_cpu, #CPU_pc]
+    mov w0, w27
+    b jit_exit
+.endm
+
+casp_gadget casp32, 2
+casp_gadget casp64, 3
