@@ -2586,7 +2586,13 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (maxSize.width > 0) frame.size.width = MIN(frame.size.width, maxSize.width);
     if (maxSize.height > 0) frame.size.height = MIN(frame.size.height, maxSize.height);
 
+    // Before the desktop surface has been laid out its usable bounds are 0x0; clamping
+    // against them collapses the window to zero size and Auto Layout breaks the chrome
+    // constraints. Skip the surface clamp until real bounds exist — placement is
+    // re-applied from viewDidLayoutSubviews once the surface has a size.
     CGRect usableBounds = [self desktopUsableBounds];
+    if (CGRectGetWidth(usableBounds) <= 0 || CGRectGetHeight(usableBounds) <= 0)
+        return ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
     if (CGRectGetWidth(frame) > CGRectGetWidth(usableBounds))
         frame.size.width = CGRectGetWidth(usableBounds);
     if (CGRectGetHeight(frame) > CGRectGetHeight(usableBounds))
@@ -2653,8 +2659,11 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (windowView.maximumSize.height > 0) {
         height = MIN(height, windowView.maximumSize.height);
     }
-    width = MIN(width, CGRectGetWidth(usableBounds));
-    height = MIN(height, CGRectGetHeight(usableBounds));
+    // Same zero-bounds hazard as clampedDesktopFrame: — don't clamp to an unlaid-out surface.
+    if (CGRectGetWidth(usableBounds) > 0 && CGRectGetHeight(usableBounds) > 0) {
+        width = MIN(width, CGRectGetWidth(usableBounds));
+        height = MIN(height, CGRectGetHeight(usableBounds));
+    }
 
     CGRect frame = windowView.frame;
     frame.size = CGSizeMake(width, height);
