@@ -273,13 +273,13 @@
 		C0A000012E00000100000003 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000012E00000100000004 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000022E00000200000001 /* aok.c in Sources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000002 /* aok.c */; };
-		C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
-		C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
 		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
-		C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
-		C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
+		C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
+		C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
 		D655F8B9294AA603BF1C430A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
 		DC09D58C8595F3ACD279A0D2 /* AudioPlayerEngine.m in Sources */ = {isa = PBXBuildFile; fileRef = 59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */; };
 /* End PBXBuildFile section */
@@ -816,11 +816,11 @@
 		C0A000012E00000100000008 /* AudioOutput.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioOutput.h; sourceTree = "<group>"; };
 		C0A000012E00000100000009 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		C0A000022E00000200000002 /* aok.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = aok.c; sourceTree = "<group>"; };
-		C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
-		C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
 		C0A000032E00000300000002 /* WorkspaceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkspaceViewController.h; sourceTree = "<group>"; };
 		C0A000032E00000300000003 /* WorkspaceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorkspaceViewController.m; sourceTree = "<group>"; };
-		C0A000042E00000400000003 /* iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
+		C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
 		DB5F3377782D953C463D3F4C /* AudioLibrary.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioLibrary.h; sourceTree = "<group>"; };
 		EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		F2335E04AD7BA30533F45B20 /* AudioPCMDecoder_Internal.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPCMDecoder_Internal.h; sourceTree = "<group>"; };
@@ -1190,9 +1190,9 @@
 				BB88F4A4215476BA00A341FD /* iSH.entitlements */,
 				BB88F4912154760800A341FD /* FileProvider */,
 				BB41591D255EF9E300E0950C /* UITests */,
-				C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */,
-				C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */,
-				C0A000042E00000400000003 /* iSH_benchmark.tgz */,
+				C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */,
+				C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */,
+				C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */,
 				5D8CFA842B1198B300D50E57 /* RTCDevice.m */,
 				5D8CFA882B1198DB00D50E57 /* RTCDevice.h */,
 				59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */,
@@ -1905,9 +1905,9 @@
 				BB38599F27BCEE6B000A1082 /* icon1337.png in Resources */,
 				BB3859A127BCEE6B000A1082 /* iinhash.png in Resources */,
 				BB38599727BCEE6B000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1954,9 +1954,9 @@
 				BBEF1995268066D1001225BD /* sprite64.png in Resources */,
 				BBEF1996268066D1001225BD /* icon.png in Resources */,
 				BB38598127BCEC78000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2765,6 +2765,8 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -2793,6 +2795,8 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -2834,6 +2838,8 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -3182,6 +3188,8 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
