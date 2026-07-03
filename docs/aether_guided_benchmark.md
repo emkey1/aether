@@ -20,6 +20,17 @@ rows below predate this session's parser-hardening work and were scored on the
 **2026-07-01-8** guide. Don't compare a score across guide versions without
 checking this column first.
 
+**One real signal from the version transition so far:** `gemini-2.5-flash` is
+the only model scored on both guide versions (re-run 2026-07-03), and it holds
+**30/30 on simple both times** but drops on the harder sets — `large` **8/8 →
+6-7/8**, `cs` **17-18/19 → 13-15/19**, both variants, with more retries needed
+along the way. The hardened language now correctly rejects constructs the
+prior, more lenient AST/rewriter path let through, and even a frontier model
+occasionally reaches for one of them. This isn't a benchmark artifact — it's
+the real cost of the stricter parser, paid on the hard tail even by capable
+models. Small local models show the same pattern more sharply (see `qwen3-1.7b`
+below, 0/8 on `large`).
+
 The short answer is unchanged: for capable models, **the guide is enough.** Handed
 nothing but the guide, an entire frontier tier writes every task on the core
 benchmark correctly — no fine-tuning, no worked examples beyond the document itself.
@@ -73,6 +84,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 19/15/20/5 | 21/13/17/0 |
 | `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 18/14/20/4 | 21/18/13/1 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 13/9/25/4 | 16/9/25/5 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/0/0 |
 
 *More claw1/claw2 models (small + large + Ornith) are still landing — see Status.*
 
@@ -96,6 +108,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 1/0/8/0 | 1/0/8/0 |
 | `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2/0/8/0 | 1/0/8/0 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/0/7/0 | 0/0/8/0 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/7/3/2 | 6/6/3/1 |
 
 ## CS-classics (19 tasks): textbook algorithms
 
@@ -117,6 +130,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 4/2/17/0 | 5/3/16/0 |
 | `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 5/1/18/0 | 5/2/17/0 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 8/4/17/3 | 4/2/16/0 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/15/8/4 | 14/13/7/1 |
 
 *All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
 model.*
