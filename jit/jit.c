@@ -640,7 +640,11 @@ void jit_free(struct jit *jit) {
     jit_free_jetsam(jit);
     free(jit->page_hash);
     free(jit->hash);
-    write_lock(&jit->jetsam_lock);
+    // jetsam_lock uses the raw pthread_rwlock `.l` directly on its per-block
+    // hot path (rdlock/trywrlock), so this teardown drain must too — the
+    // wrlock_t API now drives a separate mutex+condvar (rw_locks.h) and would
+    // desync from those `.l` acquires.
+    pthread_rwlock_wrlock(&jit->jetsam_lock.l);
     unlock(&jit->lock);
     free(jit);
 }

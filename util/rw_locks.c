@@ -32,6 +32,13 @@ void wrlock_init(wrlock_t *lock) {
 #else
     if (pthread_rwlock_init(&lock->l, pattr)) __builtin_trap();
 #endif
+    // Hand-rolled reader/writer state (rw_locks.h) that the API now uses in
+    // place of `.l`: the macOS psynch pthread_rwlock lost-wakeups when a
+    // read->write upgrade races concurrent readers. `.l` is retained solely
+    // for jit.c's jetsam_lock, which reaches into it directly.
+    pthread_mutex_init(&lock->m, NULL);
+    pthread_cond_init(&lock->c, NULL);
+    lock->writers_waiting = 0;
     atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
     lock->line = 0;
     lock->pid = -1;
@@ -41,6 +48,8 @@ void wrlock_init(wrlock_t *lock) {
 }
 
 void _lock_destroy(wrlock_t *lock) {
+    pthread_mutex_destroy(&lock->m);
+    pthread_cond_destroy(&lock->c);
 #ifdef JUSTLOG
     if (pthread_rwlock_destroy(&lock->l) != 0) {
         printk("URGENT: lock_destroy(%x) on active lock. (PID: %d Process: %s Critical Region Count: %d)\n",&lock->l, current_pid(current), current_comm(current),task_ref_cnt_get(current, 0));
