@@ -8177,6 +8177,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     _currentGuestPath = guestPath;
     [_textView.undoManager removeAllActions];
     [self setDirty:NO];
+    [self updateDocTitle];  // setDirty: no-ops when already clean; refresh the filename explicitly
     [self updateStatusBar];
     if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
 }
@@ -8271,6 +8272,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     }
     _currentGuestPath = path;
     [self setDirty:NO];
+    [self updateDocTitle];  // reflect the (possibly new) filename even if it was already clean
     return YES;
 }
 
