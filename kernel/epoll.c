@@ -34,10 +34,29 @@ fd_t sys_epoll_create0() {
     return sys_epoll_create(0);
 }
 
+// Linux applies __attribute__((packed)) to struct epoll_event ONLY under
+// __x86_64__ (uapi/linux/eventpoll.h's EPOLL_PACKED). Every other guest
+// architecture keeps the naturally-aligned 16-byte layout — `data` at
+// offset 8, not the packed 12-byte layout's offset 4. So the on-the-wire
+// epoll_event layout is a GUEST-ABI property: i386/amd64 use the packed
+// form, arm64 the aligned form below. Marshalling arm64 with the packed
+// layout put the guest's `data` word at the wrong offset AND used the
+// wrong array stride, so the Go runtime's netpoll read a garbage pollDesc
+// pointer and SIGSEGV'd during `go build` (runtime.netpoll <- sysmon).
 struct epoll_event_ {
     uint32_t events;
     uint64_t data;
 } __attribute__((packed));
+
+struct epoll_event_arm64 {
+    uint32_t events;
+    uint32_t pad;
+    uint64_t data;
+};
+
+static bool epoll_event_aligned(void) {
+    return current != NULL && current->abi == GUEST_ABI_ARM64;
+}
 
 #define EPOLL_CTL_ADD_ 1
 #define EPOLL_CTL_DEL_ 2
@@ -83,17 +102,32 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
         return res;
     }
 
-    struct epoll_event_ event;
-    if (user_get(event_addr, event)) {
-        fd_close(fd);
-        fd_close(epoll);
-        return _EFAULT;
+    uint32_t ev_events;
+    uint64_t ev_data;
+    if (epoll_event_aligned()) {
+        struct epoll_event_arm64 event;
+        if (user_get(event_addr, event)) {
+            fd_close(fd);
+            fd_close(epoll);
+            return _EFAULT;
+        }
+        ev_events = event.events;
+        ev_data = event.data;
+    } else {
+        struct epoll_event_ event;
+        if (user_get(event_addr, event)) {
+            fd_close(fd);
+            fd_close(epoll);
+            return _EFAULT;
+        }
+        ev_events = event.events;
+        ev_data = event.data;
     }
-    STRACE(" {events: %#x, data: %#x}", event.events, event.data);
+    STRACE(" {events: %#x, data: %#llx}", ev_events, (unsigned long long) ev_data);
     if (epoll_trace_comm()) {
         printk("epoll-trace: ctl pid=%d comm=%s epfd=%d op=%d fd=%d real=%d req_events=%#x data=%#llx\n",
                current->pid, current->comm, epoll_f, op, f,
-               fd->real_fd, event.events, (unsigned long long) event.data);
+               fd->real_fd, ev_events, (unsigned long long) ev_data);
     }
 
     int_t res;
@@ -101,9 +135,9 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
         if (poll_has_fd(epoll->epollfd.poll, fd))
             res = _EEXIST;
         else
-            res = poll_add_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
+            res = poll_add_fd(epoll->epollfd.poll, fd, ev_events, (union poll_fd_info) ev_data);
     } else {
-        res = poll_mod_fd(epoll->epollfd.poll, fd, event.events, (union poll_fd_info) event.data);
+        res = poll_mod_fd(epoll->epollfd.poll, fd, ev_events, (union poll_fd_info) ev_data);
     }
     fd_close(fd);
     fd_close(epoll);
@@ -172,7 +206,21 @@ static int epoll_wait_common(fd_t epoll_f, guest_addr_t events_addr, int_t max_e
         for (int i = 0; i < res; i++) {
             STRACE(" {events: %#x, data: %#x}", events[i].events, events[i].data);
         }
-        if (user_write(events_addr, events, sizeof(struct epoll_event_) * res)) {
+        int fault = 0;
+        if (res > 0) {
+            if (epoll_event_aligned()) {
+                struct epoll_event_arm64 aligned[res];
+                for (int i = 0; i < res; i++) {
+                    aligned[i].events = events[i].events;
+                    aligned[i].pad = 0;
+                    aligned[i].data = events[i].data;
+                }
+                fault = user_write(events_addr, aligned, sizeof(aligned));
+            } else {
+                fault = user_write(events_addr, events, sizeof(struct epoll_event_) * res);
+            }
+        }
+        if (fault) {
             fd_close(epoll);
             return _EFAULT;
         }
