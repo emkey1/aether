@@ -1,5 +1,7 @@
 build/
 *.o
+*.pyc
+__pycache__/
 .cache/
 xcuserdata/
 .floo
