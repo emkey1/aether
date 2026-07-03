@@ -7608,6 +7608,201 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 @end
 
 
+#pragma mark - MotePad custom compact menu
+
+// A native pull-down UIMenu has a ~250pt minimum width on iPad, which leaves short
+// menus (File, Help, …) mostly empty. These lightweight classes render a themed popover
+// menu sized to exactly fit its widest row instead.
+@interface MotePadMenuRow : NSObject
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic, copy, nullable) NSString *shortcut;
+@property (nonatomic) BOOL checkable;
+@property (nonatomic) BOOL checked;
+@property (nonatomic, copy) void (^action)(void);
+@end
+
+@implementation MotePadMenuRow
+@end
+
+@interface MotePadMenuRowControl : UIControl
+@property (nonatomic, strong) UIColor *highlightColor;
+@end
+
+@implementation MotePadMenuRowControl
+- (void)setHighlighted:(BOOL)highlighted {
+    [super setHighlighted:highlighted];
+    self.backgroundColor = highlighted ? self.highlightColor : UIColor.clearColor;
+}
+@end
+
+@interface MotePadPopupMenuController : UIViewController <UIPopoverPresentationControllerDelegate>
+- (instancetype)initWithSections:(NSArray<NSArray<MotePadMenuRow *> *> *)sections
+                           theme:(NSDictionary<NSString *, UIColor *> *)theme;
+@end
+
+@implementation MotePadPopupMenuController {
+    NSArray<NSArray<MotePadMenuRow *> *> *_sections;
+    NSDictionary<NSString *, UIColor *> *_theme;
+    NSMutableArray<void (^)(void)> *_actions;
+}
+
+- (instancetype)initWithSections:(NSArray<NSArray<MotePadMenuRow *> *> *)sections
+                           theme:(NSDictionary<NSString *, UIColor *> *)theme {
+    self = [super init];
+    if (self) {
+        _sections = sections;
+        _theme = theme;
+        _actions = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (UIColor *)color:(NSString *)key fallback:(UIColor *)fallback {
+    return _theme[key] ?: fallback;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    UIColor *card = [self color:@"card" fallback:UIColor.secondarySystemBackgroundColor];
+    UIColor *primary = [self color:@"primary" fallback:UIColor.labelColor];
+    UIColor *secondary = [self color:@"secondary" fallback:UIColor.secondaryLabelColor];
+    UIColor *accent = [self color:@"accent" fallback:UIColor.systemBlueColor];
+    UIColor *stroke = [self color:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]];
+    UIColor *highlight = [accent colorWithAlphaComponent:0.22];
+    self.view.backgroundColor = card;
+
+    UIFont *titleFont = [UIFont systemFontOfSize:16];
+    UIFont *shortcutFont = [UIFont systemFontOfSize:15];
+
+    // Measure the columns so shortcuts right-align and the popover is exactly as wide
+    // as its content needs.
+    CGFloat maxTitle = 0, maxShortcut = 0;
+    BOOL anyCheckable = NO;
+    for (NSArray<MotePadMenuRow *> *section in _sections) {
+        for (MotePadMenuRow *row in section) {
+            maxTitle = MAX(maxTitle, [row.title sizeWithAttributes:@{NSFontAttributeName: titleFont}].width);
+            if (row.shortcut.length)
+                maxShortcut = MAX(maxShortcut, [row.shortcut sizeWithAttributes:@{NSFontAttributeName: shortcutFont}].width);
+            if (row.checkable) anyCheckable = YES;
+        }
+    }
+    CGFloat inset = 14, gap = (maxShortcut > 0) ? 28 : 0;
+    CGFloat checkWidth = anyCheckable ? 18 : 0, checkGap = anyCheckable ? 8 : 0;
+    CGFloat rowHeight = 34, sepHeight = 9, pad = 6;
+    CGFloat contentWidth = inset + ceil(maxTitle) + gap + ceil(maxShortcut) + checkGap + checkWidth + inset;
+    contentWidth = MAX(150, MIN(contentWidth, 320));
+
+    UIStackView *stack = [UIStackView new];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:pad],
+        [stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-pad],
+    ]];
+
+    NSUInteger totalRows = 0;
+    for (NSUInteger s = 0; s < _sections.count; s++) {
+        if (s > 0) {
+            UIView *sep = [UIView new];
+            sep.translatesAutoresizingMaskIntoConstraints = NO;
+            [sep.heightAnchor constraintEqualToConstant:sepHeight].active = YES;
+            UIView *hair = [UIView new];
+            hair.translatesAutoresizingMaskIntoConstraints = NO;
+            hair.backgroundColor = stroke;
+            [sep addSubview:hair];
+            [NSLayoutConstraint activateConstraints:@[
+                [hair.leadingAnchor constraintEqualToAnchor:sep.leadingAnchor constant:inset],
+                [hair.trailingAnchor constraintEqualToAnchor:sep.trailingAnchor constant:-inset],
+                [hair.centerYAnchor constraintEqualToAnchor:sep.centerYAnchor],
+                [hair.heightAnchor constraintEqualToConstant:1.0 / MAX(1.0, UIScreen.mainScreen.scale)],
+            ]];
+            [stack addArrangedSubview:sep];
+        }
+        for (MotePadMenuRow *row in _sections[s]) {
+            MotePadMenuRowControl *rowView = [MotePadMenuRowControl new];
+            rowView.translatesAutoresizingMaskIntoConstraints = NO;
+            rowView.highlightColor = highlight;
+            rowView.tag = (NSInteger)_actions.count;
+            [rowView.heightAnchor constraintEqualToConstant:rowHeight].active = YES;
+            [rowView addTarget:self action:@selector(rowTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [_actions addObject:(row.action ?: ^{})];
+
+            UILabel *titleLabel = [UILabel new];
+            titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+            titleLabel.text = row.title;
+            titleLabel.font = titleFont;
+            titleLabel.textColor = primary;
+            [rowView addSubview:titleLabel];
+            [NSLayoutConstraint activateConstraints:@[
+                [titleLabel.leadingAnchor constraintEqualToAnchor:rowView.leadingAnchor constant:inset],
+                [titleLabel.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+            ]];
+
+            UIImageView *check = nil;
+            if (anyCheckable) {
+                check = [UIImageView new];
+                check.translatesAutoresizingMaskIntoConstraints = NO;
+                check.contentMode = UIViewContentModeScaleAspectFit;
+                check.tintColor = accent;
+                if (@available(iOS 13.0, *))
+                    check.image = [UIImage systemImageNamed:@"checkmark"];
+                check.hidden = !(row.checkable && row.checked);
+                [rowView addSubview:check];
+                [NSLayoutConstraint activateConstraints:@[
+                    [check.trailingAnchor constraintEqualToAnchor:rowView.trailingAnchor constant:-inset],
+                    [check.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+                    [check.widthAnchor constraintEqualToConstant:checkWidth],
+                    [check.heightAnchor constraintEqualToConstant:checkWidth],
+                ]];
+            }
+
+            if (row.shortcut.length) {
+                UILabel *sc = [UILabel new];
+                sc.translatesAutoresizingMaskIntoConstraints = NO;
+                sc.text = row.shortcut;
+                sc.font = shortcutFont;
+                sc.textColor = secondary;
+                sc.textAlignment = NSTextAlignmentRight;
+                [rowView addSubview:sc];
+                NSLayoutConstraint *scTrailing = check
+                    ? [sc.trailingAnchor constraintEqualToAnchor:check.leadingAnchor constant:-checkGap]
+                    : [sc.trailingAnchor constraintEqualToAnchor:rowView.trailingAnchor constant:-inset];
+                [NSLayoutConstraint activateConstraints:@[
+                    scTrailing,
+                    [sc.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+                    [sc.leadingAnchor constraintGreaterThanOrEqualToAnchor:titleLabel.trailingAnchor constant:12],
+                ]];
+            }
+
+            [stack addArrangedSubview:rowView];
+            totalRows++;
+        }
+    }
+
+    CGFloat totalHeight = totalRows * rowHeight
+        + (_sections.count > 1 ? (_sections.count - 1) * sepHeight : 0) + pad * 2;
+    self.preferredContentSize = CGSizeMake(contentWidth, totalHeight);
+}
+
+- (void)rowTapped:(UIControl *)sender {
+    void (^action)(void) = ((NSUInteger)sender.tag < _actions.count) ? _actions[(NSUInteger)sender.tag] : nil;
+    // Run the action after the menu finishes dismissing, so actions that present their
+    // own UI (Open, Save As, alerts) don't collide with the in-flight dismissal.
+    [self dismissViewControllerAnimated:YES completion:^{ if (action) action(); }];
+}
+
+- (UIModalPresentationStyle)adaptivePresentationStyleForPresentationController:(__unused UIPresentationController *)controller
+                                                              traitCollection:(__unused UITraitCollection *)traitCollection {
+    return UIModalPresentationNone;  // stay a popover even at compact width (iPhone)
+}
+
+@end
+
+
 @interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate>
 @end
 
@@ -7660,7 +7855,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         [button setTitle:name forState:UIControlStateNormal];
         button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceUsesPhoneLayout() ? 13 : 14 weight:UIFontWeightMedium];
         button.contentEdgeInsets = UIEdgeInsetsMake(4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8, 4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8);
-        button.showsMenuAsPrimaryAction = YES;
+        [button addTarget:self action:@selector(menuButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [_menuButtons addObject:button];
         [menuStack addArrangedSubview:button];
     }
@@ -7753,7 +7948,6 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     ]];
 
     [self applyWordWrap];
-    [self rebuildMenus];
     [self updateDocTitle];
     [self updateStatusBar];
     [self applyStatusBarVisibility];
@@ -7795,101 +7989,100 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 
 #pragma mark Menus
 
-- (void)rebuildMenus {
-    for (UIButton *button in _menuButtons) {
-        NSString *title = [button titleForState:UIControlStateNormal];
-        if ([title isEqualToString:@"File"]) button.menu = [self fileMenu];
-        else if ([title isEqualToString:@"Edit"]) button.menu = [self editMenu];
-        else if ([title isEqualToString:@"Format"]) button.menu = [self formatMenu];
-        else if ([title isEqualToString:@"View"]) button.menu = [self viewMenu];
-        else if ([title isEqualToString:@"Help"]) button.menu = [self helpMenu];
-    }
+- (MotePadMenuRow *)row:(NSString *)title shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
+    MotePadMenuRow *row = [MotePadMenuRow new];
+    row.title = title;
+    row.shortcut = shortcut;
+    row.action = handler;
+    return row;
 }
 
-- (UIAction *)actionTitled:(NSString *)title symbol:(NSString *)symbol handler:(void (^)(void))handler {
-    UIImage *image = symbol.length ? [UIImage systemImageNamed:symbol] : nil;
-    UIAction *action = [UIAction actionWithTitle:title image:image identifier:nil
-                                        handler:^(__unused UIAction *a) { if (handler) handler(); }];
-    return action;
+- (MotePadMenuRow *)toggle:(NSString *)title shortcut:(NSString *)shortcut checked:(BOOL)checked handler:(void (^)(void))handler {
+    MotePadMenuRow *row = [self row:title shortcut:shortcut handler:handler];
+    row.checkable = YES;
+    row.checked = checked;
+    return row;
 }
 
-// A menu item that shows its shortcut as trailing text. iOS renders native ⌘-glyphs
-// only in the system menu bar, NOT in app-created pull-down menus (confirmed on iOS 17
-// even with a hardware keyboard attached), so we bake the shortcut into the title. Tap
-// runs `handler`; the physical key press is wired separately in -keyCommands. The `symbol`
-// is intentionally ignored so the menus read as clean text — pass it through to
-// actionTitled: to bring the leading SF Symbol icons back.
-- (UIAction *)item:(NSString *)title symbol:(__unused NSString *)symbol shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
-    NSString *fullTitle = shortcut.length ? [NSString stringWithFormat:@"%@   %@", title, shortcut] : title;
-    return [self actionTitled:fullTitle symbol:nil handler:handler];  // text-only (no leading icons)
-}
-
-- (UIMenu *)fileMenu {
+- (NSArray<NSArray<MotePadMenuRow *> *> *)fileMenuSections {
     __weak typeof(self) ws = self;
-    UIMenu *docs = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"New" symbol:@"doc" shortcut:@"⌘N" handler:^{ [ws mpNew]; }],
-        [self item:@"Open…" symbol:@"folder" shortcut:@"⌘O" handler:^{ [ws mpOpen]; }],
-        [self item:@"Save" symbol:@"arrow.down.doc" shortcut:@"⌘S" handler:^{ [ws mpSave]; }],
-        [self item:@"Save As…" symbol:@"square.and.arrow.down" shortcut:@"⇧⌘S" handler:^{ [ws mpSaveAs]; }],
-    ]];
-    UIMenu *printing = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Page Setup…" symbol:@"doc.badge.gearshape" shortcut:@"⇧⌘P" handler:^{ [ws mpPageSetup]; }],
-        [self item:@"Print…" symbol:@"printer" shortcut:@"⌘P" handler:^{ [ws mpPrint]; }],
-    ]];
-    UIMenu *lifecycle = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Close" symbol:@"xmark.circle" shortcut:@"⌘W" handler:^{ [ws mpClose]; }],
-        [self item:@"Quit MotePad" symbol:@"power" shortcut:@"⌘Q" handler:^{ [ws mpQuit]; }],
-    ]];
-    return [UIMenu menuWithTitle:@"File" children:@[docs, printing, lifecycle]];
+    return @[
+        @[ [self row:@"New" shortcut:@"⌘N" handler:^{ [ws mpNew]; }],
+           [self row:@"Open…" shortcut:@"⌘O" handler:^{ [ws mpOpen]; }],
+           [self row:@"Save" shortcut:@"⌘S" handler:^{ [ws mpSave]; }],
+           [self row:@"Save As…" shortcut:@"⇧⌘S" handler:^{ [ws mpSaveAs]; }] ],
+        @[ [self row:@"Page Setup…" shortcut:@"⇧⌘P" handler:^{ [ws mpPageSetup]; }],
+           [self row:@"Print…" shortcut:@"⌘P" handler:^{ [ws mpPrint]; }] ],
+        @[ [self row:@"Close" shortcut:@"⌘W" handler:^{ [ws mpClose]; }],
+           [self row:@"Quit MotePad" shortcut:@"⌘Q" handler:^{ [ws mpQuit]; }] ],
+    ];
 }
 
-- (UIMenu *)editMenu {
+- (NSArray<NSArray<MotePadMenuRow *> *> *)editMenuSections {
     __weak typeof(self) ws = self;
-    UIMenu *history = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Undo" symbol:@"arrow.uturn.backward" shortcut:@"⌘Z" handler:^{ [ws editUndo]; }],
-        [self item:@"Redo" symbol:@"arrow.uturn.forward" shortcut:@"⇧⌘Z" handler:^{ [ws editRedo]; }],
-    ]];
-    UIMenu *clipboard = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Cut" symbol:@"scissors" shortcut:@"⌘X" handler:^{ [ws editCut]; }],
-        [self item:@"Copy" symbol:@"doc.on.doc" shortcut:@"⌘C" handler:^{ [ws editCopy]; }],
-        [self item:@"Paste" symbol:@"doc.on.clipboard" shortcut:@"⌘V" handler:^{ [ws editPaste]; }],
-        [self item:@"Delete" symbol:@"delete.left" shortcut:nil handler:^{ [ws editDelete]; }],
-        [self item:@"Select All" symbol:@"selection.pin.in.out" shortcut:@"⌘A" handler:^{ [ws editSelectAll]; }],
-    ]];
-    UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Find…" symbol:@"magnifyingglass" shortcut:@"⌘F" handler:^{ [ws mpFind]; }],
-        [self item:@"Find Next" symbol:@"arrow.forward" shortcut:@"⌘G" handler:^{ [ws mpFindNext]; }],
-        [self item:@"Replace…" symbol:@"arrow.2.squarepath" shortcut:@"⇧⌘F" handler:^{ [ws mpReplace]; }],
-        [self item:@"Go to Line…" symbol:@"number" shortcut:@"⌘L" handler:^{ [ws mpGoToLine]; }],
-        [self item:@"Insert Date and Time" symbol:@"calendar" shortcut:@"⌘D" handler:^{ [ws mpInsertDateTime]; }],
-    ]];
-    return [UIMenu menuWithTitle:@"Edit" children:@[history, clipboard, search]];
+    return @[
+        @[ [self row:@"Undo" shortcut:@"⌘Z" handler:^{ [ws editUndo]; }],
+           [self row:@"Redo" shortcut:@"⇧⌘Z" handler:^{ [ws editRedo]; }] ],
+        @[ [self row:@"Cut" shortcut:@"⌘X" handler:^{ [ws editCut]; }],
+           [self row:@"Copy" shortcut:@"⌘C" handler:^{ [ws editCopy]; }],
+           [self row:@"Paste" shortcut:@"⌘V" handler:^{ [ws editPaste]; }],
+           [self row:@"Delete" shortcut:nil handler:^{ [ws editDelete]; }],
+           [self row:@"Select All" shortcut:@"⌘A" handler:^{ [ws editSelectAll]; }] ],
+        @[ [self row:@"Find…" shortcut:@"⌘F" handler:^{ [ws mpFind]; }],
+           [self row:@"Find Next" shortcut:@"⌘G" handler:^{ [ws mpFindNext]; }],
+           [self row:@"Replace…" shortcut:@"⇧⌘F" handler:^{ [ws mpReplace]; }],
+           [self row:@"Go to Line…" shortcut:@"⌘L" handler:^{ [ws mpGoToLine]; }],
+           [self row:@"Insert Date and Time" shortcut:@"⌘D" handler:^{ [ws mpInsertDateTime]; }] ],
+    ];
 }
 
-- (UIMenu *)formatMenu {
+- (NSArray<NSArray<MotePadMenuRow *> *> *)formatMenuSections {
     __weak typeof(self) ws = self;
-    UIAction *wrap = [self item:@"Word Wrap" symbol:nil shortcut:@"⌥⌘W" handler:^{ [ws mpToggleWordWrap]; }];
-    wrap.state = _wordWrap ? UIMenuElementStateOn : UIMenuElementStateOff;
-    return [UIMenu menuWithTitle:@"Format" children:@[
-        wrap,
-        [self item:@"Show Fonts" symbol:@"textformat" shortcut:@"⌘T" handler:^{ [ws mpShowFonts]; }],
-    ]];
+    return @[ @[
+        [self toggle:@"Word Wrap" shortcut:@"⌥⌘W" checked:_wordWrap handler:^{ [ws mpToggleWordWrap]; }],
+        [self row:@"Show Fonts" shortcut:@"⌘T" handler:^{ [ws mpShowFonts]; }],
+    ] ];
 }
 
-- (UIMenu *)viewMenu {
+- (NSArray<NSArray<MotePadMenuRow *> *> *)viewMenuSections {
     __weak typeof(self) ws = self;
-    UIAction *status = [self item:@"Status Bar" symbol:nil shortcut:@"⌥⌘S" handler:^{ [ws mpToggleStatusBar]; }];
-    status.state = _statusBarVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
-    UIAction *lineNumbers = [self item:@"Line Numbers" symbol:nil shortcut:@"⌥⌘L" handler:^{ [ws mpToggleLineNumbers]; }];
-    lineNumbers.state = _lineNumbersVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
-    return [UIMenu menuWithTitle:@"View" children:@[status, lineNumbers]];
+    return @[ @[
+        [self toggle:@"Status Bar" shortcut:@"⌥⌘S" checked:_statusBarVisible handler:^{ [ws mpToggleStatusBar]; }],
+        [self toggle:@"Line Numbers" shortcut:@"⌥⌘L" checked:_lineNumbersVisible handler:^{ [ws mpToggleLineNumbers]; }],
+    ] ];
 }
 
-- (UIMenu *)helpMenu {
+- (NSArray<NSArray<MotePadMenuRow *> *> *)helpMenuSections {
     __weak typeof(self) ws = self;
-    return [UIMenu menuWithTitle:@"Help" children:@[
-        [self item:@"MotePad Help" symbol:@"questionmark.circle" shortcut:@"⌘?" handler:^{ [ws mpAbout]; }],
-    ]];
+    return @[ @[ [self row:@"MotePad Help" shortcut:@"⌘?" handler:^{ [ws mpAbout]; }] ] ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)menuSectionsForTitle:(NSString *)title {
+    if ([title isEqualToString:@"File"]) return [self fileMenuSections];
+    if ([title isEqualToString:@"Edit"]) return [self editMenuSections];
+    if ([title isEqualToString:@"Format"]) return [self formatMenuSections];
+    if ([title isEqualToString:@"View"]) return [self viewMenuSections];
+    if ([title isEqualToString:@"Help"]) return [self helpMenuSections];
+    return @[];
+}
+
+- (void)menuButtonTapped:(UIButton *)button {
+    [self openMenuForButton:button];
+}
+
+- (void)openMenuForButton:(UIButton *)button {
+    NSArray<NSArray<MotePadMenuRow *> *> *sections = [self menuSectionsForTitle:[button titleForState:UIControlStateNormal]];
+    if (sections.count == 0)
+        return;
+    MotePadPopupMenuController *menu = [[MotePadPopupMenuController alloc] initWithSections:sections theme:self.workspaceTheme];
+    menu.modalPresentationStyle = UIModalPresentationPopover;
+    UIPopoverPresentationController *popover = menu.popoverPresentationController;
+    popover.sourceView = button;
+    popover.sourceRect = button.bounds;
+    popover.permittedArrowDirections = UIPopoverArrowDirectionUp;
+    popover.delegate = menu;
+    popover.backgroundColor = self.workspaceTheme[@"card"] ?: UIColor.secondarySystemBackgroundColor;
+    [self presentViewController:menu animated:YES completion:nil];
 }
 
 #pragma mark Hardware-keyboard shortcuts
@@ -7900,24 +8093,21 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     return command;
 }
 
-// Open a named in-window menu from the keyboard. Presenting a UIButton's menu
-// programmatically needs -performPrimaryAction (iOS 17+); older systems just no-op.
-- (void)presentMenuForButtonTitled:(NSString *)title {
-    if (@available(iOS 17.0, *)) {
-        for (UIButton *button in _menuButtons) {
-            if ([[button titleForState:UIControlStateNormal] isEqualToString:title]) {
-                [button performPrimaryAction];
-                return;
-            }
+// Open a named in-window menu from the keyboard (the custom popover works on iOS 15+).
+- (void)openMenuForButtonTitled:(NSString *)title {
+    for (UIButton *button in _menuButtons) {
+        if ([[button titleForState:UIControlStateNormal] isEqualToString:title]) {
+            [self openMenuForButton:button];
+            return;
         }
     }
 }
 
-- (void)openFileMenu { [self presentMenuForButtonTitled:@"File"]; }
-- (void)openEditMenu { [self presentMenuForButtonTitled:@"Edit"]; }
-- (void)openFormatMenu { [self presentMenuForButtonTitled:@"Format"]; }
-- (void)openViewMenu { [self presentMenuForButtonTitled:@"View"]; }
-- (void)openHelpMenu { [self presentMenuForButtonTitled:@"Help"]; }
+- (void)openFileMenu { [self openMenuForButtonTitled:@"File"]; }
+- (void)openEditMenu { [self openMenuForButtonTitled:@"Edit"]; }
+- (void)openFormatMenu { [self openMenuForButtonTitled:@"Format"]; }
+- (void)openViewMenu { [self openMenuForButtonTitled:@"View"]; }
+- (void)openHelpMenu { [self openMenuForButtonTitled:@"Help"]; }
 
 - (NSArray<UIKeyCommand *> *)keyCommands {
     UIKeyModifierFlags cmd = UIKeyModifierCommand;
@@ -7949,16 +8139,14 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         [self key:@"?" flags:cmd action:@selector(mpAbout) title:@"MotePad Help"],
     ] mutableCopy];
     // Open each in-window menu from the keyboard (Control-Option-letter).
-    if (@available(iOS 17.0, *)) {
-        UIKeyModifierFlags ctrlOpt = UIKeyModifierControl | UIKeyModifierAlternate;
-        [commands addObjectsFromArray:@[
-            [self key:@"f" flags:ctrlOpt action:@selector(openFileMenu) title:@"File Menu"],
-            [self key:@"e" flags:ctrlOpt action:@selector(openEditMenu) title:@"Edit Menu"],
-            [self key:@"o" flags:ctrlOpt action:@selector(openFormatMenu) title:@"Format Menu"],
-            [self key:@"v" flags:ctrlOpt action:@selector(openViewMenu) title:@"View Menu"],
-            [self key:@"h" flags:ctrlOpt action:@selector(openHelpMenu) title:@"Help Menu"],
-        ]];
-    }
+    UIKeyModifierFlags ctrlOpt = UIKeyModifierControl | UIKeyModifierAlternate;
+    [commands addObjectsFromArray:@[
+        [self key:@"f" flags:ctrlOpt action:@selector(openFileMenu) title:@"File Menu"],
+        [self key:@"e" flags:ctrlOpt action:@selector(openEditMenu) title:@"Edit Menu"],
+        [self key:@"o" flags:ctrlOpt action:@selector(openFormatMenu) title:@"Format Menu"],
+        [self key:@"v" flags:ctrlOpt action:@selector(openViewMenu) title:@"View Menu"],
+        [self key:@"h" flags:ctrlOpt action:@selector(openHelpMenu) title:@"Help Menu"],
+    ]];
     return commands;
 }
 
@@ -8249,7 +8437,6 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 - (void)mpToggleWordWrap {
     _wordWrap = !_wordWrap;
     [self applyWordWrap];
-    [self rebuildMenus];
 }
 
 - (void)applyWordWrap {
@@ -8268,7 +8455,6 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 - (void)mpToggleStatusBar {
     _statusBarVisible = !_statusBarVisible;
     [self applyStatusBarVisibility];
-    [self rebuildMenus];
 }
 
 - (void)applyStatusBarVisibility {
@@ -8280,7 +8466,6 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     _lineNumbersVisible = !_lineNumbersVisible;
     [self updateGutterWidth];
     [self applyLineNumbersVisibility];
-    [self rebuildMenus];
 }
 
 - (void)applyLineNumbersVisibility {
