@@ -240,6 +240,43 @@ dup_store:
     stp x10, x11, [x13]
     gret
 
+// ORR/BIC (vector, immediate): the read-modify-write cousins of MOVI in
+// the modified-immediate family (cargo's core-arch probe SIGILL'd on
+// `orr v0.2s, #0x10, lsl #16` = 0x0f005600). gen_step_arm64 expands the
+// abc:defgh/cmode pattern to the replicated 64-bit constant and passes a
+// high-half keep-mask: ~0 for the Q form, 0 for the 64-bit form (whose
+// architected write ZEROES the upper half -- OR-with-0 would wrongly
+// preserve it). Code stream: [gadget][rd][imm64][himask]
+.gadget vorr_imm
+    ldr x9, [_ip]
+    ldr x10, [_ip, #8]        // expanded immediate
+    ldr x11, [_ip, #16]       // high-half keep-mask (Q ? ~0 : 0)
+    add _ip, _ip, #24
+    and x9, x9, #0x1f
+    add x13, _cpu, #CPU_v0
+    add x13, x13, x9, lsl #4
+    ldp x14, x15, [x13]
+    orr x14, x14, x10
+    orr x15, x15, x10
+    and x15, x15, x11         // Q=0: architected zero of the upper half
+    stp x14, x15, [x13]
+    gret
+
+.gadget vbic_imm
+    ldr x9, [_ip]
+    ldr x10, [_ip, #8]
+    ldr x11, [_ip, #16]
+    add _ip, _ip, #24
+    and x9, x9, #0x1f
+    add x13, _cpu, #CPU_v0
+    add x13, x13, x9, lsl #4
+    ldp x14, x15, [x13]
+    bic x14, x14, x10
+    bic x15, x15, x10
+    and x15, x15, x11
+    stp x14, x15, [x13]
+    gret
+
 # vim: ft=gas
 
 // ---- Vector element <-> general register moves ---------------------------

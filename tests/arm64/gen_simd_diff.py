@@ -682,6 +682,26 @@ def fixconv_tests():
 
 FAMILIES["fixconv"] = fixconv_tests()
 
+def vmodimm_tests():
+    """ORR/BIC (vector, immediate): the read-modify-write modified-immediate
+    forms (cargo hit `orr v0.2s, #0x10, lsl #16`). v0 is preloaded, so the
+    fold into live register contents and the 64-bit form's upper-half zeroing
+    are both exercised."""
+    items = []
+    for op in ("orr", "bic"):
+        for imm in (0x10, 0xEF):
+            for arr in ("2s", "4s"):
+                for sh in (0, 8, 16, 24):
+                    items.append((f"{op}i.{arr}.{imm:#x}.lsl{sh}",
+                                  f"{op} v0.{arr}, #{imm:#x}, lsl #{sh}"))
+            for arr in ("4h", "8h"):
+                for sh in (0, 8):
+                    items.append((f"{op}i.{arr}.{imm:#x}.lsl{sh}",
+                                  f"{op} v0.{arr}, #{imm:#x}, lsl #{sh}"))
+    return raw_tests(items, acc=True)
+
+FAMILIES["vmodimm"] = vmodimm_tests()
+
 LINUX_PROLOGUE = """\
 .text
 .global _start

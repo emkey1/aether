@@ -3627,8 +3627,10 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     }
 
     // AdvSIMD modified immediate: MOVI/MVNI/FMOV-imm — compiler struct
-    // zeroing is `movi v0.2d, #0; stp q0, q0` everywhere. The ORR/BIC
-    // register-modifying cmode variants stay unimplemented (reject).
+    // zeroing is `movi v0.2d, #0; stp q0, q0` everywhere — plus the
+    // ORR/BIC register-modifying cmode variants (op picks ORR vs BIC;
+    // cargo's core-arch code hit `orr v0.2s, #0x10, lsl #16`), lowered
+    // to an RMW gadget with the same expanded-constant scheme.
     if ((insn & 0x9ff80c00) == 0x0f000400) {
         extern void gadget_arm64_vconst(void);
         unsigned q = (insn >> 30) & 1;
@@ -3638,9 +3640,21 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rd = insn & 0x1f;
         uint64_t imm64;
         bool is_orr_bic = (cmode & 1) && cmode < 12;
-        if (is_orr_bic || !gen_arm64_expand_imm(op, cmode, imm8, &imm64)
+        if (!gen_arm64_expand_imm(is_orr_bic ? 0 : op, cmode, imm8, &imm64)
                 || (op == 1 && cmode == 15 && !q) /* FMOV .2d needs Q */) {
             return gen_arm64_undefined(state);
+        }
+        if (is_orr_bic) {
+            // ORR (op=0) / BIC (op=1) fold the expanded pattern into the
+            // live Vd value; the third stream word is the high-half keep
+            // mask (the 64-bit form's write architecturally zeroes it).
+            extern void gadget_arm64_vorr_imm(void), gadget_arm64_vbic_imm(void);
+            gen(state, (unsigned long) (op ? gadget_arm64_vbic_imm
+                                           : gadget_arm64_vorr_imm));
+            gen(state, rd);
+            gen(state, imm64);
+            gen(state, q ? ~0ULL : 0);
+            return 1;
         }
         if (op == 1 && cmode <= 13)
             imm64 = ~imm64; // MVNI
