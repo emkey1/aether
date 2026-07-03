@@ -2827,6 +2827,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     return windowView;
 }
 
+// Depth-first search for the view that currently holds first-responder status
+// inside a (sub)tree — used by the shared close path to hand keyboard focus back
+// to the workspace before a window containing the responder is torn down.
+static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
+    if (view.isFirstResponder)
+        return view;
+    for (UIView *subview in view.subviews) {
+        UIView *responder = ISHWorkspaceFindFirstResponder(subview);
+        if (responder != nil)
+            return responder;
+    }
+    return nil;
+}
+
 - (void)attachViewController:(UIViewController *)viewController toDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView {
     if ([viewController isKindOfClass:WorkspaceThemedToolViewController.class]) {
         ((WorkspaceThemedToolViewController *) viewController).workspaceHostViewController = self;
@@ -2855,12 +2869,25 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *strongWindowView = weakWindowView;
         if (strongSelf == nil || strongViewController == nil || strongWindowView == nil)
             return;
+        // First-responder handoff: tearing down a window while one of its views (e.g.
+        // MotePad's text view — the workspace's first text-input applet) is first
+        // responder leaves the workspace with no responder, wedging keyboard input
+        // until the user taps a terminal. Resign it before the teardown and afterwards
+        // revive input the same way the tap-to-focus path does (focusTerminal on the
+        // frontmost terminal window). Done here in the shared tool close path — every
+        // close route (chrome ×, ⌘W, menu Quit) funnels through this handler, and any
+        // future text-input applet gets the same protection for free.
+        UIView *closingFirstResponder = ISHWorkspaceFindFirstResponder(strongWindowView);
+        if (closingFirstResponder != nil)
+            [closingFirstResponder resignFirstResponder];
         [strongViewController willMoveToParentViewController:nil];
         [strongViewController.view removeFromSuperview];
         [strongViewController removeFromParentViewController];
         [strongSelf.desktopWindows removeObject:strongWindowView];
         [strongWindowView removeFromSuperview];
         [strongSelf refreshDockButtons];
+        if (closingFirstResponder != nil)
+            [[strongSelf frontmostDesktopTerminalWindow].hostedTerminalViewController focusTerminal];
     };
 }
 
@@ -7371,6 +7398,8 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     void (^_completion)(NSString *);
     NSArray<MotePadDirectoryEntry *> *_entries;
     BOOL _showsParent;
+    BOOL _loading;
+    NSInteger _loadGeneration;  // discards stale async listings
 }
 
 - (instancetype)initWithMode:(MotePadBrowserMode)mode
@@ -7402,21 +7431,54 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self reload];
 }
 
+// Guest-VFS listings block on emulator locks, so they run on the document store's
+// serial I/O queue; while one is in flight the table shows a spinner and rejects
+// taps so a half-loaded directory can't be interacted with.
 - (void)reload {
     _showsParent = ![_directory isEqualToString:@"/"];
-    NSArray<MotePadDirectoryEntry *> *entries = [[MotePadDocumentStore sharedStore] listDirectoryAtGuestPath:_directory];
-    _entries = entries ?: @[];
-    [self.tableView reloadData];
+    NSInteger generation = ++_loadGeneration;
+    [self setLoading:YES];
+    __weak typeof(self) weakSelf = self;
+    [[MotePadDocumentStore sharedStore] listDirectoryAtGuestPath:_directory
+                                                      completion:^(NSArray<MotePadDirectoryEntry *> *entries) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_loadGeneration != generation)
+            return;
+        strongSelf->_entries = entries ?: @[];
+        [strongSelf setLoading:NO];
+        [strongSelf.tableView reloadData];
+    }];
 }
 
+- (void)setLoading:(BOOL)loading {
+    _loading = loading;
+    if (loading) {
+        UIActivityIndicatorView *spinner =
+            [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        [spinner startAnimating];
+        self.tableView.backgroundView = spinner;
+    } else {
+        self.tableView.backgroundView = nil;
+    }
+    // Cancel (left bar button) stays live so the user can always bail out.
+    self.tableView.userInteractionEnabled = !loading;
+    self.navigationItem.rightBarButtonItem.enabled = !loading;
+}
+
+// Dismiss first, then run the completion from the dismissal completion block: the
+// completion may present an alert (Couldn't Open / Couldn't Save), and presenting
+// while this browser is still being dismissed silently fails ("already presenting"),
+// swallowing the error — a failed Save As would look like it succeeded.
 - (void)cancel {
-    if (_completion) _completion(nil);
-    [self dismissViewControllerAnimated:YES completion:nil];
+    [self finishWithPath:nil];
 }
 
 - (void)finishWithPath:(NSString *)path {
-    if (_completion) _completion(path);
-    [self dismissViewControllerAnimated:YES completion:nil];
+    void (^completion)(NSString *) = _completion;
+    _completion = nil;
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (completion) completion(path);
+    }];
 }
 
 - (NSString *)parentDirectory {
@@ -7436,9 +7498,13 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 }
 
 - (void)promptForFilename:(NSString *)initialName {
+    [self promptForFilename:initialName message:nil];
+}
+
+- (void)promptForFilename:(NSString *)initialName message:(NSString *)message {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Save As"
-                                            message:_directory
+                                            message:message.length ? message : _directory
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"filename.txt";
@@ -7454,9 +7520,22 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         if (strongSelf == nil) return;
         NSString *name = [alert.textFields.firstObject.text
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (name.length == 0 || [name containsString:@"/"])
+        if (name.length == 0 || [name containsString:@"/"] ||
+            [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+            // Bad name: don't silently swallow the save — re-present the prompt with an
+            // inline explanation once the alert's own dismissal has finished.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [strongSelf promptForFilename:name
+                                      message:@"Enter a file name without “/” (and not “.” or “..”)."];
+            });
             return;
-        [strongSelf finishWithPath:[strongSelf->_directory stringByAppendingPathComponent:name]];
+        }
+        // Let the alert finish dismissing before finishWithPath dismisses the browser;
+        // overlapping dismissals at two levels of the hierarchy can cancel each other.
+        NSString *path = [strongSelf->_directory stringByAppendingPathComponent:name];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf finishWithPath:path];
+        });
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -7830,6 +7909,10 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     BOOL _statusBarVisible;
     BOOL _lineNumbersVisible;
     NSString *_lastSearch;  // last Find term, so Find Next (⌘G) can repeat it
+
+    NSInteger _busyCount;      // >0 while a queued file operation is in flight (editor locked)
+    NSString *_draftSlotName;  // this window's autosave draft file name (claimed in viewDidLoad)
+    NSTimer *_draftTimer;      // debounce timer for keystroke-driven autosave
 }
 
 - (void)viewDidLoad {
@@ -7959,6 +8042,28 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self updateGutterWidth];
     [self applyLineNumbersVisibility];
     [self workspaceApplyTheme];
+
+    // --- Draft autosave (survives a jetsam kill) ----------------------------------
+    [self claimDraftSlot];
+    [self restoreDraftIfNewer];
+    // Flush the draft the moment the app heads to the background: a background kill
+    // is routine for this app, and the debounce timer won't fire once suspended.
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(motePadFlushDraftForBackground:)
+                                               name:UIApplicationDidEnterBackgroundNotification
+                                             object:nil];
+    if (@available(iOS 13.0, *)) {
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(motePadFlushDraftForBackground:)
+                                                   name:UISceneDidEnterBackgroundNotification
+                                                 object:nil];
+    }
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_draftTimer invalidate];
+    [WorkspaceMotePadToolViewController releaseDraftSlotNamed:_draftSlotName];
 }
 
 #pragma mark Theming
@@ -8180,6 +8285,169 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self updateDocTitle];  // setDirty: no-ops when already clean; refresh the filename explicitly
     [self updateStatusBar];
     if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [self autosaveDraftNow];  // document is clean now — this clears any stale draft
+}
+
+#pragma mark Draft autosave
+
+// Unsaved text used to live only in _textView.text, so a background (jetsam) kill —
+// routine for this app — silently discarded the document. Every MotePad window now
+// mirrors its dirty text to a small host-side plist under Application Support (never
+// inside the guest FS), debounced ~2s after the last keystroke and flushed
+// immediately when the app backgrounds. On window (re)creation the draft is restored
+// if it is newer than the underlying file's last save. A corrupt/unreadable draft is
+// ignored (dictionaryWithContentsOfURL just returns nil) — never a launch crash.
+//
+// The workspace can host several MotePad windows (it is not a "global" singleton
+// tool), so each window claims a numbered draft slot in creation order; a restored
+// layout recreates windows in the saved order, so the slots line back up.
+
+static NSURL *MotePadDraftDirectoryURL(void) {
+    NSURL *base = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                       inDomains:NSUserDomainMask].firstObject;
+    if (base == nil)
+        return nil;
+    NSURL *dir = [base URLByAppendingPathComponent:@"MotePadDrafts" isDirectory:YES];
+    [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES
+                                            attributes:nil error:NULL];
+    return dir;
+}
+
+// Main-thread only (claim/release both run on main).
+static NSMutableSet<NSString *> *MotePadClaimedDraftSlots(void) {
+    static NSMutableSet<NSString *> *slots;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ slots = [NSMutableSet set]; });
+    return slots;
+}
+
++ (void)releaseDraftSlotNamed:(NSString *)name {
+    if (name.length == 0)
+        return;
+    if (NSThread.isMainThread)
+        [MotePadClaimedDraftSlots() removeObject:name];
+    else
+        dispatch_async(dispatch_get_main_queue(), ^{ [MotePadClaimedDraftSlots() removeObject:name]; });
+}
+
+- (void)claimDraftSlot {
+    NSMutableSet<NSString *> *claimed = MotePadClaimedDraftSlots();
+    for (NSUInteger slot = 0; slot < 64; slot++) {
+        NSString *name = [NSString stringWithFormat:@"draft-%lu.plist", (unsigned long)slot];
+        if (![claimed containsObject:name]) {
+            [claimed addObject:name];
+            _draftSlotName = name;
+            return;
+        }
+    }
+    _draftSlotName = nil;  // implausibly many windows: skip autosave rather than share a slot
+}
+
+- (NSURL *)draftFileURL {
+    if (_draftSlotName.length == 0)
+        return nil;
+    return [MotePadDraftDirectoryURL() URLByAppendingPathComponent:_draftSlotName isDirectory:NO];
+}
+
+- (void)scheduleDraftAutosave {
+    [_draftTimer invalidate];
+    __weak typeof(self) ws = self;  // block-based timer: a target-based one would retain self
+    _draftTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:NO block:^(__unused NSTimer *t) {
+        [ws autosaveDraftNow];
+    }];
+}
+
+- (NSData *)draftDataSnapshot {
+    NSMutableDictionary *draft = [NSMutableDictionary dictionary];
+    draft[@"text"] = _textView.text ?: @"";
+    draft[@"dirty"] = @YES;
+    draft[@"date"] = [NSDate date];
+    if (_currentGuestPath != nil)
+        draft[@"path"] = _currentGuestPath;
+    return [NSPropertyListSerialization dataWithPropertyList:draft
+                                                      format:NSPropertyListBinaryFormat_v1_0
+                                                     options:0 error:NULL];
+}
+
+- (void)autosaveDraftNow {
+    [_draftTimer invalidate];
+    _draftTimer = nil;
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    if (!_dirty) {
+        [self clearDraft];
+        return;
+    }
+    NSData *data = [self draftDataSnapshot];  // snapshot on main; write off it
+    dispatch_async(MotePadDocumentStore.ioQueue, ^{
+        [data writeToURL:url options:NSDataWritingAtomic error:NULL];
+    });
+}
+
+// Synchronous flush: the debounce timer won't fire once the app is suspended, and a
+// queued async write might sit behind a slow VFS operation, so write inline here.
+- (void)motePadFlushDraftForBackground:(__unused NSNotification *)notification {
+    [_draftTimer invalidate];
+    _draftTimer = nil;
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    if (!_dirty) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+        return;
+    }
+    [[self draftDataSnapshot] writeToURL:url options:NSDataWritingAtomic error:NULL];
+}
+
+- (void)clearDraft {
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    dispatch_async(MotePadDocumentStore.ioQueue, ^{
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+    });
+}
+
+- (void)restoreDraftIfNewer {
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    NSDictionary *draft = [NSDictionary dictionaryWithContentsOfURL:url];
+    NSString *text = draft[@"text"];
+    if (![text isKindOfClass:NSString.class])
+        return;  // missing or corrupt draft: start clean
+    if (![draft[@"dirty"] isKindOfClass:NSNumber.class] || ![draft[@"dirty"] boolValue])
+        return;  // clean drafts are never restored (and shouldn't exist)
+    NSString *path = [draft[@"path"] isKindOfClass:NSString.class] ? draft[@"path"] : nil;
+    NSDate *draftDate = [draft[@"date"] isKindOfClass:NSDate.class] ? draft[@"date"] : nil;
+
+    __weak typeof(self) ws = self;
+    void (^apply)(void) = ^{
+        typeof(self) ss = ws;
+        if (ss == nil || ss->_dirty || ss->_textView.text.length > 0)
+            return;  // the user already started typing; don't stomp their work
+        ss->_textView.text = text;
+        ss->_currentGuestPath = path;
+        [ss->_textView.undoManager removeAllActions];
+        [ss setDirty:YES];  // restored text is unsaved — show the ● indicator
+        [ss updateStatusBar];
+        if (ss->_lineNumbersVisible) { [ss updateGutterWidth]; [ss->_gutter setNeedsDisplay]; }
+    };
+
+    if (path == nil) {
+        apply();  // untitled draft: nothing on disk to compare against
+        return;
+    }
+    // Only restore when the draft is newer than the document's last save; if the file
+    // was saved more recently (e.g. edited from the guest), the draft is stale.
+    [[MotePadDocumentStore sharedStore] modificationDateAtGuestPath:path completion:^(NSDate *fileDate) {
+        if (fileDate != nil && draftDate != nil && [fileDate compare:draftDate] != NSOrderedAscending) {
+            [ws clearDraft];
+            return;
+        }
+        apply();
+    }];
 }
 
 #pragma mark File actions
@@ -8189,18 +8457,44 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self promptToSaveIfDirtyThen:^{ [ws loadText:@"" guestPath:nil]; }];
 }
 
+// Editor lock while a queued file operation is in flight: the guest-VFS work runs on
+// the store's serial background queue (it blocks on emulator locks and must never run
+// on the main thread), and until it completes the buffer must not change underneath
+// the pending read/write. Counted so overlapping operations can't re-enable early.
+- (void)beginFileOperation:(NSString *)statusText {
+    _busyCount++;
+    _textView.editable = NO;
+    _statusLabel.text = statusText;
+}
+
+- (void)endFileOperation {
+    if (_busyCount > 0)
+        _busyCount--;
+    if (_busyCount == 0) {
+        _textView.editable = YES;
+        [self updateStatusBar];
+    }
+}
+
 - (void)mpOpen {
     __weak typeof(self) ws = self;
     [self promptToSaveIfDirtyThen:^{
         [ws presentBrowserWithMode:MotePadBrowserModeOpen suggestedName:nil completion:^(NSString *path) {
             if (path == nil) return;
-            NSError *error = nil;
-            NSString *text = [[MotePadDocumentStore sharedStore] readTextFileAtGuestPath:path error:&error];
-            if (text == nil) {
-                [ws presentError:error title:@"Couldn’t Open"];
-                return;
-            }
-            [ws loadText:text guestPath:path];
+            typeof(self) ss = ws;
+            if (ss == nil) return;
+            [ss beginFileOperation:@"Opening…"];
+            [[MotePadDocumentStore sharedStore] readTextFileAtGuestPath:path
+                                                             completion:^(NSString *text, NSError *error) {
+                typeof(self) s2 = ws;
+                if (s2 == nil) return;
+                [s2 endFileOperation];
+                if (text == nil) {
+                    [s2 presentError:error title:@"Couldn’t Open"];
+                    return;
+                }
+                [s2 loadText:text guestPath:path];
+            }];
         }];
     }];
 }
@@ -8210,7 +8504,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         [self mpSaveAs];
         return;
     }
-    [self writeToGuestPath:_currentGuestPath];
+    [self writeToGuestPath:_currentGuestPath completion:nil];
 }
 
 - (void)mpSaveAs {
@@ -8218,7 +8512,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[self documentDisplayName]
                       completion:^(NSString *path) {
         if (path == nil) return;
-        [ws writeToGuestPath:path];
+        [ws writeToGuestPath:path completion:nil];
     }];
 }
 
@@ -8245,7 +8539,14 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 
 - (void)mpClose {
     __weak typeof(self) ws = self;
-    [self promptToSaveIfDirtyThen:^{ [ws closeHostWindow]; }];
+    [self promptToSaveIfDirtyThen:^{
+        // Deliberate close (the user saved or chose Don't Save): drop the autosaved
+        // draft so discarded text isn't resurrected in the next MotePad window. The
+        // chrome × path skips this on purpose — it never prompts, so its draft is
+        // the only thing protecting unsaved text.
+        [ws clearDraft];
+        [ws closeHostWindow];
+    }];
 }
 
 - (void)mpQuit {
@@ -8264,28 +8565,55 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
         window.closeHandler();
 }
 
-- (BOOL)writeToGuestPath:(NSString *)path {
-    NSError *error = nil;
-    if (![[MotePadDocumentStore sharedStore] writeText:_textView.text toGuestPath:path error:&error]) {
-        [self presentError:error title:@"Couldn’t Save"];
-        return NO;
-    }
-    _currentGuestPath = path;
-    [self setDirty:NO];
-    [self updateDocTitle];  // reflect the (possibly new) filename even if it was already clean
-    return YES;
+// Queued save: the write happens on the store's serial background queue, the editor
+// is locked while it's in flight, and the completion (main thread) reports success.
+- (void)writeToGuestPath:(NSString *)path completion:(void (^)(BOOL ok))completion {
+    __weak typeof(self) ws = self;
+    [self beginFileOperation:@"Saving…"];
+    [[MotePadDocumentStore sharedStore] writeText:_textView.text toGuestPath:path
+                                       completion:^(BOOL ok, NSError *error) {
+        typeof(self) ss = ws;
+        if (ss == nil) {
+            if (completion) completion(NO);
+            return;
+        }
+        [ss endFileOperation];
+        if (!ok) {
+            [ss presentError:error title:@"Couldn’t Save"];
+        } else {
+            ss->_currentGuestPath = path;
+            [ss setDirty:NO];
+            [ss updateDocTitle];  // reflect the (possibly new) filename even if it was already clean
+            [ss clearDraft];      // the document is safely on disk; the draft is obsolete
+        }
+        if (completion) completion(ok);
+    }];
 }
 
 // Present the guest file browser rooted at the current document's directory (or the
-// store's default writable directory for an untitled document).
+// store's default writable directory for an untitled document — resolved on the I/O
+// queue, since checking /AOK/persist may touch the guest VFS).
 - (void)presentBrowserWithMode:(MotePadBrowserMode)mode
                  suggestedName:(NSString *)suggestedName
                     completion:(void (^)(NSString *))completion {
-    NSString *start = _currentGuestPath.length
-        ? _currentGuestPath.stringByDeletingLastPathComponent
-        : [[MotePadDocumentStore sharedStore] defaultDirectoryGuestPath];
+    if (_currentGuestPath.length) {
+        [self presentBrowserWithMode:mode directory:_currentGuestPath.stringByDeletingLastPathComponent
+                       suggestedName:suggestedName completion:completion];
+        return;
+    }
+    __weak typeof(self) ws = self;
+    [[MotePadDocumentStore sharedStore] defaultDirectoryGuestPathWithCompletion:^(NSString *directory) {
+        [ws presentBrowserWithMode:mode directory:directory
+                     suggestedName:suggestedName completion:completion];
+    }];
+}
+
+- (void)presentBrowserWithMode:(MotePadBrowserMode)mode
+                     directory:(NSString *)directory
+                 suggestedName:(NSString *)suggestedName
+                    completion:(void (^)(NSString *))completion {
     MotePadFileBrowserViewController *browser =
-        [[MotePadFileBrowserViewController alloc] initWithMode:mode directory:start
+        [[MotePadFileBrowserViewController alloc] initWithMode:mode directory:directory
                                                  suggestedName:suggestedName completion:completion];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:browser];
     nav.modalPresentationStyle = UIModalPresentationFormSheet;
@@ -8306,14 +8634,19 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
                                             handler:^(__unused UIAlertAction *a) {
         typeof(self) ss = ws;
         if (ss == nil) return;
+        void (^proceedIfSaved)(BOOL) = ^(BOOL ok) {
+            if (ok && proceed) proceed();
+        };
         if (ss->_currentGuestPath == nil) {
             // No path yet: run Save As, and only proceed if the write actually happened.
             [ss presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[ss documentDisplayName]
                             completion:^(NSString *path) {
-                if (path != nil && [ss writeToGuestPath:path] && proceed) proceed();
+                typeof(self) s2 = ws;
+                if (path != nil && s2 != nil)
+                    [s2 writeToGuestPath:path completion:proceedIfSaved];
             }];
-        } else if ([ss writeToGuestPath:ss->_currentGuestPath] && proceed) {
-            proceed();
+        } else {
+            [ss writeToGuestPath:ss->_currentGuestPath completion:proceedIfSaved];
         }
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Don’t Save" style:UIAlertActionStyleDestructive
@@ -8558,6 +8891,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self setDirty:YES];
     [self updateStatusBar];
     if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [self scheduleDraftAutosave];
 }
 
 - (void)textViewDidChangeSelection:(__unused UITextView *)textView {
