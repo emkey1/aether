@@ -7813,88 +7813,80 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     return action;
 }
 
-// A menu element that DISPLAYS its keyboard shortcut. UIAction can't show a key
-// equivalent — only UIKeyCommand does — so shortcut-bearing items use this. Selecting
-// it (tap) dispatches `action` up the responder chain to this VC (which is an ancestor
-// of the menu's button, so it's always reachable).
-- (UIKeyCommand *)item:(NSString *)title symbol:(NSString *)symbol input:(NSString *)input
-                 flags:(UIKeyModifierFlags)flags action:(SEL)action {
-    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:flags action:action];
-    command.title = title;  // title/image are read-write on UICommand, and drive the menu display
-    if (symbol.length)
-        command.image = [UIImage systemImageNamed:symbol];
-    return command;
+// A menu item that shows its shortcut as trailing text. iOS renders native ⌘-glyphs
+// only in the system menu bar, NOT in app-created pull-down menus (confirmed on iOS 17
+// even with a hardware keyboard attached), so we bake the shortcut into the title. Tap
+// runs `handler`; the physical key press is wired separately in -keyCommands.
+- (UIAction *)item:(NSString *)title symbol:(NSString *)symbol shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
+    NSString *fullTitle = shortcut.length ? [NSString stringWithFormat:@"%@   %@", title, shortcut] : title;
+    return [self actionTitled:fullTitle symbol:symbol handler:handler];
 }
 
 - (UIMenu *)fileMenu {
-    UIKeyModifierFlags cmd = UIKeyModifierCommand;
-    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
+    __weak typeof(self) ws = self;
     UIMenu *docs = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"New" symbol:@"doc" input:@"n" flags:cmd action:@selector(mpNew)],
-        [self item:@"Open…" symbol:@"folder" input:@"o" flags:cmd action:@selector(mpOpen)],
-        [self item:@"Save" symbol:@"arrow.down.doc" input:@"s" flags:cmd action:@selector(mpSave)],
-        [self item:@"Save As…" symbol:@"square.and.arrow.down" input:@"s" flags:shiftCmd action:@selector(mpSaveAs)],
+        [self item:@"New" symbol:@"doc" shortcut:@"⌘N" handler:^{ [ws mpNew]; }],
+        [self item:@"Open…" symbol:@"folder" shortcut:@"⌘O" handler:^{ [ws mpOpen]; }],
+        [self item:@"Save" symbol:@"arrow.down.doc" shortcut:@"⌘S" handler:^{ [ws mpSave]; }],
+        [self item:@"Save As…" symbol:@"square.and.arrow.down" shortcut:@"⇧⌘S" handler:^{ [ws mpSaveAs]; }],
     ]];
     UIMenu *printing = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Page Setup…" symbol:@"doc.badge.gearshape" input:@"p" flags:shiftCmd action:@selector(mpPageSetup)],
-        [self item:@"Print…" symbol:@"printer" input:@"p" flags:cmd action:@selector(mpPrint)],
+        [self item:@"Page Setup…" symbol:@"doc.badge.gearshape" shortcut:@"⇧⌘P" handler:^{ [ws mpPageSetup]; }],
+        [self item:@"Print…" symbol:@"printer" shortcut:@"⌘P" handler:^{ [ws mpPrint]; }],
     ]];
     UIMenu *lifecycle = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Close" symbol:@"xmark.circle" input:@"w" flags:cmd action:@selector(mpClose)],
-        [self item:@"Quit MotePad" symbol:@"power" input:@"q" flags:cmd action:@selector(mpQuit)],
+        [self item:@"Close" symbol:@"xmark.circle" shortcut:@"⌘W" handler:^{ [ws mpClose]; }],
+        [self item:@"Quit MotePad" symbol:@"power" shortcut:@"⌘Q" handler:^{ [ws mpQuit]; }],
     ]];
     return [UIMenu menuWithTitle:@"File" children:@[docs, printing, lifecycle]];
 }
 
 - (UIMenu *)editMenu {
     __weak typeof(self) ws = self;
-    UIKeyModifierFlags cmd = UIKeyModifierCommand;
-    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
     UIMenu *history = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Undo" symbol:@"arrow.uturn.backward" input:@"z" flags:cmd action:@selector(editUndo)],
-        [self item:@"Redo" symbol:@"arrow.uturn.forward" input:@"z" flags:shiftCmd action:@selector(editRedo)],
+        [self item:@"Undo" symbol:@"arrow.uturn.backward" shortcut:@"⌘Z" handler:^{ [ws editUndo]; }],
+        [self item:@"Redo" symbol:@"arrow.uturn.forward" shortcut:@"⇧⌘Z" handler:^{ [ws editRedo]; }],
     ]];
     UIMenu *clipboard = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Cut" symbol:@"scissors" input:@"x" flags:cmd action:@selector(editCut)],
-        [self item:@"Copy" symbol:@"doc.on.doc" input:@"c" flags:cmd action:@selector(editCopy)],
-        [self item:@"Paste" symbol:@"doc.on.clipboard" input:@"v" flags:cmd action:@selector(editPaste)],
-        [self actionTitled:@"Delete" symbol:@"delete.left" handler:^{ [ws editDelete]; }],
-        [self item:@"Select All" symbol:@"selection.pin.in.out" input:@"a" flags:cmd action:@selector(editSelectAll)],
+        [self item:@"Cut" symbol:@"scissors" shortcut:@"⌘X" handler:^{ [ws editCut]; }],
+        [self item:@"Copy" symbol:@"doc.on.doc" shortcut:@"⌘C" handler:^{ [ws editCopy]; }],
+        [self item:@"Paste" symbol:@"doc.on.clipboard" shortcut:@"⌘V" handler:^{ [ws editPaste]; }],
+        [self item:@"Delete" symbol:@"delete.left" shortcut:nil handler:^{ [ws editDelete]; }],
+        [self item:@"Select All" symbol:@"selection.pin.in.out" shortcut:@"⌘A" handler:^{ [ws editSelectAll]; }],
     ]];
     UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[
-        [self item:@"Find…" symbol:@"magnifyingglass" input:@"f" flags:cmd action:@selector(mpFind)],
-        [self item:@"Find Next" symbol:@"arrow.forward" input:@"g" flags:cmd action:@selector(mpFindNext)],
-        [self item:@"Replace…" symbol:@"arrow.2.squarepath" input:@"f" flags:shiftCmd action:@selector(mpReplace)],
-        [self item:@"Go to Line…" symbol:@"number" input:@"l" flags:cmd action:@selector(mpGoToLine)],
-        [self item:@"Insert Date and Time" symbol:@"calendar" input:@"d" flags:cmd action:@selector(mpInsertDateTime)],
+        [self item:@"Find…" symbol:@"magnifyingglass" shortcut:@"⌘F" handler:^{ [ws mpFind]; }],
+        [self item:@"Find Next" symbol:@"arrow.forward" shortcut:@"⌘G" handler:^{ [ws mpFindNext]; }],
+        [self item:@"Replace…" symbol:@"arrow.2.squarepath" shortcut:@"⇧⌘F" handler:^{ [ws mpReplace]; }],
+        [self item:@"Go to Line…" symbol:@"number" shortcut:@"⌘L" handler:^{ [ws mpGoToLine]; }],
+        [self item:@"Insert Date and Time" symbol:@"calendar" shortcut:@"⌘D" handler:^{ [ws mpInsertDateTime]; }],
     ]];
     return [UIMenu menuWithTitle:@"Edit" children:@[history, clipboard, search]];
 }
 
 - (UIMenu *)formatMenu {
-    UIKeyModifierFlags cmd = UIKeyModifierCommand;
-    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
-    UIKeyCommand *wrap = [self item:@"Word Wrap" symbol:nil input:@"w" flags:optCmd action:@selector(mpToggleWordWrap)];
+    __weak typeof(self) ws = self;
+    UIAction *wrap = [self item:@"Word Wrap" symbol:nil shortcut:@"⌥⌘W" handler:^{ [ws mpToggleWordWrap]; }];
     wrap.state = _wordWrap ? UIMenuElementStateOn : UIMenuElementStateOff;
     return [UIMenu menuWithTitle:@"Format" children:@[
         wrap,
-        [self item:@"Show Fonts" symbol:@"textformat" input:@"t" flags:cmd action:@selector(mpShowFonts)],
+        [self item:@"Show Fonts" symbol:@"textformat" shortcut:@"⌘T" handler:^{ [ws mpShowFonts]; }],
     ]];
 }
 
 - (UIMenu *)viewMenu {
-    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
-    UIKeyCommand *status = [self item:@"Status Bar" symbol:nil input:@"s" flags:optCmd action:@selector(mpToggleStatusBar)];
+    __weak typeof(self) ws = self;
+    UIAction *status = [self item:@"Status Bar" symbol:nil shortcut:@"⌥⌘S" handler:^{ [ws mpToggleStatusBar]; }];
     status.state = _statusBarVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
-    UIKeyCommand *lineNumbers = [self item:@"Line Numbers" symbol:nil input:@"l" flags:optCmd action:@selector(mpToggleLineNumbers)];
+    UIAction *lineNumbers = [self item:@"Line Numbers" symbol:nil shortcut:@"⌥⌘L" handler:^{ [ws mpToggleLineNumbers]; }];
     lineNumbers.state = _lineNumbersVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
     return [UIMenu menuWithTitle:@"View" children:@[status, lineNumbers]];
 }
 
 - (UIMenu *)helpMenu {
-    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    __weak typeof(self) ws = self;
     return [UIMenu menuWithTitle:@"Help" children:@[
-        [self item:@"MotePad Help" symbol:@"questionmark.circle" input:@"?" flags:cmd action:@selector(mpAbout)],
+        [self item:@"MotePad Help" symbol:@"questionmark.circle" shortcut:@"⌘?" handler:^{ [ws mpAbout]; }],
     ]];
 }
 
