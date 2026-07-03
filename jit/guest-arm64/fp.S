@@ -247,6 +247,24 @@ fcvti_gadget fcvtas_sw, fcvtas, w16, s30
 fcvti_gadget fcvtas_sx, fcvtas, x16, s30
 fcvti_gadget fcvtas_dw, fcvtas, w16, d30
 fcvti_gadget fcvtas_dx, fcvtas, x16, d30
+// Unsigned rounding variants (rust: `f64 as u64` after floor/ceil lowers
+// to FCVTMU/FCVTPU; a cargo-built coordinator SIGILL'd on fcvtmu x1, d28).
+fcvti_gadget fcvtnu_sw, fcvtnu, w16, s30
+fcvti_gadget fcvtnu_sx, fcvtnu, x16, s30
+fcvti_gadget fcvtnu_dw, fcvtnu, w16, d30
+fcvti_gadget fcvtnu_dx, fcvtnu, x16, d30
+fcvti_gadget fcvtpu_sw, fcvtpu, w16, s30
+fcvti_gadget fcvtpu_sx, fcvtpu, x16, s30
+fcvti_gadget fcvtpu_dw, fcvtpu, w16, d30
+fcvti_gadget fcvtpu_dx, fcvtpu, x16, d30
+fcvti_gadget fcvtmu_sw, fcvtmu, w16, s30
+fcvti_gadget fcvtmu_sx, fcvtmu, x16, s30
+fcvti_gadget fcvtmu_dw, fcvtmu, w16, d30
+fcvti_gadget fcvtmu_dx, fcvtmu, x16, d30
+fcvti_gadget fcvtau_sw, fcvtau, w16, s30
+fcvti_gadget fcvtau_sx, fcvtau, x16, s30
+fcvti_gadget fcvtau_dw, fcvtau, w16, d30
+fcvti_gadget fcvtau_dx, fcvtau, x16, d30
 
 // ---- FP <-> fixed-point (the bit21=0 conversion family) ------------------
 // SCVTF/UCVTF Fd, Rn, #fbits and FCVTZS/FCVTZU Rd, Fn, #fbits (tmux's

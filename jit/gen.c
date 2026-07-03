@@ -1950,6 +1950,14 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         extern void gadget_arm64_fcvtps_dw(void), gadget_arm64_fcvtps_dx(void);
         extern void gadget_arm64_fcvtas_sw(void), gadget_arm64_fcvtas_sx(void);
         extern void gadget_arm64_fcvtas_dw(void), gadget_arm64_fcvtas_dx(void);
+        extern void gadget_arm64_fcvtnu_sw(void), gadget_arm64_fcvtnu_sx(void);
+        extern void gadget_arm64_fcvtnu_dw(void), gadget_arm64_fcvtnu_dx(void);
+        extern void gadget_arm64_fcvtpu_sw(void), gadget_arm64_fcvtpu_sx(void);
+        extern void gadget_arm64_fcvtpu_dw(void), gadget_arm64_fcvtpu_dx(void);
+        extern void gadget_arm64_fcvtmu_sw(void), gadget_arm64_fcvtmu_sx(void);
+        extern void gadget_arm64_fcvtmu_dw(void), gadget_arm64_fcvtmu_dx(void);
+        extern void gadget_arm64_fcvtau_sw(void), gadget_arm64_fcvtau_sx(void);
+        extern void gadget_arm64_fcvtau_dw(void), gadget_arm64_fcvtau_dx(void);
         bool sf = (insn >> 31) & 1;
         unsigned type = (insn >> 22) & 0x3;
         unsigned rmode = (insn >> 19) & 0x3;
@@ -1981,10 +1989,21 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
                     {{(void *) gadget_arm64_fcvtzs_sw, (void *) gadget_arm64_fcvtzs_sx},
                      {(void *) gadget_arm64_fcvtzs_dw, (void *) gadget_arm64_fcvtzs_dx}}};
                 gadget = t[rmode][is_d][sf];
-            } else if (rmode == 3 && opcode == 1) { // FCVTZU
+            } else if (opcode == 1) { // FCVT{N,P,M,Z}U by rmode (rust: f64 as u64)
+                static void *const t[4][2][2] = {
+                    {{(void *) gadget_arm64_fcvtnu_sw, (void *) gadget_arm64_fcvtnu_sx},
+                     {(void *) gadget_arm64_fcvtnu_dw, (void *) gadget_arm64_fcvtnu_dx}},
+                    {{(void *) gadget_arm64_fcvtpu_sw, (void *) gadget_arm64_fcvtpu_sx},
+                     {(void *) gadget_arm64_fcvtpu_dw, (void *) gadget_arm64_fcvtpu_dx}},
+                    {{(void *) gadget_arm64_fcvtmu_sw, (void *) gadget_arm64_fcvtmu_sx},
+                     {(void *) gadget_arm64_fcvtmu_dw, (void *) gadget_arm64_fcvtmu_dx}},
+                    {{(void *) gadget_arm64_fcvtzu_sw, (void *) gadget_arm64_fcvtzu_sx},
+                     {(void *) gadget_arm64_fcvtzu_dw, (void *) gadget_arm64_fcvtzu_dx}}};
+                gadget = t[rmode][is_d][sf];
+            } else if (rmode == 0 && opcode == 5) { // FCVTAU
                 static void *const t[2][2] = {
-                    {(void *) gadget_arm64_fcvtzu_sw, (void *) gadget_arm64_fcvtzu_sx},
-                    {(void *) gadget_arm64_fcvtzu_dw, (void *) gadget_arm64_fcvtzu_dx}};
+                    {(void *) gadget_arm64_fcvtau_sw, (void *) gadget_arm64_fcvtau_sx},
+                    {(void *) gadget_arm64_fcvtau_dw, (void *) gadget_arm64_fcvtau_dx}};
                 gadget = t[is_d][sf];
             } else if (rmode == 0 && opcode == 4) { // FCVTAS
                 static void *const t[2][2] = {

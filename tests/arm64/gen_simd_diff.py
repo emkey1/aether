@@ -702,6 +702,41 @@ def vmodimm_tests():
 
 FAMILIES["vmodimm"] = vmodimm_tests()
 
+def cvtround_tests():
+    """Register-form FP->int conversions, the full rounding matrix:
+    FCVT{N,P,M,Z,A}{S,U} x {S,D} source x {W,X} dest (rust f64-as-u64
+    lowers through FCVTMU/FCVTPU; only the signed variants + FCVTZU/AS
+    were originally ported)."""
+    fps64 = [0x3FF8000000000000, 0xBFE0000000000000, 0xC00921FB54442D18,
+             0x7FF0000000000000, 0xFFF0000000000000, 0x7FF8000000000001,
+             0x41DFFFFFFFC00000, 0xC1E0000000000000, 0x43F0000000000000,
+             0x3FE0000000000000]
+    fps32 = [0x3FC00000, 0xBF000000, 0xC0490FDB, 0x7F800000, 0xFF800000,
+             0x7FC00001, 0x4EFFFFFF, 0xCF000000, 0x5F800000, 0x3F000000]
+    def load_x2(v):
+        out = [f"    movz x2, #0x{v & 0xffff:04x}"]
+        for sh in (16, 32, 48):
+            out.append(f"    movk x2, #0x{(v >> sh) & 0xffff:04x}, lsl #{sh}")
+        return out
+    tests = []
+    for op in ("fcvtns", "fcvtnu", "fcvtps", "fcvtpu", "fcvtms", "fcvtmu",
+               "fcvtzs", "fcvtzu", "fcvtas", "fcvtau"):
+        for gdst, fsrc, fmov_in, vals in (
+                ("w0", "s1", "fmov s1, w2", fps32),
+                ("x0", "s1", "fmov s1, w2", fps32),
+                ("w0", "d1", "fmov d1, x2", fps64),
+                ("x0", "d1", "fmov d1, x2", fps64)):
+            for i, v in enumerate(vals):
+                body = load_x2(v)
+                body.append(f"    {fmov_in}")
+                body.append(f"    {op} {gdst}, {fsrc}")
+                body.append("    mov x1, #0")
+                body.append("    stp x0, x1, [x19], #16")
+                tests.append((f"{op}.{gdst}.{fsrc}[{i}]", body))
+    return tests
+
+FAMILIES["cvtround"] = cvtround_tests()
+
 LINUX_PROLOGUE = """\
 .text
 .global _start
