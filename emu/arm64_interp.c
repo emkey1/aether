@@ -26,8 +26,10 @@
 //     UDIV/SDIV, CLZ, etc). Function prologues in practice route around
 //     needing these (MOV Xd,SP is ADD-immediate with imm=0; simple
 //     register moves can be avoided in hand-written test code).
-//   - LDXP/STXP (pair exclusives), STLR/LDAR (non-exclusive acquire/
-//     release), LSE atomic RMW (LDADD/LDCLR/etc, distinct from CAS).
+//   - STLR/LDAR (non-exclusive acquire/release), LSE atomic RMW
+//     (LDADD/LDCLR/etc, distinct from CAS). LDXP/STXP (pair exclusives)
+//     ARE implemented now, via the arm64_ldxp/arm64_stxp helpers shared
+//     with the JIT gadgets.
 //   - LDR (literal, PC-relative), sign-extending LDRSB/LDRSH/LDRSW.
 //   - All SIMD/FP instructions.
 // Anything not decoded below raises INT_UNDEFINED, matching how i386/amd64
@@ -521,11 +523,11 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
         return INT_NONE;
     }
 
-    // Load/store exclusive register (LDXR/STXR), non-pair, non-STLR* form
-    // (o2=0, o1=0) — adapted mask and field layout (OpenMinis gen.c:2942):
-    // size:001000:o2:L:o1:Rs:o0:Rt2:Rn:Rt. Pair exclusives (o2=0,o1=1) and
-    // the non-exclusive acquire/release family (o2=1: STLR/LDAR/etc) are not
-    // yet implemented — see this file's header comment.
+    // Load/store exclusive register (LDXR/STXR) and pair (LDXP/STXP) —
+    // adapted mask and field layout (OpenMinis gen.c:2942):
+    // size:001000:o2:L:o1:Rs:o0:Rt2:Rn:Rt. The non-exclusive
+    // acquire/release family (o2=1: STLR/LDAR/etc) is not implemented
+    // here — see this file's header comment.
     if ((insn & 0x3f000000) == 0x08000000) {
         unsigned size = (insn >> 30) & 0x3;
         unsigned o2 = (insn >> 23) & 1;
@@ -534,8 +536,38 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
         unsigned rs = (insn >> 16) & 0x1f;
         unsigned rn = ARM64_RN(insn);
         unsigned rt = ARM64_RT(insn);
-        if (o2 != 0 || o1 != 0)
-            return INT_UNDEFINED; // pair / STLR-family: not yet implemented
+        if (o2 != 0)
+            return INT_UNDEFINED; // STLR-family: not yet implemented
+        if (o1 != 0) {
+            // LDXP/STXP/LDAXP/STLXP: bit31 must be 1 (the bit31=0 half of
+            // this slot is CASP, consumed above); sz (bit30) picks a
+            // 32- or 64-bit register pair. Same shared-helper
+            // implementation as the JIT gadgets (emu/tlb.c); o0
+            // (acquire/release) accepted and ignored like the rest of
+            // the family. Rt/Rt2/Rs are independent (31 = XZR/discard).
+            if (!(insn >> 31))
+                return INT_UNDEFINED;
+            unsigned rt2 = (insn >> 10) & 0x1f;
+            unsigned sz = (size & 1) ? 8 : 4;
+            uint64_t addr = arm64_reg_get_sp(cpu, rn);
+            if (L) {
+                uint64_t val[2];
+                int err = arm64_ldxp(cpu, tlb, addr, sz, val);
+                if (err != 0)
+                    return err;
+                arm64_reg_set_discard(cpu, rt, sz == 8, val[0]);
+                arm64_reg_set_discard(cpu, rt2, sz == 8, val[1]);
+            } else {
+                uint32_t status;
+                int err = arm64_stxp(cpu, tlb, addr, sz,
+                                     arm64_reg_get_zr(cpu, rt),
+                                     arm64_reg_get_zr(cpu, rt2), &status);
+                if (err != 0)
+                    return err;
+                arm64_reg_set_discard(cpu, rs, false, status);
+            }
+            return INT_NONE;
+        }
         unsigned bytes = 1u << size;
         uint64_t addr = arm64_reg_get_sp(cpu, rn);
         if (L) {

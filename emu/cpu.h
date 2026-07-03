@@ -249,8 +249,14 @@ struct cpu_state {
     // the guest address covered by the last LDXR; UINT64_MAX means "no
     // outstanding exclusive". Cleared on STXR/STLXR regardless of success,
     // per the architecture (a local monitor covers exactly one reservation).
+    // excl_val_hi is the pair-high half armed by LDXP and checked by STXP
+    // (arm64_ldxp/arm64_stxp, emu/tlb.c); single-register LDXR leaves it
+    // stale, so a mixed LDXR->STXP sequence compares garbage — that
+    // sequence is CONSTRAINED UNPREDICTABLE architecturally, and a
+    // spurious status-1 just retries the guest's LL/SC loop.
     qword_t arm64_excl_addr;
     qword_t arm64_excl_val;
+    qword_t arm64_excl_val_hi;
     // TPIDR_EL0 — the userspace-writable software thread ID register,
     // which every AArch64 libc uses as the TLS base pointer. Read/written
     // by the MRS/MSR gadgets (jit/guest-arm64/dpextra.S); the arm64

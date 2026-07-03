@@ -97,6 +97,7 @@ void arm64() {
     OFFSET(CPU, cpu_state, arm64_nzcv);
     OFFSET(CPU, cpu_state, arm64_excl_addr);
     OFFSET(CPU, cpu_state, arm64_excl_val);
+    OFFSET(CPU, cpu_state, arm64_excl_val_hi);
     OFFSET(CPU, cpu_state, arm64_tpidr);
     OFFSET(CPU, cpu_state, arm64_v);
     OFFSET(CPU, cpu_state, arm64_fpsr);

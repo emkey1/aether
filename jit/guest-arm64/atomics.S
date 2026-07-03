@@ -375,3 +375,122 @@ casp_fault_\name:
 
 casp_gadget casp32, 2
 casp_gadget casp64, 3
+
+// LDXP (load exclusive pair): load {lo, hi} and arm the monitor, all via
+// the arm64_ldxp C helper (emu/tlb.c) — the helper does the alignment
+// check, the (possibly torn; see its header comment) pair load, AND arms
+// excl_addr/excl_val/excl_val_hi itself, so the gadget only unpacks the
+// two results into Rt/Rt2 (31 = discard; Rt==Rt2 is CONSTRAINED
+// UNPREDICTABLE and simply stores hi last). LDAXP's acquire bit (o0) is
+// accepted and ignored, same as every other atomic gadget here.
+// [gadget][rt | rn<<8 | rt2<<16][orig_ip]
+.macro ldxp_gadget name, sizelog
+.gadget \name
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]       // orig_ip (fault restart), callee-saved
+    add _ip, _ip, #16
+    and x20, x8, #0x1f       // rt (lo out)
+    ubfx x22, x8, #8, #5     // rn (31 = SP)
+    ubfx x23, x8, #16, #5    // rt2 (hi out)
+
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x10, x9, x22, lsl #3
+    ldr x21, [x10]           // guest address
+    b 2f
+1:  ldr x21, [_cpu, #CPU_sp]
+2:
+    sub sp, sp, #16          // val_out[2] (survives save_c's 0xa0 frame)
+    save_c
+    mov x0, x1               // cpu (x1 still intact)
+    sub x1, x2, #TLB_entries // struct tlb *
+    mov x2, x21              // addr
+    mov x3, #(1 << \sizelog) // sz: bytes per register half
+    add x4, sp, #0xa0        // val_out[2]
+    bl NAME(arm64_ldxp)
+    mov x27, x0              // result (0 / INT_PF / INT_GPF)
+    restore_c
+    ldp x8, x9, [sp]         // loaded pair {lo, hi}
+    add sp, sp, #16
+    cbnz x27, ldxp_pf_\name
+    add x10, _cpu, #CPU_x0
+    cmp x20, #31             // Rt = 31 discards the lo half
+    b.eq 3f
+    str x8, [x10, x20, lsl #3]
+3:  cmp x23, #31             // Rt2 = 31 discards the hi half
+    b.eq 4f
+    str x9, [x10, x23, lsl #3]
+4:  gret
+ldxp_pf_\name:
+    str x19, [_cpu, #CPU_pc]
+    mov w0, w27
+    b jit_exit
+.endm
+
+ldxp_gadget ldxp32, 2
+ldxp_gadget ldxp64, 3
+
+// STXP (store exclusive pair): the arm64_stxp C helper (emu/tlb.c) does
+// the whole monitor-check + host-atomic pair CAS + monitor-clear; the
+// gadget marshals the desired pair from Rt/Rt2 (31 = XZR = 0) and writes
+// the returned status to Rs (0 = stored, 1 = failed; 31 = discard).
+// STLXP's release bit (o0) is accepted and ignored. On a fault the
+// monitor is preserved (helper contract) so the restarted instruction
+// can succeed after e.g. a COW break — same as the stxr gadget.
+// [gadget][rt | rn<<8 | rs<<16 | rt2<<24][orig_ip]
+.macro stxp_gadget name, sizelog
+.gadget \name
+    ldr x8, [_ip]
+    ldr x19, [_ip, #8]       // orig_ip (fault restart), callee-saved
+    add _ip, _ip, #16
+    and x20, x8, #0x1f       // rt (desired lo)
+    ubfx x22, x8, #8, #5     // rn (31 = SP)
+    ubfx x23, x8, #16, #5    // rs (status out)
+    ubfx x24, x8, #24, #5    // rt2 (desired hi)
+
+    add x9, _cpu, #CPU_x0
+    cmp x22, #31
+    b.eq 1f
+    add x10, x9, x22, lsl #3
+    ldr x21, [x10]           // guest address
+    b 2f
+1:  ldr x21, [_cpu, #CPU_sp]
+2:
+    mov x25, #0              // desired lo (Rt; 31 = XZR = 0)
+    cmp x20, #31
+    b.eq 3f
+    ldr x25, [x9, x20, lsl #3]
+3:  mov x26, #0              // desired hi (Rt2; 31 = XZR = 0)
+    cmp x24, #31
+    b.eq 4f
+    ldr x26, [x9, x24, lsl #3]
+4:
+    sub sp, sp, #16          // [0]=status out (survives save_c's frame)
+    save_c
+    mov x0, x1               // cpu (x1 still intact)
+    sub x1, x2, #TLB_entries // struct tlb *
+    mov x2, x21              // addr
+    mov x3, #(1 << \sizelog) // sz: bytes per register half
+    mov x4, x25              // desired lo
+    mov x5, x26              // desired hi
+    add x6, sp, #0xa0        // &status
+    bl NAME(arm64_stxp)
+    mov x27, x0              // result (0 / INT_PF / INT_GPF)
+    restore_c
+    ldr w8, [sp]             // status (0 = stored, 1 = failed)
+    add sp, sp, #16
+    cbnz x27, stxp_pf_\name
+    cmp x23, #31             // Rs = 31 discards the status
+    b.eq 5f
+    add x9, _cpu, #CPU_x0
+    str x8, [x9, x23, lsl #3]
+5:  gret
+stxp_pf_\name:
+    str x19, [_cpu, #CPU_pc]
+    mov w0, w27
+    b jit_exit
+.endm
+
+stxp_gadget stxp32, 2
+stxp_gadget stxp64, 3

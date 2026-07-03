@@ -131,6 +131,67 @@ static void check_clrex_path(void) {
         test_logf("clrex ok\n");
 }
 
+// ---- pair exclusives (LDXP/STXP) ------------------------------------------
+// Code built with -mno-outline-atomics (or old toolchains) implements
+// 16-byte atomics as LDXP/STXP loops instead of LSE CASP — these SIGILL'd
+// before the pair-exclusive gadgets landed.
+
+static void check_ldxp_stxp64(void) {
+    // 128-bit increment across the lo->hi carry boundary via LDXP/STXP
+    __attribute__((aligned(16))) uint64_t mem[2] = { ~0ull, 7 };
+    uint64_t lo, hi;
+    uint32_t fail;
+    __asm__ volatile(
+        "1:\n\t"
+        "ldxp %[lo], %[hi], [%[ptr]]\n\t"
+        "adds %[lo], %[lo], #1\n\t"
+        "adc %[hi], %[hi], xzr\n\t"
+        "stxp %w[fail], %[lo], %[hi], [%[ptr]]\n\t"
+        "cbnz %w[fail], 1b\n\t"
+        : [lo] "=&r"(lo), [hi] "=&r"(hi), [fail] "=&r"(fail), "+m"(mem)
+        : [ptr] "r"(mem)
+        : "cc");
+    if (mem[0] != 0 || mem[1] != 8)
+        failf("ldxp/stxp64 carry", mem[0], mem[1], 0, 0, 8, 0);
+    else
+        test_logf("ldxp/stxp64 ok\n");
+
+    // clrex between ldxp and stxp must fail the store, like ldxr/stxr
+    uint32_t st = 0;
+    __asm__ volatile(
+        "ldxp x8, x9, [%[ptr]]\n\t"
+        "clrex\n\t"
+        "stxp %w[st], x8, x9, [%[ptr]]\n\t"
+        : [st] "=&r"(st), "+m"(mem)
+        : [ptr] "r"(mem)
+        : "x8", "x9");
+    if (st != 1 || mem[0] != 0 || mem[1] != 8)
+        failf("ldxp/stxp64 clrex", st, mem[0], mem[1], 1, 0, 8);
+    else
+        test_logf("ldxp/stxp64 clrex ok\n");
+}
+
+static void check_ldxp_stxp32(void) {
+    // W-pair form over 8 bytes: [addr] = lo W, [addr+4] = hi W, loaded
+    // values zero-extended
+    __attribute__((aligned(8))) uint32_t mem[2] = { 0x11112222u, 0x33334444u };
+    uint64_t lo = ~0ull, hi = ~0ull;
+    uint32_t fail;
+    __asm__ volatile(
+        "1:\n\t"
+        "ldxp %w[lo], %w[hi], [%[ptr]]\n\t"
+        "stxp %w[fail], %w[nl], %w[nh], [%[ptr]]\n\t"
+        "cbnz %w[fail], 1b\n\t"
+        : [lo] "+&r"(lo), [hi] "+&r"(hi), [fail] "=&r"(fail), "+m"(mem)
+        : [ptr] "r"(mem), [nl] "r"(0x55556666u), [nh] "r"(0x77778888u)
+        : "cc");
+    if (lo != 0x11112222u || hi != 0x33334444u ||
+        mem[0] != 0x55556666u || mem[1] != 0x77778888u)
+        failf("ldxp/stxp32", lo, hi, mem[0], 0x11112222u, 0x33334444u, 0x55556666u);
+    else
+        test_logf("ldxp/stxp32 ok\n");
+}
+
 static void check_ldar_stlr(void) {
     uint64_t mem = 0;
     uint64_t got;
@@ -295,6 +356,7 @@ static void check_stress(void) {
 static uint64_t llsc_counter;
 static uint64_t lse_counter;
 static int have_lse;
+static __attribute__((aligned(16))) uint64_t pair_counter[2];
 
 static void *llsc_worker(void *arg) {
     (void) arg;
@@ -310,6 +372,29 @@ static void *llsc_worker(void *arg) {
             : [t] "=&r"(tmp), [f] "=&r"(fail), "+m"(llsc_counter)
             : [p] "r"(&llsc_counter)
             : "memory");
+    }
+    return NULL;
+}
+
+// 128-bit LL/SC counter incremented as one atomic quantity (adds/adc
+// carries lo->hi). The initial value is chosen so lo wraps mid-run: a
+// torn pair store or a lost update shows up as a wrong total in either
+// half, and the wrap catches a CAS that compares/stores only 8 bytes.
+static void *pair_worker(void *arg) {
+    (void) arg;
+    for (int i = 0; i < AT_ITERS; i++) {
+        uint64_t lo, hi;
+        uint32_t fail;
+        __asm__ volatile(
+            "1:\n\t"
+            "ldxp %[lo], %[hi], [%[p]]\n\t"
+            "adds %[lo], %[lo], #1\n\t"
+            "adc %[hi], %[hi], xzr\n\t"
+            "stxp %w[f], %[lo], %[hi], [%[p]]\n\t"
+            "cbnz %w[f], 1b\n\t"
+            : [lo] "=&r"(lo), [hi] "=&r"(hi), [f] "=&r"(fail), "+m"(pair_counter)
+            : [p] "r"(pair_counter)
+            : "memory", "cc");
     }
     return NULL;
 }
@@ -334,6 +419,21 @@ static void check_cross_thread_atomic(void) {
     else
         test_logf("ll/sc cross-thread atomic ok\n");
 
+    // pair (128-bit) LL/SC: start lo close enough to wrap that the
+    // carry into hi happens mid-run
+    uint64_t total = (uint64_t) AT_THREADS * AT_ITERS;
+    pair_counter[0] = ~0ull - total / 2;
+    pair_counter[1] = 3;
+    for (int i = 0; i < AT_THREADS; i++)
+        pthread_create(&t[i], NULL, pair_worker, NULL);
+    for (int i = 0; i < AT_THREADS; i++)
+        pthread_join(t[i], NULL);
+    if (pair_counter[0] != total - total / 2 - 1 || pair_counter[1] != 4)
+        failf("ldxp/stxp cross-thread count", pair_counter[0], pair_counter[1], 0,
+              total - total / 2 - 1, 4, 0);
+    else
+        test_logf("ldxp/stxp cross-thread atomic ok\n");
+
     if (have_lse) {
         for (int i = 0; i < AT_THREADS; i++)
             pthread_create(&t[i], NULL, lse_worker, NULL);
@@ -354,6 +454,8 @@ int main(int argc, char **argv) {
     check_ldxr_stxr_narrow();
     check_acquire_release_pair();
     check_clrex_path();
+    check_ldxp_stxp64();
+    check_ldxp_stxp32();
     check_ldar_stlr();
     have_lse = (getauxval(AT_HWCAP) & HWCAP_ATOMICS) != 0;
     check_lse_if_present();

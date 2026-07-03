@@ -305,6 +305,78 @@ int arm64_casp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
     return 0;
 }
 
+// LDXP (load exclusive pair) for the ldxp gadgets (jit/guest-arm64/
+// atomics.S) and the interpreter. sz is the per-register width (4 for the
+// W-pair form, 8 for the X-pair form); memory maps little-endian as
+// [addr] = lo (Rt) and [addr+sz] = hi (Rt2), same layout as arm64_casp.
+// Loads the pair, writes it to val_out (each half zero-extended for the
+// 32-bit form), and arms the exclusive monitor (excl_addr/excl_val/
+// excl_val_hi) with the address and observed pair. Returns 0 / INT_PF /
+// INT_GPF (alignment is the TOTAL pair size, per the ARM ARM — which also
+// guarantees the single resolved host pointer covers the whole pair).
+//
+// The 64-bit pair is read as two 8-byte atomic loads, NOT one 16-byte
+// __atomic_load: clang lowers a 16-byte atomic load to an LDXP/STXP loop
+// that STORES the value back, which host-faults on guest-read-only pages
+// where a real LDXP is architecturally fine. A cross-half torn read under
+// concurrent modification is caught downstream: STXP's 16-byte CAS
+// compares against the armed (torn) pair, fails, and the guest's LL/SC
+// loop retries — same value-based-monitor caveat as the STXR path.
+int arm64_ldxp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+               unsigned sz, uint64_t val_out[2]) {
+    if (addr & (2 * sz - 1))
+        return arm64_atomic_alignment_fault(cpu, addr);
+    void *ptr = __tlb_read_ptr(tlb, addr);
+    if (ptr == NULL) {
+        cpu->segfault_addr = tlb->segfault_addr;
+        cpu->segfault_was_write = false;
+        return INT_PF;
+    }
+    if (sz == 4) {
+        uint64_t v = __atomic_load_n((uint64_t *) ptr, __ATOMIC_SEQ_CST);
+        val_out[0] = (uint32_t) v;
+        val_out[1] = (uint32_t) (v >> 32);
+    } else {
+        val_out[0] = __atomic_load_n((uint64_t *) ptr, __ATOMIC_SEQ_CST);
+        val_out[1] = __atomic_load_n((uint64_t *) ptr + 1, __ATOMIC_SEQ_CST);
+    }
+    cpu->arm64_excl_addr = addr;
+    cpu->arm64_excl_val = val_out[0];
+    cpu->arm64_excl_val_hi = val_out[1];
+    return 0;
+}
+
+// STXP (store exclusive pair): fails fast (status 1, monitor cleared)
+// if the monitor isn't armed for this guest address; otherwise attempts
+// a host-atomic pair CAS(addr: {excl_val, excl_val_hi} -> desired) via
+// arm64_casp, so the whole check-and-store is one atomic operation — a
+// won CAS is STXP success (status 0), a lost CAS (another agent changed
+// memory since the LDXP) is failure and the guest LL/SC loop retries.
+// The monitor clears on every completed STXP, success or not
+// (architected), but is PRESERVED on a fault return so the restarted
+// instruction can succeed once the fault (e.g. COW break) is resolved —
+// same contract as the stxr gadget's fault path. Returns 0 / INT_PF /
+// INT_GPF.
+int arm64_stxp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+               unsigned sz, uint64_t desired_lo, uint64_t desired_hi,
+               uint32_t *status_out) {
+    if (cpu->arm64_excl_addr != addr) {
+        cpu->arm64_excl_addr = UINT64_MAX;
+        *status_out = 1;
+        return 0;
+    }
+    uint64_t expected[2] = { cpu->arm64_excl_val, cpu->arm64_excl_val_hi };
+    uint64_t desired[2] = { desired_lo, desired_hi };
+    uint64_t old[2];
+    uint32_t swapped;
+    int err = arm64_casp(cpu, tlb, addr, sz, expected, desired, old, &swapped);
+    if (err != 0)
+        return err;
+    cpu->arm64_excl_addr = UINT64_MAX;
+    *status_out = swapped ? 0 : 1;
+    return 0;
+}
+
 // Soft fallbacks for arm64-guest gadgets whose native instructions are
 // optional host extensions: FEAT_SHA512 arrived with A13 and FEAT_CRC32
 // with A10, but we support devices back to A7-class hardware. gen.c

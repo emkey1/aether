@@ -47,6 +47,7 @@
 #define CPU_nzcv CPU_arm64_nzcv
 #define CPU_excl_addr CPU_arm64_excl_addr
 #define CPU_excl_val CPU_arm64_excl_val
+#define CPU_excl_val_hi CPU_arm64_excl_val_hi
 #define CPU_tpidr CPU_arm64_tpidr
 #define CPU_v0 CPU_arm64_v
 #define CPU_fpsr CPU_arm64_fpsr
