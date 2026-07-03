@@ -11,6 +11,7 @@
 #import "NSObject+SaneKVO.h"
 #import "AudioPlayerEngine.h"
 #import "AudioLibrary.h"
+#import "MotePadDocumentStore.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
@@ -111,6 +112,7 @@ static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
 static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
 static NSString *const ISHWorkspaceToolAudioIdentifier = @"audio";
+static NSString *const ISHWorkspaceToolMotePadIdentifier = @"motepad";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -195,6 +197,11 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"chat": ISHWorkspaceToolLLMIdentifier,
         @"music": ISHWorkspaceToolAudioIdentifier,
         @"audio": ISHWorkspaceToolAudioIdentifier,
+        @"motepad": ISHWorkspaceToolMotePadIdentifier,
+        @"editor": ISHWorkspaceToolMotePadIdentifier,
+        @"notepad": ISHWorkspaceToolMotePadIdentifier,
+        @"textedit": ISHWorkspaceToolMotePadIdentifier,
+        @"text": ISHWorkspaceToolMotePadIdentifier,
     };
     return map[token];
 }
@@ -760,6 +767,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return ISHWorkspaceLauncherContentSize();
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 510);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+            return CGSizeMake(340, 460);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -796,6 +805,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return ISHWorkspaceLauncherContentSize();
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 470);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return CGSizeMake(620, 560);
     return CGSizeMake(720, 640);
 }
 
@@ -878,6 +889,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(200, 80);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 390);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+            return CGSizeMake(280, 300);
         return CGSizeMake(300, 220);
     }
 
@@ -909,6 +922,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(220, 96);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 360);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return CGSizeMake(360, 300);
     return CGSizeZero;
 }
 
@@ -968,6 +983,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Launcher";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return @"Music";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return @"MotePad";
     return @"Window";
 }
 
@@ -2246,6 +2263,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceAudioPlayerToolViewController : WorkspaceThemedToolViewController
 @end
 
+@interface WorkspaceMotePadToolViewController : WorkspaceThemedToolViewController
+@end
+
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return ISHCreateLLMClientViewController();
@@ -2286,6 +2306,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceLauncherToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return [WorkspaceAudioPlayerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return [WorkspaceMotePadToolViewController new];
     return nil;
 }
 
@@ -2324,6 +2346,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolFilesystemsIdentifier;
     if ([viewController isKindOfClass:WorkspaceAudioPlayerToolViewController.class])
         return ISHWorkspaceToolAudioIdentifier;
+    if ([viewController isKindOfClass:WorkspaceMotePadToolViewController.class])
+        return ISHWorkspaceToolMotePadIdentifier;
     return nil;
 }
 
@@ -3652,6 +3676,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     NSMutableArray<NSDictionary<NSString *, NSString *> *> *builtins = [@[
         @{@"name": @"Web Browser", @"command": @"{browser}"},
         @{@"name": @"Music", @"command": @"{music}"},
+        @{@"name": @"MotePad", @"command": @"{motepad}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -4938,6 +4963,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Music", @"identifier": ISHWorkspaceToolAudioIdentifier},
+        @{@"title": @"MotePad", @"identifier": ISHWorkspaceToolMotePadIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
@@ -7316,6 +7342,922 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 - (void)editShortcutsTapped:(UIButton *)sender {
     [(id)self.workspaceHostViewController presentLauncherEditorFromView:sender];
+}
+
+@end
+
+#pragma mark - MotePad text editor applet
+
+// A minimal guest-filesystem browser used for Open and Save As. It walks the guest
+// VFS through MotePadDocumentStore (directories first, then files) and either returns
+// a chosen file (Open) or a chosen directory + typed filename (Save). Presented inside
+// a UINavigationController; descending into a directory pushes a fresh instance.
+typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
+    MotePadBrowserModeOpen,
+    MotePadBrowserModeSave,
+};
+
+@interface MotePadFileBrowserViewController : UITableViewController
+- (instancetype)initWithMode:(MotePadBrowserMode)mode
+                   directory:(NSString *)directory
+               suggestedName:(NSString *)suggestedName
+                  completion:(void (^)(NSString *selectedGuestPath))completion;
+@end
+
+@implementation MotePadFileBrowserViewController {
+    MotePadBrowserMode _mode;
+    NSString *_directory;
+    NSString *_suggestedName;
+    void (^_completion)(NSString *);
+    NSArray<MotePadDirectoryEntry *> *_entries;
+    BOOL _showsParent;
+}
+
+- (instancetype)initWithMode:(MotePadBrowserMode)mode
+                   directory:(NSString *)directory
+               suggestedName:(NSString *)suggestedName
+                  completion:(void (^)(NSString *))completion {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) {
+        _mode = mode;
+        _directory = directory.length ? directory : @"/";
+        _suggestedName = suggestedName;
+        _completion = [completion copy];
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = _directory.lastPathComponent.length ? _directory.lastPathComponent : @"/";
+    self.navigationItem.prompt = _directory;
+    self.navigationItem.leftBarButtonItem =
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
+                                                      target:self action:@selector(cancel)];
+    if (_mode == MotePadBrowserModeSave) {
+        self.navigationItem.rightBarButtonItem =
+            [[UIBarButtonItem alloc] initWithTitle:@"Save Here" style:UIBarButtonItemStyleDone
+                                            target:self action:@selector(saveHere)];
+    }
+    [self reload];
+}
+
+- (void)reload {
+    _showsParent = ![_directory isEqualToString:@"/"];
+    NSArray<MotePadDirectoryEntry *> *entries = [[MotePadDocumentStore sharedStore] listDirectoryAtGuestPath:_directory];
+    _entries = entries ?: @[];
+    [self.tableView reloadData];
+}
+
+- (void)cancel {
+    if (_completion) _completion(nil);
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)finishWithPath:(NSString *)path {
+    if (_completion) _completion(path);
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (NSString *)parentDirectory {
+    NSString *parent = _directory.stringByDeletingLastPathComponent;
+    return parent.length ? parent : @"/";
+}
+
+- (void)pushDirectory:(NSString *)directory {
+    MotePadFileBrowserViewController *child =
+        [[MotePadFileBrowserViewController alloc] initWithMode:_mode directory:directory
+                                                 suggestedName:_suggestedName completion:_completion];
+    [self.navigationController pushViewController:child animated:YES];
+}
+
+- (void)saveHere {
+    [self promptForFilename:_suggestedName];
+}
+
+- (void)promptForFilename:(NSString *)initialName {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Save As"
+                                            message:_directory
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"filename.txt";
+        textField.text = initialName;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        NSString *name = [alert.textFields.firstObject.text
+                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (name.length == 0 || [name containsString:@"/"])
+            return;
+        [strongSelf finishWithPath:[strongSelf->_directory stringByAppendingPathComponent:name]];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return (NSInteger)_entries.count + (_showsParent ? 1 : 0);
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"motepad.browser"];
+    if (cell == nil)
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"motepad.browser"];
+
+    if (_showsParent && indexPath.row == 0) {
+        cell.textLabel.text = @"..";
+        cell.imageView.image = [UIImage systemImageNamed:@"arrow.turn.left.up"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.textLabel.textColor = UIColor.labelColor;
+        return cell;
+    }
+
+    MotePadDirectoryEntry *entry = _entries[(NSUInteger)indexPath.row - (_showsParent ? 1 : 0)];
+    cell.textLabel.text = entry.name;
+    if (entry.type == MotePadEntryTypeDirectory) {
+        cell.imageView.image = [UIImage systemImageNamed:@"folder"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.textLabel.textColor = UIColor.labelColor;
+    } else {
+        cell.imageView.image = [UIImage systemImageNamed:@"doc.text"];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        BOOL selectable = (entry.type == MotePadEntryTypeFile);
+        cell.textLabel.textColor = selectable ? UIColor.labelColor : UIColor.secondaryLabelColor;
+    }
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+
+    if (_showsParent && indexPath.row == 0) {
+        [self pushDirectory:[self parentDirectory]];
+        return;
+    }
+
+    MotePadDirectoryEntry *entry = _entries[(NSUInteger)indexPath.row - (_showsParent ? 1 : 0)];
+    if (entry.type == MotePadEntryTypeDirectory) {
+        [self pushDirectory:entry.guestPath];
+        return;
+    }
+    if (entry.type != MotePadEntryTypeFile)
+        return;  // sockets/fifos/etc. aren't openable as text
+
+    if (_mode == MotePadBrowserModeOpen) {
+        [self finishWithPath:entry.guestPath];
+    } else {
+        // Save mode: tapping an existing file pre-fills its name for an overwrite.
+        [self promptForFilename:entry.name];
+    }
+}
+
+@end
+
+
+// Left-margin line-number gutter for the MotePad editor. iOS has no NSRulerView, so this
+// is a plain view driven by the editor's TextKit layout manager: it draws one number per
+// logical line (paragraph), aligned to that line's first laid-out fragment, and the editor
+// asks it to redraw on scroll/edit/wrap/font changes. Word-wrapped continuation fragments
+// get no number, matching a desktop editor.
+@interface MotePadLineNumberGutterView : UIView
+@property (nonatomic, weak) UITextView *textView;
+@property (nonatomic, strong) UIColor *numberColor;
+@property (nonatomic, strong) UIColor *separatorColor;
+@end
+
+@implementation MotePadLineNumberGutterView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.contentMode = UIViewContentModeRedraw;  // redraw when bounds change
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
+
+- (UIFont *)gutterFont {
+    UIFont *base = self.textView.font ?: [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    return [UIFont monospacedDigitSystemFontOfSize:MAX(9.0, base.pointSize - 1.0) weight:UIFontWeightRegular];
+}
+
+- (NSUInteger)newlineCountIn:(NSString *)text upTo:(NSUInteger)index {
+    NSUInteger count = 0;
+    NSUInteger limit = MIN(index, text.length);
+    for (NSUInteger i = 0; i < limit; i++)
+        if ([text characterAtIndex:i] == '\n') count++;
+    return count;
+}
+
+- (void)drawNumber:(NSUInteger)number atY:(CGFloat)y font:(UIFont *)font {
+    NSDictionary *attrs = @{ NSFontAttributeName: font,
+                            NSForegroundColorAttributeName: self.numberColor ?: UIColor.secondaryLabelColor };
+    NSString *s = [NSString stringWithFormat:@"%lu", (unsigned long)number];
+    CGSize size = [s sizeWithAttributes:attrs];
+    [s drawAtPoint:CGPointMake(self.bounds.size.width - size.width - 6.0, y) withAttributes:attrs];
+}
+
+- (void)drawRect:(__unused CGRect)rect {
+    UITextView *tv = self.textView;
+    if (tv == nil) return;
+
+    // Right-edge hairline separator.
+    CGFloat hair = 1.0 / MAX(1.0, UIScreen.mainScreen.scale);
+    [(self.separatorColor ?: [UIColor colorWithWhite:0.5 alpha:0.35]) setFill];
+    UIRectFill(CGRectMake(self.bounds.size.width - hair, 0, hair, self.bounds.size.height));
+
+    UIFont *font = [self gutterFont];
+    CGFloat insetTop = tv.textContainerInset.top;
+    CGFloat offsetY = tv.contentOffset.y;
+    NSString *text = tv.text;
+    if (text.length == 0) {  // empty document still shows "1"
+        [self drawNumber:1 atY:insetTop - offsetY font:font];
+        return;
+    }
+
+    NSLayoutManager *lm = tv.layoutManager;
+    NSTextContainer *tc = tv.textContainer;
+    CGRect visibleContainerRect = CGRectMake(0, offsetY - insetTop, tc.size.width, tv.bounds.size.height);
+    NSRange visibleGlyphRange = [lm glyphRangeForBoundingRect:visibleContainerRect inTextContainer:tc];
+    if (visibleGlyphRange.length == 0) return;
+
+    NSUInteger firstChar = [lm characterIndexForGlyphAtIndex:visibleGlyphRange.location];
+    __block NSUInteger paragraph = 1 + [self newlineCountIn:text upTo:firstChar];
+    __block BOOL first = YES;
+    [lm enumerateLineFragmentsForGlyphRange:visibleGlyphRange
+                                 usingBlock:^(CGRect fragRect, __unused CGRect usedRect,
+                                              __unused NSTextContainer *container,
+                                              NSRange lineGlyphRange, __unused BOOL *stop) {
+        NSUInteger charIndex = [lm characterIndexForGlyphAtIndex:lineGlyphRange.location];
+        BOOL startsParagraph = (charIndex == 0) || ([text characterAtIndex:charIndex - 1] == '\n');
+        if (startsParagraph) {
+            if (!first) paragraph++;  // fragments are in document order; advance past the last paragraph
+            [self drawNumber:paragraph atY:CGRectGetMinY(fragRect) + insetTop - offsetY font:font];
+        }
+        first = NO;
+    }];
+}
+
+@end
+
+
+@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate>
+@end
+
+@implementation WorkspaceMotePadToolViewController {
+    UIView *_menuBar;
+    UIView *_menuBarSeparator;
+    NSMutableArray<UIButton *> *_menuButtons;
+    UILabel *_docTitleLabel;
+    UITextView *_textView;
+    UIView *_statusBar;
+    UILabel *_statusLabel;
+    NSLayoutConstraint *_statusBarHeight;
+    MotePadLineNumberGutterView *_gutter;
+    NSLayoutConstraint *_gutterWidth;
+    CGFloat _gutterContentWidth;
+
+    NSString *_currentGuestPath;  // nil == an untitled document
+    BOOL _dirty;
+    BOOL _wordWrap;
+    BOOL _statusBarVisible;
+    BOOL _lineNumbersVisible;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"MotePad";
+    _wordWrap = YES;
+    _statusBarVisible = YES;
+    _lineNumbersVisible = NO;
+    _menuButtons = [NSMutableArray array];
+
+    UIView *content = self.toolContentView;
+
+    // --- Menu bar (native UIMenu dropdowns) --------------------------------------
+    _menuBar = [UIView new];
+    _menuBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:_menuBar];
+
+    UIStackView *menuStack = [UIStackView new];
+    menuStack.translatesAutoresizingMaskIntoConstraints = NO;
+    menuStack.axis = UILayoutConstraintAxisHorizontal;
+    menuStack.spacing = ISHWorkspaceUsesPhoneLayout() ? 2 : 6;
+    menuStack.alignment = UIStackViewAlignmentCenter;
+    [_menuBar addSubview:menuStack];
+
+    for (NSString *name in @[@"File", @"Edit", @"Format", @"View", @"Help"]) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.translatesAutoresizingMaskIntoConstraints = NO;
+        [button setTitle:name forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceUsesPhoneLayout() ? 13 : 14 weight:UIFontWeightMedium];
+        button.contentEdgeInsets = UIEdgeInsetsMake(4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8, 4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8);
+        button.showsMenuAsPrimaryAction = YES;
+        [_menuButtons addObject:button];
+        [menuStack addArrangedSubview:button];
+    }
+
+    _docTitleLabel = [UILabel new];
+    _docTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _docTitleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceUsesPhoneLayout() ? 11 : 12 weight:UIFontWeightSemibold];
+    _docTitleLabel.textAlignment = NSTextAlignmentRight;
+    _docTitleLabel.adjustsFontSizeToFitWidth = YES;
+    _docTitleLabel.minimumScaleFactor = 0.7;
+    [_docTitleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_docTitleLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_menuBar addSubview:_docTitleLabel];
+
+    _menuBarSeparator = [UIView new];
+    _menuBarSeparator.translatesAutoresizingMaskIntoConstraints = NO;
+    [_menuBar addSubview:_menuBarSeparator];
+
+    // --- Editor ------------------------------------------------------------------
+    _textView = [UITextView new];
+    _textView.translatesAutoresizingMaskIntoConstraints = NO;
+    _textView.delegate = self;
+    _textView.editable = YES;
+    _textView.font = [UIFont fontWithName:@"Courier" size:14] ?: [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+    _textView.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _textView.autocorrectionType = UITextAutocorrectionTypeNo;
+    _textView.smartQuotesType = UITextSmartQuotesTypeNo;
+    _textView.smartDashesType = UITextSmartDashesTypeNo;
+    _textView.spellCheckingType = UITextSpellCheckingTypeNo;
+    _textView.keyboardType = UIKeyboardTypeASCIICapable;
+    _textView.alwaysBounceVertical = YES;
+    _textView.textContainerInset = UIEdgeInsetsMake(8, 6, 8, 6);
+    [content addSubview:_textView];
+
+    // --- Line-number gutter (hidden until toggled in the View menu) --------------
+    _gutter = [MotePadLineNumberGutterView new];
+    _gutter.translatesAutoresizingMaskIntoConstraints = NO;
+    _gutter.textView = _textView;
+    [content addSubview:_gutter];
+
+    // --- Status bar --------------------------------------------------------------
+    _statusBar = [UIView new];
+    _statusBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:_statusBar];
+
+    _statusLabel = [UILabel new];
+    _statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _statusLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
+    [_statusBar addSubview:_statusLabel];
+
+    CGFloat barHeight = ISHWorkspaceUsesPhoneLayout() ? 32 : 34;
+    _statusBarHeight = [_statusBar.heightAnchor constraintEqualToConstant:22];
+    _gutterWidth = [_gutter.widthAnchor constraintEqualToConstant:0];
+    [NSLayoutConstraint activateConstraints:@[
+        [_menuBar.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [_menuBar.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_menuBar.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_menuBar.heightAnchor constraintEqualToConstant:barHeight],
+
+        [menuStack.leadingAnchor constraintEqualToAnchor:_menuBar.leadingAnchor constant:4],
+        [menuStack.centerYAnchor constraintEqualToAnchor:_menuBar.centerYAnchor],
+
+        [_docTitleLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:menuStack.trailingAnchor constant:6],
+        [_docTitleLabel.trailingAnchor constraintEqualToAnchor:_menuBar.trailingAnchor constant:-8],
+        [_docTitleLabel.centerYAnchor constraintEqualToAnchor:_menuBar.centerYAnchor],
+
+        [_menuBarSeparator.leadingAnchor constraintEqualToAnchor:_menuBar.leadingAnchor],
+        [_menuBarSeparator.trailingAnchor constraintEqualToAnchor:_menuBar.trailingAnchor],
+        [_menuBarSeparator.bottomAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_menuBarSeparator.heightAnchor constraintEqualToConstant:1.0 / MAX(1.0, UIScreen.mainScreen.scale)],
+
+        [_gutter.topAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_gutter.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_gutter.bottomAnchor constraintEqualToAnchor:_statusBar.topAnchor],
+        _gutterWidth,
+
+        [_textView.topAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_textView.leadingAnchor constraintEqualToAnchor:_gutter.trailingAnchor],
+        [_textView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_textView.bottomAnchor constraintEqualToAnchor:_statusBar.topAnchor],
+
+        [_statusBar.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_statusBar.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_statusBar.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+        _statusBarHeight,
+
+        [_statusLabel.leadingAnchor constraintEqualToAnchor:_statusBar.leadingAnchor constant:10],
+        [_statusLabel.trailingAnchor constraintEqualToAnchor:_statusBar.trailingAnchor constant:-10],
+        [_statusLabel.centerYAnchor constraintEqualToAnchor:_statusBar.centerYAnchor],
+    ]];
+
+    [self applyWordWrap];
+    [self rebuildMenus];
+    [self updateDocTitle];
+    [self updateStatusBar];
+    [self applyStatusBarVisibility];
+    [self updateGutterWidth];
+    [self applyLineNumbersVisibility];
+    [self workspaceApplyTheme];
+}
+
+#pragma mark Theming
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    if (_textView == nil)  // base runs this once before our subviews exist
+        return;
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    UIColor *primary = theme[@"primary"] ?: UIColor.labelColor;
+    UIColor *secondary = theme[@"secondary"] ?: UIColor.secondaryLabelColor;
+    UIColor *accent = theme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *card = theme[@"card"] ?: UIColor.secondarySystemBackgroundColor;
+    UIColor *stroke = theme[@"stroke"] ?: [UIColor colorWithWhite:0.5 alpha:0.35];
+
+    _menuBar.backgroundColor = [card colorWithAlphaComponent:0.96];
+    _menuBarSeparator.backgroundColor = stroke;
+    for (UIButton *button in _menuButtons)
+        [button setTitleColor:primary forState:UIControlStateNormal];
+    _docTitleLabel.textColor = secondary;
+
+    _textView.backgroundColor = [card colorWithAlphaComponent:0.6];
+    _textView.textColor = primary;
+    _textView.tintColor = accent;
+    _statusBar.backgroundColor = [card colorWithAlphaComponent:0.96];
+    _statusLabel.textColor = secondary;
+
+    _gutter.backgroundColor = [card colorWithAlphaComponent:0.6];
+    _gutter.numberColor = secondary;
+    _gutter.separatorColor = stroke;
+    [_gutter setNeedsDisplay];
+}
+
+#pragma mark Menus
+
+- (void)rebuildMenus {
+    for (UIButton *button in _menuButtons) {
+        NSString *title = [button titleForState:UIControlStateNormal];
+        if ([title isEqualToString:@"File"]) button.menu = [self fileMenu];
+        else if ([title isEqualToString:@"Edit"]) button.menu = [self editMenu];
+        else if ([title isEqualToString:@"Format"]) button.menu = [self formatMenu];
+        else if ([title isEqualToString:@"View"]) button.menu = [self viewMenu];
+        else if ([title isEqualToString:@"Help"]) button.menu = [self helpMenu];
+    }
+}
+
+- (UIAction *)actionTitled:(NSString *)title symbol:(NSString *)symbol handler:(void (^)(void))handler {
+    UIImage *image = symbol.length ? [UIImage systemImageNamed:symbol] : nil;
+    UIAction *action = [UIAction actionWithTitle:title image:image identifier:nil
+                                        handler:^(__unused UIAction *a) { if (handler) handler(); }];
+    return action;
+}
+
+- (UIMenu *)fileMenu {
+    __weak typeof(self) ws = self;
+    return [UIMenu menuWithTitle:@"File" children:@[
+        [self actionTitled:@"New" symbol:@"doc" handler:^{ [ws mpNew]; }],
+        [self actionTitled:@"Open…" symbol:@"folder" handler:^{ [ws mpOpen]; }],
+        [self actionTitled:@"Save" symbol:@"arrow.down.doc" handler:^{ [ws mpSave]; }],
+        [self actionTitled:@"Save As…" symbol:@"square.and.arrow.down" handler:^{ [ws mpSaveAs]; }],
+        [self actionTitled:@"Print…" symbol:@"printer" handler:^{ [ws mpPrint]; }],
+    ]];
+}
+
+- (UIMenu *)editMenu {
+    __weak typeof(self) ws = self;
+    UIMenu *history = [UIMenu menuWithTitle:@"" image:nil identifier:nil
+                                    options:UIMenuOptionsDisplayInline children:@[
+        [self actionTitled:@"Undo" symbol:@"arrow.uturn.backward" handler:^{ [ws editUndo]; }],
+        [self actionTitled:@"Redo" symbol:@"arrow.uturn.forward" handler:^{ [ws editRedo]; }],
+    ]];
+    UIMenu *clipboard = [UIMenu menuWithTitle:@"" image:nil identifier:nil
+                                      options:UIMenuOptionsDisplayInline children:@[
+        [self actionTitled:@"Cut" symbol:@"scissors" handler:^{ [ws editCut]; }],
+        [self actionTitled:@"Copy" symbol:@"doc.on.doc" handler:^{ [ws editCopy]; }],
+        [self actionTitled:@"Paste" symbol:@"doc.on.clipboard" handler:^{ [ws editPaste]; }],
+        [self actionTitled:@"Select All" symbol:@"selection.pin.in.out" handler:^{ [ws editSelectAll]; }],
+    ]];
+    UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil
+                                   options:UIMenuOptionsDisplayInline children:@[
+        [self actionTitled:@"Find…" symbol:@"magnifyingglass" handler:^{ [ws mpFind]; }],
+        [self actionTitled:@"Go to Line…" symbol:@"number" handler:^{ [ws mpGoToLine]; }],
+        [self actionTitled:@"Insert Date/Time" symbol:@"calendar" handler:^{ [ws mpInsertDateTime]; }],
+    ]];
+    return [UIMenu menuWithTitle:@"Edit" children:@[history, clipboard, search]];
+}
+
+- (UIMenu *)formatMenu {
+    __weak typeof(self) ws = self;
+    UIAction *wrap = [self actionTitled:@"Word Wrap" symbol:nil handler:^{ [ws mpToggleWordWrap]; }];
+    wrap.state = _wordWrap ? UIMenuElementStateOn : UIMenuElementStateOff;
+    return [UIMenu menuWithTitle:@"Format" children:@[
+        wrap,
+        [self actionTitled:@"Font…" symbol:@"textformat" handler:^{ [ws mpShowFonts]; }],
+    ]];
+}
+
+- (UIMenu *)viewMenu {
+    __weak typeof(self) ws = self;
+    UIAction *status = [self actionTitled:@"Status Bar" symbol:nil handler:^{ [ws mpToggleStatusBar]; }];
+    status.state = _statusBarVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
+    UIAction *lineNumbers = [self actionTitled:@"Line Numbers" symbol:nil handler:^{ [ws mpToggleLineNumbers]; }];
+    lineNumbers.state = _lineNumbersVisible ? UIMenuElementStateOn : UIMenuElementStateOff;
+    return [UIMenu menuWithTitle:@"View" children:@[status, lineNumbers]];
+}
+
+- (UIMenu *)helpMenu {
+    __weak typeof(self) ws = self;
+    return [UIMenu menuWithTitle:@"Help" children:@[
+        [self actionTitled:@"About MotePad" symbol:@"info.circle" handler:^{ [ws mpAbout]; }],
+    ]];
+}
+
+#pragma mark Hardware-keyboard shortcuts
+
+- (NSArray<UIKeyCommand *> *)keyCommands {
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    return @[
+        [UIKeyCommand keyCommandWithInput:@"n" modifierFlags:cmd action:@selector(mpNew)],
+        [UIKeyCommand keyCommandWithInput:@"o" modifierFlags:cmd action:@selector(mpOpen)],
+        [UIKeyCommand keyCommandWithInput:@"s" modifierFlags:cmd action:@selector(mpSave)],
+        [UIKeyCommand keyCommandWithInput:@"s" modifierFlags:cmd | UIKeyModifierShift action:@selector(mpSaveAs)],
+        [UIKeyCommand keyCommandWithInput:@"p" modifierFlags:cmd action:@selector(mpPrint)],
+        [UIKeyCommand keyCommandWithInput:@"f" modifierFlags:cmd action:@selector(mpFind)],
+        [UIKeyCommand keyCommandWithInput:@"l" modifierFlags:cmd action:@selector(mpGoToLine)],
+        [UIKeyCommand keyCommandWithInput:@"t" modifierFlags:cmd action:@selector(mpShowFonts)],
+    ];
+}
+
+#pragma mark Document state
+
+- (NSString *)documentDisplayName {
+    return _currentGuestPath.lastPathComponent.length ? _currentGuestPath.lastPathComponent : @"Untitled";
+}
+
+- (void)updateDocTitle {
+    NSString *name = [self documentDisplayName];
+    _docTitleLabel.text = _dirty ? [@"● " stringByAppendingString:name] : name;
+}
+
+- (void)setDirty:(BOOL)dirty {
+    if (_dirty == dirty) return;
+    _dirty = dirty;
+    [self updateDocTitle];
+}
+
+- (void)loadText:(NSString *)text guestPath:(NSString *)guestPath {
+    _textView.text = text ?: @"";
+    _currentGuestPath = guestPath;
+    [_textView.undoManager removeAllActions];
+    [self setDirty:NO];
+    [self updateStatusBar];
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+}
+
+#pragma mark File actions
+
+- (void)mpNew {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{ [ws loadText:@"" guestPath:nil]; }];
+}
+
+- (void)mpOpen {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{
+        [ws presentBrowserWithMode:MotePadBrowserModeOpen suggestedName:nil completion:^(NSString *path) {
+            if (path == nil) return;
+            NSError *error = nil;
+            NSString *text = [[MotePadDocumentStore sharedStore] readTextFileAtGuestPath:path error:&error];
+            if (text == nil) {
+                [ws presentError:error title:@"Couldn’t Open"];
+                return;
+            }
+            [ws loadText:text guestPath:path];
+        }];
+    }];
+}
+
+- (void)mpSave {
+    if (_currentGuestPath == nil) {
+        [self mpSaveAs];
+        return;
+    }
+    [self writeToGuestPath:_currentGuestPath];
+}
+
+- (void)mpSaveAs {
+    __weak typeof(self) ws = self;
+    [self presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[self documentDisplayName]
+                      completion:^(NSString *path) {
+        if (path == nil) return;
+        [ws writeToGuestPath:path];
+    }];
+}
+
+- (void)mpPrint {
+    UIPrintInteractionController *controller = [UIPrintInteractionController sharedPrintController];
+    if (controller == nil) return;  // device can't print
+    UIPrintInfo *info = [UIPrintInfo printInfo];
+    info.outputType = UIPrintInfoOutputGeneral;
+    info.jobName = [self documentDisplayName];
+    controller.printInfo = info;
+    UISimpleTextPrintFormatter *formatter = [[UISimpleTextPrintFormatter alloc] initWithText:_textView.text ?: @""];
+    formatter.font = _textView.font;
+    controller.printFormatter = formatter;
+    // Anchor on the File menu button — presentFromRect:inView: is valid on both idioms
+    // (iPad requires a source; iPhone presents modally regardless).
+    UIView *anchor = _menuButtons.firstObject ?: self.view;
+    [controller presentFromRect:anchor.bounds inView:anchor animated:YES completionHandler:nil];
+}
+
+- (BOOL)writeToGuestPath:(NSString *)path {
+    NSError *error = nil;
+    if (![[MotePadDocumentStore sharedStore] writeText:_textView.text toGuestPath:path error:&error]) {
+        [self presentError:error title:@"Couldn’t Save"];
+        return NO;
+    }
+    _currentGuestPath = path;
+    [self setDirty:NO];
+    return YES;
+}
+
+// Present the guest file browser rooted at the current document's directory (or the
+// store's default writable directory for an untitled document).
+- (void)presentBrowserWithMode:(MotePadBrowserMode)mode
+                 suggestedName:(NSString *)suggestedName
+                    completion:(void (^)(NSString *))completion {
+    NSString *start = _currentGuestPath.length
+        ? _currentGuestPath.stringByDeletingLastPathComponent
+        : [[MotePadDocumentStore sharedStore] defaultDirectoryGuestPath];
+    MotePadFileBrowserViewController *browser =
+        [[MotePadFileBrowserViewController alloc] initWithMode:mode directory:start
+                                                 suggestedName:suggestedName completion:completion];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:browser];
+    nav.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)promptToSaveIfDirtyThen:(void (^)(void))proceed {
+    if (!_dirty) {
+        if (proceed) proceed();
+        return;
+    }
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Unsaved Changes"
+                                            message:[NSString stringWithFormat:@"Save changes to %@?", [self documentDisplayName]]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        typeof(self) ss = ws;
+        if (ss == nil) return;
+        if (ss->_currentGuestPath == nil) {
+            // No path yet: run Save As, and only proceed if the write actually happened.
+            [ss presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[ss documentDisplayName]
+                            completion:^(NSString *path) {
+                if (path != nil && [ss writeToGuestPath:path] && proceed) proceed();
+            }];
+        } else if ([ss writeToGuestPath:ss->_currentGuestPath] && proceed) {
+            proceed();
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Don’t Save" style:UIAlertActionStyleDestructive
+                                            handler:^(__unused UIAlertAction *a) { if (proceed) proceed(); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Edit actions
+
+// Standard editing routed through the text view. Kept as methods (not ivar access
+// through the menu's weak `self`) — messaging a possibly-nil weak pointer is a safe
+// no-op, whereas dereferencing `ws->_textView` is disallowed under ARC.
+- (void)editUndo { [_textView.undoManager undo]; }
+- (void)editRedo { [_textView.undoManager redo]; }
+- (void)editCut { [_textView cut:nil]; }
+- (void)editCopy { [_textView copy:nil]; }
+- (void)editPaste { [_textView paste:nil]; }
+- (void)editSelectAll { [_textView selectAll:nil]; }
+
+- (void)mpFind {
+    if (@available(iOS 16.0, *)) {
+        _textView.findInteractionEnabled = YES;
+        [_textView.findInteraction presentFindNavigatorShowingReplace:NO];
+        return;
+    }
+    // Pre-iOS 16 fallback: a one-shot forward find from the caret.
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Find" message:nil
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"Search";
+        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Find Next" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        [ws findNext:alert.textFields.firstObject.text];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)findNext:(NSString *)needle {
+    if (needle.length == 0) return;
+    NSString *haystack = _textView.text;
+    NSUInteger from = NSMaxRange(_textView.selectedRange);
+    if (from > haystack.length) from = 0;
+    NSRange search = NSMakeRange(from, haystack.length - from);
+    NSRange found = [haystack rangeOfString:needle options:0 range:search];
+    if (found.location == NSNotFound)  // wrap to the top
+        found = [haystack rangeOfString:needle options:0 range:NSMakeRange(0, haystack.length)];
+    if (found.location == NSNotFound)
+        return;
+    _textView.selectedRange = found;
+    [_textView scrollRangeToVisible:found];
+    [_textView becomeFirstResponder];
+}
+
+- (void)mpGoToLine {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Go to Line" message:nil
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"Line number";
+        tf.keyboardType = UIKeyboardTypeNumberPad;
+    }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Go" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        [ws goToLine:alert.textFields.firstObject.text.integerValue];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)goToLine:(NSInteger)line {
+    if (line < 1) line = 1;
+    NSString *text = _textView.text;
+    NSUInteger index = 0;
+    NSInteger current = 1;
+    while (current < line && index < text.length) {
+        NSRange nl = [text rangeOfString:@"\n" options:0 range:NSMakeRange(index, text.length - index)];
+        if (nl.location == NSNotFound) { index = text.length; break; }
+        index = NSMaxRange(nl);
+        current++;
+    }
+    NSRange target = NSMakeRange(index, 0);
+    _textView.selectedRange = target;
+    [_textView scrollRangeToVisible:target];
+    [_textView becomeFirstResponder];
+    [self updateStatusBar];
+}
+
+- (void)mpInsertDateTime {
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.dateStyle = NSDateFormatterMediumStyle;
+    formatter.timeStyle = NSDateFormatterShortStyle;
+    NSString *stamp = [formatter stringFromDate:[NSDate date]];
+    if (!_textView.isFirstResponder)
+        [_textView becomeFirstResponder];
+    [_textView insertText:stamp];  // routes through UITextView so undo + dirty tracking fire
+}
+
+#pragma mark Format / View actions
+
+- (void)mpToggleWordWrap {
+    _wordWrap = !_wordWrap;
+    [self applyWordWrap];
+    [self rebuildMenus];
+}
+
+- (void)applyWordWrap {
+    if (_wordWrap) {
+        _textView.textContainer.widthTracksTextView = YES;
+        _textView.textContainer.size = CGSizeMake(0, CGFLOAT_MAX);
+    } else {
+        // Let long lines run off to the right; UITextView (a UIScrollView) then scrolls
+        // horizontally to reach them.
+        _textView.textContainer.widthTracksTextView = NO;
+        _textView.textContainer.size = CGSizeMake(1.0e7, CGFLOAT_MAX);
+    }
+    [_gutter setNeedsDisplay];
+}
+
+- (void)mpToggleStatusBar {
+    _statusBarVisible = !_statusBarVisible;
+    [self applyStatusBarVisibility];
+    [self rebuildMenus];
+}
+
+- (void)applyStatusBarVisibility {
+    _statusBar.hidden = !_statusBarVisible;
+    _statusBarHeight.constant = _statusBarVisible ? 22 : 0;
+}
+
+- (void)mpToggleLineNumbers {
+    _lineNumbersVisible = !_lineNumbersVisible;
+    [self updateGutterWidth];
+    [self applyLineNumbersVisibility];
+    [self rebuildMenus];
+}
+
+- (void)applyLineNumbersVisibility {
+    _gutter.hidden = !_lineNumbersVisible;
+    _gutterWidth.constant = _lineNumbersVisible ? _gutterContentWidth : 0;
+    [_gutter setNeedsDisplay];
+}
+
+// Size the gutter to the widest line number the document currently needs.
+- (void)updateGutterWidth {
+    NSString *text = _textView.text;
+    NSUInteger lines = 1;
+    for (NSUInteger i = 0; i < text.length; i++)
+        if ([text characterAtIndex:i] == '\n') lines++;
+    NSUInteger digits = 1;
+    for (NSUInteger n = lines; n >= 10; n /= 10) digits++;
+    if (digits < 2) digits = 2;  // reserve room for 2 digits so short files don't reflow on the 10th line
+    UIFont *font = [UIFont monospacedDigitSystemFontOfSize:MAX(9.0, (_textView.font.pointSize > 0 ? _textView.font.pointSize : 13) - 1.0)
+                                                    weight:UIFontWeightRegular];
+    CGFloat digitWidth = [@"0" sizeWithAttributes:@{NSFontAttributeName: font}].width;
+    _gutterContentWidth = ceil(digitWidth * digits) + 12.0;  // ~6pt padding each side
+    if (_lineNumbersVisible)
+        _gutterWidth.constant = _gutterContentWidth;
+}
+
+- (void)mpShowFonts {
+    UIFontPickerViewControllerConfiguration *config = [UIFontPickerViewControllerConfiguration new];
+    config.includeFaces = YES;
+    UIFontPickerViewController *picker = [[UIFontPickerViewController alloc] initWithConfiguration:config];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)viewController {
+    UIFontDescriptor *descriptor = viewController.selectedFontDescriptor;
+    if (descriptor != nil) {
+        CGFloat size = _textView.font.pointSize > 0 ? _textView.font.pointSize : 14;
+        _textView.font = [UIFont fontWithDescriptor:descriptor size:size];
+    }
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [viewController dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark Help
+
+- (void)mpAbout {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"MotePad"
+                                            message:@"A Notepad-style text editor for the iSH-AOK Workspace.\n\nInspired by MotePad / TinyRetroPad — reads and writes files on the guest filesystem."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Errors
+
+- (void)presentError:(NSError *)error title:(NSString *)title {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:title
+                                            message:error.localizedDescription ?: @"Unknown error"
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Status bar (Ln/Col)
+
+- (void)updateStatusBar {
+    NSString *text = _textView.text;
+    NSUInteger caret = MIN(_textView.selectedRange.location, text.length);
+    NSUInteger line = 1;
+    NSUInteger lineStart = 0;
+    for (NSUInteger i = 0; i < caret; i++) {
+        if ([text characterAtIndex:i] == '\n') { line++; lineStart = i + 1; }
+    }
+    NSUInteger column = caret - lineStart + 1;
+    _statusLabel.text = [NSString stringWithFormat:@"Ln %lu, Col %lu", (unsigned long)line, (unsigned long)column];
+}
+
+#pragma mark UITextViewDelegate
+
+- (void)textViewDidChange:(__unused UITextView *)textView {
+    [self setDirty:YES];
+    [self updateStatusBar];
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+}
+
+- (void)textViewDidChangeSelection:(__unused UITextView *)textView {
+    [self updateStatusBar];
+}
+
+- (void)scrollViewDidScroll:(__unused UIScrollView *)scrollView {
+    if (_lineNumbersVisible) [_gutter setNeedsDisplay];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (_lineNumbersVisible) [_gutter setNeedsDisplay];
 }
 
 @end
