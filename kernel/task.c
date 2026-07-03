@@ -565,7 +565,7 @@ __attribute__((constructor)) static void create_attr(void) {
 #endif
 }
 
-void task_start(struct task *task) {
+int task_start(struct task *task) {
     // Create the thread with SIGUSR1 blocked so it cannot run sigusr1_handler
     // before task_thread has instantiated its thread-local storage (see
     // signal_thread_locals_init). Otherwise a sibling's TLB-shootdown poke
@@ -577,9 +577,33 @@ void task_start(struct task *task) {
     sigemptyset(&sigusr1);
     sigaddset(&sigusr1, SIGUSR1);
     pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
-    if (pthread_create(&task->thread, &task_thread_attr, task_thread, task) < 0)
-        die("could not create thread");
+    // Test knob: ISH_TEST_FAIL_TASK_START_AFTER=N makes every create after
+    // the Nth fail as if the host were at its thread limit, so the unwind
+    // path below can be regression-tested without a 16k-thread storm.
+    static _Atomic int test_fail_after = -2; // -2 unparsed, -1 disabled
+    if (atomic_load_explicit(&test_fail_after, memory_order_relaxed) == -2) {
+        const char *env = getenv("ISH_TEST_FAIL_TASK_START_AFTER");
+        atomic_store_explicit(&test_fail_after, env != NULL ? atoi(env) : -1,
+                              memory_order_relaxed);
+    }
+    if (atomic_load_explicit(&test_fail_after, memory_order_relaxed) >= 0) {
+        static _Atomic int started = 0;
+        if (atomic_fetch_add_explicit(&started, 1, memory_order_relaxed) >=
+                atomic_load_explicit(&test_fail_after, memory_order_relaxed)) {
+            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            return _EAGAIN;
+        }
+    }
+    // pthread_create returns a POSITIVE errno on failure (EAGAIN at the host
+    // thread limit). The old `< 0` check could never fire, so a failed create
+    // was silently ignored: the fully-linked task had no host thread behind
+    // it — a ghost that leaked its pid forever and wedged its thread group's
+    // exit. Found via the bmt 10k-thread storm benchmark.
+    int err = pthread_create(&task->thread, &task_thread_attr, task_thread, task);
     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+    if (err != 0)
+        return _EAGAIN; // matches Linux clone() at the thread/rlimit ceiling
+    return 0;
 }
 
 int_t sys_sched_yield(void) {
@@ -591,6 +615,17 @@ int_t sys_sched_yield(void) {
 void update_thread_name(void) {
     char name[16]; // Maximum length for thread names in many systems, including Linux
     int result;
+
+#ifdef __APPLE__
+    // Never rename the main thread. The iOS app creates the visible
+    // terminal's session by running do_execve (which lands here) with
+    // `current` set ON the main thread, which stamped UIKit's main thread
+    // with a guest name like "login-459" — making every crash report look
+    // like a guest-thread crash. (CLI main-thread task loses its cosmetic
+    // name too; top shows the process name regardless.)
+    if (pthread_main_np())
+        return;
+#endif
 
     // Ensure that the name buffer is always null-terminated
     memset(name, 0, sizeof(name));

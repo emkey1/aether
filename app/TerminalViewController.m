@@ -1074,7 +1074,15 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                                   details:@{@"pid": @(self.sessionPid),
                                             @"command": commandString ?: @"",
                                             @"path": command.firstObject ?: @""}];
-    task_start(current);
+    if (task_start(current) < 0) {
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.thread-failed"
+                                      details:@{@"pid": @(self.sessionPid)}];
+        struct task *failed = current;
+        current = NULL;
+        self.sessionPid = 0;
+        task_never_ran_destroy(failed);
+        return _EAGAIN;
+    }
 #else
     const char *argv_arr[command.count + 1];
     for (NSUInteger i = 0; i < command.count; i++)

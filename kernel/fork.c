@@ -193,6 +193,39 @@ fail_free_mem:
     return err;
 }
 
+// Tear down a task that was fully created (copy_task or fork+exec succeeded)
+// but whose host thread could not be started (task_start failure). The task
+// has never executed a single instruction, so no exit notification is owed
+// to anyone: unlink it from the pid table and from every group list exactly
+// as copy_task's fail_unlink_group would, then release the resources do_exit
+// would have released (task_free_final only frees the task/group structs).
+// The pid leaves the table before the resource release so no /proc walk or
+// signal sender can observe a half-torn-down task.
+void task_never_ran_destroy(struct task *task) {
+    struct tgroup *parent_group = task->parent != NULL ? task->parent->group : task->group;
+    complex_lockt(&pids_lock, 0);
+    lock(&parent_group->lock, 0);
+    list_remove(&task->group_links);
+    if (task->group != parent_group) {
+        // non-CLONE_THREAD: the fresh tgroup's session/pgroup nodes are
+        // linked into the live pid-rooted lists (see copy_task)
+        list_remove(&task->group->pgroup);
+        list_remove(&task->group->session);
+    }
+    unlock(&parent_group->lock);
+    task_unlink_locked(task);
+    unlock(&pids_lock);
+    sighand_release(task->sighand);
+    task->sighand = NULL;
+    fs_info_release(task->fs);
+    task->fs = NULL;
+    fdtable_release(task->files);
+    task->files = NULL;
+    mm_release(task->mm);
+    task->mm = NULL;
+    task_destroy_unlinked(task, 3);
+}
+
 // Decode unimplemented clone flags into a readable '|'-joined list. The runtime
 // FIXME below is the primary signal for prioritizing clone-flag support from
 // real-world logs, so it should report *which* feature a program wanted (e.g.
@@ -307,7 +340,18 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
         }
     }
 
-    task_start(task);
+    if (task_start(task) < 0) {
+        // Host thread limit or memory exhaustion: the child never ran.
+        // Unwind completely and give the guest a clean EAGAIN, matching
+        // Linux clone() at the thread/rlimit ceiling. (Previously this
+        // failure was silently swallowed — see task_start — leaving a
+        // ghost task linked in the pid table and thread-group lists.)
+        task->vfork = NULL;
+        task_never_ran_destroy(task);
+        if (flags & CLONE_VFORK_)
+            cond_destroy(&vfork.cond);
+        return _EAGAIN;
+    }
     if (trace_child)
         send_signal(task, SIGSTOP_, SIGINFO_NIL);
     if (trace_child) {

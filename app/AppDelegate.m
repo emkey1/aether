@@ -938,7 +938,13 @@ static void *FallbackConsoleInitThread(void *context) {
         }
 
         printk("fake init started console shell pid=%d command=%s\n", childPid, config->file);
-        task_start(child);
+        if (task_start(child) < 0) {
+            printk("ERROR: fake init could not start host thread for console shell pid=%d, retrying\n", childPid);
+            task_never_ran_destroy(child);
+            current = config->init;
+            sleep(1);
+            continue;
+        }
         current = config->init;
 
         while (true) {
@@ -2420,7 +2426,16 @@ static TerminalViewController *CreateTerminalViewController(void) {
                                    @"command": commandString ?: @""});
     }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.exec"];
-    task_start(current);
+    if (task_start(current) < 0) {
+        return RecordBootFailure(_EAGAIN,
+                                 @"boot.init.start.failed",
+                                 @"Boot failed while starting init",
+                                 @"The boot command was loaded, but iSH-AOK could not create a thread to run it.",
+                                 @"Close other apps to free memory, then restart iSH-AOK.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"command": commandString ?: @""});
+    }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.started"];
     } @finally {
         ISHAppGroupReleaseLock(rootLockFd);

@@ -108,7 +108,13 @@
     if (err < 0)
         return err;
     self.upgradePid = current->pid;
-    task_start(current);
+    if (task_start(current) < 0) {
+        struct task *failed = current;
+        current = NULL;
+        self.upgradePid = 0;
+        task_never_ran_destroy(failed);
+        return _EAGAIN;
+    }
     current = NULL;
     return 0;
 #else

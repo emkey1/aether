@@ -198,6 +198,9 @@ void task_destroy(struct task *task, int UNUSED(caller));
 void task_unlink_locked(struct task *task);
 // Frees an already-unlinked task, or defers it if references remain.
 void task_destroy_unlinked(struct task *task, int UNUSED(caller));
+// Full teardown for a task that was created (and possibly exec'd) but whose
+// host thread never started (task_start failure); see kernel/fork.c.
+void task_never_ran_destroy(struct task *task);
 
 // misc
 void vfork_notify(struct task *task);
@@ -298,8 +301,10 @@ void get_guest_loadavg(uint64_t out[3]);
 
 #define MAX_PID (1 << 15) // oughta be enough
 
-// TODO document
-void task_start(struct task *task);
+// Spawn the host thread that runs the task. Returns 0 on success or
+// _EAGAIN if the host cannot create another thread (thread limit/memory);
+// on failure the task has NOT started and the caller must unwind it.
+int must_check task_start(struct task *task);
 void task_run_current(void);
 void task_poke_shared_mem(struct task *task, struct mem *mem);
 
