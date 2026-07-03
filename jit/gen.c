@@ -3813,7 +3813,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // 0:sz:001000:0:L:1:Rs:o0:11111:Rn:Rt. bit30 (sz) selects a pair of
     // 32-bit or 64-bit registers; bit23=0 distinguishes it from the
     // single-register CAS above; bit31=0 distinguishes it from LDXP/STXP
-    // (which stay unimplemented in the exclusive family below). Like CAS,
+    // (handled in the exclusive family below). Like CAS,
     // this must precede the exclusive-family check, whose 0x3f000000 mask
     // also matches CASP encodings. L (acquire, bit22) and o0 (release,
     // bit15) are accepted and ignored, same as the CAS path. Rs and Rt
@@ -3847,8 +3847,8 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // STLXR's acquire/release bit) is accepted and ignored for the
     // exclusive forms, same as the interpreter. Pair exclusives (o1=1,
     // now necessarily LDXP/STXP — CASP encodings, which this mask also
-    // matches, are consumed by the dedicated check above) stay
-    // unimplemented.
+    // matches, are consumed by the dedicated check above) lower to the
+    // ldxp/stxp gadgets.
     if ((insn & 0x3f000000) == 0x08000000) {
         extern void gadget_arm64_ldxr8(void), gadget_arm64_ldxr16(void);
         extern void gadget_arm64_ldxr32(void), gadget_arm64_ldxr64(void);
@@ -3862,7 +3862,39 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
         if (o1 != 0) {
-            return gen_arm64_undefined(state);
+            // LDXP/STXP/LDAXP/STLXP (load/store exclusive PAIR):
+            // 1:sz:001000:0:L:1:Rs:o0:Rt2:Rn:Rt. bit31 must be 1 — the
+            // bit31=0 half of this slot is CASP, consumed by the check
+            // above — and o2 must be 0 (o2=1,o1=1 is the CAS space; any
+            // encoding there that escaped the dedicated CAS check is
+            // genuinely undefined). bit30 (sz) picks a pair of 32-bit or
+            // 64-bit registers. o0 (acquire/release) is accepted and
+            // ignored like everywhere else in this family. Compilers
+            // only emit these when NOT emitting LSE (-mno-outline-atomics
+            // on v8.0 baseline, or older toolchains): a 16-byte atomic is
+            // an LDXP/STXP loop instead of CASP — real software hits
+            // this. Unlike CASP there is no evenness constraint: Rt, Rt2
+            // and Rs are independent registers (31 = XZR / discard).
+            // LDXP params: [rt | rn<<8 | rt2<<16];
+            // STXP params: [rt | rn<<8 | rs<<16 | rt2<<24].
+            extern void gadget_arm64_ldxp32(void), gadget_arm64_ldxp64(void);
+            extern void gadget_arm64_stxp32(void), gadget_arm64_stxp64(void);
+            unsigned rt2 = (insn >> 10) & 0x1f;
+            if (!(insn >> 31) || o2 != 0)
+                return gen_arm64_undefined(state);
+            unsigned sz64 = size & 1;
+            if (L) {
+                gen(state, (unsigned long) (sz64 ? gadget_arm64_ldxp64
+                                                 : gadget_arm64_ldxp32));
+                gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rt2 << 16));
+            } else {
+                gen(state, (unsigned long) (sz64 ? gadget_arm64_stxp64
+                                                 : gadget_arm64_stxp32));
+                gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16) |
+                           ((uint64_t) rt2 << 24));
+            }
+            gen(state, state->arm64_orig_ip); // fault-restart address
+            return 1;
         }
         if (o2 == 1) {
             // LDAR/STLR: an ordered but non-exclusive plain access.
@@ -4253,6 +4285,28 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         extern void gadget_arm64_barrier(void);
         gen(state, (unsigned long) gadget_arm64_barrier);
         return 1;
+    }
+
+    // EL0 cache maintenance (SYS op1=3, CRn=C7): IC IVAU and the DC
+    // clean/invalidate-by-VA family, which Linux exposes to userspace via
+    // SCTLR_EL1.{UCI} and __clear_cache/__aarch64_sync_cache_range emits
+    // after runtime code generation (first seen: syslog-ng). Translated-
+    // block invalidation here is driven by the guest's WRITES to code
+    // pages, which have already happened by the time the cache ops run,
+    // so these are architecturally safe no-ops — same self-modifying-code
+    // model as the x86 guests, no gadget emitted (hint-space precedent
+    // above). Whitelisted CRm values only: DC ZVA (CRm=4, same op1/CRn/
+    // op2 space) must keep faulting because DCZID_EL0 advertises DZP=1
+    // (see the MRS below), and unallocated encodings stay UNDEFINED.
+    // EL1-only maintenance ops have op1!=3 and never match this mask.
+    if ((insn & 0xfffff0e0) == 0xd50b7020) {
+        unsigned crm = (insn >> 8) & 0xf;
+        if (crm == 0x5 ||                // IC IVAU
+            crm == 0xa || crm == 0xb ||  // DC CVAC, DC CVAU
+            crm == 0xc || crm == 0xd ||  // DC CVAP, DC CVADP
+            crm == 0xe)                  // DC CIVAC
+            return 1;
+        // fall through: DC ZVA / EL1-only ops reject below
     }
 
     // MRS/MSR TPIDR_EL0 — the TLS base register (see cpu_state.arm64_tpidr).
