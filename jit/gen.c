@@ -985,11 +985,11 @@ static bool gen_arm64_try_ld_cmp_fusion(struct gen_state *state, struct tlb *tlb
 // otherwise invisible (the "no gadget" warning only covers the final
 // decoder fallthrough).
 static int gen_arm64_undefined_at(struct gen_state *state, uint32_t insn) {
-    extern void gadget_interrupt(void);
+    extern void gadget_arm64_interrupt(void);
     if (insn != 0)
         printk("WARNING: arm64 JIT: rejected encoding %#010x at pc %#llx\n",
                insn, (unsigned long long) state->arm64_orig_ip);
-    gen(state, (unsigned long) gadget_interrupt);
+    gen(state, (unsigned long) gadget_arm64_interrupt);
     gen(state, INT_UNDEFINED);
     gen(state, state->arm64_orig_ip);
     gen(state, state->arm64_orig_ip);
@@ -1036,7 +1036,8 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
 
     uint32_t insn;
     if (!tlb_read(tlb, state->arm64_ip, &insn, sizeof(insn))) {
-        gen(state, (unsigned long) gadget_interrupt);
+        extern void gadget_arm64_interrupt(void);
+        gen(state, (unsigned long) gadget_arm64_interrupt);
         gen(state, INT_UNDEFINED);
         gen(state, state->arm64_orig_ip);
         gen(state, state->arm64_orig_ip);
@@ -1053,18 +1054,10 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         uint64_t imm16 = (insn >> 5) & 0xffff;
         unsigned rd = insn & 0x1f;
         if (!sf && hw >= 2) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (opc == 0b01) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (rd != 31 && opc != 0b11) {
             // MOVZ/MOVN: the result is fully compile-time known. Fold any
@@ -1246,11 +1239,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rd = insn & 0x1f;
         uint64_t imm;
         if ((!sf && N != 0) || !arm64_decode_bitmask_imm(N, imms, immr, sf, &imm)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_logical_imm);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) opc << 16) | ((uint64_t) sf << 24));
@@ -1277,11 +1266,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         if (!sf && (imm6 & 0x20)) {
             // 32-bit form only allows a 5-bit shift amount (bit5 of imm6
             // must be 0) -- unallocated otherwise.
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         // Fast paths: the MOV-register alias (ORR, Rn=ZR, shift 0 — the
         // hottest register-form instruction there is) and plain unshifted
@@ -1337,11 +1322,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         if (shift_type == 3 || (!sf && (imm6 & 0x20))) {
             // shift_type=3 (ROR) is unallocated for add/subtract (only
             // logical allows ROR); 32-bit form only allows a 5-bit shift.
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         // Fast path: unshifted plain-register forms (the vast majority),
         // op/width/flags baked at compile time. rn/rm = 31 (ZR here)
@@ -1430,11 +1411,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         bool op_sub = (insn >> 30) & 1;
         bool sf = (insn >> 31) & 1;
         if (opt != 0 || imm3 > 4) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_addsub_ext);
         gen(state, rd | ((uint64_t) rn << 5) | ((uint64_t) rm << 10)
@@ -1464,11 +1441,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         bool is_ldpsw = opc == 0b01;
         if ((opc == 0b11) || (is_ldpsw && !is_load) ||
                 (mode != 1 && mode != 2 && mode != 3)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         bool sf = opc == 0b10;
         // LDPSW accesses 4-byte elements; the scaled offset uses 4 too.
@@ -1518,11 +1491,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             return 1; // PRFM: a prefetch hint, architecturally allowed to do nothing
         void *gadget = gen_arm64_ldst_single_gadget(size, opc);
         if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (opc == 1 && size >= 2 && rt != 31) {
             if (gen_arm64_try_ldst_fusion(state, tlb, size, rt, rn, imm12 << size))
@@ -1560,11 +1529,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned mode = insn_mode == 1 ? 1 : insn_mode == 3 ? 2 : 0;
         void *gadget = gen_arm64_ldst_single_gadget(size, opc);
         if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (mode == 0 && rt != 31) { // LDUR/STUR/LDTR/STTR: same fast form
             gen(state, (unsigned long) gen_arm64_ldst_single_fast_gadget(size, opc));
@@ -1594,11 +1559,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             return 1; // PRFM (register): prefetch hint, lowered to nothing
         void *gadget = gen_arm64_ldst_single_gadget(size, opc);
         if (gadget == NULL || (option & 0x2) == 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned shift = S ? size : 0;
         gen(state, (unsigned long) gadget);
@@ -1647,11 +1608,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         void *gadget = size_log2 < 0 ? NULL
             : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
         if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
@@ -1674,11 +1631,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         void *gadget = size_log2 < 0 ? NULL
             : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
         if (gadget == NULL || insn_mode == 2 /* no LDTR/STTR in SIMD space */) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget);
         gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) mode << 16));
@@ -1701,11 +1654,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         void *gadget = size_log2 < 0 ? NULL
             : gen_arm64_vldst_single_gadget((unsigned) size_log2, is_load);
         if (gadget == NULL || (option & 0x2) == 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned shift = S ? (unsigned) size_log2 : 0;
         gen(state, (unsigned long) gadget);
@@ -1731,11 +1680,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
         if (opc > 2 || (mode != 1 && mode != 2 && mode != 3)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned esize = 4u << opc; // bytes per element: 4/8/16
         int64_t offset = (int64_t) imm7 * esize;
@@ -1764,11 +1709,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         // lowest set bit of imm5 selects the element size
         int size = imm5 & 1 ? 0 : imm5 & 2 ? 1 : imm5 & 4 ? 2 : imm5 & 8 ? 3 : -1;
         if (size < 0 || (size == 3 && !q)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_dup_gen);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) size << 16) | ((uint64_t) q << 19));
@@ -1793,11 +1734,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             (is_smov ? (size <= 1 || (size == 2 && q))
                      : (q ? size == 3 : size <= 2));
         if (!valid) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned byteoff = (imm5 >> (size + 1)) << size;
         unsigned sf = is_smov ? q : (size == 3);
@@ -1815,11 +1752,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned vd = insn & 0x1f;
         int size = imm5 & 1 ? 0 : imm5 & 2 ? 1 : imm5 & 4 ? 2 : imm5 & 8 ? 3 : -1;
         if (size < 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned byteoff = (imm5 >> (size + 1)) << size;
         gen(state, (unsigned long) gadget_arm64_vins_gpr);
@@ -2061,11 +1994,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             }
         }
         if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget);
         gen(state, rd | ((uint64_t) rn << 8));
@@ -2111,11 +2040,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             }
         }
         if (gadget == NULL) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget);
         gen(state, rd | ((uint64_t) rn << 8));
@@ -2150,11 +2075,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             {(void *) gadget_arm64_fnmul_s, (void *) gadget_arm64_fnmul_d},
         };
         if (type > 1 || opcode > 8) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) t[opcode][type]);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16));
@@ -2171,11 +2092,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned opcode2 = insn & 0x1f;
         bool cmp0 = (opcode2 & 0x8) != 0;
         if (type > 1 || (opcode2 & 0x7) != 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) (type ? gadget_arm64_fcmp_d : gadget_arm64_fcmp_s));
         gen(state, rn | ((uint64_t) rm << 8) | ((uint64_t) cmp0 << 16));
@@ -2191,11 +2108,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned nzcv = insn & 0xf;
         if (type > 1) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
         gen(state, (unsigned long) gadget_arm64_fccmp);
@@ -2212,11 +2125,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rd = insn & 0x1f;
         if (type > 1) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gen_arm64_cond_gadget(cond));
         gen(state, (unsigned long) gadget_arm64_fcsel);
@@ -2234,11 +2143,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rd = insn & 0x1f;
         uint64_t imm64;
         if (type > 1 || !gen_arm64_expand_imm(type == 1 ? 1 : 0, 15, imm8, &imm64)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (type == 0)
             imm64 &= 0xffffffffu; // single: 32-bit constant in the low word
@@ -2269,11 +2174,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
              {(void *) gadget_arm64_fnmsub_s, (void *) gadget_arm64_fnmsub_d}},
         };
         if (type > 1) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) t[o1][o0][type]);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16) | ((uint64_t) ra << 24));
@@ -2766,11 +2667,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         bool is_shl = ((insn >> 11) & 0x1f) == 0x0a;
         bool is_ushr = !is_shl && ((insn >> 29) & 1);
         if ((immhb & 0x40) == 0) { // immh<3> must be 1 for the D form
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned shift = is_shl ? immhb - 64 : 128 - immhb;
         unsigned op = is_shl ? 0 : is_ushr ? 1 : 2;
@@ -3743,11 +3640,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         bool is_orr_bic = (cmode & 1) && cmode < 12;
         if (is_orr_bic || !gen_arm64_expand_imm(op, cmode, imm8, &imm64)
                 || (op == 1 && cmode == 15 && !q) /* FMOV .2d needs Q */) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (op == 1 && cmode <= 13)
             imm64 = ~imm64; // MVNI
@@ -3836,11 +3729,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
         if (o1 != 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         if (o2 == 1) {
             // LDAR/STLR: an ordered but non-exclusive plain access.
@@ -4010,11 +3899,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, rn);
             break;
         default:
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            break;
+            return gen_arm64_undefined(state);
         }
         return 0;
     }
@@ -4043,11 +3928,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rd = insn & 0x1f;
         if (opc == 3 || N != sf || (!sf && ((immr | imms) & 0x20))) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         unsigned R = sf ? 64 : 32;
         unsigned L = R - 1 - imms;
@@ -4080,11 +3961,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rd = insn & 0x1f;
         if (op21 != 0 || N != sf || o0 != 0 || (!sf && (imms & 0x20))) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_extr);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
@@ -4162,11 +4039,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
                : opcode == 0x08 ? 2 : opcode == 0x09 ? 3
                : opcode == 0x0a ? 4 : opcode == 0x0b ? 5 : -1;
         if (op < 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_dp2src);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
@@ -4185,11 +4058,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         // opcode -> gadget op (same numbering): 0 RBIT, 1 REV16,
         // 2 REV32(x)/REV(w), 3 REV(x, 64-bit only), 4 CLZ, 5 CLS
         if (opcode2 != 0 || opcode > 5 || (opcode == 3 && !sf)) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_dp1src);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) sf << 16)
@@ -4222,11 +4091,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         else if (op31 == 6 && !o0 && sf)
             op = 7; // UMULH
         if (op < 0) {
-            gen(state, (unsigned long) gadget_interrupt);
-            gen(state, INT_UNDEFINED);
-            gen(state, state->arm64_orig_ip);
-            gen(state, state->arm64_orig_ip);
-            return 0;
+            return gen_arm64_undefined(state);
         }
         gen(state, (unsigned long) gadget_arm64_dp3src);
         gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) rm << 16)
@@ -4392,7 +4257,8 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // BRK #imm16: debug breakpoint -> SIGTRAP (__builtin_trap, abort
     // fast-paths, debuggers). Ported from OpenMinis' d4200000 branch.
     if ((insn & 0xffe0001f) == 0xd4200000) {
-        gen(state, (unsigned long) gadget_interrupt);
+        extern void gadget_arm64_interrupt(void);
+        gen(state, (unsigned long) gadget_arm64_interrupt);
         gen(state, INT_BREAKPOINT);
         gen(state, state->arm64_orig_ip);
         gen(state, state->arm64_orig_ip);
@@ -4407,11 +4273,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // each successive real-rootfs blocker in the port has been found.
     printk("WARNING: arm64 JIT: no gadget for insn %#010x at pc %#llx\n",
            insn, (unsigned long long) state->arm64_orig_ip);
-    gen(state, (unsigned long) gadget_interrupt);
-    gen(state, INT_UNDEFINED);
-    gen(state, state->arm64_orig_ip);
-    gen(state, state->arm64_orig_ip);
-    return 0;
+    return gen_arm64_undefined(state);
 }
 
 static bool gen_fetch_amd64(struct gen_state *state, struct tlb *tlb, void *out, size_t size) {

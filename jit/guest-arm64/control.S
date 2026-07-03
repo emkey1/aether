@@ -60,6 +60,23 @@
     mov w0, #INT_ARM64_SVC
     b jit_exit
 
+// Interrupt exit with a 64-BIT guest pc (INT_UNDEFINED and friends).
+// arm64 rejects used to emit the shared i386 gadget_interrupt
+// (jit/gadgets-aarch64/entry.S), which stores `eip` — not arm64_pc —
+// and truncates segfault_addr to 32 bits: every arm64 SIGILL reported
+// a stale block-start pc (current_fault_ip reads arm64_pc), the
+// "illegal instruction" log dumped the WRONG instruction's bytes, and
+// the guest signal frame got a truncated fault address. Same code
+// stream layout as the shared gadget: [gadget][code][pc][addr].
+.gadget interrupt
+    ldr _tmp, [_ip]
+    ldr x8, [_ip, #8]
+    str x8, [_cpu, #CPU_pc]
+    ldr x8, [_ip, #16]
+    str x8, [_cpu, #CPU_segfault_addr]
+    strb wzr, [_cpu, #CPU_segfault_was_write]
+    b jit_exit
+
 // B, BL — unconditional branch (target is compile-time-known, computed by
 // gen_step_arm64 since PC is known at compile time). Code stream for b:
 // [gadget][target_pc]. For bl: [gadget][target_pc][return_addr] -- return
