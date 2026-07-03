@@ -457,6 +457,21 @@ void task_poke_shared_mem(struct task *task, struct mem *mem) {
             atomic_fetch_add_explicit(&quiesce_pokes_skipped, 1, memory_order_relaxed);
             continue;
         }
+        // Already poked and hasn't consumed it: the sticky flag is still up,
+        // so the sibling either hasn't reached a block boundary yet (the
+        // flag, not the signal, is what evicts a JIT runner) or has already
+        // exited guest code and is blocked on one of OUR locks. Re-signalling
+        // it does nothing for the barrier — and a SIGUSR1 storm against a
+        // thread parked in __psynch_rw_wrlock/rdlock is exactly the
+        // repeated-EINTR pattern that wedged Darwin's psynch rwlock in the
+        // mprotect-storm stress (writers asleep forever on a FREE lock).
+        // cpu_take_poke clears the flag only when the task re-enters its run
+        // loop, so this can't suppress a needed eviction.
+        if (other->cpu.poked_ptr != NULL &&
+                __atomic_load_n(other->cpu.poked_ptr, __ATOMIC_SEQ_CST)) {
+            atomic_fetch_add_explicit(&quiesce_pokes_skipped, 1, memory_order_relaxed);
+            continue;
+        }
         pthread_kill(other->thread, SIGUSR1);
         atomic_fetch_add_explicit(&quiesce_pokes_sent, 1, memory_order_relaxed);
         if (other->cpu.poked_ptr == NULL)

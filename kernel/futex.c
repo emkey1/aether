@@ -142,9 +142,20 @@ static void futex_put(struct futex *futex) {
 }
 
 static int futex_load(guest_addr_t addr, dword_t *out) {
-    read_lock(&current->mem->lock);
+    // Quiesce-aware, NOT the raw read_lock: this runs while HOLDING the
+    // futex bucket lock (futex_wait's atomicity protocol). The raw lock
+    // queued this thread inside __psynch_rw_rdlock behind a fork/mmap
+    // barrier's registered writer -- stalling every futex op in the process
+    // (exiting children block in the clear_tid wake behind futex_lock) for
+    // the barrier's whole duration, and parking this thread exactly where
+    // the barrier's periodic SIGUSR1 re-pokes keep interrupting the psynch
+    // wait (the Darwin rwlock lost-wakeup wedge: cargo's threaded forks +
+    // sibling futex waits reproduced writers asleep on a FREE lock).
+    // Parking here instead is deadlock-free: the barrier writer never takes
+    // futex_lock, so it completes and its release broadcast wakes us.
+    mem_read_lock_quiesce_aware(current->mem);
     dword_t *ptr = mem_ptr(current->mem, addr, MEM_READ);
-    read_unlock(&current->mem->lock);
+    mem_read_unlock_quiesce_aware(current->mem);
     if (ptr == NULL)
         return 1;
     *out = *ptr;
