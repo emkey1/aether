@@ -37,4 +37,13 @@ int get_cpu_count(void);
 // the UI. /proc/cpuinfo and /proc/stat still use the true get_cpu_count().
 int get_cpu_count_for_affinity(void);
 
+// True when the host process is close enough to its memory ceiling that guest
+// memory growth should be refused (guest mmap/brk/mremap return ENOMEM) so the
+// app's own allocations — UIKit, fakefs SQLite, malloc inside libobjc — keep
+// working instead of crashing on NULL. On iOS this consults the jetsam budget
+// via os_proc_available_memory(); everywhere else (macOS/Linux CLI, no hard
+// per-process budget) it returns false. Threshold defaults to 192 MiB;
+// override with ISH_GUEST_MEM_HEADROOM_MB (0 disables the guard).
+bool host_mem_headroom_low(void);
+
 #endif

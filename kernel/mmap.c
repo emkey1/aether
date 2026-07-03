@@ -6,6 +6,7 @@
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "emu/memory.h"
+#include "platform/platform.h"
 #include "kernel/mm.h"
 #include "util/sync.h"
 
@@ -266,6 +267,12 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
         return _EINVAL;
     if (prot & ~P_RWX)
         return _EINVAL;
+    // Refuse guest memory growth when the app is close to its jetsam budget:
+    // a runaway guest (e.g. a 10k-thread storm mapping a stack per thread)
+    // must get clean ENOMEMs here rather than starving UIKit/libobjc into a
+    // NULL-deref crash. No-op outside iOS. See host_mem_headroom_low().
+    if (host_mem_headroom_low())
+        return _ENOMEM;
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
     // exactly one of MAP_PRIVATE / MAP_SHARED is required
@@ -395,6 +402,9 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
     }
     pages_t old_pages = PAGE_ROUND_UP(old_len);
     pages_t new_pages = PAGE_ROUND_UP(new_len);
+    // Same jetsam-headroom backpressure as mmap_common_guest (grow only).
+    if (new_pages > old_pages && host_mem_headroom_low())
+        return _ENOMEM;
     guest_addr_t res = _ENOMEM;
 
     mem_write_lock_with_pokes(current->mem);
@@ -786,6 +796,11 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
         // expand heap: map region from old_brk to new_brk
         // round up because of the definition of brk: "the first location after the end of the uninitialized data segment." (brk(2))
         // if the brk is 0x2000, page 0x2000 shouldn't be mapped, but it should be if the brk is 0x2001.
+        // Same jetsam-headroom backpressure as mmap_common_guest.
+        if (host_mem_headroom_low()) {
+            expand_failed = true;
+            goto out;
+        }
         page_t start = PAGE_ROUND_UP(old_brk);
         pages_t size = PAGE_ROUND_UP(new_brk) - PAGE_ROUND_UP(old_brk);
         if (!pt_is_hole(&mm->mem, start, size)) {
