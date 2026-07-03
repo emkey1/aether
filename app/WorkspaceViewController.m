@@ -7816,10 +7816,12 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 // A menu item that shows its shortcut as trailing text. iOS renders native ⌘-glyphs
 // only in the system menu bar, NOT in app-created pull-down menus (confirmed on iOS 17
 // even with a hardware keyboard attached), so we bake the shortcut into the title. Tap
-// runs `handler`; the physical key press is wired separately in -keyCommands.
-- (UIAction *)item:(NSString *)title symbol:(NSString *)symbol shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
+// runs `handler`; the physical key press is wired separately in -keyCommands. The `symbol`
+// is intentionally ignored so the menus read as clean text — pass it through to
+// actionTitled: to bring the leading SF Symbol icons back.
+- (UIAction *)item:(NSString *)title symbol:(__unused NSString *)symbol shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
     NSString *fullTitle = shortcut.length ? [NSString stringWithFormat:@"%@   %@", title, shortcut] : title;
-    return [self actionTitled:fullTitle symbol:symbol handler:handler];
+    return [self actionTitled:fullTitle symbol:nil handler:handler];  // text-only (no leading icons)
 }
 
 - (UIMenu *)fileMenu {
