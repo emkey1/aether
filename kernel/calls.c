@@ -2159,7 +2159,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     // the amd64 native path uses (64-bit-pointer-safe), keyed by AArch64
     // numbers. socket/listen/shutdown are all-integer and handled fine by
     // the legacy table, so they're omitted here.
-    case 199: result = sys_socketpair((dword_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3]); break;
+    case 199: result = sys_socketpair_guest((dword_t) raw_args[0], (dword_t) raw_args[1], (dword_t) raw_args[2], raw_args[3]); break;
     case 200: result = sys_bind_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break;
     case 202: result = sys_accept_guest((fd_t) raw_args[0], raw_args[1], raw_args[2]); break;
     case 203: result = sys_connect_guest((fd_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break;
