@@ -1325,7 +1325,7 @@ if "$AETHER_BIN" --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" >/tmp/aether_in
     echo "expected inferred let rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether declaration rewrite error: cannot infer the type of 'answer' from its initializer" /tmp/aether_inferred_let_unknown_fail.out; then
+if ! grep -q "Aether declaration parser error: cannot infer the type of 'answer' from its initializer" /tmp/aether_inferred_let_unknown_fail.out; then
     echo "missing inferred let rewrite failure message" >&2
     cat /tmp/aether_inferred_let_unknown_fail.out >&2
     exit 1
@@ -1339,8 +1339,8 @@ if "$AETHER_BIN" --diagnostics-json --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTU
     echo "expected inferred let rewrite failure with diagnostics-json but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"phase":"rewrite"' /tmp/aether_inferred_let_unknown_json.out; then
-    echo "missing diagnostics-json rewrite phase" >&2
+if ! grep -q '"phase":"parser"' /tmp/aether_inferred_let_unknown_json.out; then
+    echo "missing diagnostics-json parser phase" >&2
     cat /tmp/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
@@ -1382,7 +1382,7 @@ if "$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_FAIL_FIXTURE" >/tmp/aether_scoped_
     echo "expected scoped bindings failure but program succeeded (regression: another function's local leaked into inference)" >&2
     exit 1
 fi
-if ! grep -q "\[TYPE-001\] Aether declaration rewrite error: cannot infer the type of 'copy' from its initializer" /tmp/aether_scoped_bindings_fail.out; then
+if ! grep -q "\[TYPE-001\] Aether declaration parser error: cannot infer the type of 'copy' from its initializer" /tmp/aether_scoped_bindings_fail.out; then
     echo "missing scoped bindings cannot-infer diagnostic" >&2
     cat /tmp/aether_scoped_bindings_fail.out >&2
     exit 1
@@ -1391,7 +1391,7 @@ if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >/tmp/a
     echo "expected missing return type rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function rewrite error: functions must declare an explicit return type" /tmp/aether_function_missing_return_type_fail.out; then
+if ! grep -q "Aether function parser error: functions must declare an explicit return type" /tmp/aether_function_missing_return_type_fail.out; then
     echo "missing function return type rewrite failure message" >&2
     cat /tmp/aether_function_missing_return_type_fail.out >&2
     exit 1
@@ -1405,7 +1405,7 @@ if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FA
     echo "expected missing return type diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"phase":"rewrite"' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"phase":"parser"' /tmp/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json phase" >&2
     cat /tmp/aether_function_missing_return_type_json.out >&2
     exit 1
@@ -1420,7 +1420,7 @@ if ! grep -q '"code":"SYN-001"' /tmp/aether_function_missing_return_type_json.ou
     cat /tmp/aether_function_missing_return_type_json.out >&2
     exit 1
 fi
-if ! grep -q '"message":"Aether function rewrite error: functions must declare an explicit return type\."' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"message":"Aether function parser error: functions must declare an explicit return type\."' /tmp/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json message" >&2
     cat /tmp/aether_function_missing_return_type_json.out >&2
     exit 1
@@ -1429,7 +1429,7 @@ if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" >/tmp/
     echo "expected missing value return rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function rewrite error: non-Void functions have a fallthrough path with no return value" /tmp/aether_function_missing_value_return_fail.out; then
+if ! grep -q "Aether function parser error: non-Void functions have a fallthrough path with no return value" /tmp/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure message" >&2
     cat /tmp/aether_function_missing_value_return_fail.out >&2
     exit 1
@@ -1446,7 +1446,7 @@ if "$AETHER_BIN" --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >/tmp/aether_f
     echo "expected empty-return rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function rewrite error: return requires a value" /tmp/aether_function_empty_return_fail.out; then
+if ! grep -q "Aether function parser error: return requires a value" /tmp/aether_function_empty_return_fail.out; then
     echo "missing empty-return rewrite failure message" >&2
     cat /tmp/aether_function_empty_return_fail.out >&2
     exit 1
@@ -1464,7 +1464,7 @@ if "$AETHER_BIN" --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >/tmp/aether_type_f
     echo "expected type field comma rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether type rewrite error: type fields must end with ';', not ','." /tmp/aether_type_field_comma_fail.out; then
+if ! grep -q "Aether type parser error: type fields must end with ';', not ','." /tmp/aether_type_field_comma_fail.out; then
     echo "missing type field comma rewrite failure message" >&2
     cat /tmp/aether_type_field_comma_fail.out >&2
     exit 1
@@ -1488,7 +1488,7 @@ if ! grep -q '"code":"SYN-001"' /tmp/aether_type_field_comma_json.out; then
     cat /tmp/aether_type_field_comma_json.out >&2
     exit 1
 fi
-if ! grep -q '"message":"Aether type rewrite error: type fields must end with ' /tmp/aether_type_field_comma_json.out; then
+if ! grep -q '"message":"Aether type parser error: type fields must end with ' /tmp/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json message" >&2
     cat /tmp/aether_type_field_comma_json.out >&2
     exit 1
@@ -1717,7 +1717,7 @@ if "$AETHER_BIN" --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >/tmp/aether_par_fail_n
     echo "expected par rewrite failure for non-call statement but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether par rewrite error: only direct call statements are allowed inside par blocks" /tmp/aether_par_fail_non_call.out; then
+if ! grep -q "Aether par parser error: only direct call statements are allowed inside par blocks" /tmp/aether_par_fail_non_call.out; then
     echo "missing par rewrite failure message" >&2
     cat /tmp/aether_par_fail_non_call.out >&2
     exit 1
@@ -1785,7 +1785,7 @@ fi
 # error", emitted since the block parser stopped tolerating stalled statements)
 # or the silent-failure backstop's wording ("Aether syntax error"); both are
 # coded SYN-001 and anchored where parsing stalled.
-if ! grep -q "\[SYN-001\] Aether \(syntax\|parser rewrite\) error:" /tmp/aether_unknown_construct_fail.out; then
+if ! grep -q "\[SYN-001\] Aether \(syntax\|parser\) error:" /tmp/aether_unknown_construct_fail.out; then
     echo "missing SYN-001 backstop diagnostic (silent parse failure regressed)" >&2
     cat /tmp/aether_unknown_construct_fail.out >&2
     exit 1

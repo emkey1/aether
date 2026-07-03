@@ -339,20 +339,32 @@ void aetherAstClearSemanticRegistries(void) {
     g_aetherLineAliases.cap = 0;
 }
 
-/* Emit a diagnostic in the exact format the rewriter's (static) report helper in
- * translate.c uses, so error parity holds byte for byte. Reuses the shared
+/* Emit a diagnostic for an AST-parser-detected error. Reuses the shared
  * diagnostics helpers (aetherInferDiagnosticCode / aetherReportGuideHelp). */
 static void reportAetherAstError(const char *path, int line, const char *kind,
                                  const char *detail, const char *hint) {
     const char *code = aetherInferDiagnosticCode(kind, detail);
+    const char *label = (kind && strcmp(kind, "parser") != 0) ? kind : NULL;
     if (code) {
-        aetherDiagf( "%s:%d: [%s] Aether %s rewrite error: %s\n",
-                path ? path : "<aether>", line > 0 ? line : 1, code,
-                kind ? kind : "rewrite", detail ? detail : "unknown rewrite error.");
+        if (label) {
+            aetherDiagf( "%s:%d: [%s] Aether %s parser error: %s\n",
+                    path ? path : "<aether>", line > 0 ? line : 1, code,
+                    label, detail ? detail : "unknown parser error.");
+        } else {
+            aetherDiagf( "%s:%d: [%s] Aether parser error: %s\n",
+                    path ? path : "<aether>", line > 0 ? line : 1, code,
+                    detail ? detail : "unknown parser error.");
+        }
     } else {
-        aetherDiagf( "%s:%d: Aether %s rewrite error: %s\n",
-                path ? path : "<aether>", line > 0 ? line : 1,
-                kind ? kind : "rewrite", detail ? detail : "unknown rewrite error.");
+        if (label) {
+            aetherDiagf( "%s:%d: Aether %s parser error: %s\n",
+                    path ? path : "<aether>", line > 0 ? line : 1,
+                    label, detail ? detail : "unknown parser error.");
+        } else {
+            aetherDiagf( "%s:%d: Aether parser error: %s\n",
+                    path ? path : "<aether>", line > 0 ? line : 1,
+                    detail ? detail : "unknown parser error.");
+        }
     }
     if (hint && *hint) {
         aetherDiagf( "hint: %s\n", hint);

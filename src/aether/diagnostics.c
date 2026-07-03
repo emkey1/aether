@@ -36,7 +36,7 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
          * callee, an arity mismatch, or a tuple-return method. These all point at
          * the same TUP-001 guide section. Kept as a distinct "tuple" kind (not the
          * former placeholder "feature") so the code->guide map resolves and the
-         * human message reads "Aether tuple rewrite error". Internal "tuple ...
+         * human message reads "Aether tuple parser error". Internal "tuple ...
          * rewrite failed" defects and @post-slot errors use other kinds, so they
          * are intentionally not captured here. */
         if (strcmp(kind, "tuple") == 0) {

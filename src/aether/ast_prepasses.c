@@ -497,22 +497,40 @@ static void reportAetherRewriteError(const char *path,
                                      const char *detail,
                                      const char *hint) {
     const char *code = aetherInferDiagnosticCode(kind, detail);
+    const char *label = (kind && strcmp(kind, "parser") != 0) ? kind : NULL;
 
     if (code) {
-        fprintf(stderr,
-                "%s:%d: [%s] Aether %s rewrite error: %s\n",
-                path ? path : "<aether>",
-                line > 0 ? line : 1,
-                code,
-                kind ? kind : "rewrite",
-                detail ? detail : "unknown rewrite error.");
+        if (label) {
+            fprintf(stderr,
+                    "%s:%d: [%s] Aether %s parser error: %s\n",
+                    path ? path : "<aether>",
+                    line > 0 ? line : 1,
+                    code,
+                    label,
+                    detail ? detail : "unknown parser error.");
+        } else {
+            fprintf(stderr,
+                    "%s:%d: [%s] Aether parser error: %s\n",
+                    path ? path : "<aether>",
+                    line > 0 ? line : 1,
+                    code,
+                    detail ? detail : "unknown parser error.");
+        }
     } else {
-        fprintf(stderr,
-                "%s:%d: Aether %s rewrite error: %s\n",
-                path ? path : "<aether>",
-                line > 0 ? line : 1,
-                kind ? kind : "rewrite",
-                detail ? detail : "unknown rewrite error.");
+        if (label) {
+            fprintf(stderr,
+                    "%s:%d: Aether %s parser error: %s\n",
+                    path ? path : "<aether>",
+                    line > 0 ? line : 1,
+                    label,
+                    detail ? detail : "unknown parser error.");
+        } else {
+            fprintf(stderr,
+                    "%s:%d: Aether parser error: %s\n",
+                    path ? path : "<aether>",
+                    line > 0 ? line : 1,
+                    detail ? detail : "unknown parser error.");
+        }
     }
     if (hint && *hint) {
         fprintf(stderr, "hint: %s\n", hint);
