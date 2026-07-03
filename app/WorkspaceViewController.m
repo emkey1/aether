@@ -7629,6 +7629,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     BOOL _wordWrap;
     BOOL _statusBarVisible;
     BOOL _lineNumbersVisible;
+    NSString *_lastSearch;  // last Find term, so Find Next (⌘G) can repeat it
 }
 
 - (void)viewDidLoad {
@@ -7840,8 +7841,10 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     UIMenu *search = [UIMenu menuWithTitle:@"" image:nil identifier:nil
                                    options:UIMenuOptionsDisplayInline children:@[
         [self actionTitled:@"Find…" symbol:@"magnifyingglass" handler:^{ [ws mpFind]; }],
+        [self actionTitled:@"Find Next" symbol:@"arrow.forward" handler:^{ [ws mpFindNext]; }],
+        [self actionTitled:@"Replace…" symbol:@"arrow.2.squarepath" handler:^{ [ws mpReplace]; }],
         [self actionTitled:@"Go to Line…" symbol:@"number" handler:^{ [ws mpGoToLine]; }],
-        [self actionTitled:@"Insert Date/Time" symbol:@"calendar" handler:^{ [ws mpInsertDateTime]; }],
+        [self actionTitled:@"Insert Date and Time" symbol:@"calendar" handler:^{ [ws mpInsertDateTime]; }],
     ]];
     return [UIMenu menuWithTitle:@"Edit" children:@[history, clipboard, search]];
 }
@@ -7874,18 +7877,67 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 
 #pragma mark Hardware-keyboard shortcuts
 
+- (UIKeyCommand *)key:(NSString *)input flags:(UIKeyModifierFlags)flags action:(SEL)action title:(NSString *)title {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:flags action:action];
+    command.discoverabilityTitle = title;  // shown in the iPad ⌘-hold shortcut HUD
+    return command;
+}
+
+// Open a named in-window menu from the keyboard. Presenting a UIButton's menu
+// programmatically needs -performPrimaryAction (iOS 17+); older systems just no-op.
+- (void)presentMenuForButtonTitled:(NSString *)title {
+    if (@available(iOS 17.0, *)) {
+        for (UIButton *button in _menuButtons) {
+            if ([[button titleForState:UIControlStateNormal] isEqualToString:title]) {
+                [button performPrimaryAction];
+                return;
+            }
+        }
+    }
+}
+
+- (void)openFileMenu { [self presentMenuForButtonTitled:@"File"]; }
+- (void)openEditMenu { [self presentMenuForButtonTitled:@"Edit"]; }
+- (void)openFormatMenu { [self presentMenuForButtonTitled:@"Format"]; }
+- (void)openViewMenu { [self presentMenuForButtonTitled:@"View"]; }
+- (void)openHelpMenu { [self presentMenuForButtonTitled:@"Help"]; }
+
 - (NSArray<UIKeyCommand *> *)keyCommands {
     UIKeyModifierFlags cmd = UIKeyModifierCommand;
-    return @[
-        [UIKeyCommand keyCommandWithInput:@"n" modifierFlags:cmd action:@selector(mpNew)],
-        [UIKeyCommand keyCommandWithInput:@"o" modifierFlags:cmd action:@selector(mpOpen)],
-        [UIKeyCommand keyCommandWithInput:@"s" modifierFlags:cmd action:@selector(mpSave)],
-        [UIKeyCommand keyCommandWithInput:@"s" modifierFlags:cmd | UIKeyModifierShift action:@selector(mpSaveAs)],
-        [UIKeyCommand keyCommandWithInput:@"p" modifierFlags:cmd action:@selector(mpPrint)],
-        [UIKeyCommand keyCommandWithInput:@"f" modifierFlags:cmd action:@selector(mpFind)],
-        [UIKeyCommand keyCommandWithInput:@"l" modifierFlags:cmd action:@selector(mpGoToLine)],
-        [UIKeyCommand keyCommandWithInput:@"t" modifierFlags:cmd action:@selector(mpShowFonts)],
-    ];
+    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
+    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
+    NSMutableArray<UIKeyCommand *> *commands = [@[
+        // File
+        [self key:@"n" flags:cmd action:@selector(mpNew) title:@"New"],
+        [self key:@"o" flags:cmd action:@selector(mpOpen) title:@"Open…"],
+        [self key:@"s" flags:cmd action:@selector(mpSave) title:@"Save"],
+        [self key:@"s" flags:shiftCmd action:@selector(mpSaveAs) title:@"Save As…"],
+        [self key:@"p" flags:cmd action:@selector(mpPrint) title:@"Print…"],
+        // Edit — Undo/Redo/Cut/Copy/Paste/Select All are provided natively by UITextView.
+        [self key:@"f" flags:cmd action:@selector(mpFind) title:@"Find…"],
+        [self key:@"g" flags:cmd action:@selector(mpFindNext) title:@"Find Next"],
+        [self key:@"f" flags:shiftCmd action:@selector(mpReplace) title:@"Replace…"],
+        [self key:@"l" flags:cmd action:@selector(mpGoToLine) title:@"Go to Line…"],
+        [self key:@"d" flags:cmd action:@selector(mpInsertDateTime) title:@"Insert Date and Time"],
+        // Format
+        [self key:@"w" flags:optCmd action:@selector(mpToggleWordWrap) title:@"Word Wrap"],
+        [self key:@"t" flags:cmd action:@selector(mpShowFonts) title:@"Show Fonts"],
+        // View
+        [self key:@"s" flags:optCmd action:@selector(mpToggleStatusBar) title:@"Status Bar"],
+        [self key:@"l" flags:optCmd action:@selector(mpToggleLineNumbers) title:@"Line Numbers"],
+    ] mutableCopy];
+    // Open each in-window menu from the keyboard (Control-Option-letter).
+    if (@available(iOS 17.0, *)) {
+        UIKeyModifierFlags ctrlOpt = UIKeyModifierControl | UIKeyModifierAlternate;
+        [commands addObjectsFromArray:@[
+            [self key:@"f" flags:ctrlOpt action:@selector(openFileMenu) title:@"File Menu"],
+            [self key:@"e" flags:ctrlOpt action:@selector(openEditMenu) title:@"Edit Menu"],
+            [self key:@"o" flags:ctrlOpt action:@selector(openFormatMenu) title:@"Format Menu"],
+            [self key:@"v" flags:ctrlOpt action:@selector(openViewMenu) title:@"View Menu"],
+            [self key:@"h" flags:ctrlOpt action:@selector(openHelpMenu) title:@"Help Menu"],
+        ]];
+    }
+    return commands;
 }
 
 #pragma mark Document state
@@ -8062,8 +8114,23 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)mpFindNext {
+    if (_lastSearch.length > 0) { [self findNext:_lastSearch]; return; }
+    [self mpFind];
+}
+
+- (void)mpReplace {
+    if (@available(iOS 16.0, *)) {
+        _textView.findInteractionEnabled = YES;
+        [_textView.findInteraction presentFindNavigatorShowingReplace:YES];
+        return;
+    }
+    [self mpFind];  // pre-iOS 16 has no system replace UI
+}
+
 - (void)findNext:(NSString *)needle {
     if (needle.length == 0) return;
+    _lastSearch = [needle copy];  // remember for Find Next (⌘G)
     NSString *haystack = _textView.text;
     NSUInteger from = NSMaxRange(_textView.selectedRange);
     if (from > haystack.length) from = 0;
