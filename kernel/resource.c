@@ -217,7 +217,9 @@ void rusage_add(struct rusage_ *dst, struct rusage_ *src) {
 }
 
 int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage) {
-    if (abi == GUEST_ABI_AMD64) {
+    // Generic 64-bit rusage layout is shared by amd64 and arm64 (callers
+    // pass current->abi, so arm64 was getting the i386 32-bit layout).
+    if (guest_abi_is_64bit(abi)) {
         struct amd64_rusage_ guest = {
             .utime = {.sec = rusage->utime.sec, .usec = rusage->utime.usec},
             .stime = {.sec = rusage->stime.sec, .usec = rusage->stime.usec},

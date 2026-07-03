@@ -30,6 +30,11 @@ enum aokfs_node_kind {
     aokfs_tests_audio_dir,
     aokfs_audio_raw,
     aokfs_audio_wav,
+    // Arch-specific test subdirectories: their FILES come from the generated
+    // table (manifest names like "x86/atomics32.c" become paths under
+    // /tests/x86/); only the directory nodes themselves are enumerated here.
+    aokfs_tests_x86_dir,
+    aokfs_tests_arm64_dir,
 };
 
 static enum aokfs_node_kind aokfs_decode_node(void *fs_data) {
@@ -72,7 +77,9 @@ static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
         node == aokfs_fixes_devuan_dir ||
         node == aokfs_tools_dir ||
         node == aokfs_tests_dir ||
-        node == aokfs_tests_audio_dir;
+        node == aokfs_tests_audio_dir ||
+        node == aokfs_tests_x86_dir ||
+        node == aokfs_tests_arm64_dir;
 }
 
 static bool aokfs_node_is_symlink(enum aokfs_node_kind node) {
@@ -127,6 +134,10 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/fixes/debian";
         case aokfs_tests_dir:
             return "/tests";
+        case aokfs_tests_x86_dir:
+            return "/tests/x86";
+        case aokfs_tests_arm64_dir:
+            return "/tests/arm64";
         case aokfs_tools_dir:
             return "/tools";
         case aokfs_tools_ish_benchmark:
@@ -161,6 +172,8 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_fixes_devuan_pkcsslotd_init,
         aokfs_fixes_debian_link,
         aokfs_tests_dir,
+        aokfs_tests_x86_dir,
+        aokfs_tests_arm64_dir,
         aokfs_tools_dir,
         aokfs_tools_ish_benchmark,
         aokfs_tools_setup_ish_benchmark,
@@ -625,15 +638,39 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 return 0;
             break;
         }
-        case aokfs_tests_dir: {
-            // Generated /tests/* files first, then the audio subdirectory.
-            size_t i = (size_t) fd->offset++;
-            if (i < AOKFS_GEN_FILE_COUNT)
-                child = (enum aokfs_node_kind) (AOKFS_GEN_BASE + i);
-            else if (i == AOKFS_GEN_FILE_COUNT)
-                child = aokfs_tests_audio_dir;
-            else
-                return 0;
+        case aokfs_tests_dir:
+        case aokfs_tests_x86_dir:
+        case aokfs_tests_arm64_dir: {
+            // Generated files that belong DIRECTLY to this directory (one
+            // path component past the prefix), then — for /tests itself —
+            // the subdirectories.
+            const char *prefix = node == aokfs_tests_dir ? "/tests/"
+                               : node == aokfs_tests_x86_dir ? "/tests/x86/"
+                               : "/tests/arm64/";
+            size_t plen = strlen(prefix);
+            size_t want = (size_t) fd->offset++;
+            size_t seen = 0;
+            bool found = false;
+            for (size_t i = 0; i < AOKFS_GEN_FILE_COUNT; i++) {
+                const char *p = aokfs_gen_files[i].path;
+                if (strncmp(p, prefix, plen) != 0 || strchr(p + plen, '/') != NULL)
+                    continue;
+                if (seen++ == want) {
+                    child = (enum aokfs_node_kind) (AOKFS_GEN_BASE + i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                if (node != aokfs_tests_dir)
+                    return 0;
+                switch (want - seen) {
+                    case 0: child = aokfs_tests_audio_dir; break;
+                    case 1: child = aokfs_tests_x86_dir; break;
+                    case 2: child = aokfs_tests_arm64_dir; break;
+                    default: return 0;
+                }
+            }
             break;
         }
         case aokfs_tests_audio_dir:

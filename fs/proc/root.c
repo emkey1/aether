@@ -118,6 +118,44 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
     dword_t ecx;
     dword_t edx;
 
+    // arm64 guests get the aarch64 cpuinfo format (implementer/part/
+    // Features), not the x86 one — tools parse "Features" for the same
+    // capabilities the emulated ID registers advertise (gen.c's
+    // ID_AA64ISAR0 value: aes pmull sha1 sha2 crc32) and "vendor_id :
+    // GenuineIntel" on an aarch64 root is nonsense. The iSH-AOK "host
+    // ..." extension lines are kept, matching the x86 format below.
+    if (abi == GUEST_ABI_ARM64) {
+        char *arm_host_architecture = copyHostArchitecture();
+        char *arm_host_machine_identifier = copyHostMachineIdentifier();
+        char *arm_host_device_name = copyHostDeviceName();
+        char *arm_host_core_topology = copyHostCoreTopology();
+        int arm_cpu_count = get_cpu_count();
+        for (int cpu = 0; cpu < arm_cpu_count; cpu++) {
+            proc_printf(buf, "processor       : %d\n", cpu);
+            proc_printf(buf, "model name      : iSH Virtual aarch64-compatible CPU @ 1.066GHz\n");
+            proc_printf(buf, "BogoMIPS        : 1066.00\n");
+            // Real Linux derives this string from AT_HWCAP — keep it in
+            // lockstep with kernel/exec.c's hwcap (uniform on every host
+            // device: SHA512/CRC32 fall back to soft gadgets pre-A13/A10).
+            proc_printf(buf, "Features        : fp asimd cpuid aes pmull sha1 sha2 crc32 atomics sha3 sha512\n");
+            proc_printf(buf, "CPU implementer : 0x61\n"); // Apple (the silicon underneath)
+            proc_printf(buf, "CPU architecture: 8\n");
+            proc_printf(buf, "CPU variant     : 0x0\n");
+            proc_printf(buf, "CPU part        : 0x023\n");
+            proc_printf(buf, "CPU revision    : 1\n");
+            proc_printf(buf, "host arch       : %s\n", arm_host_architecture);
+            proc_printf(buf, "host machine    : %s\n", arm_host_machine_identifier);
+            proc_printf(buf, "host device     : %s\n", arm_host_device_name);
+            proc_printf(buf, "host cores      : %s\n", arm_host_core_topology);
+            proc_printf(buf, "\n");
+        }
+        free(arm_host_architecture);
+        free(arm_host_machine_identifier);
+        free(arm_host_device_name);
+        free(arm_host_core_topology);
+        return 0;
+    }
+
     do_cpuid(&eax, &ebx, &ecx, &edx); // Get vendor_id
 
     char vendor_id[13] = { 0 };

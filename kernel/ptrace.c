@@ -220,11 +220,11 @@ static void set_user_fpregs_amd64(struct cpu_state *cpu, const struct user_fpreg
 }
 
 static size_t ptrace_word_size(const struct task *task) {
-    return task->abi == GUEST_ABI_AMD64 ? sizeof(qword_t) : sizeof(dword_t);
+    return guest_abi_is_64bit(task->abi) ? sizeof(qword_t) : sizeof(dword_t);
 }
 
 static int ptrace_put_eventmsg(struct task *tracer, guest_addr_t data_addr, qword_t eventmsg) {
-    if (tracer->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(tracer->abi)) {
         return user_put(data_addr, eventmsg);
     } else {
         dword_t compat_eventmsg = (dword_t) eventmsg;
@@ -238,7 +238,7 @@ struct ptrace_iovec_ {
 };
 
 static int ptrace_iovec_get(struct task *tracer, guest_addr_t iov_addr, struct ptrace_iovec_ *iov) {
-    if (tracer->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(tracer->abi)) {
         struct amd64_iovec_ raw;
         if (user_get(iov_addr, raw))
             return _EFAULT;
@@ -259,7 +259,7 @@ static int ptrace_iovec_get(struct task *tracer, guest_addr_t iov_addr, struct p
 }
 
 static int ptrace_iovec_put(struct task *tracer, guest_addr_t iov_addr, const struct ptrace_iovec_ *iov) {
-    if (tracer->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(tracer->abi)) {
         struct amd64_iovec_ raw = {
             .base = iov->base,
             .len = iov->len,
@@ -505,7 +505,9 @@ void ptrace_syscall_stop(struct cpu_state *cpu) {
     lock(&current->ptrace.lock, 0);
     if (!current->ptrace.syscall_stopped)
         current->ptrace.syscall = current->abi == GUEST_ABI_AMD64 ?
-            (int) cpu->amd64_regs[amd64_rax] : (int) cpu->eax;
+            (int) cpu->amd64_regs[amd64_rax] :
+            current->abi == GUEST_ABI_ARM64 ?
+            (int) cpu->arm64_regs[arm64_x8] : (int) cpu->eax;
     current->ptrace.syscall_stopped = !current->ptrace.syscall_stopped;
     unlock(&current->ptrace.lock);
 

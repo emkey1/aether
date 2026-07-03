@@ -27,6 +27,10 @@ struct mem {
     page_t mmap_floor;
     page_t mmap_ceiling;
     _Atomic int quiesce_requested;
+    // Parking lot for quiesce waiters (mem_quiesce_park/mem_quiesce_wake_parked,
+    // memory.c). Leaf lock: nothing else is ever taken under it.
+    pthread_mutex_t quiesce_park_lock;
+    pthread_cond_t quiesce_park_cond;
 
 #if ENGINE_JIT
     struct jit *jit;
@@ -48,18 +52,32 @@ struct mem {
 
 extern _Atomic long quiesce_reader_naps;
 
-// Wait out a writer holding the mem-quiesce barrier. sched_yield() for the first
-// burst hands the CPU straight to the writer so the barrier (a brief page-table
-// edit) clears in microseconds instead of waiting out nanosleep's ~13us floor;
-// only a long hold (e.g. fork COW of a big address space) falls through to
-// nanosleep so it can't hot-spin a core. `spins` is threaded across both the
-// inner and outer waits of a single acquire.
-static inline void mem_quiesce_backoff(int *spins) {
-    if ((*spins)++ < 256) {
+// Block until quiesce_requested drops to 0, sleeping on the mem's parking-lot
+// condvar (no CPU burned). memory.c.
+void mem_quiesce_park(struct mem *mem);
+// Broadcast the parking lot after dropping quiesce_requested (the barrier
+// writer's release side, mem_write_unlock_with_pokes). memory.c.
+void mem_quiesce_wake_parked(struct mem *mem);
+
+// Wait out a writer holding the mem-quiesce barrier. sched_yield() for a short
+// burst hands the CPU straight to the writer so the brief common case (a small
+// page-table edit) clears in microseconds; past that the waiter PARKS on the
+// mem's condvar until the writer's release broadcast. The old scheme kept
+// yielding for 256 spins and then nanosleep-polled — under a barrier STORM
+// (thread benchmark: one mprotect per pthread_create, with dozens of sibling
+// threads alive) that put every parked sibling in a sched_yield hot loop,
+// monopolizing the host scheduler so hard that freshly-created threads never
+// got scheduled to run and exit — the pileup fed itself until the app wedged
+// (main thread starved mid-open()). Parked threads now cost nothing, however
+// many pile up. `spins` is threaded across both the inner and outer waits of
+// a single acquire.
+#define MEM_QUIESCE_SPIN_YIELDS 32
+static inline void mem_quiesce_wait(struct mem *mem, int *spins) {
+    if ((*spins)++ < MEM_QUIESCE_SPIN_YIELDS) {
         sched_yield();
     } else {
         atomic_fetch_add_explicit(&quiesce_reader_naps, 1, memory_order_relaxed);
-        nanosleep(&lock_pause, NULL);
+        mem_quiesce_park(mem);
     }
 }
 
@@ -69,12 +87,12 @@ static inline void mem_read_lock_quiesce_aware(struct mem *mem) {
     int spins = 0;
     while (true) {
         while (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) > 0)
-            mem_quiesce_backoff(&spins);
+            mem_quiesce_wait(mem, &spins);
         read_lock(&mem->lock);
         if (atomic_load_explicit(&mem->quiesce_requested, memory_order_acquire) == 0)
             return;
         read_unlock(&mem->lock);
-        mem_quiesce_backoff(&spins);
+        mem_quiesce_wait(mem, &spins);
     }
 }
 

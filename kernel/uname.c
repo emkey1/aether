@@ -197,7 +197,7 @@ dword_t sys_sysinfo_guest(guest_addr_t info_addr) {
 
     // amd64 glibc expects the 112-byte struct sysinfo with 64-bit fields, so on
     // that ABI fill and write the wider layout with raw (un-truncated) values.
-    if (current->abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(current->abi)) { // arm64 shares the 64-bit layout
         struct amd64_sys_info info = {0};
         info.uptime = (sqword_t)uptime.uptime_ticks;
         info.loads[0] = loads[0];

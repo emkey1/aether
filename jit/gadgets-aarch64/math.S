@@ -4326,3 +4326,333 @@ amd64_gen_negnot negnot64, 8
     mov  x10, 64
     amd64_write_low_or_mem x13, x9, x10
 1:  gret 1
+
+# ---- SSE FP long-tail: the ops a compiled double/float hot loop actually
+# emits, previously all routed through the amd64_jit_0f_vec_rm interpreter
+# bridge (a matmul benchmark spent its whole life there — one bridge round
+# trip per arithmetic instruction). Same conventions as the vector move
+# gadgets above: mem forms use [gadget][meta][disp][next_ip] with the xmm
+# register id in meta bits 8-11 and fault restart via next_ip; reg forms
+# use [gadget][rm | reg<<4]. NEON d/s/q scratch regs are caller-saved,
+# loaded fresh, and dead after gret.
+
+# Packed 128-bit arithmetic, reg-reg: dst = dst OP src, lane-wise.
+.macro amd64_v_packed_arith name, fpop, arr
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr q0, [x10]
+        ldr q1, [x9]
+        \fpop v0.\arr, v0.\arr, v1.\arr
+        str q0, [x10]
+        gret 1
+.endm
+
+amd64_v_packed_arith addpd, fadd, 2d
+amd64_v_packed_arith subpd, fsub, 2d
+amd64_v_packed_arith mulpd, fmul, 2d
+amd64_v_packed_arith divpd, fdiv, 2d
+amd64_v_packed_arith minpd, fmin, 2d
+amd64_v_packed_arith maxpd, fmax, 2d
+amd64_v_packed_arith addps, fadd, 4s
+amd64_v_packed_arith subps, fsub, 4s
+amd64_v_packed_arith mulps, fmul, 4s
+amd64_v_packed_arith divps, fdiv, 4s
+amd64_v_packed_arith minps, fmin, 4s
+amd64_v_packed_arith maxps, fmax, 4s
+
+# Packed 128-bit arithmetic, mem source: dst = dst OP m128.
+.macro amd64_v_packed_arith_mem name, fpop, arr
+    .gadget amd64_v_\name\()_mem
+        ldr  x8, [_ip]
+        ldr  x9, [_ip, 8]
+        ubfx x10, x8, 8, 4
+        amd64_vmem_addr
+        amd64_vread_prep 16, \name\()_mem
+        ldp  x12, x13, [x9]
+        fmov d1, x12
+        mov  v1.d[1], x13
+        add  x14, _cpu, CPU_xmm
+        add  x14, x14, x10, lsl 4
+        ldr  q0, [x14]
+        \fpop v0.\arr, v0.\arr, v1.\arr
+        str  q0, [x14]
+        gret 3
+        amd64_vread_bullshit 16, \name\()_mem
+.endm
+
+amd64_v_packed_arith_mem addpd, fadd, 2d
+amd64_v_packed_arith_mem subpd, fsub, 2d
+amd64_v_packed_arith_mem mulpd, fmul, 2d
+amd64_v_packed_arith_mem divpd, fdiv, 2d
+amd64_v_packed_arith_mem minpd, fmin, 2d
+amd64_v_packed_arith_mem maxpd, fmax, 2d
+amd64_v_packed_arith_mem addps, fadd, 4s
+amd64_v_packed_arith_mem subps, fsub, 4s
+amd64_v_packed_arith_mem mulps, fmul, 4s
+amd64_v_packed_arith_mem divps, fdiv, 4s
+amd64_v_packed_arith_mem minps, fmin, 4s
+amd64_v_packed_arith_mem maxps, fmax, 4s
+
+# Scalar double, mem source: dst.f64[0] OP= m64, upper lane preserved.
+.macro amd64_v_scalar_double_mem name, fpop
+    .gadget amd64_v_\name\()_mem
+        ldr  x8, [_ip]
+        ldr  x9, [_ip, 8]
+        ubfx x10, x8, 8, 4
+        amd64_vmem_addr
+        amd64_vread_prep 8, \name\()_mem
+        ldr  x12, [x9]
+        fmov d1, x12
+        add  x14, _cpu, CPU_xmm
+        add  x14, x14, x10, lsl 4
+        ldr  d0, [x14]
+        \fpop d0, d0, d1
+        str  d0, [x14]
+        gret 3
+        amd64_vread_bullshit 8, \name\()_mem
+.endm
+
+amd64_v_scalar_double_mem addsd, fadd
+amd64_v_scalar_double_mem subsd, fsub
+amd64_v_scalar_double_mem mulsd, fmul
+amd64_v_scalar_double_mem divsd, fdiv
+amd64_v_scalar_double_mem minsd, fmin
+amd64_v_scalar_double_mem maxsd, fmax
+
+# Scalar single, reg-reg and mem source (dst.f32[0], upper 96 preserved).
+.macro amd64_v_scalar_single name, fpop
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr s0, [x10]
+        ldr s1, [x9]
+        \fpop s0, s0, s1
+        str s0, [x10]
+        gret 1
+    .gadget amd64_v_\name\()_mem
+        ldr  x8, [_ip]
+        ldr  x9, [_ip, 8]
+        ubfx x10, x8, 8, 4
+        amd64_vmem_addr
+        amd64_vread_prep 4, \name\()_mem
+        ldr  w12, [x9]
+        fmov s1, w12
+        add  x14, _cpu, CPU_xmm
+        add  x14, x14, x10, lsl 4
+        ldr  s0, [x14]
+        \fpop s0, s0, s1
+        str  s0, [x14]
+        gret 3
+        amd64_vread_bullshit 4, \name\()_mem
+.endm
+
+amd64_v_scalar_single addss, fadd
+amd64_v_scalar_single subss, fsub
+amd64_v_scalar_single mulss, fmul
+amd64_v_scalar_single divss, fdiv
+amd64_v_scalar_single minss, fmin
+amd64_v_scalar_single maxss, fmax
+
+# Scalar-double reg-reg stragglers for the existing macro.
+amd64_v_scalar_double subsd, fsub
+amd64_v_scalar_double divsd, fdiv
+amd64_v_scalar_double minsd, fmin
+amd64_v_scalar_double maxsd, fmax
+
+# movsd xmm, m64 (F2 0F 10, mod!=3): low lane = m64, upper 64 CLEARED
+# (the load form zeroes; only the reg-reg form merges).
+.gadget amd64_v_movsd_load
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 8, movsd_load
+    ldr  x12, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    stp  x12, xzr, [x14]
+    gret 3
+    amd64_vread_bullshit 8, movsd_load
+
+# movss xmm, m32 (F3 0F 10, mod!=3): low lane = m32, upper 96 CLEARED.
+.gadget amd64_v_movss_load
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 4, movss_load
+    ldr  w12, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    stp  x12, xzr, [x14]
+    gret 3
+    amd64_vread_bullshit 4, movss_load
+
+# movsd m64, xmm (F2 0F 11, mod!=3) / movss m32, xmm (F3 0F 11).
+.gadget amd64_v_movsd_store
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    // address FIRST: amd64_vmem_addr clobbers x14/x15 (index-register
+    // shift path), which silently corrupted the staged store value for
+    // indexed addressing (arrays) — caught by the fpforms O0/O2 cross-check.
+    amd64_vmem_addr
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  x15, [x14]
+    amd64_vwrite_prep 8, movsd_store
+    str  x15, [x9]
+    amd64_vwrite_done 8, movsd_store
+    gret 3
+    amd64_vwrite_bullshit 8, movsd_store
+
+.gadget amd64_v_movss_store
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    // address FIRST: amd64_vmem_addr clobbers x14/x15 (index-register
+    // shift path), which silently corrupted the staged store value for
+    // indexed addressing (arrays) — caught by the fpforms O0/O2 cross-check.
+    amd64_vmem_addr
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  w15, [x14]
+    amd64_vwrite_prep 4, movss_store
+    str  w15, [x9]
+    amd64_vwrite_done 4, movss_store
+    gret 3
+    amd64_vwrite_bullshit 4, movss_store
+
+# movsd/movss xmm, xmm (mod==3): copy the low lane, PRESERVE dst's rest.
+.gadget amd64_v_movsd_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    add x10, x11, x10, lsl 4
+    ldr x12, [x9]
+    str x12, [x10]
+    gret 1
+
+.gadget amd64_v_movss_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    add x10, x11, x10, lsl 4
+    ldr w12, [x9]
+    str w12, [x10]
+    gret 1
+
+# unpcklpd/unpckhpd (66 0F 14/15) and unpcklps/unpckhps (0F 14/15):
+# interleave dst/src lanes — exactly NEON zip1/zip2.
+.macro amd64_v_unpck name, zipop, arr
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr q0, [x10]
+        ldr q1, [x9]
+        \zipop v0.\arr, v0.\arr, v1.\arr
+        str q0, [x10]
+        gret 1
+    .gadget amd64_v_\name\()_mem
+        ldr  x8, [_ip]
+        ldr  x9, [_ip, 8]
+        ubfx x10, x8, 8, 4
+        amd64_vmem_addr
+        amd64_vread_prep 16, \name\()_mem
+        ldp  x12, x13, [x9]
+        fmov d1, x12
+        mov  v1.d[1], x13
+        add  x14, _cpu, CPU_xmm
+        add  x14, x14, x10, lsl 4
+        ldr  q0, [x14]
+        \zipop v0.\arr, v0.\arr, v1.\arr
+        str  q0, [x14]
+        gret 3
+        amd64_vread_bullshit 16, \name\()_mem
+.endm
+
+amd64_v_unpck unpcklpd, zip1, 2d
+amd64_v_unpck unpckhpd, zip2, 2d
+amd64_v_unpck unpcklps, zip1, 4s
+amd64_v_unpck unpckhps, zip2, 4s
+
+# movhpd/movhps xmm, m64 (0F 16, mod!=3): HIGH lane = m64, low preserved.
+.gadget amd64_v_movhp_load
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 8, movhp_load
+    ldr  x12, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    str  x12, [x14, 8]
+    gret 3
+    amd64_vread_bullshit 8, movhp_load
+
+# movhpd/movhps m64, xmm (0F 17): store the HIGH lane.
+.gadget amd64_v_movhp_store
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    // address FIRST: amd64_vmem_addr clobbers x14/x15 (index-register
+    // shift path), which silently corrupted the staged store value for
+    // indexed addressing (arrays) — caught by the fpforms O0/O2 cross-check.
+    amd64_vmem_addr
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  x15, [x14, 8]
+    amd64_vwrite_prep 8, movhp_store
+    str  x15, [x9]
+    amd64_vwrite_done 8, movhp_store
+    gret 3
+    amd64_vwrite_bullshit 8, movhp_store
+
+# movlpd/movlps xmm, m64 (0F 12, mod!=3): LOW lane = m64, high preserved
+# (unlike movsd-load, which zeroes). 0F 13 stores the low lane.
+.gadget amd64_v_movlp_load
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 8, movlp_load
+    ldr  x12, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    str  x12, [x14]
+    gret 3
+    amd64_vread_bullshit 8, movlp_load
+
+.gadget amd64_v_movlp_store
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    // address FIRST: amd64_vmem_addr clobbers x14/x15 (index-register
+    // shift path), which silently corrupted the staged store value for
+    // indexed addressing (arrays) — caught by the fpforms O0/O2 cross-check.
+    amd64_vmem_addr
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  x15, [x14]
+    amd64_vwrite_prep 8, movlp_store
+    str  x15, [x9]
+    amd64_vwrite_done 8, movlp_store
+    gret 3
+    amd64_vwrite_bullshit 8, movlp_store

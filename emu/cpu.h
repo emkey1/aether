@@ -16,6 +16,10 @@ struct tlb;
 struct task;
 int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb);
 int cpu_run_to_interrupt_amd64(struct cpu_state *cpu, struct tlb *tlb);
+// Wired into jit.c's cpu_run_to_interrupt() dispatch as of
+// aarch64_guest_plan.md patch 5 — interpreter-only, no native gadget
+// engine yet (that's patch 8, jit/guest-arm64/).
+int cpu_run_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit(struct cpu_state *cpu, struct tlb *tlb);
 int amd64_step_to_interrupt_jit_bridge(struct cpu_state *cpu);
 int amd64_jit_ret(struct cpu_state *cpu, struct tlb *tlb);
@@ -115,6 +119,22 @@ enum amd64_reg {
     amd64_reg_count = 16,
 };
 
+// AArch64 X0-X30. SP and PC are architecturally distinct registers (not
+// X31 — X31 decodes to either XZR or SP depending on instruction context)
+// so they get their own cpu_state fields instead of a 32nd array slot.
+enum arm64_reg {
+    arm64_x0 = 0, arm64_x1 = 1, arm64_x2 = 2, arm64_x3 = 3,
+    arm64_x4 = 4, arm64_x5 = 5, arm64_x6 = 6, arm64_x7 = 7,
+    arm64_x8 = 8, arm64_x9 = 9, arm64_x10 = 10, arm64_x11 = 11,
+    arm64_x12 = 12, arm64_x13 = 13, arm64_x14 = 14, arm64_x15 = 15,
+    arm64_x16 = 16, arm64_x17 = 17, arm64_x18 = 18, arm64_x19 = 19,
+    arm64_x20 = 20, arm64_x21 = 21, arm64_x22 = 22, arm64_x23 = 23,
+    arm64_x24 = 24, arm64_x25 = 25, arm64_x26 = 26, arm64_x27 = 27,
+    arm64_x28 = 28, arm64_x29 = 29, // x29 is the frame pointer by convention
+    arm64_x30 = 30, // link register (LR) by convention
+    arm64_reg_count = 31,
+};
+
 // Full guest-visible amd64 register state is still a separate bring-up task.
 // Until then, keep syscall-entry registers in a shadow block so the kernel can
 // route amd64 syscalls without forcing the interpreter/JIT state layout over in
@@ -202,6 +222,45 @@ struct cpu_state {
     struct amd64_syscall_state amd64_syscall;
     struct amd64_store_trace amd64_store_trace[AMD64_STORE_TRACE_COUNT];
     unsigned amd64_store_trace_next;
+
+    // AArch64 guest register file. Siblings of the i386/amd64 fields above,
+    // not a union — same pattern as amd64_regs, so i386/amd64 tasks pay
+    // nothing but the (currently zero-initialized, unused) memory. SP and PC
+    // are separate from arm64_regs[] per the arm64_reg enum comment above.
+    qword_t arm64_regs[arm64_reg_count];
+    qword_t arm64_sp;
+    qword_t arm64_pc;
+    // NZCV condition flags, packed into bits 31:28 (N=31,Z=30,C=29,V=28)
+    // matching AArch64 PSTATE/CPSR layout exactly, so the JIT gadget path
+    // (jit/guest-arm64/) can load/store this with a single `msr nzcv, x`/
+    // `mrs x, nzcv` pair instead of four separate bit-field touches.
+    //
+    // REVERSED from patch 2/3's original decoded-bool-fields design (one
+    // representation, no sync-drift risk) once the project's direction
+    // changed to porting OpenMinis' JIT gadget set directly rather than
+    // building out an interpreter — see aarch64_guest_plan.md. With gadget
+    // throughput as the actual goal, matching their packed representation
+    // (their arm64_set_nzcv()/arm64_sync_nzcv() dance, emu/arch/arm64/
+    // cpu.h) is the right tradeoff; the interpreter (emu/arm64_interp.c)
+    // is no longer being extended and pays a small decode cost per flag
+    // touch instead, which is fine since it's not the performance path.
+    dword_t arm64_nzcv;
+    // Exclusive monitor for LDXR/STXR (and CAS's fallback path). addr is
+    // the guest address covered by the last LDXR; UINT64_MAX means "no
+    // outstanding exclusive". Cleared on STXR/STLXR regardless of success,
+    // per the architecture (a local monitor covers exactly one reservation).
+    qword_t arm64_excl_addr;
+    qword_t arm64_excl_val;
+    // TPIDR_EL0 — the userspace-writable software thread ID register,
+    // which every AArch64 libc uses as the TLS base pointer. Read/written
+    // by the MRS/MSR gadgets (jit/guest-arm64/dpextra.S); the arm64
+    // equivalent of i386's GDT-slot TLS / amd64's FS-base.
+    qword_t arm64_tpidr;
+    // V0-V31 are 128-bit, same layout as SSE's xmm[16] — reuse union xmm_reg
+    // rather than duplicating an identical union under a new name.
+    union xmm_reg arm64_v[32];
+    dword_t arm64_fpsr;
+    dword_t arm64_fpcr;
 
     // flags
     union {

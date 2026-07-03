@@ -23,8 +23,26 @@ extern void task_ref_cnt_mod(struct task *task, int value);
 #define loop_lock_write(lock) loop_lock_generic(lock, 1)
 
 typedef struct {
-    pthread_rwlock_t l;
+    // Hand-rolled reader/writer state guarded by `m`, replacing the raw
+    // pthread_rwlock the API used to wrap. macOS's psynch pthread_rwlock has
+    // a lost-wakeup: when a thread does unlock-then-wrlock (read_to_write_lock)
+    // or a blocking wrlock races concurrent rdlock, it can wedge with the lock
+    // logically unowned (val==0) yet a writer and several readers all asleep
+    // forever (reproduced under cargo's fork+signal storm). A plain
+    // mutex+condvar cannot: every state change broadcasts under `m` and every
+    // waiter re-tests its predicate on wake.
+    pthread_mutex_t m;
+    pthread_cond_t c;
+    // val: >0 = that many active readers, 0 = free, -1 = a writer holds it.
+    // Mutated only under `m`; kept atomic so the lock-free debug/lldb reads of
+    // it elsewhere stay well-defined.
     atomic_int val;
+    int writers_waiting;   // writer preference: new readers yield to these
+    // Legacy raw rwlock, retained ONLY for jit.c's jetsam_lock, which reaches
+    // into `.l` directly on its per-block hot path (rdlock + trywrlock, never
+    // a blocking wrlock, so it never hits the lost-wakeup). No lock instance
+    // mixes `.l` with the mutex+condvar API above.
+    pthread_rwlock_t l;
     int favor_read;
     const char *file;
     int line;
@@ -50,16 +68,12 @@ static inline int trylockw(wrlock_t *lock);
 extern void _lock_destroy(wrlock_t *lock);
 
 static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
-    // Decrement val and record metadata before releasing the rwlock. Doing it
-    // after the release races with the next owner: a writer could set val to
-    // -1 in the window and this thread's late update would clobber it.
-    int old_val = atomic_fetch_sub_explicit(&lock->val, 1, memory_order_relaxed);
-    if(old_val <= 0) {
-        // Unbalanced read_unlock. Repair the count and do not release a
-        // rwlock we evidently do not hold; storing 0 here (as this used to)
-        // could erase a writer's -1, and skipping the pthread unlock while a
-        // read hold was real leaked the lock and wedged every later writer.
-        atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
+    pthread_mutex_lock(&lock->m);
+    int old_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
+    if (old_val <= 0) {
+        // Unbalanced read_unlock: we evidently do not hold a read lock. Do
+        // not touch val (a -1 writer or a 0 free state must be left intact),
+        // just report — same defensive stance as the original.
         printk("ERROR: read_unlock(%x) error(val: %d lock=%s holder=%s(%d) at %s:%d)\n",
                lock,
                old_val,
@@ -75,8 +89,10 @@ static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
                lock->last_read_lock_line,
                lock->last_read_unlock_file != NULL ? lock->last_read_unlock_file : "-",
                lock->last_read_unlock_line);
+        pthread_mutex_unlock(&lock->m);
         return;
     }
+    atomic_store_explicit(&lock->val, old_val - 1, memory_order_relaxed);
 #if LOCK_DEBUG
     lock->last_read_unlock_pc = __builtin_return_address(0);
     lock->last_read_unlock_file = file;
@@ -85,26 +101,27 @@ static inline void _read_unlock(wrlock_t *lock, const char *file, int line) {
     (void) file;
     (void) line;
 #endif
-    if (pthread_rwlock_unlock(&lock->l) != 0)
-        printk("URGENT: read_unlock(%x) failed\n", lock);
+    if (old_val - 1 == 0)
+        pthread_cond_broadcast(&lock->c);  // last reader out: wake any writer
+    pthread_mutex_unlock(&lock->m);
 }
 
 #define read_unlock(lock) _read_unlock(lock, __FILE__, __LINE__)
 
 static inline void _write_unlock(wrlock_t *lock) {
-    // Clear val and ownership metadata while still holding the rwlock.
-    // Clearing after the release races with the next owner: a reader could
-    // acquire in the window, see val still -1 (spurious _read_lock error),
-    // then this thread's val=0 store erased that reader's count, which made
-    // its eventual read_unlock take the unbalanced path, leak the rwlock,
-    // and permanently wedge every later write_lock.
+    pthread_mutex_lock(&lock->m);
+    if (atomic_load_explicit(&lock->val, memory_order_relaxed) != -1)
+        printk("URGENT: write_unlock(%x) not write-held (val=%d)\n",
+               lock, atomic_load_explicit(&lock->val, memory_order_relaxed));
     atomic_store_explicit(&lock->val, 0, memory_order_relaxed);
     lock->line = 0;
     lock->pid = -1;
     lock->comm[0] = 0;
     lock->file = NULL;
-    if(pthread_rwlock_unlock(&lock->l) != 0)
-        printk("URGENT: write_unlock(%x) error on unlock\n", lock);
+    // Wake everyone: a queued writer or any number of queued readers may now
+    // proceed (writer preference is enforced in the waiters' predicates).
+    pthread_cond_broadcast(&lock->c);
+    pthread_mutex_unlock(&lock->m);
 }
 
 static inline void write_unlock(wrlock_t *lock) { // Wrapper so external calls take the meta-lock.
@@ -112,26 +129,32 @@ static inline void write_unlock(wrlock_t *lock) { // Wrapper so external calls t
     return;
 }
 
-static inline void loop_lock_generic(wrlock_t *lock, int is_write) {
-    if (is_write)
-        pthread_rwlock_wrlock(&lock->l);
-    else
-        pthread_rwlock_rdlock(&lock->l);
+// Blocking acquire under the hand-rolled state machine. Writer-preferring
+// (matches the old Darwin PTHREAD_RWLOCK_PREFER_WRITER / writer-intent
+// semantics the quiesce protocol was designed around): a reader waits while a
+// writer holds OR any writer is queued; a writer waits until the lock is idle
+// (val==0). Must be called with `lock->m` held; returns with it held and the
+// count updated.
+static inline void wrlock_acquire_locked(wrlock_t *lock, int is_write) {
+    if (is_write) {
+        lock->writers_waiting++;
+        while (atomic_load_explicit(&lock->val, memory_order_relaxed) != 0)
+            pthread_cond_wait(&lock->c, &lock->m);
+        lock->writers_waiting--;
+        atomic_store_explicit(&lock->val, -1, memory_order_relaxed);
+    } else {
+        while (atomic_load_explicit(&lock->val, memory_order_relaxed) < 0 ||
+               lock->writers_waiting > 0)
+            pthread_cond_wait(&lock->c, &lock->m);
+        atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
+    }
 }
 
 static inline void _read_lock(wrlock_t *lock, const char *file, int line) {
-    loop_lock_read(lock);
-    //pthread_rwlock_rdlock(&lock->l);
-    // assert(lock->val >= 0);  // If it is negative, a writer is recorded here.
-    int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
-    int new_val = old_val + 1;
-    if(old_val < 0)
-        printk("ERROR: _read_lock(%x lock=%s) val is %d\n",
-               lock,
-               lock->lname[0] ? lock->lname : "-",
-               old_val);
-    
-    if(new_val > 1000 && (new_val == 1001 || (new_val % 256) == 0)) { // We likely have a problem.
+    pthread_mutex_lock(&lock->m);
+    wrlock_acquire_locked(lock, 0);
+    int new_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
+    if (new_val > 1000 && (new_val == 1001 || (new_val % 256) == 0)) { // We likely have a problem.
         printk("WARNING: _read_lock(%x lock=%s) has %d active readers. holder=%s(%d) at %s:%d current=%s(%d)\n",
                lock,
                lock->lname[0] ? lock->lname : "-",
@@ -143,9 +166,6 @@ static inline void _read_lock(wrlock_t *lock, const char *file, int line) {
                "-",
                -1);
     }
-    // Recording the acquisition site on every read_lock dirties this shared
-    // cache line from every thread on every JIT run-loop iteration; only do
-    // it in debug builds.
 #if LOCK_DEBUG
     lock->last_read_lock_pc = __builtin_return_address(0);
     lock->last_read_lock_file = file;
@@ -154,19 +174,16 @@ static inline void _read_lock(wrlock_t *lock, const char *file, int line) {
     (void) file;
     (void) line;
 #endif
+    pthread_mutex_unlock(&lock->m);
 }
 
 #define read_lock(lock) _read_lock(lock, __FILE__, __LINE__)
 
 
 static inline void _write_lock(wrlock_t *lock) { // Write lock
-    // pthread_rwlock_wrlock (unlike a retry loop around trywrlock) registers
-    // writer intent on macOS, which prevents new readers from acquiring once a
-    // writer is pending.
-    pthread_rwlock_wrlock(&lock->l);
-
-    // assert(lock->val == 0);
-    atomic_store_explicit(&lock->val, -1, memory_order_relaxed);
+    pthread_mutex_lock(&lock->m);
+    wrlock_acquire_locked(lock, 1);
+    pthread_mutex_unlock(&lock->m);
 }
 
 static inline void write_lock(wrlock_t *lock) {
@@ -174,14 +191,28 @@ static inline void write_lock(wrlock_t *lock) {
 }
 
 
-static inline void read_to_write_lock(wrlock_t *lock) {  // Try to atomically swap a read lock to a write lock.
-    _read_unlock(lock, __FILE__, __LINE__);
-    _write_lock(lock);
+static inline void read_to_write_lock(wrlock_t *lock) {  // Atomically swap a read lock to a write lock.
+    // The old drop-read-then-blocking-wrlock is exactly the macOS lost-wakeup
+    // trigger. Under `m` this is a single critical section: drop our reader,
+    // register write intent, wait for the remaining readers to drain, take the
+    // write. No window where another thread can wedge the psynch state.
+    pthread_mutex_lock(&lock->m);
+    int old_val = atomic_load_explicit(&lock->val, memory_order_relaxed);
+    if (old_val > 0)
+        atomic_store_explicit(&lock->val, old_val - 1, memory_order_relaxed); // release our read
+    lock->writers_waiting++;
+    while (atomic_load_explicit(&lock->val, memory_order_relaxed) != 0)
+        pthread_cond_wait(&lock->c, &lock->m);
+    lock->writers_waiting--;
+    atomic_store_explicit(&lock->val, -1, memory_order_relaxed);
+    pthread_mutex_unlock(&lock->m);
 }
 
-static inline void write_to_read_lock(wrlock_t *lock) { // Try to atomically swap a write lock to a read lock.
-    _write_unlock(lock);
-    _read_lock(lock, __FILE__, __LINE__);
+static inline void write_to_read_lock(wrlock_t *lock) { // Atomically swap a write lock to a read lock.
+    pthread_mutex_lock(&lock->m);
+    atomic_store_explicit(&lock->val, 1, memory_order_relaxed);
+    pthread_cond_broadcast(&lock->c);  // queued readers may proceed now
+    pthread_mutex_unlock(&lock->m);
 }
 
 static inline void write_unlock_and_destroy(wrlock_t *lock) {
@@ -189,41 +220,40 @@ static inline void write_unlock_and_destroy(wrlock_t *lock) {
     _lock_destroy(lock);
 }
 
+// Non-blocking write acquire. Returns 0 on success, EBUSY otherwise —
+// matching pthread_rwlock_trywrlock, which is what mem_write_lock_with_pokes
+// loops on. Succeeds only when the lock is fully idle (no readers, no writer).
 static inline int trylockw(wrlock_t *lock) {
-    int status = pthread_rwlock_trywrlock(&lock->l);
-#if LOCK_DEBUG
-    if (!status) {
-        lock->debug.file = file;
-        lock->debug.line = line;
-        extern int current_pid(current);
-        lock->debug.pid = current_pid(current);
+    pthread_mutex_lock(&lock->m);
+    if (atomic_load_explicit(&lock->val, memory_order_relaxed) != 0) {
+        pthread_mutex_unlock(&lock->m);
+        return _EBUSY;
     }
-#endif
-    if(status == 0) {
-        //modify_locks_held_count(current, 1);
-        //STRACE("trylockw(%x, %s(%d), %s, %d\n", lock, lock->comm, lock->pid, file, line);
-        //lock->pid = current_pid(current);
-        //strncpy(lock->comm, current_comm(current), 16);
-    }
-    return status;
+    atomic_store_explicit(&lock->val, -1, memory_order_relaxed);
+    pthread_mutex_unlock(&lock->m);
+    return 0;
 }
 
 static inline int _trylockr(wrlock_t *lock, const char *file, int line) {
-    int status = pthread_rwlock_tryrdlock(&lock->l);
-    if (status == 0) {
-        int old_val = atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
-        if (old_val < 0)
-            printk("ERROR: trylockr(%x) succeeded while val is %d\n", lock, old_val);
-#if LOCK_DEBUG
-        lock->last_read_lock_pc = __builtin_return_address(0);
-        lock->last_read_lock_file = file;
-        lock->last_read_lock_line = line;
-#else
-        (void) file;
-        (void) line;
-#endif
+    pthread_mutex_lock(&lock->m);
+    // Writer-preferring: fail if a writer holds OR is queued, same as the
+    // blocking read path's predicate.
+    if (atomic_load_explicit(&lock->val, memory_order_relaxed) < 0 ||
+            lock->writers_waiting > 0) {
+        pthread_mutex_unlock(&lock->m);
+        return _EBUSY;
     }
-    return status;
+    atomic_fetch_add_explicit(&lock->val, 1, memory_order_relaxed);
+#if LOCK_DEBUG
+    lock->last_read_lock_pc = __builtin_return_address(0);
+    lock->last_read_lock_file = file;
+    lock->last_read_lock_line = line;
+#else
+    (void) file;
+    (void) line;
+#endif
+    pthread_mutex_unlock(&lock->m);
+    return 0;
 }
 
 #define trylockr(lock) _trylockr(lock, __FILE__, __LINE__)

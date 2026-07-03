@@ -5,10 +5,12 @@
 #include "emu/mmu.h"
 #include "kernel/abi/i386.h"
 #include "kernel/abi/amd64.h"
+#include "kernel/abi/arm64.h"
 
 enum guest_abi {
     GUEST_ABI_I386 = 0,
     GUEST_ABI_AMD64 = 1,
+    GUEST_ABI_ARM64 = 2,
 };
 
 struct guest_abi_desc {
@@ -32,6 +34,16 @@ static inline struct guest_abi_desc guest_abi_desc(enum guest_abi abi) {
             .pointer_size = sizeof(amd64_guest_addr_t),
             .word_size = sizeof(amd64_guest_word_t),
             .reg_size = sizeof(amd64_guest_reg_t),
+        };
+    case GUEST_ABI_ARM64:
+        return (struct guest_abi_desc) {
+            .abi = abi,
+            .name = "arm64",
+            .uname_machine = "aarch64",
+            .elf_platform = "aarch64",
+            .pointer_size = sizeof(arm64_guest_addr_t),
+            .word_size = sizeof(arm64_guest_word_t),
+            .reg_size = sizeof(arm64_guest_reg_t),
         };
     case GUEST_ABI_I386:
     default:
@@ -64,7 +76,15 @@ struct guest_vm_layout {
 // guest_abi_range_valid() runs on every instruction fetch and memory access.
 // This is the single source of truth for the value (the struct uses it too).
 static inline qword_t guest_abi_user_addr_max(enum guest_abi abi) {
-    return abi == GUEST_ABI_AMD64 ? ((qword_t) 1 << 47) : ((qword_t) 1 << 32);
+    switch (abi) {
+    case GUEST_ABI_AMD64:
+        return (qword_t) 1 << 47;
+    case GUEST_ABI_ARM64:
+        return (qword_t) 1 << 48;
+    case GUEST_ABI_I386:
+    default:
+        return (qword_t) 1 << 32;
+    }
 }
 
 static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
@@ -78,6 +98,39 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             // Keep the initial exec stack low for now because most syscall
             // pointer marshalling is still 32-bit.
             .mmap_floor = (page_t) 0x1000,
+            .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
+            .user_addr_max = guest_abi_user_addr_max(abi),
+            .stack_page = (page_t) 0xffffe,
+            .stack_pointer = 0xfffff000u,
+        };
+    case GUEST_ABI_ARM64:
+        return (struct guest_vm_layout) {
+            .abi = abi,
+            // 256 TiB canonical user range (48-bit VA) for 4 KiB guest pages.
+            .page_limit = (page_t) 1 << 36,
+            // REVERSED from this field's original patch-2 value (top of the
+            // 48-bit space) once patch 4 (syscall table) made the conflict
+            // concrete: kernel/calls.c's syscall_t is `dword_t(*)(dword_t x5)`
+            // — a 64-bit guest pointer argument gets silently truncated to 32
+            // bits unless that specific syscall number has a hand-written
+            // qword_t-safe dispatch case (the amd64 path builds these
+            // one-by-one; see handle_syscall_interrupt's special-casing
+            // around sys_open_guest/sys_write_guest/etc). amd64's own
+            // mmap_floor/stack comment already states this exact rule ("keep
+            // the initial exec stack low... because most syscall pointer
+            // marshalling is still 32-bit") — arm64 needs the same discipline
+            // for the same reason, not an exemption from it. The V8
+            // CodeRange-collision rationale from patch 2 is deferred along
+            // with V8/Node support generally (see aarch64_guest_plan.md's
+            // Non-Goals) until the qword_t-safe dispatch exists for whatever
+            // syscalls a real V8 needs; PIE binaries already get dynamic
+            // placement via find_hole_for_elf() regardless of this bias
+            // (kernel/exec.c), so this doesn't reopen that collision.
+            .mmap_floor = (page_t) 0x1000,
+            // Same mmap window scale as amd64 (128 TiB), not i386's much
+            // smaller one — arm64 is a 64-bit ABI, it's only the *stack*
+            // placement that's deliberately kept low here, matching amd64's
+            // own rationale, not the whole address space.
             .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
             .user_addr_max = guest_abi_user_addr_max(abi),
             .stack_page = (page_t) 0xffffe,

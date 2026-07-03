@@ -75,6 +75,7 @@ static void mem_write_lock_with_pokes(struct mem *mem) {
 static void mem_write_unlock_with_pokes(struct mem *mem) {
     write_unlock(&mem->lock);
     atomic_fetch_sub_explicit(&mem->quiesce_requested, 1, memory_order_acq_rel);
+    mem_quiesce_wake_parked(mem); // release the condvar-parked waiters (memory.h)
     mem_struct_unlock(mem);
 }
 

@@ -66,7 +66,7 @@ static ssize_t read_execve_user_args(guest_addr_t argv_addr, guest_addr_t envp_a
 static int read_header(struct fd *fd, struct elf_info *header);
 static int read_prg_headers(struct fd *fd, struct elf_info header, struct elf_prg_info **ph_out);
 static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias, struct fd *fd);
-static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph);
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph, pages_t headroom);
 static int elf_load_addr_candidate(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t bias,
         guest_addr_t *addr_out);
 static void amd64_trace_exec_attempt(const char *file, const char *argv);
@@ -77,6 +77,8 @@ static bool elf_abi_detect(byte_t bitness, uint16_t machine, enum guest_abi *abi
     enum guest_abi abi;
     if (bitness == ELF_64BIT && machine == ELF_X86_64) {
         abi = GUEST_ABI_AMD64;
+    } else if (bitness == ELF_64BIT && machine == ELF_AARCH64) {
+        abi = GUEST_ABI_ARM64;
     } else if (bitness == ELF_32BIT && machine == ELF_X86) {
         abi = GUEST_ABI_I386;
     } else {
@@ -392,7 +394,15 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
     return 0;
 }
 
-static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph) {
+// headroom: extra free pages requested ABOVE the image (the hole is
+// found for image+headroom and the image is placed at its bottom).
+// Used for the arm64 main executable so start_brk — which sits directly
+// after the image — has real room to grow: pt_find_hole hands back the
+// top of the mmap window, and parking the image there capped the heap
+// at (nearly) zero bytes. Same failure mode as the amd64 32-MiB-brk bug
+// fixed by pinning that ABI's PIE low; arm64 keeps dynamic placement
+// (see the V8 CodeRange note at the call site) and reserves instead.
+static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_info *ph, pages_t headroom) {
     bool found = false;
     page_t first_page = 0;
     page_t last_page = 0;
@@ -425,7 +435,7 @@ static guest_addr_t find_hole_for_elf(struct elf_info *header, struct elf_prg_in
             return 0;
         size = last_page - first_page;
     }
-    page_t hole = pt_find_hole(current->mem, size);
+    page_t hole = pt_find_hole(current->mem, size + headroom);
     if (hole == BAD_PAGE)
         return 0;
     guest_addr_t base = ((guest_addr_t) hole - first_page) << PAGE_BITS;
@@ -476,6 +486,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     struct elf_info header;
     if ((err = read_header(fd, &header)) < 0)
         return err;
+    // The patch-1 ENOEXEC guard here (rejecting GUEST_ABI_ARM64) is removed
+    // as of aarch64_guest_plan.md patch 5: the register file (patch 2),
+    // interpreter (patch 3), syscall table (patch 4), and the
+    // cpu_run_to_interrupt() dispatch wiring below now exist, so an aarch64
+    // ELF has somewhere real to go instead of falling through to the i386
+    // JIT and having its instruction bytes misdecoded as x86.
     size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
     bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
@@ -573,7 +589,13 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                 // brk-hungry programs like git then fail to expand the heap.
                 bias = 0x555555554000;
             else
-                bias = find_hole_for_elf(&header, ph);
+                // arm64 PIE binaries fall through to here intentionally:
+                // dynamic placement, not a fixed low bias. See the
+                // GUEST_ABI_ARM64 case in guest_abi_vm_layout() (kernel/abi.h)
+                // for why — avoids the V8 CodeRange collision that OpenMinis'
+                // ish-arm64 fork hit with a fixed low bias.
+                // 1 GiB of brk headroom above the image (see the helper).
+                bias = find_hole_for_elf(&header, ph, 0x40000000 >> PAGE_BITS);
         }
 
         if ((err = load_entry(header.abi, ph[i], bias, fd)) < 0)
@@ -606,7 +628,7 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     guest_addr_t interp_base = 0;
 
     if (interp_name) {
-        interp_base = find_hole_for_elf(&interp_header, interp_ph);
+        interp_base = find_hole_for_elf(&interp_header, interp_ph, 0);
         for (int i = interp_header.phent_count - 1; i >= 0; i--) {
             if (interp_ph[i].type != PT_LOAD)
                 continue;
@@ -754,8 +776,24 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         p += sizeof(aux);
         save->mm->auxv_end = p;
     } else {
+        // AT_HWCAP: on aarch64, advertise exactly the ISA features the JIT
+        // implements, so libc/OpenSSL take their accelerated paths.
+        //   FP(0) ASIMD(1) AES(3) PMULL(4) SHA1(5) SHA2(6) CRC32(7)
+        //   ATOMICS(8) SHA3(17) SHA512(21), matching the ID registers
+        // gen.c serves. These hold on EVERY host device: CRC32 and SHA512
+        // run as soft fallbacks where the host CPU lacks the instruction
+        // (pre-A10 / pre-A13 — see gen.c's arm64_probe_host_caps), the
+        // SHA3 ops are baseline NEON, and the LSE atomics run through C
+        // helpers. ASIMDDP is deliberately NOT set: nothing implements
+        // SDOT/UDOT yet. amd64 keeps 0 (that path predates any x86 HWCAP
+        // need). Kept in sync with the ID_AA64ISAR0 value.
+        qword_t hwcap = 0;
+        if (current->abi == GUEST_ABI_ARM64)
+            hwcap = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) |
+                    (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8) |
+                    (1u << 17) | (1u << 21);
         struct aux64_ent aux[] = {
-            {AX_HWCAP, 0},
+            {AX_HWCAP, hwcap},
             {AX_PAGESZ, PAGE_SIZE},
             {AX_CLKTCK, 0x64},
             {AX_PHDR, load_addr + header.prghead_off},
@@ -845,6 +883,20 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     save->cpu.ebp = 0;
     collapse_flags(&save->cpu);
     save->cpu.eflags = 0;
+
+    // Unconditional like the i386/amd64 blocks above — struct cpu_state's
+    // arm64 fields are always-present siblings (aarch64_guest_plan.md
+    // patch 2), so there's no harm initializing them for a non-arm64 task;
+    // only the abi-matched engine ever reads them.
+    memset(save->cpu.arm64_regs, 0, sizeof(save->cpu.arm64_regs));
+    save->cpu.arm64_pc = entry;
+    save->cpu.arm64_sp = sp;
+    save->cpu.arm64_nzcv = 0;
+    save->cpu.arm64_excl_addr = UINT64_MAX;
+    save->cpu.arm64_excl_val = 0;
+    save->cpu.arm64_fpsr = 0;
+    save->cpu.arm64_fpcr = 0;
+    memset(save->cpu.arm64_v, 0, sizeof(save->cpu.arm64_v));
 
     err = 0;
 out_free_interp:

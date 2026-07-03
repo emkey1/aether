@@ -8,8 +8,24 @@
 struct jit_frame {
     struct cpu_state cpu;
     void *bp;
-    addr_t value_addr;
-    uint64_t value[2]; // buffer for crosspage crap
+    // 64-bit, not addr_t (32-bit): arm64 guest gadgets stash a full
+    // 64-bit guest address here for the crosspage-write flush
+    // (jit/guest-arm64/memory.S). i386's gadgets store/load only the low
+    // 32 bits (str w/ldr w against the same symbolic LOCAL_value_addr
+    // offset), which stays correct on a little-endian 64-bit field.
+    uint64_t value_addr;
+    // 32 bytes: sized for the largest crosspage access any gadget can
+    // produce — an arm64 STP/LDP of two 128-bit Q registers
+    // (jit/guest-arm64/simd.S). i386/amd64 use at most 16 of it.
+    uint64_t value[4]; // buffer for crosspage crap
     struct jit_block *last_block;
+    // arm64 backward-chaining budget: decremented by arm64_chain
+    // (jit/guest-arm64/control.S) on every chained block-to-block
+    // dispatch; on expiry the chain exits to C so the cycle counter,
+    // poke checks, and jetsam writers all get their turn. This is what
+    // lets the arm64 loop chain BACKWARD edges (loops) safely — the
+    // i386/amd64 loops instead forbid backward links outright and pay
+    // an exit-to-C round trip per loop iteration.
+    long chain_budget;
     long ret_cache[JIT_RETURN_CACHE_SIZE]; // a map of ip to pointer-to-call-gadget-arguments
 };

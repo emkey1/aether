@@ -101,6 +101,36 @@ struct amd64_stat_ {
 
 static_assert(sizeof(struct amd64_stat_) == 144, "amd64_stat size");
 
+// AArch64 (asm-generic) struct stat. NOT the same layout as amd64's:
+// mode/nlink come in the opposite order and are 32-bit, there's an
+// explicit pad qword after rdev, and blksize is a 32-bit int — a real
+// difference that made busybox `ls` misclassify directories when the
+// arm64 syscall path initially reused the amd64 converter.
+struct arm64_stat_ {
+    qword_t dev;
+    qword_t ino;
+    dword_t mode;
+    dword_t nlink;
+    dword_t uid;
+    dword_t gid;
+    qword_t rdev;
+    qword_t __pad1;
+    sqword_t size;
+    sdword_t blksize;
+    dword_t __pad2;
+    sqword_t blocks;
+    sqword_t atime;
+    qword_t atime_nsec;
+    sqword_t mtime;
+    qword_t mtime_nsec;
+    sqword_t ctime;
+    qword_t ctime_nsec;
+    dword_t __unused4;
+    dword_t __unused5;
+};
+
+static_assert(sizeof(struct arm64_stat_) == 128, "arm64_stat size");
+
 struct statx_timestamp_ {
     sqword_t tv_sec;
     dword_t tv_nsec;

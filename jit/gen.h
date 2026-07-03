@@ -10,8 +10,18 @@ struct gen_state {
     addr_t orig_ip;
     guest_addr_t amd64_ip;
     guest_addr_t amd64_orig_ip;
+    guest_addr_t arm64_ip;
+    guest_addr_t arm64_orig_ip;
     unsigned long orig_ip_extra;
     bool amd64;
+    bool arm64;
+    // True when the previous gen_step_arm64 emitted a gadget that ends
+    // with HOST NZCV still equal to the guest flags it just computed
+    // (the fast flag-setting ALU/CMP gadgets — nothing after their
+    // adds/subs/ands touches host flags, and gret's dispatch sequence
+    // doesn't either). A directly-following B.cond can then use the
+    // bcond_nf_* family and skip the serializing `msr nzcv` reload.
+    bool arm64_flags_live;
     bool amd64_fallback_to_interp;
     bool amd64_abort_block_to_interp;
     bool amd64_deferred_rip_valid;
@@ -34,10 +44,12 @@ struct gen_state {
 
 bool gen_start(guest_addr_t addr, struct gen_state *state); // returns false on OOM
 bool gen_start_amd64(guest_addr_t addr, struct gen_state *state); // returns false on OOM
+bool gen_start_arm64(guest_addr_t addr, struct gen_state *state); // returns false on OOM
 void gen_exit(struct gen_state *state);
 void gen_end(struct gen_state *state);
 
 int gen_step(struct gen_state *state, struct tlb *tlb);
 int gen_step_amd64(struct gen_state *state, struct tlb *tlb);
+int gen_step_arm64(struct gen_state *state, struct tlb *tlb);
 
 #endif

@@ -86,6 +86,7 @@ emu_src = [
     'emu/mmx.c',
     'emu/float80.c',
     'emu/amd64_interp.c',
+    'emu/arm64_interp.c',
     'jit/jit.c',
     'jit/gen.c',
     'jit/helpers.c',
@@ -105,6 +106,27 @@ emu_src += [
     gadgets+'/misc.S',
     offsets,
 ]
+# AArch64 GUEST gadgets (native ARM64 guest code) -- only meaningful/
+# buildable on an aarch64 host, since they're literal AArch64 assembly.
+# Distinct from gadgets-aarch64/ above (the ARM64 HOST gadget set used by
+# the i386/amd64 guest JIT) -- see aarch64_guest_plan.md's naming note.
+if jit_cpu_family == 'aarch64'
+    emu_src += [
+        'jit/guest-arm64/math.S',
+        'jit/guest-arm64/control.S',
+        'jit/guest-arm64/memory.S',
+        'jit/guest-arm64/logical.S',
+        'jit/guest-arm64/dpreg.S',
+        'jit/guest-arm64/atomics.S',
+        'jit/guest-arm64/dpextra.S',
+        'jit/guest-arm64/simd.S',
+        'jit/guest-arm64/simd_arith.S',
+        'jit/guest-arm64/simd_misc.S',
+        'jit/guest-arm64/simd_shift.S',
+        'jit/guest-arm64/crypto.S',
+        'jit/guest-arm64/fp.S',
+    ]
+endif
 
 libish_emu = library('ish_emu', emu_src, include_directories: includes)
 

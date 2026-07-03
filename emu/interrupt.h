@@ -21,3 +21,8 @@
 // so the kernel can select the amd64 syscall ABI and preserve rcx/r11 entry
 // semantics without disturbing the legacy i386 path.
 #define INT_AMD64_SYSCALL 0x101
+// Synthetic interrupt for AArch64 SVC (syscall) entry. Not wired to a
+// syscall table yet (aarch64_guest_plan.md patch 4) — for now this lets the
+// interpreter and its tests observe that an SVC instruction was correctly
+// reached and decoded without a real dispatch target existing.
+#define INT_ARM64_SVC 0x102

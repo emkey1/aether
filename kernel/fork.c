@@ -64,6 +64,8 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
         task->cpu.esp = (addr_t) stack;
         if (task->abi == GUEST_ABI_AMD64)
             task->cpu.amd64_regs[amd64_rsp] = stack;
+        if (task->abi == GUEST_ABI_ARM64)
+            task->cpu.arm64_sp = stack;
     }
 
     int err;
@@ -134,6 +136,12 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
         if (task->abi == GUEST_ABI_AMD64) {
             // On amd64, CLONE_SETTLS passes the new thread's FS base directly.
             task->cpu.tls_ptr = tls_addr;
+        } else if (task->abi == GUEST_ABI_ARM64) {
+            // On arm64, CLONE_SETTLS passes the new thread's TPIDR_EL0
+            // directly, same shape as amd64's FS base — NOT an i386
+            // user_desc pointer, which is what task_set_thread_area
+            // would try to read tls_addr as.
+            task->cpu.arm64_tpidr = tls_addr;
         } else {
             err = task_set_thread_area(task, (addr_t) tls_addr);
             if (err < 0)
@@ -254,6 +262,12 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
     task->cpu.eax = 0;
     if (task->abi == GUEST_ABI_AMD64)
         task->cpu.amd64_regs[amd64_rax] = 0;
+    if (task->abi == GUEST_ABI_ARM64)
+        // The child returns 0 from clone in X0. Without this, the child
+        // resumes with the parent's copied X0 (the clone flags argument)
+        // as its "pid", and both sides run the parent path — the actual
+        // first-fork failure mode observed bringing up busybox sh.
+        task->cpu.arm64_regs[arm64_x0] = 0;
 
     struct vfork_info vfork;
     if (flags & CLONE_VFORK_) {

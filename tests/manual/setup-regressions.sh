@@ -107,17 +107,28 @@ fi
 # the amd64 JIT; it cannot assemble on an i686 guest. Require, build, and run it
 # only on a 64-bit guest. Every other test is portable across i386 and amd64.
 guest_arch=$(uname -m 2>/dev/null || echo unknown)
+is_amd64_guest=0
+is_x86_guest=0
+is_arm64_guest=0
 case "$guest_arch" in
-    x86_64|amd64) is_amd64_guest=1 ;;
-    *) is_amd64_guest=0 ;;
+    x86_64|amd64) is_amd64_guest=1; is_x86_guest=1 ;;
+    i?86) is_x86_guest=1 ;;
+    aarch64|arm64) is_arm64_guest=1 ;;
 esac
 
-need_file atomic_common.h
 need_file test_common.h
-need_file atomic_xadd32.c
-need_file atomic_cmpxchg32.c
-need_file atomic_cmpxchg8b.c
-need_file atomic_logic32.c
+if [ "$is_x86_guest" -eq 1 ]; then
+    need_file x86/atomic_common.h
+    need_file x86/atomic_xadd32.c
+    need_file x86/atomic_cmpxchg32.c
+    need_file x86/atomic_cmpxchg8b.c
+    need_file x86/atomic_logic32.c
+fi
+if [ "$is_arm64_guest" -eq 1 ]; then
+    need_file arm64/atomics64.c
+    need_file arm64/arm64_regress.c
+    need_file arm64/vector_smoke.c
+fi
 need_file signal_core.c
 need_file signal_restart.c
 need_file signal_realtime.c
@@ -149,7 +160,7 @@ need_file mount_flags.c
 need_file clone_error_cleanup.c
 need_file random_seed.c
 if [ "$is_amd64_guest" -eq 1 ]; then
-    need_file amd64_regress.c
+    need_file x86/amd64_regress.c
 fi
 
 if ! mkdir -p "$work_dir/bin"; then
@@ -157,6 +168,9 @@ if ! mkdir -p "$work_dir/bin"; then
     exit 1
 fi
 
+# The imm/reg encoding workaround probes an x86 mnemonic; on any other
+# guest arch the probe fails for the wrong reason and would route builds
+# through the (x86-specific) awk rewriter. x86 only.
 gas_imm_reg_workaround=0
 gas_probe=$work_dir/gas-imm-reg-probe.s
 cat >"$gas_probe" <<'EOF'
@@ -165,7 +179,7 @@ gas_imm_reg_probe:
     andl $1, %eax
     ret
 EOF
-if ! as -o "$work_dir/gas-imm-reg-probe.o" "$gas_probe" >/dev/null 2>&1; then
+if [ "$is_x86_guest" -eq 1 ] && ! as -o "$work_dir/gas-imm-reg-probe.o" "$gas_probe" >/dev/null 2>&1; then
     gas_imm_reg_workaround=1
 fi
 
@@ -348,24 +362,43 @@ if [ "$gas_imm_reg_workaround" -eq 1 ]; then
     write_gas_imm_reg_rewriter
 fi
 
+src_for() {
+    # tests live at the top level (portable) or in an arch subdir
+    for candidate in "$src_dir/$1.c" "$src_dir/x86/$1.c" "$src_dir/arm64/$1.c"; do
+        if [ -f "$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    done
+    echo "$src_dir/$1.c"
+}
+
 build_one() {
     name=$1
     echo "+ build $name"
+    src_file=$(src_for "$name")
     if [ "$gas_imm_reg_workaround" -eq 0 ]; then
-        cc -O2 -pthread -I"$src_dir" -o "$work_dir/bin/$name" "$src_dir/$name.c"
+        cc -O2 -pthread -I"$src_dir" -o "$work_dir/bin/$name" "$src_file"
         return
     fi
 
     asm=$work_dir/$name.s
     fixed_asm=$work_dir/$name.gas-workaround.s
-    cc -O2 -pthread -I"$src_dir" -S -o "$asm" "$src_dir/$name.c"
+    cc -O2 -pthread -I"$src_dir" -S -o "$asm" "$src_file"
     awk -f "$work_dir/rewrite-gas-imm-reg.awk" "$asm" >"$fixed_asm"
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
 }
 
-all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup random_seed"
+all_tests="signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup random_seed"
+if [ "$is_x86_guest" -eq 1 ]; then
+    # x86 flag-semantics atomics (lock-prefixed inline asm)
+    all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 $all_tests"
+fi
 if [ "$is_amd64_guest" -eq 1 ]; then
     all_tests="$all_tests amd64_regress"
+fi
+if [ "$is_arm64_guest" -eq 1 ]; then
+    all_tests="$all_tests atomics64 arm64_regress vector_smoke"
 fi
 
 test_selected() {

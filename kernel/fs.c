@@ -973,6 +973,130 @@ dword_t sys_writev_amd64_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iove
     return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
 }
 
+// preadv/pwritev: positioned scatter-gather, built from the same pieces
+// as readv/writev above (single bounce buffer) with the positioned I/O
+// core of sys_pread/sys_pwrite. Every 64-bit ABI's libc still splits the
+// offset into (lo, hi) words per the kernel ABI; the caller recombines.
+static dword_t sys_preadv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count,
+        off_t_ off, enum guest_abi abi) {
+    STRACE("preadv(%d, %#llx, %d, %lld)", fd_no, (unsigned long long) iovec_addr,
+           iovec_count, (long long) off);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, abi, iovec_addr, iovec_count);
+    if (IS_ERR(iovec))
+        return PTR_ERR(iovec);
+    size_t io_size = iovec_size(iovec, iovec_count);
+    if (io_size > MAX_RW_COUNT)
+        io_size = MAX_RW_COUNT;
+    char *buf = malloc(io_size + 1);
+    if (buf == NULL) {
+        free(iovec);
+        return _ENOMEM;
+    }
+    struct fd *fd = f_get(fd_no);
+    ssize_t res;
+    if (fd == NULL) {
+        res = _EBADF;
+        goto out;
+    }
+    task_may_block_start();
+    lock(&fd->lock, 0);
+    if (fd->ops->pread) {
+        res = fd->ops->pread(fd, buf, io_size, off);
+    } else if (fd->ops->lseek && fd->ops->read) {
+        off_t_ saved_off = fd->ops->lseek(fd, 0, LSEEK_CUR);
+        if ((res = fd->ops->lseek(fd, off, LSEEK_SET)) >= 0) {
+            res = fd->ops->read(fd, buf, io_size);
+            fd->ops->lseek(fd, saved_off, LSEEK_SET);
+        }
+    } else {
+        res = _ESPIPE;
+    }
+    unlock(&fd->lock);
+    task_may_block_end();
+    if (res > 0) {
+        size_t remaining = (size_t) res;
+        size_t offset = 0;
+        for (unsigned i = 0; i < iovec_count && remaining > 0; i++) {
+            size_t copy_len = iovec[i].len;
+            if (copy_len > remaining)
+                copy_len = remaining;
+            if (user_write(iovec[i].base, buf + offset, copy_len)) {
+                res = _EFAULT;
+                goto out;
+            }
+            offset += copy_len;
+            remaining -= copy_len;
+        }
+    }
+out:
+    free(buf);
+    free(iovec);
+    return res;
+}
+
+dword_t sys_preadv_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, off_t_ off) {
+    return sys_preadv_common(fd_no, iovec_addr, iovec_count, off, GUEST_ABI_AMD64);
+}
+
+static dword_t sys_pwritev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count,
+        off_t_ off, enum guest_abi abi) {
+    STRACE("pwritev(%d, %#llx, %d, %lld)", fd_no, (unsigned long long) iovec_addr,
+           iovec_count, (long long) off);
+    struct guest_iovec_ *iovec = user_read_iovecs_abi(current, abi, iovec_addr, iovec_count);
+    if (IS_ERR(iovec))
+        return PTR_ERR(iovec);
+    size_t io_size = iovec_size(iovec, iovec_count);
+    if (io_size > MAX_RW_COUNT)
+        io_size = MAX_RW_COUNT;
+    char *buf = malloc(io_size + 1);
+    if (buf == NULL) {
+        free(iovec);
+        return _ENOMEM;
+    }
+    ssize_t res = 0;
+    size_t offset = 0;
+    for (unsigned i = 0; i < iovec_count; i++) {
+        if (offset >= io_size)
+            break;
+        size_t copy_len = iovec[i].len;
+        if (offset + copy_len > io_size)
+            copy_len = io_size - offset;
+        if (user_read(iovec[i].base, buf + offset, copy_len)) {
+            res = _EFAULT;
+            goto out;
+        }
+        offset += copy_len;
+    }
+    struct fd *fd = f_get(fd_no);
+    if (fd == NULL) {
+        res = _EBADF;
+        goto out;
+    }
+    task_may_block_start();
+    lock(&fd->lock, 0);
+    if (fd->ops->pwrite) {
+        res = fd->ops->pwrite(fd, buf, offset, off);
+    } else if (fd->ops->lseek && fd->ops->write) {
+        off_t_ saved_off = fd->ops->lseek(fd, 0, LSEEK_CUR);
+        if ((res = fd->ops->lseek(fd, off, LSEEK_SET)) >= 0) {
+            res = fd->ops->write(fd, buf, offset);
+            fd->ops->lseek(fd, saved_off, LSEEK_SET);
+        }
+    } else {
+        res = _ESPIPE;
+    }
+    unlock(&fd->lock);
+    task_may_block_end();
+out:
+    free(buf);
+    free(iovec);
+    return res;
+}
+
+dword_t sys_pwritev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count, off_t_ off) {
+    return sys_pwritev_common(fd_no, iovec_addr, iovec_count, off, GUEST_ABI_AMD64);
+}
+
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
