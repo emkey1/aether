@@ -1771,6 +1771,12 @@ static syscall_t arm64_syscall_table[454] = {
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
+    [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
+    [429] = (syscall_t) syscall_stub_silent, // move_mount
+    [430] = (syscall_t) syscall_stub_silent, // fsopen
+    [431] = (syscall_t) syscall_stub_silent, // fsconfig
+    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) syscall_stub_silent, // pidfd_open
     [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
     [440] = (syscall_t) syscall_stub_silent, // process_madvise
@@ -3461,6 +3467,17 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 177: // getegid
     case 178: // gettid
     case 231: // munlockall
+    // New mount API family: silent ENOSYS stubs (arm64_syscall_table) whose
+    // args are entirely ignored, so classify 0-arg to skip validating their
+    // filename/path pointers -- ordinary 64-bit guest addresses that would
+    // otherwise trip the legacy dword-fit check and SIGSYS the caller
+    // instead of the intended silent ENOSYS (mount(8) probing the new API).
+    case 428: // open_tree
+    case 429: // move_mount
+    case 430: // fsopen
+    case 431: // fsconfig
+    case 432: // fsmount
+    case 433: // fspick
         return 0;
     case 20:  // epoll_create1
     case 23:  // dup
@@ -3631,12 +3648,28 @@ static void log_stub_syscall(struct cpu_state *cpu, const struct syscall_abi_dis
     }
 
     if (dispatch->abi == GUEST_ABI_AMD64) {
-        printk("ERROR: %d(%s) %s %s syscall %u rip=0x%x rax=0x%llx rdi=0x%llx rsi=0x%llx rdx=0x%llx\n",
-               current->pid, current->comm, dispatch->name, kind, syscall_num, cpu->eip,
+        printk("ERROR: %d(%s) %s %s syscall %u rip=0x%llx rax=0x%llx rdi=0x%llx rsi=0x%llx rdx=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num,
+               (unsigned long long) cpu->amd64_rip,
                (unsigned long long) cpu->amd64_syscall.rax,
                (unsigned long long) cpu->amd64_syscall.rdi,
                (unsigned long long) cpu->amd64_syscall.rsi,
                (unsigned long long) cpu->amd64_syscall.rdx);
+        return;
+    }
+
+    // Was falling into the i386 branch below for arm64 too, printing
+    // cpu->eip/eax/ebx/ecx/edx -- fields an arm64 task never touches, so the
+    // "registers" in the log were meaningless leftover struct contents (seen
+    // as e.g. eip=0x13b87920 eax=0x1d on a real arm64 "missing syscall" log).
+    if (dispatch->abi == GUEST_ABI_ARM64) {
+        printk("ERROR: %d(%s) %s %s syscall %u pc=0x%llx x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num,
+               (unsigned long long) cpu->arm64_pc,
+               (unsigned long long) cpu->arm64_regs[arm64_x0],
+               (unsigned long long) cpu->arm64_regs[arm64_x1],
+               (unsigned long long) cpu->arm64_regs[arm64_x2],
+               (unsigned long long) cpu->arm64_regs[arm64_x3]);
         return;
     }
 
