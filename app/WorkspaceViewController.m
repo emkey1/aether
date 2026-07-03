@@ -7697,11 +7697,15 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
     stack.spacing = 0;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:stack];
+    // Pin only the top (required) and let the bottom pad be slack: the stack's height is
+    // fixed by its rows, and preferredContentSize reserves pad top+bottom. If the popover
+    // sizes its content view a hair off, that difference is absorbed at the bottom instead
+    // of collapsing the top-padding constraint (which happened when both ends were pinned).
     [NSLayoutConstraint activateConstraints:@[
         [stack.topAnchor constraintEqualToAnchor:self.view.topAnchor constant:pad],
         [stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [stack.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-pad],
+        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:self.view.bottomAnchor constant:-pad],
     ]];
 
     NSUInteger totalRows = 0;
