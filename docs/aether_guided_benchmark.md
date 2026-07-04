@@ -85,6 +85,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 18/14/20/4 | 21/18/13/1 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 13/9/25/4 | 16/9/25/5 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/0/0 |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/1/1 |
 
 *More claw1/claw2 models (small + large + Ornith) are still landing — see Status.*
 
@@ -109,6 +110,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2/0/8/0 | 1/0/8/0 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/0/7/0 | 0/0/8/0 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/7/3/2 | 6/6/3/1 |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **8**/8/0/0 | **8**/8/0/0 |
 
 ## CS-classics (19 tasks): textbook algorithms
 
@@ -131,9 +133,12 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 5/1/18/0 | 5/2/17/0 |
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 8/4/17/3 | 4/2/16/0 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/15/8/4 | 14/13/7/1 |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **19**/19/2/2 | 16/16/0/0 |
 
 *All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
-model.*
+model.* `glm-5-turbo`'s `cs`/full has 3 non-generated cases (proxy timeout on
+`fibonacci`/`hanoi`/`quick_sort` — see Status), scored as 0 per the
+never-generated convention, not a correctness miss.
 
 ## What the repair columns show
 
@@ -192,6 +197,14 @@ result JSONs. The two cloud **GLM** models (`glm-5-turbo`, `glm-5.2`) are served
 the autoglm/autoclaw proxy, which is slow (~23 tok/s); GLM's verbose reasoning can run
 a hard task past the request time budget, so a couple of their large/cs cells reflect a
 proxy/verbosity timeout rather than a capability miss.
+
+**`glm-5.2` re-run blocked (2026-07-03):** the current-guide re-run of `glm-5.2`
+hit `HTTP 402` ("insufficient credits") on the autoglm/autoclaw account partway
+through the `simple` instrument (4 of 30 cases completed before the account ran
+dry) — an account funding issue, not a model or harness problem. `glm-5.2`'s
+row above is still the `2026-06-28` result; the current-guide re-run was
+discarded rather than published, and will be redone once the account is
+funded.
 
 **Guide version note (2026-07-03):** the language hardened materially this session
 (stricter parser, new coded diagnostics, contract/effect changes), and the guide
