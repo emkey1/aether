@@ -86,6 +86,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 13/9/25/4 | 16/9/25/5 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/0/0 |
 | `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/1/1 |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 29/29/5/4 | 22/21/4/2 |
 
 *More claw1/claw2 models (small + large + Ornith) are still landing — see Status.*
 
@@ -111,6 +112,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/0/7/0 | 0/0/8/0 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/7/3/2 | 6/6/3/1 |
 | `glm-5-turbo` | — · cloud | **2026-07-01-8** | **8**/8/0/0 | **8**/8/0/0 |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 6/6/4/2 | 6/6/4/2 |
 
 ## CS-classics (19 tasks): textbook algorithms
 
@@ -134,11 +136,14 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 8/4/17/3 | 4/2/16/0 |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/15/8/4 | 14/13/7/1 |
 | `glm-5-turbo` | — · cloud | **2026-07-01-8** | **19**/19/2/2 | 16/16/0/0 |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 12/12/9/2 | 14/12/7/0 |
 
 *All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
 model.* `glm-5-turbo`'s `cs`/full has 3 non-generated cases (proxy timeout on
 `fibonacci`/`hanoi`/`quick_sort` — see Status), scored as 0 per the
-never-generated convention, not a correctness miss.
+never-generated convention, not a correctness miss. `qwen3-4b`'s `simple`/full
+similarly has 7 non-generated cases (T'Ra queue/network timeouts, not a
+capability miss) — see the raw per-model JSON for which tasks.
 
 ## What the repair columns show
 
