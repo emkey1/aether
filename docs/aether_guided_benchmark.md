@@ -66,84 +66,166 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ## Simple (30 tasks): core language fluency
 
-| model | size · served | guide ver | concise (C/C/R/F) | full (C/C/R/F) |
+| model | size · served | guide ver | concise | full |
 |---|---|---|---|---|
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **30**/30/6/6 | 29/29/7/6 |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **30**/30/1/1 | **30**/30/0/0 |
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **30**/30/1/1 | **30**/30/1/1 |
-| `glm-5.2` | — · cloud | 2026-06-28 | **30**/30/0/0 | **30**/30/0/0 |
-| `glm-5-turbo` | — · cloud | 2026-06-28 | **30**/30/1/1 | 29/29/2/1 |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | **30**/29/6/5 | 26/26/9/5 |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 29/29/3/2 | 28/28/4/3 |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 29/28/4/2 | 28/28/2/0 |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 28/28/6/4 | 28/27/7/4 |
-| `phi4` | 14B · claw2 | 2026-06-28 | 28/27/13/10 | 26/25/6/1 |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 27/27/1/1 | 26/26/2/2 |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 25/24/10/4 | 23/22/11/3 |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 22/19/13/2 | 26/20/13/3 |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 19/15/20/5 | 21/13/17/0 |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 18/14/20/4 | 21/18/13/1 |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 13/9/25/4 | 16/9/25/5 |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/0/0 |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30**/30/0/0 | **30**/30/1/1 |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 29/29/5/4 | 22/21/4/2 |
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **30/30** | 29/30 |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **30/30** | **30/30** |
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **30/30** | **30/30** |
+| `glm-5.2` | — · cloud | 2026-06-28 | **30/30** | **30/30** |
+| `glm-5-turbo` | — · cloud | 2026-06-28 | **30/30** | 29/30 |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 29/30 | 26/30 |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 29/30 | 28/30 |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 28/30 | 28/30 |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 28/30 | 27/30 |
+| `phi4` | 14B · claw2 | 2026-06-28 | 27/30 | 25/30 |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 27/30 | 26/30 |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 24/30 | 22/30 |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 19/30 | 20/30 |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 15/30 | 13/30 |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 14/30 | 18/30 |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 9/30 | 9/30 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 29/30 | 21/30 |
+
+*Correct/N per guide variant, bold = perfect score.*
 
 *More claw1/claw2 models (small + large + Ornith) are still landing — see Status.*
+
+<details>
+<summary>Compiled / Retried / Fixed detail — Simple</summary>
+
+| model | guide ver | concise C | concise R | concise F | full C | full R | full F |
+|---|---|---|---|---|---|---|---|
+| `gpt-oss-120b` | 2026-06-28 | 30 | 6 | 6 | 29 | 7 | 6 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 30 | 1 | 1 | 30 | 0 | 0 |
+| `gemini-2.5-flash` | 2026-06-28 | 30 | 1 | 1 | 30 | 1 | 1 |
+| `glm-5.2` | 2026-06-28 | 30 | 0 | 0 | 30 | 0 | 0 |
+| `glm-5-turbo` | 2026-06-28 | 30 | 1 | 1 | 29 | 2 | 1 |
+| `gemma3-27b` | 2026-06-28 | 30 | 6 | 5 | 26 | 9 | 5 |
+| `devstral-24b` | 2026-06-28 | 29 | 3 | 2 | 28 | 4 | 3 |
+| `qwen3-coder-30b` | 2026-06-28 | 29 | 4 | 2 | 28 | 2 | 0 |
+| `mistral-small-24b` | 2026-06-28 | 28 | 6 | 4 | 28 | 7 | 4 |
+| `phi4` | 2026-06-28 | 28 | 13 | 10 | 26 | 6 | 1 |
+| `qwen3.5-9b` | 2026-06-28 | 27 | 1 | 1 | 26 | 2 | 2 |
+| `exaone3.5-32b` | 2026-06-28 | 25 | 10 | 4 | 23 | 11 | 3 |
+| `llama3.1-8b` | 2026-06-28 | 22 | 13 | 2 | 26 | 13 | 3 |
+| `granite4-tiny-7b` | 2026-06-28 | 19 | 20 | 5 | 21 | 17 | 0 |
+| `granite3.3-8b` | 2026-06-28 | 18 | 20 | 4 | 21 | 13 | 1 |
+| `qwen3-1.7b` | **2026-07-01-8** | 13 | 25 | 4 | 16 | 25 | 5 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 30 | 0 | 0 | 30 | 0 | 0 |
+| `glm-5-turbo` | **2026-07-01-8** | 30 | 0 | 0 | 30 | 1 | 1 |
+| `qwen3-4b` | **2026-07-01-8** | 29 | 5 | 4 | 22 | 4 | 2 |
+
+</details>
 
 ## Large (8 tasks): bigger inputs, layered logic
 
 | model | size · served | guide ver | concise | full |
 |---|---|---|---|---|
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **8**/8/0/0 | **8**/8/0/0 |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **8**/8/1/1 | **8**/8/2/2 |
-| `glm-5.2` | — · cloud | 2026-06-28 | **8**/8/0/0 | **8**/8/0/0 |
-| `glm-5-turbo` | — · cloud | 2026-06-28 | 7/7/0/0 | **8**/8/0/0 |
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **8**/8/2/2 | 7/7/1/0 |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 7/7/2/1 | 7/7/8/7 |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 7/7/8/7 | 7/7/8/7 |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 6/6/4/2 | 7/7/5/4 |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 7/7/1/0 | 7/7/2/1 |
-| `phi4` | 14B · claw2 | 2026-06-28 | 7/7/8/7 | 1/1/8/1 |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 5/5/4/4 | 6/6/6/6 |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 2/1/7/0 | 3/2/8/2 |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 0/0/8/0 | 1/0/8/0 |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 1/0/8/0 | 1/0/8/0 |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2/0/8/0 | 1/0/8/0 |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/0/7/0 | 0/0/8/0 |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/7/3/2 | 6/6/3/1 |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **8**/8/0/0 | **8**/8/0/0 |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 6/6/4/2 | 6/6/4/2 |
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **8/8** | **8/8** |
+| `glm-5.2` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
+| `glm-5-turbo` | — · cloud | 2026-06-28 | 7/8 | **8/8** |
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **8/8** | 7/8 |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 7/8 | 7/8 |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 7/8 | 7/8 |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 6/8 | 7/8 |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 7/8 | 7/8 |
+| `phi4` | 14B · claw2 | 2026-06-28 | 7/8 | 1/8 |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 5/8 | 6/8 |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 1/8 | 2/8 |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 0/8 | 0/8 |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 0/8 | 0/8 |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 0/8 | 0/8 |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/8 | 0/8 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/8 | 6/8 |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **8/8** | **8/8** |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 6/8 | 6/8 |
+
+*Correct/N per guide variant, bold = perfect score.*
+
+<details>
+<summary>Compiled / Retried / Fixed detail — Large</summary>
+
+| model | guide ver | concise C | concise R | concise F | full C | full R | full F |
+|---|---|---|---|---|---|---|---|
+| `gemini-2.5-flash` | 2026-06-28 | 8 | 0 | 0 | 8 | 0 | 0 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 8 | 1 | 1 | 8 | 2 | 2 |
+| `glm-5.2` | 2026-06-28 | 8 | 0 | 0 | 8 | 0 | 0 |
+| `glm-5-turbo` | 2026-06-28 | 7 | 0 | 0 | 8 | 0 | 0 |
+| `gpt-oss-120b` | 2026-06-28 | 8 | 2 | 2 | 7 | 1 | 0 |
+| `devstral-24b` | 2026-06-28 | 7 | 2 | 1 | 7 | 8 | 7 |
+| `gemma3-27b` | 2026-06-28 | 7 | 8 | 7 | 7 | 8 | 7 |
+| `qwen3-coder-30b` | 2026-06-28 | 6 | 4 | 2 | 7 | 5 | 4 |
+| `mistral-small-24b` | 2026-06-28 | 7 | 1 | 0 | 7 | 2 | 1 |
+| `phi4` | 2026-06-28 | 7 | 8 | 7 | 1 | 8 | 1 |
+| `qwen3.5-9b` | 2026-06-28 | 5 | 4 | 4 | 6 | 6 | 6 |
+| `exaone3.5-32b` | 2026-06-28 | 2 | 7 | 0 | 3 | 8 | 2 |
+| `granite4-tiny-7b` | 2026-06-28 | 0 | 8 | 0 | 1 | 8 | 0 |
+| `llama3.1-8b` | 2026-06-28 | 1 | 8 | 0 | 1 | 8 | 0 |
+| `granite3.3-8b` | 2026-06-28 | 2 | 8 | 0 | 1 | 8 | 0 |
+| `qwen3-1.7b` | **2026-07-01-8** | 0 | 7 | 0 | 0 | 8 | 0 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 7 | 3 | 2 | 6 | 3 | 1 |
+| `glm-5-turbo` | **2026-07-01-8** | 8 | 0 | 0 | 8 | 0 | 0 |
+| `qwen3-4b` | **2026-07-01-8** | 6 | 4 | 2 | 6 | 4 | 2 |
+
+</details>
 
 ## CS-classics (19 tasks): textbook algorithms
 
 | model | size · served | guide ver | concise | full |
 |---|---|---|---|---|
-| `glm-5-turbo` | — · cloud | 2026-06-28 | 18/18/1/1 | 19/**19**/1/1 |
-| `glm-5.2` | — · cloud | 2026-06-28 | 18/18/3/3 | 18/18/1/1 |
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 18/**18**/3/2 | 18/17/4/2 |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 17/17/2/2 | 18/**18**/2/1 |
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 17/17/6/4 | 17/17/8/6 |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 12/10/10/1 | 14/**13**/8/2 |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 10/8/14/3 | 7/7/14/2 |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 8/8/0/0 | 14/**13**/4/3 |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 15/11/11/3 | 13/11/11/3 |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 11/7/14/2 | 13/12/12/5 |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 9/7/12/0 | 10/7/14/2 |
-| `phi4` | 14B · claw2 | 2026-06-28 | 6/6/14/2 | 5/5/14/0 |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 4/2/18/1 | 6/4/16/1 |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 4/2/17/0 | 5/3/16/0 |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 5/1/18/0 | 5/2/17/0 |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 8/4/17/3 | 4/2/16/0 |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/15/8/4 | 14/13/7/1 |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **19**/19/2/2 | 16/16/0/0 |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 12/12/9/2 | 14/12/7/0 |
+| `glm-5-turbo` | — · cloud | 2026-06-28 | 18/19 | **19/19** |
+| `glm-5.2` | — · cloud | 2026-06-28 | 18/19 | 18/19 |
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 18/19 | 17/19 |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 17/19 | 18/19 |
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 17/19 | 17/19 |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 10/19 | 13/19 |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 8/19 | 7/19 |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 8/19 | 13/19 |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 11/19 | 11/19 |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 7/19 | 12/19 |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 7/19 | 7/19 |
+| `phi4` | 14B · claw2 | 2026-06-28 | 6/19 | 5/19 |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 2/19 | 4/19 |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2/19 | 3/19 |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 1/19 | 2/19 |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 4/19 | 2/19 |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/19 | 13/19 |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **19/19** | 16/19 |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 12/19 | 12/19 |
 
-*All boards: concise and full columns are Compiled/Correct/Retried/Fixed for that
-model.* `glm-5-turbo`'s `cs`/full has 3 non-generated cases (proxy timeout on
-`fibonacci`/`hanoi`/`quick_sort` — see Status), scored as 0 per the
-never-generated convention, not a correctness miss. `qwen3-4b`'s `simple`/full
-similarly has 7 non-generated cases (T'Ra queue/network timeouts, not a
-capability miss) — see the raw per-model JSON for which tasks.
+*Correct/N per guide variant, bold = perfect score.*
+
+*`glm-5-turbo`'s `cs`/full has 3 non-generated cases (proxy timeout on `fibonacci`/`hanoi`/`quick_sort` — see Status), scored as 0 per the never-generated convention, not a correctness miss. `qwen3-4b`'s `simple`/full similarly has 7 non-generated cases (T'Ra queue/network timeouts, not a capability miss) — see the raw per-model JSON for which tasks.*
+
+<details>
+<summary>Compiled / Retried / Fixed detail — CS-classics</summary>
+
+| model | guide ver | concise C | concise R | concise F | full C | full R | full F |
+|---|---|---|---|---|---|---|---|
+| `glm-5-turbo` | 2026-06-28 | 18 | 1 | 1 | 19 | 1 | 1 |
+| `glm-5.2` | 2026-06-28 | 18 | 3 | 3 | 18 | 1 | 1 |
+| `gemini-2.5-flash` | 2026-06-28 | 18 | 3 | 2 | 18 | 4 | 2 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 17 | 2 | 2 | 18 | 2 | 1 |
+| `gpt-oss-120b` | 2026-06-28 | 17 | 6 | 4 | 17 | 8 | 6 |
+| `qwen3-coder-30b` | 2026-06-28 | 12 | 10 | 1 | 14 | 8 | 2 |
+| `exaone3.5-32b` | 2026-06-28 | 10 | 14 | 3 | 7 | 14 | 2 |
+| `qwen3.5-9b` | 2026-06-28 | 8 | 0 | 0 | 14 | 4 | 3 |
+| `devstral-24b` | 2026-06-28 | 15 | 11 | 3 | 13 | 11 | 3 |
+| `gemma3-27b` | 2026-06-28 | 11 | 14 | 2 | 13 | 12 | 5 |
+| `mistral-small-24b` | 2026-06-28 | 9 | 12 | 0 | 10 | 14 | 2 |
+| `phi4` | 2026-06-28 | 6 | 14 | 2 | 5 | 14 | 0 |
+| `granite4-tiny-7b` | 2026-06-28 | 4 | 18 | 1 | 6 | 16 | 1 |
+| `granite3.3-8b` | 2026-06-28 | 4 | 17 | 0 | 5 | 16 | 0 |
+| `llama3.1-8b` | 2026-06-28 | 5 | 18 | 0 | 5 | 17 | 0 |
+| `qwen3-1.7b` | **2026-07-01-8** | 8 | 17 | 3 | 4 | 16 | 0 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 15 | 8 | 4 | 14 | 7 | 1 |
+| `glm-5-turbo` | **2026-07-01-8** | 19 | 2 | 2 | 16 | 0 | 0 |
+| `qwen3-4b` | **2026-07-01-8** | 12 | 9 | 2 | 14 | 7 | 0 |
+
+</details>
 
 ## What the repair columns show
 
