@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-01-8*
+*Guide version: 2026-07-04-1*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -41,7 +41,11 @@ If you only read one part of this document, read **Highest-Value Rules** and
 9. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
    dynamic arrays.
 10. **TUP-001.** Tuples are narrow: destructure direct top-level helper
-    returns (`let (a, b) = pair();`) only. Assume nothing else.
+    returns (`let (a, b) = pair();`) only. Assume nothing else. Tuple-returning
+    functions must never form a call cycle (a self-call, or an indirect
+    `a() -> b() -> a()` chain of any length) — tuple slots are shared
+    per-function globals, not reentrant. Return a record instead for recursive
+    helpers.
 11. **OUT-001.** When asked to generate code, return raw Aether source only.
     No Markdown fences.
 12. **BUILT-001.** The builtins listed here are the supported, recommended
@@ -80,6 +84,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
+22. **PAR-003.** A tuple-returning function must not be called from more than
+    one `par` branch — the branches would race on its shared tuple-result
+    globals (same defect class as PAR-001, via return storage instead of an
+    argument). Give each branch its own call outside the `par` block.
 
 Fast failure checks: output outside `fx` is wrong; a guessed import is wrong;
 a helper not listed in this document is wrong; arithmetic on `ToonDoc` /
@@ -263,8 +271,11 @@ fn main() -> Void {
 
 Limits: top-level helper functions only; destructuring must be a direct call;
 no binding to a single name; no tuple-return methods. A tuple-return function
-must not call itself (the tuple slots are not reentrant); direct recursion is
-rejected with `TUP-001` -- return a record instead.
+must not take part in a call cycle (the tuple slots are not reentrant): a
+self-call, or an indirect `a() -> b() -> a()` chain of any length, is rejected
+with `TUP-001` -- return a record instead. The same storage is also not safe
+across concurrent `par` branches; calling the same tuple-returning function
+from more than one branch is rejected with `PAR-003`.
 
 When the values do not come from a direct call to a defined top-level
 tuple-return function (for example a method, an undefined helper, or a nested
@@ -1242,7 +1253,7 @@ The compiler tags every rejection with a stable code in brackets, and on newer
 builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, FLOW-002, MUT-001, FIELD-002,
-FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
+FIELD-003, PAR-001, PAR-002, PAR-003, and NAME-001; the finer rule names below map onto them.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
@@ -1284,13 +1295,20 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   → give the return a value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call only.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call only. Also
+  covers any call cycle through tuple-returning functions (a direct self-call,
+  or an indirect `a() -> b() -> a()` chain of any length): tuple slots are
+  shared per-function globals, so a cycle corrupts an in-flight caller's
+  results → return a record instead and read its fields.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` (an assignment, `fx`,
   loop, …) → `par` bodies allow only direct call statements; wrap the work in a
   `fn` and call that inside `par`.
+- **[PAR-003]** the same tuple-returning function called from more than one
+  `par` branch (its shared tuple-result globals race concurrently) → give each
+  branch its own call outside the `par` block, or ensure only one branch calls it.
 
 The compiler cannot check *output correctness*. If the program compiles but the
 result is wrong, no code is printed — these are authoring rules: integer result

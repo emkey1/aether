@@ -12,6 +12,23 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-04-1
+
+**TUP-001 generalized to any call cycle through tuple-returning functions;
+new PAR-003 for concurrent tuple-fn calls in `par`.** Tuple returns lower to
+shared per-function globals (`__aether_tuple_N_itemK`), which are not
+reentrant. The 2026-07-01-7 TUP-001 check only rejected a tuple-returning
+function calling *itself* directly; indirect recursion (`a() -> b() -> a()`)
+and two `par` branches calling the *same* tuple-returning function were both
+still silently-corrupting gaps. TUP-001 is now a real call-graph cycle
+detector (any cycle length, not just self-calls), and a new `[PAR-003]`
+mirrors PAR-001's shared-record tracking for tuple-fn callees, rejecting the
+same tuple-returning function called from more than one `par` branch.
+Programs that previously compiled and silently corrupted their results in
+either shape now fail to compile with a coded diagnostic instead.
+Regressions: `tuple_indirect_recursion_fail.aether`,
+`par_shared_tuple_call_fail.aether`.
+
 ## 2026-07-01-8
 
 **`@pure` above `export fn` now compiles when the module file is the direct

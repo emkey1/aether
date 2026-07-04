@@ -730,12 +730,26 @@ method mangling, and PAR-001 verdicts when names collide across functions. `func
 keyed on bare names. Same flat-table pattern in `semantic.c` (`addScalarBinding` overwrites, ~552).
 Fix: scope-aware tables (push/pop on fn entry/exit).
 
-### Tuple returns lower to globals — non-reentrant — *gap (direct recursion now rejected 2026-07-01; globals design still open)*
-`ret (a, b)` lowers each slot to a global `__aether_tuple_N_itemK`, so a recursive tuple-return fn, a
-nested tuple call, or two `par` branches calling tuple fns silently corrupt each other's results. Also
-tuple-fn registration is a raw-text scan that only recognizes column-0 `fn` lines (~5205-5269), so an
-indented tuple fn degrades. Fix direction: per-call temporaries (locals in the caller), or document the
-limitation and reject recursive/par use of tuple fns.
+### Tuple returns lower to globals — non-reentrant — *mitigated 2026-07-04 (compile-time cycle/race detection); globals design still open*
+`ret (a, b)` lowers each slot to a global `__aether_tuple_N_itemK`, so calls that race or nest on the
+same slots silently corrupt each other's results. As of 2026-07-01, direct self-recursion was rejected
+(TUP-001) but indirect recursion (`a() -> b() -> a()`) and two `par` branches calling the *same*
+tuple-returning function were still undetected (confirmed live during a 2026-07-04 review). Both are now
+closed: TUP-001 generalized from a name-equality check to a real call-graph cycle detector (any cycle
+length, not just self-calls — see `AetherTupleCallGraph`/`tupleCallGraphReaches` in ast_parser.c), and a
+new PAR-003 check (mirrors PAR-001's shared-record tracking, but keyed on tuple-returning callee name
+instead of a shared record argument) rejects the same tuple fn called from more than one `par` branch.
+Tests: `tuple_indirect_recursion_fail.aether`, `par_shared_tuple_call_fail.aether`.
+
+This is detection, not a structural fix — a 2026-07-04 investigation confirmed the PSCAL VM already
+supports fully reentrant record-by-value returns (deep-copy on return, see `returnFromCall`/`copyRecord`
+in pscal-core), so the "real" fix (synthesize a record type per tuple signature, return it by value,
+destructure its fields at the call site instead of writing globals) is VM-feasible and would make all
+three vectors structurally impossible rather than merely rejected. Deferred because it touches many
+`hasTupleReturn`/`vtype==TYPE_VOID` special cases throughout ast_parser.c with no existing test
+precedent for a plain `fn` returning a user-defined record type — a larger, dedicated change. Also
+still open: tuple-fn registration is a raw-text scan that only recognizes column-0 `fn` lines
+(~5205-5269), so an indented tuple fn degrades.
 
 ### Parser silently tolerates missing closing delimiters — *FIXED 2026-07-01-7*
 `parseBlock` (~3846), `parseArgListEx` (~1271), `parsePostfix` (~1375) all "consume the closer if

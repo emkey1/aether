@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-01-8*
+*Guide version: 2026-07-04-1*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -33,7 +33,9 @@ compiler, and VM. It is not a separate runtime.
     top-level helper call only. Never `let value = pair();`. If the producer is
     a method, undefined, or an expression, return a record/object and read its
     fields instead. Tuple `@post` checks must use positional slots like
-    `result.0`, `result.1`.
+    `result.0`, `result.1`. Tuple-returning functions must never form a call
+    cycle (a self-call, or an indirect `a() -> b() -> a()` chain of any
+    length) — tuple slots are shared per-function globals, not reentrant.
 13. **OUT-001.** Return raw Aether source only. No Markdown fences.
 14. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
@@ -68,6 +70,10 @@ compiler, and VM. It is not a separate runtime.
 25. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
+26. **PAR-003.** A tuple-returning function must not be called from more than
+    one `par` branch — the branches would race on its shared tuple-result
+    globals (same defect class as PAR-001, via return storage instead of an
+    argument). Give each branch its own call outside the `par` block.
 
 Default stance: single-file programs; variadic `println("label = ", v)` over
 mixed-type `+`; explicit types for TOON values and non-trivial helper results;
@@ -650,12 +656,15 @@ The compiler prints a stable code in brackets, and on newer builds a
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields. Tuple-return functions must not call themselves (TUP-001): tuple slots are not reentrant, so use a record for recursive helpers.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields. Tuple-return functions must never form a call cycle — a self-call, or an indirect `a() -> b() -> a()` chain of any length: tuple slots are not reentrant, so use a record for recursive helpers.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` → `par` bodies allow
   only direct call statements; wrap the work in a `fn` and call that inside `par`.
+- **[PAR-003]** a tuple-returning function called from more than one `par`
+  branch (its shared tuple-result globals race concurrently) → give each
+  branch its own call outside the `par` block.
 
 If the program *compiles* but the output is wrong — extra headings, wrong
 spacing or precision (an integer where decimals are expected → add a `Real`

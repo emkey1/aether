@@ -1,0 +1,15 @@
+// Two par branches calling the SAME tuple-returning function race on its
+// shared __aether_tuple_N_itemK globals (silent corruption at runtime), the
+// same defect class as par_shared_record_fail.aether but via return storage
+// instead of a shared argument. This must be a compile-time [PAR-003].
+fn pair(n: Int) -> (Int, Int) {
+    ret (n, n * 2);
+}
+
+fn main() -> Void {
+    par {
+        pair(1);
+        pair(2);
+    }
+    ret;
+}

@@ -662,6 +662,99 @@ static const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char
     return NULL;
 }
 
+/* Tuple-return call graph: an edge CALLER->CALLEE is recorded whenever a
+ * tuple-returning function's body (real pass only -- forwardScan skips
+ * bodies entirely, see aetherRunForwardScan) calls another tuple-returning
+ * function. Tuple returns lower to shared per-function globals
+ * (__aether_tuple_N_itemK, see AetherTupleSig above); those slots are not
+ * reentrant, so ANY cycle in this graph -- a function calling itself
+ * directly, or an indirect chain A->B->...->A -- corrupts an in-flight
+ * caller's still-unread slots the same way. This graph lets the parser
+ * reject a cycle of any length as it is formed, generalizing the older
+ * direct-self-call-only TUP-001 check. Strings are owned copies (the graph
+ * outlives the tokens/AST nodes it was built from only until the top-level
+ * parse finishes, but copying keeps it independent of any AST-node teardown
+ * order). */
+typedef struct {
+    char *caller;
+    char *callee;
+} AetherTupleCallEdge;
+
+typedef struct {
+    AetherTupleCallEdge *edges;
+    size_t count;
+    size_t cap;
+} AetherTupleCallGraph;
+
+static void tupleCallGraphInit(AetherTupleCallGraph *g) { g->edges = NULL; g->count = 0; g->cap = 0; }
+
+static void tupleCallGraphFree(AetherTupleCallGraph *g) {
+    if (!g) return;
+    for (size_t i = 0; i < g->count; i++) {
+        free(g->edges[i].caller);
+        free(g->edges[i].callee);
+    }
+    free(g->edges);
+    g->edges = NULL;
+    g->count = 0;
+    g->cap = 0;
+}
+
+/* True if `target` is reachable from `start` by following recorded edges, or
+ * `start == target` (the direct-recursion case, checked with zero edges).
+ * Plain iterative DFS; the number of tuple-returning functions in a real
+ * program is tiny, so linear scans over the edge list are fine. The visited
+ * caps below are a generous backstop against pathological inputs, not a
+ * meaningful limit on supported program size. */
+static bool tupleCallGraphReaches(const AetherTupleCallGraph *g, const char *start, const char *target) {
+    if (!start || !target) return false;
+    if (strcmp(start, target) == 0) return true;
+    if (!g || g->count == 0) return false;
+    const char *stack[512];
+    const char *visited[512];
+    int sp = 0, visitedCount = 0;
+    stack[sp++] = start;
+    while (sp > 0) {
+        const char *cur = stack[--sp];
+        bool seen = false;
+        for (int i = 0; i < visitedCount; i++) {
+            if (strcmp(visited[i], cur) == 0) { seen = true; break; }
+        }
+        if (seen) continue;
+        if (visitedCount < 512) visited[visitedCount++] = cur;
+        for (size_t i = 0; i < g->count; i++) {
+            if (strcmp(g->edges[i].caller, cur) != 0) continue;
+            if (strcmp(g->edges[i].callee, target) == 0) return true;
+            if (sp < 512) stack[sp++] = g->edges[i].callee;
+        }
+    }
+    return false;
+}
+
+/* Record CALLER->CALLEE (idempotent: a repeated call site adds no duplicate
+ * edge). No-op if allocation fails -- worst case, a later cycle involving the
+ * dropped edge goes undetected until a corpus with that many distinct
+ * tuple-returning functions is realistic enough to matter. */
+static void tupleCallGraphAddEdge(AetherTupleCallGraph *g, const char *caller, const char *callee) {
+    if (!g || !caller || !callee) return;
+    for (size_t i = 0; i < g->count; i++) {
+        if (strcmp(g->edges[i].caller, caller) == 0 && strcmp(g->edges[i].callee, callee) == 0) return;
+    }
+    if (g->count == g->cap) {
+        size_t newCap = g->cap ? g->cap * 2 : 8;
+        AetherTupleCallEdge *edges = (AetherTupleCallEdge *)realloc(g->edges, newCap * sizeof(*edges));
+        if (!edges) return;
+        g->edges = edges;
+        g->cap = newCap;
+    }
+    char *callerCopy = strdup(caller);
+    char *calleeCopy = strdup(callee);
+    if (!callerCopy || !calleeCopy) { free(callerCopy); free(calleeCopy); return; }
+    g->edges[g->count].caller = callerCopy;
+    g->edges[g->count].callee = calleeCopy;
+    g->count++;
+}
+
 static void fieldNameListInit(AetherFieldNameList *l) { l->names = NULL; l->count = 0; l->cap = 0; }
 
 static void fieldNameListFree(AetherFieldNameList *l) {
@@ -744,6 +837,7 @@ typedef struct {
     /* Contract + tuple state (MILESTONE 3). */
     AetherTupleTable *tuples;           /* tuple-return fn signatures (global)     */
     int *nextTupleTypeId;               /* monotonically-increasing tuple type id  */
+    AetherTupleCallGraph *tupleCallGraph; /* tuple-fn call graph (real pass only)  */
     const AetherFieldNameList *classFields; /* fields of the type being parsed     */
     /* The tuple signature of the function whose body is being parsed (so `ret
      * (a,b)` lowers to per-slot global writes), NULL outside a tuple fn body.    */
@@ -896,6 +990,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->funcReturns = NULL;
     p->tuples = NULL;
     p->nextTupleTypeId = NULL;
+    p->tupleCallGraph = NULL;
     p->classFields = NULL;
     p->currentTupleSig = NULL;
     p->currentPostExpr = NULL;
@@ -2141,20 +2236,39 @@ static AST *parsePrimary(AetherParser *p) {
         aetherAdvance(p); /* consume identifier */
 
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
-            /* Direct recursion inside a tuple-return function: tuple returns
-             * lower to per-slot GLOBALS (__aether_tuple_N_itemK), so a
-             * self-call silently corrupts the caller's own results. Reject the
-             * direct case at parse time (TUP-001); indirect recursion is not
-             * detected. */
-            if (p->currentTupleSig && p->currentTupleSig->functionName &&
-                tok->value &&
-                strcmp(tok->value, p->currentTupleSig->functionName) == 0) {
-                reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple",
-                        "tuple-return functions cannot call themselves (tuple slots are not reentrant).",
-                        "return a record instead and read its fields.");
-                p->hadError = true;
-                freeToken(tok);
-                return NULL;
+            /* Recursion (direct OR indirect) through a tuple-return function:
+             * tuple returns lower to per-slot GLOBALS (__aether_tuple_N_itemK),
+             * so any cycle -- a self-call, or an indirect A->B->...->A chain --
+             * silently corrupts an in-flight caller's still-unread slots.
+             * Track the call graph among tuple-returning functions as bodies
+             * are parsed and reject the call that would close a cycle of any
+             * length (TUP-001; generalizes the old direct-only check). */
+            if (p->currentTupleSig && p->currentTupleSig->functionName && tok->value &&
+                tupleTableGet(p->tuples, tok->value, strlen(tok->value))) {
+                const char *callerName = p->currentTupleSig->functionName;
+                const char *calleeName = tok->value;
+                if (strcmp(calleeName, callerName) == 0) {
+                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple",
+                            "tuple-return functions cannot call themselves (tuple slots are not reentrant).",
+                            "return a record instead and read its fields.");
+                    p->hadError = true;
+                    freeToken(tok);
+                    return NULL;
+                }
+                if (tupleCallGraphReaches(p->tupleCallGraph, calleeName, callerName)) {
+                    char detail[256];
+                    snprintf(detail, sizeof(detail),
+                            "tuple-return function '%s' already (directly or indirectly) calls '%s'; "
+                            "calling it here would close a call cycle (tuple slots are not reentrant).",
+                            calleeName, callerName);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple", detail,
+                            "return a record instead and read its fields, or restructure so no "
+                            "tuple-return function calls back into one that is still running.");
+                    p->hadError = true;
+                    freeToken(tok);
+                    return NULL;
+                }
+                tupleCallGraphAddEdge(p->tupleCallGraph, callerName, calleeName);
             }
             /* Only names that are immediately called get the stdlib alias
              * treatment, matching the rewriter (it rewrites `name(` spans).
@@ -2542,6 +2656,7 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     sub.funcReturns = p->funcReturns;
     sub.tuples = p->tuples;
     sub.nextTupleTypeId = p->nextTupleTypeId;
+    sub.tupleCallGraph = p->tupleCallGraph;
     sub.classFields = p->classFields;
     sub.inMethodContract = inMethodContract;
     aetherAdvance(&sub);
@@ -4096,6 +4211,15 @@ static AST *parseParBlock(AetherParser *p) {
      * tokens (owned by the call nodes, which outlive this loop); no allocation. */
     struct { const char *name; int branch; } sharedRecs[64];
     int sharedRecCount = 0;
+    /* Data-race guard: track which tuple-returning function was called from
+     * which par branch. Tuple returns lower to shared per-function globals
+     * (__aether_tuple_N_itemK); two branches' spawned threads calling the
+     * same tuple-returning function race on those globals exactly like the
+     * shared-record case above, just via return storage instead of an
+     * argument (see PAR-003 below). Pointers into the call tokens (owned by
+     * the call nodes, which outlive this loop); no allocation. */
+    struct { const char *name; int branch; } sharedTupleCalls[64];
+    int sharedTupleCallCount = 0;
     while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
            !p->hadError) {
         int callLine = p->current.line;
@@ -4174,6 +4298,44 @@ static AST *parseParBlock(AetherParser *p) {
                 sharedRecs[sharedRecCount].name = an;
                 sharedRecs[sharedRecCount].branch = handle;
                 sharedRecCount++;
+            }
+        }
+
+        /* PAR-003: reject a tuple-returning function called from more than one
+         * par branch before it becomes a concurrent data race at runtime. Two
+         * spawned threads both calling the same tuple-returning function write
+         * and read its shared __aether_tuple_N_itemK globals concurrently --
+         * the same defect class as PAR-001, but via return storage instead of
+         * a shared argument. */
+        if (call->token && call->token->value &&
+            tupleTableGet(p->tuples, call->token->value, strlen(call->token->value))) {
+            const char *fn = call->token->value;
+            int prior = -1;
+            for (int si = 0; si < sharedTupleCallCount; si++) {
+                if (sharedTupleCalls[si].name && strcmp(sharedTupleCalls[si].name, fn) == 0) {
+                    prior = sharedTupleCalls[si].branch;
+                    break;
+                }
+            }
+            if (prior >= 0 && prior != handle) {
+                const char *ppath = aetherSemanticGetSourcePath();
+                if (ppath && *ppath) aetherDiagf("%s:%d: ", ppath, callLine);
+                aetherDiagf("[PAR-003] Aether par error: tuple-return function '%s' is called from "
+                            "more than one par branch; the spawned threads race on its shared "
+                            "tuple-result storage (silent corruption).\n", fn);
+                aetherDiagf("hint: give each par branch its own call to '%s' outside the par block, "
+                            "or restructure so only one branch calls it.\n", fn);
+                aetherReportGuideHelp("PAR-003");
+                p->hadError = true;
+                freeAST(call);
+                freeAST(block);
+                freeAST(joins);
+                return NULL;
+            }
+            if (prior < 0 && sharedTupleCallCount < (int)(sizeof(sharedTupleCalls) / sizeof(sharedTupleCalls[0]))) {
+                sharedTupleCalls[sharedTupleCallCount].name = fn;
+                sharedTupleCalls[sharedTupleCallCount].branch = handle;
+                sharedTupleCallCount++;
             }
         }
 
@@ -6051,11 +6213,14 @@ AST *parseAetherAst(const char *rawSource) {
     AetherTupleTable tuples;
     tupleTableInit(&tuples);
     int nextTupleTypeId = 0;
+    AetherTupleCallGraph tupleCallGraph;
+    tupleCallGraphInit(&tupleCallGraph);
 
     AetherParser p;
     aetherParserInit(&p, source, &bindings);
     p.funcReturns = &funcReturns;
     p.tuples = &tuples;
+    p.tupleCallGraph = &tupleCallGraph;
     p.nextTupleTypeId = &nextTupleTypeId;
     aetherAdvance(&p);
 
@@ -6077,6 +6242,7 @@ AST *parseAetherAst(const char *rawSource) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
         tupleTableFree(&tuples);
+        tupleCallGraphFree(&tupleCallGraph);
         freeAST(program);
         free(source);
         return NULL;
@@ -6190,6 +6356,7 @@ AST *parseAetherAst(const char *rawSource) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
         tupleTableFree(&tuples);
+        tupleCallGraphFree(&tupleCallGraph);
         freeAST(program);
         free(source);
         return NULL;
@@ -6197,6 +6364,7 @@ AST *parseAetherAst(const char *rawSource) {
     bindingTableFree(&bindings);
     bindingTableFree(&funcReturns);
     tupleTableFree(&tuples);
+    tupleCallGraphFree(&tupleCallGraph);
     free(source);
 
     /* If a routine named 'main' exists and there are no top-level statements,
