@@ -55,8 +55,8 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 - **Three instruments, exact-stdout scored.** The **simple** set (30 tasks, `tasks_v2_pos.json`) probes language fluency; **the
   large set** (8 tasks, `tasks_hard.json`) carries bigger inputs and more layered
   logic; **CS-classics** (19 tasks, `tasks_cs.json`) tests textbook algorithms. Each
-  program is compiled and run with `aether` 2026-06-27-3 and its stdout compared
-  byte-for-byte against an oracle.
+  program is compiled and run with the `aether` build recorded in the row's
+  `aether ver` column, and its stdout compared byte-for-byte against an oracle.
 - **Two independent runs per model, not two stages of one run.** "concise guide"
   and "full guide" are two *separate* experiments — same model, same tasks, but a
   different guide document in the prompt: the **full** guide
@@ -66,6 +66,16 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
   ~500 lines). There is no `none` column — that is the fine-tuned side's
   department. The guide's own version stamp is recorded per row (see `guide ver`
   column in each table) since it is revised alongside the language.
+- **`guide ver` and `aether ver` are two different things, and they drift.**
+  `guide ver` is the guide document's own self-declared `YYYY-MM-DD-N` front-matter
+  stamp; `aether ver` is the actual compiler build (`aether --version`) that
+  compiled and ran that row's programs. They are usually updated together, but not
+  always at the same moment — a row can be scored on the current guide text
+  against a slightly newer or older compiler than the guide's own stamp implies
+  (e.g. several `guide ver: 2026-07-01-8` rows below actually ran on the
+  `20260702.1858_DEV` build, a local dev snapshot a day past that guide's
+  publish point). Read `aether ver`, not `guide ver`, when you need to know
+  exactly what compiler behavior produced a score.
 - **Repair on for both columns — there is no separate "first pass" number.**
   Every score, in *both* the concise-guide and full-guide columns, already
   includes up to two repair attempts: on a failure the model is handed its own
@@ -88,28 +98,28 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ## Simple (30 tasks): core language fluency
 
-| model | size · served | guide ver | concise guide | full guide |
-|---|---|---|---|---|
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **30/30** (6 retried, 6 fixed) | 29/30 (7 retried, 6 fixed) |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **30/30** (1 retried, 1 fixed) | **30/30** |
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **30/30** (1 retried, 1 fixed) | **30/30** (1 retried, 1 fixed) |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** |
-| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | **30/30** (1 retried, 1 fixed) | **30/30** |
-| `glm-5.2` | — · cloud | 2026-06-28 | **30/30** | **30/30** |
-| `glm-5-turbo` | — · cloud | 2026-06-28 | **30/30** (1 retried, 1 fixed) | 29/30 (2 retried, 1 fixed) |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** (1 retried, 1 fixed) |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 29/30 (6 retried, 5 fixed) | 26/30 (9 retried, 5 fixed) |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 29/30 (3 retried, 2 fixed) | 28/30 (4 retried, 3 fixed) |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 29/30 (5 retried, 4 fixed) | 21/30 (4 retried, 2 fixed) |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 28/30 (4 retried, 2 fixed) | 28/30 (2 retried, 0 fixed) |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 28/30 (6 retried, 4 fixed) | 27/30 (7 retried, 4 fixed) |
-| `phi4` | 14B · claw2 | 2026-06-28 | 27/30 (13 retried, 10 fixed) | 25/30 (6 retried, 1 fixed) |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 27/30 (1 retried, 1 fixed) | 26/30 (2 retried, 2 fixed) |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 24/30 (10 retried, 4 fixed) | 22/30 (11 retried, 3 fixed) |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 19/30 (13 retried, 2 fixed) | 20/30 (13 retried, 3 fixed) |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 14/30 (20 retried, 4 fixed) | 18/30 (13 retried, 1 fixed) |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 15/30 (20 retried, 5 fixed) | 13/30 (17 retried, 0 fixed) |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 9/30 (25 retried, 4 fixed) | 9/30 (25 retried, 5 fixed) |
+| model | size · served | guide ver | aether ver | concise guide | full guide |
+|---|---|---|---|---|---|
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 2026-06-27-3 | **30/30** (6 retried, 6 fixed) | 29/30 (7 retried, 6 fixed) |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | **30/30** (1 retried, 1 fixed) | **30/30** |
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 2026-06-27-3 | **30/30** (1 retried, 1 fixed) | **30/30** (1 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | **30/30** | **30/30** |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 2026-07-04-2 | **30/30** (1 retried, 1 fixed) | **30/30** |
+| `glm-5.2` | — · cloud | 2026-06-28 | 2026-06-27-3 | **30/30** | **30/30** |
+| `glm-5-turbo` | — · cloud | 2026-06-28 | 2026-06-27-3 | **30/30** (1 retried, 1 fixed) | 29/30 (2 retried, 1 fixed) |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | **30/30** | **30/30** (1 retried, 1 fixed) |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 2026-06-27-3 | 29/30 (6 retried, 5 fixed) | 26/30 (9 retried, 5 fixed) |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 2026-06-27-3 | 29/30 (3 retried, 2 fixed) | 28/30 (4 retried, 3 fixed) |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 20260702.1858_DEV | 29/30 (5 retried, 4 fixed) | 21/30 (4 retried, 2 fixed) |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | 28/30 (4 retried, 2 fixed) | 28/30 (2 retried, 0 fixed) |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 2026-06-27-3 | 28/30 (6 retried, 4 fixed) | 27/30 (7 retried, 4 fixed) |
+| `phi4` | 14B · claw2 | 2026-06-28 | 2026-06-27-3 | 27/30 (13 retried, 10 fixed) | 25/30 (6 retried, 1 fixed) |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 2026-06-27-3 | 27/30 (1 retried, 1 fixed) | 26/30 (2 retried, 2 fixed) |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 2026-06-27-3 | 24/30 (10 retried, 4 fixed) | 22/30 (11 retried, 3 fixed) |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 2026-06-27-3 | 19/30 (13 retried, 2 fixed) | 20/30 (13 retried, 3 fixed) |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2026-06-27-3 | 14/30 (20 retried, 4 fixed) | 18/30 (13 retried, 1 fixed) |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 2026-06-27-3 | 15/30 (20 retried, 5 fixed) | 13/30 (17 retried, 0 fixed) |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 20260702.1858_DEV | 9/30 (25 retried, 4 fixed) | 9/30 (25 retried, 5 fixed) |
 
 *Correct/N per guide, bold = perfect score. "(N retried, M fixed)" shown only
 when the repair loop was actually invoked — both columns already include
@@ -121,55 +131,55 @@ the same model are grouped together, oldest guide version first.*
 <details>
 <summary>Compiled detail — Simple</summary>
 
-| model | guide ver | concise guide compiled | full guide compiled |
-|---|---|---|---|
-| `gpt-oss-120b` | 2026-06-28 | 30/30 | 29/30 |
-| `qwen3.6-35b-a3b` | 2026-06-28 | 30/30 | 30/30 |
-| `gemini-2.5-flash` | 2026-06-28 | 30/30 | 30/30 |
-| `gemini-2.5-flash` | **2026-07-01-8** | 30/30 | 30/30 |
-| `gemini-2.5-flash` | **2026-07-04-2** | 30/30 | 30/30 |
-| `glm-5.2` | 2026-06-28 | 30/30 | 30/30 |
-| `glm-5-turbo` | 2026-06-28 | 30/30 | 29/30 |
-| `glm-5-turbo` | **2026-07-01-8** | 30/30 | 30/30 |
-| `gemma3-27b` | 2026-06-28 | 30/30 | 26/30 |
-| `devstral-24b` | 2026-06-28 | 29/30 | 28/30 |
-| `qwen3-4b` | **2026-07-01-8** | 29/30 | 22/30 |
-| `qwen3-coder-30b` | 2026-06-28 | 29/30 | 28/30 |
-| `mistral-small-24b` | 2026-06-28 | 28/30 | 28/30 |
-| `phi4` | 2026-06-28 | 28/30 | 26/30 |
-| `qwen3.5-9b` | 2026-06-28 | 27/30 | 26/30 |
-| `exaone3.5-32b` | 2026-06-28 | 25/30 | 23/30 |
-| `llama3.1-8b` | 2026-06-28 | 22/30 | 26/30 |
-| `granite3.3-8b` | 2026-06-28 | 18/30 | 21/30 |
-| `granite4-tiny-7b` | 2026-06-28 | 19/30 | 21/30 |
-| `qwen3-1.7b` | **2026-07-01-8** | 13/30 | 16/30 |
+| model | guide ver | aether ver | concise guide compiled | full guide compiled |
+|---|---|---|---|---|
+| `gpt-oss-120b` | 2026-06-28 | 2026-06-27-3 | 30/30 | 29/30 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 2026-06-27-3 | 30/30 | 30/30 |
+| `gemini-2.5-flash` | 2026-06-28 | 2026-06-27-3 | 30/30 | 30/30 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 20260702.1858_DEV | 30/30 | 30/30 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 2026-07-04-2 | 30/30 | 30/30 |
+| `glm-5.2` | 2026-06-28 | 2026-06-27-3 | 30/30 | 30/30 |
+| `glm-5-turbo` | 2026-06-28 | 2026-06-27-3 | 30/30 | 29/30 |
+| `glm-5-turbo` | **2026-07-01-8** | 20260702.1858_DEV | 30/30 | 30/30 |
+| `gemma3-27b` | 2026-06-28 | 2026-06-27-3 | 30/30 | 26/30 |
+| `devstral-24b` | 2026-06-28 | 2026-06-27-3 | 29/30 | 28/30 |
+| `qwen3-4b` | **2026-07-01-8** | 20260702.1858_DEV | 29/30 | 22/30 |
+| `qwen3-coder-30b` | 2026-06-28 | 2026-06-27-3 | 29/30 | 28/30 |
+| `mistral-small-24b` | 2026-06-28 | 2026-06-27-3 | 28/30 | 28/30 |
+| `phi4` | 2026-06-28 | 2026-06-27-3 | 28/30 | 26/30 |
+| `qwen3.5-9b` | 2026-06-28 | 2026-06-27-3 | 27/30 | 26/30 |
+| `exaone3.5-32b` | 2026-06-28 | 2026-06-27-3 | 25/30 | 23/30 |
+| `llama3.1-8b` | 2026-06-28 | 2026-06-27-3 | 22/30 | 26/30 |
+| `granite3.3-8b` | 2026-06-28 | 2026-06-27-3 | 18/30 | 21/30 |
+| `granite4-tiny-7b` | 2026-06-28 | 2026-06-27-3 | 19/30 | 21/30 |
+| `qwen3-1.7b` | **2026-07-01-8** | 20260702.1858_DEV | 13/30 | 16/30 |
 
 </details>
 
 ## Large (8 tasks): bigger inputs, layered logic
 
-| model | size · served | guide ver | concise guide | full guide |
-|---|---|---|---|---|
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/8 (3 retried, 2 fixed) | 6/8 (3 retried, 1 fixed) |
-| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 6/8 (2 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **8/8** (1 retried, 1 fixed) | **8/8** (2 retried, 2 fixed) |
-| `glm-5.2` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
-| `glm-5-turbo` | — · cloud | 2026-06-28 | 7/8 | **8/8** |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **8/8** | **8/8** |
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | **8/8** (2 retried, 2 fixed) | 7/8 (1 retried, 0 fixed) |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 7/8 (2 retried, 1 fixed) | 7/8 (8 retried, 7 fixed) |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 7/8 (8 retried, 7 fixed) | 7/8 (8 retried, 7 fixed) |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 6/8 (4 retried, 2 fixed) | 7/8 (5 retried, 4 fixed) |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 7/8 (1 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
-| `phi4` | 14B · claw2 | 2026-06-28 | 7/8 (8 retried, 7 fixed) | 1/8 (8 retried, 1 fixed) |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 5/8 (4 retried, 4 fixed) | 6/8 (6 retried, 6 fixed) |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 6/8 (4 retried, 2 fixed) | 6/8 (4 retried, 2 fixed) |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 1/8 (7 retried, 0 fixed) | 2/8 (8 retried, 2 fixed) |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 0/8 (7 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
+| model | size · served | guide ver | aether ver | concise guide | full guide |
+|---|---|---|---|---|---|
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 2026-06-27-3 | **8/8** | **8/8** |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | 7/8 (3 retried, 2 fixed) | 6/8 (3 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 2026-07-04-2 | 6/8 (2 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | **8/8** (1 retried, 1 fixed) | **8/8** (2 retried, 2 fixed) |
+| `glm-5.2` | — · cloud | 2026-06-28 | 2026-06-27-3 | **8/8** | **8/8** |
+| `glm-5-turbo` | — · cloud | 2026-06-28 | 2026-06-27-3 | 7/8 | **8/8** |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | **8/8** | **8/8** |
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 2026-06-27-3 | **8/8** (2 retried, 2 fixed) | 7/8 (1 retried, 0 fixed) |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 2026-06-27-3 | 7/8 (2 retried, 1 fixed) | 7/8 (8 retried, 7 fixed) |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 2026-06-27-3 | 7/8 (8 retried, 7 fixed) | 7/8 (8 retried, 7 fixed) |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | 6/8 (4 retried, 2 fixed) | 7/8 (5 retried, 4 fixed) |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 2026-06-27-3 | 7/8 (1 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
+| `phi4` | 14B · claw2 | 2026-06-28 | 2026-06-27-3 | 7/8 (8 retried, 7 fixed) | 1/8 (8 retried, 1 fixed) |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 2026-06-27-3 | 5/8 (4 retried, 4 fixed) | 6/8 (6 retried, 6 fixed) |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 20260702.1858_DEV | 6/8 (4 retried, 2 fixed) | 6/8 (4 retried, 2 fixed) |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 2026-06-27-3 | 1/8 (7 retried, 0 fixed) | 2/8 (8 retried, 2 fixed) |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 2026-06-27-3 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 2026-06-27-3 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2026-06-27-3 | 0/8 (8 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 20260702.1858_DEV | 0/8 (7 retried, 0 fixed) | 0/8 (8 retried, 0 fixed) |
 
 *Correct/N per guide, bold = perfect score. "(N retried, M fixed)" shown only
 when the repair loop was actually invoked — both columns already include
@@ -179,55 +189,55 @@ the same model are grouped together, oldest guide version first.*
 <details>
 <summary>Compiled detail — Large</summary>
 
-| model | guide ver | concise guide compiled | full guide compiled |
-|---|---|---|---|
-| `gemini-2.5-flash` | 2026-06-28 | 8/8 | 8/8 |
-| `gemini-2.5-flash` | **2026-07-01-8** | 7/8 | 6/8 |
-| `gemini-2.5-flash` | **2026-07-04-2** | 6/8 | 7/8 |
-| `qwen3.6-35b-a3b` | 2026-06-28 | 8/8 | 8/8 |
-| `glm-5.2` | 2026-06-28 | 8/8 | 8/8 |
-| `glm-5-turbo` | 2026-06-28 | 7/8 | 8/8 |
-| `glm-5-turbo` | **2026-07-01-8** | 8/8 | 8/8 |
-| `gpt-oss-120b` | 2026-06-28 | 8/8 | 7/8 |
-| `devstral-24b` | 2026-06-28 | 7/8 | 7/8 |
-| `gemma3-27b` | 2026-06-28 | 7/8 | 7/8 |
-| `qwen3-coder-30b` | 2026-06-28 | 6/8 | 7/8 |
-| `mistral-small-24b` | 2026-06-28 | 7/8 | 7/8 |
-| `phi4` | 2026-06-28 | 7/8 | 1/8 |
-| `qwen3.5-9b` | 2026-06-28 | 5/8 | 6/8 |
-| `qwen3-4b` | **2026-07-01-8** | 6/8 | 6/8 |
-| `exaone3.5-32b` | 2026-06-28 | 2/8 | 3/8 |
-| `granite4-tiny-7b` | 2026-06-28 | 0/8 | 1/8 |
-| `llama3.1-8b` | 2026-06-28 | 1/8 | 1/8 |
-| `granite3.3-8b` | 2026-06-28 | 2/8 | 1/8 |
-| `qwen3-1.7b` | **2026-07-01-8** | 0/8 | 0/8 |
+| model | guide ver | aether ver | concise guide compiled | full guide compiled |
+|---|---|---|---|---|
+| `gemini-2.5-flash` | 2026-06-28 | 2026-06-27-3 | 8/8 | 8/8 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 20260702.1858_DEV | 7/8 | 6/8 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 2026-07-04-2 | 6/8 | 7/8 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 2026-06-27-3 | 8/8 | 8/8 |
+| `glm-5.2` | 2026-06-28 | 2026-06-27-3 | 8/8 | 8/8 |
+| `glm-5-turbo` | 2026-06-28 | 2026-06-27-3 | 7/8 | 8/8 |
+| `glm-5-turbo` | **2026-07-01-8** | 20260702.1858_DEV | 8/8 | 8/8 |
+| `gpt-oss-120b` | 2026-06-28 | 2026-06-27-3 | 8/8 | 7/8 |
+| `devstral-24b` | 2026-06-28 | 2026-06-27-3 | 7/8 | 7/8 |
+| `gemma3-27b` | 2026-06-28 | 2026-06-27-3 | 7/8 | 7/8 |
+| `qwen3-coder-30b` | 2026-06-28 | 2026-06-27-3 | 6/8 | 7/8 |
+| `mistral-small-24b` | 2026-06-28 | 2026-06-27-3 | 7/8 | 7/8 |
+| `phi4` | 2026-06-28 | 2026-06-27-3 | 7/8 | 1/8 |
+| `qwen3.5-9b` | 2026-06-28 | 2026-06-27-3 | 5/8 | 6/8 |
+| `qwen3-4b` | **2026-07-01-8** | 20260702.1858_DEV | 6/8 | 6/8 |
+| `exaone3.5-32b` | 2026-06-28 | 2026-06-27-3 | 2/8 | 3/8 |
+| `granite4-tiny-7b` | 2026-06-28 | 2026-06-27-3 | 0/8 | 1/8 |
+| `llama3.1-8b` | 2026-06-28 | 2026-06-27-3 | 1/8 | 1/8 |
+| `granite3.3-8b` | 2026-06-28 | 2026-06-27-3 | 2/8 | 1/8 |
+| `qwen3-1.7b` | **2026-07-01-8** | 20260702.1858_DEV | 0/8 | 0/8 |
 
 </details>
 
 ## CS-classics (19 tasks): textbook algorithms
 
-| model | size · served | guide ver | concise guide | full guide |
-|---|---|---|---|---|
-| `glm-5-turbo` | — · cloud | 2026-06-28 | 18/19 (1 retried, 1 fixed) | **19/19** (1 retried, 1 fixed) |
-| `glm-5-turbo` | — · cloud | **2026-07-01-8** | **19/19** (2 retried, 2 fixed) | 16/19 |
-| `glm-5.2` | — · cloud | 2026-06-28 | 18/19 (3 retried, 3 fixed) | 18/19 (1 retried, 1 fixed) |
-| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 18/19 (3 retried, 2 fixed) | 17/19 (4 retried, 2 fixed) |
-| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/19 (8 retried, 4 fixed) | 13/19 (7 retried, 1 fixed) |
-| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 15/19 (8 retried, 4 fixed) | 15/19 (8 retried, 4 fixed) |
-| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 17/19 (2 retried, 2 fixed) | 18/19 (2 retried, 1 fixed) |
-| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 17/19 (6 retried, 4 fixed) | 17/19 (8 retried, 6 fixed) |
-| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 10/19 (10 retried, 1 fixed) | 13/19 (8 retried, 2 fixed) |
-| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 8/19 | 13/19 (4 retried, 3 fixed) |
-| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 7/19 (14 retried, 2 fixed) | 12/19 (12 retried, 5 fixed) |
-| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 12/19 (9 retried, 2 fixed) | 12/19 (7 retried, 0 fixed) |
-| `devstral-24b` | 24B · m5t | 2026-06-28 | 11/19 (11 retried, 3 fixed) | 11/19 (11 retried, 3 fixed) |
-| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 8/19 (14 retried, 3 fixed) | 7/19 (14 retried, 2 fixed) |
-| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 7/19 (12 retried, 0 fixed) | 7/19 (14 retried, 2 fixed) |
-| `phi4` | 14B · claw2 | 2026-06-28 | 6/19 (14 retried, 2 fixed) | 5/19 (14 retried, 0 fixed) |
-| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 2/19 (18 retried, 1 fixed) | 4/19 (16 retried, 1 fixed) |
-| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 4/19 (17 retried, 3 fixed) | 2/19 (16 retried, 0 fixed) |
-| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2/19 (17 retried, 0 fixed) | 3/19 (16 retried, 0 fixed) |
-| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 1/19 (18 retried, 0 fixed) | 2/19 (17 retried, 0 fixed) |
+| model | size · served | guide ver | aether ver | concise guide | full guide |
+|---|---|---|---|---|---|
+| `glm-5-turbo` | — · cloud | 2026-06-28 | 2026-06-27-3 | 18/19 (1 retried, 1 fixed) | **19/19** (1 retried, 1 fixed) |
+| `glm-5-turbo` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | **19/19** (2 retried, 2 fixed) | 16/19 |
+| `glm-5.2` | — · cloud | 2026-06-28 | 2026-06-27-3 | 18/19 (3 retried, 3 fixed) | 18/19 (1 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | 2026-06-28 | 2026-06-27-3 | 18/19 (3 retried, 2 fixed) | 17/19 (4 retried, 2 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 20260702.1858_DEV | 15/19 (8 retried, 4 fixed) | 13/19 (7 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 2026-07-04-2 | 15/19 (8 retried, 4 fixed) | 15/19 (8 retried, 4 fixed) |
+| `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | 17/19 (2 retried, 2 fixed) | 18/19 (2 retried, 1 fixed) |
+| `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 2026-06-27-3 | 17/19 (6 retried, 4 fixed) | 17/19 (8 retried, 6 fixed) |
+| `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | 10/19 (10 retried, 1 fixed) | 13/19 (8 retried, 2 fixed) |
+| `qwen3.5-9b` | 9B · m5t | 2026-06-28 | 2026-06-27-3 | 8/19 | 13/19 (4 retried, 3 fixed) |
+| `gemma3-27b` | 27B · claw2 | 2026-06-28 | 2026-06-27-3 | 7/19 (14 retried, 2 fixed) | 12/19 (12 retried, 5 fixed) |
+| `qwen3-4b` | 4B · claw2 | **2026-07-01-8** | 20260702.1858_DEV | 12/19 (9 retried, 2 fixed) | 12/19 (7 retried, 0 fixed) |
+| `devstral-24b` | 24B · m5t | 2026-06-28 | 2026-06-27-3 | 11/19 (11 retried, 3 fixed) | 11/19 (11 retried, 3 fixed) |
+| `exaone3.5-32b` | 32B · claw1 | 2026-06-28 | 2026-06-27-3 | 8/19 (14 retried, 3 fixed) | 7/19 (14 retried, 2 fixed) |
+| `mistral-small-24b` | 24B · claw1 | 2026-06-28 | 2026-06-27-3 | 7/19 (12 retried, 0 fixed) | 7/19 (14 retried, 2 fixed) |
+| `phi4` | 14B · claw2 | 2026-06-28 | 2026-06-27-3 | 6/19 (14 retried, 2 fixed) | 5/19 (14 retried, 0 fixed) |
+| `granite4-tiny-7b` | 7B · m5t | 2026-06-28 | 2026-06-27-3 | 2/19 (18 retried, 1 fixed) | 4/19 (16 retried, 1 fixed) |
+| `qwen3-1.7b` | 1.7B · claw1 | **2026-07-01-8** | 20260702.1858_DEV | 4/19 (17 retried, 3 fixed) | 2/19 (16 retried, 0 fixed) |
+| `granite3.3-8b` | 8B · claw1 | 2026-06-28 | 2026-06-27-3 | 2/19 (17 retried, 0 fixed) | 3/19 (16 retried, 0 fixed) |
+| `llama3.1-8b` | 8B · claw2 | 2026-06-28 | 2026-06-27-3 | 1/19 (18 retried, 0 fixed) | 2/19 (17 retried, 0 fixed) |
 
 *Correct/N per guide, bold = perfect score. "(N retried, M fixed)" shown only
 when the repair loop was actually invoked — both columns already include
@@ -239,28 +249,28 @@ the same model are grouped together, oldest guide version first.*
 <details>
 <summary>Compiled detail — CS-classics</summary>
 
-| model | guide ver | concise guide compiled | full guide compiled |
-|---|---|---|---|
-| `glm-5-turbo` | 2026-06-28 | 18/19 | 19/19 |
-| `glm-5-turbo` | **2026-07-01-8** | 19/19 | 16/19 |
-| `glm-5.2` | 2026-06-28 | 18/19 | 18/19 |
-| `gemini-2.5-flash` | 2026-06-28 | 18/19 | 18/19 |
-| `gemini-2.5-flash` | **2026-07-01-8** | 15/19 | 14/19 |
-| `gemini-2.5-flash` | **2026-07-04-2** | 17/19 | 15/19 |
-| `qwen3.6-35b-a3b` | 2026-06-28 | 17/19 | 18/19 |
-| `gpt-oss-120b` | 2026-06-28 | 17/19 | 17/19 |
-| `qwen3-coder-30b` | 2026-06-28 | 12/19 | 14/19 |
-| `qwen3.5-9b` | 2026-06-28 | 8/19 | 14/19 |
-| `gemma3-27b` | 2026-06-28 | 11/19 | 13/19 |
-| `qwen3-4b` | **2026-07-01-8** | 12/19 | 14/19 |
-| `devstral-24b` | 2026-06-28 | 15/19 | 13/19 |
-| `exaone3.5-32b` | 2026-06-28 | 10/19 | 7/19 |
-| `mistral-small-24b` | 2026-06-28 | 9/19 | 10/19 |
-| `phi4` | 2026-06-28 | 6/19 | 5/19 |
-| `granite4-tiny-7b` | 2026-06-28 | 4/19 | 6/19 |
-| `qwen3-1.7b` | **2026-07-01-8** | 8/19 | 4/19 |
-| `granite3.3-8b` | 2026-06-28 | 4/19 | 5/19 |
-| `llama3.1-8b` | 2026-06-28 | 5/19 | 5/19 |
+| model | guide ver | aether ver | concise guide compiled | full guide compiled |
+|---|---|---|---|---|
+| `glm-5-turbo` | 2026-06-28 | 2026-06-27-3 | 18/19 | 19/19 |
+| `glm-5-turbo` | **2026-07-01-8** | 20260702.1858_DEV | 19/19 | 16/19 |
+| `glm-5.2` | 2026-06-28 | 2026-06-27-3 | 18/19 | 18/19 |
+| `gemini-2.5-flash` | 2026-06-28 | 2026-06-27-3 | 18/19 | 18/19 |
+| `gemini-2.5-flash` | **2026-07-01-8** | 20260702.1858_DEV | 15/19 | 14/19 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 2026-07-04-2 | 17/19 | 15/19 |
+| `qwen3.6-35b-a3b` | 2026-06-28 | 2026-06-27-3 | 17/19 | 18/19 |
+| `gpt-oss-120b` | 2026-06-28 | 2026-06-27-3 | 17/19 | 17/19 |
+| `qwen3-coder-30b` | 2026-06-28 | 2026-06-27-3 | 12/19 | 14/19 |
+| `qwen3.5-9b` | 2026-06-28 | 2026-06-27-3 | 8/19 | 14/19 |
+| `gemma3-27b` | 2026-06-28 | 2026-06-27-3 | 11/19 | 13/19 |
+| `qwen3-4b` | **2026-07-01-8** | 20260702.1858_DEV | 12/19 | 14/19 |
+| `devstral-24b` | 2026-06-28 | 2026-06-27-3 | 15/19 | 13/19 |
+| `exaone3.5-32b` | 2026-06-28 | 2026-06-27-3 | 10/19 | 7/19 |
+| `mistral-small-24b` | 2026-06-28 | 2026-06-27-3 | 9/19 | 10/19 |
+| `phi4` | 2026-06-28 | 2026-06-27-3 | 6/19 | 5/19 |
+| `granite4-tiny-7b` | 2026-06-28 | 2026-06-27-3 | 4/19 | 6/19 |
+| `qwen3-1.7b` | **2026-07-01-8** | 20260702.1858_DEV | 8/19 | 4/19 |
+| `granite3.3-8b` | 2026-06-28 | 2026-06-27-3 | 4/19 | 5/19 |
+| `llama3.1-8b` | 2026-06-28 | 2026-06-27-3 | 5/19 | 5/19 |
 
 </details>
 
@@ -338,6 +348,15 @@ were actually scored against; do not read a `2026-07-01-8` row as directly
 comparable to the `2026-06-28` majority without accounting for that. The
 existing `2026-06-28` rows are not being re-run wholesale (a decision, not an
 oversight) — only new destinations land on the current guide going forward.
+
+**Aether-version note (2026-07-04):** added the `aether ver` column above after
+finding it does not always track `guide ver` 1:1 — every `2026-06-28`-guide row
+ran on compiler build `2026-06-27-3`, but every `2026-07-01-8`-guide row in this
+doc (`gemini-2.5-flash`, `glm-5-turbo`, `qwen3-4b`, `qwen3-1.7b`) actually ran on
+`20260702.1858_DEV`, a local dev snapshot from the day *after* that guide text
+was published, not the guide's own stamp. The `2026-07-04-2` re-run is the one
+row where the two happen to match exactly. Trust `aether ver` over `guide ver`
+for "what compiler build produced this number."
 
 **In progress:** the two GB10 Sparks (claw1/claw2), routed through the T'Ra
 scheduler, are benchmarking a broad tail — more small models (qwen3 1.7b-32b,

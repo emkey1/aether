@@ -19,7 +19,9 @@ the `Tests/aether_specialization/out_<corpus>/` directory that produced the SFT 
 instruction + repair SFT set adding the non-SDL builtin reference to the training data.
 **Test suite:** `tasks_v2_pos.json` v`2026-06-21-1` (simple, 30) · `tasks_hard.json`
 v`2026-06-21-1` (large, 8) · `tasks_cs.json` v`2026-06-23-1` (cs, 19).
-**Eval date:** 2026-06-29.
+**Eval date:** 2026-06-29. **Aether compiler:** `2026-06-27-3` for all five
+cs-aug2-builtins models; the `cs-aug2` (old) baseline row ran one build earlier,
+`2026-06-27-2`.
 
 This edition reports the models fine-tuned on the **cs-aug2-builtins** corpus — the
 instruction + repair SFT set that adds the non-SDL **builtin reference** to the
@@ -130,11 +132,15 @@ only**; no Q8/ollama number for this model is reported.
 
 ### Results — `qwen36-27b-cs-aug3` (NVFP4/vLLM, claw2), no guide, 3 repeats/task
 
-| instrument | n (tasks×3 repeats) | generated | compiled | exact (rate) | fixed by repair |
-|---|---|---|---|---|---|
-| simple (v2_pos) | 90 | 87 | 69 | 66 (73.3%) | 21 |
-| large | 24 | 20 | 7 | 7 (29.2%) | 7 |
-| cs | 57 | 54 | 36 | 36 (63.2%) | 18 |
+| instrument | n (tasks×3 repeats) | generated | compiled | exact (rate) | fixed by repair | aether ver |
+|---|---|---|---|---|---|---|
+| simple (v2_pos) | 90 | 87 | 69 | 66 (73.3%) | 21 | `20260701.1525_DEV` |
+| large | 24 | 20 | 7 | 7 (29.2%) | 7 | `20260702.1858_DEV` |
+| cs | 57 | 54 | 36 | 36 (63.2%) | 18 | `20260702.1858_DEV` |
+
+Compiler build drifted by one local rebuild between the `simple` pass and the
+`large`/`cs` passes (both dev snapshots, one day apart) — noted here since this
+board has no single `aether ver` to quote, unlike cs-aug2-builtins above.
 
 Run with `--repeats 3` (not the single-pass convention of the rest of this
 table) for reliability given this model's reasoning-heavy, noisier generation
