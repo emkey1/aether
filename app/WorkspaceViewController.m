@@ -147,20 +147,122 @@ static BOOL ISHWorkspaceUsesModernStyle(void) {
     return UserPreferences.shared.workspaceStyle == WorkspaceStyleModern;
 }
 
-// User-defined launcher shortcuts: each is @{@"name", @"command"}; the command is
-// run in a fresh terminal. Stored in NSUserDefaults.
+// User-defined launcher shortcuts: each is @{@"name", @"command"} (a leaf that runs a command
+// in a fresh terminal) or @{@"name", @"children"} (a group whose "children" is itself an array
+// of shortcuts, recursively — lets a shortcut like "Remote Login" hold multiple hosts). Stored
+// as a single tree in NSUserDefaults.
 static NSString *const ISHWorkspaceLauncherShortcutsKey = @"ISHWorkspaceLauncherShortcuts";
 static NSString *const ISHWorkspaceLauncherShortcutsDidChangeNotification = @"ISHWorkspaceLauncherShortcutsDidChangeNotification";
 
-static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceLauncherShortcuts(void) {
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherShortcuts(void) {
     NSArray *stored = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceLauncherShortcutsKey];
     return [stored isKindOfClass:NSArray.class] ? stored : @[];
 }
 
-static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts) {
+static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, id> *> *shortcuts) {
     [NSUserDefaults.standardUserDefaults setObject:shortcuts forKey:ISHWorkspaceLauncherShortcutsKey];
     // Live-update any open Launcher applet (and the menu next time it's built).
     [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceLauncherShortcutsDidChangeNotification object:nil];
+}
+
+static BOOL ISHWorkspaceShortcutIsGroup(NSDictionary<NSString *, id> *shortcut) {
+    return [shortcut[@"children"] isKindOfClass:NSArray.class];
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceShortcutChildren(NSDictionary<NSString *, id> *shortcut) {
+    NSArray *children = shortcut[@"children"];
+    return [children isKindOfClass:NSArray.class] ? children : @[];
+}
+
+// Resolves the shortcut array living at `path` (a chain of child indices from the root),
+// e.g. an empty path is the root list; @[@1] is the children of the group at root index 1.
+// Returns an empty array for a path that no longer resolves (deleted out from under a stale view).
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherArrayAtPath(NSArray<NSNumber *> *path) {
+    NSArray<NSDictionary<NSString *, id> *> *current = ISHWorkspaceLauncherShortcuts();
+    for (NSNumber *indexNumber in path) {
+        NSUInteger index = indexNumber.unsignedIntegerValue;
+        if (index >= current.count)
+            return @[];
+        current = ISHWorkspaceShortcutChildren(current[index]);
+    }
+    return current;
+}
+
+// Deep-copies a shortcut tree into nested NSMutableArrays (dictionaries stay immutable leaves;
+// only the arrays need to be mutable since edits replace/insert/remove/move whole dictionaries).
+static NSMutableArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherDeepMutableCopy(NSArray<NSDictionary<NSString *, id> *> *array) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *copy = [NSMutableArray arrayWithCapacity:array.count];
+    for (NSDictionary<NSString *, id> *item in array) {
+        if (ISHWorkspaceShortcutIsGroup(item)) {
+            NSMutableDictionary<NSString *, id> *mutableItem = [item mutableCopy];
+            mutableItem[@"children"] = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceShortcutChildren(item));
+            [copy addObject:mutableItem];
+        } else {
+            [copy addObject:item];
+        }
+    }
+    return copy;
+}
+
+typedef void (^ISHWorkspaceLauncherMutationBlock)(NSMutableArray<NSDictionary<NSString *, id> *> *level);
+
+// Walks a deep-mutable-copied tree (as produced by ISHWorkspaceLauncherDeepMutableCopy) down to
+// `path`, materializing an empty mutable "children" array for any group along the way that
+// doesn't have one yet, and returns the mutable array living at that path. Returns nil on a
+// stale/invalid path (an index that no longer exists). Shared by both -MutateAtPath: (a single
+// level) and -MoveShortcut:::: (moving an item between two levels of the same tree).
+static NSMutableArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherWalkToMutableLevel(
+    NSMutableArray<NSDictionary<NSString *, id> *> *root, NSArray<NSNumber *> *path) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *level = root;
+    for (NSNumber *indexNumber in path) {
+        NSUInteger index = indexNumber.unsignedIntegerValue;
+        if (index >= level.count)
+            return nil;
+        NSMutableDictionary<NSString *, id> *item = [level[index] mutableCopy];
+        NSMutableArray<NSDictionary<NSString *, id> *> *children = ISHWorkspaceShortcutIsGroup(item)
+            ? item[@"children"] : [NSMutableArray new];
+        item[@"children"] = children;
+        level[index] = item;
+        level = children;
+    }
+    return level;
+}
+
+// Mutates the shortcut array living at `path` and persists the whole tree back. Hands the
+// mutable array at that level to `block` (add/remove/replace/move as needed), then saves.
+// Silently no-ops on a stale/invalid path.
+static void ISHWorkspaceLauncherMutateAtPath(NSArray<NSNumber *> *path, ISHWorkspaceLauncherMutationBlock block) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *root = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceLauncherShortcuts());
+    NSMutableArray<NSDictionary<NSString *, id> *> *level = ISHWorkspaceLauncherWalkToMutableLevel(root, path);
+    if (level == nil)
+        return;
+    block(level);
+    ISHWorkspaceSetLauncherShortcuts(root);
+}
+
+// Relocates a single shortcut from one level of the tree to another (e.g. dragging it into a
+// group, or out to that group's parent via the "‹ Back" row) — both within the same persisted
+// write, so the tree never transiently loses the item. Silently no-ops on a stale path/index.
+static void ISHWorkspaceLauncherMoveShortcut(NSArray<NSNumber *> *sourcePath, NSUInteger sourceIndex,
+                                              NSArray<NSNumber *> *destinationPath, NSUInteger destinationIndex) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *root = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceLauncherShortcuts());
+    NSMutableArray<NSDictionary<NSString *, id> *> *sourceLevel = ISHWorkspaceLauncherWalkToMutableLevel(root, sourcePath);
+    if (sourceLevel == nil || sourceIndex >= sourceLevel.count)
+        return;
+    // Resolve the destination level BEFORE removing the source item. destinationPath's indices
+    // describe the tree's state right now — e.g. "the group currently at index 2" — which can be
+    // the very same array sourceIndex is being removed from (dropping onto a sibling group).
+    // Removing first would shift every index after sourceIndex down by one, so looking up the
+    // destination afterward could land on the wrong item (or past the end) whenever the
+    // destination sits later in that shared array — which read as the shortcut just vanishing.
+    NSMutableArray<NSDictionary<NSString *, id> *> *destinationLevel = ISHWorkspaceLauncherWalkToMutableLevel(root, destinationPath);
+    if (destinationLevel == nil)
+        return;
+
+    NSDictionary<NSString *, id> *moved = sourceLevel[sourceIndex];
+    [sourceLevel removeObjectAtIndex:sourceIndex];
+    [destinationLevel insertObject:moved atIndex:MIN(destinationIndex, destinationLevel.count)];
+    ISHWorkspaceSetLauncherShortcuts(root);
 }
 
 // A launcher shortcut whose command is just a {token} opens a built-in tool/applet instead of
@@ -202,6 +304,27 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"notepad": ISHWorkspaceToolMotePadIdentifier,
         @"textedit": ISHWorkspaceToolMotePadIdentifier,
         @"text": ISHWorkspaceToolMotePadIdentifier,
+    };
+    return map[token];
+}
+
+// A launcher shortcut whose command is {shell} or {console} opens/focuses the primary Session
+// Shell or System Console — the same singleton terminals as the dock's Terminal menu — rather
+// than a generic tool applet (they're not tool identifiers) or an ad-hoc fresh terminal (a plain
+// blank-command shortcut already covers that case). Returns the matching terminal role, or nil.
+static NSString *ISHWorkspaceLauncherTerminalRoleForCommand(NSString *command) {
+    NSString *trimmed = [command stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length < 3 || ![trimmed hasPrefix:@"{"] || ![trimmed hasSuffix:@"}"])
+        return nil;
+    NSString *token = [[trimmed substringWithRange:NSMakeRange(1, trimmed.length - 2)]
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString;
+    NSDictionary<NSString *, NSString *> *map = @{
+        @"shell": ISHWorkspaceTerminalRoleSessionShell,
+        @"session_shell": ISHWorkspaceTerminalRoleSessionShell,
+        @"sessionshell": ISHWorkspaceTerminalRoleSessionShell,
+        @"console": ISHWorkspaceTerminalRoleSystemConsole,
+        @"system_console": ISHWorkspaceTerminalRoleSystemConsole,
+        @"systemconsole": ISHWorkspaceTerminalRoleSystemConsole,
     };
     return map[token];
 }
@@ -685,19 +808,28 @@ static UIViewController *ISHCreateRootsViewController(void) {
     return [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
 }
 
-// The Launcher applet sizes itself to its item count: header-less list of shortcut buttons
-// plus the "Edit Shortcuts" button, with insets. Used both as its preferred open size and by
-// -autosizeLauncherWindow when shortcuts are added/removed.
-static CGSize ISHWorkspaceLauncherContentSize(void) {
+// The Launcher applet sizes itself to its item count: an optional "‹ Back" row, the item list
+// (a real UITableView since the native-reorder rewrite), and the Add/Edit footer row, with
+// insets — each of those three pieces has its own height, so they're tracked separately rather
+// than folded into one "row count" the way the old custom-button stack view allowed (that's
+// what let this go stale and clip the footer off-window after the table-view rewrite: the old
+// formula's per-row height and its single "Edit Shortcuts" button height no longer matched the
+// table's actual row height or the new two-button footer). Used both as the preferred open size
+// (root level, no back row) and by -autosizeLauncherWindowForItemCount:showsBackRow: (current
+// level) when shortcuts are added/removed/drilled into.
+static CGSize ISHWorkspaceLauncherContentSize(NSUInteger itemRowCount, BOOL showsBackRow) {
     BOOL phone = ISHWorkspaceUsesPhoneLayout();
-    NSUInteger count = ISHWorkspaceLauncherShortcuts().count;
     CGFloat inset = phone ? 12.0 : 16.0;
     CGFloat spacing = 8.0;
-    CGFloat rowHeight = phone ? 28.0 : 30.0;
-    CGFloat editHeight = phone ? 40.0 : 44.0;
     CGFloat width = phone ? 168.0 : 200.0;
-    CGFloat rowsHeight = count > 0 ? (count * rowHeight + (count - 1) * spacing) : (phone ? 28.0 : 32.0);
-    CGFloat height = inset + rowsHeight + spacing + editHeight + inset;
+    CGFloat tableRowHeight = phone ? 34.0 : 38.0;              // matches _tableView.rowHeight
+    CGFloat backRowHeight = phone ? 28.0 : 30.0;                // matches launcherBackButton's minimum height
+    CGFloat footerRowHeight = (phone ? 26.0 : 28.0) + 8.0;      // Add/Edit pill height + its 4pt top/bottom margins
+
+    CGFloat itemsHeight = itemRowCount > 0 ? (itemRowCount * tableRowHeight) : (phone ? 28.0 : 32.0);
+    CGFloat height = inset + itemsHeight + spacing + footerRowHeight + inset;
+    if (showsBackRow)
+        height += backRowHeight + spacing;
     return CGSizeMake(width, height);
 }
 
@@ -764,7 +896,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(352, 560);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-            return ISHWorkspaceLauncherContentSize();
+            return ISHWorkspaceLauncherContentSize(ISHWorkspaceLauncherShortcuts().count, NO);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 510);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
@@ -802,7 +934,7 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(560, 620);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-        return ISHWorkspaceLauncherContentSize();
+        return ISHWorkspaceLauncherContentSize(ISHWorkspaceLauncherShortcuts().count, NO);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 470);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
@@ -2251,7 +2383,7 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceShortcutsToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceLauncherToolViewController : WorkspaceThemedToolViewController
+@interface WorkspaceLauncherToolViewController : WorkspaceThemedToolViewController <UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate, UITableViewDropDelegate, UIDropInteractionDelegate>
 @end
 
 @interface WorkspaceBrowserToolViewController : WorkspaceThemedToolViewController <UITextFieldDelegate, WKNavigationDelegate, WKUIDelegate>
@@ -3537,9 +3669,14 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-// Run a launcher shortcut: a {token} command opens the matching built-in tool; anything else
-// runs in a fresh terminal (an empty command just opens a terminal).
+// Run a launcher shortcut: a {token} command opens the matching built-in tool or singleton
+// terminal; anything else runs in a fresh terminal (an empty command just opens a terminal).
 - (void)runLauncherShortcutWithCommand:(NSString *)command title:(NSString *)title {
+    NSString *terminalRole = ISHWorkspaceLauncherTerminalRoleForCommand(command);
+    if (terminalRole.length > 0) {
+        [self openTerminalHerePreferringConsole:[terminalRole isEqualToString:ISHWorkspaceTerminalRoleSystemConsole]];
+        return;
+    }
     NSString *toolIdentifier = ISHWorkspaceLauncherToolIdentifierForCommand(command);
     if (toolIdentifier.length > 0) {
         [self openOrFocusWorkspaceToolIdentifier:toolIdentifier];
@@ -3583,33 +3720,64 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 }
 
 - (void)presentLauncherFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    [self presentLauncherFromView:sourceView sourceRect:sourceRect path:@[]];
+}
+
+// Quick-launch popup. A leaf action runs its command; a group action re-presents this same
+// sheet scoped to the group's children (with a "‹ Back" action to return), so nested shortcuts
+// are reachable without leaving the popup.
+- (void)presentLauncherFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect path:(NSArray<NSNumber *> *)path {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Launcher"
                                             message:shortcuts.count == 0 ? @"Add a shortcut to run a command in a new terminal." : nil
                                      preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
+    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, id> *shortcut, NSUInteger idx, __unused BOOL *stop) {
         NSString *command = shortcut[@"command"] ?: @"";
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
+        NSString *shortcutName = shortcut[@"name"];
+        NSString *name = shortcutName.length > 0 ? shortcutName
                        : (command.length > 0 ? command : @"Terminal");
-        [sheet addAction:[UIAlertAction actionWithTitle:name
+        if (ISHWorkspaceShortcutIsGroup(shortcut)) {
+            [sheet addAction:[UIAlertAction actionWithTitle:[name stringByAppendingString:@" ›"]
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(__unused UIAlertAction *action) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self presentLauncherFromView:sourceView sourceRect:sourceRect
+                                              path:[path arrayByAddingObject:@(idx)]];
+                });
+            }]];
+        } else {
+            [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(__unused UIAlertAction *action) {
+                [self runLauncherShortcutWithCommand:command title:name];
+            }]];
+        }
+    }];
+    if (path.count > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"‹ Back"
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self runLauncherShortcutWithCommand:command title:name];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentLauncherFromView:sourceView sourceRect:sourceRect
+                                          path:[path subarrayWithRange:NSMakeRange(0, path.count - 1)]];
+            });
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(__unused UIAlertAction *action) {
-        [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
-    }]];
+    if (path.count == 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+        }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Edit Shortcuts…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         // Defer: presenting from a sheet handler races the sheet dismissal and
         // iOS 27 drops it (see presentDesktopRootMenuFromView).
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentLauncherEditorFromView:sourceView];
+            [self presentLauncherEditorFromView:sourceView path:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3623,7 +3791,49 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)presentAddLauncherShortcut {
+// Lean "+" entry point (used by the Launcher applet's own Add button, alongside its Edit
+// toggle): just the three add actions, scoped to `path` — no item list, unlike
+// -presentLauncherEditorFromView:path: (which the popup-menu "Edit Shortcuts…" flow still uses
+// and which also lists items for rename/delete — redundant with the applet's own inline
+// delete/drag chrome, so the applet uses this instead).
+- (void)presentAddLauncherOptionsFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Add"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherShortcutAtPath:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherBuiltinFromView:sourceView path:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Group…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherGroupAtPath:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentAddLauncherShortcutAtPath:(NSArray<NSNumber *> *)path {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Add Shortcut"
                                             message:@"A name, and a command to run in a new terminal. Leave it blank for just a terminal, or use a {token} like {clock} or {browser} to open a built-in."
@@ -3645,9 +3855,34 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         if (command.length == 0 && nameField.length == 0)
             return;
         NSString *name = nameField.length > 0 ? nameField : command;
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        [shortcuts addObject:@{@"name": name, @"command": command}];
-        ISHWorkspaceSetLauncherShortcuts(shortcuts);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            [level addObject:@{@"name": name, @"command": command}];
+        });
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+// A group holds its own nested list of shortcuts (or further groups) — created empty, then
+// populated by drilling into it and using "Add Shortcut…"/"Add Built-in…"/"Add Group…" again.
+- (void)presentAddLauncherGroupAtPath:(NSArray<NSNumber *> *)path {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Add Group"
+                                            message:@"A group holds its own list of shortcuts — e.g. \"Remote Login\" holding several hosts. Add shortcuts to it after creating it."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Name (e.g. Remote Login)";
+        textField.autocapitalizationType = UITextAutocapitalizationTypeWords;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        NSString *name = alert.textFields[0].text ?: @"";
+        if (name.length == 0)
+            return;
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            [level addObject:@{@"name": name, @"children": @[]}];
+        });
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -3655,20 +3890,29 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 
 // "Edit Shortcuts" entry point: pick a shortcut to edit/delete, or add a new one. Replaces
 // the old separate Add/Remove sheets and is shared by the root-menu Launcher and the applet.
+// `path` scopes this to a level of the tree (root, or a group's children when drilled in).
 - (void)presentLauncherEditorFromView:(UIView *)sourceView {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    [self presentLauncherEditorFromView:sourceView path:@[]];
+}
+
+- (void)presentLauncherEditorFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Edit Shortcuts"
-                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command — or just open a terminal." : @"Pick a shortcut to rename, change, or delete."
+                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command — or just open a terminal." : @"Pick a shortcut to rename, change, move, or delete."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
-    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSString *> *shortcut, NSUInteger idx, __unused BOOL *stop) {
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
-                       : (shortcut[@"command"].length > 0 ? shortcut[@"command"] : @"Terminal");
+    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, id> *shortcut, NSUInteger idx, __unused BOOL *stop) {
+        NSString *command = shortcut[@"command"];
+        NSString *shortcutName = shortcut[@"name"];
+        NSString *name = shortcutName.length > 0 ? shortcutName
+                       : (command.length > 0 ? command : @"Terminal");
+        if (ISHWorkspaceShortcutIsGroup(shortcut))
+            name = [name stringByAppendingString:@" ›"];
         [sheet addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self presentEditLauncherShortcutAtIndex:idx];
+                [self presentEditLauncherShortcutAtPath:path index:idx];
             });
         }]];
     }];
@@ -3676,14 +3920,21 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentAddLauncherShortcut];
+            [self presentAddLauncherShortcutAtPath:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentAddLauncherBuiltinFromView:sourceView];
+            [self presentAddLauncherBuiltinFromView:sourceView path:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Group…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherGroupAtPath:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3699,8 +3950,11 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 
 // Discoverable companion to the {token} syntax: pick a built-in tool and it's added as a
 // shortcut whose command is the matching {token}.
-- (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView {
+- (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
     NSMutableArray<NSDictionary<NSString *, NSString *> *> *builtins = [@[
+        @{@"name": @"New Terminal", @"command": @""},
+        @{@"name": @"Session Shell", @"command": @"{shell}"},
+        @{@"name": @"System Console", @"command": @"{console}"},
         @{@"name": @"Web Browser", @"command": @"{browser}"},
         @{@"name": @"Music", @"command": @"{music}"},
         @{@"name": @"MotePad", @"command": @"{motepad}"},
@@ -3726,9 +3980,9 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         [sheet addAction:[UIAlertAction actionWithTitle:builtin[@"name"]
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-            [shortcuts addObject:builtin];
-            ISHWorkspaceSetLauncherShortcuts(shortcuts);
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                [level addObject:builtin];
+            });
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3742,57 +3996,94 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)presentEditLauncherShortcutAtIndex:(NSUInteger)index {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+- (void)presentEditLauncherShortcutAtPath:(NSArray<NSNumber *> *)path index:(NSUInteger)index {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     if (index >= shortcuts.count)
         return;
-    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[index];
+    NSDictionary<NSString *, id> *shortcut = shortcuts[index];
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(shortcut);
+
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Edit Shortcut"
-                                            message:@"Leave the command blank to just open a terminal."
+        [UIAlertController alertControllerWithTitle:isGroup ? @"Edit Group" : @"Edit Shortcut"
+                                            message:isGroup ? @"Rename, move, or delete this group. Drill into it from the list to edit what's inside."
+                                                             : @"Leave the command blank to just open a terminal."
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"Name";
         textField.text = shortcut[@"name"];
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     }];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Command (blank for a shell)";
-        textField.text = shortcut[@"command"];
-        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-        textField.autocorrectionType = UITextAutocorrectionTypeNo;
-    }];
+    if (!isGroup) {
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.placeholder = @"Command (blank for a shell)";
+            textField.text = shortcut[@"command"];
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        }];
+    }
     [alert addAction:[UIAlertAction actionWithTitle:@"Save"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        NSString *command = alert.textFields[1].text ?: @"";
         NSString *nameField = alert.textFields[0].text ?: @"";
-        if (command.length == 0 && nameField.length == 0)
+        NSString *command = isGroup ? nil : (alert.textFields[1].text ?: @"");
+        if (nameField.length == 0 && command.length == 0)
             return;
         NSString *name = nameField.length > 0 ? nameField : command;
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        if (index < updated.count)
-            updated[index] = @{@"name": name, @"command": command};
-        ISHWorkspaceSetLauncherShortcuts(updated);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            if (index >= level.count)
+                return;
+            if (isGroup)
+                level[index] = @{@"name": name, @"children": ISHWorkspaceShortcutChildren(level[index])};
+            else
+                level[index] = @{@"name": name, @"command": command};
+        });
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Delete"
+    if (index > 0) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"Move Up"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                if (index == 0 || index >= level.count)
+                    return;
+                [level exchangeObjectAtIndex:index withObjectAtIndex:index - 1];
+            });
+        }]];
+    }
+    if (index + 1 < shortcuts.count) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"Move Down"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                if (index + 1 >= level.count)
+                    return;
+                [level exchangeObjectAtIndex:index withObjectAtIndex:index + 1];
+            });
+        }]];
+    }
+    NSString *deleteTitle = isGroup && ISHWorkspaceShortcutChildren(shortcut).count > 0
+        ? [NSString stringWithFormat:@"Delete Group and %lu Item%@", (unsigned long)ISHWorkspaceShortcutChildren(shortcut).count,
+                                      ISHWorkspaceShortcutChildren(shortcut).count == 1 ? @"" : @"s"]
+        : @"Delete";
+    [alert addAction:[UIAlertAction actionWithTitle:deleteTitle
                                               style:UIAlertActionStyleDestructive
                                             handler:^(__unused UIAlertAction *action) {
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        if (index < updated.count)
-            [updated removeObjectAtIndex:index];
-        ISHWorkspaceSetLauncherShortcuts(updated);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            if (index < level.count)
+                [level removeObjectAtIndex:index];
+        });
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-// Resize the open Launcher applet to match its current item count (auto-size to content).
-- (void)autosizeLauncherWindow {
+// Resize the open Launcher applet to match its currently displayed content (auto-size) — the
+// caller passes the item count for whatever level (root or a drilled-into group) is currently
+// on screen, plus whether a "‹ Back" row is showing above it.
+- (void)autosizeLauncherWindowForItemCount:(NSUInteger)itemCount showsBackRow:(BOOL)showsBackRow {
     ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
     if (window == nil)
         return;
-    [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize() animated:YES];
+    [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize(itemCount, showsBackRow) animated:YES];
 }
 
 - (void)autosizeMonitorWindow {
@@ -7215,13 +7506,43 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 @end
 
 @implementation WorkspaceLauncherToolViewController {
+    // Outer scroll + vertical stack, matching every other applet in this file (see e.g. the
+    // Monitor/Sessions/Storage tool view controllers): proven to position header/list/footer
+    // controls correctly, unlike UITableView's tableHeaderView/tableFooterView self-sizing,
+    // which placed the footer controls at the top instead of the bottom. The table view itself
+    // is just one fixed-height arranged subview in that stack, sized to its own content — the
+    // outer scroll view is what actually scrolls if the window can't show everything.
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
+    UITableView *_tableView;
+    NSLayoutConstraint *_tableViewHeightConstraint;
+    // Indices from the root shortcut list down to the group currently being displayed; empty
+    // at the top level. Lets the applet drill into a group ("Remote Login") and show its
+    // nested shortcuts in place, with a "‹ Back" row to return.
+    NSMutableArray<NSNumber *> *_currentPath;
+    // Whether the list is in native table-view editing mode (toggled by the pill button at the
+    // bottom, not a separate sheet — see launcherEditToggleButton). Reordering and delete both
+    // use UIKit's own table-view editing machinery rather than custom gesture code: three
+    // attempts at a hand-rolled drag (UIStackView + transform, then + a floating snapshot, then
+    // + gesture-recognizer tuning) all had reliability problems that were hard to diagnose
+    // without being able to drive the touch interaction directly. UITableView's reordering is
+    // Apple-maintained and used everywhere in iOS, so it sidesteps that whole bug class.
+    BOOL _isEditing;
+    // The current level's shortcuts, kept as the table's live data source; committed to
+    // NSUserDefaults on every edit (see -deleteRowAtIndex:indexPath: and -moveRowAtIndexPath:).
+    NSMutableArray<NSDictionary<NSString *, id> *> *_rowShortcuts;
+    // Set right before a self-inflicted persist (delete/move) so the resulting shortcuts-changed
+    // notification doesn't immediately undo the table's own animation with a redundant reload —
+    // other open Launcher windows still react to the notification normally.
+    BOOL _suppressNextReload;
 }
+
+static NSString *const ISHWorkspaceLauncherRowReuseIdentifier = @"launcher.row";
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Launcher";
+    _currentPath = [NSMutableArray new];
 
     _scrollView = [UIScrollView new];
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -7239,12 +7560,38 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.topAnchor constant:inset],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.leadingAnchor constant:inset],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.trailingAnchor constant:-inset],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.bottomAnchor constant:-inset],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.widthAnchor constant:-(inset * 2.0)],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:inset],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:inset],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-inset],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-inset],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-(inset * 2.0)],
     ]];
+
+    _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.dragDelegate = self;
+    _tableView.dropDelegate = self;
+    // Modern drag & drop, not the classic canMoveRowAtIndexPath/moveRowAtIndexPath reorder: the
+    // classic API can only reorder within one flat array, but dropping a row onto a group (to
+    // nest it inside) or onto the "‹ Back" row (to move it out to the parent level) both need to
+    // relocate an item between two different levels of the tree, which drag & drop's
+    // per-drop-target delegate callbacks support and the classic API has no concept of.
+    _tableView.dragInteractionEnabled = YES;
+    _tableView.allowsSelectionDuringEditing = YES;
+    _tableView.backgroundColor = UIColor.clearColor;
+    _tableView.separatorInset = UIEdgeInsetsZero;
+    // The outer _scrollView is the one that actually scrolls (matching every other applet in
+    // this file); the table is sized to fit its own content exactly (see -updateTableViewHeight),
+    // so it never needs to scroll on its own — this also avoids a repeat of the earlier bug
+    // where an ancestor scroll view's pan gesture competed with a drag inside this list.
+    _tableView.scrollEnabled = NO;
+    _tableView.rowHeight = ISHWorkspaceUsesPhoneLayout() ? 34.0 : 38.0;
+    _tableView.separatorColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]];
+    [_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:ISHWorkspaceLauncherRowReuseIdentifier];
+    _tableViewHeightConstraint = [_tableView.heightAnchor constraintEqualToConstant:_tableView.rowHeight];
+    _tableViewHeightConstraint.active = YES;
 
     [self rebuildLauncherList];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -7271,9 +7618,25 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 }
 
 - (void)launcherShortcutsDidChange {
+    if (_suppressNextReload) {
+        _suppressNextReload = NO;
+        return;
+    }
+    // A path can be invalidated by an edit made elsewhere (e.g. the group we're inside of was
+    // just deleted from the root-menu Launcher popup) — clamp back to the nearest valid level.
+    [self clampCurrentPathToValidLevel];
     [self rebuildLauncherList];
-    // Grow/shrink the window to match the new item count.
-    [(id)self.workspaceHostViewController autosizeLauncherWindow];
+}
+
+- (void)clampCurrentPathToValidLevel {
+    while (_currentPath.count > 0) {
+        NSArray<NSNumber *> *parentPath = [_currentPath subarrayWithRange:NSMakeRange(0, _currentPath.count - 1)];
+        NSArray<NSDictionary<NSString *, id> *> *parentLevel = ISHWorkspaceLauncherArrayAtPath(parentPath);
+        NSUInteger index = _currentPath.lastObject.unsignedIntegerValue;
+        if (index < parentLevel.count && ISHWorkspaceShortcutIsGroup(parentLevel[index]))
+            return;
+        [_currentPath removeLastObject];
+    }
 }
 
 - (void)reassertLauncherPlacement {
@@ -7296,79 +7659,418 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         [view removeFromSuperview];
     }
 
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    if (_currentPath.count > 0)
+        [_contentStack addArrangedSubview:[self launcherBackButton]];
+
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(_currentPath);
+    _rowShortcuts = [shortcuts mutableCopy];
+
     if (shortcuts.count == 0) {
         UILabel *empty = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
         empty.numberOfLines = 0;
-        empty.text = @"No shortcuts yet.";
+        empty.text = _currentPath.count > 0 ? @"No shortcuts in this group yet." : @"No shortcuts yet.";
         [_contentStack addArrangedSubview:empty];
     } else {
-        NSUInteger index = 0;
-        for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
-            [_contentStack addArrangedSubview:[self launcherButtonForShortcut:shortcut index:index]];
-            index++;
-        }
+        [_contentStack addArrangedSubview:_tableView];
     }
+    [self updateTableViewHeight];
 
-    [_contentStack addArrangedSubview:[self launcherEditButton]];
+    [_tableView setEditing:_isEditing animated:NO];
+    [_tableView reloadData];
+
+    [_contentStack addArrangedSubview:[self launcherBottomControlsRow]];
+
+    // Grow/shrink the window to match the currently displayed content.
+    [(id)self.workspaceHostViewController autosizeLauncherWindowForItemCount:shortcuts.count showsBackRow:_currentPath.count > 0];
 }
 
-- (UIButton *)launcherButtonForShortcut:(NSDictionary<NSString *, NSString *> *)shortcut index:(NSUInteger)index {
-    NSString *command = shortcut[@"command"] ?: @"";
-    NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
-                   : (command.length > 0 ? command : @"Terminal");
-
-    UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
-    run.translatesAutoresizingMaskIntoConstraints = NO;
-    run.tag = (NSInteger)index;
-    run.contentEdgeInsets = UIEdgeInsetsMake(2, 3, 2, 3);
-    run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    run.titleLabel.numberOfLines = 0;
-    run.layer.cornerRadius = 12;
-    run.layer.borderWidth = 1;
-    run.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
-    run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
-    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 28.0 : 30.0;
-    [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
-
-    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
-    style.alignment = NSTextAlignmentCenter;
-    UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
-    NSAttributedString *label = [[NSAttributedString alloc] initWithString:name attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.2 weight:UIFontWeightSemibold],
-        NSForegroundColorAttributeName: primary,
-        NSParagraphStyleAttributeName: style,
-    }];
-    [run setAttributedTitle:label forState:UIControlStateNormal];
-    [run addTarget:self action:@selector(runShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
-    return run;
+// The table has no natural intrinsic size, so its height in the stack is driven explicitly —
+// exactly rowHeight * count, since it never scrolls internally (see -viewDidLoad).
+- (void)updateTableViewHeight {
+    _tableViewHeightConstraint.constant = _tableView.rowHeight * MAX(_rowShortcuts.count, (NSUInteger)1);
 }
 
-- (UIButton *)launcherEditButton {
-    UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
-    edit.translatesAutoresizingMaskIntoConstraints = NO;
-    UIColor *accent = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
-    [edit setTitle:@"Edit Shortcuts" forState:UIControlStateNormal];
-    [edit setTitleColor:accent forState:UIControlStateNormal];
-    edit.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
-    edit.layer.cornerRadius = 12;
-    edit.layer.borderWidth = 1;
-    edit.layer.borderColor = accent.CGColor;
-    [edit.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 40.0 : 44.0].active = YES;
-    [edit addTarget:self action:@selector(editShortcutsTapped:) forControlEvents:UIControlEventTouchUpInside];
-    return edit;
+#pragma mark - UITableViewDataSource / UITableViewDelegate
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return (NSInteger)_rowShortcuts.count;
 }
 
-- (void)runShortcutTapped:(UIButton *)sender {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
-    if ((NSUInteger)sender.tag >= shortcuts.count)
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:ISHWorkspaceLauncherRowReuseIdentifier forIndexPath:indexPath];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    NSDictionary<NSString *, id> *shortcut = index < _rowShortcuts.count ? _rowShortcuts[index] : nil;
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(shortcut);
+    NSString *command = shortcut[@"command"];
+    NSString *shortcutName = shortcut[@"name"];
+    NSString *name = shortcutName.length > 0 ? shortcutName : (command.length > 0 ? command : @"Terminal");
+
+    cell.backgroundColor = UIColor.clearColor;
+    cell.textLabel.text = name;
+    cell.textLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightMedium];
+    cell.textLabel.textColor = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
+    cell.accessoryType = (isGroup && !_isEditing) ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    // A folder icon marks groups regardless of editing state — the trailing disclosure chevron
+    // above is a group-only cue too, but it's replaced by the reorder handle while editing
+    // (exactly when you're most likely dragging something and need to see which rows are valid
+    // "drop into" targets), so groups need a cue that survives into edit mode.
+    cell.imageView.image = isGroup
+        ? [[UIImage systemImageNamed:@"folder.fill"] imageByApplyingSymbolConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightMedium]]
+        : nil;
+    cell.imageView.tintColor = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
+    // A visible "grab here to move" cue: drag-and-drop (unlike the classic reorder control) has
+    // no dedicated handle of its own — any part of the row is draggable — so without this, edit
+    // mode gives no hint that rows can be reordered at all.
+    cell.editingAccessoryView = _isEditing ? [self launcherReorderHintView] : nil;
+    return cell;
+}
+
+- (UIView *)launcherReorderHintView {
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"line.3.horizontal"]
+        imageByApplyingSymbolConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold]]];
+    icon.tintColor = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    icon.contentMode = UIViewContentModeCenter;
+    icon.frame = CGRectMake(0, 0, 28, 28);
+    return icon;
+}
+
+// A short tap always drills into a group — in edit mode too, since that's the only way to reach
+// (and drag things into/out of) what's inside it. Renaming/deleting a group now lives behind a
+// long-press context menu instead (see -tableView:contextMenuConfigurationForRowAtIndexPath:).
+// A leaf row keeps the old split: short tap edits while editing, runs otherwise.
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
         return;
-    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[(NSUInteger)sender.tag];
+    NSDictionary<NSString *, id> *shortcut = _rowShortcuts[index];
+    if (ISHWorkspaceShortcutIsGroup(shortcut)) {
+        // Drilling in leaves editing state exactly as it was — forcing it on turned out to be
+        // more surprising than helpful: it's not obvious you're now in edit mode.
+        [_currentPath addObject:@(index)];
+        [self rebuildLauncherList];
+        return;
+    }
+    if (_isEditing) {
+        [(id)self.workspaceHostViewController presentEditLauncherShortcutAtPath:_currentPath index:index];
+        return;
+    }
     [(id)self.workspaceHostViewController runLauncherShortcutWithCommand:shortcut[@"command"] title:shortcut[@"name"]];
 }
 
-- (void)editShortcutsTapped:(UIButton *)sender {
-    [(id)self.workspaceHostViewController presentLauncherEditorFromView:sender];
+// Long-press (while editing) reveals the rename/delete dialog via a native context menu — this
+// coexists cleanly with the table's own drag interaction on the same rows (UIKit disambiguates
+// hold-still-for-a-menu vs. hold-then-move-to-drag internally), unlike a second custom gesture
+// recognizer would, which is exactly the class of bug the reorder feature went through earlier.
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (!_isEditing)
+        return nil;
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return nil;
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(_rowShortcuts[index]);
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    __weak typeof(self) weakSelf = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil
+                                                    previewProvider:nil
+                                                     actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
+        UIAction *editAction = [UIAction actionWithTitle:isGroup ? @"Edit Group…" : @"Edit Shortcut…"
+                                                    image:[UIImage systemImageNamed:@"pencil"]
+                                               identifier:nil
+                                                  handler:^(__unused UIAction *action) {
+            [(id)weakSelf.workspaceHostViewController presentEditLauncherShortcutAtPath:path index:index];
+        }];
+        if (!isGroup)
+            return [UIMenu menuWithTitle:@"" children:@[editAction]];
+        // A group can be added to without drilling into it first — the destination path is the
+        // group's own path (path + its index), not the level it's sitting at.
+        NSArray<NSNumber *> *groupPath = [path arrayByAddingObject:@(index)];
+        UIAction *addAction = [UIAction actionWithTitle:@"Add…"
+                                                   image:[UIImage systemImageNamed:@"plus"]
+                                              identifier:nil
+                                                 handler:^(__unused UIAction *action) {
+            [(id)weakSelf.workspaceHostViewController presentAddLauncherOptionsFromView:weakSelf.view path:groupPath];
+        }];
+        return [UIMenu menuWithTitle:@"" children:@[addAction, editAction]];
+    }];
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    return YES;
+}
+
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return UITableViewCellEditingStyleDelete;
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle != UITableViewCellEditingStyleDelete)
+        return;
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return;
+    NSDictionary<NSString *, id> *shortcut = _rowShortcuts[index];
+    NSArray<NSDictionary<NSString *, id> *> *children = ISHWorkspaceShortcutChildren(shortcut);
+    if (children.count == 0) {
+        [self deleteRowAtIndex:index indexPath:indexPath];
+        return;
+    }
+    UIAlertController *confirm =
+        [UIAlertController alertControllerWithTitle:@"Delete Group?"
+                                            message:[NSString stringWithFormat:@"This deletes \"%@\" and %lu item%@ inside it.",
+                                                     shortcut[@"name"], (unsigned long)children.count, children.count == 1 ? @"" : @"s"]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"Delete"
+                                                style:UIAlertActionStyleDestructive
+                                              handler:^(__unused UIAlertAction *action) {
+        [self deleteRowAtIndex:index indexPath:indexPath];
+    }]];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:confirm animated:YES completion:nil];
+}
+
+- (void)deleteRowAtIndex:(NSUInteger)index indexPath:(NSIndexPath *)indexPath {
+    if (index >= _rowShortcuts.count)
+        return;
+    [_rowShortcuts removeObjectAtIndex:index];
+
+    _suppressNextReload = YES;
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+        if (index < level.count)
+            [level removeObjectAtIndex:index];
+    });
+
+    if (_rowShortcuts.count == 0) {
+        // Nothing left to show in the table — swap it for the empty-state label via a full
+        // rebuild rather than animating a delete down to zero rows.
+        [self rebuildLauncherList];
+        return;
+    }
+    [_tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationFade];
+    [self updateTableViewHeight];
+    [UIView animateWithDuration:0.25 animations:^{
+        [self.view layoutIfNeeded];
+    }];
+    [(id)self.workspaceHostViewController autosizeLauncherWindowForItemCount:_rowShortcuts.count showsBackRow:_currentPath.count > 0];
+}
+
+#pragma mark - UITableViewDragDelegate / UITableViewDropDelegate
+
+// Drag is a local, in-process reorder/move — the item provider's content never leaves the app
+// (or even gets read back out via pasteboard), so an empty placeholder is enough; the real
+// payload is `localObject`, resolved synchronously against _rowShortcuts at drop time.
+- (NSArray<UIDragItem *> *)tableView:(UITableView *)tableView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
+    if (!_isEditing)
+        return @[];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return @[];
+    UIDragItem *item = [[UIDragItem alloc] initWithItemProvider:[NSItemProvider new]];
+    item.localObject = @(index);
+    return @[item];
+}
+
+- (BOOL)tableView:(UITableView *)tableView canHandleDropSession:(id<UIDropSession>)session {
+    return _isEditing && session.localDragSession != nil;
+}
+
+// Dropping exactly onto a group row nests the dragged item inside it; dropping between rows
+// (including between two groups) is a plain reorder — matching how Files treats dropping onto
+// vs. between folder icons.
+- (UITableViewDropProposal *)tableView:(UITableView *)tableView dropSessionDidUpdate:(id<UIDropSession>)session
+                   withDestinationIndexPath:(NSIndexPath *)destinationIndexPath {
+    if (destinationIndexPath == nil || (NSUInteger)destinationIndexPath.row >= _rowShortcuts.count)
+        return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:UITableViewDropIntentInsertAtDestinationIndexPath];
+    BOOL destinationIsGroup = ISHWorkspaceShortcutIsGroup(_rowShortcuts[(NSUInteger)destinationIndexPath.row]);
+    UITableViewDropIntent intent = destinationIsGroup ? UITableViewDropIntentInsertIntoDestinationIndexPath
+                                                       : UITableViewDropIntentInsertAtDestinationIndexPath;
+    return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:intent];
+}
+
+- (void)tableView:(UITableView *)tableView performDropWithCoordinator:(id<UITableViewDropCoordinator>)coordinator {
+    id<UITableViewDropItem> item = coordinator.items.firstObject;
+    NSIndexPath *sourceIndexPath = item.sourceIndexPath;
+    NSNumber *sourceIndexNumber = [item.dragItem.localObject isKindOfClass:NSNumber.class] ? item.dragItem.localObject : nil;
+    if (sourceIndexPath == nil || sourceIndexNumber == nil)
+        return;
+    NSUInteger from = sourceIndexNumber.unsignedIntegerValue;
+    if (from >= _rowShortcuts.count)
+        return;
+
+    NSIndexPath *destinationIndexPath = coordinator.destinationIndexPath;
+    NSUInteger to = destinationIndexPath != nil ? (NSUInteger)destinationIndexPath.row : _rowShortcuts.count - 1;
+    BOOL destinationIsGroup = destinationIndexPath != nil && to != from && to < _rowShortcuts.count
+        && ISHWorkspaceShortcutIsGroup(_rowShortcuts[to]);
+
+    if (destinationIsGroup) {
+        [self moveShortcutAtIndex:from intoGroupAtIndex:to];
+    } else if (to != from) {
+        [self reorderShortcutFromIndex:from toIndex:to];
+        [tableView moveRowAtIndexPath:sourceIndexPath toIndexPath:destinationIndexPath];
+    }
+    [coordinator dropItem:item.dragItem toRowAtIndexPath:destinationIndexPath ?: sourceIndexPath];
+}
+
+- (void)reorderShortcutFromIndex:(NSUInteger)from toIndex:(NSUInteger)to {
+    NSDictionary<NSString *, id> *moved = _rowShortcuts[from];
+    [_rowShortcuts removeObjectAtIndex:from];
+    [_rowShortcuts insertObject:moved atIndex:to];
+
+    _suppressNextReload = YES;
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    NSArray<NSDictionary<NSString *, id> *> *newOrder = [_rowShortcuts copy];
+    ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+        [level removeAllObjects];
+        [level addObjectsFromArray:newOrder];
+    });
+}
+
+// Nests the shortcut at `sourceIndex` into the group at `groupIndex`, both at the current level.
+// Removed from the visible table immediately (with a full local-array-driven rebuild, since the
+// destination group's own row count isn't visible from here — it's a sibling, not expanded).
+- (void)moveShortcutAtIndex:(NSUInteger)sourceIndex intoGroupAtIndex:(NSUInteger)groupIndex {
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    NSArray<NSNumber *> *groupPath = [path arrayByAddingObject:@(groupIndex)];
+    _suppressNextReload = YES;
+    ISHWorkspaceLauncherMoveShortcut(path, sourceIndex, groupPath, NSUIntegerMax);
+    [_rowShortcuts removeObjectAtIndex:sourceIndex];
+    [self rebuildLauncherList];
+}
+
+#pragma mark - Header / footer controls
+
+- (UIButton *)launcherBackButton {
+    UIButton *back = [UIButton buttonWithType:UIButtonTypeSystem];
+    back.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
+    [back setTitle:@"‹ Back" forState:UIControlStateNormal];
+    [back setTitleColor:primary forState:UIControlStateNormal];
+    back.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
+    back.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 28.0 : 30.0;
+    [back.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
+    [back addTarget:self action:@selector(backButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    if (_isEditing) {
+        // While editing, the Back row doubles as a drop target: dragging an item onto it moves
+        // that item out to the parent level. This is the only way to "un-nest" something, since
+        // a group's parent level isn't itself visible while drilled into the group — the row
+        // list only ever shows one level of the tree at a time.
+        back.layer.borderWidth = 1;
+        back.layer.cornerRadius = 12;
+        back.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
+        [back addInteraction:[[UIDropInteraction alloc] initWithDelegate:self]];
+    }
+    return back;
+}
+
+#pragma mark - UIDropInteractionDelegate (the "‹ Back" row, as a drop-to-un-nest target)
+
+- (BOOL)dropInteraction:(UIDropInteraction *)interaction canHandleSession:(id<UIDropSession>)session {
+    return _isEditing && _currentPath.count > 0 && session.localDragSession != nil;
+}
+
+- (UIDropProposal *)dropInteraction:(UIDropInteraction *)interaction sessionDidUpdate:(id<UIDropSession>)session {
+    return [[UIDropProposal alloc] initWithDropOperation:UIDropOperationMove];
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction sessionDidEnter:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = [[self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor] colorWithAlphaComponent:0.2];
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction sessionDidExit:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = UIColor.clearColor;
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction performDrop:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = UIColor.clearColor;
+    if (_currentPath.count == 0)
+        return;
+    UIDragItem *dragItem = session.items.firstObject;
+    NSNumber *sourceIndexNumber = [dragItem.localObject isKindOfClass:NSNumber.class] ? dragItem.localObject : nil;
+    if (sourceIndexNumber == nil)
+        return;
+    NSUInteger sourceIndex = sourceIndexNumber.unsignedIntegerValue;
+    if (sourceIndex >= _rowShortcuts.count)
+        return;
+
+    NSArray<NSNumber *> *sourcePath = [_currentPath copy];
+    NSArray<NSNumber *> *parentPath = [_currentPath subarrayWithRange:NSMakeRange(0, _currentPath.count - 1)];
+    NSUInteger groupIndexInParent = _currentPath.lastObject.unsignedIntegerValue;
+
+    _suppressNextReload = YES;
+    // Insert right after the group we're currently inside of, at the parent level — keeps the
+    // moved item spatially close to where it came from rather than appending far away.
+    ISHWorkspaceLauncherMoveShortcut(sourcePath, sourceIndex, parentPath, groupIndexInParent + 1);
+    [_rowShortcuts removeObjectAtIndex:sourceIndex];
+    [self rebuildLauncherList];
+}
+
+// Footer row: an Add ("+") button alongside the Edit/Done toggle, both unbordered/muted (vs.
+// the accessory-styled shortcut rows above) so they read as controls, not launchable items.
+- (UIView *)launcherBottomControlsRow {
+    UIStackView *row = [UIStackView new];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 8;
+    row.layoutMarginsRelativeArrangement = YES;
+    row.layoutMargins = UIEdgeInsetsMake(4, 8, 4, 8);
+    row.distribution = UIStackViewDistributionFillEqually;
+    [row addArrangedSubview:[self launcherAddButton]];
+    [row addArrangedSubview:[self launcherEditToggleButton]];
+    return row;
+}
+
+// Opens the same Add Shortcut/Group/Built-in sheet the popup-menu "Edit Shortcuts…" flow uses,
+// scoped to whatever level (root or a drilled-into group) is currently displayed.
+- (UIButton *)launcherAddButton {
+    UIButton *add = [UIButton buttonWithType:UIButtonTypeSystem];
+    add.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    [add setTitle:@"+ Add" forState:UIControlStateNormal];
+    [add setTitleColor:secondary forState:UIControlStateNormal];
+    add.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote) weight:UIFontWeightMedium];
+    add.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.25];
+    add.layer.cornerRadius = 10;
+    CGFloat height = ISHWorkspaceUsesPhoneLayout() ? 26.0 : 28.0;
+    [add.heightAnchor constraintEqualToConstant:height].active = YES;
+    [add addTarget:self action:@selector(addButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return add;
+}
+
+- (void)addButtonTapped:(UIButton *)sender {
+    [(id)self.workspaceHostViewController presentAddLauncherOptionsFromView:sender path:_currentPath];
+}
+
+// The Edit/Done pill: deliberately unbordered and muted (vs. the shortcut rows above it) so it
+// reads as a mode toggle, not another launchable item. This is the sole entry point into
+// editing — no separate "Edit Shortcuts" sheet in the applet anymore.
+- (UIButton *)launcherEditToggleButton {
+    UIButton *toggle = [UIButton buttonWithType:UIButtonTypeSystem];
+    toggle.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    [toggle setTitle:_isEditing ? @"Done" : @"Edit" forState:UIControlStateNormal];
+    [toggle setTitleColor:secondary forState:UIControlStateNormal];
+    toggle.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote) weight:UIFontWeightMedium];
+    toggle.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.25];
+    toggle.layer.cornerRadius = 10;
+    CGFloat height = ISHWorkspaceUsesPhoneLayout() ? 26.0 : 28.0;
+    [toggle.heightAnchor constraintEqualToConstant:height].active = YES;
+    [toggle addTarget:self action:@selector(editToggleTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return toggle;
+}
+
+- (void)editToggleTapped:(UIButton *)sender {
+    _isEditing = !_isEditing;
+    [self rebuildLauncherList];
+}
+
+- (void)backButtonTapped:(UIButton *)sender {
+    if (_currentPath.count == 0)
+        return;
+    [_currentPath removeLastObject];
+    [self rebuildLauncherList];
 }
 
 @end
