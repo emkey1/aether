@@ -134,13 +134,24 @@ only**; no Q8/ollama number for this model is reported.
 
 | instrument | n (tasks×3 repeats) | generated | compiled | exact (rate) | fixed by repair | aether ver |
 |---|---|---|---|---|---|---|
-| simple (v2_pos) | 90 | 87 | 69 | 66 (73.3%) | 21 | `20260701.1525_DEV` |
-| large | 24 | 20 | 7 | 7 (29.2%) | 7 | `20260702.1858_DEV` |
-| cs | 57 | 54 | 36 | 36 (63.2%) | 18 | `20260702.1858_DEV` |
+| simple (v2_pos) | 90 | 87 | 69 | 66 (73.3%) | 21 | `2026-07-01-4` |
+| large | 24 | 20 | 7 | 7 (29.2%) | 7 | `2026-07-01-8` |
+| cs | 57 | 54 | 36 | 36 (63.2%) | 18 | `2026-07-01-8` |
 
-Compiler build drifted by one local rebuild between the `simple` pass and the
-`large`/`cs` passes (both dev snapshots, one day apart) — noted here since this
-board has no single `aether ver` to quote, unlike cs-aug2-builtins above.
+**This board's `simple` pass is not directly comparable to its `large`/`cs`
+passes — real compiler drift, not rebuild noise.** These originally recorded
+as opaque local build-timestamps (`20260701.1525_DEV` /
+`20260702.1858_DEV`) — an umbrella build-versioning bug that silently
+discarded Aether's real language version, fixed 2026-07-04 (see
+[`aether_guided_benchmark.md`](aether_guided_benchmark.md)). Decoded against
+git history, `20260701.1525_DEV` (`simple`) was built under language version
+`2026-07-01-4`, four version bumps *before* `20260702.1858_DEV`
+(`large`/`cs`, `2026-07-01-8`). The gap in between includes the AST-frontend
+cutover (the text rewriter retired as the default frontend), several new
+strict-rejection parser rules, and diagnostic recoding — not cosmetic
+changes. So this board's own three numbers were not scored by the same
+compiler: treat the `simple` result as a different, earlier-language-version
+run than `large`/`cs`, not as one coherent 3-instrument sweep.
 
 Run with `--repeats 3` (not the single-pass convention of the rest of this
 table) for reliability given this model's reasoning-heavy, noisier generation
