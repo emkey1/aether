@@ -1723,7 +1723,7 @@ static syscall_t arm64_syscall_table[454] = {
     [213] = (syscall_t) syscall_stub_silent, // readahead
     [217] = (syscall_t) syscall_stub, // add_key
     [218] = (syscall_t) syscall_stub, // request_key
-    [219] = (syscall_t) syscall_stub, // keyctl
+    [219] = (syscall_t) sys_keyctl, // keyctl -- matches i386 (288)/amd64 (250)
     [224] = (syscall_t) syscall_stub, // swapon
     [225] = (syscall_t) syscall_stub, // swapoff
     [234] = (syscall_t) syscall_stub, // remap_file_pages
@@ -2342,7 +2342,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 118: case 127: case 128: case 162: case 171:
     case 180: case 181: case 182: case 183: case 184: case 185:
     case 186: case 187: case 188: case 189: case 190: case 191:
-    case 192: case 193: case 217: case 218: case 219: case 224:
+    case 192: case 193: case 217: case 218: case 224:
     case 225: case 234: case 238: case 239: case 241: case 262:
     case 263: case 267: case 268: case 271: case 272: case 273:
     case 274: case 275: case 280: case 282: case 284: case 286:
@@ -3501,6 +3501,10 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 155: // getpgid
     case 156: // getsid
     case 166: // umask
+    case 219: // keyctl (sys_keyctl only switches on cmd; arg2-arg5 are ignored --
+              // arg2 is a pointer for KEYCTL_JOIN_SESSION_KEYRING/etc, so
+              // over-counting would validate a real 64-bit guest address the
+              // function never reads and SIGSYS login's pam_keyinit)
     case 230: // mlockall
         return 1;
     case 19:  // eventfd2
