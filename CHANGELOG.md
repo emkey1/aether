@@ -12,6 +12,33 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-04-2
+
+**Tuple returns lowered to a reentrant record-by-value instead of shared
+globals; TUP-001's call-cycle rejection and PAR-003 removed as structurally
+obsolete.** Since 2026-06-27, `ret (a, b)` / `let (a, b) = f(x)` lowered each
+tuple slot to a shared per-function global (`__aether_tuple_N_itemK`), which
+is not reentrant — the 2026-07-04-1 bump added compile-time *rejection* of
+direct recursion, indirect recursion (`a() -> b() -> a()`), and concurrent
+`par`-branch calls to the same tuple-returning function, but valid, idiomatic
+code (e.g. a recursive accumulator returning two values) simply could not be
+written as a tuple return and had to be rewritten as a record.
+
+Tuple returns now synthesize a hidden record type per signature
+(`__AetherTuple<id>`, fields `item0..itemN-1`) and return it through the same
+reentrant, per-call-frame record-by-value path an ordinary record-returning
+function already used (the VM deep-copies a record on every return —
+`returnFromCall`/`copyRecord` in pscal-core). Each call — recursive or
+concurrent — gets its own independent result, so the corruption class the
+2026-07-04-1 checks existed to catch is now structurally impossible. TUP-001's
+call-cycle rejection and PAR-003 are removed accordingly (the "not a known
+tuple-return function" / arity-mismatch diagnostics, unrelated to reentrancy,
+are unchanged and still carry `TUP-001`). Programs that previously failed to
+compile under those two checks now compile and run correctly:
+`tuple_recursion_pass.aether` (was `tuple_recursion_fail.aether`),
+`tuple_indirect_recursion_pass.aether` (was `tuple_indirect_recursion_fail.aether`),
+`par_shared_tuple_call_pass.aether` (was `par_shared_tuple_call_fail.aether`).
+
 ## 2026-07-04-1
 
 **TUP-001 generalized to any call cycle through tuple-returning functions;

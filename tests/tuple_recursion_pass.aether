@@ -1,0 +1,24 @@
+// Tuple returns lower to a synthesized record returned by value (see
+// buildSyntheticTupleRecordType/buildTempRecordReturn in ast_parser.c); the VM
+// deep-copies a record on every return (returnFromCall/copyRecord in
+// pscal-core), so each call frame -- including a recursive one -- gets its own
+// independent result. Direct recursion through a tuple-returning function is
+// therefore no longer rejected (this used to be a compile-time TUP-001); it
+// now compiles and runs correctly, same as non-tuple recursion
+// (recursion_pass.aether / examples/base/recursion).
+fn pair(n: Int) -> (Int, Int) {
+    if n <= 0 {
+        ret (0, 0);
+    }
+    let (a, b) = pair(n - 1);
+    ret (a + 1, b + 2);
+}
+
+fn main() -> Void {
+    let (x, y) = pair(3);
+    fx {
+        println(x);
+        println(y);
+    }
+    ret;
+}

@@ -87,15 +87,15 @@ IMPORT_MISSING_FAIL_FIXTURE="$TESTS_DIR/import_missing_fail.aether"
 PAR_PASS_FIXTURE="$TESTS_DIR/par_pass.aether"
 PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
 PAR_SHARED_RECORD_FAIL_FIXTURE="$TESTS_DIR/par_shared_record_fail.aether"
-PAR_SHARED_TUPLE_CALL_FAIL_FIXTURE="$TESTS_DIR/par_shared_tuple_call_fail.aether"
+PAR_SHARED_TUPLE_CALL_PASS_FIXTURE="$TESTS_DIR/par_shared_tuple_call_pass.aether"
 METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
 UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
 UNCLOSED_BLOCK_FAIL_FIXTURE="$TESTS_DIR/unclosed_block_fail.aether"
 UNCLOSED_CALL_FAIL_FIXTURE="$TESTS_DIR/unclosed_call_fail.aether"
 FIXED_SIZE_ARRAY_FAIL_FIXTURE="$TESTS_DIR/fixed_size_array_fail.aether"
 WRITE_FORMAT_COLON_FAIL_FIXTURE="$TESTS_DIR/write_format_colon_fail.aether"
-TUPLE_RECURSION_FAIL_FIXTURE="$TESTS_DIR/tuple_recursion_fail.aether"
-TUPLE_INDIRECT_RECURSION_FAIL_FIXTURE="$TESTS_DIR/tuple_indirect_recursion_fail.aether"
+TUPLE_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_recursion_pass.aether"
+TUPLE_INDIRECT_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_indirect_recursion_pass.aether"
 RECURSION_PASS_FIXTURE="$TESTS_DIR/recursion_pass.aether"
 FOR_RANGE_PASS_FIXTURE="$TESTS_DIR/for_range_pass.aether"
 LOOP_FORMS_PASS_FIXTURE="$TESTS_DIR/loop_forms_pass.aether"
@@ -240,15 +240,15 @@ for fixture in \
     "$PAR_PASS_FIXTURE" \
     "$PAR_FAIL_NON_CALL_FIXTURE" \
     "$PAR_SHARED_RECORD_FAIL_FIXTURE" \
-    "$PAR_SHARED_TUPLE_CALL_FAIL_FIXTURE" \
+    "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" \
     "$METHOD_UNDEFINED_FAIL_FIXTURE" \
     "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" \
     "$UNCLOSED_BLOCK_FAIL_FIXTURE" \
     "$UNCLOSED_CALL_FAIL_FIXTURE" \
     "$FIXED_SIZE_ARRAY_FAIL_FIXTURE" \
     "$WRITE_FORMAT_COLON_FAIL_FIXTURE" \
-    "$TUPLE_RECURSION_FAIL_FIXTURE" \
-    "$TUPLE_INDIRECT_RECURSION_FAIL_FIXTURE" \
+    "$TUPLE_RECURSION_PASS_FIXTURE" \
+    "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" \
     "$RECURSION_PASS_FIXTURE" \
     "$FOR_RANGE_PASS_FIXTURE" \
     "$LOOP_FORMS_PASS_FIXTURE" \
@@ -1765,16 +1765,17 @@ if ! grep -q "\[PAR-001\] Aether par error: record 'a' is shared by more than on
     exit 1
 fi
 
-# PAR-003: two par branches calling the SAME tuple-returning function race on
-# its shared __aether_tuple_N_itemK globals (silent corruption), the same
-# defect class as PAR-001 but via return storage instead of a shared argument.
-if "$AETHER_BIN" --no-cache "$PAR_SHARED_TUPLE_CALL_FAIL_FIXTURE" >/tmp/aether_par_shared_tuple_call_fail.out 2>&1; then
-    echo "expected PAR-003 for a tuple-returning function shared across par branches but program succeeded" >&2
-    exit 1
-fi
-if ! grep -q "\[PAR-003\] Aether par error: tuple-return function 'pair' is called from more than one par branch" /tmp/aether_par_shared_tuple_call_fail.out; then
-    echo "missing PAR-003 shared-tuple-call diagnostic" >&2
-    cat /tmp/aether_par_shared_tuple_call_fail.out >&2
+# Two par branches calling the SAME tuple-returning function used to race on
+# shared __aether_tuple_N_itemK globals (PAR-003, rejected at compile time).
+# Tuple returns now lower to a record returned by value (VM deep-copies on
+# every return), so each spawned call gets its own independent result and
+# there is nothing left to race -- this must compile and run successfully.
+# par branches only support bare direct-call statements (parseParBlock), so a
+# spawned call's result can't be captured/joined here; this is a compile+run
+# smoke test, not an output check (see par_shared_tuple_call_pass.aether).
+if ! "$AETHER_BIN" --no-cache "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" >/tmp/aether_par_shared_tuple_call_pass.out 2>&1; then
+    echo "expected par-shared-tuple-call to compile and run successfully" >&2
+    cat /tmp/aether_par_shared_tuple_call_pass.out >&2
     exit 1
 fi
 
@@ -1866,33 +1867,33 @@ if ! grep -q "\[SYN-001\].*expected a number after ':' in print format spec" /tm
     cat /tmp/aether_write_format_colon_fail.out >&2
     exit 1
 fi
-# Direct recursion in a tuple-return fn is TUP-001 at compile time (tuple
-# returns lower to per-slot globals, so a self-call corrupts its own results)...
-if "$AETHER_BIN" --no-cache "$TUPLE_RECURSION_FAIL_FIXTURE" >/tmp/aether_tuple_recursion_fail.out 2>&1; then
-    echo "expected tuple-recursion failure but program succeeded" >&2
-    exit 1
-fi
-if ! grep -q "\[TUP-001\].*tuple-return functions cannot call themselves" /tmp/aether_tuple_recursion_fail.out; then
-    echo "missing tuple-recursion TUP-001 diagnostic" >&2
-    cat /tmp/aether_tuple_recursion_fail.out >&2
+# Direct recursion in a tuple-return fn used to be rejected at compile time
+# (TUP-001: tuple returns lowered to per-slot globals, so a self-call
+# corrupted its own results). Tuple returns now lower to a record returned by
+# value (VM deep-copies on every return -- returnFromCall/copyRecord in
+# pscal-core), so each call frame gets its own independent result: this now
+# compiles and produces the correct accumulated values.
+"$AETHER_BIN" --no-cache "$TUPLE_RECURSION_PASS_FIXTURE" >/tmp/aether_tuple_recursion_pass.out 2>&1
+printf '3\n6\n' >/tmp/aether_tuple_recursion_expected.out
+if ! cmp -s /tmp/aether_tuple_recursion_expected.out /tmp/aether_tuple_recursion_pass.out; then
+    echo "unexpected tuple-recursion output" >&2
+    cat /tmp/aether_tuple_recursion_pass.out >&2
     exit 1
 fi
 # Indirect recursion through tuple-returning functions (a() calls b() calls
-# a()) is the same corruption class one hop removed, caught by the call-graph
-# cycle check (generalizes the direct-only check above to any cycle length).
-if "$AETHER_BIN" --no-cache "$TUPLE_INDIRECT_RECURSION_FAIL_FIXTURE" >/tmp/aether_tuple_indirect_recursion_fail.out 2>&1; then
-    echo "expected indirect tuple-recursion failure but program succeeded" >&2
-    exit 1
-fi
-if ! grep -q "\[TUP-001\].*already (directly or indirectly) calls" /tmp/aether_tuple_indirect_recursion_fail.out; then
-    echo "missing indirect tuple-recursion TUP-001 diagnostic (call-graph cycle check regressed?)" >&2
-    cat /tmp/aether_tuple_indirect_recursion_fail.out >&2
+# a()) is the same defect class one hop removed; same reentrant record-return
+# fix applies, so this also now compiles and produces correct results.
+"$AETHER_BIN" --no-cache "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" >/tmp/aether_tuple_indirect_recursion_pass.out 2>&1
+printf '2\n4\n' >/tmp/aether_tuple_indirect_recursion_expected.out
+if ! cmp -s /tmp/aether_tuple_indirect_recursion_expected.out /tmp/aether_tuple_indirect_recursion_pass.out; then
+    echo "unexpected indirect tuple-recursion output" >&2
+    cat /tmp/aether_tuple_indirect_recursion_pass.out >&2
     exit 1
 fi
 # ...while plain (non-tuple) direct recursion still parses and runs.
 "$AETHER_BIN" --no-cache "$RECURSION_PASS_FIXTURE" >/tmp/aether_recursion_pass.out 2>&1
 if ! grep -qx "120" /tmp/aether_recursion_pass.out; then
-    echo "unexpected non-tuple recursion output (TUP-001 guard overreached?)" >&2
+    echo "unexpected non-tuple recursion output" >&2
     cat /tmp/aether_recursion_pass.out >&2
     exit 1
 fi

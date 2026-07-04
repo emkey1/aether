@@ -662,98 +662,25 @@ static const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char
     return NULL;
 }
 
-/* Tuple-return call graph: an edge CALLER->CALLEE is recorded whenever a
- * tuple-returning function's body (real pass only -- forwardScan skips
- * bodies entirely, see aetherRunForwardScan) calls another tuple-returning
- * function. Tuple returns lower to shared per-function globals
- * (__aether_tuple_N_itemK, see AetherTupleSig above); those slots are not
- * reentrant, so ANY cycle in this graph -- a function calling itself
- * directly, or an indirect chain A->B->...->A -- corrupts an in-flight
- * caller's still-unread slots the same way. This graph lets the parser
- * reject a cycle of any length as it is formed, generalizing the older
- * direct-self-call-only TUP-001 check. Strings are owned copies (the graph
- * outlives the tokens/AST nodes it was built from only until the top-level
- * parse finishes, but copying keeps it independent of any AST-node teardown
- * order). */
-typedef struct {
-    char *caller;
-    char *callee;
-} AetherTupleCallEdge;
-
-typedef struct {
-    AetherTupleCallEdge *edges;
-    size_t count;
-    size_t cap;
-} AetherTupleCallGraph;
-
-static void tupleCallGraphInit(AetherTupleCallGraph *g) { g->edges = NULL; g->count = 0; g->cap = 0; }
-
-static void tupleCallGraphFree(AetherTupleCallGraph *g) {
-    if (!g) return;
-    for (size_t i = 0; i < g->count; i++) {
-        free(g->edges[i].caller);
-        free(g->edges[i].callee);
-    }
-    free(g->edges);
-    g->edges = NULL;
-    g->count = 0;
-    g->cap = 0;
+/* Deterministic synthetic type name for a tuple signature's record lowering,
+ * e.g. "__AetherTuple3" for typeId 3. Written into a caller-supplied buffer
+ * (no storage needed on AetherTupleSig -- every use site can re-derive it from
+ * typeId alone). */
+static void aetherTupleSyntheticTypeName(char *buf, size_t bufSize, int typeId) {
+    snprintf(buf, bufSize, "__AetherTuple%d", typeId);
 }
 
-/* True if `target` is reachable from `start` by following recorded edges, or
- * `start == target` (the direct-recursion case, checked with zero edges).
- * Plain iterative DFS; the number of tuple-returning functions in a real
- * program is tiny, so linear scans over the edge list are fine. The visited
- * caps below are a generous backstop against pathological inputs, not a
- * meaningful limit on supported program size. */
-static bool tupleCallGraphReaches(const AetherTupleCallGraph *g, const char *start, const char *target) {
-    if (!start || !target) return false;
-    if (strcmp(start, target) == 0) return true;
-    if (!g || g->count == 0) return false;
-    const char *stack[512];
-    const char *visited[512];
-    int sp = 0, visitedCount = 0;
-    stack[sp++] = start;
-    while (sp > 0) {
-        const char *cur = stack[--sp];
-        bool seen = false;
-        for (int i = 0; i < visitedCount; i++) {
-            if (strcmp(visited[i], cur) == 0) { seen = true; break; }
-        }
-        if (seen) continue;
-        if (visitedCount < 512) visited[visitedCount++] = cur;
-        for (size_t i = 0; i < g->count; i++) {
-            if (strcmp(g->edges[i].caller, cur) != 0) continue;
-            if (strcmp(g->edges[i].callee, target) == 0) return true;
-            if (sp < 512) stack[sp++] = g->edges[i].callee;
-        }
-    }
-    return false;
-}
-
-/* Record CALLER->CALLEE (idempotent: a repeated call site adds no duplicate
- * edge). No-op if allocation fails -- worst case, a later cycle involving the
- * dropped edge goes undetected until a corpus with that many distinct
- * tuple-returning functions is realistic enough to matter. */
-static void tupleCallGraphAddEdge(AetherTupleCallGraph *g, const char *caller, const char *callee) {
-    if (!g || !caller || !callee) return;
-    for (size_t i = 0; i < g->count; i++) {
-        if (strcmp(g->edges[i].caller, caller) == 0 && strcmp(g->edges[i].callee, callee) == 0) return;
-    }
-    if (g->count == g->cap) {
-        size_t newCap = g->cap ? g->cap * 2 : 8;
-        AetherTupleCallEdge *edges = (AetherTupleCallEdge *)realloc(g->edges, newCap * sizeof(*edges));
-        if (!edges) return;
-        g->edges = edges;
-        g->cap = newCap;
-    }
-    char *callerCopy = strdup(caller);
-    char *calleeCopy = strdup(callee);
-    if (!callerCopy || !calleeCopy) { free(callerCopy); free(calleeCopy); return; }
-    g->edges[g->count].caller = callerCopy;
-    g->edges[g->count].callee = calleeCopy;
-    g->count++;
-}
+/* A tuple-return function calling itself (directly or indirectly), or two
+ * `par` branches calling the same tuple-returning function, used to be
+ * tracked and rejected here (TUP-001 call-cycle check / PAR-003) because
+ * tuple returns lowered to shared per-function globals that raced under
+ * reentrancy. Tuple returns now lower to a record returned by value (see
+ * buildSyntheticTupleRecordType, parseTupleReturn, parseLetTupleDestructure);
+ * the VM deep-copies a record on every return (returnFromCall/copyRecord in
+ * pscal-core), so each call -- recursive or concurrent -- gets its own
+ * independent result. There is no shared state left for a call-graph tracker
+ * to protect, so it was removed rather than left as dead bookkeeping.
+ */
 
 static void fieldNameListInit(AetherFieldNameList *l) { l->names = NULL; l->count = 0; l->cap = 0; }
 
@@ -837,7 +764,6 @@ typedef struct {
     /* Contract + tuple state (MILESTONE 3). */
     AetherTupleTable *tuples;           /* tuple-return fn signatures (global)     */
     int *nextTupleTypeId;               /* monotonically-increasing tuple type id  */
-    AetherTupleCallGraph *tupleCallGraph; /* tuple-fn call graph (real pass only)  */
     const AetherFieldNameList *classFields; /* fields of the type being parsed     */
     /* The tuple signature of the function whose body is being parsed (so `ret
      * (a,b)` lowers to per-slot global writes), NULL outside a tuple fn body.    */
@@ -990,7 +916,6 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->funcReturns = NULL;
     p->tuples = NULL;
     p->nextTupleTypeId = NULL;
-    p->tupleCallGraph = NULL;
     p->classFields = NULL;
     p->currentTupleSig = NULL;
     p->currentPostExpr = NULL;
@@ -2236,40 +2161,6 @@ static AST *parsePrimary(AetherParser *p) {
         aetherAdvance(p); /* consume identifier */
 
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
-            /* Recursion (direct OR indirect) through a tuple-return function:
-             * tuple returns lower to per-slot GLOBALS (__aether_tuple_N_itemK),
-             * so any cycle -- a self-call, or an indirect A->B->...->A chain --
-             * silently corrupts an in-flight caller's still-unread slots.
-             * Track the call graph among tuple-returning functions as bodies
-             * are parsed and reject the call that would close a cycle of any
-             * length (TUP-001; generalizes the old direct-only check). */
-            if (p->currentTupleSig && p->currentTupleSig->functionName && tok->value &&
-                tupleTableGet(p->tuples, tok->value, strlen(tok->value))) {
-                const char *callerName = p->currentTupleSig->functionName;
-                const char *calleeName = tok->value;
-                if (strcmp(calleeName, callerName) == 0) {
-                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple",
-                            "tuple-return functions cannot call themselves (tuple slots are not reentrant).",
-                            "return a record instead and read its fields.");
-                    p->hadError = true;
-                    freeToken(tok);
-                    return NULL;
-                }
-                if (tupleCallGraphReaches(p->tupleCallGraph, calleeName, callerName)) {
-                    char detail[256];
-                    snprintf(detail, sizeof(detail),
-                            "tuple-return function '%s' already (directly or indirectly) calls '%s'; "
-                            "calling it here would close a call cycle (tuple slots are not reentrant).",
-                            calleeName, callerName);
-                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "tuple", detail,
-                            "return a record instead and read its fields, or restructure so no "
-                            "tuple-return function calls back into one that is still running.");
-                    p->hadError = true;
-                    freeToken(tok);
-                    return NULL;
-                }
-                tupleCallGraphAddEdge(p->tupleCallGraph, callerName, calleeName);
-            }
             /* Only names that are immediately called get the stdlib alias
              * treatment, matching the rewriter (it rewrites `name(` spans).
              * When an alias fires, the surface spelling is kept aside so the
@@ -2645,6 +2536,29 @@ static AST *parseExpr(AetherParser *p) {
  * how they would in the function body. `line` stamps the produced nodes' source
  * line (the @pre/@post directive's line). With `inMethodContract` set, bare field
  * names lower to `myself.<field>`. Errors propagate via p->hadError. */
+/* Recursively stamp every node's token line to `line`. A detached text-based
+ * parse (parseExprFromText below) runs a fresh sub-lexer over a standalone
+ * buffer, which starts its own line counter at 1 -- so every node the sub-parse
+ * builds carries that fake line unless corrected. A too-early line on a
+ * variable reference silently corrupts codegen: the compiler's
+ * declared-after-use heuristic (CompilerLocal.decl_node's line vs. the
+ * reference's line, in compileRValue's AST_VARIABLE case) treats a reference
+ * whose line looks earlier than its local's declaration as out-of-scope and
+ * falls back to a global lookup, producing "Undefined global variable" for a
+ * perfectly valid local (this is exactly what broke tuple-return @post guards
+ * referencing the per-ret temp record: only "result" was ever exercised here
+ * before, and it is immune because it is registered without a decl_node). */
+static void aetherStampTreeLine(AST *node, int line) {
+    if (!node) return;
+    if (node->token) node->token->line = line;
+    aetherStampTreeLine(node->left, line);
+    aetherStampTreeLine(node->right, line);
+    aetherStampTreeLine(node->extra, line);
+    for (int i = 0; i < node->child_count; i++) {
+        aetherStampTreeLine(node->children[i], line);
+    }
+}
+
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
                              bool inMethodContract) {
     if (!text) return NULL;
@@ -2656,7 +2570,6 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     sub.funcReturns = p->funcReturns;
     sub.tuples = p->tuples;
     sub.nextTupleTypeId = p->nextTupleTypeId;
-    sub.tupleCallGraph = p->tupleCallGraph;
     sub.classFields = p->classFields;
     sub.inMethodContract = inMethodContract;
     aetherAdvance(&sub);
@@ -2666,9 +2579,11 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
         p->hadError = true;
         return NULL;
     }
-    /* Stamp the directive line on the whole tree so a contract error reports the
-     * @pre/@post line, not column 0. */
-    if (expr->token) expr->token->line = line;
+    /* Stamp the directive line on the whole tree (not just the root) so a
+     * contract error reports the @pre/@post line, not column 0 -- and so
+     * variable references inside the guard carry the real source line (see
+     * aetherStampTreeLine above). */
+    aetherStampTreeLine(expr, line);
     return expr;
 }
 
@@ -3504,31 +3419,131 @@ static AST *buildSimpleAssign(const char *name, AST *value, int line) {
     return assign;
 }
 
-/* ret (a, b, ...) ;  for a tuple-return function. Lowers to the same shape the
- * rewriter emits: per-slot global writes `__aether_tuple_N_item<k> = expr<k>;`
- * followed by the @post guard (if any) and a bare `return;`. The result is an
- * AST_COMPOUND splice (i_val==1) so parseBlock flattens it into the body. */
+/* Shared "temp var + new T() + per-field assign + [guard] + return temp" skeleton
+ * used by both `ret T { f: v, ... }` (buildReturnObjectInit) and tuple-return
+ * lowering (parseTupleReturn). fieldNames/fieldValues are parallel arrays of
+ * length fieldCount; fieldValues ownership transfers to the returned AST.
+ * `tempName` is the caller-chosen temp variable identifier (must be unique per
+ * ret site -- callers use "__aether_retobj_<line>"). `guard`, if non-NULL,
+ * ownership transfers and is spliced in immediately before the final return
+ * (a @post check must run before control leaves the function). Returns an
+ * AST_COMPOUND splice (i_val==1). */
+static AST *buildTempRecordReturn(const char *typeName, VarType vtype, AST *typeNode,
+                                  const char *tempName,
+                                  const char **fieldNames, AST **fieldValues, size_t fieldCount,
+                                  AST *guard, int line) {
+    Token *newTok = newToken(TOKEN_IDENTIFIER, typeName, line, 0);
+    AST *newNode = newASTNode(AST_NEW, newTok);
+    setTypeAST(newNode, TYPE_POINTER);
+
+    Token *tmpVarTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *tmpVar = newASTNode(AST_VARIABLE, tmpVarTok);
+    setTypeAST(tmpVar, vtype);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, tmpVar);
+    setLeft(decl, newNode);
+    setRight(decl, typeNode);
+    setTypeAST(decl, vtype);
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+
+    for (size_t i = 0; i < fieldCount; i++) {
+        AST *valExpr = fieldValues[i];
+        Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+        AST *recv = newASTNode(AST_VARIABLE, recvTok);
+        setTypeAST(recv, vtype);
+        Token *fldTok = newToken(TOKEN_IDENTIFIER, fieldNames[i], line, 0);
+        AST *fldVar = newASTNode(AST_VARIABLE, fldTok);
+        AST *fldAccess = newASTNode(AST_FIELD_ACCESS, fldTok);
+        setLeft(fldAccess, recv);
+        setRight(fldAccess, fldVar);
+        Token *asgnTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+        AST *assign = newASTNode(AST_ASSIGN, asgnTok);
+        setLeft(assign, fldAccess);
+        setRight(assign, valExpr);
+        setTypeAST(assign, valExpr ? valExpr->var_type : TYPE_UNKNOWN);
+        addChild(outer, assign);
+    }
+
+    if (guard) addChild(outer, guard);
+
+    Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+    AST *ret = newASTNode(AST_RETURN, retTok);
+    Token *resTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *resVar = newASTNode(AST_VARIABLE, resTok);
+    setTypeAST(resVar, vtype);
+    setLeft(ret, resVar);
+    setTypeAST(ret, vtype);
+    addChild(outer, ret);
+
+    return outer;
+}
+
+/* Rewrite `result.N` references in a tuple @post expression to `<tempName>.itemN`
+ * field access against the return statement's own per-call-site temp record
+ * variable (each `ret (a,b);` site gets its own temp, so this must run per
+ * site, not once up front). Returns a newly malloc'd string (caller frees), or
+ * NULL on allocation failure. */
+static char *aetherRewriteTupleResultRefs(const char *postExpr, const char *tempName) {
+    size_t cap = strlen(postExpr) + 64;
+    char *rewritten = (char *)malloc(cap);
+    if (!rewritten) return NULL;
+    size_t w = 0;
+    const char *s = postExpr;
+    while (*s) {
+        if (strncmp(s, "result.", 7) == 0 &&
+            (s == postExpr || !(isalnum((unsigned char)s[-1]) || s[-1] == '_' || s[-1] == '.'))) {
+            const char *digits = s + 7;
+            if (isdigit((unsigned char)*digits)) {
+                unsigned long k = strtoul(digits, NULL, 10);
+                const char *dEnd = digits;
+                while (isdigit((unsigned char)*dEnd)) dEnd++;
+                char repl[96];
+                int rl = snprintf(repl, sizeof(repl), "%s.item%lu", tempName, k);
+                while (w + (size_t)rl + 1 >= cap) {
+                    cap *= 2; rewritten = (char *)realloc(rewritten, cap);
+                }
+                memcpy(rewritten + w, repl, (size_t)rl);
+                w += (size_t)rl;
+                s = dEnd;
+                continue;
+            }
+        }
+        if (w + 2 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
+        rewritten[w++] = *s++;
+    }
+    rewritten[w] = '\0';
+    return rewritten;
+}
+
+/* ret (a, b, ...) ;  for a tuple-return function. Lowers to the reentrant
+ * record-by-value shape: `__AetherTuple<id> __aether_retobj_<line> = new
+ * __AetherTuple<id>(); __aether_retobj_<line>.item<k> = expr<k>; [@post guard;]
+ * return __aether_retobj_<line>;` -- the same VM return-by-value path an
+ * ordinary record-returning function already uses (see buildReturnObjectInit),
+ * so recursion/par-sharing of the same tuple-returning function is structurally
+ * reentrant (each call gets its own temp + stack-copied return value) rather
+ * than merely rejected. The result is an AST_COMPOUND splice (i_val==1) so
+ * parseBlock flattens it into the body. */
 static AST *parseTupleReturn(AetherParser *p, int line) {
     const AetherTupleSig *sig = p->currentTupleSig;
     aetherAdvance(p); /* consume '(' */
-    AST *outer = newASTNode(AST_COMPOUND, NULL);
-    outer->i_val = 1; /* declaration-group splice wrapper */
+    AST *items[16];
     size_t idx = 0;
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
         AST *item = parseExpr(p);
-        if (!item) { p->hadError = true; freeAST(outer); return NULL; }
-        if (idx >= sig->itemCount) {
+        if (!item) { p->hadError = true; for (size_t i = 0; i < idx; i++) freeAST(items[i]); return NULL; }
+        if (idx >= sig->itemCount || idx >= 16) {
             reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple",
                     "tuple return has more values than the declared return type.", NULL);
             p->hadError = true;
             freeAST(item);
-            freeAST(outer);
+            for (size_t i = 0; i < idx; i++) freeAST(items[i]);
             return NULL;
         }
-        char fieldName[80];
-        snprintf(fieldName, sizeof(fieldName), "__aether_tuple_%d_item%zu", sig->typeId, idx);
-        addChild(outer, buildSimpleAssign(fieldName, item, line));
-        idx++;
+        items[idx++] = item;
         if (p->current.type == REA_TOKEN_COMMA) { aetherAdvance(p); continue; }
         break;
     }
@@ -3538,7 +3553,7 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "expected ')' to close tuple return.", NULL);
         p->hadError = true;
-        freeAST(outer);
+        for (size_t i = 0; i < idx; i++) freeAST(items[i]);
         return NULL;
     }
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
@@ -3546,21 +3561,43 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
         reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple",
                 "tuple return arity does not match the declared return type.", NULL);
         p->hadError = true;
-        freeAST(outer);
+        for (size_t i = 0; i < idx; i++) freeAST(items[i]);
         return NULL;
     }
-    if (p->currentPostExpr) {
-        AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
-                                        p->currentFunctionName, line);
-        if (!guard) { freeAST(outer); return NULL; }
-        addChild(outer, guard);
+
+    char typeName[40];
+    aetherTupleSyntheticTypeName(typeName, sizeof(typeName), sig->typeId);
+    VarType vtype = TYPE_UNKNOWN;
+    AST *typeNode = buildTypeNode(typeName, strlen(typeName), line, &vtype);
+
+    char tempName[64];
+    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
+
+    const char *fieldNames[16];
+    char fieldNameBufs[16][32];
+    for (size_t i = 0; i < idx; i++) {
+        snprintf(fieldNameBufs[i], sizeof(fieldNameBufs[i]), "item%zu", i);
+        fieldNames[i] = fieldNameBufs[i];
     }
-    Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
-    AST *ret = newASTNode(AST_RETURN, retTok);
-    setLeft(ret, NULL);
-    setTypeAST(ret, TYPE_VOID);
-    addChild(outer, ret);
-    return outer;
+
+    AST *guard = NULL;
+    if (p->currentPostExpr) {
+        /* The guard text is re-parsed from scratch (buildContractGuard ->
+         * parseExprFromText, a detached sub-parser) with no knowledge of
+         * tempName's type, so `tempName.itemN` would not resolve as field
+         * access without this: register the temp's synthesized record type in
+         * the shared binding table first, exactly as parseLetTupleDestructure
+         * does for user-facing destructured names. */
+        bindingTableSet(p->bindings, tempName, typeName);
+        char *rewritten = aetherRewriteTupleResultRefs(p->currentPostExpr, tempName);
+        if (!rewritten) { for (size_t i = 0; i < idx; i++) freeAST(items[i]); return NULL; }
+        guard = buildContractGuard(p, rewritten, "post", p->currentFunctionName, line);
+        free(rewritten);
+        if (!guard) { for (size_t i = 0; i < idx; i++) freeAST(items[i]); return NULL; }
+    }
+
+    return buildTempRecordReturn(typeName, vtype, typeNode, tempName,
+                                 fieldNames, items, idx, guard, line);
 }
 
 /* let (a, b, ...) = call();  tuple destructuring.
@@ -3664,28 +3701,57 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         return NULL;
     }
 
+    char typeName[40];
+    aetherTupleSyntheticTypeName(typeName, sizeof(typeName), sig->typeId);
+    VarType tmpVtype = TYPE_UNKNOWN;
+    AST *tmpTypeNode = buildTypeNode(typeName, strlen(typeName), kwLine, &tmpVtype);
+
+    char tempName[64];
+    snprintf(tempName, sizeof(tempName), "__aether_tupdest_%d", kwLine);
+
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
-    /* The call statement. */
-    AST *callStmt = newASTNode(AST_EXPR_STMT, call->token);
-    setLeft(callStmt, call);
-    addChild(outer, callStmt);
-    /* One typed local per binding, reading the matching slot global, and record
-     * the binding's Aether type for downstream inference. */
+
+    /* <SynthType> __aether_tupdest_<kwLine> = <call>; -- captures the callee's
+     * return-by-value record once. The VM deep-copies a record on return (see
+     * returnFromCall/copyRecord in pscal-core), so this temp is an independent
+     * snapshot: recursion or a concurrent `par` branch calling the same
+     * tuple-returning function cannot alias it. */
+    Token *tmpVarTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
+    AST *tmpVar = newASTNode(AST_VARIABLE, tmpVarTok);
+    setTypeAST(tmpVar, tmpVtype);
+    AST *tmpDecl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(tmpDecl, tmpVar);
+    setLeft(tmpDecl, call);
+    setRight(tmpDecl, tmpTypeNode);
+    setTypeAST(tmpDecl, tmpVtype);
+    addChild(outer, tmpDecl);
+
+    /* One typed local per binding, reading the matching field off the temp
+     * record (ordinary field access, same AST shape as buildTempRecordReturn),
+     * and record the binding's Aether type for downstream inference. */
     for (size_t i = 0; i < nameCount; i++) {
-        char slot[80];
-        snprintf(slot, sizeof(slot), "__aether_tuple_%d_item%zu", sig->typeId, i);
+        char fieldName[32];
+        snprintf(fieldName, sizeof(fieldName), "item%zu", i);
         VarType vt = TYPE_UNKNOWN;
         AST *typeNode = buildTypeNode(sig->itemTypes[i], strlen(sig->itemTypes[i]), kwLine, &vt);
+
+        Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
+        AST *recv = newASTNode(AST_VARIABLE, recvTok);
+        setTypeAST(recv, tmpVtype);
+        Token *fldTok = newToken(TOKEN_IDENTIFIER, fieldName, kwLine, 0);
+        AST *fldVar = newASTNode(AST_VARIABLE, fldTok);
+        AST *fldAccess = newASTNode(AST_FIELD_ACCESS, fldTok);
+        setLeft(fldAccess, recv);
+        setRight(fldAccess, fldVar);
+        setTypeAST(fldAccess, vt);
+
         Token *nameTok = newToken(TOKEN_IDENTIFIER, names[i], kwLine, 0);
         AST *var = newASTNode(AST_VARIABLE, nameTok);
         setTypeAST(var, vt);
-        Token *slotTok = newToken(TOKEN_IDENTIFIER, slot, kwLine, 0);
-        AST *slotVar = newASTNode(AST_VARIABLE, slotTok);
-        setTypeAST(slotVar, vt);
         AST *decl = newASTNode(AST_VAR_DECL, NULL);
         addChild(decl, var);
-        setLeft(decl, slotVar);
+        setLeft(decl, fldAccess);
         setRight(decl, typeNode);
         setTypeAST(decl, vt);
         addChild(outer, decl);
@@ -3713,66 +3779,31 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
     AST *typeNode = buildTypeNode(clsTok->value, strlen(clsTok->value), line, &vtype);
     aetherAdvance(p); /* consume type name */
 
-    /* new T() initializer (no record-init block; fields assigned below). */
-    Token *newTok = newToken(TOKEN_IDENTIFIER, clsTok->value, line, 0);
-    AST *newNode = newASTNode(AST_NEW, newTok);
-    setTypeAST(newNode, TYPE_POINTER);
-
     /* Parse the `{ f: v, ... }` field list (same as the let/new object literal). */
     AST *inits = parseRecordInitBlock(p);
 
-    char tempName[64];
-    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
-
-    Token *tmpVarTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
-    AST *tmpVar = newASTNode(AST_VARIABLE, tmpVarTok);
-    setTypeAST(tmpVar, vtype);
-    AST *decl = newASTNode(AST_VAR_DECL, NULL);
-    addChild(decl, tmpVar);
-    setLeft(decl, newNode);
-    setRight(decl, typeNode);
-    setTypeAST(decl, vtype);
-
-    AST *outer = newASTNode(AST_COMPOUND, NULL);
-    outer->i_val = 1; /* splice into the surrounding block */
-    addChild(outer, decl);
-
+    const char *fieldNames[64];
+    AST *fieldValues[64];
+    size_t fieldCount = 0;
     if (inits) {
-        for (int i = 0; i < inits->child_count; i++) {
+        for (int i = 0; i < inits->child_count && fieldCount < 64; i++) {
             AST *fa = inits->children[i];
             if (!fa || fa->type != AST_ASSIGN) continue;
-            AST *fieldVar = fa->left;   /* AST_VARIABLE(field) */
-            AST *valExpr = fa->right;
+            AST *fieldVar = fa->left; /* AST_VARIABLE(field) */
             if (!fieldVar || !fieldVar->token) continue;
-            Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
-            AST *recv = newASTNode(AST_VARIABLE, recvTok);
-            setTypeAST(recv, vtype);
-            Token *fldTok = newToken(TOKEN_IDENTIFIER, fieldVar->token->value, line, 0);
-            AST *fldVar2 = newASTNode(AST_VARIABLE, fldTok);
-            AST *fldAccess = newASTNode(AST_FIELD_ACCESS, fldTok);
-            setLeft(fldAccess, recv);
-            setRight(fldAccess, fldVar2);
-            Token *asgnTok = newToken(TOKEN_ASSIGN, "=", line, 0);
-            AST *assign = newASTNode(AST_ASSIGN, asgnTok);
-            setLeft(assign, fldAccess);
-            setRight(assign, valExpr);
+            fieldNames[fieldCount] = fieldVar->token->value;
+            fieldValues[fieldCount] = fa->right;
             fa->right = NULL; /* moved */
-            setTypeAST(assign, valExpr ? valExpr->var_type : TYPE_UNKNOWN);
-            addChild(outer, assign);
+            fieldCount++;
         }
-        freeAST(inits);
     }
 
-    /* return __aether_retobj_<line>; (carries the function's pointer type). */
-    Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
-    AST *ret = newASTNode(AST_RETURN, retTok);
-    Token *resTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
-    AST *resVar = newASTNode(AST_VARIABLE, resTok);
-    setTypeAST(resVar, vtype);
-    setLeft(ret, resVar);
-    setTypeAST(ret, vtype);
-    addChild(outer, ret);
+    char tempName[64];
+    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
+    AST *outer = buildTempRecordReturn(clsTok->value, vtype, typeNode, tempName,
+                                       fieldNames, fieldValues, fieldCount, NULL, line);
 
+    if (inits) freeAST(inits);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
     freeToken(clsTok);
     return outer;
@@ -4211,15 +4242,6 @@ static AST *parseParBlock(AetherParser *p) {
      * tokens (owned by the call nodes, which outlive this loop); no allocation. */
     struct { const char *name; int branch; } sharedRecs[64];
     int sharedRecCount = 0;
-    /* Data-race guard: track which tuple-returning function was called from
-     * which par branch. Tuple returns lower to shared per-function globals
-     * (__aether_tuple_N_itemK); two branches' spawned threads calling the
-     * same tuple-returning function race on those globals exactly like the
-     * shared-record case above, just via return storage instead of an
-     * argument (see PAR-003 below). Pointers into the call tokens (owned by
-     * the call nodes, which outlive this loop); no allocation. */
-    struct { const char *name; int branch; } sharedTupleCalls[64];
-    int sharedTupleCallCount = 0;
     while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
            !p->hadError) {
         int callLine = p->current.line;
@@ -4301,43 +4323,14 @@ static AST *parseParBlock(AetherParser *p) {
             }
         }
 
-        /* PAR-003: reject a tuple-returning function called from more than one
-         * par branch before it becomes a concurrent data race at runtime. Two
-         * spawned threads both calling the same tuple-returning function write
-         * and read its shared __aether_tuple_N_itemK globals concurrently --
-         * the same defect class as PAR-001, but via return storage instead of
-         * a shared argument. */
-        if (call->token && call->token->value &&
-            tupleTableGet(p->tuples, call->token->value, strlen(call->token->value))) {
-            const char *fn = call->token->value;
-            int prior = -1;
-            for (int si = 0; si < sharedTupleCallCount; si++) {
-                if (sharedTupleCalls[si].name && strcmp(sharedTupleCalls[si].name, fn) == 0) {
-                    prior = sharedTupleCalls[si].branch;
-                    break;
-                }
-            }
-            if (prior >= 0 && prior != handle) {
-                const char *ppath = aetherSemanticGetSourcePath();
-                if (ppath && *ppath) aetherDiagf("%s:%d: ", ppath, callLine);
-                aetherDiagf("[PAR-003] Aether par error: tuple-return function '%s' is called from "
-                            "more than one par branch; the spawned threads race on its shared "
-                            "tuple-result storage (silent corruption).\n", fn);
-                aetherDiagf("hint: give each par branch its own call to '%s' outside the par block, "
-                            "or restructure so only one branch calls it.\n", fn);
-                aetherReportGuideHelp("PAR-003");
-                p->hadError = true;
-                freeAST(call);
-                freeAST(block);
-                freeAST(joins);
-                return NULL;
-            }
-            if (prior < 0 && sharedTupleCallCount < (int)(sizeof(sharedTupleCalls) / sizeof(sharedTupleCalls[0]))) {
-                sharedTupleCalls[sharedTupleCallCount].name = fn;
-                sharedTupleCalls[sharedTupleCallCount].branch = handle;
-                sharedTupleCallCount++;
-            }
-        }
+        /* PAR-003 (tuple-return function shared across par branches) used to be
+         * rejected here: tuple returns lowered to shared per-function globals,
+         * so two branches calling the same tuple-returning function raced on
+         * them. Now that tuple returns lower to a record returned by value
+         * (each call gets its own VM-deep-copied result -- see
+         * returnFromCall/copyRecord in pscal-core, and parseTupleReturn /
+         * parseLetTupleDestructure), that defect class is structurally
+         * impossible: nothing is shared, so there is nothing left to detect. */
 
         /* int __aether_par_N = spawn <call>; */
         Token *hTok = newToken(TOKEN_IDENTIFIER, handleName, callLine, 0);
@@ -5014,12 +5007,22 @@ static AST *parseFnDecl(AetherParser *p) {
                     p->hadError = true;
                 } else {
                     hasTupleReturn = true;
-                    vtype = TYPE_VOID;          /* tuple fns lower to void */
-                    returnTypeNode = NULL;
-                    /* The tuple signature + globals were registered in the
-                     * top-level forward-decl pre-pass; look it up by name. */
+                    /* The tuple signature + synthesized record type were
+                     * registered in the top-level forward-decl pre-pass; look
+                     * the signature up by name and resolve the return type to
+                     * its synthesized record (reentrant record-by-value
+                     * lowering -- see buildSyntheticTupleRecordType), the same
+                     * way any other record-returning function resolves. */
                     tupleSig = tupleTableGet(p->tuples, nameTok->value,
                                              nameTok->value ? strlen(nameTok->value) : 0);
+                    if (tupleSig) {
+                        char synthName[40];
+                        aetherTupleSyntheticTypeName(synthName, sizeof(synthName), tupleSig->typeId);
+                        returnTypeNode = buildTypeNode(synthName, strlen(synthName), fnLine, &vtype);
+                    } else {
+                        vtype = TYPE_VOID;
+                        returnTypeNode = NULL;
+                    }
                 }
                 /* Re-sync the lexer past the `(...)` we read straight from source. */
                 p->lexer.pos = (size_t)(tupleEnd - p->lexer.source);
@@ -5119,41 +5122,12 @@ static AST *parseFnDecl(AetherParser *p) {
             return NULL;
         }
     }
-    if (hasTupleReturn && tupleSig && postExpr) {
-        size_t cap = strlen(postExpr) + 64;
-        char *rewritten = (char *)malloc(cap);
-        if (rewritten) {
-            size_t w = 0;
-            const char *s = postExpr;
-            while (*s) {
-                if (strncmp(s, "result.", 7) == 0 &&
-                    (s == postExpr ||
-                     !(isalnum((unsigned char)s[-1]) || s[-1] == '_' || s[-1] == '.'))) {
-                    const char *digits = s + 7;
-                    if (isdigit((unsigned char)*digits)) {
-                        unsigned long k = strtoul(digits, NULL, 10);
-                        const char *dEnd = digits;
-                        while (isdigit((unsigned char)*dEnd)) dEnd++;
-                        char repl[80];
-                        int rl = snprintf(repl, sizeof(repl),
-                                          "__aether_tuple_%d_item%lu", tupleSig->typeId, k);
-                        while (w + (size_t)rl + 1 >= cap) {
-                            cap *= 2; rewritten = (char *)realloc(rewritten, cap);
-                        }
-                        memcpy(rewritten + w, repl, (size_t)rl);
-                        w += (size_t)rl;
-                        s = dEnd;
-                        continue;
-                    }
-                }
-                if (w + 2 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
-                rewritten[w++] = *s++;
-            }
-            rewritten[w] = '\0';
-            free(postExpr);
-            postExpr = rewritten;
-        }
-    }
+    /* Unlike the old global-slot lowering, `result.N` -> field-access rewriting
+     * cannot happen once here: each `ret (a,b);` site now builds its own
+     * per-call-site temp record variable (buildTempRecordReturn), so the
+     * rewrite target name differs per site. parseTupleReturn does this
+     * per-site via aetherRewriteTupleResultRefs, using the still-untouched
+     * `postExpr` text captured below in p->currentPostExpr. */
 
     const AetherTupleSig *prevTupleSig = p->currentTupleSig;
     const char *prevPostExpr = p->currentPostExpr;
@@ -5221,8 +5195,11 @@ static AST *parseFnDecl(AetherParser *p) {
     /* Non-Void function whose body has top-level statements but never returns a
      * value: a fallthrough path (FLOW-001), matching the rewriter. Checked before
      * @pre/@post guard injection so an injected guard does not count as the
-     * fallthrough statement, and skipped for tuple-return fns (handled elsewhere). */
-    if (hasBody && block && !p->hadError && vtype != TYPE_VOID && !hasTupleReturn &&
+     * fallthrough statement. Tuple-return fns are no longer exempt: each `ret
+     * (a,b);` lowers to a real value-bearing `return` (see parseTupleReturn),
+     * so a genuine fallthrough in a tuple fn is now a real, catchable bug
+     * instead of a silently-void-shaped escape. */
+    if (hasBody && block && !p->hadError && vtype != TYPE_VOID &&
         astBlockHasFallthroughStmt(block) && !astHasValueReturn(block)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "function",
                              "non-Void functions have a fallthrough path with no return value.",
@@ -5245,8 +5222,10 @@ static AST *parseFnDecl(AetherParser *p) {
     }
     /* A VOID function with a @post gets its guard before the implicit
      * fall-through close (no `result` to stage), matching the rewriter. Tuple and
-     * value-returning fns handle @post at each `ret` instead. */
-    if (block && postExpr && !p->hadError && vtype == TYPE_VOID && !hasTupleReturn) {
+     * value-returning fns handle @post at each `ret` instead; tuple fns are no
+     * longer TYPE_VOID (they resolve to their synthesized record type), so this
+     * condition already excludes them without an explicit !hasTupleReturn. */
+    if (block && postExpr && !p->hadError && vtype == TYPE_VOID) {
         AST *guard = buildContractGuard(p, postExpr, "post", guardName, fnLine);
         if (guard) addChild(block, guard);
     }
@@ -5919,28 +5898,60 @@ static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
     }
 }
 
-/* Build a global variable declaration `<reaType> <name>;` AST node (the lowering
- * for a tuple slot global). Mirrors rea's parseVarDecl for a typed, uninitialized
- * scalar at top level. */
-static AST *buildGlobalTupleSlotDecl(const char *aetherType, const char *name, int line) {
-    VarType vt = TYPE_UNKNOWN;
-    AST *typeNode = buildTypeNode(aetherType, strlen(aetherType), line, &vt);
-    if (!typeNode) return NULL;
-    Token *nTok = newToken(TOKEN_IDENTIFIER, name, line, 0);
-    AST *var = newASTNode(AST_VARIABLE, nTok);
-    setTypeAST(var, vt);
-    AST *decl = newASTNode(AST_VAR_DECL, NULL);
-    addChild(decl, var);
-    setRight(decl, typeNode);
-    setTypeAST(decl, vt);
-    return decl;
+/* Build the synthesized record type for a tuple signature: a hidden __vtable
+ * pointer field (copying parseTypeDecl's construction verbatim -- proven to
+ * work for a zero-method record by the existing return_object_init_pass.aether
+ * path) followed by one field per tuple item, named item0..itemN-1. Registers
+ * it globally via insertType() and returns the AST_TYPE_DECL node to splice
+ * into the top-level declarations, exactly like parseTypeDecl does for a
+ * user-authored `type` statement. */
+static AST *buildSyntheticTupleRecordType(int typeId, char **itemTypes, size_t itemCount, int line) {
+    char typeName[40];
+    aetherTupleSyntheticTypeName(typeName, sizeof(typeName), typeId);
+
+    AST *recordAst = newASTNode(AST_RECORD_TYPE, NULL);
+
+    /* Hidden vtable pointer field first, matching parseTypeDecl. */
+    Token *vtTok = newToken(TOKEN_IDENTIFIER, "__vtable", line, 0);
+    AST *vtVar = newASTNode(AST_VARIABLE, vtTok);
+    setTypeAST(vtVar, TYPE_POINTER);
+    AST *vtType = newASTNode(AST_POINTER_TYPE, NULL);
+    setTypeAST(vtType, TYPE_POINTER);
+    AST *vtDecl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(vtDecl, vtVar);
+    setRight(vtDecl, vtType);
+    setTypeAST(vtDecl, TYPE_POINTER);
+    addChild(recordAst, vtDecl);
+
+    for (size_t i = 0; i < itemCount; i++) {
+        char fieldName[32];
+        snprintf(fieldName, sizeof(fieldName), "item%zu", i);
+        VarType vt = TYPE_UNKNOWN;
+        AST *typeNode = buildTypeNode(itemTypes[i], strlen(itemTypes[i]), line, &vt);
+        if (!typeNode) { freeAST(recordAst); return NULL; }
+        Token *fTok = newToken(TOKEN_IDENTIFIER, fieldName, line, 0);
+        AST *fVar = newASTNode(AST_VARIABLE, fTok);
+        setTypeAST(fVar, vt);
+        AST *fDecl = newASTNode(AST_VAR_DECL, NULL);
+        addChild(fDecl, fVar);
+        setRight(fDecl, typeNode);
+        setTypeAST(fDecl, vt);
+        addChild(recordAst, fDecl);
+    }
+
+    Token *typeNameTok = newToken(TOKEN_IDENTIFIER, typeName, line, 0);
+    AST *typeDecl = newASTNode(AST_TYPE_DECL, typeNameTok);
+    setLeft(typeDecl, recordAst);
+    insertType(typeName, recordAst);
+    return typeDecl;
 }
 
 /* Pre-pass over the (TOON-preprocessed) source that registers tuple-return
- * function signatures and emits the per-slot global var-decls into `decls`, the
- * way translate.c appendTopLevelForwardDeclarations does. Scans only top-level
- * (column-0) `fn NAME(...) -> (...)` lines; method tuple returns are unsupported
- * (handled/diagnosed in parseFnDecl). Returns false on allocation failure. */
+ * function signatures and emits a synthesized record type per signature into
+ * `decls` (reentrant record-by-value lowering -- see buildSyntheticTupleRecordType).
+ * Scans only top-level (column-0) `fn NAME(...) -> (...)` lines; method tuple
+ * returns are unsupported (handled/diagnosed in parseFnDecl). Returns false on
+ * allocation failure. */
 static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tuples,
                                        int *nextTupleTypeId, AST *decls) {
     const char *cursor = source;
@@ -5988,12 +5999,8 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
                         if (!tupleTableSet(tuples, fnName, typeId, items, itemCount)) {
                             free(fnName); for (size_t i = 0; i < itemCount; i++) free(items[i]); free(items); return false;
                         }
-                        for (size_t i = 0; i < itemCount; i++) {
-                            char slot[80];
-                            snprintf(slot, sizeof(slot), "__aether_tuple_%d_item%zu", typeId, i);
-                            AST *g = buildGlobalTupleSlotDecl(items[i], slot, lineNumber);
-                            if (g) addChild(decls, g);
-                        }
+                        AST *typeDecl = buildSyntheticTupleRecordType(typeId, items, itemCount, lineNumber);
+                        if (typeDecl) addChild(decls, typeDecl);
                         free(fnName);
                         for (size_t i = 0; i < itemCount; i++) free(items[i]);
                         free(items);
@@ -6213,14 +6220,11 @@ AST *parseAetherAst(const char *rawSource) {
     AetherTupleTable tuples;
     tupleTableInit(&tuples);
     int nextTupleTypeId = 0;
-    AetherTupleCallGraph tupleCallGraph;
-    tupleCallGraphInit(&tupleCallGraph);
 
     AetherParser p;
     aetherParserInit(&p, source, &bindings);
     p.funcReturns = &funcReturns;
     p.tuples = &tuples;
-    p.tupleCallGraph = &tupleCallGraph;
     p.nextTupleTypeId = &nextTupleTypeId;
     aetherAdvance(&p);
 
@@ -6242,7 +6246,6 @@ AST *parseAetherAst(const char *rawSource) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
         tupleTableFree(&tuples);
-        tupleCallGraphFree(&tupleCallGraph);
         freeAST(program);
         free(source);
         return NULL;
@@ -6356,7 +6359,6 @@ AST *parseAetherAst(const char *rawSource) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
         tupleTableFree(&tuples);
-        tupleCallGraphFree(&tupleCallGraph);
         freeAST(program);
         free(source);
         return NULL;
@@ -6364,7 +6366,6 @@ AST *parseAetherAst(const char *rawSource) {
     bindingTableFree(&bindings);
     bindingTableFree(&funcReturns);
     tupleTableFree(&tuples);
-    tupleCallGraphFree(&tupleCallGraph);
     free(source);
 
     /* If a routine named 'main' exists and there are no top-level statements,

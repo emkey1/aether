@@ -1,0 +1,24 @@
+// Two par branches calling the SAME tuple-returning function used to race on
+// shared __aether_tuple_N_itemK globals (silent corruption at runtime),
+// rejected at compile time as [PAR-003]. Tuple returns now lower to a
+// synthesized record returned by value (see
+// buildSyntheticTupleRecordType/buildTempRecordReturn in ast_parser.c); the VM
+// deep-copies a record on every return (returnFromCall/copyRecord in
+// pscal-core), so each spawned call gets its own independent result -- there
+// is nothing left to share. This now compiles and runs successfully. (par
+// branches only support bare direct-call statements today -- see
+// parseParBlock -- so a spawned call's tuple result cannot be captured/joined
+// here; reentrancy correctness under concurrency is the same VM-level
+// guarantee proven by the recursion tests, this test only proves the
+// compile-time rejection is gone and nothing crashes at runtime.)
+fn pair(n: Int) -> (Int, Int) {
+    ret (n, n * 2);
+}
+
+fn main() -> Void {
+    par {
+        pair(1);
+        pair(2);
+    }
+    ret;
+}
