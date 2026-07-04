@@ -31,6 +31,19 @@ the real cost of the stricter parser, paid on the hard tail even by capable
 models. Small local models show the same pattern more sharply (see `qwen3-1.7b`
 below, 0/8 on `large`).
 
+**Follow-up re-run (2026-07-04-2, post tuple-return structural fix):** re-ran
+`gemini-2.5-flash` again after the tuple-return lowering was reworked to a
+reentrant record-by-value return (see CHANGELOG). Scores are flat overall
+(`simple` 30/30 both guides; `large` 13/16 total, same as 07-01-8, just one
+task flipping each direction; `cs` net +2 on the full guide, 13→15/19).
+Checked every task whose pass/fail flipped between 07-01-8 and 07-04-2 against
+its generated source: **none use tuple-return syntax**, so this run neither
+confirms nor refutes the tuple fix — it's ordinary run-to-run model/API
+variance (temperature 0.2, not deterministic) riding on top of an otherwise
+unchanged compiler surface for these tasks. The task manifests have no
+tuple-return case today; a dedicated task would be needed to exercise that
+path directly.
+
 The short answer is unchanged: for capable models, **the guide is enough.** Handed
 nothing but the guide, an entire frontier tier writes every task on the core
 benchmark correctly — no fine-tuning, no worked examples beyond the document itself.
@@ -81,6 +94,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **30/30** (1 retried, 1 fixed) | **30/30** |
 | `gemini-2.5-flash` | — · cloud | 2026-06-28 | **30/30** (1 retried, 1 fixed) | **30/30** (1 retried, 1 fixed) |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | **30/30** (1 retried, 1 fixed) | **30/30** |
 | `glm-5.2` | — · cloud | 2026-06-28 | **30/30** | **30/30** |
 | `glm-5-turbo` | — · cloud | 2026-06-28 | **30/30** (1 retried, 1 fixed) | 29/30 (2 retried, 1 fixed) |
 | `glm-5-turbo` | — · cloud | **2026-07-01-8** | **30/30** | **30/30** (1 retried, 1 fixed) |
@@ -113,6 +127,7 @@ the same model are grouped together, oldest guide version first.*
 | `qwen3.6-35b-a3b` | 2026-06-28 | 30/30 | 30/30 |
 | `gemini-2.5-flash` | 2026-06-28 | 30/30 | 30/30 |
 | `gemini-2.5-flash` | **2026-07-01-8** | 30/30 | 30/30 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 30/30 | 30/30 |
 | `glm-5.2` | 2026-06-28 | 30/30 | 30/30 |
 | `glm-5-turbo` | 2026-06-28 | 30/30 | 29/30 |
 | `glm-5-turbo` | **2026-07-01-8** | 30/30 | 30/30 |
@@ -137,6 +152,7 @@ the same model are grouped together, oldest guide version first.*
 |---|---|---|---|---|
 | `gemini-2.5-flash` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 7/8 (3 retried, 2 fixed) | 6/8 (3 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 6/8 (2 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | **8/8** (1 retried, 1 fixed) | **8/8** (2 retried, 2 fixed) |
 | `glm-5.2` | — · cloud | 2026-06-28 | **8/8** | **8/8** |
 | `glm-5-turbo` | — · cloud | 2026-06-28 | 7/8 | **8/8** |
@@ -167,6 +183,7 @@ the same model are grouped together, oldest guide version first.*
 |---|---|---|---|
 | `gemini-2.5-flash` | 2026-06-28 | 8/8 | 8/8 |
 | `gemini-2.5-flash` | **2026-07-01-8** | 7/8 | 6/8 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 6/8 | 7/8 |
 | `qwen3.6-35b-a3b` | 2026-06-28 | 8/8 | 8/8 |
 | `glm-5.2` | 2026-06-28 | 8/8 | 8/8 |
 | `glm-5-turbo` | 2026-06-28 | 7/8 | 8/8 |
@@ -196,6 +213,7 @@ the same model are grouped together, oldest guide version first.*
 | `glm-5.2` | — · cloud | 2026-06-28 | 18/19 (3 retried, 3 fixed) | 18/19 (1 retried, 1 fixed) |
 | `gemini-2.5-flash` | — · cloud | 2026-06-28 | 18/19 (3 retried, 2 fixed) | 17/19 (4 retried, 2 fixed) |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 15/19 (8 retried, 4 fixed) | 13/19 (7 retried, 1 fixed) |
+| `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 15/19 (8 retried, 4 fixed) | 15/19 (8 retried, 4 fixed) |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 17/19 (2 retried, 2 fixed) | 18/19 (2 retried, 1 fixed) |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 17/19 (6 retried, 4 fixed) | 17/19 (8 retried, 6 fixed) |
 | `qwen3-coder-30b` | 30B-A3B · m5t | 2026-06-28 | 10/19 (10 retried, 1 fixed) | 13/19 (8 retried, 2 fixed) |
@@ -228,6 +246,7 @@ the same model are grouped together, oldest guide version first.*
 | `glm-5.2` | 2026-06-28 | 18/19 | 18/19 |
 | `gemini-2.5-flash` | 2026-06-28 | 18/19 | 18/19 |
 | `gemini-2.5-flash` | **2026-07-01-8** | 15/19 | 14/19 |
+| `gemini-2.5-flash` | **2026-07-04-2** | 17/19 | 15/19 |
 | `qwen3.6-35b-a3b` | 2026-06-28 | 17/19 | 18/19 |
 | `gpt-oss-120b` | 2026-06-28 | 17/19 | 17/19 |
 | `qwen3-coder-30b` | 2026-06-28 | 12/19 | 14/19 |
