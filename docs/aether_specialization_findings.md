@@ -104,7 +104,7 @@ checkpoint is preserved. Tables regenerate from the per-model result JSONs.
 
 ---
 
-## cs-aug3 (in progress — not yet populated)
+## cs-aug3
 
 **Corpus:** `cs-aug3` (`Tests/aether_specialization/out_cs_aug3`, generated
 2026-07-01, corpus tag `2026-07-01-1`) — retrain of the full cs-aug2-builtins model
@@ -113,7 +113,6 @@ time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense).
 **Test suite:** same three instruments/versions as above (`tasks_v2_pos.json`
 `2026-06-21-1`, `tasks_hard.json` `2026-06-21-1`, `tasks_cs.json` `2026-06-23-1`),
 `--docs none`, repair on.
-**Status as of 2026-07-02:** board running now, not complete.
 
 `qwen36-27b` was evaluated at two serving precisions: **NVFP4/vLLM (claw2)** and
 **Q8 GGUF/ollama (claw1)**. Two real budget bugs were found and fixed mid-run on
@@ -126,8 +125,27 @@ respectively. Even after both fixes, claw1's Q8/ollama board kept producing an
 unreliable signal — orphaned in-flight generations repeatedly survived client-side
 kills and wedged the server's single decode slot, plus a reproducible cluster of
 instant failures at every relaunch — and was abandoned as not worth the ongoing
-recovery cost. **The `qwen36-27b-cs-aug3` result reported here is NVFP4/vLLM on
-claw2 only**; no Q8/ollama number for this model is reported. All other cs-aug3
-models (`mistral24b`, `qwen14b`, `qwen3-8b-nothink`, `a3b-coder30b`) are unaffected
-by this and run on claw2's standard ollama as usual. This section will be filled in
-once the claw2 board completes and results are verified against the fixed budgets.
+recovery cost. **The `qwen36-27b-cs-aug3` result below is NVFP4/vLLM on claw2
+only**; no Q8/ollama number for this model is reported.
+
+### Results — `qwen36-27b-cs-aug3` (NVFP4/vLLM, claw2), no guide, 3 repeats/task
+
+| instrument | n (tasks×3 repeats) | generated | compiled | exact (rate) | fixed by repair |
+|---|---|---|---|---|---|
+| simple (v2_pos) | 90 | 87 | 69 | 66 (73.3%) | 21 |
+| large | 24 | 20 | 7 | 7 (29.2%) | 7 |
+| cs | 57 | 54 | 36 | 36 (63.2%) | 18 |
+
+Run with `--repeats 3` (not the single-pass convention of the rest of this
+table) for reliability given this model's reasoning-heavy, noisier generation
+behavior — cells are raw totals out of the repeated case count, not directly
+comparable cell-by-cell to the single-pass rows above without dividing by 3.
+Normalized to the same **/30, /8, /19** basis as the rest of the table:
+**~22/30 simple, ~2.3/8 large, ~12/19 cs** — squarely in line with the other
+cs-aug3-generation dense/MoE models on this board, and consistent with the
+broader finding above that fine-tuning buys the easy set, not the hard tail.
+
+The other four cs-aug3 models (`mistral24b`, `qwen14b`, `qwen3-8b-nothink`,
+`a3b-coder30b`) were not re-verified in this session — their board status
+should be checked the next time claw2 is back up before folding them into
+this table.
