@@ -2751,6 +2751,12 @@ void SyncHostname(void) {
 #endif
 }
 
+- (void)refreshDnsConfiguration {
+#if !ISH_LINUX
+    [self scheduleDnsRefresh:@"preference-change"];
+#endif
+}
+
 - (void)scheduleDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
     @synchronized (self) {
@@ -2772,9 +2778,34 @@ void SyncHostname(void) {
 - (void)performDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
     NSString *dnsSource = @"dnsinfo";
-    NSMutableString *resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
-    BOOL includeLocalDnsServer = [self ensureLocalDnsServer];
-    if (resolvConf == nil) {
+    NSMutableString *resolvConf = nil;
+    BOOL customOverrideActive = NO;
+
+    // A user-pinned override always wins and is never mixed with the host's
+    // detected servers -- this is the persistent escape hatch for devices
+    // whose network/VPN-provided DNS can't resolve (e.g. apt update failing),
+    // so it must survive every refresh trigger below, not just this launch.
+    NSString *customDnsServers = [UserPreferences.shared.customDnsServers stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (customDnsServers.length > 0) {
+        resolvConf = [NSMutableString new];
+        NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@" ,\t\n"];
+        for (NSString *server in [customDnsServers componentsSeparatedByCharactersInSet:separators]) {
+            if (server.length > 0)
+                [resolvConf appendFormat:@"nameserver %@\n", server];
+        }
+        if (resolvConf.length > 0) {
+            dnsSource = @"custom-override";
+            customOverrideActive = YES;
+        } else {
+            resolvConf = nil;
+        }
+    }
+
+    if (!customOverrideActive)
+        resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
+    BOOL localDnsServerStarted = [self ensureLocalDnsServer];
+    BOOL includeLocalDnsServer = customOverrideActive ? NO : localDnsServerStarted;
+    if (!customOverrideActive && resolvConf == nil) {
         dnsSource = @"libresolv";
         struct __res_state res;
         if (EXIT_SUCCESS != res_ninit(&res)) {
