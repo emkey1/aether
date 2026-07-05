@@ -3013,6 +3013,28 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return UITableViewAutomaticDimension;
 }
 
+// Without an override here, UIKit falls back to its own default header/footer
+// view synthesis (-[UITableViewDataSource tableView:viewForHeaderInSection:]),
+// which hits the same static-section-array bounds check as the [super ...]
+// calls above -- crashing on the appended LLM section ("index N beyond bounds
+// [0..N-1]"). Returning nil lets UITableView fall back to the plain
+// title-based header/footer from titleForHeaderInSection/titleForFooterInSection.
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return nil;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView viewForHeaderInSection:section];
+    return nil;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return nil;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView viewForFooterInSection:section];
+    return nil;
+}
+
 - (IBAction)disableDimmingChanged:(id)sender {
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
 }
