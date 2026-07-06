@@ -1098,6 +1098,7 @@ void mem_ref_cnt_mod(struct mem *mem, int value) { // value should only be -1 or
 }
 
 int mem_ref_cnt_get(struct mem *mem) {
+    if (mem == NULL) return 0;
     int cnt = atomic_load_explicit(&mem->reference.count, memory_order_acquire);
     if((cnt < 0) || ( cnt > 1000)) // Stupid kluge while I fix this brain damage
         cnt = 0;
