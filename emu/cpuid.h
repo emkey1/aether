@@ -24,12 +24,17 @@ static inline dword_t cpuid_leaf1_ecx_features(void) {
     // and amd64 engines (interp + JIT) and validated bit-exact against real
     // Intel silicon (tests/remote/corpus/sse3.c, sse4.c, sse42.c). Advertise
     // them so feature-detecting software (glibc string ifuncs, codecs, hashers)
-    // selects these paths instead of a slower SSE2/scalar fallback. POPCNT
-    // (bit 23) is a separate feature and is intentionally not advertised here.
+    // selects these paths instead of a slower SSE2/scalar fallback.
     features |= (1 << 0);   // sse3 (pni)
     features |= (1 << 9);   // ssse3
     features |= (1 << 19);  // sse4.1
     features |= (1 << 20);  // sse4.2
+    // POPCNT is implemented for both i386 (emu/decode.h JIT decoder) and
+    // amd64 (emu/amd64_interp.c), validated bit-exact against real Intel
+    // silicon (tests/remote/corpus/popcnt_lzcnt_tzcnt.c), so it's safe to
+    // advertise for either guest ABI (unlike cx16 below, this isn't
+    // encoding-restricted to long mode).
+    features |= (1 << 23);  // popcnt
     // cmpxchg16b is implemented for the amd64 (long-mode) guest, so advertise it
     // -- feature-detecting software (glibc, C++ 128-bit lock-free CAS) checks
     // this bit before emitting the instruction. It is a long-mode-only op, so it

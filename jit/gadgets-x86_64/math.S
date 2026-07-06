@@ -720,6 +720,32 @@
         orb %r14b, CPU_eflags(%_cpu)
         andl $~ZF_RES, CPU_flags_res(%_cpu)
     .endifin
+    .ifc \op,popcnt
+        # popcntw/popcntl above already left the host ZF set iff the count is
+        # 0 (identical to the architectural rule); CF/OF/SF/AF/PF are always
+        # cleared regardless of the result (Intel SDM POPCNT, not computed
+        # from the count -- e.g. PF is not the parity of the count).
+        setzb %r14b
+        movb $0, CPU_cf(%_cpu)
+        movb $0, CPU_of(%_cpu)
+        andb $~(ZF_FLAG | SF_FLAG | PF_FLAG | AF_FLAG), CPU_eflags(%_cpu)
+        shlb $6, %r14b
+        orb %r14b, CPU_eflags(%_cpu)
+        andl $~(ZF_RES | SF_RES | PF_RES | AF_OPS), CPU_flags_res(%_cpu)
+    .endif
+    .ifin(\op, tzcnt,lzcnt)
+        # Unlike bsf/bsr, tzcnt/lzcnt define the result as the operand size
+        # when the source is zero (the host tzcntl/lzcntl above already
+        # computed that), and additionally set CF to that same zero-source
+        # condition. OF/SF/AF/PF are left undefined, same as bsf/bsr.
+        setcb %r14b
+        movb %r14b, CPU_cf(%_cpu)
+        setzb %r14b
+        andb $~(1<<6), CPU_eflags(%_cpu)
+        shlb $6, %r14b
+        orb %r14b, CPU_eflags(%_cpu)
+        andl $~ZF_RES, CPU_flags_res(%_cpu)
+    .endifin
 .endm
 .macro do_op op, size, arg
     ss \size, _do_op, \op, \arg
@@ -801,7 +827,7 @@
     .endr
     .gadget_array \op
 .endr
-.irp op, imul,bsf,bsr
+.irp op, imul,bsf,bsr,popcnt,tzcnt,lzcnt
     .irp size, 16,32
         do_op_size \op, \size
     .endr

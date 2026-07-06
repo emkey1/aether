@@ -6002,10 +6002,25 @@ restart_prefix:
                 break;
             }
             if (op2 == 0xbc) {
+                // TZCNT/BSF: trailing-zero count from the LSB doesn't depend
+                // on the field's total width, so ctz needs no adjustment.
                 index = (op_size == 64)
                         ? (qword_t) __builtin_ctzll(src_masked)
                         : (qword_t) __builtin_ctz((uint32_t) src_masked);
+            } else if (count_zeroes) {
+                // LZCNT: leading-zero count relative to the operand WIDTH.
+                // __builtin_clz always counts against a 32-bit field, so a
+                // 16-bit-truncated src (upper 16 bits zero) over-counts by
+                // exactly (32 - op_size) leading zeros that aren't part of
+                // the real 16-bit field; subtract that back out. (Found via
+                // tests/remote/corpus/popcnt_lzcnt_tzcnt.c: this path used
+                // to fall through to the BSR bit-index formula below, which
+                // is a different value -- e.g. lzcnt16(1) is 15, not 0.)
+                index = (op_size == 64)
+                        ? (qword_t) __builtin_clzll(src_masked)
+                        : (qword_t) (__builtin_clz((uint32_t) src_masked) - (32 - op_size));
             } else {
+                // BSR: bit-index of the highest set bit, width-independent.
                 index = (op_size == 64)
                         ? (qword_t) (63 - __builtin_clzll(src_masked))
                         : (qword_t) (31 - __builtin_clz((uint32_t) src_masked));

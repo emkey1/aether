@@ -8743,6 +8743,9 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define BTR(bit, val,z) lo(btr, val, bit, z)
 #define BSF(src, dst,z) los(bsf, src, dst, z)
 #define BSR(src, dst,z) los(bsr, src, dst, z)
+#define POPCNT(src, dst,z) los(popcnt, src, dst, z)
+#define TZCNT(src, dst,z) los(tzcnt, src, dst, z)
+#define LZCNT(src, dst,z) los(lzcnt, src, dst, z)
 
 #define BSWAP(dst) ga(bswap, arg_##dst)
 
