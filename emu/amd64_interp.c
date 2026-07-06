@@ -11182,6 +11182,13 @@ amd64_0f_rm_done:
             index = (op_size == 64)
                     ? (qword_t) __builtin_ctzll(src_masked)
                     : (qword_t) __builtin_ctz((uint32_t) src_masked);
+        } else if (count_zeroes) {
+            // LZCNT: leading-zero count relative to the operand WIDTH, not
+            // the BSR bit-index (see the mirrored fix in the interp path
+            // above, found via tests/remote/corpus/popcnt_lzcnt_tzcnt.c).
+            index = (op_size == 64)
+                    ? (qword_t) __builtin_clzll(src_masked)
+                    : (qword_t) (__builtin_clz((uint32_t) src_masked) - (32 - op_size));
         } else {
             index = (op_size == 64)
                     ? (qword_t) (63 - __builtin_clzll(src_masked))
