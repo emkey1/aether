@@ -2837,7 +2837,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     }
     UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
     if (cell == self.sendFeedback) {
-        [UIApplication openURL:@"mailto:ish_aok_emkey1@icloud.com?subject=Feedback%20for%20iSH"];
+        [UIApplication openURL:@"https://github.com/emkey1/ish-AOK/issues/new"];
     } else if (cell == self.diagnosticsCell) {
         [self showDiagnostics:cell];
     } else if (cell == self.initialWindowCell) {
