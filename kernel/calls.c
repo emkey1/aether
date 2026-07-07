@@ -1755,8 +1755,8 @@ static syscall_t arm64_syscall_table[454] = {
     [288] = (syscall_t) syscall_stub, // pkey_mprotect
     [289] = (syscall_t) syscall_stub, // pkey_alloc
     [290] = (syscall_t) syscall_stub, // pkey_free
-    [293] = (syscall_t) syscall_stub_silent, // rseq
-    [294] = (syscall_t) syscall_stub, // kexec_file_load
+    // rseq (293) and kexec_file_load (294) are covered by the [292 ... 423]
+    // silent-stub range below; not listed individually (it would re-init them).
     // pidfd/io_uring/process_madvise: handle_arm64_native_syscall already
     // returns a clean ENOSYS for every one of these (its "clean ENOSYS" case
     // group shadows the table before the entry is ever called), so the table
@@ -1826,7 +1826,8 @@ static syscall_t arm64_syscall_table[454] = {
     // Linux 5.x+ syscalls — mostly stubbed, letting glibc/musl fall back to
     // older ABI paths, matching this file's existing amd64 table policy.
     [292 ... 423] = (syscall_t) syscall_stub_silent,
-    [425 ... 427] = (syscall_t) syscall_stub_silent, // io_uring_setup/enter/register
+    // 424-434 (io_uring_*, pidfd_*, new-mount-API) are set individually above;
+    // no [425 ... 427] range here -- it would redundantly re-init those slots.
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
