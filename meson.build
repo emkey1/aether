@@ -28,6 +28,22 @@ endif
 
 add_project_arguments('-Wno-switch', language: 'c')
 
+# Resolved here (rather than next to the gadget source lists below) because
+# it also drives a project-wide define, and add_project_arguments must run
+# before any target is declared. The arm64-GUEST gadgets
+# (jit/guest-arm64/*.S) are literal AArch64 assembly, only built when the
+# HOST gadget set is aarch64 — ISH_JIT_ARM64_GUEST tells the C side
+# (jit/gen.c) whether those gadget symbols exist, so non-aarch64 hosts
+# (e.g. the x86_64 CLI test build) compile a clean unsupported stub instead
+# of failing to link.
+jit_cpu_family = get_option('jit_cpu_family')
+if jit_cpu_family == ''
+    jit_cpu_family = host_machine.cpu_family()
+endif
+if jit_cpu_family == 'aarch64'
+    add_project_arguments('-DISH_JIT_ARM64_GUEST=1', language: 'c')
+endif
+
 includes = [include_directories('.')]
 
 threads = dependency('threads')
@@ -91,11 +107,7 @@ emu_src = [
     'jit/gen.c',
     'jit/helpers.c',
 ]
-jit_cpu_family = get_option('jit_cpu_family')
-if jit_cpu_family == ''
-    jit_cpu_family = host_machine.cpu_family()
-endif
-gadgets = 'jit/gadgets-' + jit_cpu_family
+gadgets = 'jit/gadgets-' + jit_cpu_family # resolved at the top of this file
 emu_src += [
     gadgets+'/entry.S',
     gadgets+'/memory.S',

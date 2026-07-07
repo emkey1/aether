@@ -668,6 +668,26 @@ poll_wait_done:
         // through kqueue when a follow-up zero-time probe returns no bits. If
         // we only rescan, that host event can wake us forever without ever
         // reaching the guest.
+        //
+        // A single fd is registered across up to three independent kqueue
+        // filters (EVFILT_READ/WRITE/EXCEPT -- see real_poll_update), so one
+        // kevent() batch can return more than one raw entry for the same fd,
+        // e.g. a read-ready entry AND a separate except/error entry. Linux
+        // epoll_wait() guarantees at most one epoll_event per fd per call,
+        // with every ready condition OR'd into a single events mask, and
+        // epoll consumers rely on that (they treat each returned array entry
+        // as an independent, self-contained readiness report). Delivering
+        // raw per-filter entries 1:1 split a healthy, actively-readable
+        // socket's events into a bare-EPOLLERR entry plus a separate EPOLLIN
+        // entry; consumers that saw the bare-error entry first (or ran their
+        // per-entry error handler unconditionally) tore down perfectly good
+        // connections -- this is what made rtorrent/libtorrent's peer
+        // connections die within a second of a normal read/write exchange.
+        // Coalesce by poll_fd before delivering so each fd gets at most one
+        // combined callback per batch, matching real epoll semantics.
+        struct poll_fd *batch_fds[4] = {0};
+        int batch_types[4] = {0};
+        int batch_count = 0;
         for (int i = 0; i < err; i++) {
             struct poll_fd *candidate = rpe_data(&e[i]);
             struct poll_fd *triggered_poll_fd = poll_find_ptr(poll_, candidate);
@@ -689,7 +709,24 @@ poll_wait_done:
             if (triggered_poll_fd->types & POLL_EDGETRIGGERED)
                 triggered_poll_fd->triggered_types &= ~host_events;
             int poll_types = host_events & (triggered_poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL);
-            res += poll_deliver_ready_locked(poll_, triggered_poll_fd, poll_types,
+            if (!poll_types)
+                continue;
+            int slot = -1;
+            for (int j = 0; j < batch_count; j++) {
+                if (batch_fds[j] == triggered_poll_fd) {
+                    slot = j;
+                    break;
+                }
+            }
+            if (slot < 0) {
+                slot = batch_count++;
+                batch_fds[slot] = triggered_poll_fd;
+                batch_types[slot] = 0;
+            }
+            batch_types[slot] |= poll_types;
+        }
+        for (int i = 0; i < batch_count; i++) {
+            res += poll_deliver_ready_locked(poll_, batch_fds[i], batch_types[i],
                                              callback, context, "host-callback");
         }
 
@@ -871,7 +908,24 @@ static int rpe_events(struct real_poll_event *rpe) {
         return events;
     }
     if (rpe->real.filter == EVFILT_WRITE) return POLL_WRITE;
-    if (rpe->real.filter == EVFILT_EXCEPT) return POLL_ERR;
+    if (rpe->real.filter == EVFILT_EXCEPT) {
+        // Darwin's EVFILT_EXCEPT fires on ordinary, healthy TCP sockets under
+        // normal traffic with no real error condition -- confirmed live
+        // against a BitTorrent peer exchange, SO_ERROR read back as 0 on
+        // every firing. Unlike Linux, where the kernel only ever sets
+        // EPOLLERR on a genuine socket error, blindly mapping EVFILT_EXCEPT
+        // to POLL_ERR handed the guest a false error on perfectly good,
+        // actively-transmitting sockets. epoll consumers correctly treat
+        // EPOLLERR as fatal (rtorrent/libtorrent among them), so this tore
+        // down healthy peer connections within about a second of connecting.
+        // Confirm there is an actual pending error before reporting one; if
+        // getsockopt fails (e.g. a non-socket fd), don't invent an error.
+        int so_error = 0;
+        socklen_t so_error_len = sizeof(so_error);
+        if (getsockopt((int) rpe->real.ident, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0 || so_error == 0)
+            return 0;
+        return POLL_ERR;
+    }
     return 0;
 }
 

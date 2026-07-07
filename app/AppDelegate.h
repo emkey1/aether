@@ -30,6 +30,10 @@ struct task;
 
 + (void)maybePresentStartupMessageOnViewController:(UIViewController *)vc;
 
+#if !ISH_LINUX
+- (void)refreshDnsConfiguration;
+#endif
+
 @end
 
 #if !ISH_LINUX

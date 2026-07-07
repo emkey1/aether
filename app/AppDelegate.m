@@ -938,7 +938,13 @@ static void *FallbackConsoleInitThread(void *context) {
         }
 
         printk("fake init started console shell pid=%d command=%s\n", childPid, config->file);
-        task_start(child);
+        if (task_start(child) < 0) {
+            printk("ERROR: fake init could not start host thread for console shell pid=%d, retrying\n", childPid);
+            task_never_ran_destroy(child);
+            current = config->init;
+            sleep(1);
+            continue;
+        }
         current = config->init;
 
         while (true) {
@@ -2420,7 +2426,16 @@ static TerminalViewController *CreateTerminalViewController(void) {
                                    @"command": commandString ?: @""});
     }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.exec"];
-    task_start(current);
+    if (task_start(current) < 0) {
+        return RecordBootFailure(_EAGAIN,
+                                 @"boot.init.start.failed",
+                                 @"Boot failed while starting init",
+                                 @"The boot command was loaded, but iSH-AOK could not create a thread to run it.",
+                                 @"Close other apps to free memory, then restart iSH-AOK.",
+                                 @{@"root": defaultRoot,
+                                   @"guestABI": guestABI ?: @"",
+                                   @"command": commandString ?: @""});
+    }
     [ISHDiagnosticsStore recordLaunchStage:@"boot.init.started"];
     } @finally {
         ISHAppGroupReleaseLock(rootLockFd);
@@ -2736,6 +2751,12 @@ void SyncHostname(void) {
 #endif
 }
 
+- (void)refreshDnsConfiguration {
+#if !ISH_LINUX
+    [self scheduleDnsRefresh:@"preference-change"];
+#endif
+}
+
 - (void)scheduleDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
     @synchronized (self) {
@@ -2757,9 +2778,34 @@ void SyncHostname(void) {
 - (void)performDnsRefresh:(NSString *)reason {
 #if !ISH_LINUX
     NSString *dnsSource = @"dnsinfo";
-    NSMutableString *resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
-    BOOL includeLocalDnsServer = [self ensureLocalDnsServer];
-    if (resolvConf == nil) {
+    NSMutableString *resolvConf = nil;
+    BOOL customOverrideActive = NO;
+
+    // A user-pinned override always wins and is never mixed with the host's
+    // detected servers -- this is the persistent escape hatch for devices
+    // whose network/VPN-provided DNS can't resolve (e.g. apt update failing),
+    // so it must survive every refresh trigger below, not just this launch.
+    NSString *customDnsServers = [UserPreferences.shared.customDnsServers stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (customDnsServers.length > 0) {
+        resolvConf = [NSMutableString new];
+        NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@" ,\t\n"];
+        for (NSString *server in [customDnsServers componentsSeparatedByCharactersInSet:separators]) {
+            if (server.length > 0)
+                [resolvConf appendFormat:@"nameserver %@\n", server];
+        }
+        if (resolvConf.length > 0) {
+            dnsSource = @"custom-override";
+            customOverrideActive = YES;
+        } else {
+            resolvConf = nil;
+        }
+    }
+
+    if (!customOverrideActive)
+        resolvConf = (NSMutableString *) ISHResolvConfFromDnsConfiguration();
+    BOOL localDnsServerStarted = [self ensureLocalDnsServer];
+    BOOL includeLocalDnsServer = customOverrideActive ? NO : localDnsServerStarted;
+    if (!customOverrideActive && resolvConf == nil) {
         dnsSource = @"libresolv";
         struct __res_state res;
         if (EXIT_SUCCESS != res_ninit(&res)) {

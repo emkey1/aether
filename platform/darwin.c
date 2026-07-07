@@ -200,3 +200,30 @@ int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
     
     return 0;
 }
+
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
+
+bool host_mem_headroom_low(void) {
+#if TARGET_OS_IPHONE
+    // Cached once; env parse is idempotent so an init race is harmless.
+    static long threshold_mb = -1;
+    if (threshold_mb < 0) {
+        const char *env = getenv("ISH_GUEST_MEM_HEADROOM_MB");
+        long t = env != NULL ? atol(env) : 192;
+        threshold_mb = t >= 0 ? t : 0;
+    }
+    if (threshold_mb == 0)
+        return false; // guard disabled
+    size_t avail = os_proc_available_memory();
+    // 0 means "no limit information" (e.g. simulator/debugging contexts),
+    // not "no memory left" — never starve the guest on a bad reading.
+    if (avail == 0)
+        return false;
+    return avail < (size_t) threshold_mb * 1024 * 1024;
+#else
+    // macOS: no per-process jetsam budget; the CLI can use what the system has.
+    return false;
+#endif
+}

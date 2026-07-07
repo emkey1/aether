@@ -143,6 +143,7 @@ BOOL ISHLLMClientEnabled(void) {
 @property (weak, nonatomic) IBOutlet UITableViewCell *sendFeedback;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openGithub;
 @property (weak, nonatomic) IBOutlet UITableViewCell *openDiscord;
+@property (weak, nonatomic) IBOutlet UITableViewCell *customDnsCell;
 
 @property (weak, nonatomic) IBOutlet UITableViewCell *upgradeApkCell;
 @property (weak, nonatomic) IBOutlet UILabel *upgradeApkLabel;
@@ -2777,6 +2778,9 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     self.initialWindowCell.detailTextLabel.text = [self _initialWindowTitle];
     self.launchCommandField.text = [UserPreferences.shared.launchCommand componentsJoinedByString:@" "];
     self.bootCommandField.text = [UserPreferences.shared.bootCommand componentsJoinedByString:@" "];
+    self.customDnsCell.textLabel.text = @"Custom DNS Servers";
+    NSString *customDnsServers = [UserPreferences.shared.customDnsServers stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    self.customDnsCell.detailTextLabel.text = customDnsServers.length > 0 ? customDnsServers : @"Automatic";
 
     self.upgradeApkCell.userInteractionEnabled = FsNeedsRepositoryUpdate();
     self.upgradeApkLabel.enabled = FsNeedsRepositoryUpdate();
@@ -2852,8 +2856,38 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
                                               error:nil];
     } else if (cell == self.resetMountsCell) {
         iosfs_clear_all_bookmarks();
+    } else if (cell == self.customDnsCell) {
+        [self _showCustomDnsServersEditorFromCell:cell];
     }
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+}
+
+- (void)_showCustomDnsServersEditorFromCell:(UITableViewCell *)cell {
+    (void) cell;
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Custom DNS Servers"
+                                            message:@"Space- or comma-separated nameserver IPs written into the guest's /etc/resolv.conf on every refresh. Leave blank to follow this device's network-provided DNS automatically."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.text = UserPreferences.shared.customDnsServers;
+        textField.placeholder = @"e.g. 1.1.1.1 1.0.0.1";
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        textField.spellCheckingType = UITextSpellCheckingTypeNo;
+        textField.keyboardType = UIKeyboardTypeURL;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        NSString *value = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+        UserPreferences.shared.customDnsServers = value;
+        [self _updateUI];
+        AppDelegate *appDelegate = (AppDelegate *) UIApplication.sharedApplication.delegate;
+        if ([appDelegate isKindOfClass:AppDelegate.class]) {
+            [appDelegate refreshDnsConfiguration];
+        }
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (NSString *)_initialWindowPreferenceValue {
@@ -3011,6 +3045,28 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if ([UITableViewController instancesRespondToSelector:_cmd])
         return [super tableView:tableView heightForFooterInSection:section];
     return UITableViewAutomaticDimension;
+}
+
+// Without an override here, UIKit falls back to its own default header/footer
+// view synthesis (-[UITableViewDataSource tableView:viewForHeaderInSection:]),
+// which hits the same static-section-array bounds check as the [super ...]
+// calls above -- crashing on the appended LLM section ("index N beyond bounds
+// [0..N-1]"). Returning nil lets UITableView fall back to the plain
+// title-based header/footer from titleForHeaderInSection/titleForFooterInSection.
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return nil;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView viewForHeaderInSection:section];
+    return nil;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    if (section == [self _llmSectionIndex])
+        return nil;
+    if ([UITableViewController instancesRespondToSelector:_cmd])
+        return [super tableView:tableView viewForFooterInSection:section];
+    return nil;
 }
 
 - (IBAction)disableDimmingChanged:(id)sender {

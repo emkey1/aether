@@ -464,7 +464,17 @@ fd_t sys_openat2_guest(fd_t at_f, guest_addr_t path_addr, guest_addr_t how_addr,
     if (how.resolve != 0)
         return _EINVAL;
 
-    return sys_openat_guest(at_f, path_addr, (dword_t) how.flags, (mode_t_) how.mode);
+    dword_t flags = (dword_t) how.flags;
+    // The struct is read here rather than at the dispatch site, so plain
+    // openat's arm64 flag translation (calls.c) can't cover openat2: an
+    // aarch64 guest's open_how.flags arrive in the aarch64 encoding (e.g.
+    // O_LARGEFILE 0x20000 reads as internal O_NOFOLLOW -> spurious ELOOP).
+    // amd64 needs no translation: x86-64's O_ constants match the internal
+    // (i386-derived) values.
+    if (current->abi == GUEST_ABI_ARM64)
+        flags = arm64_open_flags_to_internal(flags);
+
+    return sys_openat_guest(at_f, path_addr, flags, (mode_t_) how.mode);
 }
 
 fd_t sys_openat2(fd_t at_f, addr_t path_addr, addr_t how_addr, dword_t size) {

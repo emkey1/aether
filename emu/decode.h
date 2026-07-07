@@ -1710,12 +1710,19 @@ restart:
                         case 0x7f: TRACEI("movdqu xmm, xmm:modrm");
                                    READMODRM; VMOV(xmm_modrm_reg, xmm_modrm_val,128); break;
 
-                        // tzcnt is like bsf but the result when the input is zero is defined as the operand size
-                        // for now, it can just be an alias
-                        case 0xbc: TRACEI("~~tzcnt~~ bsf modrm, reg");
-                                   READMODRM; BSF(modrm_val, modrm_reg,oz); break;
-                        case 0xbd: TRACEI("~~lzcnt~~ bsr modrm, reg");
-                                   READMODRM; BSR(modrm_val, modrm_reg,oz); break;
+                        // POPCNT r, r/m (F3 0F B8): set-bit count. ZF set iff the
+                        // source is zero; CF/OF/SF/AF/PF are cleared. See
+                        // emu/amd64_interp.c's op2==0xb8 handler, which this mirrors.
+                        case 0xb8: TRACEI("popcnt modrm, reg");
+                                   READMODRM; POPCNT(modrm_val, modrm_reg,oz); break;
+
+                        // tzcnt/lzcnt (unlike bsf/bsr) define the result as the
+                        // operand size when the source is zero, and set CF to that
+                        // same zero-source condition; ZF reflects the result.
+                        case 0xbc: TRACEI("tzcnt modrm, reg");
+                                   READMODRM; TZCNT(modrm_val, modrm_reg,oz); break;
+                        case 0xbd: TRACEI("lzcnt modrm, reg");
+                                   READMODRM; LZCNT(modrm_val, modrm_reg,oz); break;
 
                         case 0xc2: TRACEI("cmpss xmm:modrm, xmm, imm8");
                                    READMODRM; READIMM8; V_OP_IMM(single_fcmp, xmm_modrm_val, xmm_modrm_reg,32); break;

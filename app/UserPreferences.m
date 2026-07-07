@@ -39,6 +39,7 @@ static NSString *const kPreferenceLLMServerURLKey = @"LLM Server URL";
 static NSString *const kPreferenceLLMModelKey = @"LLM Model";
 static NSString *const kPreferenceLLMAPIKeyKey = @"LLM API Key";
 static NSString *const kPreferenceLLMToolsEnabledKey = @"LLM Tools Enabled";
+static NSString *const kPreferenceCustomDnsServersKey = @"Custom DNS Servers";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
@@ -280,6 +281,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMModelKey: property(llmModel),
             kPreferenceLLMAPIKeyKey: property(llmAPIKey),
             kPreferenceLLMToolsEnabledKey: property(llmToolsEnabled),
+            kPreferenceCustomDnsServersKey: property(customDnsServers),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
             kPreferenceCursorStyleKey: property(cursorStyle),
@@ -608,6 +610,19 @@ bool (*remove_user_default)(const char *name);
 
 - (BOOL)validateLlmToolsEnabled:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: customDnsServers
+- (NSString *)customDnsServers {
+    return [_defaults stringForKey:kPreferenceCustomDnsServersKey] ?: @"";
+}
+
+- (void)setCustomDnsServers:(NSString *)customDnsServers {
+    [_defaults setObject:customDnsServers ?: @"" forKey:kPreferenceCustomDnsServersKey];
+}
+
+- (BOOL)validateCustomDnsServers:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSString.class];
 }
 
 // MARK: ShouldEnablemulticore

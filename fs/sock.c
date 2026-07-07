@@ -3565,6 +3565,14 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         } else {
             return _ENOPROTOOPT;
         }
+    } else if (level == SOL_SOCKET_ && option == SO_BINDTODEVICE_) {
+        // Linux reports an unbound socket as success with an empty interface
+        // name (optlen = 0), and nothing under iSH can bind a socket to a
+        // device, so every socket is unbound. Returning ENOPROTOOPT here made
+        // OpenSSH's sys_get_rdomain() VRF probe log "cannot determine VRF for
+        // fd=N : Protocol not available" on every ssh session. setsockopt
+        // still rejects it via the soft-unsupported list below.
+        value_len = 0;
     } else if (sockopt_is_linux_soft_unsupported(level, option)) {
         return _ENOPROTOOPT;
     } else if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {

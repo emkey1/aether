@@ -33,6 +33,7 @@ struct task;
 #define NT_PRSTATUS_ 1
 #define NT_PRFPREG_ 2
 #define NT_X86_XSTATE_ 0x202
+#define NT_ARM_SYSTEM_CALL_ 0x404
 
 #define PTRACE_EVENT_FORK_ 1
 #define PTRACE_EVENT_VFORK_ 2
@@ -134,6 +135,30 @@ struct user_fpregs_struct_amd64_ {
 };
 
 static_assert(sizeof(struct user_fpregs_struct_amd64_) == 512, "amd64 ptrace fpregs layout mismatch");
+
+// arm64 NT_PRSTATUS payload (struct user_pt_regs). strace validates the
+// returned iov_len against this exact size to pick the tracee personality.
+struct user_pt_regs_arm64_ {
+    qword_t regs[31];
+    qword_t sp;
+    qword_t pc;
+    qword_t pstate;
+};
+
+static_assert(sizeof(struct user_pt_regs_arm64_) == 272, "arm64 ptrace pt_regs layout mismatch");
+
+// arm64 NT_PRFPREG payload (struct user_fpsimd_state). The kernel struct's
+// __uint128_t vregs give it 16-byte alignment, hence 8 bytes of tail padding
+// after fpsr/fpcr — reproduced here explicitly since we store V regs as
+// qword pairs.
+struct user_fpsimd_state_arm64_ {
+    qword_t vregs[32][2];
+    dword_t fpsr;
+    dword_t fpcr;
+    dword_t reserved[2];
+};
+
+static_assert(sizeof(struct user_fpsimd_state_arm64_) == 528, "arm64 ptrace fpsimd layout mismatch");
 
 struct user_ {
     struct user_regs_struct_ user_regs;

@@ -1891,6 +1891,89 @@ amd64_gen_shift_count shift_count64, 8
         strb w9, [_cpu, CPU_flags_res]
     .endifin
 
+    # POPCNT: no scalar GPR popcount on aarch64, so bounce through NEON --
+    # this is the first NEON use in this macro; d0/v0 are caller-saved, dead
+    # after gret, and no C call happens in between, so they're free scratch
+    # (see the identical reasoning next to the amd64 scalar-double gadgets
+    # above). fmov d0,x10 zero-extends the size-masked value into all 8
+    # bytes of v0 (upper bytes already 0 from the uxt/mov above), cnt.8b
+    # gives a per-byte popcount, addv sums the 8 lanes into b0 (max 32, fits
+    # a byte), and the addv write zeroes the rest of v0 per the AArch64
+    # upper-bits-zeroed rule so the fmov back out needs no masking.
+    .ifc \op,popcnt
+        .ifnb \s
+            uxt\s w10, \arg
+        .else
+            mov w10, \arg
+        .endif
+        fmov d0, x10
+        cnt v0.8b, v0.8b
+        addv b0, v0.8b
+        fmov w10, s0
+        mov _tmp, w10
+        strb wzr, [_cpu, CPU_cf]
+        strb wzr, [_cpu, CPU_of]
+        cmp w10, 0
+        cset w9, eq
+        ldrb w8, [_cpu, CPU_eflags]
+        # bic's immediate form only accepts AArch64 logical-immediate bit
+        # patterns, and this OR of four single-bit flags isn't one -- clear
+        # each bit individually instead.
+        bic w8, w8, PF_FLAG
+        bic w8, w8, AF_FLAG
+        bic w8, w8, ZF_FLAG
+        bic w8, w8, SF_FLAG
+        orr w8, w8, w9, lsl 6
+        strb w8, [_cpu, CPU_eflags]
+        ldrb w8, [_cpu, CPU_flags_res]
+        bic w8, w8, PF_RES
+        bic w8, w8, ZF_RES
+        bic w8, w8, SF_RES
+        bic w8, w8, AF_OPS
+        strb w8, [_cpu, CPU_flags_res]
+    .endif
+
+    # TZCNT/LZCNT: unlike bsf/bsr, the result is architecturally defined as
+    # the operand size when the source is zero, and CF mirrors that
+    # zero-source condition (ZF mirrors the result instead). The rbit+clz
+    # (tzcnt) / clz (lzcnt) sequences below already yield exactly that
+    # zero-defined value by construction -- see the bsf/bsr block above,
+    # which computes the identical intermediate before converting it to a
+    # bit-index; tzcnt/lzcnt use it directly with no conversion or csel.
+    .ifin(\op, tzcnt,lzcnt)
+        .ifnb \s
+            uxt\s w11, \arg
+        .else
+            mov w11, \arg
+        .endif
+        mov w10, w11
+        .ifc \op,tzcnt
+            .if \size != 32
+                orr w10, w10, 1<<\size
+            .endif
+            rbit w10, w10
+            clz w10, w10
+        .else
+            clz w10, w10
+            .if \size != 32
+                sub w10, w10, 32-\size
+            .endif
+        .endif
+        mov _tmp, w10
+        cmp w11, 0
+        cset w9, eq
+        strb w9, [_cpu, CPU_cf]
+        cmp w10, 0
+        cset w9, eq
+        ldrb w8, [_cpu, CPU_eflags]
+        bic w8, w8, ZF_FLAG
+        orr w8, w8, w9, lsl 6
+        strb w8, [_cpu, CPU_eflags]
+        ldrb w8, [_cpu, CPU_flags_res]
+        bic w8, w8, ZF_RES
+        strb w8, [_cpu, CPU_flags_res]
+    .endifin
+
     .ifc \op,xchg
         mov w9, _tmp
         mov _tmp, \arg
@@ -1999,7 +2082,7 @@ amd64_gen_shift_count shift_count64, 8
     .endr
     .gadget_array \op
 .endr
-.irp op, imul,bsf,bsr
+.irp op, imul,bsf,bsr,popcnt,tzcnt,lzcnt
     .irp size, 16,32
         ss \size, do_op_size, \op, \op
     .endr

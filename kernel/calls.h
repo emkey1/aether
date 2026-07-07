@@ -210,6 +210,10 @@ fd_t sys_openat(fd_t at, addr_t path_addr, dword_t flags, mode_t_ mode);
 fd_t sys_openat_guest(fd_t at, guest_addr_t path_addr, dword_t flags, mode_t_ mode);
 fd_t sys_openat2(fd_t at, addr_t path_addr, addr_t how_addr, dword_t size);
 fd_t sys_openat2_guest(fd_t at, guest_addr_t path_addr, guest_addr_t how_addr, dword_t size);
+// aarch64 open(2) flags -> internal (i386-valued) flags; defined in calls.c
+// (see the comment there for the four relocated O_ constants). Exported for
+// sys_openat2_guest's arm64 open_how.flags translation.
+dword_t arm64_open_flags_to_internal(qword_t flags);
 dword_t sys_close(fd_t fd);
 dword_t sys_link(addr_t src_addr, addr_t dst_addr);
 dword_t sys_link_guest(guest_addr_t src_addr, guest_addr_t dst_addr);

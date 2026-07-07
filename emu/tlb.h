@@ -31,6 +31,29 @@ void tlb_flush(struct tlb *tlb);
 void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type);
 void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr);
 
+// arm64-guest host-atomic CAS pair helper (emu/tlb.c), shared by the JIT
+// casp gadgets (jit/guest-arm64/atomics.S) and the interpreter
+// (emu/arm64_interp.c). sz = bytes per register half (4 or 8);
+// expected/desired/old_out are {lo, hi}. Returns 0 / INT_PF / INT_GPF
+// (alignment; see arm64_atomic_alignment_fault).
+struct cpu_state;
+int arm64_casp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+               unsigned sz, const uint64_t expected[2], const uint64_t desired[2],
+               uint64_t old_out[2], uint32_t *swapped);
+
+// arm64-guest exclusive-pair helpers (emu/tlb.c), shared by the JIT
+// ldxp/stxp gadgets (jit/guest-arm64/atomics.S) and the interpreter
+// (emu/arm64_interp.c). sz = bytes per register half (4 or 8). arm64_ldxp
+// loads {lo, hi} into val_out and arms the exclusive monitor; arm64_stxp
+// resolves the monitor into a host-atomic pair CAS (via arm64_casp) and
+// writes the LL/SC status (0 = stored, 1 = failed) to *status_out.
+// Both return 0 / INT_PF / INT_GPF (alignment = total pair size).
+int arm64_ldxp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+               unsigned sz, uint64_t val_out[2]);
+int arm64_stxp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
+               unsigned sz, uint64_t desired_lo, uint64_t desired_hi,
+               uint32_t *status_out);
+
 forceinline __no_instrument void *__tlb_read_ptr(struct tlb *tlb, guest_addr_t addr) {
     if (unlikely(tlb->mem_changes != atomic_load_explicit(&tlb->mmu->changes, memory_order_relaxed)))
         tlb_flush(tlb);

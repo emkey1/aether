@@ -11,6 +11,7 @@
 #import "NSObject+SaneKVO.h"
 #import "AudioPlayerEngine.h"
 #import "AudioLibrary.h"
+#import "MotePadDocumentStore.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
@@ -111,6 +112,7 @@ static NSString *const ISHWorkspaceToolDiagnosticsIdentifier = @"diagnostics";
 static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
 static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
 static NSString *const ISHWorkspaceToolAudioIdentifier = @"audio";
+static NSString *const ISHWorkspaceToolMotePadIdentifier = @"motepad";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -145,20 +147,122 @@ static BOOL ISHWorkspaceUsesModernStyle(void) {
     return UserPreferences.shared.workspaceStyle == WorkspaceStyleModern;
 }
 
-// User-defined launcher shortcuts: each is @{@"name", @"command"}; the command is
-// run in a fresh terminal. Stored in NSUserDefaults.
+// User-defined launcher shortcuts: each is @{@"name", @"command"} (a leaf that runs a command
+// in a fresh terminal) or @{@"name", @"children"} (a group whose "children" is itself an array
+// of shortcuts, recursively — lets a shortcut like "Remote Login" hold multiple hosts). Stored
+// as a single tree in NSUserDefaults.
 static NSString *const ISHWorkspaceLauncherShortcutsKey = @"ISHWorkspaceLauncherShortcuts";
 static NSString *const ISHWorkspaceLauncherShortcutsDidChangeNotification = @"ISHWorkspaceLauncherShortcutsDidChangeNotification";
 
-static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceLauncherShortcuts(void) {
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherShortcuts(void) {
     NSArray *stored = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceLauncherShortcutsKey];
     return [stored isKindOfClass:NSArray.class] ? stored : @[];
 }
 
-static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts) {
+static void ISHWorkspaceSetLauncherShortcuts(NSArray<NSDictionary<NSString *, id> *> *shortcuts) {
     [NSUserDefaults.standardUserDefaults setObject:shortcuts forKey:ISHWorkspaceLauncherShortcutsKey];
     // Live-update any open Launcher applet (and the menu next time it's built).
     [NSNotificationCenter.defaultCenter postNotificationName:ISHWorkspaceLauncherShortcutsDidChangeNotification object:nil];
+}
+
+static BOOL ISHWorkspaceShortcutIsGroup(NSDictionary<NSString *, id> *shortcut) {
+    return [shortcut[@"children"] isKindOfClass:NSArray.class];
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceShortcutChildren(NSDictionary<NSString *, id> *shortcut) {
+    NSArray *children = shortcut[@"children"];
+    return [children isKindOfClass:NSArray.class] ? children : @[];
+}
+
+// Resolves the shortcut array living at `path` (a chain of child indices from the root),
+// e.g. an empty path is the root list; @[@1] is the children of the group at root index 1.
+// Returns an empty array for a path that no longer resolves (deleted out from under a stale view).
+static NSArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherArrayAtPath(NSArray<NSNumber *> *path) {
+    NSArray<NSDictionary<NSString *, id> *> *current = ISHWorkspaceLauncherShortcuts();
+    for (NSNumber *indexNumber in path) {
+        NSUInteger index = indexNumber.unsignedIntegerValue;
+        if (index >= current.count)
+            return @[];
+        current = ISHWorkspaceShortcutChildren(current[index]);
+    }
+    return current;
+}
+
+// Deep-copies a shortcut tree into nested NSMutableArrays (dictionaries stay immutable leaves;
+// only the arrays need to be mutable since edits replace/insert/remove/move whole dictionaries).
+static NSMutableArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherDeepMutableCopy(NSArray<NSDictionary<NSString *, id> *> *array) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *copy = [NSMutableArray arrayWithCapacity:array.count];
+    for (NSDictionary<NSString *, id> *item in array) {
+        if (ISHWorkspaceShortcutIsGroup(item)) {
+            NSMutableDictionary<NSString *, id> *mutableItem = [item mutableCopy];
+            mutableItem[@"children"] = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceShortcutChildren(item));
+            [copy addObject:mutableItem];
+        } else {
+            [copy addObject:item];
+        }
+    }
+    return copy;
+}
+
+typedef void (^ISHWorkspaceLauncherMutationBlock)(NSMutableArray<NSDictionary<NSString *, id> *> *level);
+
+// Walks a deep-mutable-copied tree (as produced by ISHWorkspaceLauncherDeepMutableCopy) down to
+// `path`, materializing an empty mutable "children" array for any group along the way that
+// doesn't have one yet, and returns the mutable array living at that path. Returns nil on a
+// stale/invalid path (an index that no longer exists). Shared by both -MutateAtPath: (a single
+// level) and -MoveShortcut:::: (moving an item between two levels of the same tree).
+static NSMutableArray<NSDictionary<NSString *, id> *> *ISHWorkspaceLauncherWalkToMutableLevel(
+    NSMutableArray<NSDictionary<NSString *, id> *> *root, NSArray<NSNumber *> *path) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *level = root;
+    for (NSNumber *indexNumber in path) {
+        NSUInteger index = indexNumber.unsignedIntegerValue;
+        if (index >= level.count)
+            return nil;
+        NSMutableDictionary<NSString *, id> *item = [level[index] mutableCopy];
+        NSMutableArray<NSDictionary<NSString *, id> *> *children = ISHWorkspaceShortcutIsGroup(item)
+            ? item[@"children"] : [NSMutableArray new];
+        item[@"children"] = children;
+        level[index] = item;
+        level = children;
+    }
+    return level;
+}
+
+// Mutates the shortcut array living at `path` and persists the whole tree back. Hands the
+// mutable array at that level to `block` (add/remove/replace/move as needed), then saves.
+// Silently no-ops on a stale/invalid path.
+static void ISHWorkspaceLauncherMutateAtPath(NSArray<NSNumber *> *path, ISHWorkspaceLauncherMutationBlock block) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *root = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceLauncherShortcuts());
+    NSMutableArray<NSDictionary<NSString *, id> *> *level = ISHWorkspaceLauncherWalkToMutableLevel(root, path);
+    if (level == nil)
+        return;
+    block(level);
+    ISHWorkspaceSetLauncherShortcuts(root);
+}
+
+// Relocates a single shortcut from one level of the tree to another (e.g. dragging it into a
+// group, or out to that group's parent via the "‹ Back" row) — both within the same persisted
+// write, so the tree never transiently loses the item. Silently no-ops on a stale path/index.
+static void ISHWorkspaceLauncherMoveShortcut(NSArray<NSNumber *> *sourcePath, NSUInteger sourceIndex,
+                                              NSArray<NSNumber *> *destinationPath, NSUInteger destinationIndex) {
+    NSMutableArray<NSDictionary<NSString *, id> *> *root = ISHWorkspaceLauncherDeepMutableCopy(ISHWorkspaceLauncherShortcuts());
+    NSMutableArray<NSDictionary<NSString *, id> *> *sourceLevel = ISHWorkspaceLauncherWalkToMutableLevel(root, sourcePath);
+    if (sourceLevel == nil || sourceIndex >= sourceLevel.count)
+        return;
+    // Resolve the destination level BEFORE removing the source item. destinationPath's indices
+    // describe the tree's state right now — e.g. "the group currently at index 2" — which can be
+    // the very same array sourceIndex is being removed from (dropping onto a sibling group).
+    // Removing first would shift every index after sourceIndex down by one, so looking up the
+    // destination afterward could land on the wrong item (or past the end) whenever the
+    // destination sits later in that shared array — which read as the shortcut just vanishing.
+    NSMutableArray<NSDictionary<NSString *, id> *> *destinationLevel = ISHWorkspaceLauncherWalkToMutableLevel(root, destinationPath);
+    if (destinationLevel == nil)
+        return;
+
+    NSDictionary<NSString *, id> *moved = sourceLevel[sourceIndex];
+    [sourceLevel removeObjectAtIndex:sourceIndex];
+    [destinationLevel insertObject:moved atIndex:MIN(destinationIndex, destinationLevel.count)];
+    ISHWorkspaceSetLauncherShortcuts(root);
 }
 
 // A launcher shortcut whose command is just a {token} opens a built-in tool/applet instead of
@@ -195,6 +299,32 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"chat": ISHWorkspaceToolLLMIdentifier,
         @"music": ISHWorkspaceToolAudioIdentifier,
         @"audio": ISHWorkspaceToolAudioIdentifier,
+        @"motepad": ISHWorkspaceToolMotePadIdentifier,
+        @"editor": ISHWorkspaceToolMotePadIdentifier,
+        @"notepad": ISHWorkspaceToolMotePadIdentifier,
+        @"textedit": ISHWorkspaceToolMotePadIdentifier,
+        @"text": ISHWorkspaceToolMotePadIdentifier,
+    };
+    return map[token];
+}
+
+// A launcher shortcut whose command is {shell} or {console} opens/focuses the primary Session
+// Shell or System Console — the same singleton terminals as the dock's Terminal menu — rather
+// than a generic tool applet (they're not tool identifiers) or an ad-hoc fresh terminal (a plain
+// blank-command shortcut already covers that case). Returns the matching terminal role, or nil.
+static NSString *ISHWorkspaceLauncherTerminalRoleForCommand(NSString *command) {
+    NSString *trimmed = [command stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length < 3 || ![trimmed hasPrefix:@"{"] || ![trimmed hasSuffix:@"}"])
+        return nil;
+    NSString *token = [[trimmed substringWithRange:NSMakeRange(1, trimmed.length - 2)]
+                       stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].lowercaseString;
+    NSDictionary<NSString *, NSString *> *map = @{
+        @"shell": ISHWorkspaceTerminalRoleSessionShell,
+        @"session_shell": ISHWorkspaceTerminalRoleSessionShell,
+        @"sessionshell": ISHWorkspaceTerminalRoleSessionShell,
+        @"console": ISHWorkspaceTerminalRoleSystemConsole,
+        @"system_console": ISHWorkspaceTerminalRoleSystemConsole,
+        @"systemconsole": ISHWorkspaceTerminalRoleSystemConsole,
     };
     return map[token];
 }
@@ -678,19 +808,28 @@ static UIViewController *ISHCreateRootsViewController(void) {
     return [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
 }
 
-// The Launcher applet sizes itself to its item count: header-less list of shortcut buttons
-// plus the "Edit Shortcuts" button, with insets. Used both as its preferred open size and by
-// -autosizeLauncherWindow when shortcuts are added/removed.
-static CGSize ISHWorkspaceLauncherContentSize(void) {
+// The Launcher applet sizes itself to its item count: an optional "‹ Back" row, the item list
+// (a real UITableView since the native-reorder rewrite), and the Add/Edit footer row, with
+// insets — each of those three pieces has its own height, so they're tracked separately rather
+// than folded into one "row count" the way the old custom-button stack view allowed (that's
+// what let this go stale and clip the footer off-window after the table-view rewrite: the old
+// formula's per-row height and its single "Edit Shortcuts" button height no longer matched the
+// table's actual row height or the new two-button footer). Used both as the preferred open size
+// (root level, no back row) and by -autosizeLauncherWindowForItemCount:showsBackRow: (current
+// level) when shortcuts are added/removed/drilled into.
+static CGSize ISHWorkspaceLauncherContentSize(NSUInteger itemRowCount, BOOL showsBackRow) {
     BOOL phone = ISHWorkspaceUsesPhoneLayout();
-    NSUInteger count = ISHWorkspaceLauncherShortcuts().count;
     CGFloat inset = phone ? 12.0 : 16.0;
     CGFloat spacing = 8.0;
-    CGFloat rowHeight = phone ? 28.0 : 30.0;
-    CGFloat editHeight = phone ? 40.0 : 44.0;
     CGFloat width = phone ? 168.0 : 200.0;
-    CGFloat rowsHeight = count > 0 ? (count * rowHeight + (count - 1) * spacing) : (phone ? 28.0 : 32.0);
-    CGFloat height = inset + rowsHeight + spacing + editHeight + inset;
+    CGFloat tableRowHeight = phone ? 34.0 : 38.0;              // matches _tableView.rowHeight
+    CGFloat backRowHeight = phone ? 28.0 : 30.0;                // matches launcherBackButton's minimum height
+    CGFloat footerRowHeight = (phone ? 26.0 : 28.0) + 8.0;      // Add/Edit pill height + its 4pt top/bottom margins
+
+    CGFloat itemsHeight = itemRowCount > 0 ? (itemRowCount * tableRowHeight) : (phone ? 28.0 : 32.0);
+    CGFloat height = inset + itemsHeight + spacing + footerRowHeight + inset;
+    if (showsBackRow)
+        height += backRowHeight + spacing;
     return CGSizeMake(width, height);
 }
 
@@ -757,9 +896,11 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
             return CGSizeMake(352, 560);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-            return ISHWorkspaceLauncherContentSize();
+            return ISHWorkspaceLauncherContentSize(ISHWorkspaceLauncherShortcuts().count, NO);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 510);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+            return CGSizeMake(340, 460);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -793,9 +934,11 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLLMIdentifier])
         return CGSizeMake(560, 620);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolLauncherIdentifier])
-        return ISHWorkspaceLauncherContentSize();
+        return ISHWorkspaceLauncherContentSize(ISHWorkspaceLauncherShortcuts().count, NO);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 470);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return CGSizeMake(620, 560);
     return CGSizeMake(720, 640);
 }
 
@@ -878,6 +1021,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(200, 80);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 390);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+            return CGSizeMake(280, 300);
         return CGSizeMake(300, 220);
     }
 
@@ -909,6 +1054,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(220, 96);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 360);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return CGSizeMake(360, 300);
     return CGSizeZero;
 }
 
@@ -968,6 +1115,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Launcher";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return @"Music";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return @"MotePad";
     return @"Window";
 }
 
@@ -2234,7 +2383,7 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @interface WorkspaceShortcutsToolViewController : WorkspaceThemedToolViewController
 @end
 
-@interface WorkspaceLauncherToolViewController : WorkspaceThemedToolViewController
+@interface WorkspaceLauncherToolViewController : WorkspaceThemedToolViewController <UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate, UITableViewDropDelegate, UIDropInteractionDelegate>
 @end
 
 @interface WorkspaceBrowserToolViewController : WorkspaceThemedToolViewController <UITextFieldDelegate, WKNavigationDelegate, WKUIDelegate>
@@ -2244,6 +2393,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
 @end
 
 @interface WorkspaceAudioPlayerToolViewController : WorkspaceThemedToolViewController
+@end
+
+@interface WorkspaceMotePadToolViewController : WorkspaceThemedToolViewController
 @end
 
 static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIdentifier) {
@@ -2286,6 +2438,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceLauncherToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier])
         return [WorkspaceAudioPlayerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
+        return [WorkspaceMotePadToolViewController new];
     return nil;
 }
 
@@ -2324,6 +2478,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolFilesystemsIdentifier;
     if ([viewController isKindOfClass:WorkspaceAudioPlayerToolViewController.class])
         return ISHWorkspaceToolAudioIdentifier;
+    if ([viewController isKindOfClass:WorkspaceMotePadToolViewController.class])
+        return ISHWorkspaceToolMotePadIdentifier;
     return nil;
 }
 
@@ -2803,6 +2959,20 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     return windowView;
 }
 
+// Depth-first search for the view that currently holds first-responder status
+// inside a (sub)tree — used by the shared close path to hand keyboard focus back
+// to the workspace before a window containing the responder is torn down.
+static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
+    if (view.isFirstResponder)
+        return view;
+    for (UIView *subview in view.subviews) {
+        UIView *responder = ISHWorkspaceFindFirstResponder(subview);
+        if (responder != nil)
+            return responder;
+    }
+    return nil;
+}
+
 - (void)attachViewController:(UIViewController *)viewController toDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView {
     if ([viewController isKindOfClass:WorkspaceThemedToolViewController.class]) {
         ((WorkspaceThemedToolViewController *) viewController).workspaceHostViewController = self;
@@ -2831,12 +3001,25 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         ISHWorkspaceContainedWindowView *strongWindowView = weakWindowView;
         if (strongSelf == nil || strongViewController == nil || strongWindowView == nil)
             return;
+        // First-responder handoff: tearing down a window while one of its views (e.g.
+        // MotePad's text view — the workspace's first text-input applet) is first
+        // responder leaves the workspace with no responder, wedging keyboard input
+        // until the user taps a terminal. Resign it before the teardown and afterwards
+        // revive input the same way the tap-to-focus path does (focusTerminal on the
+        // frontmost terminal window). Done here in the shared tool close path — every
+        // close route (chrome ×, ⌘W, menu Quit) funnels through this handler, and any
+        // future text-input applet gets the same protection for free.
+        UIView *closingFirstResponder = ISHWorkspaceFindFirstResponder(strongWindowView);
+        if (closingFirstResponder != nil)
+            [closingFirstResponder resignFirstResponder];
         [strongViewController willMoveToParentViewController:nil];
         [strongViewController.view removeFromSuperview];
         [strongViewController removeFromParentViewController];
         [strongSelf.desktopWindows removeObject:strongWindowView];
         [strongWindowView removeFromSuperview];
         [strongSelf refreshDockButtons];
+        if (closingFirstResponder != nil)
+            [[strongSelf frontmostDesktopTerminalWindow].hostedTerminalViewController focusTerminal];
     };
 }
 
@@ -3486,9 +3669,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-// Run a launcher shortcut: a {token} command opens the matching built-in tool; anything else
-// runs in a fresh terminal (an empty command just opens a terminal).
+// Run a launcher shortcut: a {token} command opens the matching built-in tool or singleton
+// terminal; anything else runs in a fresh terminal (an empty command just opens a terminal).
 - (void)runLauncherShortcutWithCommand:(NSString *)command title:(NSString *)title {
+    NSString *terminalRole = ISHWorkspaceLauncherTerminalRoleForCommand(command);
+    if (terminalRole.length > 0) {
+        [self openTerminalHerePreferringConsole:[terminalRole isEqualToString:ISHWorkspaceTerminalRoleSystemConsole]];
+        return;
+    }
     NSString *toolIdentifier = ISHWorkspaceLauncherToolIdentifierForCommand(command);
     if (toolIdentifier.length > 0) {
         [self openOrFocusWorkspaceToolIdentifier:toolIdentifier];
@@ -3532,33 +3720,64 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)presentLauncherFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    [self presentLauncherFromView:sourceView sourceRect:sourceRect path:@[]];
+}
+
+// Quick-launch popup. A leaf action runs its command; a group action re-presents this same
+// sheet scoped to the group's children (with a "‹ Back" action to return), so nested shortcuts
+// are reachable without leaving the popup.
+- (void)presentLauncherFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect path:(NSArray<NSNumber *> *)path {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Launcher"
                                             message:shortcuts.count == 0 ? @"Add a shortcut to run a command in a new terminal." : nil
                                      preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
+    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, id> *shortcut, NSUInteger idx, __unused BOOL *stop) {
         NSString *command = shortcut[@"command"] ?: @"";
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
+        NSString *shortcutName = shortcut[@"name"];
+        NSString *name = shortcutName.length > 0 ? shortcutName
                        : (command.length > 0 ? command : @"Terminal");
-        [sheet addAction:[UIAlertAction actionWithTitle:name
+        if (ISHWorkspaceShortcutIsGroup(shortcut)) {
+            [sheet addAction:[UIAlertAction actionWithTitle:[name stringByAppendingString:@" ›"]
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(__unused UIAlertAction *action) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self presentLauncherFromView:sourceView sourceRect:sourceRect
+                                              path:[path arrayByAddingObject:@(idx)]];
+                });
+            }]];
+        } else {
+            [sheet addAction:[UIAlertAction actionWithTitle:name
+                                                      style:UIAlertActionStyleDefault
+                                                    handler:^(__unused UIAlertAction *action) {
+                [self runLauncherShortcutWithCommand:command title:name];
+            }]];
+        }
+    }];
+    if (path.count > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"‹ Back"
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            [self runLauncherShortcutWithCommand:command title:name];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentLauncherFromView:sourceView sourceRect:sourceRect
+                                          path:[path subarrayWithRange:NSMakeRange(0, path.count - 1)]];
+            });
         }]];
     }
-    [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(__unused UIAlertAction *action) {
-        [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
-    }]];
+    if (path.count == 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Show on Desktop"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self openOrFocusWorkspaceToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
+        }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Edit Shortcuts…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         // Defer: presenting from a sheet handler races the sheet dismissal and
         // iOS 27 drops it (see presentDesktopRootMenuFromView).
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentLauncherEditorFromView:sourceView];
+            [self presentLauncherEditorFromView:sourceView path:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3572,7 +3791,49 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)presentAddLauncherShortcut {
+// Lean "+" entry point (used by the Launcher applet's own Add button, alongside its Edit
+// toggle): just the three add actions, scoped to `path` — no item list, unlike
+// -presentLauncherEditorFromView:path: (which the popup-menu "Edit Shortcuts…" flow still uses
+// and which also lists items for rename/delete — redundant with the applet's own inline
+// delete/drag chrome, so the applet uses this instead).
+- (void)presentAddLauncherOptionsFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Add"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Shortcut…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherShortcutAtPath:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherBuiltinFromView:sourceView path:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Group…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherGroupAtPath:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)presentAddLauncherShortcutAtPath:(NSArray<NSNumber *> *)path {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Add Shortcut"
                                             message:@"A name, and a command to run in a new terminal. Leave it blank for just a terminal, or use a {token} like {clock} or {browser} to open a built-in."
@@ -3594,9 +3855,34 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         if (command.length == 0 && nameField.length == 0)
             return;
         NSString *name = nameField.length > 0 ? nameField : command;
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        [shortcuts addObject:@{@"name": name, @"command": command}];
-        ISHWorkspaceSetLauncherShortcuts(shortcuts);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            [level addObject:@{@"name": name, @"command": command}];
+        });
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+// A group holds its own nested list of shortcuts (or further groups) — created empty, then
+// populated by drilling into it and using "Add Shortcut…"/"Add Built-in…"/"Add Group…" again.
+- (void)presentAddLauncherGroupAtPath:(NSArray<NSNumber *> *)path {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Add Group"
+                                            message:@"A group holds its own list of shortcuts — e.g. \"Remote Login\" holding several hosts. Add shortcuts to it after creating it."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Name (e.g. Remote Login)";
+        textField.autocapitalizationType = UITextAutocapitalizationTypeWords;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        NSString *name = alert.textFields[0].text ?: @"";
+        if (name.length == 0)
+            return;
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            [level addObject:@{@"name": name, @"children": @[]}];
+        });
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
@@ -3604,20 +3890,29 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 // "Edit Shortcuts" entry point: pick a shortcut to edit/delete, or add a new one. Replaces
 // the old separate Add/Remove sheets and is shared by the root-menu Launcher and the applet.
+// `path` scopes this to a level of the tree (root, or a group's children when drilled in).
 - (void)presentLauncherEditorFromView:(UIView *)sourceView {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    [self presentLauncherEditorFromView:sourceView path:@[]];
+}
+
+- (void)presentLauncherEditorFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Edit Shortcuts"
-                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command — or just open a terminal." : @"Pick a shortcut to rename, change, or delete."
+                                            message:shortcuts.count == 0 ? @"Add a shortcut to run a command — or just open a terminal." : @"Pick a shortcut to rename, change, move, or delete."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
-    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSString *> *shortcut, NSUInteger idx, __unused BOOL *stop) {
-        NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
-                       : (shortcut[@"command"].length > 0 ? shortcut[@"command"] : @"Terminal");
+    [shortcuts enumerateObjectsUsingBlock:^(NSDictionary<NSString *, id> *shortcut, NSUInteger idx, __unused BOOL *stop) {
+        NSString *command = shortcut[@"command"];
+        NSString *shortcutName = shortcut[@"name"];
+        NSString *name = shortcutName.length > 0 ? shortcutName
+                       : (command.length > 0 ? command : @"Terminal");
+        if (ISHWorkspaceShortcutIsGroup(shortcut))
+            name = [name stringByAppendingString:@" ›"];
         [sheet addAction:[UIAlertAction actionWithTitle:name
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self presentEditLauncherShortcutAtIndex:idx];
+                [self presentEditLauncherShortcutAtPath:path index:idx];
             });
         }]];
     }];
@@ -3625,14 +3920,21 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentAddLauncherShortcut];
+            [self presentAddLauncherShortcutAtPath:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Add Built-in…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentAddLauncherBuiltinFromView:sourceView];
+            [self presentAddLauncherBuiltinFromView:sourceView path:path];
+        });
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Add Group…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentAddLauncherGroupAtPath:path];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3648,10 +3950,14 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 
 // Discoverable companion to the {token} syntax: pick a built-in tool and it's added as a
 // shortcut whose command is the matching {token}.
-- (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView {
+- (void)presentAddLauncherBuiltinFromView:(UIView *)sourceView path:(NSArray<NSNumber *> *)path {
     NSMutableArray<NSDictionary<NSString *, NSString *> *> *builtins = [@[
+        @{@"name": @"New Terminal", @"command": @""},
+        @{@"name": @"Session Shell", @"command": @"{shell}"},
+        @{@"name": @"System Console", @"command": @"{console}"},
         @{@"name": @"Web Browser", @"command": @"{browser}"},
         @{@"name": @"Music", @"command": @"{music}"},
+        @{@"name": @"MotePad", @"command": @"{motepad}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -3674,9 +3980,9 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [sheet addAction:[UIAlertAction actionWithTitle:builtin[@"name"]
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
-            NSMutableArray<NSDictionary<NSString *, NSString *> *> *shortcuts = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-            [shortcuts addObject:builtin];
-            ISHWorkspaceSetLauncherShortcuts(shortcuts);
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                [level addObject:builtin];
+            });
         }]];
     }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -3690,57 +3996,94 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     [self presentViewController:sheet animated:YES completion:nil];
 }
 
-- (void)presentEditLauncherShortcutAtIndex:(NSUInteger)index {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+- (void)presentEditLauncherShortcutAtPath:(NSArray<NSNumber *> *)path index:(NSUInteger)index {
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(path);
     if (index >= shortcuts.count)
         return;
-    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[index];
+    NSDictionary<NSString *, id> *shortcut = shortcuts[index];
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(shortcut);
+
     UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Edit Shortcut"
-                                            message:@"Leave the command blank to just open a terminal."
+        [UIAlertController alertControllerWithTitle:isGroup ? @"Edit Group" : @"Edit Shortcut"
+                                            message:isGroup ? @"Rename, move, or delete this group. Drill into it from the list to edit what's inside."
+                                                             : @"Leave the command blank to just open a terminal."
                                      preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.placeholder = @"Name";
         textField.text = shortcut[@"name"];
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     }];
-    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Command (blank for a shell)";
-        textField.text = shortcut[@"command"];
-        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-        textField.autocorrectionType = UITextAutocorrectionTypeNo;
-    }];
+    if (!isGroup) {
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.placeholder = @"Command (blank for a shell)";
+            textField.text = shortcut[@"command"];
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        }];
+    }
     [alert addAction:[UIAlertAction actionWithTitle:@"Save"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
-        NSString *command = alert.textFields[1].text ?: @"";
         NSString *nameField = alert.textFields[0].text ?: @"";
-        if (command.length == 0 && nameField.length == 0)
+        NSString *command = isGroup ? nil : (alert.textFields[1].text ?: @"");
+        if (nameField.length == 0 && command.length == 0)
             return;
         NSString *name = nameField.length > 0 ? nameField : command;
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        if (index < updated.count)
-            updated[index] = @{@"name": name, @"command": command};
-        ISHWorkspaceSetLauncherShortcuts(updated);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            if (index >= level.count)
+                return;
+            if (isGroup)
+                level[index] = @{@"name": name, @"children": ISHWorkspaceShortcutChildren(level[index])};
+            else
+                level[index] = @{@"name": name, @"command": command};
+        });
     }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Delete"
+    if (index > 0) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"Move Up"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                if (index == 0 || index >= level.count)
+                    return;
+                [level exchangeObjectAtIndex:index withObjectAtIndex:index - 1];
+            });
+        }]];
+    }
+    if (index + 1 < shortcuts.count) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"Move Down"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+                if (index + 1 >= level.count)
+                    return;
+                [level exchangeObjectAtIndex:index withObjectAtIndex:index + 1];
+            });
+        }]];
+    }
+    NSString *deleteTitle = isGroup && ISHWorkspaceShortcutChildren(shortcut).count > 0
+        ? [NSString stringWithFormat:@"Delete Group and %lu Item%@", (unsigned long)ISHWorkspaceShortcutChildren(shortcut).count,
+                                      ISHWorkspaceShortcutChildren(shortcut).count == 1 ? @"" : @"s"]
+        : @"Delete";
+    [alert addAction:[UIAlertAction actionWithTitle:deleteTitle
                                               style:UIAlertActionStyleDestructive
                                             handler:^(__unused UIAlertAction *action) {
-        NSMutableArray<NSDictionary<NSString *, NSString *> *> *updated = [ISHWorkspaceLauncherShortcuts() mutableCopy];
-        if (index < updated.count)
-            [updated removeObjectAtIndex:index];
-        ISHWorkspaceSetLauncherShortcuts(updated);
+        ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+            if (index < level.count)
+                [level removeObjectAtIndex:index];
+        });
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-// Resize the open Launcher applet to match its current item count (auto-size to content).
-- (void)autosizeLauncherWindow {
+// Resize the open Launcher applet to match its currently displayed content (auto-size) — the
+// caller passes the item count for whatever level (root or a drilled-into group) is currently
+// on screen, plus whether a "‹ Back" row is showing above it.
+- (void)autosizeLauncherWindowForItemCount:(NSUInteger)itemCount showsBackRow:(BOOL)showsBackRow {
     ISHWorkspaceContainedWindowView *window = [self desktopWindowForToolIdentifier:ISHWorkspaceToolLauncherIdentifier];
     if (window == nil)
         return;
-    [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize() animated:YES];
+    [self resizeDesktopWindow:window toSize:ISHWorkspaceLauncherContentSize(itemCount, showsBackRow) animated:YES];
 }
 
 - (void)autosizeMonitorWindow {
@@ -4938,6 +5281,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         @{@"title": @"Quick Actions", @"identifier": ISHWorkspaceToolShortcutsIdentifier},
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Music", @"identifier": ISHWorkspaceToolAudioIdentifier},
+        @{@"title": @"MotePad", @"identifier": ISHWorkspaceToolMotePadIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
@@ -5861,7 +6205,7 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
         [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:8],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
     ]];
     return card;
 }
@@ -7162,13 +7506,43 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 @end
 
 @implementation WorkspaceLauncherToolViewController {
+    // Outer scroll + vertical stack, matching every other applet in this file (see e.g. the
+    // Monitor/Sessions/Storage tool view controllers): proven to position header/list/footer
+    // controls correctly, unlike UITableView's tableHeaderView/tableFooterView self-sizing,
+    // which placed the footer controls at the top instead of the bottom. The table view itself
+    // is just one fixed-height arranged subview in that stack, sized to its own content — the
+    // outer scroll view is what actually scrolls if the window can't show everything.
     UIScrollView *_scrollView;
     UIStackView *_contentStack;
+    UITableView *_tableView;
+    NSLayoutConstraint *_tableViewHeightConstraint;
+    // Indices from the root shortcut list down to the group currently being displayed; empty
+    // at the top level. Lets the applet drill into a group ("Remote Login") and show its
+    // nested shortcuts in place, with a "‹ Back" row to return.
+    NSMutableArray<NSNumber *> *_currentPath;
+    // Whether the list is in native table-view editing mode (toggled by the pill button at the
+    // bottom, not a separate sheet — see launcherEditToggleButton). Reordering and delete both
+    // use UIKit's own table-view editing machinery rather than custom gesture code: three
+    // attempts at a hand-rolled drag (UIStackView + transform, then + a floating snapshot, then
+    // + gesture-recognizer tuning) all had reliability problems that were hard to diagnose
+    // without being able to drive the touch interaction directly. UITableView's reordering is
+    // Apple-maintained and used everywhere in iOS, so it sidesteps that whole bug class.
+    BOOL _isEditing;
+    // The current level's shortcuts, kept as the table's live data source; committed to
+    // NSUserDefaults on every edit (see -deleteRowAtIndex:indexPath: and -moveRowAtIndexPath:).
+    NSMutableArray<NSDictionary<NSString *, id> *> *_rowShortcuts;
+    // Set right before a self-inflicted persist (delete/move) so the resulting shortcuts-changed
+    // notification doesn't immediately undo the table's own animation with a redundant reload —
+    // other open Launcher windows still react to the notification normally.
+    BOOL _suppressNextReload;
 }
+
+static NSString *const ISHWorkspaceLauncherRowReuseIdentifier = @"launcher.row";
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"Launcher";
+    _currentPath = [NSMutableArray new];
 
     _scrollView = [UIScrollView new];
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -7186,12 +7560,38 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [_scrollView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
         [_scrollView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
         [_scrollView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
-        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.topAnchor constant:inset],
-        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.leadingAnchor constant:inset],
-        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.trailingAnchor constant:-inset],
-        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.bottomAnchor constant:-inset],
-        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.widthAnchor constant:-(inset * 2.0)],
+        [_contentStack.topAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.topAnchor constant:inset],
+        [_contentStack.leadingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.leadingAnchor constant:inset],
+        [_contentStack.trailingAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.trailingAnchor constant:-inset],
+        [_contentStack.bottomAnchor constraintEqualToAnchor:_scrollView.contentLayoutGuide.bottomAnchor constant:-inset],
+        [_contentStack.widthAnchor constraintEqualToAnchor:_scrollView.frameLayoutGuide.widthAnchor constant:-(inset * 2.0)],
     ]];
+
+    _tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    _tableView.translatesAutoresizingMaskIntoConstraints = NO;
+    _tableView.dataSource = self;
+    _tableView.delegate = self;
+    _tableView.dragDelegate = self;
+    _tableView.dropDelegate = self;
+    // Modern drag & drop, not the classic canMoveRowAtIndexPath/moveRowAtIndexPath reorder: the
+    // classic API can only reorder within one flat array, but dropping a row onto a group (to
+    // nest it inside) or onto the "‹ Back" row (to move it out to the parent level) both need to
+    // relocate an item between two different levels of the tree, which drag & drop's
+    // per-drop-target delegate callbacks support and the classic API has no concept of.
+    _tableView.dragInteractionEnabled = YES;
+    _tableView.allowsSelectionDuringEditing = YES;
+    _tableView.backgroundColor = UIColor.clearColor;
+    _tableView.separatorInset = UIEdgeInsetsZero;
+    // The outer _scrollView is the one that actually scrolls (matching every other applet in
+    // this file); the table is sized to fit its own content exactly (see -updateTableViewHeight),
+    // so it never needs to scroll on its own — this also avoids a repeat of the earlier bug
+    // where an ancestor scroll view's pan gesture competed with a drag inside this list.
+    _tableView.scrollEnabled = NO;
+    _tableView.rowHeight = ISHWorkspaceUsesPhoneLayout() ? 34.0 : 38.0;
+    _tableView.separatorColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]];
+    [_tableView registerClass:UITableViewCell.class forCellReuseIdentifier:ISHWorkspaceLauncherRowReuseIdentifier];
+    _tableViewHeightConstraint = [_tableView.heightAnchor constraintEqualToConstant:_tableView.rowHeight];
+    _tableViewHeightConstraint.active = YES;
 
     [self rebuildLauncherList];
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -7218,9 +7618,25 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
 }
 
 - (void)launcherShortcutsDidChange {
+    if (_suppressNextReload) {
+        _suppressNextReload = NO;
+        return;
+    }
+    // A path can be invalidated by an edit made elsewhere (e.g. the group we're inside of was
+    // just deleted from the root-menu Launcher popup) — clamp back to the nearest valid level.
+    [self clampCurrentPathToValidLevel];
     [self rebuildLauncherList];
-    // Grow/shrink the window to match the new item count.
-    [(id)self.workspaceHostViewController autosizeLauncherWindow];
+}
+
+- (void)clampCurrentPathToValidLevel {
+    while (_currentPath.count > 0) {
+        NSArray<NSNumber *> *parentPath = [_currentPath subarrayWithRange:NSMakeRange(0, _currentPath.count - 1)];
+        NSArray<NSDictionary<NSString *, id> *> *parentLevel = ISHWorkspaceLauncherArrayAtPath(parentPath);
+        NSUInteger index = _currentPath.lastObject.unsignedIntegerValue;
+        if (index < parentLevel.count && ISHWorkspaceShortcutIsGroup(parentLevel[index]))
+            return;
+        [_currentPath removeLastObject];
+    }
 }
 
 - (void)reassertLauncherPlacement {
@@ -7243,79 +7659,1954 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         [view removeFromSuperview];
     }
 
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
+    if (_currentPath.count > 0)
+        [_contentStack addArrangedSubview:[self launcherBackButton]];
+
+    NSArray<NSDictionary<NSString *, id> *> *shortcuts = ISHWorkspaceLauncherArrayAtPath(_currentPath);
+    _rowShortcuts = [shortcuts mutableCopy];
+
     if (shortcuts.count == 0) {
         UILabel *empty = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
         empty.numberOfLines = 0;
-        empty.text = @"No shortcuts yet.";
+        empty.text = _currentPath.count > 0 ? @"No shortcuts in this group yet." : @"No shortcuts yet.";
         [_contentStack addArrangedSubview:empty];
     } else {
-        NSUInteger index = 0;
-        for (NSDictionary<NSString *, NSString *> *shortcut in shortcuts) {
-            [_contentStack addArrangedSubview:[self launcherButtonForShortcut:shortcut index:index]];
-            index++;
-        }
+        [_contentStack addArrangedSubview:_tableView];
     }
+    [self updateTableViewHeight];
 
-    [_contentStack addArrangedSubview:[self launcherEditButton]];
+    [_tableView setEditing:_isEditing animated:NO];
+    [_tableView reloadData];
+
+    [_contentStack addArrangedSubview:[self launcherBottomControlsRow]];
+
+    // Grow/shrink the window to match the currently displayed content.
+    [(id)self.workspaceHostViewController autosizeLauncherWindowForItemCount:shortcuts.count showsBackRow:_currentPath.count > 0];
 }
 
-- (UIButton *)launcherButtonForShortcut:(NSDictionary<NSString *, NSString *> *)shortcut index:(NSUInteger)index {
-    NSString *command = shortcut[@"command"] ?: @"";
-    NSString *name = shortcut[@"name"].length > 0 ? shortcut[@"name"]
-                   : (command.length > 0 ? command : @"Terminal");
-
-    UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
-    run.translatesAutoresizingMaskIntoConstraints = NO;
-    run.tag = (NSInteger)index;
-    run.contentEdgeInsets = UIEdgeInsetsMake(2, 3, 2, 3);
-    run.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    run.titleLabel.numberOfLines = 0;
-    run.layer.cornerRadius = 12;
-    run.layer.borderWidth = 1;
-    run.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
-    run.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.5];
-    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 28.0 : 30.0;
-    [run.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
-
-    NSMutableParagraphStyle *style = [NSMutableParagraphStyle new];
-    style.alignment = NSTextAlignmentCenter;
-    UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
-    NSAttributedString *label = [[NSAttributedString alloc] initWithString:name attributes:@{
-        NSFontAttributeName: [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) * 1.2 weight:UIFontWeightSemibold],
-        NSForegroundColorAttributeName: primary,
-        NSParagraphStyleAttributeName: style,
-    }];
-    [run setAttributedTitle:label forState:UIControlStateNormal];
-    [run addTarget:self action:@selector(runShortcutTapped:) forControlEvents:UIControlEventTouchUpInside];
-    return run;
+// The table has no natural intrinsic size, so its height in the stack is driven explicitly —
+// exactly rowHeight * count, since it never scrolls internally (see -viewDidLoad).
+- (void)updateTableViewHeight {
+    _tableViewHeightConstraint.constant = _tableView.rowHeight * MAX(_rowShortcuts.count, (NSUInteger)1);
 }
 
-- (UIButton *)launcherEditButton {
-    UIButton *edit = [UIButton buttonWithType:UIButtonTypeSystem];
-    edit.translatesAutoresizingMaskIntoConstraints = NO;
-    UIColor *accent = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
-    [edit setTitle:@"Edit Shortcuts" forState:UIControlStateNormal];
-    [edit setTitleColor:accent forState:UIControlStateNormal];
-    edit.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
-    edit.layer.cornerRadius = 12;
-    edit.layer.borderWidth = 1;
-    edit.layer.borderColor = accent.CGColor;
-    [edit.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 40.0 : 44.0].active = YES;
-    [edit addTarget:self action:@selector(editShortcutsTapped:) forControlEvents:UIControlEventTouchUpInside];
-    return edit;
+#pragma mark - UITableViewDataSource / UITableViewDelegate
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return (NSInteger)_rowShortcuts.count;
 }
 
-- (void)runShortcutTapped:(UIButton *)sender {
-    NSArray<NSDictionary<NSString *, NSString *> *> *shortcuts = ISHWorkspaceLauncherShortcuts();
-    if ((NSUInteger)sender.tag >= shortcuts.count)
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:ISHWorkspaceLauncherRowReuseIdentifier forIndexPath:indexPath];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    NSDictionary<NSString *, id> *shortcut = index < _rowShortcuts.count ? _rowShortcuts[index] : nil;
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(shortcut);
+    NSString *command = shortcut[@"command"];
+    NSString *shortcutName = shortcut[@"name"];
+    NSString *name = shortcutName.length > 0 ? shortcutName : (command.length > 0 ? command : @"Terminal");
+
+    cell.backgroundColor = UIColor.clearColor;
+    cell.textLabel.text = name;
+    cell.textLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightMedium];
+    cell.textLabel.textColor = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
+    cell.accessoryType = (isGroup && !_isEditing) ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+    cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+    // A folder icon marks groups regardless of editing state — the trailing disclosure chevron
+    // above is a group-only cue too, but it's replaced by the reorder handle while editing
+    // (exactly when you're most likely dragging something and need to see which rows are valid
+    // "drop into" targets), so groups need a cue that survives into edit mode.
+    cell.imageView.image = isGroup
+        ? [[UIImage systemImageNamed:@"folder.fill"] imageByApplyingSymbolConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightMedium]]
+        : nil;
+    cell.imageView.tintColor = [self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor];
+    // A visible "grab here to move" cue: drag-and-drop (unlike the classic reorder control) has
+    // no dedicated handle of its own — any part of the row is draggable — so without this, edit
+    // mode gives no hint that rows can be reordered at all.
+    cell.editingAccessoryView = _isEditing ? [self launcherReorderHintView] : nil;
+    return cell;
+}
+
+- (UIView *)launcherReorderHintView {
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"line.3.horizontal"]
+        imageByApplyingSymbolConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightSemibold]]];
+    icon.tintColor = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    icon.contentMode = UIViewContentModeCenter;
+    icon.frame = CGRectMake(0, 0, 28, 28);
+    return icon;
+}
+
+// A short tap always drills into a group — in edit mode too, since that's the only way to reach
+// (and drag things into/out of) what's inside it. Renaming/deleting a group now lives behind a
+// long-press context menu instead (see -tableView:contextMenuConfigurationForRowAtIndexPath:).
+// A leaf row keeps the old split: short tap edits while editing, runs otherwise.
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
         return;
-    NSDictionary<NSString *, NSString *> *shortcut = shortcuts[(NSUInteger)sender.tag];
+    NSDictionary<NSString *, id> *shortcut = _rowShortcuts[index];
+    if (ISHWorkspaceShortcutIsGroup(shortcut)) {
+        // Drilling in leaves editing state exactly as it was — forcing it on turned out to be
+        // more surprising than helpful: it's not obvious you're now in edit mode.
+        [_currentPath addObject:@(index)];
+        [self rebuildLauncherList];
+        return;
+    }
+    if (_isEditing) {
+        [(id)self.workspaceHostViewController presentEditLauncherShortcutAtPath:_currentPath index:index];
+        return;
+    }
     [(id)self.workspaceHostViewController runLauncherShortcutWithCommand:shortcut[@"command"] title:shortcut[@"name"]];
 }
 
-- (void)editShortcutsTapped:(UIButton *)sender {
-    [(id)self.workspaceHostViewController presentLauncherEditorFromView:sender];
+// Long-press (while editing) reveals the rename/delete dialog via a native context menu — this
+// coexists cleanly with the table's own drag interaction on the same rows (UIKit disambiguates
+// hold-still-for-a-menu vs. hold-then-move-to-drag internally), unlike a second custom gesture
+// recognizer would, which is exactly the class of bug the reorder feature went through earlier.
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (!_isEditing)
+        return nil;
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return nil;
+    BOOL isGroup = ISHWorkspaceShortcutIsGroup(_rowShortcuts[index]);
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    __weak typeof(self) weakSelf = self;
+    return [UIContextMenuConfiguration configurationWithIdentifier:nil
+                                                    previewProvider:nil
+                                                     actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
+        UIAction *editAction = [UIAction actionWithTitle:isGroup ? @"Edit Group…" : @"Edit Shortcut…"
+                                                    image:[UIImage systemImageNamed:@"pencil"]
+                                               identifier:nil
+                                                  handler:^(__unused UIAction *action) {
+            [(id)weakSelf.workspaceHostViewController presentEditLauncherShortcutAtPath:path index:index];
+        }];
+        if (!isGroup)
+            return [UIMenu menuWithTitle:@"" children:@[editAction]];
+        // A group can be added to without drilling into it first — the destination path is the
+        // group's own path (path + its index), not the level it's sitting at.
+        NSArray<NSNumber *> *groupPath = [path arrayByAddingObject:@(index)];
+        UIAction *addAction = [UIAction actionWithTitle:@"Add…"
+                                                   image:[UIImage systemImageNamed:@"plus"]
+                                              identifier:nil
+                                                 handler:^(__unused UIAction *action) {
+            [(id)weakSelf.workspaceHostViewController presentAddLauncherOptionsFromView:weakSelf.view path:groupPath];
+        }];
+        return [UIMenu menuWithTitle:@"" children:@[addAction, editAction]];
+    }];
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    return YES;
+}
+
+- (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return UITableViewCellEditingStyleDelete;
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle != UITableViewCellEditingStyleDelete)
+        return;
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return;
+    NSDictionary<NSString *, id> *shortcut = _rowShortcuts[index];
+    NSArray<NSDictionary<NSString *, id> *> *children = ISHWorkspaceShortcutChildren(shortcut);
+    if (children.count == 0) {
+        [self deleteRowAtIndex:index indexPath:indexPath];
+        return;
+    }
+    UIAlertController *confirm =
+        [UIAlertController alertControllerWithTitle:@"Delete Group?"
+                                            message:[NSString stringWithFormat:@"This deletes \"%@\" and %lu item%@ inside it.",
+                                                     shortcut[@"name"], (unsigned long)children.count, children.count == 1 ? @"" : @"s"]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"Delete"
+                                                style:UIAlertActionStyleDestructive
+                                              handler:^(__unused UIAlertAction *action) {
+        [self deleteRowAtIndex:index indexPath:indexPath];
+    }]];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:confirm animated:YES completion:nil];
+}
+
+- (void)deleteRowAtIndex:(NSUInteger)index indexPath:(NSIndexPath *)indexPath {
+    if (index >= _rowShortcuts.count)
+        return;
+    [_rowShortcuts removeObjectAtIndex:index];
+
+    _suppressNextReload = YES;
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+        if (index < level.count)
+            [level removeObjectAtIndex:index];
+    });
+
+    if (_rowShortcuts.count == 0) {
+        // Nothing left to show in the table — swap it for the empty-state label via a full
+        // rebuild rather than animating a delete down to zero rows.
+        [self rebuildLauncherList];
+        return;
+    }
+    [_tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationFade];
+    [self updateTableViewHeight];
+    [UIView animateWithDuration:0.25 animations:^{
+        [self.view layoutIfNeeded];
+    }];
+    [(id)self.workspaceHostViewController autosizeLauncherWindowForItemCount:_rowShortcuts.count showsBackRow:_currentPath.count > 0];
+}
+
+#pragma mark - UITableViewDragDelegate / UITableViewDropDelegate
+
+// Drag is a local, in-process reorder/move — the item provider's content never leaves the app
+// (or even gets read back out via pasteboard), so an empty placeholder is enough; the real
+// payload is `localObject`, resolved synchronously against _rowShortcuts at drop time.
+- (NSArray<UIDragItem *> *)tableView:(UITableView *)tableView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
+    if (!_isEditing)
+        return @[];
+    NSUInteger index = (NSUInteger)indexPath.row;
+    if (index >= _rowShortcuts.count)
+        return @[];
+    UIDragItem *item = [[UIDragItem alloc] initWithItemProvider:[NSItemProvider new]];
+    item.localObject = @(index);
+    return @[item];
+}
+
+- (BOOL)tableView:(UITableView *)tableView canHandleDropSession:(id<UIDropSession>)session {
+    return _isEditing && session.localDragSession != nil;
+}
+
+// Dropping exactly onto a group row nests the dragged item inside it; dropping between rows
+// (including between two groups) is a plain reorder — matching how Files treats dropping onto
+// vs. between folder icons.
+- (UITableViewDropProposal *)tableView:(UITableView *)tableView dropSessionDidUpdate:(id<UIDropSession>)session
+                   withDestinationIndexPath:(NSIndexPath *)destinationIndexPath {
+    if (destinationIndexPath == nil || (NSUInteger)destinationIndexPath.row >= _rowShortcuts.count)
+        return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:UITableViewDropIntentInsertAtDestinationIndexPath];
+    BOOL destinationIsGroup = ISHWorkspaceShortcutIsGroup(_rowShortcuts[(NSUInteger)destinationIndexPath.row]);
+    UITableViewDropIntent intent = destinationIsGroup ? UITableViewDropIntentInsertIntoDestinationIndexPath
+                                                       : UITableViewDropIntentInsertAtDestinationIndexPath;
+    return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:intent];
+}
+
+- (void)tableView:(UITableView *)tableView performDropWithCoordinator:(id<UITableViewDropCoordinator>)coordinator {
+    id<UITableViewDropItem> item = coordinator.items.firstObject;
+    NSIndexPath *sourceIndexPath = item.sourceIndexPath;
+    NSNumber *sourceIndexNumber = [item.dragItem.localObject isKindOfClass:NSNumber.class] ? item.dragItem.localObject : nil;
+    if (sourceIndexPath == nil || sourceIndexNumber == nil)
+        return;
+    NSUInteger from = sourceIndexNumber.unsignedIntegerValue;
+    if (from >= _rowShortcuts.count)
+        return;
+
+    NSIndexPath *destinationIndexPath = coordinator.destinationIndexPath;
+    NSUInteger to = destinationIndexPath != nil ? (NSUInteger)destinationIndexPath.row : _rowShortcuts.count - 1;
+    BOOL destinationIsGroup = destinationIndexPath != nil && to != from && to < _rowShortcuts.count
+        && ISHWorkspaceShortcutIsGroup(_rowShortcuts[to]);
+
+    if (destinationIsGroup) {
+        [self moveShortcutAtIndex:from intoGroupAtIndex:to];
+    } else if (to != from) {
+        [self reorderShortcutFromIndex:from toIndex:to];
+        [tableView moveRowAtIndexPath:sourceIndexPath toIndexPath:destinationIndexPath];
+    }
+    [coordinator dropItem:item.dragItem toRowAtIndexPath:destinationIndexPath ?: sourceIndexPath];
+}
+
+- (void)reorderShortcutFromIndex:(NSUInteger)from toIndex:(NSUInteger)to {
+    NSDictionary<NSString *, id> *moved = _rowShortcuts[from];
+    [_rowShortcuts removeObjectAtIndex:from];
+    [_rowShortcuts insertObject:moved atIndex:to];
+
+    _suppressNextReload = YES;
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    NSArray<NSDictionary<NSString *, id> *> *newOrder = [_rowShortcuts copy];
+    ISHWorkspaceLauncherMutateAtPath(path, ^(NSMutableArray<NSDictionary<NSString *, id> *> *level) {
+        [level removeAllObjects];
+        [level addObjectsFromArray:newOrder];
+    });
+}
+
+// Nests the shortcut at `sourceIndex` into the group at `groupIndex`, both at the current level.
+// Removed from the visible table immediately (with a full local-array-driven rebuild, since the
+// destination group's own row count isn't visible from here — it's a sibling, not expanded).
+- (void)moveShortcutAtIndex:(NSUInteger)sourceIndex intoGroupAtIndex:(NSUInteger)groupIndex {
+    NSArray<NSNumber *> *path = [_currentPath copy];
+    NSArray<NSNumber *> *groupPath = [path arrayByAddingObject:@(groupIndex)];
+    _suppressNextReload = YES;
+    ISHWorkspaceLauncherMoveShortcut(path, sourceIndex, groupPath, NSUIntegerMax);
+    [_rowShortcuts removeObjectAtIndex:sourceIndex];
+    [self rebuildLauncherList];
+}
+
+#pragma mark - Header / footer controls
+
+- (UIButton *)launcherBackButton {
+    UIButton *back = [UIButton buttonWithType:UIButtonTypeSystem];
+    back.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *primary = [self launcherColorForKey:@"primary" fallback:UIColor.darkTextColor];
+    [back setTitle:@"‹ Back" forState:UIControlStateNormal];
+    [back setTitleColor:primary forState:UIControlStateNormal];
+    back.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleSubheadline) weight:UIFontWeightSemibold];
+    back.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    CGFloat minHeight = ISHWorkspaceUsesPhoneLayout() ? 28.0 : 30.0;
+    [back.heightAnchor constraintGreaterThanOrEqualToConstant:minHeight].active = YES;
+    [back addTarget:self action:@selector(backButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    if (_isEditing) {
+        // While editing, the Back row doubles as a drop target: dragging an item onto it moves
+        // that item out to the parent level. This is the only way to "un-nest" something, since
+        // a group's parent level isn't itself visible while drilled into the group — the row
+        // list only ever shows one level of the tree at a time.
+        back.layer.borderWidth = 1;
+        back.layer.cornerRadius = 12;
+        back.layer.borderColor = [self launcherColorForKey:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]].CGColor;
+        [back addInteraction:[[UIDropInteraction alloc] initWithDelegate:self]];
+    }
+    return back;
+}
+
+#pragma mark - UIDropInteractionDelegate (the "‹ Back" row, as a drop-to-un-nest target)
+
+- (BOOL)dropInteraction:(UIDropInteraction *)interaction canHandleSession:(id<UIDropSession>)session {
+    return _isEditing && _currentPath.count > 0 && session.localDragSession != nil;
+}
+
+- (UIDropProposal *)dropInteraction:(UIDropInteraction *)interaction sessionDidUpdate:(id<UIDropSession>)session {
+    return [[UIDropProposal alloc] initWithDropOperation:UIDropOperationMove];
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction sessionDidEnter:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = [[self launcherColorForKey:@"accent" fallback:UIColor.systemBlueColor] colorWithAlphaComponent:0.2];
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction sessionDidExit:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = UIColor.clearColor;
+}
+
+- (void)dropInteraction:(UIDropInteraction *)interaction performDrop:(id<UIDropSession>)session {
+    interaction.view.backgroundColor = UIColor.clearColor;
+    if (_currentPath.count == 0)
+        return;
+    UIDragItem *dragItem = session.items.firstObject;
+    NSNumber *sourceIndexNumber = [dragItem.localObject isKindOfClass:NSNumber.class] ? dragItem.localObject : nil;
+    if (sourceIndexNumber == nil)
+        return;
+    NSUInteger sourceIndex = sourceIndexNumber.unsignedIntegerValue;
+    if (sourceIndex >= _rowShortcuts.count)
+        return;
+
+    NSArray<NSNumber *> *sourcePath = [_currentPath copy];
+    NSArray<NSNumber *> *parentPath = [_currentPath subarrayWithRange:NSMakeRange(0, _currentPath.count - 1)];
+    NSUInteger groupIndexInParent = _currentPath.lastObject.unsignedIntegerValue;
+
+    _suppressNextReload = YES;
+    // Insert right after the group we're currently inside of, at the parent level — keeps the
+    // moved item spatially close to where it came from rather than appending far away.
+    ISHWorkspaceLauncherMoveShortcut(sourcePath, sourceIndex, parentPath, groupIndexInParent + 1);
+    [_rowShortcuts removeObjectAtIndex:sourceIndex];
+    [self rebuildLauncherList];
+}
+
+// Footer row: an Add ("+") button alongside the Edit/Done toggle, both unbordered/muted (vs.
+// the accessory-styled shortcut rows above) so they read as controls, not launchable items.
+- (UIView *)launcherBottomControlsRow {
+    UIStackView *row = [UIStackView new];
+    row.translatesAutoresizingMaskIntoConstraints = NO;
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.spacing = 8;
+    row.layoutMarginsRelativeArrangement = YES;
+    row.layoutMargins = UIEdgeInsetsMake(4, 8, 4, 8);
+    row.distribution = UIStackViewDistributionFillEqually;
+    [row addArrangedSubview:[self launcherAddButton]];
+    [row addArrangedSubview:[self launcherEditToggleButton]];
+    return row;
+}
+
+// Opens the same Add Shortcut/Group/Built-in sheet the popup-menu "Edit Shortcuts…" flow uses,
+// scoped to whatever level (root or a drilled-into group) is currently displayed.
+- (UIButton *)launcherAddButton {
+    UIButton *add = [UIButton buttonWithType:UIButtonTypeSystem];
+    add.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    [add setTitle:@"+ Add" forState:UIControlStateNormal];
+    [add setTitleColor:secondary forState:UIControlStateNormal];
+    add.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote) weight:UIFontWeightMedium];
+    add.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.25];
+    add.layer.cornerRadius = 10;
+    CGFloat height = ISHWorkspaceUsesPhoneLayout() ? 26.0 : 28.0;
+    [add.heightAnchor constraintEqualToConstant:height].active = YES;
+    [add addTarget:self action:@selector(addButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return add;
+}
+
+- (void)addButtonTapped:(UIButton *)sender {
+    [(id)self.workspaceHostViewController presentAddLauncherOptionsFromView:sender path:_currentPath];
+}
+
+// The Edit/Done pill: deliberately unbordered and muted (vs. the shortcut rows above it) so it
+// reads as a mode toggle, not another launchable item. This is the sole entry point into
+// editing — no separate "Edit Shortcuts" sheet in the applet anymore.
+- (UIButton *)launcherEditToggleButton {
+    UIButton *toggle = [UIButton buttonWithType:UIButtonTypeSystem];
+    toggle.translatesAutoresizingMaskIntoConstraints = NO;
+    UIColor *secondary = [self launcherColorForKey:@"secondary" fallback:UIColor.secondaryLabelColor];
+    [toggle setTitle:_isEditing ? @"Done" : @"Edit" forState:UIControlStateNormal];
+    [toggle setTitleColor:secondary forState:UIControlStateNormal];
+    toggle.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote) weight:UIFontWeightMedium];
+    toggle.backgroundColor = [[self launcherColorForKey:@"cardAlt" fallback:[UIColor colorWithWhite:0.5 alpha:0.12]] colorWithAlphaComponent:0.25];
+    toggle.layer.cornerRadius = 10;
+    CGFloat height = ISHWorkspaceUsesPhoneLayout() ? 26.0 : 28.0;
+    [toggle.heightAnchor constraintEqualToConstant:height].active = YES;
+    [toggle addTarget:self action:@selector(editToggleTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return toggle;
+}
+
+- (void)editToggleTapped:(UIButton *)sender {
+    _isEditing = !_isEditing;
+    [self rebuildLauncherList];
+}
+
+- (void)backButtonTapped:(UIButton *)sender {
+    if (_currentPath.count == 0)
+        return;
+    [_currentPath removeLastObject];
+    [self rebuildLauncherList];
+}
+
+@end
+
+#pragma mark - MotePad text editor applet
+
+// A minimal guest-filesystem browser used for Open and Save As. It walks the guest
+// VFS through MotePadDocumentStore (directories first, then files) and either returns
+// a chosen file (Open) or a chosen directory + typed filename (Save). Presented inside
+// a UINavigationController; descending into a directory pushes a fresh instance.
+typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
+    MotePadBrowserModeOpen,
+    MotePadBrowserModeSave,
+};
+
+@interface MotePadFileBrowserViewController : UITableViewController
+- (instancetype)initWithMode:(MotePadBrowserMode)mode
+                   directory:(NSString *)directory
+               suggestedName:(NSString *)suggestedName
+                  completion:(void (^)(NSString *selectedGuestPath))completion;
+@end
+
+@implementation MotePadFileBrowserViewController {
+    MotePadBrowserMode _mode;
+    NSString *_directory;
+    NSString *_suggestedName;
+    void (^_completion)(NSString *);
+    NSArray<MotePadDirectoryEntry *> *_entries;
+    BOOL _showsParent;
+    BOOL _loading;
+    NSInteger _loadGeneration;  // discards stale async listings
+}
+
+- (instancetype)initWithMode:(MotePadBrowserMode)mode
+                   directory:(NSString *)directory
+               suggestedName:(NSString *)suggestedName
+                  completion:(void (^)(NSString *))completion {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) {
+        _mode = mode;
+        _directory = directory.length ? directory : @"/";
+        _suggestedName = suggestedName;
+        _completion = [completion copy];
+    }
+    return self;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = _directory.lastPathComponent.length ? _directory.lastPathComponent : @"/";
+    self.navigationItem.prompt = _directory;
+    self.navigationItem.leftBarButtonItem =
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
+                                                      target:self action:@selector(cancel)];
+    if (_mode == MotePadBrowserModeSave) {
+        self.navigationItem.rightBarButtonItem =
+            [[UIBarButtonItem alloc] initWithTitle:@"Save Here" style:UIBarButtonItemStyleDone
+                                            target:self action:@selector(saveHere)];
+    }
+    [self reload];
+}
+
+// Guest-VFS listings block on emulator locks, so they run on the document store's
+// serial I/O queue; while one is in flight the table shows a spinner and rejects
+// taps so a half-loaded directory can't be interacted with.
+- (void)reload {
+    _showsParent = ![_directory isEqualToString:@"/"];
+    NSInteger generation = ++_loadGeneration;
+    [self setLoading:YES];
+    __weak typeof(self) weakSelf = self;
+    [[MotePadDocumentStore sharedStore] listDirectoryAtGuestPath:_directory
+                                                      completion:^(NSArray<MotePadDirectoryEntry *> *entries) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_loadGeneration != generation)
+            return;
+        strongSelf->_entries = entries ?: @[];
+        [strongSelf setLoading:NO];
+        [strongSelf.tableView reloadData];
+    }];
+}
+
+- (void)setLoading:(BOOL)loading {
+    _loading = loading;
+    if (loading) {
+        UIActivityIndicatorView *spinner =
+            [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        [spinner startAnimating];
+        self.tableView.backgroundView = spinner;
+    } else {
+        self.tableView.backgroundView = nil;
+    }
+    // Cancel (left bar button) stays live so the user can always bail out.
+    self.tableView.userInteractionEnabled = !loading;
+    self.navigationItem.rightBarButtonItem.enabled = !loading;
+}
+
+// Dismiss first, then run the completion from the dismissal completion block: the
+// completion may present an alert (Couldn't Open / Couldn't Save), and presenting
+// while this browser is still being dismissed silently fails ("already presenting"),
+// swallowing the error — a failed Save As would look like it succeeded.
+- (void)cancel {
+    [self finishWithPath:nil];
+}
+
+- (void)finishWithPath:(NSString *)path {
+    void (^completion)(NSString *) = _completion;
+    _completion = nil;
+    [self dismissViewControllerAnimated:YES completion:^{
+        if (completion) completion(path);
+    }];
+}
+
+- (NSString *)parentDirectory {
+    NSString *parent = _directory.stringByDeletingLastPathComponent;
+    return parent.length ? parent : @"/";
+}
+
+- (void)pushDirectory:(NSString *)directory {
+    MotePadFileBrowserViewController *child =
+        [[MotePadFileBrowserViewController alloc] initWithMode:_mode directory:directory
+                                                 suggestedName:_suggestedName completion:_completion];
+    [self.navigationController pushViewController:child animated:YES];
+}
+
+- (void)saveHere {
+    [self promptForFilename:_suggestedName];
+}
+
+- (void)promptForFilename:(NSString *)initialName {
+    [self promptForFilename:initialName message:nil];
+}
+
+- (void)promptForFilename:(NSString *)initialName message:(NSString *)message {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Save As"
+                                            message:message.length ? message : _directory
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"filename.txt";
+        textField.text = initialName;
+        textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        textField.autocorrectionType = UITextAutocorrectionTypeNo;
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        NSString *name = [alert.textFields.firstObject.text
+                          stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (name.length == 0 || [name containsString:@"/"] ||
+            [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+            // Bad name: don't silently swallow the save — re-present the prompt with an
+            // inline explanation once the alert's own dismissal has finished.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [strongSelf promptForFilename:name
+                                      message:@"Enter a file name without “/” (and not “.” or “..”)."];
+            });
+            return;
+        }
+        // Let the alert finish dismissing before finishWithPath dismisses the browser;
+        // overlapping dismissals at two levels of the hierarchy can cancel each other.
+        NSString *path = [strongSelf->_directory stringByAppendingPathComponent:name];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [strongSelf finishWithPath:path];
+        });
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return (NSInteger)_entries.count + (_showsParent ? 1 : 0);
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"motepad.browser"];
+    if (cell == nil)
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"motepad.browser"];
+
+    if (_showsParent && indexPath.row == 0) {
+        cell.textLabel.text = @"..";
+        cell.imageView.image = [UIImage systemImageNamed:@"arrow.turn.left.up"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.textLabel.textColor = UIColor.labelColor;
+        return cell;
+    }
+
+    MotePadDirectoryEntry *entry = _entries[(NSUInteger)indexPath.row - (_showsParent ? 1 : 0)];
+    cell.textLabel.text = entry.name;
+    if (entry.type == MotePadEntryTypeDirectory) {
+        cell.imageView.image = [UIImage systemImageNamed:@"folder"];
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.textLabel.textColor = UIColor.labelColor;
+    } else {
+        cell.imageView.image = [UIImage systemImageNamed:@"doc.text"];
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        BOOL selectable = (entry.type == MotePadEntryTypeFile);
+        cell.textLabel.textColor = selectable ? UIColor.labelColor : UIColor.secondaryLabelColor;
+    }
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+
+    if (_showsParent && indexPath.row == 0) {
+        [self pushDirectory:[self parentDirectory]];
+        return;
+    }
+
+    MotePadDirectoryEntry *entry = _entries[(NSUInteger)indexPath.row - (_showsParent ? 1 : 0)];
+    if (entry.type == MotePadEntryTypeDirectory) {
+        [self pushDirectory:entry.guestPath];
+        return;
+    }
+    if (entry.type != MotePadEntryTypeFile)
+        return;  // sockets/fifos/etc. aren't openable as text
+
+    if (_mode == MotePadBrowserModeOpen) {
+        [self finishWithPath:entry.guestPath];
+    } else {
+        // Save mode: tapping an existing file pre-fills its name for an overwrite.
+        [self promptForFilename:entry.name];
+    }
+}
+
+@end
+
+
+// Left-margin line-number gutter for the MotePad editor. iOS has no NSRulerView, so this
+// is a plain view driven by the editor's TextKit layout manager: it draws one number per
+// logical line (paragraph), aligned to that line's first laid-out fragment, and the editor
+// asks it to redraw on scroll/edit/wrap/font changes. Word-wrapped continuation fragments
+// get no number, matching a desktop editor.
+@interface MotePadLineNumberGutterView : UIView
+@property (nonatomic, weak) UITextView *textView;
+@property (nonatomic, strong) UIColor *numberColor;
+@property (nonatomic, strong) UIColor *separatorColor;
+@end
+
+@implementation MotePadLineNumberGutterView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.contentMode = UIViewContentModeRedraw;  // redraw when bounds change
+        self.userInteractionEnabled = NO;
+    }
+    return self;
+}
+
+- (UIFont *)gutterFont {
+    UIFont *base = self.textView.font ?: [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    return [UIFont monospacedDigitSystemFontOfSize:MAX(9.0, base.pointSize - 1.0) weight:UIFontWeightRegular];
+}
+
+- (NSUInteger)newlineCountIn:(NSString *)text upTo:(NSUInteger)index {
+    NSUInteger count = 0;
+    NSUInteger limit = MIN(index, text.length);
+    for (NSUInteger i = 0; i < limit; i++)
+        if ([text characterAtIndex:i] == '\n') count++;
+    return count;
+}
+
+- (void)drawNumber:(NSUInteger)number atY:(CGFloat)y font:(UIFont *)font {
+    NSDictionary *attrs = @{ NSFontAttributeName: font,
+                            NSForegroundColorAttributeName: self.numberColor ?: UIColor.secondaryLabelColor };
+    NSString *s = [NSString stringWithFormat:@"%lu", (unsigned long)number];
+    CGSize size = [s sizeWithAttributes:attrs];
+    [s drawAtPoint:CGPointMake(self.bounds.size.width - size.width - 6.0, y) withAttributes:attrs];
+}
+
+- (void)drawRect:(__unused CGRect)rect {
+    UITextView *tv = self.textView;
+    if (tv == nil) return;
+
+    // Right-edge hairline separator.
+    CGFloat hair = 1.0 / MAX(1.0, UIScreen.mainScreen.scale);
+    [(self.separatorColor ?: [UIColor colorWithWhite:0.5 alpha:0.35]) setFill];
+    UIRectFill(CGRectMake(self.bounds.size.width - hair, 0, hair, self.bounds.size.height));
+
+    UIFont *font = [self gutterFont];
+    CGFloat insetTop = tv.textContainerInset.top;
+    CGFloat offsetY = tv.contentOffset.y;
+    NSString *text = tv.text;
+    if (text.length == 0) {  // empty document still shows "1"
+        [self drawNumber:1 atY:insetTop - offsetY font:font];
+        return;
+    }
+
+    NSLayoutManager *lm = tv.layoutManager;
+    NSTextContainer *tc = tv.textContainer;
+    CGRect visibleContainerRect = CGRectMake(0, offsetY - insetTop, tc.size.width, tv.bounds.size.height);
+    NSRange visibleGlyphRange = [lm glyphRangeForBoundingRect:visibleContainerRect inTextContainer:tc];
+    if (visibleGlyphRange.length == 0) return;
+
+    NSUInteger firstChar = [lm characterIndexForGlyphAtIndex:visibleGlyphRange.location];
+    __block NSUInteger paragraph = 1 + [self newlineCountIn:text upTo:firstChar];
+    __block BOOL first = YES;
+    [lm enumerateLineFragmentsForGlyphRange:visibleGlyphRange
+                                 usingBlock:^(CGRect fragRect, __unused CGRect usedRect,
+                                              __unused NSTextContainer *container,
+                                              NSRange lineGlyphRange, __unused BOOL *stop) {
+        NSUInteger charIndex = [lm characterIndexForGlyphAtIndex:lineGlyphRange.location];
+        BOOL startsParagraph = (charIndex == 0) || ([text characterAtIndex:charIndex - 1] == '\n');
+        if (startsParagraph) {
+            if (!first) paragraph++;  // fragments are in document order; advance past the last paragraph
+            [self drawNumber:paragraph atY:CGRectGetMinY(fragRect) + insetTop - offsetY font:font];
+        }
+        first = NO;
+    }];
+}
+
+@end
+
+
+#pragma mark - MotePad custom compact menu
+
+// A native pull-down UIMenu has a ~250pt minimum width on iPad, which leaves short
+// menus (File, Help, …) mostly empty. These lightweight classes render a themed popover
+// menu sized to exactly fit its widest row instead.
+@interface MotePadMenuRow : NSObject
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic, copy, nullable) NSString *shortcut;
+@property (nonatomic) BOOL checkable;
+@property (nonatomic) BOOL checked;
+@property (nonatomic, copy) void (^action)(void);
+@end
+
+@implementation MotePadMenuRow
+@end
+
+@interface MotePadMenuRowControl : UIControl
+@property (nonatomic, strong) UIColor *highlightColor;
+@end
+
+@implementation MotePadMenuRowControl
+- (void)setHighlighted:(BOOL)highlighted {
+    [super setHighlighted:highlighted];
+    self.backgroundColor = highlighted ? self.highlightColor : UIColor.clearColor;
+}
+@end
+
+@interface MotePadPopupMenuController : UIViewController <UIPopoverPresentationControllerDelegate>
+- (instancetype)initWithSections:(NSArray<NSArray<MotePadMenuRow *> *> *)sections
+                           theme:(NSDictionary<NSString *, UIColor *> *)theme;
+@end
+
+@implementation MotePadPopupMenuController {
+    NSArray<NSArray<MotePadMenuRow *> *> *_sections;
+    NSDictionary<NSString *, UIColor *> *_theme;
+    NSMutableArray<void (^)(void)> *_actions;
+}
+
+- (instancetype)initWithSections:(NSArray<NSArray<MotePadMenuRow *> *> *)sections
+                           theme:(NSDictionary<NSString *, UIColor *> *)theme {
+    self = [super init];
+    if (self) {
+        _sections = sections;
+        _theme = theme;
+        _actions = [NSMutableArray array];
+    }
+    return self;
+}
+
+- (UIColor *)color:(NSString *)key fallback:(UIColor *)fallback {
+    return _theme[key] ?: fallback;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    UIColor *card = [self color:@"card" fallback:UIColor.secondarySystemBackgroundColor];
+    UIColor *primary = [self color:@"primary" fallback:UIColor.labelColor];
+    UIColor *secondary = [self color:@"secondary" fallback:UIColor.secondaryLabelColor];
+    UIColor *accent = [self color:@"accent" fallback:UIColor.systemBlueColor];
+    UIColor *stroke = [self color:@"stroke" fallback:[UIColor colorWithWhite:0.5 alpha:0.35]];
+    UIColor *highlight = [accent colorWithAlphaComponent:0.22];
+    self.view.backgroundColor = card;
+
+    UIFont *titleFont = [UIFont systemFontOfSize:16];
+    UIFont *shortcutFont = [UIFont systemFontOfSize:15];
+
+    // Measure the columns so shortcuts right-align and the popover is exactly as wide
+    // as its content needs.
+    CGFloat maxTitle = 0, maxShortcut = 0;
+    BOOL anyCheckable = NO;
+    for (NSArray<MotePadMenuRow *> *section in _sections) {
+        for (MotePadMenuRow *row in section) {
+            maxTitle = MAX(maxTitle, [row.title sizeWithAttributes:@{NSFontAttributeName: titleFont}].width);
+            if (row.shortcut.length)
+                maxShortcut = MAX(maxShortcut, [row.shortcut sizeWithAttributes:@{NSFontAttributeName: shortcutFont}].width);
+            if (row.checkable) anyCheckable = YES;
+        }
+    }
+    CGFloat inset = 14, gap = (maxShortcut > 0) ? 28 : 0;
+    CGFloat checkWidth = anyCheckable ? 18 : 0, checkGap = anyCheckable ? 8 : 0;
+    CGFloat rowHeight = 34, sepHeight = 9, pad = 6;
+    CGFloat contentWidth = inset + ceil(maxTitle) + gap + ceil(maxShortcut) + checkGap + checkWidth + inset;
+    contentWidth = MAX(150, MIN(contentWidth, 320));
+
+    UIStackView *stack = [UIStackView new];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:stack];
+    // Center the rows vertically (with a minimum pad each side). The popover often makes
+    // its content view a bit taller than preferredContentSize (arrow allowance); centering
+    // splits that surplus evenly so the top and bottom padding always match, instead of it
+    // all pooling at the bottom.
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+        [stack.topAnchor constraintGreaterThanOrEqualToAnchor:self.view.topAnchor constant:pad],
+        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:self.view.bottomAnchor constant:-pad],
+        [stack.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+    ]];
+
+    NSUInteger totalRows = 0;
+    for (NSUInteger s = 0; s < _sections.count; s++) {
+        if (s > 0) {
+            UIView *sep = [UIView new];
+            sep.translatesAutoresizingMaskIntoConstraints = NO;
+            [sep.heightAnchor constraintEqualToConstant:sepHeight].active = YES;
+            UIView *hair = [UIView new];
+            hair.translatesAutoresizingMaskIntoConstraints = NO;
+            hair.backgroundColor = stroke;
+            [sep addSubview:hair];
+            [NSLayoutConstraint activateConstraints:@[
+                [hair.leadingAnchor constraintEqualToAnchor:sep.leadingAnchor constant:inset],
+                [hair.trailingAnchor constraintEqualToAnchor:sep.trailingAnchor constant:-inset],
+                [hair.centerYAnchor constraintEqualToAnchor:sep.centerYAnchor],
+                [hair.heightAnchor constraintEqualToConstant:1.0 / MAX(1.0, UIScreen.mainScreen.scale)],
+            ]];
+            [stack addArrangedSubview:sep];
+        }
+        for (MotePadMenuRow *row in _sections[s]) {
+            MotePadMenuRowControl *rowView = [MotePadMenuRowControl new];
+            rowView.translatesAutoresizingMaskIntoConstraints = NO;
+            rowView.highlightColor = highlight;
+            rowView.tag = (NSInteger)_actions.count;
+            [rowView.heightAnchor constraintEqualToConstant:rowHeight].active = YES;
+            [rowView addTarget:self action:@selector(rowTapped:) forControlEvents:UIControlEventTouchUpInside];
+            [_actions addObject:(row.action ?: ^{})];
+
+            UILabel *titleLabel = [UILabel new];
+            titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+            titleLabel.text = row.title;
+            titleLabel.font = titleFont;
+            titleLabel.textColor = primary;
+            [rowView addSubview:titleLabel];
+            [NSLayoutConstraint activateConstraints:@[
+                [titleLabel.leadingAnchor constraintEqualToAnchor:rowView.leadingAnchor constant:inset],
+                [titleLabel.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+            ]];
+
+            UIImageView *check = nil;
+            if (anyCheckable) {
+                check = [UIImageView new];
+                check.translatesAutoresizingMaskIntoConstraints = NO;
+                check.contentMode = UIViewContentModeScaleAspectFit;
+                check.tintColor = accent;
+                if (@available(iOS 13.0, *))
+                    check.image = [UIImage systemImageNamed:@"checkmark"];
+                check.hidden = !(row.checkable && row.checked);
+                [rowView addSubview:check];
+                [NSLayoutConstraint activateConstraints:@[
+                    [check.trailingAnchor constraintEqualToAnchor:rowView.trailingAnchor constant:-inset],
+                    [check.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+                    [check.widthAnchor constraintEqualToConstant:checkWidth],
+                    [check.heightAnchor constraintEqualToConstant:checkWidth],
+                ]];
+            }
+
+            if (row.shortcut.length) {
+                UILabel *sc = [UILabel new];
+                sc.translatesAutoresizingMaskIntoConstraints = NO;
+                sc.text = row.shortcut;
+                sc.font = shortcutFont;
+                sc.textColor = secondary;
+                sc.textAlignment = NSTextAlignmentRight;
+                [rowView addSubview:sc];
+                NSLayoutConstraint *scTrailing = check
+                    ? [sc.trailingAnchor constraintEqualToAnchor:check.leadingAnchor constant:-checkGap]
+                    : [sc.trailingAnchor constraintEqualToAnchor:rowView.trailingAnchor constant:-inset];
+                [NSLayoutConstraint activateConstraints:@[
+                    scTrailing,
+                    [sc.centerYAnchor constraintEqualToAnchor:rowView.centerYAnchor],
+                    [sc.leadingAnchor constraintGreaterThanOrEqualToAnchor:titleLabel.trailingAnchor constant:12],
+                ]];
+            }
+
+            [stack addArrangedSubview:rowView];
+            totalRows++;
+        }
+    }
+
+    CGFloat totalHeight = totalRows * rowHeight
+        + (_sections.count > 1 ? (_sections.count - 1) * sepHeight : 0) + pad * 2;
+    self.preferredContentSize = CGSizeMake(contentWidth, totalHeight);
+}
+
+- (void)rowTapped:(UIControl *)sender {
+    void (^action)(void) = ((NSUInteger)sender.tag < _actions.count) ? _actions[(NSUInteger)sender.tag] : nil;
+    // Run the action after the menu finishes dismissing, so actions that present their
+    // own UI (Open, Save As, alerts) don't collide with the in-flight dismissal.
+    [self dismissViewControllerAnimated:YES completion:^{ if (action) action(); }];
+}
+
+- (UIModalPresentationStyle)adaptivePresentationStyleForPresentationController:(__unused UIPresentationController *)controller
+                                                              traitCollection:(__unused UITraitCollection *)traitCollection {
+    return UIModalPresentationNone;  // stay a popover even at compact width (iPhone)
+}
+
+@end
+
+
+@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate>
+@end
+
+@implementation WorkspaceMotePadToolViewController {
+    UIView *_menuBar;
+    UIView *_menuBarSeparator;
+    NSMutableArray<UIButton *> *_menuButtons;
+    UILabel *_docTitleLabel;
+    UITextView *_textView;
+    UIView *_statusBar;
+    UILabel *_statusLabel;
+    NSLayoutConstraint *_statusBarHeight;
+    MotePadLineNumberGutterView *_gutter;
+    NSLayoutConstraint *_gutterWidth;
+    CGFloat _gutterContentWidth;
+
+    NSString *_currentGuestPath;  // nil == an untitled document
+    BOOL _dirty;
+    BOOL _wordWrap;
+    BOOL _statusBarVisible;
+    BOOL _lineNumbersVisible;
+    NSString *_lastSearch;  // last Find term, so Find Next (⌘G) can repeat it
+
+    NSInteger _busyCount;      // >0 while a queued file operation is in flight (editor locked)
+    NSString *_draftSlotName;  // this window's autosave draft file name (claimed in viewDidLoad)
+    NSTimer *_draftTimer;      // debounce timer for keystroke-driven autosave
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"MotePad";
+    _wordWrap = YES;
+    _statusBarVisible = YES;
+    _lineNumbersVisible = NO;
+    _menuButtons = [NSMutableArray array];
+
+    UIView *content = self.toolContentView;
+
+    // --- Menu bar (native UIMenu dropdowns) --------------------------------------
+    _menuBar = [UIView new];
+    _menuBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:_menuBar];
+
+    UIStackView *menuStack = [UIStackView new];
+    menuStack.translatesAutoresizingMaskIntoConstraints = NO;
+    menuStack.axis = UILayoutConstraintAxisHorizontal;
+    menuStack.spacing = ISHWorkspaceUsesPhoneLayout() ? 2 : 6;
+    menuStack.alignment = UIStackViewAlignmentCenter;
+    [_menuBar addSubview:menuStack];
+
+    for (NSString *name in @[@"File", @"Edit", @"Format", @"View", @"Help"]) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.translatesAutoresizingMaskIntoConstraints = NO;
+        [button setTitle:name forState:UIControlStateNormal];
+        button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceUsesPhoneLayout() ? 13 : 14 weight:UIFontWeightMedium];
+        button.contentEdgeInsets = UIEdgeInsetsMake(4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8, 4, ISHWorkspaceUsesPhoneLayout() ? 6 : 8);
+        [button addTarget:self action:@selector(menuButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [_menuButtons addObject:button];
+        [menuStack addArrangedSubview:button];
+    }
+
+    _docTitleLabel = [UILabel new];
+    _docTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _docTitleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceUsesPhoneLayout() ? 11 : 12 weight:UIFontWeightSemibold];
+    _docTitleLabel.textAlignment = NSTextAlignmentRight;
+    _docTitleLabel.adjustsFontSizeToFitWidth = YES;
+    _docTitleLabel.minimumScaleFactor = 0.7;
+    [_docTitleLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_docTitleLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_menuBar addSubview:_docTitleLabel];
+
+    _menuBarSeparator = [UIView new];
+    _menuBarSeparator.translatesAutoresizingMaskIntoConstraints = NO;
+    [_menuBar addSubview:_menuBarSeparator];
+
+    // --- Editor ------------------------------------------------------------------
+    _textView = [UITextView new];
+    _textView.translatesAutoresizingMaskIntoConstraints = NO;
+    _textView.delegate = self;
+    _textView.editable = YES;
+    _textView.font = [UIFont fontWithName:@"Courier" size:14] ?: [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+    _textView.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _textView.autocorrectionType = UITextAutocorrectionTypeNo;
+    _textView.smartQuotesType = UITextSmartQuotesTypeNo;
+    _textView.smartDashesType = UITextSmartDashesTypeNo;
+    _textView.spellCheckingType = UITextSpellCheckingTypeNo;
+    _textView.keyboardType = UIKeyboardTypeASCIICapable;
+    _textView.alwaysBounceVertical = YES;
+    _textView.textContainerInset = UIEdgeInsetsMake(8, 6, 8, 6);
+    [content addSubview:_textView];
+
+    // --- Line-number gutter (hidden until toggled in the View menu) --------------
+    _gutter = [MotePadLineNumberGutterView new];
+    _gutter.translatesAutoresizingMaskIntoConstraints = NO;
+    _gutter.textView = _textView;
+    [content addSubview:_gutter];
+
+    // --- Status bar --------------------------------------------------------------
+    _statusBar = [UIView new];
+    _statusBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:_statusBar];
+
+    _statusLabel = [UILabel new];
+    _statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _statusLabel.font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
+    [_statusBar addSubview:_statusLabel];
+
+    CGFloat barHeight = ISHWorkspaceUsesPhoneLayout() ? 32 : 34;
+    _statusBarHeight = [_statusBar.heightAnchor constraintEqualToConstant:22];
+    _gutterWidth = [_gutter.widthAnchor constraintEqualToConstant:0];
+    [NSLayoutConstraint activateConstraints:@[
+        [_menuBar.topAnchor constraintEqualToAnchor:content.topAnchor],
+        [_menuBar.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_menuBar.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_menuBar.heightAnchor constraintEqualToConstant:barHeight],
+
+        [menuStack.leadingAnchor constraintEqualToAnchor:_menuBar.leadingAnchor constant:4],
+        [menuStack.centerYAnchor constraintEqualToAnchor:_menuBar.centerYAnchor],
+
+        [_docTitleLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:menuStack.trailingAnchor constant:6],
+        [_docTitleLabel.trailingAnchor constraintEqualToAnchor:_menuBar.trailingAnchor constant:-8],
+        [_docTitleLabel.centerYAnchor constraintEqualToAnchor:_menuBar.centerYAnchor],
+
+        [_menuBarSeparator.leadingAnchor constraintEqualToAnchor:_menuBar.leadingAnchor],
+        [_menuBarSeparator.trailingAnchor constraintEqualToAnchor:_menuBar.trailingAnchor],
+        [_menuBarSeparator.bottomAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_menuBarSeparator.heightAnchor constraintEqualToConstant:1.0 / MAX(1.0, UIScreen.mainScreen.scale)],
+
+        [_gutter.topAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_gutter.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_gutter.bottomAnchor constraintEqualToAnchor:_statusBar.topAnchor],
+        _gutterWidth,
+
+        [_textView.topAnchor constraintEqualToAnchor:_menuBar.bottomAnchor],
+        [_textView.leadingAnchor constraintEqualToAnchor:_gutter.trailingAnchor],
+        [_textView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_textView.bottomAnchor constraintEqualToAnchor:_statusBar.topAnchor],
+
+        [_statusBar.leadingAnchor constraintEqualToAnchor:content.leadingAnchor],
+        [_statusBar.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+        [_statusBar.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
+        _statusBarHeight,
+
+        [_statusLabel.leadingAnchor constraintEqualToAnchor:_statusBar.leadingAnchor constant:10],
+        [_statusLabel.trailingAnchor constraintEqualToAnchor:_statusBar.trailingAnchor constant:-10],
+        [_statusLabel.centerYAnchor constraintEqualToAnchor:_statusBar.centerYAnchor],
+    ]];
+
+    [self applyWordWrap];
+    [self updateDocTitle];
+    [self updateStatusBar];
+    [self applyStatusBarVisibility];
+    [self updateGutterWidth];
+    [self applyLineNumbersVisibility];
+    [self workspaceApplyTheme];
+
+    // --- Draft autosave (survives a jetsam kill) ----------------------------------
+    [self claimDraftSlot];
+    [self restoreDraftIfNewer];
+    // Flush the draft the moment the app heads to the background: a background kill
+    // is routine for this app, and the debounce timer won't fire once suspended.
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                           selector:@selector(motePadFlushDraftForBackground:)
+                                               name:UIApplicationDidEnterBackgroundNotification
+                                             object:nil];
+    if (@available(iOS 13.0, *)) {
+        [NSNotificationCenter.defaultCenter addObserver:self
+                                               selector:@selector(motePadFlushDraftForBackground:)
+                                                   name:UISceneDidEnterBackgroundNotification
+                                                 object:nil];
+    }
+}
+
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_draftTimer invalidate];
+    [WorkspaceMotePadToolViewController releaseDraftSlotNamed:_draftSlotName];
+}
+
+#pragma mark Theming
+
+- (void)workspaceApplyTheme {
+    [super workspaceApplyTheme];
+    if (_textView == nil)  // base runs this once before our subviews exist
+        return;
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    UIColor *primary = theme[@"primary"] ?: UIColor.labelColor;
+    UIColor *secondary = theme[@"secondary"] ?: UIColor.secondaryLabelColor;
+    UIColor *accent = theme[@"accent"] ?: UIColor.systemBlueColor;
+    UIColor *card = theme[@"card"] ?: UIColor.secondarySystemBackgroundColor;
+    UIColor *stroke = theme[@"stroke"] ?: [UIColor colorWithWhite:0.5 alpha:0.35];
+
+    _menuBar.backgroundColor = [card colorWithAlphaComponent:0.96];
+    _menuBarSeparator.backgroundColor = stroke;
+    for (UIButton *button in _menuButtons)
+        [button setTitleColor:primary forState:UIControlStateNormal];
+    _docTitleLabel.textColor = secondary;
+
+    _textView.backgroundColor = [card colorWithAlphaComponent:0.6];
+    _textView.textColor = primary;
+    _textView.tintColor = accent;
+    _statusBar.backgroundColor = [card colorWithAlphaComponent:0.96];
+    _statusLabel.textColor = secondary;
+
+    _gutter.backgroundColor = [card colorWithAlphaComponent:0.6];
+    _gutter.numberColor = secondary;
+    _gutter.separatorColor = stroke;
+    [_gutter setNeedsDisplay];
+}
+
+#pragma mark Menus
+
+- (MotePadMenuRow *)row:(NSString *)title shortcut:(NSString *)shortcut handler:(void (^)(void))handler {
+    MotePadMenuRow *row = [MotePadMenuRow new];
+    row.title = title;
+    row.shortcut = shortcut;
+    row.action = handler;
+    return row;
+}
+
+- (MotePadMenuRow *)toggle:(NSString *)title shortcut:(NSString *)shortcut checked:(BOOL)checked handler:(void (^)(void))handler {
+    MotePadMenuRow *row = [self row:title shortcut:shortcut handler:handler];
+    row.checkable = YES;
+    row.checked = checked;
+    return row;
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)fileMenuSections {
+    __weak typeof(self) ws = self;
+    return @[
+        @[ [self row:@"New" shortcut:@"⌘N" handler:^{ [ws mpNew]; }],
+           [self row:@"Open…" shortcut:@"⌘O" handler:^{ [ws mpOpen]; }],
+           [self row:@"Save" shortcut:@"⌘S" handler:^{ [ws mpSave]; }],
+           [self row:@"Save As…" shortcut:@"⇧⌘S" handler:^{ [ws mpSaveAs]; }] ],
+        @[ [self row:@"Page Setup…" shortcut:@"⇧⌘P" handler:^{ [ws mpPageSetup]; }],
+           [self row:@"Print…" shortcut:@"⌘P" handler:^{ [ws mpPrint]; }] ],
+        @[ [self row:@"Close" shortcut:@"⌘W" handler:^{ [ws mpClose]; }],
+           [self row:@"Quit MotePad" shortcut:@"⌘Q" handler:^{ [ws mpQuit]; }] ],
+    ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)editMenuSections {
+    __weak typeof(self) ws = self;
+    return @[
+        @[ [self row:@"Undo" shortcut:@"⌘Z" handler:^{ [ws editUndo]; }],
+           [self row:@"Redo" shortcut:@"⇧⌘Z" handler:^{ [ws editRedo]; }] ],
+        @[ [self row:@"Cut" shortcut:@"⌘X" handler:^{ [ws editCut]; }],
+           [self row:@"Copy" shortcut:@"⌘C" handler:^{ [ws editCopy]; }],
+           [self row:@"Paste" shortcut:@"⌘V" handler:^{ [ws editPaste]; }],
+           [self row:@"Delete" shortcut:nil handler:^{ [ws editDelete]; }],
+           [self row:@"Select All" shortcut:@"⌘A" handler:^{ [ws editSelectAll]; }] ],
+        @[ [self row:@"Find…" shortcut:@"⌘F" handler:^{ [ws mpFind]; }],
+           [self row:@"Find Next" shortcut:@"⌘G" handler:^{ [ws mpFindNext]; }],
+           [self row:@"Replace…" shortcut:@"⇧⌘F" handler:^{ [ws mpReplace]; }],
+           [self row:@"Go to Line…" shortcut:@"⌘L" handler:^{ [ws mpGoToLine]; }],
+           [self row:@"Insert Date and Time" shortcut:@"⌘D" handler:^{ [ws mpInsertDateTime]; }] ],
+    ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)formatMenuSections {
+    __weak typeof(self) ws = self;
+    return @[ @[
+        [self toggle:@"Word Wrap" shortcut:@"⌥⌘W" checked:_wordWrap handler:^{ [ws mpToggleWordWrap]; }],
+        [self row:@"Show Fonts" shortcut:@"⌘T" handler:^{ [ws mpShowFonts]; }],
+    ] ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)viewMenuSections {
+    __weak typeof(self) ws = self;
+    return @[ @[
+        [self toggle:@"Status Bar" shortcut:@"⌥⌘S" checked:_statusBarVisible handler:^{ [ws mpToggleStatusBar]; }],
+        [self toggle:@"Line Numbers" shortcut:@"⌥⌘L" checked:_lineNumbersVisible handler:^{ [ws mpToggleLineNumbers]; }],
+    ] ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)helpMenuSections {
+    __weak typeof(self) ws = self;
+    return @[ @[ [self row:@"MotePad Help" shortcut:@"⌘?" handler:^{ [ws mpAbout]; }] ] ];
+}
+
+- (NSArray<NSArray<MotePadMenuRow *> *> *)menuSectionsForTitle:(NSString *)title {
+    if ([title isEqualToString:@"File"]) return [self fileMenuSections];
+    if ([title isEqualToString:@"Edit"]) return [self editMenuSections];
+    if ([title isEqualToString:@"Format"]) return [self formatMenuSections];
+    if ([title isEqualToString:@"View"]) return [self viewMenuSections];
+    if ([title isEqualToString:@"Help"]) return [self helpMenuSections];
+    return @[];
+}
+
+- (void)menuButtonTapped:(UIButton *)button {
+    [self openMenuForButton:button];
+}
+
+- (void)openMenuForButton:(UIButton *)button {
+    NSArray<NSArray<MotePadMenuRow *> *> *sections = [self menuSectionsForTitle:[button titleForState:UIControlStateNormal]];
+    if (sections.count == 0)
+        return;
+    MotePadPopupMenuController *menu = [[MotePadPopupMenuController alloc] initWithSections:sections theme:self.workspaceTheme];
+    menu.modalPresentationStyle = UIModalPresentationPopover;
+    UIPopoverPresentationController *popover = menu.popoverPresentationController;
+    popover.sourceView = button;
+    popover.sourceRect = button.bounds;
+    popover.permittedArrowDirections = UIPopoverArrowDirectionUp;
+    popover.delegate = menu;
+    popover.backgroundColor = self.workspaceTheme[@"card"] ?: UIColor.secondarySystemBackgroundColor;
+    [self presentViewController:menu animated:YES completion:nil];
+}
+
+#pragma mark Hardware-keyboard shortcuts
+
+- (UIKeyCommand *)key:(NSString *)input flags:(UIKeyModifierFlags)flags action:(SEL)action title:(NSString *)title {
+    UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:input modifierFlags:flags action:action];
+    command.discoverabilityTitle = title;  // shown in the iPad ⌘-hold shortcut HUD
+    return command;
+}
+
+// Open a named in-window menu from the keyboard (the custom popover works on iOS 15+).
+- (void)openMenuForButtonTitled:(NSString *)title {
+    for (UIButton *button in _menuButtons) {
+        if ([[button titleForState:UIControlStateNormal] isEqualToString:title]) {
+            [self openMenuForButton:button];
+            return;
+        }
+    }
+}
+
+- (void)openFileMenu { [self openMenuForButtonTitled:@"File"]; }
+- (void)openEditMenu { [self openMenuForButtonTitled:@"Edit"]; }
+- (void)openFormatMenu { [self openMenuForButtonTitled:@"Format"]; }
+- (void)openViewMenu { [self openMenuForButtonTitled:@"View"]; }
+- (void)openHelpMenu { [self openMenuForButtonTitled:@"Help"]; }
+
+- (NSArray<UIKeyCommand *> *)keyCommands {
+    UIKeyModifierFlags cmd = UIKeyModifierCommand;
+    UIKeyModifierFlags shiftCmd = UIKeyModifierCommand | UIKeyModifierShift;
+    UIKeyModifierFlags optCmd = UIKeyModifierCommand | UIKeyModifierAlternate;
+    NSMutableArray<UIKeyCommand *> *commands = [@[
+        // File
+        [self key:@"n" flags:cmd action:@selector(mpNew) title:@"New"],
+        [self key:@"o" flags:cmd action:@selector(mpOpen) title:@"Open…"],
+        [self key:@"s" flags:cmd action:@selector(mpSave) title:@"Save"],
+        [self key:@"s" flags:shiftCmd action:@selector(mpSaveAs) title:@"Save As…"],
+        [self key:@"p" flags:cmd action:@selector(mpPrint) title:@"Print…"],
+        [self key:@"p" flags:shiftCmd action:@selector(mpPageSetup) title:@"Page Setup…"],
+        [self key:@"w" flags:cmd action:@selector(mpClose) title:@"Close"],
+        [self key:@"q" flags:cmd action:@selector(mpQuit) title:@"Quit MotePad"],
+        // Edit — Undo/Redo/Cut/Copy/Paste/Select All are provided natively by UITextView.
+        [self key:@"f" flags:cmd action:@selector(mpFind) title:@"Find…"],
+        [self key:@"g" flags:cmd action:@selector(mpFindNext) title:@"Find Next"],
+        [self key:@"f" flags:shiftCmd action:@selector(mpReplace) title:@"Replace…"],
+        [self key:@"l" flags:cmd action:@selector(mpGoToLine) title:@"Go to Line…"],
+        [self key:@"d" flags:cmd action:@selector(mpInsertDateTime) title:@"Insert Date and Time"],
+        // Format
+        [self key:@"w" flags:optCmd action:@selector(mpToggleWordWrap) title:@"Word Wrap"],
+        [self key:@"t" flags:cmd action:@selector(mpShowFonts) title:@"Show Fonts"],
+        // View
+        [self key:@"s" flags:optCmd action:@selector(mpToggleStatusBar) title:@"Status Bar"],
+        [self key:@"l" flags:optCmd action:@selector(mpToggleLineNumbers) title:@"Line Numbers"],
+        // Help
+        [self key:@"?" flags:cmd action:@selector(mpAbout) title:@"MotePad Help"],
+    ] mutableCopy];
+    // Open each in-window menu from the keyboard (Control-Option-letter).
+    UIKeyModifierFlags ctrlOpt = UIKeyModifierControl | UIKeyModifierAlternate;
+    [commands addObjectsFromArray:@[
+        [self key:@"f" flags:ctrlOpt action:@selector(openFileMenu) title:@"File Menu"],
+        [self key:@"e" flags:ctrlOpt action:@selector(openEditMenu) title:@"Edit Menu"],
+        [self key:@"o" flags:ctrlOpt action:@selector(openFormatMenu) title:@"Format Menu"],
+        [self key:@"v" flags:ctrlOpt action:@selector(openViewMenu) title:@"View Menu"],
+        [self key:@"h" flags:ctrlOpt action:@selector(openHelpMenu) title:@"Help Menu"],
+    ]];
+    return commands;
+}
+
+#pragma mark Document state
+
+- (NSString *)documentDisplayName {
+    return _currentGuestPath.lastPathComponent.length ? _currentGuestPath.lastPathComponent : @"Untitled";
+}
+
+- (void)updateDocTitle {
+    NSString *name = [self documentDisplayName];
+    _docTitleLabel.text = _dirty ? [@"● " stringByAppendingString:name] : name;
+}
+
+- (void)setDirty:(BOOL)dirty {
+    if (_dirty == dirty) return;
+    _dirty = dirty;
+    [self updateDocTitle];
+}
+
+- (void)loadText:(NSString *)text guestPath:(NSString *)guestPath {
+    _textView.text = text ?: @"";
+    _currentGuestPath = guestPath;
+    [_textView.undoManager removeAllActions];
+    [self setDirty:NO];
+    [self updateDocTitle];  // setDirty: no-ops when already clean; refresh the filename explicitly
+    [self updateStatusBar];
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [self autosaveDraftNow];  // document is clean now — this clears any stale draft
+}
+
+#pragma mark Draft autosave
+
+// Unsaved text used to live only in _textView.text, so a background (jetsam) kill —
+// routine for this app — silently discarded the document. Every MotePad window now
+// mirrors its dirty text to a small host-side plist under Application Support (never
+// inside the guest FS), debounced ~2s after the last keystroke and flushed
+// immediately when the app backgrounds. On window (re)creation the draft is restored
+// if it is newer than the underlying file's last save. A corrupt/unreadable draft is
+// ignored (dictionaryWithContentsOfURL just returns nil) — never a launch crash.
+//
+// The workspace can host several MotePad windows (it is not a "global" singleton
+// tool), so each window claims a numbered draft slot in creation order; a restored
+// layout recreates windows in the saved order, so the slots line back up.
+
+static NSURL *MotePadDraftDirectoryURL(void) {
+    NSURL *base = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory
+                                                       inDomains:NSUserDomainMask].firstObject;
+    if (base == nil)
+        return nil;
+    NSURL *dir = [base URLByAppendingPathComponent:@"MotePadDrafts" isDirectory:YES];
+    [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES
+                                            attributes:nil error:NULL];
+    return dir;
+}
+
+// Main-thread only (claim/release both run on main).
+static NSMutableSet<NSString *> *MotePadClaimedDraftSlots(void) {
+    static NSMutableSet<NSString *> *slots;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ slots = [NSMutableSet set]; });
+    return slots;
+}
+
++ (void)releaseDraftSlotNamed:(NSString *)name {
+    if (name.length == 0)
+        return;
+    if (NSThread.isMainThread)
+        [MotePadClaimedDraftSlots() removeObject:name];
+    else
+        dispatch_async(dispatch_get_main_queue(), ^{ [MotePadClaimedDraftSlots() removeObject:name]; });
+}
+
+- (void)claimDraftSlot {
+    NSMutableSet<NSString *> *claimed = MotePadClaimedDraftSlots();
+    for (NSUInteger slot = 0; slot < 64; slot++) {
+        NSString *name = [NSString stringWithFormat:@"draft-%lu.plist", (unsigned long)slot];
+        if (![claimed containsObject:name]) {
+            [claimed addObject:name];
+            _draftSlotName = name;
+            return;
+        }
+    }
+    _draftSlotName = nil;  // implausibly many windows: skip autosave rather than share a slot
+}
+
+- (NSURL *)draftFileURL {
+    if (_draftSlotName.length == 0)
+        return nil;
+    return [MotePadDraftDirectoryURL() URLByAppendingPathComponent:_draftSlotName isDirectory:NO];
+}
+
+- (void)scheduleDraftAutosave {
+    [_draftTimer invalidate];
+    __weak typeof(self) ws = self;  // block-based timer: a target-based one would retain self
+    _draftTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:NO block:^(__unused NSTimer *t) {
+        [ws autosaveDraftNow];
+    }];
+}
+
+- (NSData *)draftDataSnapshot {
+    NSMutableDictionary *draft = [NSMutableDictionary dictionary];
+    draft[@"text"] = _textView.text ?: @"";
+    draft[@"dirty"] = @YES;
+    draft[@"date"] = [NSDate date];
+    if (_currentGuestPath != nil)
+        draft[@"path"] = _currentGuestPath;
+    return [NSPropertyListSerialization dataWithPropertyList:draft
+                                                      format:NSPropertyListBinaryFormat_v1_0
+                                                     options:0 error:NULL];
+}
+
+- (void)autosaveDraftNow {
+    [_draftTimer invalidate];
+    _draftTimer = nil;
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    if (!_dirty) {
+        [self clearDraft];
+        return;
+    }
+    NSData *data = [self draftDataSnapshot];  // snapshot on main; write off it
+    dispatch_async(MotePadDocumentStore.ioQueue, ^{
+        [data writeToURL:url options:NSDataWritingAtomic error:NULL];
+    });
+}
+
+// Synchronous flush: the debounce timer won't fire once the app is suspended, and a
+// queued async write might sit behind a slow VFS operation, so write inline here.
+- (void)motePadFlushDraftForBackground:(__unused NSNotification *)notification {
+    [_draftTimer invalidate];
+    _draftTimer = nil;
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    if (!_dirty) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+        return;
+    }
+    [[self draftDataSnapshot] writeToURL:url options:NSDataWritingAtomic error:NULL];
+}
+
+- (void)clearDraft {
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    dispatch_async(MotePadDocumentStore.ioQueue, ^{
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+    });
+}
+
+- (void)restoreDraftIfNewer {
+    NSURL *url = [self draftFileURL];
+    if (url == nil)
+        return;
+    NSDictionary *draft = [NSDictionary dictionaryWithContentsOfURL:url];
+    NSString *text = draft[@"text"];
+    if (![text isKindOfClass:NSString.class])
+        return;  // missing or corrupt draft: start clean
+    if (![draft[@"dirty"] isKindOfClass:NSNumber.class] || ![draft[@"dirty"] boolValue])
+        return;  // clean drafts are never restored (and shouldn't exist)
+    NSString *path = [draft[@"path"] isKindOfClass:NSString.class] ? draft[@"path"] : nil;
+    NSDate *draftDate = [draft[@"date"] isKindOfClass:NSDate.class] ? draft[@"date"] : nil;
+
+    __weak typeof(self) ws = self;
+    void (^apply)(void) = ^{
+        typeof(self) ss = ws;
+        if (ss == nil || ss->_dirty || ss->_textView.text.length > 0)
+            return;  // the user already started typing; don't stomp their work
+        ss->_textView.text = text;
+        ss->_currentGuestPath = path;
+        [ss->_textView.undoManager removeAllActions];
+        [ss setDirty:YES];  // restored text is unsaved — show the ● indicator
+        [ss updateStatusBar];
+        if (ss->_lineNumbersVisible) { [ss updateGutterWidth]; [ss->_gutter setNeedsDisplay]; }
+    };
+
+    if (path == nil) {
+        apply();  // untitled draft: nothing on disk to compare against
+        return;
+    }
+    // Only restore when the draft is newer than the document's last save; if the file
+    // was saved more recently (e.g. edited from the guest), the draft is stale.
+    [[MotePadDocumentStore sharedStore] modificationDateAtGuestPath:path completion:^(NSDate *fileDate) {
+        if (fileDate != nil && draftDate != nil && [fileDate compare:draftDate] != NSOrderedAscending) {
+            [ws clearDraft];
+            return;
+        }
+        apply();
+    }];
+}
+
+#pragma mark File actions
+
+- (void)mpNew {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{ [ws loadText:@"" guestPath:nil]; }];
+}
+
+// Editor lock while a queued file operation is in flight: the guest-VFS work runs on
+// the store's serial background queue (it blocks on emulator locks and must never run
+// on the main thread), and until it completes the buffer must not change underneath
+// the pending read/write. Counted so overlapping operations can't re-enable early.
+- (void)beginFileOperation:(NSString *)statusText {
+    _busyCount++;
+    _textView.editable = NO;
+    _statusLabel.text = statusText;
+}
+
+- (void)endFileOperation {
+    if (_busyCount > 0)
+        _busyCount--;
+    if (_busyCount == 0) {
+        _textView.editable = YES;
+        [self updateStatusBar];
+    }
+}
+
+- (void)mpOpen {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{
+        [ws presentBrowserWithMode:MotePadBrowserModeOpen suggestedName:nil completion:^(NSString *path) {
+            if (path == nil) return;
+            typeof(self) ss = ws;
+            if (ss == nil) return;
+            [ss beginFileOperation:@"Opening…"];
+            [[MotePadDocumentStore sharedStore] readTextFileAtGuestPath:path
+                                                             completion:^(NSString *text, NSError *error) {
+                typeof(self) s2 = ws;
+                if (s2 == nil) return;
+                [s2 endFileOperation];
+                if (text == nil) {
+                    [s2 presentError:error title:@"Couldn’t Open"];
+                    return;
+                }
+                [s2 loadText:text guestPath:path];
+            }];
+        }];
+    }];
+}
+
+- (void)mpSave {
+    if (_currentGuestPath == nil) {
+        [self mpSaveAs];
+        return;
+    }
+    [self writeToGuestPath:_currentGuestPath completion:nil];
+}
+
+- (void)mpSaveAs {
+    __weak typeof(self) ws = self;
+    [self presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[self documentDisplayName]
+                      completion:^(NSString *path) {
+        if (path == nil) return;
+        [ws writeToGuestPath:path completion:nil];
+    }];
+}
+
+- (void)mpPrint {
+    UIPrintInteractionController *controller = [UIPrintInteractionController sharedPrintController];
+    if (controller == nil) return;  // device can't print
+    UIPrintInfo *info = [UIPrintInfo printInfo];
+    info.outputType = UIPrintInfoOutputGeneral;
+    info.jobName = [self documentDisplayName];
+    controller.printInfo = info;
+    UISimpleTextPrintFormatter *formatter = [[UISimpleTextPrintFormatter alloc] initWithText:_textView.text ?: @""];
+    formatter.font = _textView.font;
+    controller.printFormatter = formatter;
+    // Anchor on the File menu button — presentFromRect:inView: is valid on both idioms
+    // (iPad requires a source; iPhone presents modally regardless).
+    UIView *anchor = _menuButtons.firstObject ?: self.view;
+    [controller presentFromRect:anchor.bounds inView:anchor animated:YES completionHandler:nil];
+}
+
+- (void)mpPageSetup {
+    // iOS folds paper size/orientation into the print sheet, so Page Setup opens the same UI.
+    [self mpPrint];
+}
+
+- (void)mpClose {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{
+        // Deliberate close (the user saved or chose Don't Save): drop the autosaved
+        // draft so discarded text isn't resurrected in the next MotePad window. The
+        // chrome × path skips this on purpose — it never prompts, so its draft is
+        // the only thing protecting unsaved text.
+        [ws clearDraft];
+        [ws closeHostWindow];
+    }];
+}
+
+- (void)mpQuit {
+    // iOS has no app-level quit; the applet's Quit just closes its window, like Close.
+    [self mpClose];
+}
+
+// Walk up to the containing Workspace window and fire its close handler (the same path
+// the window's × button uses, so the host's bookkeeping/layout save runs).
+- (void)closeHostWindow {
+    UIView *view = self.view;
+    while (view != nil && ![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+        view = view.superview;
+    ISHWorkspaceContainedWindowView *window = (ISHWorkspaceContainedWindowView *)view;
+    if (window.closeHandler != nil)
+        window.closeHandler();
+}
+
+// Queued save: the write happens on the store's serial background queue, the editor
+// is locked while it's in flight, and the completion (main thread) reports success.
+- (void)writeToGuestPath:(NSString *)path completion:(void (^)(BOOL ok))completion {
+    __weak typeof(self) ws = self;
+    [self beginFileOperation:@"Saving…"];
+    [[MotePadDocumentStore sharedStore] writeText:_textView.text toGuestPath:path
+                                       completion:^(BOOL ok, NSError *error) {
+        typeof(self) ss = ws;
+        if (ss == nil) {
+            if (completion) completion(NO);
+            return;
+        }
+        [ss endFileOperation];
+        if (!ok) {
+            [ss presentError:error title:@"Couldn’t Save"];
+        } else {
+            ss->_currentGuestPath = path;
+            [ss setDirty:NO];
+            [ss updateDocTitle];  // reflect the (possibly new) filename even if it was already clean
+            [ss clearDraft];      // the document is safely on disk; the draft is obsolete
+        }
+        if (completion) completion(ok);
+    }];
+}
+
+// Present the guest file browser rooted at the current document's directory (or the
+// store's default writable directory for an untitled document — resolved on the I/O
+// queue, since checking /AOK/persist may touch the guest VFS).
+- (void)presentBrowserWithMode:(MotePadBrowserMode)mode
+                 suggestedName:(NSString *)suggestedName
+                    completion:(void (^)(NSString *))completion {
+    if (_currentGuestPath.length) {
+        [self presentBrowserWithMode:mode directory:_currentGuestPath.stringByDeletingLastPathComponent
+                       suggestedName:suggestedName completion:completion];
+        return;
+    }
+    __weak typeof(self) ws = self;
+    [[MotePadDocumentStore sharedStore] defaultDirectoryGuestPathWithCompletion:^(NSString *directory) {
+        [ws presentBrowserWithMode:mode directory:directory
+                     suggestedName:suggestedName completion:completion];
+    }];
+}
+
+- (void)presentBrowserWithMode:(MotePadBrowserMode)mode
+                     directory:(NSString *)directory
+                 suggestedName:(NSString *)suggestedName
+                    completion:(void (^)(NSString *))completion {
+    MotePadFileBrowserViewController *browser =
+        [[MotePadFileBrowserViewController alloc] initWithMode:mode directory:directory
+                                                 suggestedName:suggestedName completion:completion];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:browser];
+    nav.modalPresentationStyle = UIModalPresentationFormSheet;
+    [self presentViewController:nav animated:YES completion:nil];
+}
+
+- (void)promptToSaveIfDirtyThen:(void (^)(void))proceed {
+    if (!_dirty) {
+        if (proceed) proceed();
+        return;
+    }
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Unsaved Changes"
+                                            message:[NSString stringWithFormat:@"Save changes to %@?", [self documentDisplayName]]
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        typeof(self) ss = ws;
+        if (ss == nil) return;
+        void (^proceedIfSaved)(BOOL) = ^(BOOL ok) {
+            if (ok && proceed) proceed();
+        };
+        if (ss->_currentGuestPath == nil) {
+            // No path yet: run Save As, and only proceed if the write actually happened.
+            [ss presentBrowserWithMode:MotePadBrowserModeSave suggestedName:[ss documentDisplayName]
+                            completion:^(NSString *path) {
+                typeof(self) s2 = ws;
+                if (path != nil && s2 != nil)
+                    [s2 writeToGuestPath:path completion:proceedIfSaved];
+            }];
+        } else {
+            [ss writeToGuestPath:ss->_currentGuestPath completion:proceedIfSaved];
+        }
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Don’t Save" style:UIAlertActionStyleDestructive
+                                            handler:^(__unused UIAlertAction *a) { if (proceed) proceed(); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Edit actions
+
+// Standard editing routed through the text view. Kept as methods (not ivar access
+// through the menu's weak `self`) — messaging a possibly-nil weak pointer is a safe
+// no-op, whereas dereferencing `ws->_textView` is disallowed under ARC.
+- (void)editUndo { [_textView.undoManager undo]; }
+- (void)editRedo { [_textView.undoManager redo]; }
+- (void)editCut { [_textView cut:nil]; }
+- (void)editCopy { [_textView copy:nil]; }
+- (void)editPaste { [_textView paste:nil]; }
+- (void)editSelectAll { [_textView selectAll:nil]; }
+- (void)editDelete {
+    // Remove the current selection; with an empty selection there's nothing to delete
+    // (the hardware Delete/Backspace key handles single-character deletion natively).
+    if (_textView.selectedRange.length > 0)
+        [_textView deleteBackward];
+}
+
+- (void)mpFind {
+    if (@available(iOS 16.0, *)) {
+        _textView.findInteractionEnabled = YES;
+        [_textView.findInteraction presentFindNavigatorShowingReplace:NO];
+        return;
+    }
+    // Pre-iOS 16 fallback: a one-shot forward find from the caret.
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Find" message:nil
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"Search";
+        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Find Next" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        [ws findNext:alert.textFields.firstObject.text];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)mpFindNext {
+    if (_lastSearch.length > 0) { [self findNext:_lastSearch]; return; }
+    [self mpFind];
+}
+
+- (void)mpReplace {
+    if (@available(iOS 16.0, *)) {
+        _textView.findInteractionEnabled = YES;
+        [_textView.findInteraction presentFindNavigatorShowingReplace:YES];
+        return;
+    }
+    [self mpFind];  // pre-iOS 16 has no system replace UI
+}
+
+- (void)findNext:(NSString *)needle {
+    if (needle.length == 0) return;
+    _lastSearch = [needle copy];  // remember for Find Next (⌘G)
+    NSString *haystack = _textView.text;
+    NSUInteger from = NSMaxRange(_textView.selectedRange);
+    if (from > haystack.length) from = 0;
+    NSRange search = NSMakeRange(from, haystack.length - from);
+    NSRange found = [haystack rangeOfString:needle options:0 range:search];
+    if (found.location == NSNotFound)  // wrap to the top
+        found = [haystack rangeOfString:needle options:0 range:NSMakeRange(0, haystack.length)];
+    if (found.location == NSNotFound)
+        return;
+    _textView.selectedRange = found;
+    [_textView scrollRangeToVisible:found];
+    [_textView becomeFirstResponder];
+}
+
+- (void)mpGoToLine {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Go to Line" message:nil
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"Line number";
+        tf.keyboardType = UIKeyboardTypeNumberPad;
+    }];
+    __weak typeof(self) ws = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Go" style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *a) {
+        [ws goToLine:alert.textFields.firstObject.text.integerValue];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)goToLine:(NSInteger)line {
+    if (line < 1) line = 1;
+    NSString *text = _textView.text;
+    NSUInteger index = 0;
+    NSInteger current = 1;
+    while (current < line && index < text.length) {
+        NSRange nl = [text rangeOfString:@"\n" options:0 range:NSMakeRange(index, text.length - index)];
+        if (nl.location == NSNotFound) { index = text.length; break; }
+        index = NSMaxRange(nl);
+        current++;
+    }
+    NSRange target = NSMakeRange(index, 0);
+    _textView.selectedRange = target;
+    [_textView scrollRangeToVisible:target];
+    [_textView becomeFirstResponder];
+    [self updateStatusBar];
+}
+
+- (void)mpInsertDateTime {
+    NSDateFormatter *formatter = [NSDateFormatter new];
+    formatter.dateStyle = NSDateFormatterMediumStyle;
+    formatter.timeStyle = NSDateFormatterShortStyle;
+    NSString *stamp = [formatter stringFromDate:[NSDate date]];
+    if (!_textView.isFirstResponder)
+        [_textView becomeFirstResponder];
+    [_textView insertText:stamp];  // routes through UITextView so undo + dirty tracking fire
+}
+
+#pragma mark Format / View actions
+
+- (void)mpToggleWordWrap {
+    _wordWrap = !_wordWrap;
+    [self applyWordWrap];
+}
+
+- (void)applyWordWrap {
+    if (_wordWrap) {
+        _textView.textContainer.widthTracksTextView = YES;
+        _textView.textContainer.size = CGSizeMake(0, CGFLOAT_MAX);
+    } else {
+        // Let long lines run off to the right; UITextView (a UIScrollView) then scrolls
+        // horizontally to reach them.
+        _textView.textContainer.widthTracksTextView = NO;
+        _textView.textContainer.size = CGSizeMake(1.0e7, CGFLOAT_MAX);
+    }
+    [_gutter setNeedsDisplay];
+}
+
+- (void)mpToggleStatusBar {
+    _statusBarVisible = !_statusBarVisible;
+    [self applyStatusBarVisibility];
+}
+
+- (void)applyStatusBarVisibility {
+    _statusBar.hidden = !_statusBarVisible;
+    _statusBarHeight.constant = _statusBarVisible ? 22 : 0;
+}
+
+- (void)mpToggleLineNumbers {
+    _lineNumbersVisible = !_lineNumbersVisible;
+    [self updateGutterWidth];
+    [self applyLineNumbersVisibility];
+}
+
+- (void)applyLineNumbersVisibility {
+    _gutter.hidden = !_lineNumbersVisible;
+    _gutterWidth.constant = _lineNumbersVisible ? _gutterContentWidth : 0;
+    [_gutter setNeedsDisplay];
+}
+
+// Size the gutter to the widest line number the document currently needs.
+- (void)updateGutterWidth {
+    NSString *text = _textView.text;
+    NSUInteger lines = 1;
+    for (NSUInteger i = 0; i < text.length; i++)
+        if ([text characterAtIndex:i] == '\n') lines++;
+    NSUInteger digits = 1;
+    for (NSUInteger n = lines; n >= 10; n /= 10) digits++;
+    if (digits < 2) digits = 2;  // reserve room for 2 digits so short files don't reflow on the 10th line
+    UIFont *font = [UIFont monospacedDigitSystemFontOfSize:MAX(9.0, (_textView.font.pointSize > 0 ? _textView.font.pointSize : 13) - 1.0)
+                                                    weight:UIFontWeightRegular];
+    CGFloat digitWidth = [@"0" sizeWithAttributes:@{NSFontAttributeName: font}].width;
+    _gutterContentWidth = ceil(digitWidth * digits) + 12.0;  // ~6pt padding each side
+    if (_lineNumbersVisible)
+        _gutterWidth.constant = _gutterContentWidth;
+}
+
+- (void)mpShowFonts {
+    UIFontPickerViewControllerConfiguration *config = [UIFontPickerViewControllerConfiguration new];
+    config.includeFaces = YES;
+    UIFontPickerViewController *picker = [[UIFontPickerViewController alloc] initWithConfiguration:config];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)viewController {
+    UIFontDescriptor *descriptor = viewController.selectedFontDescriptor;
+    if (descriptor != nil) {
+        CGFloat size = _textView.font.pointSize > 0 ? _textView.font.pointSize : 14;
+        _textView.font = [UIFont fontWithDescriptor:descriptor size:size];
+    }
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [viewController dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark Help
+
+- (void)mpAbout {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"MotePad"
+                                            message:@"A Notepad-style text editor for the iSH-AOK Workspace.\n\nInspired by MotePad / TinyRetroPad — reads and writes files on the guest filesystem."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Errors
+
+- (void)presentError:(NSError *)error title:(NSString *)title {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:title
+                                            message:error.localizedDescription ?: @"Unknown error"
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+#pragma mark Status bar (Ln/Col)
+
+- (void)updateStatusBar {
+    NSString *text = _textView.text;
+    NSUInteger caret = MIN(_textView.selectedRange.location, text.length);
+    NSUInteger line = 1;
+    NSUInteger lineStart = 0;
+    for (NSUInteger i = 0; i < caret; i++) {
+        if ([text characterAtIndex:i] == '\n') { line++; lineStart = i + 1; }
+    }
+    NSUInteger column = caret - lineStart + 1;
+    _statusLabel.text = [NSString stringWithFormat:@"Ln %lu, Col %lu", (unsigned long)line, (unsigned long)column];
+}
+
+#pragma mark UITextViewDelegate
+
+- (void)textViewDidChange:(__unused UITextView *)textView {
+    [self setDirty:YES];
+    [self updateStatusBar];
+    if (_lineNumbersVisible) { [self updateGutterWidth]; [_gutter setNeedsDisplay]; }
+    [self scheduleDraftAutosave];
+}
+
+- (void)textViewDidChangeSelection:(__unused UITextView *)textView {
+    [self updateStatusBar];
+}
+
+- (void)scrollViewDidScroll:(__unused UIScrollView *)scrollView {
+    if (_lineNumbersVisible) [_gutter setNeedsDisplay];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (_lineNumbersVisible) [_gutter setNeedsDisplay];
 }
 
 @end

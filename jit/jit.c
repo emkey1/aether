@@ -1737,15 +1737,15 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         return cpu_step_to_interrupt_arm64(cpu, tlb);
     }
     if (current != NULL && current->abi == GUEST_ABI_AMD64) {
-        if (cpu->amd64_rip == 0 && strcmp(current->comm, "apk") == 0) {
-            printk("[amd64-jit] run entry apk rip=0 eip=%#x rsp=%#llx rax=%#llx rcx=%#llx\n",
-                   cpu->eip,
-                   (unsigned long long) cpu->amd64_regs[amd64_rsp],
-                   (unsigned long long) cpu->amd64_regs[amd64_rax],
-                   (unsigned long long) cpu->amd64_regs[amd64_rcx]);
-        }
         if (!amd64_jit_is_enabled())
             return cpu_run_to_interrupt_amd64(cpu, tlb);
+        // GNU as stays on the amd64 interpreter: b71ce84d ("Contain amd64
+        // assembler JIT crashes") added this to contain real gas crashes
+        // under the amd64 JIT frontend that were never root-caused. Keep
+        // the bypass until someone re-runs gas under the JIT (much has
+        // changed since — see tests/manual/amd64_gas_probe.sh for the
+        // probe harness) and either reproduces and fixes the crash or
+        // shows it gone.
         if (current->comm[0] == 'a' && strcmp(current->comm, "as") == 0)
             return cpu_run_to_interrupt_amd64(cpu, tlb);
         return cpu->tf ? cpu_single_step_amd64_frontend(cpu, tlb)

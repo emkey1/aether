@@ -107,6 +107,7 @@
 		497F6D3D254E5EA600C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
+		5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
 		5D4E7DFA2B1E68F6006BA7D4 /* rw_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DAE32B17EB1600FA995C /* rw_locks.c */; };
 		5D7E7E152B1FD4890087F2E0 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -272,13 +273,13 @@
 		C0A000012E00000100000003 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000012E00000100000004 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000022E00000200000001 /* aok.c in Sources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000002 /* aok.c */; };
-		C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
-		C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
 		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
-		C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
-		C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
+		C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
+		C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
 		D655F8B9294AA603BF1C430A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
 		DC09D58C8595F3ACD279A0D2 /* AudioPlayerEngine.m in Sources */ = {isa = PBXBuildFile; fileRef = 59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */; };
 /* End PBXBuildFile section */
@@ -627,6 +628,8 @@
 		497F6CD3254E5CC800C82F46 /* bits.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bits.h; sourceTree = "<group>"; };
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
 		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
+		4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MotePadDocumentStore.m; sourceTree = "<group>"; };
+		56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MotePadDocumentStore.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -813,11 +816,11 @@
 		C0A000012E00000100000008 /* AudioOutput.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioOutput.h; sourceTree = "<group>"; };
 		C0A000012E00000100000009 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		C0A000022E00000200000002 /* aok.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = aok.c; sourceTree = "<group>"; };
-		C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
-		C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
 		C0A000032E00000300000002 /* WorkspaceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkspaceViewController.h; sourceTree = "<group>"; };
 		C0A000032E00000300000003 /* WorkspaceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorkspaceViewController.m; sourceTree = "<group>"; };
-		C0A000042E00000400000003 /* iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
+		C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
 		DB5F3377782D953C463D3F4C /* AudioLibrary.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioLibrary.h; sourceTree = "<group>"; };
 		EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		F2335E04AD7BA30533F45B20 /* AudioPCMDecoder_Internal.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPCMDecoder_Internal.h; sourceTree = "<group>"; };
@@ -1187,9 +1190,9 @@
 				BB88F4A4215476BA00A341FD /* iSH.entitlements */,
 				BB88F4912154760800A341FD /* FileProvider */,
 				BB41591D255EF9E300E0950C /* UITests */,
-				C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */,
-				C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */,
-				C0A000042E00000400000003 /* iSH_benchmark.tgz */,
+				C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */,
+				C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */,
+				C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */,
 				5D8CFA842B1198B300D50E57 /* RTCDevice.m */,
 				5D8CFA882B1198DB00D50E57 /* RTCDevice.h */,
 				59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */,
@@ -1202,6 +1205,8 @@
 				339C4B7260DE3DF9776043F8 /* AudioPCMDecoder.h */,
 				F2335E04AD7BA30533F45B20 /* AudioPCMDecoder_Internal.h */,
 				DB5F3377782D953C463D3F4C /* AudioLibrary.h */,
+				56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */,
+				4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -1900,9 +1905,9 @@
 				BB38599F27BCEE6B000A1082 /* icon1337.png in Resources */,
 				BB3859A127BCEE6B000A1082 /* iinhash.png in Resources */,
 				BB38599727BCEE6B000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1949,9 +1954,9 @@
 				BBEF1995268066D1001225BD /* sprite64.png in Resources */,
 				BBEF1996268066D1001225BD /* icon.png in Resources */,
 				BB38598127BCEC78000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2078,6 +2083,7 @@
 				"$(SRCROOT)/devuan-minirootfs-6.0-x86.tar.xz",
 				"$(SRCROOT)/devuan-minirootfs-6.0-x86_64.tar.xz",
 				"$(SRCROOT)/alpine-minirootfs-3.21.4-aarch64.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-aarch64.tar.xz",
 			);
 			name = "Download Root";
 			outputPaths = (
@@ -2086,10 +2092,11 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86_64.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.21.4-aarch64.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-aarch64.tar.xz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\" 2>/dev/null || true\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-aarch64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\" 2>/dev/null || true\n";
 			showEnvVarsInLog = 0;
 		};
 		BBEF197A268066D1001225BD /* Generate APK Repositories File */ = {
@@ -2144,6 +2151,7 @@
 				"$(SRCROOT)/devuan-minirootfs-6.0-x86.tar.xz",
 				"$(SRCROOT)/devuan-minirootfs-6.0-x86_64.tar.xz",
 				"$(SRCROOT)/alpine-minirootfs-3.21.4-aarch64.tar.xz",
+				"$(SRCROOT)/devuan-minirootfs-6.0-aarch64.tar.xz",
 			);
 			name = "Download Root";
 			outputPaths = (
@@ -2152,10 +2160,11 @@
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-x86_64.tar.xz",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/alpine-minirootfs-3.21.4-aarch64.tar.xz",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/devuan-minirootfs-6.0-aarch64.tar.xz",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\" 2>/dev/null || true\n";
+			shellScript = "RESOURCES_DIR=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nmkdir -p \"$RESOURCES_DIR\"\nrm -f \"$RESOURCES_DIR/root.tar.gz\"\nrm -f \"$RESOURCES_DIR/Alpine3.23.3(x86_64).tar.gz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\nrm -f \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\nrm -f \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\"\ninstall -m 0644 \"$SRCROOT/devuan-minirootfs-6.0-aarch64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\"\nxattr -c \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.23.3-x86_64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-x86_64.tar.xz\" \"$RESOURCES_DIR/alpine-minirootfs-3.21.4-aarch64.tar.xz\" \"$RESOURCES_DIR/devuan-minirootfs-6.0-aarch64.tar.xz\" 2>/dev/null || true\n";
 			showEnvVarsInLog = 0;
 		};
 		BBFB2C572590257E00545EAB /* ShellScript */ = {
@@ -2405,6 +2414,7 @@
 				3507455F518BE9C7E4BBB938 /* AudioPCMDecoder_Vorbis.m in Sources */,
 				9C2BEE382C85ECD21A4672CA /* AudioPCMDecoder_Opus.m in Sources */,
 				8373773A4AE4AA88C0E3CCBC /* AudioLibrary.m in Sources */,
+				5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2754,11 +2764,13 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 534;
+				CURRENT_PROJECT_VERSION = 536;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -2782,11 +2794,13 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 534;
+				CURRENT_PROJECT_VERSION = 536;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -2823,11 +2837,13 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 534;
+				CURRENT_PROJECT_VERSION = 536;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -3171,11 +3187,13 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 534;
+				CURRENT_PROJECT_VERSION = 536;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "iSH-AOK";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

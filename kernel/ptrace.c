@@ -219,6 +219,58 @@ static void set_user_fpregs_amd64(struct cpu_state *cpu, const struct user_fpreg
             cpu->xmm[i].u32[j] = user_fpregs_->xmm[i].element[j];
 }
 
+// PSTATE as seen by an EL0 debugger: just the NZCV bits (31:28), which is
+// exactly how cpu->arm64_nzcv is packed. All mode/mask bits are 0 (EL0t).
+#define ARM64_PSTATE_NZCV_MASK 0xf0000000u
+
+static void get_user_regs_arm64(struct task *task, struct user_pt_regs_arm64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_regs_, 0, sizeof(*user_regs_));
+    for (int i = 0; i < arm64_reg_count; i++)
+        user_regs_->regs[i] = cpu->arm64_regs[i];
+    user_regs_->sp = cpu->arm64_sp;
+    user_regs_->pc = cpu->arm64_pc;
+    user_regs_->pstate = cpu->arm64_nzcv & ARM64_PSTATE_NZCV_MASK;
+    // At a syscall-entry stop x8 still holds the number the tracee loaded,
+    // but report the canonical ptrace.syscall so a prior NT_ARM_SYSTEM_CALL
+    // rewrite is reflected, mirroring orig_eax/orig_rax handling.
+    if (ptrace_in_syscall_entry_stop(task))
+        user_regs_->regs[arm64_x8] = (qword_t) (sqword_t) task->ptrace.syscall;
+}
+
+static void set_user_regs_arm64(struct task *task, const struct user_pt_regs_arm64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
+    for (int i = 0; i < arm64_reg_count; i++)
+        cpu->arm64_regs[i] = user_regs_->regs[i];
+    cpu->arm64_sp = user_regs_->sp;
+    cpu->arm64_pc = user_regs_->pc;
+    cpu->arm64_nzcv = (dword_t) user_regs_->pstate & ARM64_PSTATE_NZCV_MASK;
+    // Syscall dispatch re-reads x8 after the entry stop resumes, so keep the
+    // reported syscall number in sync with what will actually run.
+    if (ptrace_in_syscall_entry_stop(task))
+        task->ptrace.syscall = (int) user_regs_->regs[arm64_x8];
+}
+
+static void get_user_fpregs_arm64(struct task *task, struct user_fpsimd_state_arm64_ *user_fpregs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_fpregs_, 0, sizeof(*user_fpregs_));
+    for (int i = 0; i < 32; i++) {
+        user_fpregs_->vregs[i][0] = cpu->arm64_v[i].qw[0];
+        user_fpregs_->vregs[i][1] = cpu->arm64_v[i].qw[1];
+    }
+    user_fpregs_->fpsr = cpu->arm64_fpsr;
+    user_fpregs_->fpcr = cpu->arm64_fpcr;
+}
+
+static void set_user_fpregs_arm64(struct cpu_state *cpu, const struct user_fpsimd_state_arm64_ *user_fpregs_) {
+    for (int i = 0; i < 32; i++) {
+        cpu->arm64_v[i].qw[0] = user_fpregs_->vregs[i][0];
+        cpu->arm64_v[i].qw[1] = user_fpregs_->vregs[i][1];
+    }
+    cpu->arm64_fpsr = user_fpregs_->fpsr;
+    cpu->arm64_fpcr = user_fpregs_->fpcr;
+}
+
 static size_t ptrace_word_size(const struct task *task) {
     return guest_abi_is_64bit(task->abi) ? sizeof(qword_t) : sizeof(dword_t);
 }
@@ -365,7 +417,11 @@ static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_
         qword_t note_type) {
     switch (note_type) {
         case NT_PRSTATUS_: {
-            if (child->abi == GUEST_ABI_AMD64) {
+            if (child->abi == GUEST_ABI_ARM64) {
+                struct user_pt_regs_arm64_ user_regs_arm64 = {};
+                get_user_regs_arm64(child, &user_regs_arm64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_regs_arm64, sizeof(user_regs_arm64));
+            } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64 = {};
                 get_user_regs_amd64(child, &user_regs_amd64);
                 return ptrace_getregset_write(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
@@ -378,7 +434,13 @@ static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_
         }
         case NT_PRFPREG_:
         case NT_X86_XSTATE_: {
-            if (child->abi == GUEST_ABI_AMD64) {
+            if (child->abi == GUEST_ABI_ARM64) {
+                if (note_type != NT_PRFPREG_)
+                    return _EINVAL;
+                struct user_fpsimd_state_arm64_ user_fpregs_arm64 = {};
+                get_user_fpregs_arm64(child, &user_fpregs_arm64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_arm64, sizeof(user_fpregs_arm64));
+            } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64 = {};
                 get_user_fpregs_amd64(child, &user_fpregs_amd64);
                 return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_amd64, sizeof(user_fpregs_amd64));
@@ -386,6 +448,12 @@ static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_
                 struct user_fpregs_struct_ user_fpregs_ = {};
                 return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_, sizeof(user_fpregs_));
             }
+        }
+        case NT_ARM_SYSTEM_CALL_: {
+            if (child->abi != GUEST_ABI_ARM64)
+                return _EINVAL;
+            int syscall_no = child->ptrace.syscall;
+            return ptrace_getregset_write(tracer, iov_addr, &syscall_no, sizeof(syscall_no));
         }
         default:
             return _EINVAL;
@@ -396,7 +464,13 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
         qword_t note_type) {
     switch (note_type) {
         case NT_PRSTATUS_: {
-            if (child->abi == GUEST_ABI_AMD64) {
+            if (child->abi == GUEST_ABI_ARM64) {
+                struct user_pt_regs_arm64_ user_regs_arm64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_arm64, sizeof(user_regs_arm64));
+                if (err < 0)
+                    return err;
+                set_user_regs_arm64(child, &user_regs_arm64);
+            } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64;
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
                 if (err < 0)
@@ -413,7 +487,15 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
         }
         case NT_PRFPREG_:
         case NT_X86_XSTATE_: {
-            if (child->abi == GUEST_ABI_AMD64) {
+            if (child->abi == GUEST_ABI_ARM64) {
+                if (note_type != NT_PRFPREG_)
+                    return _EINVAL;
+                struct user_fpsimd_state_arm64_ user_fpregs_arm64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_arm64, sizeof(user_fpregs_arm64));
+                if (err < 0)
+                    return err;
+                set_user_fpregs_arm64(&child->cpu, &user_fpregs_arm64);
+            } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64;
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_amd64, sizeof(user_fpregs_amd64));
                 if (err < 0)
@@ -427,6 +509,20 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
                 // TODO set floating point registers for i386 tracees
                 (void) user_fpregs_;
             }
+            return 0;
+        }
+        case NT_ARM_SYSTEM_CALL_: {
+            if (child->abi != GUEST_ABI_ARM64)
+                return _EINVAL;
+            int syscall_no;
+            int err = ptrace_setregset_read(tracer, iov_addr, &syscall_no, sizeof(syscall_no));
+            if (err < 0)
+                return err;
+            child->ptrace.syscall = syscall_no;
+            // Dispatch decodes the number from x8 after the entry stop
+            // resumes, so changing the syscall means rewriting x8 too.
+            if (ptrace_in_syscall_entry_stop(child))
+                child->cpu.arm64_regs[arm64_x8] = (qword_t) (sqword_t) syscall_no;
             return 0;
         }
         default:
@@ -614,7 +710,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (child->abi == GUEST_ABI_AMD64) {
+            if (guest_abi_is_64bit(child->abi)) {
                 qword_t peek;
                 if (user_get_task(child, addr, peek) || user_put(data, peek)) {
                     unlock(&child->ptrace.lock);
@@ -637,6 +733,13 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+
+            // The real arm64 kernel has no PEEKUSER/GETREGS-family requests
+            // (regsets only); don't hand an arm64 tracee the i386 layout.
+            if (child->abi == GUEST_ABI_ARM64) {
+                unlock(&child->ptrace.lock);
+                return _EIO;
+            }
 
             if (child->abi == GUEST_ABI_AMD64) {
                 qword_t peek;
@@ -759,6 +862,11 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
+            if (child->abi == GUEST_ABI_ARM64) {
+                unlock(&child->ptrace.lock);
+                return _EIO;
+            }
+
             if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64 = {};
                 get_user_regs_amd64(child, &user_regs_amd64);
@@ -785,6 +893,11 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+
+            if (child->abi == GUEST_ABI_ARM64) {
+                unlock(&child->ptrace.lock);
+                return _EIO;
+            }
 
             if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64;
@@ -813,6 +926,11 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
+            if (child->abi == GUEST_ABI_ARM64) {
+                unlock(&child->ptrace.lock);
+                return _EIO;
+            }
+
             if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64 = {};
                 get_user_fpregs_amd64(child, &user_fpregs_amd64);
@@ -838,6 +956,11 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
                     (unsigned long long) addr, (unsigned long long) data);
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
+
+            if (child->abi == GUEST_ABI_ARM64) {
+                unlock(&child->ptrace.lock);
+                return _EIO;
+            }
 
             if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64;

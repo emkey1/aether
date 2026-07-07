@@ -323,7 +323,17 @@ int run_guest_command_capture(const char *command, const char *env,
     if (in_fd == NULL && null_fd >= 0) close(null_fd);
 
     result->launched = 1;
-    task_start(child);
+    if (task_start(child) < 0) {
+        // Host thread limit/memory: the child never ran. Its fdtable owns the
+        // pipe write ends, so the release inside task_never_ran_destroy closes
+        // them; only the read end is still ours to clean up.
+        printk("ERROR: could not start host thread for command child %d\n", child_pid);
+        result->launched = 0;
+        task_never_ran_destroy(child);
+        current = saved;
+        close(read_fd);
+        return _EAGAIN;
+    }
     current = saved; // the child runs on its own thread now; stop impersonating it
 
     // Drain the pipe until EOF (guest exit closes both write ends), bounding total

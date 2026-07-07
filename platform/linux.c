@@ -89,4 +89,10 @@ int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
     return 0;
 }
 
+bool host_mem_headroom_low(void) {
+    // No hard per-process memory budget on a Linux host; the OOM killer and
+    // overcommit policy own this. The guard is an iOS-jetsam concern.
+    return false;
+}
+
 #endif

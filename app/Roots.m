@@ -103,6 +103,14 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"amd64",
             },
+            @{
+                kBundledRootIdentifierKey: @"devuan6arm64",
+                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, arm64)",
+                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-aarch64",
+                kBundledRootImportNameKey: @"Devuan6-arm64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"arm64",
+            },
         ];
     });
     return choices;

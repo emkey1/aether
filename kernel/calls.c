@@ -1723,7 +1723,7 @@ static syscall_t arm64_syscall_table[454] = {
     [213] = (syscall_t) syscall_stub_silent, // readahead
     [217] = (syscall_t) syscall_stub, // add_key
     [218] = (syscall_t) syscall_stub, // request_key
-    [219] = (syscall_t) syscall_stub, // keyctl
+    [219] = (syscall_t) sys_keyctl, // keyctl -- matches i386 (288)/amd64 (250)
     [224] = (syscall_t) syscall_stub, // swapon
     [225] = (syscall_t) syscall_stub, // swapoff
     [234] = (syscall_t) syscall_stub, // remap_file_pages
@@ -1771,6 +1771,12 @@ static syscall_t arm64_syscall_table[454] = {
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
+    [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
+    [429] = (syscall_t) syscall_stub_silent, // move_mount
+    [430] = (syscall_t) syscall_stub_silent, // fsopen
+    [431] = (syscall_t) syscall_stub_silent, // fsconfig
+    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) syscall_stub_silent, // pidfd_open
     [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
     [440] = (syscall_t) syscall_stub_silent, // process_madvise
@@ -1799,6 +1805,7 @@ static syscall_t arm64_syscall_table[454] = {
     [226] = (syscall_t) sys_mprotect,
     [227] = (syscall_t) sys_msync,
     [228] = (syscall_t) sys_mlock,
+    [229] = (syscall_t) sys_munlock, // dispatched natively (full-width); entry needed to pass the NULL check
     [230] = (syscall_t) sys_mlockall,
     [231] = (syscall_t) sys_munlockall,
     [232] = (syscall_t) sys_mincore,
@@ -2025,7 +2032,7 @@ static inline void arm64_syscall_result_qword(struct cpu_state *cpu, qword_t res
 // iSH-AOK's fs layer enforces O_NOFOLLOW->ELOOP (fs conformance work).
 // Their tree also silently drops genuine O_DIRECTORY/O_NOFOLLOW from
 // aarch64 guests for the same reason.
-static dword_t arm64_open_flags_to_internal(qword_t flags) {
+dword_t arm64_open_flags_to_internal(qword_t flags) {
     dword_t out = (dword_t) flags & ~0x3c000u;
     if (flags & 0x04000) out |= 0x10000; // O_DIRECTORY
     if (flags & 0x08000) out |= 0x20000; // O_NOFOLLOW
@@ -2033,6 +2040,23 @@ static dword_t arm64_open_flags_to_internal(qword_t flags) {
     if (flags & 0x20000) out |= 0x08000; // O_LARGEFILE (ignored downstream)
     return out;
 }
+
+// Exact inverse of the above, for results that carry open flags back OUT to
+// an aarch64 guest (fcntl F_GETFL). Same four relocated constants, mirrored.
+static dword_t internal_to_arm64_open_flags(dword_t flags) {
+    dword_t out = flags & ~0x3c000u;
+    if (flags & 0x10000) out |= 0x04000; // O_DIRECTORY
+    if (flags & 0x20000) out |= 0x08000; // O_NOFOLLOW
+    if (flags & 0x04000) out |= 0x10000; // O_DIRECT
+    if (flags & 0x08000) out |= 0x20000; // O_LARGEFILE
+    return out;
+}
+
+// fcntl file-status commands: values are ABI-universal (fcntl.h) and defined
+// privately in fs/fd.c; mirrored here for the arm64 flag translation in
+// handle_arm64_native_syscall's case 25.
+#define F_GETFL_ 3
+#define F_SETFL_ 4
 
 // AArch64 full-width syscall dispatch: the arm64 counterpart of
 // handle_amd64_native_memory_syscall below, for the same reason — the
@@ -2086,7 +2110,18 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
 
     // -- dword results (shared restart/sign-extend tail below) --
     case 17: result = sys_getcwd_guest(raw_args[0], (dword_t) raw_args[1]); break;
-    case 25: result = sys_fcntl_amd64_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
+    case 25: { // fcntl — F_SETFL takes, and F_GETFL returns, open flags in the
+               // aarch64 encoding; translate both directions at this boundary
+               // (same four relocated O_ constants as openat's flags, above).
+        dword_t fcntl_cmd = (dword_t) raw_args[1];
+        qword_t fcntl_arg = raw_args[2];
+        if (fcntl_cmd == F_SETFL_)
+            fcntl_arg = arm64_open_flags_to_internal(fcntl_arg);
+        result = sys_fcntl_amd64_guest((fd_t) raw_args[0], fcntl_cmd, fcntl_arg);
+        if (fcntl_cmd == F_GETFL_ && !syscall_result_is_errno(result))
+            result = internal_to_arm64_open_flags(result);
+        break;
+    }
     case 29: result = sys_ioctl_guest((fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break;
     case 34: result = sys_mkdirat_guest((fd_t) raw_args[0], raw_args[1], (mode_t_) raw_args[2]); break;
     case 35: result = sys_unlinkat_guest((fd_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
@@ -2108,6 +2143,21 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 116: result = (dword_t) sys_syslog_guest((int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]); break;
     case 53: result = sys_fchmodat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break;
     case 54: result = sys_fchownat_guest((fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2], (dword_t) raw_args[3], (int) raw_args[4]); break;
+    // xattr family (5-16): the legacy table's sys_xattr_stub entries are
+    // unreachable from here — the 64-bit path/name/value pointers trip the
+    // legacy marshal's full-width check, SIGSYS-killing the caller (cp -p,
+    // rsync, tar --xattrs). Dispatch natively through the same *_guest
+    // wrappers the amd64 cases (188-199) use; l-variants share the plain
+    // wrappers exactly as the amd64 dispatch does (all funnel to the
+    // ENOTSUP stub today, but full-width so nothing dies on the way).
+    case 5: case 6: result = (dword_t) sys_setxattr_guest( raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]); break; // setxattr/lsetxattr
+    case 7: result = (dword_t) sys_fsetxattr_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]); break; // fsetxattr
+    case 8: case 9: result = (dword_t) sys_getxattr_guest( raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break; // getxattr/lgetxattr
+    case 10: result = (dword_t) sys_fgetxattr_guest( (fd_t) raw_args[0], raw_args[1], raw_args[2], (dword_t) raw_args[3]); break; // fgetxattr
+    case 11: case 12: result = (dword_t) sys_listxattr_guest( raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // listxattr/llistxattr
+    case 13: result = (dword_t) sys_flistxattr_guest( (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // flistxattr
+    case 14: case 15: result = (dword_t) sys_removexattr_guest( raw_args[0], raw_args[1]); break; // removexattr/lremovexattr
+    case 16: result = (dword_t) sys_fremovexattr_guest( (fd_t) raw_args[0], raw_args[1]); break; // fremovexattr
     // truncate/ftruncate/fallocate carry 64-bit sizes in SINGLE registers
     // on aarch64; the legacy table routed them to the *_amd64 shims, which
     // expect the amd64 marshal's SPLIT low/high convention — so size_high
@@ -2292,7 +2342,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 118: case 127: case 128: case 162: case 171:
     case 180: case 181: case 182: case 183: case 184: case 185:
     case 186: case 187: case 188: case 189: case 190: case 191:
-    case 192: case 193: case 217: case 218: case 219: case 224:
+    case 192: case 193: case 217: case 218: case 224:
     case 225: case 234: case 238: case 239: case 241: case 262:
     case 263: case 267: case 268: case 271: case 272: case 273:
     case 274: case 275: case 280: case 282: case 284: case 286:
@@ -3417,6 +3467,17 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 177: // getegid
     case 178: // gettid
     case 231: // munlockall
+    // New mount API family: silent ENOSYS stubs (arm64_syscall_table) whose
+    // args are entirely ignored, so classify 0-arg to skip validating their
+    // filename/path pointers -- ordinary 64-bit guest addresses that would
+    // otherwise trip the legacy dword-fit check and SIGSYS the caller
+    // instead of the intended silent ENOSYS (mount(8) probing the new API).
+    case 428: // open_tree
+    case 429: // move_mount
+    case 430: // fsopen
+    case 431: // fsconfig
+    case 432: // fsmount
+    case 433: // fspick
         return 0;
     case 20:  // epoll_create1
     case 23:  // dup
@@ -3440,6 +3501,10 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 155: // getpgid
     case 156: // getsid
     case 166: // umask
+    case 219: // keyctl (sys_keyctl only switches on cmd; arg2-arg5 are ignored --
+              // arg2 is a pointer for KEYCTL_JOIN_SESSION_KEYRING/etc, so
+              // over-counting would validate a real 64-bit guest address the
+              // function never reads and SIGSYS login's pam_keyinit)
     case 230: // mlockall
         return 1;
     case 19:  // eventfd2
@@ -3587,12 +3652,28 @@ static void log_stub_syscall(struct cpu_state *cpu, const struct syscall_abi_dis
     }
 
     if (dispatch->abi == GUEST_ABI_AMD64) {
-        printk("ERROR: %d(%s) %s %s syscall %u rip=0x%x rax=0x%llx rdi=0x%llx rsi=0x%llx rdx=0x%llx\n",
-               current->pid, current->comm, dispatch->name, kind, syscall_num, cpu->eip,
+        printk("ERROR: %d(%s) %s %s syscall %u rip=0x%llx rax=0x%llx rdi=0x%llx rsi=0x%llx rdx=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num,
+               (unsigned long long) cpu->amd64_rip,
                (unsigned long long) cpu->amd64_syscall.rax,
                (unsigned long long) cpu->amd64_syscall.rdi,
                (unsigned long long) cpu->amd64_syscall.rsi,
                (unsigned long long) cpu->amd64_syscall.rdx);
+        return;
+    }
+
+    // Was falling into the i386 branch below for arm64 too, printing
+    // cpu->eip/eax/ebx/ecx/edx -- fields an arm64 task never touches, so the
+    // "registers" in the log were meaningless leftover struct contents (seen
+    // as e.g. eip=0x13b87920 eax=0x1d on a real arm64 "missing syscall" log).
+    if (dispatch->abi == GUEST_ABI_ARM64) {
+        printk("ERROR: %d(%s) %s %s syscall %u pc=0x%llx x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num,
+               (unsigned long long) cpu->arm64_pc,
+               (unsigned long long) cpu->arm64_regs[arm64_x0],
+               (unsigned long long) cpu->arm64_regs[arm64_x1],
+               (unsigned long long) cpu->arm64_regs[arm64_x2],
+               (unsigned long long) cpu->arm64_regs[arm64_x3]);
         return;
     }
 

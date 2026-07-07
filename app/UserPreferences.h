@@ -90,6 +90,7 @@ extern NSString *const kThemeBackgroundColor;
 @property (readonly) UIStatusBarStyle statusBarStyle;
 @property NSArray<NSString *> *launchCommand;
 @property NSArray<NSString *> *bootCommand;
+@property (nonatomic) NSString *customDnsServers;
 
 + (instancetype)shared;
 

@@ -499,6 +499,16 @@ bool gen_start_arm64(guest_addr_t addr, struct gen_state *state) {
     return true;
 }
 
+// ---- AArch64 guest code generator ---------------------------------------
+// Everything from here through gen_step_arm64 references the arm64-GUEST
+// gadget symbols (jit/guest-arm64/*.S), which are AArch64 assembly and only
+// assembled when the host gadget set is aarch64 (meson.build defines
+// ISH_JIT_ARM64_GUEST there). On other hosts (e.g. the x86_64 CLI build)
+// this whole section is compiled out and gen_step_arm64 becomes the clean
+// unsupported stub at the #else below — otherwise the static gadget-address
+// tables in these functions fail to link.
+#ifdef ISH_JIT_ARM64_GUEST
+
 // (size, opc) -> single-register load/store gadget (jit/guest-arm64/
 // memory.S), shared by all four addressing families that lower to that
 // gadget set. opc semantics per the ARM ARM: size<3: 0=store, 1=load,
@@ -692,6 +702,21 @@ static bool gen_arm64_expand_imm(unsigned op, unsigned cmode, uint64_t imm8, uin
 // flags — no msr nzcv reload). Returns NULL when the next instruction
 // isn't a fusable B.cond (or can't be fetched — page-crossing decode
 // just declines to fuse).
+// Lookahead page budget. The compile loop (jit.c's
+// jit_block_compile_common) only checks its "no block spans more than
+// 2 pages" cap BETWEEN gen_steps, so any lookahead that consumes extra
+// instructions within one step must bound itself: a step may not push
+// arm64_ip past block start + PAGE_SIZE (the invariant jit.c asserts
+// after gen_end, and what jit_insert's two-page registration relies on
+// for invalidation — a 3-page block's middle page would be invisible to
+// jit_invalidate_page). This is the arm64 equivalent of the x86 loop's
+// 15-byte instruction-length slack. Callers stop folding/fusing when the
+// consumed end would exceed the budget and fall back to the plain
+// unfused path.
+static bool gen_arm64_fits_block(struct gen_state *state, uint64_t end_ip) {
+    return end_ip - state->block->addr <= PAGE_SIZE;
+}
+
 static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
         void *const table[14], uint64_t *taken_out, uint64_t *fallthrough_out) {
     uint32_t next;
@@ -915,7 +940,12 @@ static bool gen_arm64_try_ld_cmp_fusion(struct gen_state *state, struct tlb *tlb
         if (!csf)
             cval &= 0xffffffff;
         scan += 4;
-        while (tlb_read(tlb, scan, &next, sizeof(next)) &&
+        // gen_arm64_fits_block: bound the scan so the fused consumption
+        // (this chain + the cmp + b.cond below) can't exceed the page
+        // budget; a budget-stopped chain fails the cmp match below and
+        // declines to fuse, leaving everything unconsumed.
+        while (gen_arm64_fits_block(state, scan + 4) &&
+                tlb_read(tlb, scan, &next, sizeof(next)) &&
                 (next & 0x7f800000) == 0x72800000 && // MOVK
                 ((next >> 31) & 1) == csf && (next & 0x1f) == rc &&
                 (csf || ((next >> 21) & 0x3) < 2)) {
@@ -943,6 +973,12 @@ static bool gen_arm64_try_ld_cmp_fusion(struct gen_state *state, struct tlb *tlb
     uint64_t taken = scan + (uint64_t) arm64_branch_imm19(next);
     uint64_t fallthrough = scan + 4;
     scan += 4;
+    // Final page-budget gate on the whole fused consumption (the loop
+    // bound above keeps the scan short, but the trailing cmp + b.cond
+    // still add 8 bytes). Declining here consumes nothing: the caller
+    // emits the plain unfused load and later steps handle the rest.
+    if (!gen_arm64_fits_block(state, scan))
+        return false;
 
     if (have_const) {
         gen(state, (unsigned long) gadget_arm64_mov_const);
@@ -1036,11 +1072,21 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
 
     uint32_t insn;
     if (!tlb_read(tlb, state->arm64_ip, &insn, sizeof(insn))) {
+        // Instruction fetch from an unmapped page: deliver SIGSEGV with
+        // the fault address, not SIGILL — Linux (and the i386/amd64
+        // paths, via the SEGFAULT macro's INT_GPF) reports SEGV_MAPERR
+        // here. The arm64 interrupt gadget (control.S) stores the code
+        // stream's [pc][addr] words into arm64_pc/segfault_addr and
+        // clears segfault_was_write; the kernel's GPF handler forwards
+        // an unmapped read fault address to handle_page_fault_interrupt,
+        // which resolves it or delivers SIGSEGV at that address. arm64
+        // instructions are 4-byte aligned, so the fetch never straddles
+        // a page and the fetch address IS the faulting address.
         extern void gadget_arm64_interrupt(void);
         gen(state, (unsigned long) gadget_arm64_interrupt);
-        gen(state, INT_UNDEFINED);
+        gen(state, INT_GPF);
         gen(state, state->arm64_orig_ip);
-        gen(state, state->arm64_orig_ip);
+        gen(state, state->arm64_orig_ip); // segfault_addr = fetch address
         return 0;
     }
     state->arm64_ip += sizeof(insn);
@@ -1073,7 +1119,11 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             if (!sf)
                 value &= 0xffffffff;
             uint32_t next;
-            while (tlb_read(tlb, state->arm64_ip, &next, sizeof(next)) &&
+            // gen_arm64_fits_block: stop folding at the page budget — the
+            // unconsumed MOVK simply decodes on its own (movk_fast below)
+            // in a later step/block, an identical result.
+            while (gen_arm64_fits_block(state, state->arm64_ip + 4) &&
+                    tlb_read(tlb, state->arm64_ip, &next, sizeof(next)) &&
                     (next & 0x7f800000) == 0x72800000 && // MOVK
                     ((next >> 31) & 1) == (unsigned) sf &&
                     (next & 0x1f) == rd &&
@@ -1428,7 +1478,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // second 64-bit word.
     if ((insn & 0x3a000000) == 0x28000000 && ((insn >> 26) & 1) == 0) {
         unsigned opc = (insn >> 30) & 0x3;
-        unsigned mode = (insn >> 23) & 0x7; // 1=post, 2=offset, 3=pre
+        unsigned mode = (insn >> 23) & 0x7; // 0=non-temporal, 1=post, 2=offset, 3=pre
         bool is_load = (insn >> 22) & 1;
         int32_t imm7 = (insn >> 15) & 0x7f;
         if (imm7 & 0x40)
@@ -1439,8 +1489,18 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         // opc: 00=32-bit, 10=64-bit, 01=LDPSW (load-only; su/busybox login
         // uses it). opc=01 with a store is unallocated.
         bool is_ldpsw = opc == 0b01;
-        if ((opc == 0b11) || (is_ldpsw && !is_load) ||
-                (mode != 1 && mode != 2 && mode != 3)) {
+        // mode 0 is LDNP/STNP (non-temporal pair): architecturally LDP/STP
+        // in the offset form (no writeback) plus a cache hint we can't
+        // model — lower it to plain offset-mode LDP/STP (optimized memcpy
+        // uses it; it used to SIGILL here). No LDPSW non-temporal form
+        // exists, so opc=01 stays unallocated there.
+        if (mode == 0) {
+            if (is_ldpsw) {
+                return gen_arm64_undefined(state);
+            }
+            mode = 2; // offset addressing, no writeback
+        }
+        if ((opc == 0b11) || (is_ldpsw && !is_load)) {
             return gen_arm64_undefined(state);
         }
         bool sf = opc == 0b10;
@@ -1671,7 +1731,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         extern void gadget_arm64_vstp32(void), gadget_arm64_vstp64(void);
         extern void gadget_arm64_vstp128(void);
         unsigned opc = (insn >> 30) & 0x3;
-        unsigned mode = (insn >> 23) & 0x7; // 1=post, 2=offset, 3=pre
+        unsigned mode = (insn >> 23) & 0x7; // 0=non-temporal, 1=post, 2=offset, 3=pre
         bool is_load = (insn >> 22) & 1;
         int32_t imm7 = (insn >> 15) & 0x7f;
         if (imm7 & 0x40)
@@ -1679,9 +1739,14 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rt2 = (insn >> 10) & 0x1f;
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
-        if (opc > 2 || (mode != 1 && mode != 2 && mode != 3)) {
+        if (opc > 2) {
             return gen_arm64_undefined(state);
         }
+        // mode 0 is LDNP/STNP (non-temporal pair, S/D/Q forms): LDP/STP
+        // offset form plus an unmodelable cache hint — same lowering as
+        // the GPR branch above.
+        if (mode == 0)
+            mode = 2; // offset addressing, no writeback
         unsigned esize = 4u << opc; // bytes per element: 4/8/16
         int64_t offset = (int64_t) imm7 * esize;
         static void *const vldp_gadgets[3] = {
@@ -3740,13 +3805,17 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
-    // CAS (LSE compare-and-swap) — mask and field layout match
+    // CAS (LSE compare-and-swap, single register) — field layout matches
     // arm64_execute()'s, INCLUDING the ordering constraint documented
     // there: this check must come before the broader exclusive-family
-    // check below, whose mask also matches CAS encodings. A/R
-    // (acquire/release) bits accepted and ignored, same as the
-    // interpreter. Params: [rt | rn<<8 | rs<<16].
-    if ((insn & 0x3f200c00) == 0x08200c00) {
+    // check below, whose mask also matches CAS encodings. The mask pins
+    // bit23=1 (size:001000:1:L:1:Rs:o0:11111:Rn:Rt): bit23=0 in this
+    // slot is CASP (compare-and-swap PAIR), handled separately below —
+    // an earlier mask that left bit23 free silently compiled CASP down
+    // to the byte/halfword single-register CAS gadgets, corrupting guest
+    // memory. A/R (acquire/release) bits accepted and ignored, same as
+    // the interpreter. Params: [rt | rn<<8 | rs<<16].
+    if ((insn & 0x3fa00c00) == 0x08a00c00) {
         extern void gadget_arm64_cas8(void), gadget_arm64_cas16(void);
         extern void gadget_arm64_cas32(void), gadget_arm64_cas64(void);
         unsigned size = (insn >> 30) & 0x3;
@@ -3763,6 +3832,35 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // CASP/CASPA/CASPL/CASPAL (LSE compare-and-swap pair):
+    // 0:sz:001000:0:L:1:Rs:o0:11111:Rn:Rt. bit30 (sz) selects a pair of
+    // 32-bit or 64-bit registers; bit23=0 distinguishes it from the
+    // single-register CAS above; bit31=0 distinguishes it from LDXP/STXP
+    // (handled in the exclusive family below). Like CAS,
+    // this must precede the exclusive-family check, whose 0x3f000000 mask
+    // also matches CASP encodings. L (acquire, bit22) and o0 (release,
+    // bit15) are accepted and ignored, same as the CAS path. Rs and Rt
+    // must be even and Rt2 must be 11111, else UNDEFINED (ARM ARM).
+    // The guest advertises HWCAP_ATOMICS (kernel/exec.c), so gcc/LLVM
+    // outline-atomics emit CASP for 16-byte atomics — real software hits
+    // this. Params: [rt | rn<<8 | rs<<16]; Rs+1/Rt+1 are the pair highs.
+    if ((insn & 0xbfa00000) == 0x08200000) {
+        extern void gadget_arm64_casp32(void), gadget_arm64_casp64(void);
+        unsigned sz64 = (insn >> 30) & 1;
+        unsigned rs = (insn >> 16) & 0x1f;
+        unsigned rt2 = (insn >> 10) & 0x1f;
+        unsigned rn = (insn >> 5) & 0x1f;
+        unsigned rt = insn & 0x1f;
+        if (rt2 != 0x1f || (rs & 1) || (rt & 1)) {
+            return gen_arm64_undefined(state);
+        }
+        gen(state, (unsigned long) (sz64 ? gadget_arm64_casp64
+                                         : gadget_arm64_casp32));
+        gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16));
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
+        return 1;
+    }
+
     // Load/store exclusive + load-acquire/store-release family. Decode
     // mirrors arm64_execute()'s field layout (size:001000:o2:L:o1:Rs:o0:
     // Rt2:Rn:Rt), with one widening: o2=1,o1=0 (non-exclusive LDAR/STLR/
@@ -3770,8 +3868,10 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // (mode 0, offset 0) — their exact semantics minus the unmodeled
     // barrier — where the interpreter still rejects them. o0 (LDAXR/
     // STLXR's acquire/release bit) is accepted and ignored for the
-    // exclusive forms, same as the interpreter. Pair exclusives (o1=1)
-    // stay unimplemented.
+    // exclusive forms, same as the interpreter. Pair exclusives (o1=1,
+    // now necessarily LDXP/STXP — CASP encodings, which this mask also
+    // matches, are consumed by the dedicated check above) lower to the
+    // ldxp/stxp gadgets.
     if ((insn & 0x3f000000) == 0x08000000) {
         extern void gadget_arm64_ldxr8(void), gadget_arm64_ldxr16(void);
         extern void gadget_arm64_ldxr32(void), gadget_arm64_ldxr64(void);
@@ -3785,7 +3885,39 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         unsigned rn = (insn >> 5) & 0x1f;
         unsigned rt = insn & 0x1f;
         if (o1 != 0) {
-            return gen_arm64_undefined(state);
+            // LDXP/STXP/LDAXP/STLXP (load/store exclusive PAIR):
+            // 1:sz:001000:0:L:1:Rs:o0:Rt2:Rn:Rt. bit31 must be 1 — the
+            // bit31=0 half of this slot is CASP, consumed by the check
+            // above — and o2 must be 0 (o2=1,o1=1 is the CAS space; any
+            // encoding there that escaped the dedicated CAS check is
+            // genuinely undefined). bit30 (sz) picks a pair of 32-bit or
+            // 64-bit registers. o0 (acquire/release) is accepted and
+            // ignored like everywhere else in this family. Compilers
+            // only emit these when NOT emitting LSE (-mno-outline-atomics
+            // on v8.0 baseline, or older toolchains): a 16-byte atomic is
+            // an LDXP/STXP loop instead of CASP — real software hits
+            // this. Unlike CASP there is no evenness constraint: Rt, Rt2
+            // and Rs are independent registers (31 = XZR / discard).
+            // LDXP params: [rt | rn<<8 | rt2<<16];
+            // STXP params: [rt | rn<<8 | rs<<16 | rt2<<24].
+            extern void gadget_arm64_ldxp32(void), gadget_arm64_ldxp64(void);
+            extern void gadget_arm64_stxp32(void), gadget_arm64_stxp64(void);
+            unsigned rt2 = (insn >> 10) & 0x1f;
+            if (!(insn >> 31) || o2 != 0)
+                return gen_arm64_undefined(state);
+            unsigned sz64 = size & 1;
+            if (L) {
+                gen(state, (unsigned long) (sz64 ? gadget_arm64_ldxp64
+                                                 : gadget_arm64_ldxp32));
+                gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rt2 << 16));
+            } else {
+                gen(state, (unsigned long) (sz64 ? gadget_arm64_stxp64
+                                                 : gadget_arm64_stxp32));
+                gen(state, rt | ((uint64_t) rn << 8) | ((uint64_t) rs << 16) |
+                           ((uint64_t) rt2 << 24));
+            }
+            gen(state, state->arm64_orig_ip); // fault-restart address
+            return 1;
         }
         if (o2 == 1) {
             // LDAR/STLR: an ordered but non-exclusive plain access.
@@ -4178,6 +4310,28 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // EL0 cache maintenance (SYS op1=3, CRn=C7): IC IVAU and the DC
+    // clean/invalidate-by-VA family, which Linux exposes to userspace via
+    // SCTLR_EL1.{UCI} and __clear_cache/__aarch64_sync_cache_range emits
+    // after runtime code generation (first seen: syslog-ng). Translated-
+    // block invalidation here is driven by the guest's WRITES to code
+    // pages, which have already happened by the time the cache ops run,
+    // so these are architecturally safe no-ops — same self-modifying-code
+    // model as the x86 guests, no gadget emitted (hint-space precedent
+    // above). Whitelisted CRm values only: DC ZVA (CRm=4, same op1/CRn/
+    // op2 space) must keep faulting because DCZID_EL0 advertises DZP=1
+    // (see the MRS below), and unallocated encodings stay UNDEFINED.
+    // EL1-only maintenance ops have op1!=3 and never match this mask.
+    if ((insn & 0xfffff0e0) == 0xd50b7020) {
+        unsigned crm = (insn >> 8) & 0xf;
+        if (crm == 0x5 ||                // IC IVAU
+            crm == 0xa || crm == 0xb ||  // DC CVAC, DC CVAU
+            crm == 0xc || crm == 0xd ||  // DC CVAP, DC CVADP
+            crm == 0xe)                  // DC CIVAC
+            return 1;
+        // fall through: DC ZVA / EL1-only ops reject below
+    }
+
     // MRS/MSR TPIDR_EL0 — the TLS base register (see cpu_state.arm64_tpidr).
     if ((insn & 0xffffffe0) == 0xd53bd040) {
         extern void gadget_arm64_mrs_tpidr(void);
@@ -4331,6 +4485,21 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
            insn, (unsigned long long) state->arm64_orig_ip);
     return gen_arm64_undefined(state);
 }
+
+#else // !ISH_JIT_ARM64_GUEST
+
+// No aarch64 host gadget set (see the #ifdef header above): there is no
+// execution engine for an arm64 guest on this host. Fail loudly at the
+// first attempt to compile arm64 guest code — a clear die() beats an
+// undefined-symbol link failure or a crash into a missing gadget.
+int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
+    (void) tlb;
+    die("arm64 guest binaries are not supported on this host "
+        "(no aarch64 guest JIT; pc=%#llx)",
+        (unsigned long long) state->arm64_ip);
+}
+
+#endif // ISH_JIT_ARM64_GUEST
 
 static bool gen_fetch_amd64(struct gen_state *state, struct tlb *tlb, void *out, size_t size) {
     if (!tlb_read(tlb, state->amd64_ip, out, size))
@@ -8257,6 +8426,7 @@ void gen_end(struct gen_state *state) {
 void gen_exit(struct gen_state *state) {
     extern void gadget_exit(void);
     if (state->arm64) {
+#ifdef ISH_JIT_ARM64_GUEST
         // The block hit the size cap mid-straight-line. Continue at the
         // next instruction through the normal branch gadget (tagged
         // chainable target), exactly as an unconditional branch to
@@ -8269,6 +8439,11 @@ void gen_exit(struct gen_state *state) {
         gen(state, state->arm64_ip | 0x8000000000000000ULL);
         state->jump_ip[0] = state->size - 1;
         return;
+#else
+        // Unreachable: gen_step_arm64's unsupported stub die()s before any
+        // arm64 block can be built on a host without the aarch64 gadgets.
+        die("arm64 guest block on a host without the aarch64 guest JIT");
+#endif
     }
     if (state->amd64) {
         gen_amd64_flush_reg_cache(state);
@@ -8591,6 +8766,9 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define BTR(bit, val,z) lo(btr, val, bit, z)
 #define BSF(src, dst,z) los(bsf, src, dst, z)
 #define BSR(src, dst,z) los(bsr, src, dst, z)
+#define POPCNT(src, dst,z) los(popcnt, src, dst, z)
+#define TZCNT(src, dst,z) los(tzcnt, src, dst, z)
+#define LZCNT(src, dst,z) los(lzcnt, src, dst, z)
 
 #define BSWAP(dst) ga(bswap, arg_##dst)
 

@@ -7,6 +7,8 @@
 # Produces (in OUT_DIR, default = repo root):
 #   devuan-minirootfs-6.0-x86.tar.gz      i386  (i686)
 #   devuan-minirootfs-6.0-x86_64.tar.gz   amd64 (x86_64)
+#   devuan-minirootfs-6.0-aarch64.tar.gz  arm64 (aarch64) -- matches the
+#                                         alpine-minirootfs-*-aarch64 naming
 #
 # Strategy
 # --------
@@ -15,30 +17,43 @@
 # -- exactly like the Alpine minirootfs -- so that provision-ultimate-devuan.sh
 # can do all the "ultimate terminal" heavy lifting on top.
 #
-# mmdebstrap runs inside a *matching-architecture* Debian container: on this
-# arm64 host Docker emulates linux/386 and linux/amd64 via binfmt/qemu, and by
-# matching the container arch to the target rootfs arch the package maintainer
-# scripts run "native" to the (already emulated) container -- no fragile nested
-# qemu-user binfmt setup. The Devuan archive keyring is lifted out of the
-# official `dyne/devuan:excalibur` image so the Release signature verifies.
+# mmdebstrap runs inside a *matching-architecture* Debian container: on an
+# amd64 host Docker emulates linux/386 and linux/arm64 via binfmt/qemu; on an
+# arm64 host (this project's actual dev machine) linux/arm64 runs NATIVELY and
+# only linux/386 and linux/amd64 need emulation. Either way, matching the
+# container arch to the target rootfs arch means the package maintainer
+# scripts run "native" to the (possibly emulated) container -- no fragile
+# nested qemu-user binfmt setup. The Devuan archive keyring is lifted out of
+# the official `dyne/devuan:excalibur` image so the Release signature verifies.
 #
 # This keeps the same provenance philosophy as the existing amd64 docker-export
 # images (Linux-native uid/gid/perms in the tar) while being (a) genuinely
-# minimal and (b) buildable for i386, which the amd64-only dyne image is not.
+# minimal and (b) buildable for i386/arm64, which the amd64-only dyne image is
+# not.
 #
 # Usage:
-#   tools/build-devuan-minirootfs.sh                # both arches
+#   tools/build-devuan-minirootfs.sh                # all arches
 #   ARCHES=i386 tools/build-devuan-minirootfs.sh    # just one
+#   ARCHES=arm64 tools/build-devuan-minirootfs.sh   # just arm64
 #   OUT_DIR=/tmp tools/build-devuan-minirootfs.sh   # elsewhere
 #
 # Tunables (env):
-#   ARCHES         space list of deb arches to build   (default "i386 amd64")
+#   ARCHES         space list of deb arches to build   (default "i386 amd64 arm64")
 #   SUITE          Devuan suite                         (default excalibur)
 #   VERSION        version string used in filenames     (default 6.0)
 #   DEVUAN_MIRROR  archive mirror                        (default deb.devuan.org)
 #   BUILD_IMAGE    Debian image that hosts mmdebstrap   (default debian:trixie)
 #   OUT_DIR        where the .tar.gz land               (default repo root)
 #   KEEP_APT_LISTS 1 to keep /var/lib/apt/lists (bigger) (default unset = strip)
+#   SLOW_HASH      1 to keep Devuan's default yescrypt password hashing
+#                  instead of downgrading to sha512crypt (default unset =
+#                  downgrade). yescrypt is deliberately memory-hard, which is
+#                  close to worst-case for a JIT-emulated guest -- measured
+#                  ~1.15s of added login latency on fast Apple Silicon, and
+#                  minutes on an older A10X. sha512crypt is pure ALU work and
+#                  still a reasonable scheme for a personal terminal, so it's
+#                  the default here; set SLOW_HASH=1 if you want the stronger
+#                  (and slower-under-emulation) scheme instead.
 # ---------------------------------------------------------------------------
 set -eu
 
@@ -46,7 +61,7 @@ SUITE="${SUITE:-excalibur}"
 VERSION="${VERSION:-6.0}"
 DEVUAN_MIRROR="${DEVUAN_MIRROR:-http://deb.devuan.org/merged}"
 BUILD_IMAGE="${BUILD_IMAGE:-debian:trixie}"
-ARCHES="${ARCHES:-i386 amd64}"
+ARCHES="${ARCHES:-i386 amd64 arm64}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT}"
 KEYRING_IMAGE="${KEYRING_IMAGE:-dyne/devuan:excalibur}"
@@ -73,11 +88,13 @@ case "$COMPRESS" in
 esac
 command -v "$COMP_TOOL" >/dev/null 2>&1 || die "compressor '$COMP_TOOL' not found in PATH"
 
-# i386 -> x86, amd64 -> x86_64 (match the Alpine minirootfs filename convention).
+# i386 -> x86, amd64 -> x86_64, arm64 -> aarch64 (match the Alpine minirootfs
+# filename convention -- see alpine-minirootfs-3.21.4-aarch64.tar.xz).
 arch_suffix() {
     case "$1" in
         i386)  echo x86 ;;
         amd64) echo x86_64 ;;
+        arm64) echo aarch64 ;;
         *)     echo "$1" ;;
     esac
 }
@@ -86,6 +103,7 @@ arch_platform() {
     case "$1" in
         i386)  echo linux/386 ;;
         amd64) echo linux/amd64 ;;
+        arm64) echo linux/arm64 ;;
         *)     die "unknown arch '$1'" ;;
     esac
 }
@@ -131,6 +149,30 @@ else
     BBOX_HOOK='true'
 fi
 
+# Devuan/Debian's shadow package defaults new password hashes to yescrypt --
+# deliberately memory-hard (its whole point: resist GPU/ASIC cracking), which
+# makes it one of the worst possible workloads for a JIT-emulated guest: every
+# pseudo-random scratch-buffer access pays the emulator's address-translation
+# overhead, on top of already-slower host silicon on older devices. Measured
+# on a fast Apple Silicon Mac, a yescrypt login added ~1.15s over key-based
+# auth; on an A10X iPad this stretched into minutes. sha512crypt is still a
+# perfectly reasonable scheme for a personal terminal environment (thousands
+# of SHA-512 rounds, no deliberate memory-hardness) and is pure ALU work, so
+# it doesn't hit the same emulation penalty. Both the PAM line AND
+# login.defs need patching: pam_unix.so's own argument (used by anything
+# going through PAM -- login, sshd, sudo) takes precedence over login.defs,
+# but login.defs is what non-PAM tools (useradd, chpasswd's libc path) fall
+# back to, so leaving it at YESCRYPT would silently reintroduce yescrypt for
+# any user/password created outside the PAM stack. Set SLOW_HASH=1 to keep
+# the yescrypt default (e.g. if you want the stronger scheme and don't mind
+# the emulation cost).
+SLOW_HASH="${SLOW_HASH:-0}"
+if [ "$SLOW_HASH" = 1 ]; then
+    CRYPT_HOOK='true'
+else
+    CRYPT_HOOK='f="$1/etc/pam.d/common-password"; [ -f "$f" ] && sed -i "s/\bpam_unix\.so \(.*\)\byescrypt\b/pam_unix.so \1sha512/" "$f"; f="$1/etc/login.defs"; [ -f "$f" ] && sed -i "s/^ENCRYPT_METHOD[[:space:]]\+YESCRYPT/ENCRYPT_METHOD SHA512/" "$f"; true'
+fi
+
 build_one() {  # <deb-arch>
     arch="$1"
     suffix="$(arch_suffix "$arch")"
@@ -142,7 +184,8 @@ build_one() {  # <deb-arch>
     # ($COMPRESS) on the host for the smallest possible bundle.
     docker run --rm --privileged --platform="$platform" \
         -e SUITE="$SUITE" -e ARCH="$arch" -e MIRROR="$DEVUAN_MIRROR" \
-        -e CLEAN_HOOK="$CLEAN_HOOK" -e BBOX_HOOK="$BBOX_HOOK" -e INCLUDE_PKGS="$INCLUDE_PKGS" \
+        -e CLEAN_HOOK="$CLEAN_HOOK" -e BBOX_HOOK="$BBOX_HOOK" -e CRYPT_HOOK="$CRYPT_HOOK" \
+        -e INCLUDE_PKGS="$INCLUDE_PKGS" \
         -v "$WORK:/work" \
         "$BUILD_IMAGE" bash -euc '
             export DEBIAN_FRONTEND=noninteractive
@@ -166,6 +209,7 @@ build_one() {  # <deb-arch>
                 --include="$INCLUDE_PKGS" \
                 --aptopt="Acquire::Check-Valid-Until \"false\"" \
                 --customize-hook="$BBOX_HOOK" \
+                --customize-hook="$CRYPT_HOOK" \
                 --customize-hook="$CLEAN_HOOK" \
                 "$SUITE" "/work/rootfs-$ARCH.tar" \
                 "deb $MIRROR $SUITE main"
@@ -183,6 +227,14 @@ build_one() {  # <deb-arch>
     note "  ${osline:-<no os-release>}"
     note "  dpkg arch: ${dpkgarch:-<unknown>}"
     [ "$dpkgarch" = "$arch" ] || note "  WARNING: dpkg arch '$dpkgarch' != requested '$arch'"
+    cryptline="$(tar -xOf "$out" ./etc/login.defs 2>/dev/null | grep -E '^ENCRYPT_METHOD' || true)"
+    note "  ${cryptline:-<no ENCRYPT_METHOD line>}"
+    if [ "$SLOW_HASH" != 1 ]; then
+        case "$cryptline" in
+            *SHA512*) ;;
+            *) note "  WARNING: expected ENCRYPT_METHOD SHA512 (CRYPT_HOOK may not have run)" ;;
+        esac
+    fi
 }
 
 for a in $ARCHES; do
