@@ -5373,11 +5373,11 @@ static AST *parseConstDecl(AetherParser *p) {
      * addCompilerConstant warns on the redefinition a double registration causes. */
     {
         Value v = evaluateCompileTimeValue(value);
-        if (v.type != TYPE_VOID && v.type != TYPE_UNKNOWN) {
+        if (VALUE_TYPE(v) != TYPE_VOID && VALUE_TYPE(v) != TYPE_UNKNOWN) {
             if (p->functionDepth == 0 && !p->forwardScan) {
                 addCompilerConstant(nameTok->value, &v, nameTok->line);
             }
-            if (!typeNode) setTypeAST(node, v.type);
+            if (!typeNode) setTypeAST(node, VALUE_TYPE(v));
         }
         freeValue(&v);
     }
