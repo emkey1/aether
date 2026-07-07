@@ -97,7 +97,7 @@ PKGS="
   procps passwd adduser file less
   sysvinit-core
   openssh-client openssh-server sudo
-  rsyslog
+  rsyslog iputils-ping
   chrony cron logrotate
   tzdata ca-certificates openssl
   man-db manpages
