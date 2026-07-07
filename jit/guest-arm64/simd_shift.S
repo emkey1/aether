@@ -285,6 +285,61 @@ vcvt_fixed vucvtf_fix,  ucvtf,  0
 vcvt_fixed vfcvtzs_fix, fcvtzs, 1
 vcvt_fixed vfcvtzu_fix, fcvtzu, 1
 
+// ---- scalar fixed-point conversions (S and D) ------------------------------
+// SCVTF/UCVTF and FCVTZS/FCVTZU Sd/Dd, Sn/Dn, #fbits (scalar form, AdvSIMD
+// scalar shift by immediate, sibling opcodes 0x1c/0x1f). Only B/H element
+// sizes are unallocated for this opcode — S (32-bit) is a real, distinct
+// encoding (confirmed by disassembling `ucvtf s2, s2, #0xa` on host arm64:
+// 0x7f36e442, and by OpenMinis' gen.c/math.S, which implements both sizes —
+// an earlier D-only version of this gadget would have SIGILL'd on the very
+// same instruction family it was meant to fix). Same "scale by the exact
+// 2^n the compiler passes as a raw float/double bit pattern" trick as
+// vcvt_fixed, in either order (mul_first=0 for *CVTF: convert then scale
+// down by 2^-fbits; mul_first=1 for FCVTZ*: scale up by 2^+fbits then
+// truncate-convert) — the native scalar op zeroes Vd's upper bits for free
+// (see sshift_d above). [gadget][rd | rn<<8 | sz<<16][scale_bits]
+.macro scvt_fixed_sd name, cvtop, mul_first
+.gadget \name
+    ldr x8, [_ip]
+    ldr x9, [_ip, #8]
+    add _ip, _ip, #16
+    and x10, x8, #0x1f
+    ubfx x11, x8, #8, #5
+    ubfx x12, x8, #16, #1      // sz: 0=S 1=D
+    add x13, _cpu, #CPU_v0
+    add x14, x13, x11, lsl #4
+    cbnz x12, \name\()_d
+    ldr s30, [x14]
+    fmov s29, w9
+.if \mul_first
+    fmul s30, s30, s29
+    \cvtop s30, s30
+.else
+    \cvtop s30, s30
+    fmul s30, s30, s29
+.endif
+    b \name\()_st
+\name\()_d:
+    ldr d30, [x14]
+    fmov d29, x9
+.if \mul_first
+    fmul d30, d30, d29
+    \cvtop d30, d30
+.else
+    \cvtop d30, d30
+    fmul d30, d30, d29
+.endif
+\name\()_st:
+    add x14, x13, x10, lsl #4
+    str q30, [x14]
+    gret
+.endm
+
+scvt_fixed_sd sscvtf_fix,  scvtf,  0
+scvt_fixed_sd sucvtf_fix,  ucvtf,  0
+scvt_fixed_sd sfcvtzs_fix, fcvtzs, 1
+scvt_fixed_sd sfcvtzu_fix, fcvtzu, 1
+
 // ---- scalar shift-imm completion (D size) ----------------------------------
 // SRSHR/URSHR/SSRA/USRA/SRSRA/URSRA on the D scalar; the amount comes
 // broadcast like the vector forms. [gadget][rd | rn<<8][amount]

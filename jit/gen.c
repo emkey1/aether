@@ -2696,9 +2696,12 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     }
 
     // AdvSIMD scalar shift by immediate, remaining opcodes: SSRA/USRA,
-    // SRSHR/URSHR, SRSRA/URSRA (D), SQSHL/UQSHL #imm (B/H/S/D), and the
+    // SRSHR/URSHR, SRSRA/URSRA (D), SQSHL/UQSHL #imm (B/H/S/D), the
     // saturating narrows SQSHRN/UQSHRN/SQRSHRN/UQRSHRN/SQSHRUN/SQRSHRUN
-    // (B/H/S results). Same register-form lowering as the vector space.
+    // (B/H/S results), and the fixed-point converts SCVTF/UCVTF/FCVTZS/
+    // FCVTZU #fbits (D only — rtorrent's MSE Diffie-Hellman/SHA-1 path hit
+    // `ucvtf d2, d2, #0x14` = encoding 0x7f6ce442, opcode 0x1c, missing
+    // from this switch). Same register-form lowering as the vector space.
     if ((insn & 0xdf800400) == 0x5f000400 && ((insn >> 19) & 0xf) != 0) {
         extern void gadget_arm64_ssrshr_d(void), gadget_arm64_surshr_d(void);
         extern void gadget_arm64_sssra_d(void), gadget_arm64_susra_d(void);
@@ -2735,6 +2738,26 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) esize_log2 << 16));
             gen(state, (uint64_t) lshift);
             return 1;
+        case 0x1c: case 0x1f: { // SCVTF/UCVTF, FCVTZS/FCVTZU #fbits (scalar; S or D)
+            extern void gadget_arm64_sscvtf_fix(void), gadget_arm64_sucvtf_fix(void);
+            extern void gadget_arm64_sfcvtzs_fix(void), gadget_arm64_sfcvtzu_fix(void);
+            if (esize_log2 < 2) // B/H forms unallocated for this opcode
+                return gen_arm64_undefined(state);
+            unsigned sz = esize_log2 == 3;
+            unsigned fbits = rshift;
+            uint64_t scale;
+            if (opcode == 0x1c) { // SCVTF/UCVTF: multiply by 2^-fbits after
+                gadget = u ? (void *) gadget_arm64_sucvtf_fix : (void *) gadget_arm64_sscvtf_fix;
+                scale = sz ? (uint64_t) (1023 - fbits) << 52 : (uint64_t) ((127 - fbits) << 23);
+            } else { // FCVTZS/FCVTZU: multiply by 2^+fbits first
+                gadget = u ? (void *) gadget_arm64_sfcvtzu_fix : (void *) gadget_arm64_sfcvtzs_fix;
+                scale = sz ? (uint64_t) (1023 + fbits) << 52 : (uint64_t) ((127 + fbits) << 23);
+            }
+            gen(state, (unsigned long) gadget);
+            gen(state, rd | ((uint64_t) rn << 8) | ((uint64_t) sz << 16));
+            gen(state, scale);
+            return 1;
+        }
         case 0x10: case 0x11: case 0x12: case 0x13: { // saturating narrows
             if (esize_log2 >= 3)
                 return gen_arm64_undefined(state);

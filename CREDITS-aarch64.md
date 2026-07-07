@@ -256,3 +256,34 @@ args) generically, not anything x86-specific — safe and correct to reuse
 verbatim for arm64's identical 64-bit-ABI requirements, once the stack/heap
 placement fix above made that reuse's narrow-argument-marshalling
 assumption hold for arm64 too.
+
+## Independently written, informed by their design (continued) — scalar fixed-point convert
+
+- `jit/guest-arm64/simd_shift.S`'s `scvt_fixed_sd` macro
+  (`sscvtf_fix`/`sucvtf_fix`/`sfcvtzs_fix`/`sfcvtzu_fix`) and the
+  corresponding decode added to `jit/gen.c`'s "AdvSIMD scalar shift by
+  immediate, remaining opcodes" block (opcodes 0x1c/0x1f) — rtorrent's MSE
+  Diffie-Hellman/SHA-1 path SIGILL'd on `ucvtf d2, d2, #0x14` (encoding
+  `0x7f6ce442`), which decoded to this instruction class with every other
+  opcode handled except these two. OpenMinis' `asbestos/guest-arm64/gen.c`
+  (dispatch around their `SHL/SSHR/USHR` scalar-immediate block) and
+  `gadgets-aarch64/math.S`'s `scvtf_fixpt_scalar`/`ucvtf_fixpt_scalar`/
+  `fcvtzs_fixpt_scalar`/`fcvtzu_fixpt_scalar` already implement this exact
+  instruction family — consulting their code (after an initial from-scratch
+  attempt) caught a real gap: the first pass here only handled the 64-bit
+  (D) element size, but OpenMinis' code handles both S (32-bit) and D
+  (64-bit), and disassembling `ucvtf s2, s2, #0xa` on host arm64
+  (`0x7f36e442`) confirmed S is a real, separate, architecturally-valid
+  encoding — a D-only fix would have left an near-identical crash one
+  `immh` bit away. Decode structure (recognizing opcodes 0x1c/0x1f as this
+  class's fixed-point-convert pair, S-vs-D dispatch) is adapted from their
+  `gen.c`; the gadget body is independently written to match this
+  codebase's `vcvt_fixed` convention (precompute the exact 2^n scale as a
+  raw float/double bit pattern at JIT-generation time and multiply/divide
+  by it once, rather than OpenMinis' approach of reconstructing 2^fbits at
+  every execution via runtime shift+convert+`fdiv`) — mechanically simpler
+  to fit this file's existing code-stream format and consistent with the
+  sibling vector gadget already in this file. Verified against real host
+  arm64 hardware (not just self-consistency): both S and D, U and S
+  variants, cross-checked bit-for-bit against the identical instructions
+  executed natively via `tests/arm64/arm64_ucvtf_fix.s`.
