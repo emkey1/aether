@@ -79,8 +79,9 @@ int_t sys_munmap(addr_t addr, uint_t len);
 int_t sys_munmap_guest(guest_addr_t addr, qword_t len);
 int_t sys_mprotect(addr_t addr, uint_t len, int_t prot);
 int_t sys_mprotect_guest(guest_addr_t addr, qword_t len, int_t prot);
-int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags);
-guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags);
+int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags, addr_t new_addr);
+guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags,
+        guest_addr_t new_addr);
 dword_t sys_madvise(addr_t addr, dword_t len, dword_t advice);
 dword_t sys_madvise_guest(guest_addr_t addr, qword_t len, dword_t advice);
 dword_t sys_mincore(addr_t addr, dword_t len, addr_t vec_addr);

@@ -389,17 +389,20 @@ static int mremap_map_file_extra(struct mem *mem, page_t start, pages_t pages,
     return 0;
 }
 
-guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags) {
-    STRACE("mremap(%#llx, %#llx, %#llx, %d)", (unsigned long long) addr,
-           (unsigned long long) old_len, (unsigned long long) new_len, flags);
+guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_len, dword_t flags,
+        guest_addr_t new_addr) {
+    STRACE("mremap(%#llx, %#llx, %#llx, %d, %#llx)", (unsigned long long) addr,
+           (unsigned long long) old_len, (unsigned long long) new_len, flags,
+           (unsigned long long) new_addr);
     if (PGOFFSET(addr) != 0)
         return _EINVAL;
     if (flags & ~(MREMAP_MAYMOVE_ | MREMAP_FIXED_))
         return _EINVAL;
-    if (flags & MREMAP_FIXED_) {
-        FIXME("missing MREMAP_FIXED");
+    // Per mremap(2), MREMAP_FIXED can only be used together with MREMAP_MAYMOVE.
+    if ((flags & MREMAP_FIXED_) && !(flags & MREMAP_MAYMOVE_))
         return _EINVAL;
-    }
+    if ((flags & MREMAP_FIXED_) && PGOFFSET(new_addr) != 0)
+        return _EINVAL;
     pages_t old_pages = PAGE_ROUND_UP(old_len);
     pages_t new_pages = PAGE_ROUND_UP(new_len);
     // Same jetsam-headroom backpressure as mmap_common_guest (grow only).
@@ -409,11 +412,92 @@ guest_addr_t sys_mremap_guest(guest_addr_t addr, qword_t old_len, qword_t new_le
 
     mem_write_lock_with_pokes(current->mem);
 
+    if (flags & MREMAP_FIXED_) {
+        page_t src_page = PAGE(addr);
+        page_t dest_page = PAGE(new_addr);
+        // Real Linux allows some overlapping source/destination cases; getting
+        // that right risks corrupting the very pages being relocated (the
+        // implicit unmap of the destination could clobber source pages that
+        // haven't been moved yet), so reject any overlap -- including the
+        // source and destination being identical -- rather than risk a wrong,
+        // silent result. This is a deliberate, documented simplification.
+        if (dest_page < src_page + old_pages && src_page < dest_page + new_pages) {
+            res = _EINVAL;
+            goto out;
+        }
+
+        struct pt_entry *entry = mem_pt(current->mem, src_page);
+        if (entry == NULL) {
+            res = _EFAULT;
+            goto out;
+        }
+        dword_t pt_flags = entry->flags;
+        struct data *backing_data = entry->data;
+        for (page_t page = src_page; page < src_page + old_pages; page++) {
+            entry = mem_pt(current->mem, page);
+            if (entry == NULL || (entry->flags & ~P_COW) != (pt_flags & ~P_COW)) {
+                res = _EFAULT;
+                goto out;
+            }
+        }
+
+        // Clear whatever's currently mapped at the destination -- MREMAP_FIXED
+        // implicitly unmaps the destination range first, like a combined
+        // munmap(new_addr, new_len) + the move below.
+        int err = pt_unmap_always(current->mem, dest_page, new_pages);
+        if (err < 0) {
+            res = _EFAULT;
+            goto out;
+        }
+
+        if (new_pages > old_pages) {
+            bool is_file = !(pt_flags & P_ANONYMOUS);
+            struct fd *backing_fd = is_file && backing_data != NULL ? backing_data->fd : NULL;
+            if (is_file && (backing_fd == NULL || backing_fd->ops->mmap == NULL)) {
+                FIXME("mremap grow on a mapping with no growable backing fd");
+                res = _EFAULT;
+                goto out;
+            }
+            qword_t extra_file_offset = backing_data != NULL
+                    ? backing_data->file_offset + ((qword_t) old_pages << PAGE_BITS) : 0;
+            pages_t extra_pages = new_pages - old_pages;
+            err = is_file
+                    ? mremap_map_file_extra(current->mem, dest_page + old_pages, extra_pages, backing_fd, extra_file_offset, pt_flags)
+                    : pt_map_nothing(current->mem, dest_page + old_pages, extra_pages, pt_flags & ~P_COW);
+            if (err < 0) {
+                res = err;
+                goto out;
+            }
+        }
+
+        // Shrinking-while-moving keeps only the first new_pages of the
+        // original mapping (matching plain shrink's tail-truncation
+        // semantics); the rest is simply dropped from the source below.
+        pages_t move_pages = new_pages < old_pages ? new_pages : old_pages;
+        err = pt_move(current->mem, src_page, dest_page, move_pages);
+        if (err < 0) {
+            res = err;
+            goto out;
+        }
+        if (new_pages < old_pages) {
+            err = pt_unmap(current->mem, src_page + move_pages, old_pages - move_pages);
+            if (err < 0) {
+                res = _EFAULT;
+                goto out;
+            }
+        }
+        res = (guest_addr_t) dest_page << PAGE_BITS;
+        goto out;
+    }
+
     // shrinking always works
     if (new_pages <= old_pages) {
-        while(task_ref_cnt_get(current, 0) > 1) { // Sometimes this is one.  Figure out if this is OK.  FIXME
-            nanosleep(&lock_pause, NULL);
-        }
+        // No task_ref_cnt spin needed here (unlike sys_munmap_guest just above,
+        // which has never had one): every reader of another task's memory
+        // (process_vm_readv's user_read_task, /proc/<pid>/mem's
+        // user_read_task_mem) takes mem->lock in read mode -- the same lock
+        // mem_write_lock_with_pokes above already holds in write mode -- so
+        // they're already excluded regardless of task_ref_cnt.
         int err = pt_unmap(current->mem, PAGE(addr) + new_pages, old_pages - new_pages);
         res = err < 0 ? _EFAULT : addr;
         goto out;
@@ -493,8 +577,8 @@ out:
     return res;
 }
 
-int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags) {
-    return (int_t) sys_mremap_guest(addr, old_len, new_len, flags);
+int_t sys_mremap(addr_t addr, dword_t old_len, dword_t new_len, dword_t flags, addr_t new_addr) {
+    return (int_t) sys_mremap_guest(addr, old_len, new_len, flags, new_addr);
 }
 
 int_t sys_mprotect_guest(guest_addr_t addr, qword_t len, int_t prot) {
