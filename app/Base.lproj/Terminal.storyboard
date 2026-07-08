@@ -40,6 +40,7 @@
                         </constraints>
                     </view>
                     <connections>
+                        <outlet property="arrowKey" destination="VCr-TW-PIZ" id="aRw-Ky-9Fb"/>
                         <outlet property="bar" destination="4pc-Ei-ihz" id="iy4-s8-7yt"/>
                         <outlet property="barBottom" destination="OK7-xG-JFg" id="vWW-y5-fIo"/>
                         <outlet property="barButtonWidth" destination="1Ax-5U-2CI" id="Wlc-g8-GEs"/>

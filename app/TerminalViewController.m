@@ -188,6 +188,7 @@ static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *c
 @property (weak, nonatomic) IBOutlet UIButton *tabKey;
 @property (weak, nonatomic) IBOutlet UIButton *controlKey;
 @property (weak, nonatomic) IBOutlet UIButton *escapeKey;
+@property (weak, nonatomic) IBOutlet ArrowBarButton *arrowKey;
 @property (strong, nonatomic) IBOutletCollection(id) NSArray *barButtons;
 @property (strong, nonatomic) IBOutletCollection(id) NSArray *barControls;
 
@@ -415,6 +416,21 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.escapeKey.accessibilityLabel = @"Escape";
     self.escapeKey.accessibilityHint = @"Sends an escape character.";
 
+    // Hold the arrow key in place (no directional drag) to switch Desktops without adding a
+    // dedicated key to an already-tight accessory bar. Only wired up when this terminal is a
+    // window inside the Workspace desktop manager, which is what owns desktop switching.
+    __weak typeof(self) weakSelf = self;
+    self.arrowKey.longPressHandler = ^{
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || !strongSelf.embeddedInWorkspaceWindow)
+            return;
+        UIViewController *host = strongSelf.parentViewController;
+        if (![host isKindOfClass:WorkspaceViewController.class])
+            return;
+        [(WorkspaceViewController *)host presentDesktopSwitchMenuFromView:strongSelf.arrowKey
+                                                                sourceRect:strongSelf.arrowKey.bounds];
+    };
+    
     [UserPreferences.shared observe:@[@"hideStatusBar"] options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setNeedsStatusBarAppearanceUpdate];

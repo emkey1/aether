@@ -11,6 +11,8 @@ extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewCon
 
 @interface WorkspaceViewController : UIViewController
 
+- (void)presentDesktopSwitchMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect;
+
 @end
 
 NS_ASSUME_NONNULL_END

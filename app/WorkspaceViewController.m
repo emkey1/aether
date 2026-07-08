@@ -12,6 +12,7 @@
 #import "AudioPlayerEngine.h"
 #import "AudioLibrary.h"
 #import "MotePadDocumentStore.h"
+#import "UIApplication+OpenURL.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
 #include <arpa/inet.h>
@@ -1666,6 +1667,7 @@ static NSString *const ISHWorkspaceCustomThemesDefaultsKey = @"ISHWorkspaceCusto
 static NSString *const ISHWorkspaceToolDensityPreferenceKey = @"ISHWorkspaceToolDensity";
 static NSString *const ISHWorkspaceGaugeStylePreferenceKey = @"ISHWorkspaceGaugeStyle";
 static NSString *const ISHWorkspaceBrowserHomePreferenceKey = @"ISHWorkspaceBrowserHome";
+static NSString *const ISHWorkspaceBrowserBookmarksDefaultsKey = @"ISHWorkspaceBrowserBookmarks";
 static NSString *const ISHWorkspaceStartupLowMemoryWarningDisabledPreferenceKey = @"ISHWorkspaceStartupLowMemoryWarningDisabled";
 static NSString *const ISHWorkspaceToolThemeDidChangeNotification = @"ISHWorkspaceToolThemeDidChange";
 static NSString *const ISHWorkspaceGaugeStyleDidChangeNotification = @"ISHWorkspaceGaugeStyleDidChange";
@@ -3250,6 +3252,13 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
                           showsCloseButton:!settingsTool
                     appliesInitialPlacement:!pinnedWorkspaces];
     windowView.workspaceToolIdentifier = toolIdentifier;
+    // Same double-tap-to-maximize convenience Terminal windows get (see
+    // openDesktopTerminalWindowWithTitle:terminalViewController:) — most useful here for
+    // locally-hosted webapps that want the whole desktop. Left off the pinned/singleton
+    // utilities (Launcher, Desktops, Settings) since their frames are otherwise persisted
+    // or managed specially.
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
+        windowView.titleBarDoubleTapZoomEnabled = YES;
     if ([self isGlobalToolIdentifier:toolIdentifier])
         windowView.workspaceDesktopIndex = 0;  // global singletons live on the first Desktop
     CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);
@@ -4249,6 +4258,80 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
     [self switchToDesktopIndex:self.activeDesktopIndex + delta];
 }
 
+// The line (paragraph, hard-newline-delimited) containing `index` — mirrors the same convention
+// MotePad's own "Ln/Col" status bar uses (see -updateStatusBar), not the visually-wrapped line.
+static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger index) {
+    NSUInteger length = text.length;
+    index = MIN(index, length);
+    NSUInteger start = index;
+    while (start > 0 && [text characterAtIndex:start - 1] != '\n')
+        start--;
+    NSUInteger end = index;
+    while (end < length && [text characterAtIndex:end] != '\n')
+        end++;
+    return NSMakeRange(start, end - start);
+}
+
+// Cmd+Arrow, not Ctrl+Arrow: the guest terminal already claims Ctrl/Shift/Alt+Arrow (and every
+// other modifier combo on arrows) for escape-sequence passthrough — e.g. Ctrl-Left/Right is a
+// shell word-jump. Cmd+Arrow is the one combination arrows don't already use anywhere in the app.
+//
+// When a text-editing view has focus (MotePad today, any future text-input applet for free),
+// this moves the cursor to the start/end of the current line instead of switching Desktops —
+// the standard text-editing convention for Cmd+Arrow, reimplemented here rather than left to
+// iOS's own default handling. -keyCommands always registers these two with system priority
+// regardless of what's focused (see there for why): the branch lives here in the action instead.
+- (void)hotkeyPreviousDesktop:(UIKeyCommand *)command {
+    UIView *responder = ISHWorkspaceFindFirstResponder(self.view);
+    if ([responder isKindOfClass:UITextView.class]) {
+        UITextView *textView = (UITextView *)responder;
+        NSRange line = ISHWorkspaceLineRangeContainingIndex(textView.text, textView.selectedRange.location);
+        textView.selectedRange = NSMakeRange(line.location, 0);
+        return;
+    }
+    [self switchToDesktopIndex:self.activeDesktopIndex - 1];
+}
+
+- (void)hotkeyNextDesktop:(UIKeyCommand *)command {
+    UIView *responder = ISHWorkspaceFindFirstResponder(self.view);
+    if ([responder isKindOfClass:UITextView.class]) {
+        UITextView *textView = (UITextView *)responder;
+        NSRange line = ISHWorkspaceLineRangeContainingIndex(textView.text, textView.selectedRange.location);
+        textView.selectedRange = NSMakeRange(NSMaxRange(line), 0);
+        return;
+    }
+    [self switchToDesktopIndex:self.activeDesktopIndex + 1];
+}
+
+- (NSArray<UIKeyCommand *> *)keyCommands {
+    BOOL textEditing = [ISHWorkspaceFindFirstResponder(self.view) isKindOfClass:UITextView.class];
+    UIKeyCommand *previous = [UIKeyCommand keyCommandWithInput:UIKeyInputLeftArrow
+                                                 modifierFlags:UIKeyModifierCommand
+                                                        action:@selector(hotkeyPreviousDesktop:)
+                                          discoverabilityTitle:textEditing ? @"Move to Start of Line" : @"Previous Desktop"];
+    UIKeyCommand *next = [UIKeyCommand keyCommandWithInput:UIKeyInputRightArrow
+                                             modifierFlags:UIKeyModifierCommand
+                                                    action:@selector(hotkeyNextDesktop:)
+                                      discoverabilityTitle:textEditing ? @"Move to End of Line" : @"Next Desktop"];
+    // Without this, iOS's own system-reserved default for Cmd+Arrow silently wins over the app:
+    // the command still shows up in the Cmd-hold discoverability HUD (which lists everything
+    // registered, not just what wins), but the action never fires. Same fix TerminalView.m
+    // already applies to its own keys.
+    //
+    // Crucially, these two commands are ALWAYS returned here, never conditionally omitted — only
+    // the discoverability title varies with focus. Omitting them entirely while MotePad's text
+    // view had focus (the first cut of this fix) left Cmd+Arrow permanently defeated by the
+    // system default afterward, even once MotePad closed, until the app was relaunched: iOS
+    // appears to decide app-vs-system priority for a given key command once per responder
+    // instance and stick with it, rather than re-deciding on every query. Keeping presence and
+    // the priority flag constant sidesteps that; see the actions above for the actual branch.
+    if (@available(iOS 15, *)) {
+        previous.wantsPriorityOverSystemBehavior = YES;
+        next.wantsPriorityOverSystemBehavior = YES;
+    }
+    return @[previous, next];
+}
+
 // A brief "Desktop N / M" toast so the swipe-only switch stays oriented.
 - (void)showDesktopIndicator {
     if (self.desktopIndicatorLabel == nil) {
@@ -4344,6 +4427,53 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
             [self presentWorkspaceStyleChooserFromView:self.desktopSurfaceView];
         });
     }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceRect;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// Reached by long-pressing the terminal accessory bar's 4-way arrow key in place (see
+// ArrowBarButton.longPressHandler) — the keyboard-adjacent equivalent of the Cmd+Arrow hotkeys
+// and the two-finger swipe, for when reaching either of those isn't convenient.
+- (void)presentDesktopSwitchMenuFromView:(UIView *)sourceView sourceRect:(CGRect)sourceRect {
+    if (self.desktopCount <= 1)
+        return;
+
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Switch Desktop"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    if (self.activeDesktopIndex > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Previous Desktop"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self switchToDesktopIndex:self.activeDesktopIndex - 1];
+        }]];
+    }
+    if (self.activeDesktopIndex < self.desktopCount - 1) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Next Desktop"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self switchToDesktopIndex:self.activeDesktopIndex + 1];
+        }]];
+    }
+    for (NSInteger index = 0; index < self.desktopCount; index++) {
+        if (index == self.activeDesktopIndex)
+            continue;
+        NSString *title = [NSString stringWithFormat:@"Desktop %ld", (long)(index + 1)];
+        [sheet addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self switchToDesktopIndex:index];
+        }]];
+    }
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
 
     UIPopoverPresentationController *popover = sheet.popoverPresentationController;
@@ -10490,6 +10620,91 @@ static void ISHWorkspaceSetBrowserHomeAddress(NSString *address) {
     [NSUserDefaults.standardUserDefaults setObject:trimmed forKey:ISHWorkspaceBrowserHomePreferenceKey];
 }
 
+static NSArray<NSDictionary<NSString *, NSString *> *> *ISHWorkspaceBrowserBookmarkRecords(void) {
+    NSArray *records = [NSUserDefaults.standardUserDefaults arrayForKey:ISHWorkspaceBrowserBookmarksDefaultsKey];
+    return [records isKindOfClass:NSArray.class] ? records : @[];
+}
+
+static void ISHWorkspaceSetBrowserBookmarkRecords(NSArray<NSDictionary<NSString *, NSString *> *> *records) {
+    [NSUserDefaults.standardUserDefaults setObject:records forKey:ISHWorkspaceBrowserBookmarksDefaultsKey];
+}
+
+static NSInteger ISHWorkspaceBrowserBookmarkIndexForURL(NSString *urlString) {
+    NSArray<NSDictionary<NSString *, NSString *> *> *records = ISHWorkspaceBrowserBookmarkRecords();
+    for (NSUInteger index = 0; index < records.count; index++) {
+        if ([records[index][@"url"] isEqualToString:urlString])
+            return (NSInteger)index;
+    }
+    return NSNotFound;
+}
+
+static BOOL ISHWorkspaceBrowserIsBookmarked(NSString *urlString) {
+    return urlString.length > 0 && ISHWorkspaceBrowserBookmarkIndexForURL(urlString) != NSNotFound;
+}
+
+static void ISHWorkspaceAddBrowserBookmark(NSString *title, NSString *urlString) {
+    if (urlString.length == 0 || ISHWorkspaceBrowserIsBookmarked(urlString))
+        return;
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *records = [ISHWorkspaceBrowserBookmarkRecords() mutableCopy];
+    [records addObject:@{@"title": title.length > 0 ? title : urlString, @"url": urlString}];
+    ISHWorkspaceSetBrowserBookmarkRecords(records);
+}
+
+static void ISHWorkspaceRemoveBrowserBookmarkForURL(NSString *urlString) {
+    NSInteger index = ISHWorkspaceBrowserBookmarkIndexForURL(urlString);
+    if (index == NSNotFound)
+        return;
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *records = [ISHWorkspaceBrowserBookmarkRecords() mutableCopy];
+    [records removeObjectAtIndex:(NSUInteger)index];
+    ISHWorkspaceSetBrowserBookmarkRecords(records);
+}
+
+// Pinned tabs are keyed by tab *position* (stringified index), not by URL: pinning tab 3 to
+// Gmail means "whenever a new tab lands in slot 3, load Gmail" — it does not retroactively touch
+// a tab already open in that slot, and unpinning just removes the record so new tabs there fall
+// back to the normal home address.
+static NSString *const ISHWorkspaceBrowserPinnedTabsDefaultsKey = @"ISHWorkspaceBrowserPinnedTabs";
+
+static NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *ISHWorkspaceBrowserPinnedTabRecords(void) {
+    NSDictionary *records = [NSUserDefaults.standardUserDefaults dictionaryForKey:ISHWorkspaceBrowserPinnedTabsDefaultsKey];
+    return [records isKindOfClass:NSDictionary.class] ? records : @{};
+}
+
+static void ISHWorkspaceSetBrowserPinnedTabRecords(NSDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *records) {
+    [NSUserDefaults.standardUserDefaults setObject:records forKey:ISHWorkspaceBrowserPinnedTabsDefaultsKey];
+}
+
+static NSDictionary<NSString *, NSString *> *ISHWorkspaceBrowserPinnedTabRecordForIndex(NSInteger index) {
+    NSDictionary *record = ISHWorkspaceBrowserPinnedTabRecords()[[NSString stringWithFormat:@"%ld", (long) index]];
+    return [record isKindOfClass:NSDictionary.class] ? record : nil;
+}
+
+static NSString *ISHWorkspaceBrowserPinnedURLForTabIndex(NSInteger index) {
+    return ISHWorkspaceBrowserPinnedTabRecordForIndex(index)[@"url"];
+}
+
+static NSString *ISHWorkspaceBrowserPinnedTitleForTabIndex(NSInteger index) {
+    return ISHWorkspaceBrowserPinnedTabRecordForIndex(index)[@"title"];
+}
+
+static BOOL ISHWorkspaceBrowserTabIndexIsPinned(NSInteger index) {
+    return ISHWorkspaceBrowserPinnedURLForTabIndex(index).length > 0;
+}
+
+static void ISHWorkspaceSetBrowserPinnedTabForIndex(NSInteger index, NSString *title, NSString *urlString) {
+    if (urlString.length == 0)
+        return;
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *records = [ISHWorkspaceBrowserPinnedTabRecords() mutableCopy];
+    records[[NSString stringWithFormat:@"%ld", (long) index]] = @{@"title": title.length > 0 ? title : urlString, @"url": urlString};
+    ISHWorkspaceSetBrowserPinnedTabRecords(records);
+}
+
+static void ISHWorkspaceRemoveBrowserPinnedTabForIndex(NSInteger index) {
+    NSMutableDictionary<NSString *, NSDictionary<NSString *, NSString *> *> *records = [ISHWorkspaceBrowserPinnedTabRecords() mutableCopy];
+    [records removeObjectForKey:[NSString stringWithFormat:@"%ld", (long) index]];
+    ISHWorkspaceSetBrowserPinnedTabRecords(records);
+}
+
 static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     NSString *trimmed = [[input ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] copy];
     if (trimmed.length == 0)
@@ -11062,6 +11277,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     UIButton *_forwardButton;
     UIButton *_reloadButton;
     UIButton *_homeButton;
+    UIButton *_bookmarkButton;
     UIButton *_goButton;
     UIButton *_addTabButton;
     UIButton *_closeTabButton;
@@ -11106,13 +11322,41 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     button.layer.borderWidth = 1.0;
     button.titleLabel.font = [UIFont systemFontOfSize:ISHWorkspaceThemeFontSize(UIFontTextStyleFootnote)
                                                weight:UIFontWeightSemibold];
-    [button setTitle:[NSString stringWithFormat:@"%ld", (long) (index + 1)] forState:UIControlStateNormal];
+    button.titleLabel.adjustsFontSizeToFitWidth = YES;
+    button.titleLabel.minimumScaleFactor = 0.6;
     [button addTarget:self action:@selector(selectTabFromButton:) forControlEvents:UIControlEventTouchUpInside];
+    // Tap selects the tab; touch-and-hold offers pin/unpin — the same tap-vs-hold split used by
+    // Home, Reload, and Bookmark elsewhere in this toolbar.
+    UILongPressGestureRecognizer *pinLongPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleTabButtonLongPress:)];
+    pinLongPressRecognizer.minimumPressDuration = 0.35;
+    [button addGestureRecognizer:pinLongPressRecognizer];
     [NSLayoutConstraint activateConstraints:@[
         [button.widthAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
         [button.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 26.0 : 30.0],
     ]];
+    [self updateTitleAndAccessibilityForTabButton:button atIndex:index];
     return button;
+}
+
+- (void)updateTitleAndAccessibilityForTabButton:(UIButton *)button atIndex:(NSInteger)index {
+    BOOL pinned = ISHWorkspaceBrowserTabIndexIsPinned(index);
+    [button setTitle:[NSString stringWithFormat:pinned ? @"%ld📌" : @"%ld", (long) (index + 1)]
+             forState:UIControlStateNormal];
+    if (pinned) {
+        NSString *pinnedTitle = ISHWorkspaceBrowserPinnedTitleForTabIndex(index);
+        button.accessibilityLabel = [NSString stringWithFormat:@"Tab %ld, pinned to %@", (long) (index + 1), pinnedTitle];
+        button.accessibilityHint = @"Touch and hold to unpin.";
+    } else {
+        button.accessibilityLabel = [NSString stringWithFormat:@"Tab %ld", (long) (index + 1)];
+        button.accessibilityHint = @"Touch and hold to pin this tab's current page.";
+    }
+}
+
+- (void)refreshTabButtonPinIndicators {
+    for (UIButton *button in _tabButtons) {
+        [self updateTitleAndAccessibilityForTabButton:button atIndex:button.tag];
+    }
 }
 
 - (WKWebView *)buildBrowserWebView {
@@ -11192,8 +11436,9 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     WKWebView *webView = [self buildBrowserWebView];
     [_tabWebViews addObject:webView];
     [self rebuildTabButtons];
-    [self loadAddressString:addressString inWebView:webView];
     NSInteger newIndex = _tabWebViews.count - 1;
+    NSString *pinnedURL = ISHWorkspaceBrowserPinnedURLForTabIndex(newIndex);
+    [self loadAddressString:(pinnedURL.length > 0 ? pinnedURL : addressString) inWebView:webView];
     if (activate || _tabWebViews.count == 1) {
         [self selectBrowserTabAtIndex:newIndex];
     } else {
@@ -11245,8 +11490,12 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _forwardButton.accessibilityLabel = @"Forward";
     _reloadButton = [self browserButtonWithTitle:@"R" action:@selector(reloadOrStop:)];
     _reloadButton.accessibilityLabel = @"Reload";
+    _reloadButton.accessibilityHint = @"Touch and hold to open the current page in Safari.";
     _homeButton = [self browserButtonWithTitle:@"Home" action:@selector(goHome:)];
     _homeButton.accessibilityLabel = @"Home";
+    _bookmarkButton = [self browserButtonWithTitle:@"☆" action:@selector(toggleBookmark:)];
+    _bookmarkButton.accessibilityLabel = @"Bookmark";
+    _bookmarkButton.accessibilityHint = @"Toggles a bookmark for the current page. Touch and hold to view bookmarks.";
     _goButton = [self browserButtonWithTitle:@"Go" action:@selector(commitAddress:)];
     _goButton.accessibilityLabel = @"Go";
     _addTabButton = [self browserButtonWithTitle:@"+" action:@selector(addTab:)];
@@ -11257,9 +11506,19 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleHomeButtonLongPress:)];
     homeLongPressRecognizer.minimumPressDuration = 0.35;
     [_homeButton addGestureRecognizer:homeLongPressRecognizer];
-    [_actionButtons addObjectsFromArray:@[_backButton, _forwardButton, _reloadButton, _homeButton, _goButton, _addTabButton, _closeTabButton]];
+    // Some sites (e.g. Gmail/Google sign-in) deliberately reject embedded WKWebViews regardless
+    // of actual capability — the fix is handing the page to real Safari, not spoofing anything.
+    UILongPressGestureRecognizer *reloadLongPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleReloadButtonLongPress:)];
+    reloadLongPressRecognizer.minimumPressDuration = 0.35;
+    [_reloadButton addGestureRecognizer:reloadLongPressRecognizer];
+    UILongPressGestureRecognizer *bookmarkLongPressRecognizer =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleBookmarkButtonLongPress:)];
+    bookmarkLongPressRecognizer.minimumPressDuration = 0.35;
+    [_bookmarkButton addGestureRecognizer:bookmarkLongPressRecognizer];
+    [_actionButtons addObjectsFromArray:@[_backButton, _forwardButton, _reloadButton, _homeButton, _bookmarkButton, _goButton, _addTabButton, _closeTabButton]];
     for (UIButton *button in _actionButtons) {
-        if (button == _addTabButton || button == _closeTabButton)
+        if (button == _homeButton || button == _addTabButton || button == _closeTabButton)
             continue;
         [controlsRow addSubview:button];
     }
@@ -11304,6 +11563,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _tabsStack.alignment = UIStackViewAlignmentCenter;
     _tabsStack.spacing = 6.0;
     [_tabsScrollView addSubview:_tabsStack];
+    [tabsRow addSubview:_homeButton];
     [tabsRow addSubview:_addTabButton];
     [tabsRow addSubview:_closeTabButton];
 
@@ -11328,13 +11588,13 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [_forwardButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
         [_reloadButton.leadingAnchor constraintEqualToAnchor:_forwardButton.trailingAnchor constant:6.0],
         [_reloadButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
-        [_homeButton.leadingAnchor constraintEqualToAnchor:_reloadButton.trailingAnchor constant:6.0],
-        [_homeButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
+        [_bookmarkButton.leadingAnchor constraintEqualToAnchor:_reloadButton.trailingAnchor constant:6.0],
+        [_bookmarkButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
 
         [_goButton.trailingAnchor constraintEqualToAnchor:controlsRow.trailingAnchor],
         [_goButton.centerYAnchor constraintEqualToAnchor:_addressContainerView.centerYAnchor],
 
-        [_addressContainerView.leadingAnchor constraintEqualToAnchor:_homeButton.trailingAnchor constant:6.0],
+        [_addressContainerView.leadingAnchor constraintEqualToAnchor:_bookmarkButton.trailingAnchor constant:6.0],
         [_addressContainerView.trailingAnchor constraintEqualToAnchor:_goButton.leadingAnchor constant:-6.0],
         [_addressContainerView.topAnchor constraintEqualToAnchor:controlsRow.topAnchor],
         [_addressContainerView.bottomAnchor constraintEqualToAnchor:controlsRow.bottomAnchor],
@@ -11356,7 +11616,11 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [tabsRow.bottomAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:-inset],
         [tabsRow.heightAnchor constraintEqualToConstant:ISHWorkspaceUsesPhoneLayout() ? 30.0 : 34.0],
 
-        [_tabsScrollView.leadingAnchor constraintEqualToAnchor:tabsRow.leadingAnchor],
+        [_homeButton.leadingAnchor constraintEqualToAnchor:tabsRow.leadingAnchor],
+        [_homeButton.topAnchor constraintEqualToAnchor:tabsRow.topAnchor],
+        [_homeButton.bottomAnchor constraintEqualToAnchor:tabsRow.bottomAnchor],
+
+        [_tabsScrollView.leadingAnchor constraintEqualToAnchor:_homeButton.trailingAnchor constant:6.0],
         [_tabsScrollView.topAnchor constraintEqualToAnchor:tabsRow.topAnchor],
         [_tabsScrollView.bottomAnchor constraintEqualToAnchor:tabsRow.bottomAnchor],
         [_tabsScrollView.trailingAnchor constraintEqualToAnchor:_addTabButton.leadingAnchor constant:-6.0],
@@ -11395,6 +11659,8 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _forwardButton.alpha = _forwardButton.enabled ? 1.0 : 0.42;
     _reloadButton.alpha = 1.0;
     _homeButton.alpha = 1.0;
+    [self updateBookmarkButtonState];
+    [self refreshTabButtonPinIndicators];
     _goButton.alpha = 1.0;
     _addTabButton.enabled = _tabWebViews.count < _maximumTabCount;
     _addTabButton.alpha = _addTabButton.enabled ? 1.0 : 0.42;
@@ -11466,6 +11732,158 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
         [weakSelf goHome:nil];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)handleReloadButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    [self presentOpenInSafariPromptFromView:_reloadButton];
+}
+
+- (void)presentOpenInSafariPromptFromView:(UIView *)sourceView {
+    NSURL *url = [self currentBrowserWebView].URL;
+    if (url == nil)
+        return;
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:nil
+                                            message:url.absoluteString
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Open in Safari"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [UIApplication openURL:url.absoluteString];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+// Tap toggles a bookmark for the current page; touch-and-hold browses/manages the list — the
+// same tap-vs-hold split as Home (go/configure) and Reload (reload/open-in-Safari) elsewhere in
+// this toolbar.
+- (void)toggleBookmark:(id)sender {
+    (void) sender;
+    NSString *url = [self currentBrowserWebView].URL.absoluteString;
+    if (url.length == 0)
+        return;
+    if (ISHWorkspaceBrowserIsBookmarked(url)) {
+        ISHWorkspaceRemoveBrowserBookmarkForURL(url);
+    } else {
+        ISHWorkspaceAddBrowserBookmark([self currentBrowserWebView].title, url);
+    }
+    [self updateBookmarkButtonState];
+}
+
+- (void)updateBookmarkButtonState {
+    NSString *url = [self currentBrowserWebView].URL.absoluteString;
+    [_bookmarkButton setTitle:ISHWorkspaceBrowserIsBookmarked(url) ? @"★" : @"☆" forState:UIControlStateNormal];
+}
+
+- (void)handleBookmarkButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    [self presentBookmarksListFromView:_bookmarkButton editing:NO];
+}
+
+- (void)presentBookmarksListFromView:(UIView *)sourceView editing:(BOOL)editing {
+    NSArray<NSDictionary<NSString *, NSString *> *> *bookmarks = ISHWorkspaceBrowserBookmarkRecords();
+    NSString *message = bookmarks.count == 0
+        ? @"No bookmarks yet. Tap the star to bookmark the current page."
+        : (editing ? @"Tap a bookmark to remove it." : nil);
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Bookmarks"
+                                            message:message
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary<NSString *, NSString *> *bookmark in bookmarks) {
+        NSString *title = bookmark[@"title"];
+        NSString *url = bookmark[@"url"];
+        [sheet addAction:[UIAlertAction actionWithTitle:title.length > 0 ? title : url
+                                                  style:editing ? UIAlertActionStyleDestructive : UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            if (editing) {
+                ISHWorkspaceRemoveBrowserBookmarkForURL(url);
+                [weakSelf updateBookmarkButtonState];
+                // Re-presenting from inside this handler races the sheet's own dismissal (same
+                // reason presentDesktopRootMenuFromView:sourceRect:'s nested items defer) — drop
+                // to the next runloop turn so it doesn't silently no-op.
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf presentBookmarksListFromView:sourceView editing:YES];
+                });
+            } else {
+                [weakSelf loadAddressString:url inWebView:[weakSelf currentBrowserWebView]];
+            }
+        }]];
+    }
+    if (bookmarks.count > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:editing ? @"Done" : @"Edit Bookmarks…"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf presentBookmarksListFromView:sourceView editing:!editing];
+            });
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)handleTabButtonLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan)
+        return;
+    UIButton *button = (UIButton *) recognizer.view;
+    [self presentPinOptionsForTabAtIndex:button.tag fromView:button];
+}
+
+- (void)presentPinOptionsForTabAtIndex:(NSInteger)index fromView:(UIView *)sourceView {
+    if (index < 0 || index >= (NSInteger) _tabWebViews.count)
+        return;
+    NSString *currentURL = _tabWebViews[index].URL.absoluteString;
+    NSString *pinnedURL = ISHWorkspaceBrowserPinnedURLForTabIndex(index);
+    NSString *title = [NSString stringWithFormat:@"Tab %ld", (long) (index + 1)];
+    NSString *message = pinnedURL.length > 0
+        ? [NSString stringWithFormat:@"Pinned to %@. New tabs opened in this slot load that page instead of Home.", pinnedURL]
+        : @"Pin this tab so new tabs opened in this slot load its current page instead of Home.";
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:title
+                                            message:message
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    if (pinnedURL.length > 0) {
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Unpin Tab"
+                                                  style:UIAlertActionStyleDestructive
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceRemoveBrowserPinnedTabForIndex(index);
+            [weakSelf refreshTabButtonPinIndicators];
+        }]];
+    } else if (currentURL.length > 0) {
+        NSString *currentTitle = _tabWebViews[index].title;
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Pin Tab to Current Page"
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            ISHWorkspaceSetBrowserPinnedTabForIndex(index, currentTitle, currentURL);
+            [weakSelf refreshTabButtonPinIndicators];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sourceView;
+        popover.sourceRect = sourceView.bounds;
+        popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (void)addTab:(id)sender {

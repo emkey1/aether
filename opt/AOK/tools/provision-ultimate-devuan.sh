@@ -97,10 +97,10 @@ PKGS="
   procps passwd adduser file less
   sysvinit-core
   openssh-client openssh-server sudo
-  rsyslog iputils-ping
+  rsyslog iputils-ping wtmpdb
   chrony cron logrotate
   tzdata ca-certificates openssl
-  man-db manpages
+  man-db manpages libpam-systemd
   curl wget rsync bind9-dnsutils iproute2
   git strace build-essential gdb
   python3 python3-pip python3-venv

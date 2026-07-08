@@ -16,6 +16,7 @@
 @property (nonatomic) ArrowDirection direction;
 @property BOOL accessibilityUpDown;
 @property NSTimer *timer;
+@property NSTimer *longPressTimer;
 
 @end
 
@@ -68,6 +69,8 @@ static CGPoint anchors[] = {
     return self.accessibilityUpDown ? @"Arrow Keys Up or Down" : @"Arrow Keys Left or Right";
 }
 - (NSString *)accessibilityHint {
+    if (self.longPressHandler != nil)
+        return @"Double tap to toggle direction. Touch and hold to switch Desktops.";
     return @"Double tap to toggle direction";
 }
 
@@ -119,6 +122,19 @@ static CGPoint anchors[] = {
     [super beginTrackingWithTouch:touch withEvent:event];
     self.startPoint = [touch locationInView:self];
     self.selected = YES;
+    [self.longPressTimer invalidate];
+    if (self.longPressHandler != nil) {
+        __weak typeof(self) weakSelf = self;
+        self.longPressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:NO block:^(NSTimer *timer) {
+            typeof(self) strongSelf = weakSelf;
+            // Only fires if the touch is still down and never dragged into a direction —
+            // a real directional drag already sent its key and started auto-repeating.
+            if (strongSelf == nil || strongSelf.direction != ArrowNone)
+                return;
+            strongSelf.selected = NO;
+            strongSelf.longPressHandler();
+        }];
+    }
     return YES;
 }
 
@@ -141,16 +157,20 @@ static CGPoint anchors[] = {
         else
             self.direction = ArrowUp;
     }
+    if (self.direction != ArrowNone)
+        [self.longPressTimer invalidate];
     return YES;
 }
 
 - (void)endTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)event {
     [super endTrackingWithTouch:touch withEvent:event];
+    [self.longPressTimer invalidate];
     self.selected = NO;
     self.direction = ArrowNone;
 }
 - (void)cancelTrackingWithEvent:(UIEvent *)event {
     [super cancelTrackingWithEvent:event];
+    [self.longPressTimer invalidate];
     self.selected = NO;
     self.direction = ArrowNone;
 }
