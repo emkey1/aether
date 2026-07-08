@@ -11246,7 +11246,9 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
     _reloadButton = [self browserButtonWithTitle:@"R" action:@selector(reloadOrStop:)];
     _reloadButton.accessibilityLabel = @"Reload";
     _homeButton = [self browserButtonWithTitle:@"Home" action:@selector(goHome:)];
+    _homeButton.accessibilityLabel = @"Home";
     _goButton = [self browserButtonWithTitle:@"Go" action:@selector(commitAddress:)];
+    _goButton.accessibilityLabel = @"Go";
     _addTabButton = [self browserButtonWithTitle:@"+" action:@selector(addTab:)];
     _addTabButton.accessibilityLabel = @"Add Tab";
     _closeTabButton = [self browserButtonWithTitle:@"×" action:@selector(closeCurrentTab:)];
@@ -11270,6 +11272,7 @@ static NSURL *ISHWorkspaceBrowserURLFromInput(NSString *input) {
 
     _addressField = [UITextField new];
     _addressField.translatesAutoresizingMaskIntoConstraints = NO;
+    _addressField.accessibilityLabel = @"Address bar";
     _addressField.delegate = self;
     _addressField.clearButtonMode = UITextFieldViewModeWhileEditing;
     _addressField.returnKeyType = UIReturnKeyGo;
