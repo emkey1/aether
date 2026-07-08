@@ -811,7 +811,9 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
 }
 
 static dword_t sys_write_common(fd_t fd_no, guest_addr_t buf_addr, dword_t size) {
-    // FIXME this is a DOS vector, should ideally use vectorized I/O
+    // Capped below to prevent an unbounded allocation from a guest-supplied
+    // size (see 61961b67, which added this cap and the matching ones on
+    // read/pread/pwrite/readv/writev specifically to close that DoS).
     if (size > MAX_RW_COUNT)
         size = MAX_RW_COUNT;
 
