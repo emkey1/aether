@@ -25,6 +25,17 @@
 #define FUTEX_PRIVATE_FLAG 128
 #endif
 
+#ifndef FUTEX_WAKE_OP
+#define FUTEX_WAKE_OP 5
+#endif
+#ifndef FUTEX_OP
+#define FUTEX_OP_SET 0
+#define FUTEX_OP_ADD 1
+#define FUTEX_OP_CMP_EQ 0
+#define FUTEX_OP(op, oparg, cmp, cmparg) \
+    (((op & 0xf) << 28) | ((cmp & 0xf) << 24) | ((oparg & 0xfff) << 12) | (cmparg & 0xfff))
+#endif
+
 static volatile uint32_t futex_word;
 static volatile sig_atomic_t handler_count;
 static volatile sig_atomic_t last_sig;
@@ -137,6 +148,53 @@ static int futex_wake_raw(volatile uint32_t *uaddr, int count) {
     long ret = raw_syscall6(SYS_futex, (long) (uintptr_t) uaddr,
                             FUTEX_WAKE | FUTEX_PRIVATE_FLAG, count, 0, 0, 0);
     return raw_syscall_status(ret);
+}
+
+static long futex_wake_op_raw(volatile uint32_t *uaddr1, uint32_t wake1, uint32_t wake2,
+        volatile uint32_t *uaddr2, uint32_t encoded_op) {
+    long ret = raw_syscall6(SYS_futex, (long) (uintptr_t) uaddr1,
+                            FUTEX_WAKE_OP | FUTEX_PRIVATE_FLAG, wake1, wake2,
+                            (long) (uintptr_t) uaddr2, encoded_op);
+    return raw_syscall_status(ret);
+}
+
+static volatile uint32_t wake_op_a, wake_op_b;
+
+static void *wake_op_waiter_a(void *arg) {
+    (void) arg;
+    futex_wait_raw(&wake_op_a, 0, NULL);
+    return NULL;
+}
+
+static void *wake_op_waiter_b(void *arg) {
+    (void) arg;
+    futex_wait_raw(&wake_op_b, 0, NULL);
+    return NULL;
+}
+
+// Covers FUTEX_WAKE_OP (issue #423 Tier 3): SET *uaddr2, wake 1 waiter on
+// uaddr1 unconditionally, and -- since the old value at uaddr2 (0) compares
+// equal to the encoded cmparg (0) -- also wake 1 waiter on uaddr2.
+static void test_futex_wake_op(void) {
+    wake_op_a = 0;
+    wake_op_b = 0;
+    pthread_t ta, tb;
+    if (pthread_create(&ta, NULL, wake_op_waiter_a, NULL) != 0 ||
+            pthread_create(&tb, NULL, wake_op_waiter_b, NULL) != 0) {
+        perror("pthread_create");
+        exit(1);
+    }
+    usleep(200000);
+
+    int op = FUTEX_OP(FUTEX_OP_SET, 1, FUTEX_OP_CMP_EQ, 0);
+    long woken = futex_wake_op_raw(&wake_op_a, 1, 1, &wake_op_b, op);
+    usleep(200000);
+    pthread_join(ta, NULL);
+    pthread_join(tb, NULL);
+
+    test_logf("futex_wake_op: woken=%ld wake_op_b=%u\n", woken, wake_op_b);
+    if (woken != 2 || wake_op_b != 1)
+        failf("futex wake_op SET+CMP_EQ wakes both sides", woken, wake_op_b, 0, 2, 1, 0);
 }
 
 static void reset_handler_state(void) {
@@ -467,5 +525,6 @@ int main(int argc, char **argv) {
     test_futex_signal_restart();
     test_futex_signal_then_wake_no_restart();
     test_futex_waiter_thread_signal_then_wake_no_restart();
+    test_futex_wake_op();
     return finish_suite("futex_core");
 }
