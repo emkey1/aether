@@ -8,6 +8,7 @@
 #include "fs/proc.h"
 #include "fs/proc/net.h"
 #include "fs/devices.h"
+#include "fs/real.h"
 #include "platform/platform.h"
 #include <sys/param.h> // for MIN and MAX
 #include "emu/cpuid.h"
@@ -367,7 +368,25 @@ static int proc_show_uptime(struct proc_entry *UNUSED(entry), struct proc_data *
     proc_printf(buf, "%lu.%lu %lu.%lu\n", uptime / 100, uptime % 100, uptime / 100, uptime % 100);
     return 0;
 }
-static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *UNUSED(buf)) {
+static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // procps-ng's vmstat command treats a zero-byte /proc/vmstat as a read
+    // error ("Unable to create vmstat structure") rather than an empty stat
+    // set, since it has no notion of "file exists but no fields apply" -- so
+    // this must always emit at least one line. Field values are best-effort;
+    // procps parses them into a hash table and only complains about a wholly
+    // empty file, not about missing individual keys.
+    struct mem_usage usage = get_mem_usage();
+    proc_printf(buf, "nr_free_pages %"PRIu64"\n", usage.free / 4096);
+    proc_printf(buf, "nr_active_anon %"PRIu64"\n", usage.active / 4096);
+    proc_printf(buf, "nr_inactive_anon %"PRIu64"\n", usage.inactive / 4096);
+    proc_printf(buf, "nr_active_file 0\n");
+    proc_printf(buf, "nr_inactive_file 0\n");
+    proc_printf(buf, "pgpgin 0\n");
+    proc_printf(buf, "pgpgout 0\n");
+    proc_printf(buf, "pswpin %"PRIu64"\n", usage.swapins / 4096);
+    proc_printf(buf, "pswpout %"PRIu64"\n", usage.swapouts / 4096);
+    proc_printf(buf, "pgfault 0\n");
+    proc_printf(buf, "pgmajfault 0\n");
     return 0;
 }
 /*
@@ -378,11 +397,17 @@ static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *
 11       0 sr0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
  */
 static int proc_show_diskstats(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    //proc_printf(buf, "8       0 disk1 52553 537 6661171 8035 394441 324883 29295529 405166 0 111828 240028 0 0 0 0\n");
-    proc_printf(buf, "8       0 disk1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
-    //proc_printf(buf, "8       0 sda1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
-    //proc_printf(buf, "8       0 sda2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
-    //proc_printf(buf, "8       0 sda3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n");
+    // "disk1" aggregates every real read/write/pread/pwrite (fakefs, realfs,
+    // and iosfs data all funnel through fs/real.c's realfs_io_stats -- see
+    // realfs_count_read/realfs_count_write). Merge counts, I/O time, and
+    // in-progress/weighted-time fields aren't tracked, so those report 0
+    // rather than a fabricated value.
+    uint64_t read_ops = atomic_load_explicit(&realfs_io_stats.read_ops, memory_order_relaxed);
+    uint64_t read_sectors = atomic_load_explicit(&realfs_io_stats.read_bytes, memory_order_relaxed) / 512;
+    uint64_t write_ops = atomic_load_explicit(&realfs_io_stats.write_ops, memory_order_relaxed);
+    uint64_t write_sectors = atomic_load_explicit(&realfs_io_stats.write_bytes, memory_order_relaxed) / 512;
+    proc_printf(buf, "8       0 disk1 %"PRIu64" 0 %"PRIu64" 0 %"PRIu64" 0 %"PRIu64" 0 0 0 0\n",
+                read_ops, read_sectors, write_ops, write_sectors);
     return 0;
 }
 
@@ -643,6 +668,10 @@ enum sysfs_node_kind {
     sysfs_kernel_max,
     sysfs_offline,
     sysfs_cpu_dir,
+    sysfs_block,
+    sysfs_block_disk1,
+    sysfs_block_disk1_dev,
+    sysfs_block_disk1_stat,
 };
 
 struct sysfs_node {
@@ -699,6 +728,14 @@ static bool sysfs_node_name(struct sysfs_node node, char *buf, size_t bufsize) {
             return snprintf(buf, bufsize, "offline") >= 0;
         case sysfs_cpu_dir:
             return snprintf(buf, bufsize, "cpu%d", node.cpu) >= 0;
+        case sysfs_block:
+            return snprintf(buf, bufsize, "block") >= 0;
+        case sysfs_block_disk1:
+            return snprintf(buf, bufsize, "disk1") >= 0;
+        case sysfs_block_disk1_dev:
+            return snprintf(buf, bufsize, "dev") >= 0;
+        case sysfs_block_disk1_stat:
+            return snprintf(buf, bufsize, "stat") >= 0;
     }
     return false;
 }
@@ -714,12 +751,16 @@ static mode_t_ sysfs_node_mode(struct sysfs_node node) {
         case sysfs_system:
         case sysfs_cpu:
         case sysfs_cpu_dir:
+        case sysfs_block:
+        case sysfs_block_disk1:
             return S_IFDIR | 0555;
         case sysfs_online:
         case sysfs_possible:
         case sysfs_present:
         case sysfs_kernel_max:
         case sysfs_offline:
+        case sysfs_block_disk1_dev:
+        case sysfs_block_disk1_stat:
             return S_IFREG | 0444;
     }
     return S_IFREG | 0444;
@@ -741,6 +782,10 @@ static ino_t sysfs_node_inode(struct sysfs_node node) {
         case sysfs_kernel_max: return 12;
         case sysfs_offline: return 13;
         case sysfs_cpu_dir: return 100 + node.cpu;
+        case sysfs_block: return 14;
+        case sysfs_block_disk1: return 15;
+        case sysfs_block_disk1_dev: return 16;
+        case sysfs_block_disk1_stat: return 17;
     }
     return 0;
 }
@@ -800,6 +845,22 @@ static bool sysfs_lookup_node(const char *path, struct sysfs_node *node_out) {
         *node_out = (struct sysfs_node) {.kind = sysfs_offline, .cpu = -1};
         return true;
     }
+    if (strcmp(path, "block") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_block, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "block/disk1") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "block/disk1/dev") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1_dev, .cpu = -1};
+        return true;
+    }
+    if (strcmp(path, "block/disk1/stat") == 0) {
+        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1_stat, .cpu = -1};
+        return true;
+    }
 
     int cpu;
     if (sscanf(path, "devices/system/cpu/cpu%d", &cpu) == 1 && cpu >= 0 && cpu < sysfs_cpu_count()) {
@@ -812,6 +873,18 @@ static bool sysfs_lookup_node(const char *path, struct sysfs_node *node_out) {
     }
 
     return false;
+}
+
+// Real Linux keeps this at /sys/block/<dev>/stat: the same 11 diskstats
+// fields as /proc/diskstats, minus the leading major/minor/name -- backed by
+// the same realfs_io_stats counters as proc_show_diskstats.
+static size_t sysfs_disk1_stat_format(char *buf, size_t bufsize) {
+    uint64_t read_ops = atomic_load_explicit(&realfs_io_stats.read_ops, memory_order_relaxed);
+    uint64_t read_sectors = atomic_load_explicit(&realfs_io_stats.read_bytes, memory_order_relaxed) / 512;
+    uint64_t write_ops = atomic_load_explicit(&realfs_io_stats.write_ops, memory_order_relaxed);
+    uint64_t write_sectors = atomic_load_explicit(&realfs_io_stats.write_bytes, memory_order_relaxed) / 512;
+    return snprintf(buf, bufsize, "%"PRIu64" 0 %"PRIu64" 0 %"PRIu64" 0 %"PRIu64" 0 0 0 0\n",
+                     read_ops, read_sectors, write_ops, write_sectors);
 }
 
 static size_t sysfs_file_size(struct sysfs_node node) {
@@ -827,6 +900,10 @@ static size_t sysfs_file_size(struct sysfs_node node) {
             return 12;
         case sysfs_offline:
             return strlen("\n");
+        case sysfs_block_disk1_dev:
+            return strlen("8:0\n");
+        case sysfs_block_disk1_stat:
+            return sysfs_disk1_stat_format(NULL, 0);
         default:
             return 0;
     }
@@ -845,6 +922,10 @@ static size_t sysfs_file_data(struct sysfs_node node, char *buf, size_t bufsize)
             return snprintf(buf, bufsize, "%d\n", last_cpu);
         case sysfs_offline:
             return snprintf(buf, bufsize, "\n");
+        case sysfs_block_disk1_dev:
+            return snprintf(buf, bufsize, "8:0\n");
+        case sysfs_block_disk1_stat:
+            return sysfs_disk1_stat_format(buf, bufsize);
         default:
             return 0;
     }
@@ -929,6 +1010,18 @@ static int sysfs_getpath(struct fd *fd, char *buf) {
         case sysfs_cpu_dir:
             snprintf(buf, MAX_PATH, "/devices/system/cpu/cpu%d", node.cpu);
             break;
+        case sysfs_block:
+            strcpy(buf, "/block");
+            break;
+        case sysfs_block_disk1:
+            strcpy(buf, "/block/disk1");
+            break;
+        case sysfs_block_disk1_dev:
+            strcpy(buf, "/block/disk1/dev");
+            break;
+        case sysfs_block_disk1_stat:
+            strcpy(buf, "/block/disk1/stat");
+            break;
     }
     return 0;
 }
@@ -938,7 +1031,7 @@ static ssize_t sysfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) 
     if (S_ISDIR(sysfs_node_mode(node)))
         return _EISDIR;
 
-    char data[32];
+    char data[128];
     size_t size = sysfs_file_data(node, data, sizeof(data));
     if ((size_t) off > size)
         return 0;
@@ -974,13 +1067,12 @@ static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
 
     switch (node.kind) {
         case sysfs_root:
-            if (index == 0) {
-                child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
-                break;
+            switch (index) {
+                case 0: child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1}; break;
+                case 1: child = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1}; break;
+                case 2: child = (struct sysfs_node) {.kind = sysfs_block, .cpu = -1}; break;
+                default: return 0;
             }
-            if (index != 1)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1};
             break;
         case sysfs_devices:
             if (index != 0)
@@ -1026,6 +1118,21 @@ static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
             break;
         }
         case sysfs_cpu_dir:
+            return 0;
+        case sysfs_block:
+            if (index != 0)
+                return 0;
+            child = (struct sysfs_node) {.kind = sysfs_block_disk1, .cpu = -1};
+            break;
+        case sysfs_block_disk1:
+            switch (index) {
+                case 0: child = (struct sysfs_node) {.kind = sysfs_block_disk1_dev, .cpu = -1}; break;
+                case 1: child = (struct sysfs_node) {.kind = sysfs_block_disk1_stat, .cpu = -1}; break;
+                default: return 0;
+            }
+            break;
+        case sysfs_block_disk1_dev:
+        case sysfs_block_disk1_stat:
             return 0;
         default:
             return _ENOTDIR;

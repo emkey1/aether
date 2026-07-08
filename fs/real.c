@@ -23,6 +23,21 @@
 #include "fs/tty.h"
 #include "util/sync.h"
 
+struct realfs_io_stats realfs_io_stats;
+
+static inline void realfs_count_read(ssize_t res) {
+    if (res > 0) {
+        atomic_fetch_add_explicit(&realfs_io_stats.read_ops, 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&realfs_io_stats.read_bytes, (uint64_t) res, memory_order_relaxed);
+    }
+}
+static inline void realfs_count_write(ssize_t res) {
+    if (res > 0) {
+        atomic_fetch_add_explicit(&realfs_io_stats.write_ops, 1, memory_order_relaxed);
+        atomic_fetch_add_explicit(&realfs_io_stats.write_bytes, (uint64_t) res, memory_order_relaxed);
+    }
+}
+
 static bool realfs_guest_signal_pending(void) {
     lock(&current->sighand->lock, 0);
     bool signal_pending = !!(current->pending & ~current->blocked);
@@ -424,6 +439,7 @@ ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
         if (res > 0 && is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode))
             fd->realfs_fifo_had_data = true;
         realfs_trace_io("read", fd, read_size, res, buf);
+        realfs_count_read(res);
         return res;
     }
 
@@ -450,6 +466,7 @@ ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
             if (res > 0 && is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode))
                 fd->realfs_fifo_had_data = true;
             realfs_trace_io("read", fd, read_size, res, buf);
+            realfs_count_read(res);
             return res;
         }
         if ((errno == EAGAIN || errno == EWOULDBLOCK) ||
@@ -470,6 +487,7 @@ ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     if (res > 0)
         realfs_maybe_dump_apt_http_request(fd, buf, (size_t) res);
     realfs_trace_io("write", fd, bufsize, res, buf);
+    realfs_count_write(res);
     return res;
 }
 
@@ -477,6 +495,7 @@ ssize_t realfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
     ssize_t res = pread(fd->real_fd, buf, bufsize, off);
     if (res < 0)
         return errno_map();
+    realfs_count_read(res);
     return res;
 }
 
@@ -484,6 +503,7 @@ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off)
     ssize_t res = pwrite(fd->real_fd, buf, bufsize, off);
     if (res < 0)
         return errno_map();
+    realfs_count_write(res);
     return res;
 }
 

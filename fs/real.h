@@ -1,10 +1,22 @@
 #ifndef FS_REAL_H
 #define FS_REAL_H
 
+#include <stdatomic.h>
 #include "kernel/fs.h"
 
 extern const struct fd_ops realfs_fdops;
 extern const struct fs_ops realfs;
+
+// Aggregate byte-level I/O counters for every real-host read/write/pread/pwrite
+// (this is the single choke point fakefs, realfs, and iosfs data all flow
+// through), used to back /proc/diskstats and /sys/block so vmstat/iostat have
+// real numbers instead of an all-zero stub. One global "disk1" device, not
+// per-mount -- matches the single fake device diskstats already advertised.
+struct realfs_io_stats {
+    _Atomic uint64_t read_ops, read_bytes;
+    _Atomic uint64_t write_ops, write_bytes;
+};
+extern struct realfs_io_stats realfs_io_stats;
 
 struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mode);
 
