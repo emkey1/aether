@@ -4,6 +4,8 @@
 //
 //   - getitimer(ITIMER_REAL) works: unset -> {0,0}; after setitimer it reports
 //     the remaining value; a bogus `which` -> EINVAL (was unwired -> SIGSYS)
+//   - setitimer(ITIMER_VIRTUAL/PROF) fires SIGVTALRM/SIGPROF under CPU load
+//     (previously EINVAL-only); a one-shot reads back disarmed after firing
 //   - POSIX timer_settime/gettime marshal the right itimerspec width on amd64
 //     (arm 100ms one-shot -> gettime remaining in (0,100ms]; interval kept;
 //     SIGEV_SIGNAL actually delivers, si_code SI_TIMER)
@@ -94,6 +96,53 @@ static void check_getitimer(void) {
     errno = 0;
     eq_errno("getitimer bad which", getitimer(99, &got), EINVAL);
     setitimer(ITIMER_REAL, &z, NULL);                 /* disarm */
+}
+
+static volatile sig_atomic_t vtalrm_count, prof_count;
+static void vtalrm_handler(int sig) { (void) sig; vtalrm_count++; }
+static void prof_handler(int sig) { (void) sig; prof_count++; }
+
+// ITIMER_VIRTUAL/PROF (issue #423 Tier 3): CPU-time-based itimers, driven by
+// periodic sampling (kernel/time.c) since this codebase's timer subsystem has
+// no native CPU-time clock. Delivery timing is approximate (sampled every
+// ~20ms), so the burn budget below is generous.
+static void check_itimer_vprof(void) {
+    struct itimerval z; memset(&z, 0, sizeof z);
+    struct sigaction act; memset(&act, 0, sizeof act);
+
+    act.sa_handler = vtalrm_handler;
+    sigaction(SIGVTALRM, &act, NULL);
+    vtalrm_count = 0;
+    struct itimerval val = {.it_value = {.tv_usec = 100000}};
+    is_ok("setitimer ITIMER_VIRTUAL arm", setitimer(ITIMER_VIRTUAL, &val, NULL));
+
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    volatile long x = 0;
+    do {
+        for (int i = 0; i < 100000; i++) x += i;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+    } while (vtalrm_count == 0 && (now.tv_sec - start.tv_sec) < 3);
+    is_true("SIGVTALRM fires within 3s of CPU burn", vtalrm_count > 0);
+
+    struct itimerval got; memset(&got, 0, sizeof got);
+    getitimer(ITIMER_VIRTUAL, &got);
+    is_true("ITIMER_VIRTUAL one-shot reads disarmed after firing",
+            got.it_value.tv_sec == 0 && got.it_value.tv_usec == 0);
+    setitimer(ITIMER_VIRTUAL, &z, NULL);
+
+    act.sa_handler = prof_handler;
+    sigaction(SIGPROF, &act, NULL);
+    prof_count = 0;
+    is_ok("setitimer ITIMER_PROF arm", setitimer(ITIMER_PROF, &val, NULL));
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    x = 0;
+    do {
+        for (int i = 0; i < 100000; i++) x += i;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+    } while (prof_count == 0 && (now.tv_sec - start.tv_sec) < 3);
+    is_true("SIGPROF fires within 3s of CPU burn", prof_count > 0);
+    setitimer(ITIMER_PROF, &z, NULL);
 }
 
 static volatile sig_atomic_t got_timer;
@@ -223,6 +272,7 @@ int main(int argc, char **argv) {
     check_clocks();
     check_nanosleep_eintr();
     check_getitimer();
+    check_itimer_vprof();
     check_posix_timer();
     check_timerfd();
     return finish_suite("time_conformance");

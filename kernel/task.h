@@ -239,6 +239,17 @@ struct tgroup {
 
     struct tty *tty;
     struct timer *itimer;
+    // ITIMER_VIRTUAL/PROF (kernel/time.c): neither has a native CPU-time
+    // clock this codebase's timer subsystem supports (util/timer.h only
+    // allows CLOCK_MONOTONIC/CLOCK_REALTIME), so a single periodic
+    // CLOCK_MONOTONIC sampler timer drives both. Armed lazily on first use,
+    // freed alongside itimer above.
+    struct timer *itimer_vprof_sampler;
+    struct cpu_itimer_state {
+        bool armed;
+        struct timespec deadline; // accumulated CPU time (rusage_get_group) at which to next fire
+        struct timespec interval; // rearm interval in CPU-time units; zero = one-shot
+    } itimer_virtual, itimer_prof;
 #define TIMERS_MAX 16
     struct posix_timer posix_timers[TIMERS_MAX];
 
