@@ -175,6 +175,7 @@ if get_option('kernel') == 'ish'
         'kernel/random.c',
         'kernel/misc.c',
         'kernel/eventfd.c',
+        'kernel/pidfd.c',
         'kernel/inotify.c',
         'kernel/ipc.c',
         'kernel/memfd.c',

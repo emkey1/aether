@@ -194,6 +194,12 @@ int_t sys_epoll_pwait2_guest(fd_t epoll_f, guest_addr_t events_addr, int_t max_e
 
 int_t sys_eventfd2(uint_t initval, int_t flags);
 int_t sys_eventfd(uint_t initval);
+// pidfd (kernel/pidfd.c). pidfd_create takes its own reference on `task`;
+// pidfd_notify_exit must be called with pids_lock already held.
+struct fd *pidfd_create(struct task *task);
+void pidfd_notify_exit(struct task *task);
+int_t sys_pidfd_open(pid_t_ pid, dword_t flags);
+int_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t info_addr, dword_t flags);
 int_t sys_inotify_init(void);
 int_t sys_inotify_init1(int_t flags);
 int_t sys_inotify_add_watch(fd_t fd, addr_t pathname_addr, uint_t mask);

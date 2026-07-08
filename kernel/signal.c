@@ -2214,7 +2214,7 @@ int_t sys_rt_sigtimedwait_time64_guest(guest_addr_t set_addr, guest_addr_t info_
     return sys_rt_sigtimedwait_common(set_addr, info_addr, timeout_addr, set_size, true);
 }
 
-static int kill_task(struct task *task, dword_t sig, int si_code) {
+int signal_kill_task(struct task *task, dword_t sig, int si_code) {
     // FIXME: Need to check references to kernel here to be sure they are zero
     if (!superuser() &&
             current->uid != task->uid &&
@@ -2299,7 +2299,7 @@ retry:
 
     int err = _EPERM;
     for (size_t i = 0; i < target_count; i++) {
-        int kill_err = kill_task(targets[i].task, sig, si_code);
+        int kill_err = signal_kill_task(targets[i].task, sig, si_code);
         task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
@@ -2349,7 +2349,7 @@ retry:
 
     int err = _EPERM;
     for (size_t i = 0; i < target_count; i++) {
-        int kill_err = kill_task(targets[i].task, sig, si_code);
+        int kill_err = signal_kill_task(targets[i].task, sig, si_code);
         task_ref_cnt_mod(targets[i].task, -1);
         if (err == _EPERM)
             err = kill_err;
@@ -2391,7 +2391,7 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid, int si_code) {
             return _ESRCH;
         }
 
-        err = kill_task(task, sig, si_code);
+        err = signal_kill_task(task, sig, si_code);
         task_ref_cnt_mod(task, -1);
     }
     return err;
