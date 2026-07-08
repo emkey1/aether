@@ -414,8 +414,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     self.controlKey.accessibilityHint = @"Toggles the control key modifier.";
     self.escapeKey.accessibilityLabel = @"Escape";
     self.escapeKey.accessibilityHint = @"Sends an escape character.";
-    [self _installTerminalSwitcherGestureOnView:self.infoButton];
-    
+
     [UserPreferences.shared observe:@[@"hideStatusBar"] options:0 owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self setNeedsStatusBarAppearanceUpdate];
