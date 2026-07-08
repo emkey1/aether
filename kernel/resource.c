@@ -11,6 +11,7 @@
 
 #include <limits.h>
 #include <string.h>
+#include <pthread.h>
 #include "kernel/calls.h"
 #include "platform/platform.h"
 #include "util/sync.h"
@@ -202,6 +203,49 @@ struct rusage_ rusage_get_current(void) {
 }
 
 
+// Usage for a live thread other than the caller. rusage_get_current() can
+// only report the *calling* host thread's own usage (getrusage(RUSAGE_THREAD)
+// and mach_thread_self() are both self-only) -- summing across a whole thread
+// group needs a way to query a different thread's host pthread from here.
+static struct rusage_ rusage_get_task(struct task *task) {
+    if (task == current)
+        return rusage_get_current();
+
+    struct rusage_ rusage;
+    memset(&rusage, 0, sizeof(rusage));
+#if __linux__
+    // pthread_getcpuclockid's clock only reports combined user+system time --
+    // unlike getrusage(RUSAGE_THREAD), there's no Linux API to read another
+    // thread's split utime/stime from outside that thread. Attribute the
+    // combined figure to utime; this undercounts stime for live sibling
+    // threads specifically (the calling thread and already-exited siblings,
+    // see the rusage_add call sites in kernel/exit.c, are still split
+    // correctly), which is still far closer to correct than ignoring them.
+    clockid_t clock_id;
+    if (pthread_getcpuclockid(task->thread, &clock_id) != 0)
+        return rusage;
+    struct timespec ts;
+    if (clock_gettime(clock_id, &ts) != 0)
+        return rusage;
+    rusage.utime.sec = ts.tv_sec;
+    rusage.utime.usec = ts.tv_nsec / 1000;
+#elif __APPLE__
+    // pthread_mach_thread_np converts a pthread_t from any thread in this
+    // process into its Mach thread port, so thread_info works cross-thread --
+    // Mach ports are valid process-wide, not just for the calling thread.
+    thread_basic_info_data_t info;
+    mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+    mach_port_t port = pthread_mach_thread_np(task->thread);
+    if (thread_info(port, THREAD_BASIC_INFO, (thread_info_t) &info, &count) != KERN_SUCCESS)
+        return rusage;
+    rusage.utime.sec = info.user_time.seconds;
+    rusage.utime.usec = info.user_time.microseconds;
+    rusage.stime.sec = info.system_time.seconds;
+    rusage.stime.usec = info.system_time.microseconds;
+#endif
+    return rusage;
+}
+
 static void timeval_add(struct timeval_ *dst, struct timeval_ *src) {
     dst->sec += src->sec;
     dst->usec += src->usec;
@@ -214,6 +258,26 @@ static void timeval_add(struct timeval_ *dst, struct timeval_ *src) {
 void rusage_add(struct rusage_ *dst, struct rusage_ *src) {
     timeval_add(&dst->utime, &src->utime);
     timeval_add(&dst->stime, &src->stime);
+}
+
+// Process-wide usage: real Linux's getrusage(RUSAGE_SELF) and
+// clock_gettime(CLOCK_PROCESS_CPUTIME_ID) both sum every thread in the
+// process, not just the caller. group->rusage already accumulates each
+// thread's final usage as it exits (see kernel/exit.c); add every
+// currently-live thread's usage on top of that baseline. Lock order
+// (pids_lock then group->lock) matches kernel/exit.c.
+struct rusage_ rusage_get_group(void) {
+    complex_lockt(&pids_lock, 0);
+    lock(&current->group->lock, 0);
+    struct rusage_ rusage = current->group->rusage;
+    struct task *t;
+    list_for_each_entry(&current->group->threads, t, group_links) {
+        struct rusage_ live = rusage_get_task(t);
+        rusage_add(&rusage, &live);
+    }
+    unlock(&current->group->lock);
+    unlock(&pids_lock);
+    return rusage;
 }
 
 int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage) {
@@ -250,13 +314,12 @@ int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct r
 dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
     struct rusage_ rusage;
     switch (who) {
-        case RUSAGE_SELF_:
         case RUSAGE_THREAD_:
-            // rusage_get_current() already reports usage for the calling host
-            // thread (each guest task is one host pthread), which is exactly
-            // what RUSAGE_THREAD asks for and what this codebase already uses
-            // to approximate RUSAGE_SELF.
+            // Just the calling host thread's own usage.
             rusage = rusage_get_current();
+            break;
+        case RUSAGE_SELF_:
+            rusage = rusage_get_group();
             break;
         case RUSAGE_CHILDREN_:
             lock(&current->group->lock, 0);
