@@ -230,6 +230,40 @@ static void check_cow(void) {
     }
 }
 
+// MREMAP_FIXED (issue #423 Tier 3): move/grow/shrink to an explicit
+// destination address, unmapping whatever was there first.
+static void check_mremap_fixed(void) {
+    void *src = mmap(NULL, PS * 2, RW, ANON_PRIV, -1, 0);
+    void *dest = mmap(NULL, PS * 4, PROT_NONE, ANON_PRIV, -1, 0);
+    if (src == MAP_FAILED || dest == MAP_FAILED)
+        return;
+    munmap(dest, PS * 4); // reserve then release a hole to remap into
+    memset(src, 0xAB, PS * 2);
+
+    void *moved = mremap(src, PS * 2, PS * 2, MREMAP_MAYMOVE | MREMAP_FIXED, dest);
+    is_true("mremap MREMAP_FIXED move: lands at requested address", moved == dest);
+    if (moved != MAP_FAILED)
+        is_true("mremap MREMAP_FIXED move: data preserved", all_val(moved, PS * 2, 0xAB));
+    if (moved != MAP_FAILED)
+        munmap(moved, PS * 2);
+
+    void *src2 = mmap(NULL, PS, RW, ANON_PRIV, -1, 0);
+    void *dest2 = mmap(NULL, PS * 3, PROT_NONE, ANON_PRIV, -1, 0);
+    if (src2 == MAP_FAILED || dest2 == MAP_FAILED)
+        return;
+    munmap(dest2, PS * 3);
+    memset(src2, 0xCD, PS);
+    void *grown = mremap(src2, PS, PS * 2, MREMAP_MAYMOVE | MREMAP_FIXED, dest2);
+    if (grown != MAP_FAILED) {
+        is_true("mremap MREMAP_FIXED grow: original data preserved", all_val(grown, PS, 0xCD));
+        memset((char *) grown + PS, 0xEF, PS);
+        is_true("mremap MREMAP_FIXED grow: grown tail is writable", all_val((char *) grown + PS, PS, 0xEF));
+        munmap(grown, PS * 2);
+    } else {
+        is_true("mremap MREMAP_FIXED grow: succeeded", 0);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     long ps = sysconf(_SC_PAGESIZE);
@@ -242,6 +276,7 @@ int main(int argc, char **argv) {
     check_msync();
     check_mincore();
     check_cow();
+    check_mremap_fixed();
 
     return finish_suite("mem_conformance");
 }

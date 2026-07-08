@@ -2101,7 +2101,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
         return true;
     case 216: // mremap
         arm64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
-                raw_args[2], (dword_t) raw_args[3]));
+                raw_args[2], (dword_t) raw_args[3], raw_args[4]));
         return true;
     case 222: // mmap
         arm64_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], raw_args[1],
@@ -2532,7 +2532,7 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         return true;
     case 25:
         amd64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
-                raw_args[2], (dword_t) raw_args[3]));
+                raw_args[2], (dword_t) raw_args[3], raw_args[4]));
         return true;
     case 26:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msync_guest(raw_args[0],
