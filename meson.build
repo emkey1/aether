@@ -50,8 +50,13 @@ threads = dependency('threads')
 librt = cc.find_library('rt', required: false)
 libm = cc.find_library('m', required: false)
 libdl = cc.find_library('dl', required: false)
+# gcc/glibc on x86_64 lower the aarch64-guest CASP 128-bit compare-and-swap
+# (emu/tlb.c's arm64_casp) to a __atomic_compare_exchange_16 libcall rather
+# than inlining it, which needs -latomic. Apple clang always inlines it, so
+# this is a no-op there.
+libatomic = cc.find_library('atomic', required: false)
 sqlite3 = cc.find_library('sqlite3')
-dependencies = [librt, libm, libdl, threads, sqlite3]
+dependencies = [librt, libm, libdl, libatomic, threads, sqlite3]
 
 subdir('vdso') # ish depends on the vdso
 
@@ -194,6 +199,7 @@ if get_option('kernel') == 'ish'
         'fs/net_route.c',
         'fs/real.c',
         'fs/fake.c',
+        'fs/mmap_cache.c',
 
         'fs/proc.c',
         'fs/proc/entry.c',
