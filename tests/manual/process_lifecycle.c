@@ -1,7 +1,9 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +13,13 @@
 #include <unistd.h>
 
 #include "test_common.h"
+
+#ifndef CLONE_NEWUTS
+#define CLONE_NEWUTS 0x04000000
+#endif
+#ifndef CLONE_PARENT
+#define CLONE_PARENT 0x00008000
+#endif
 
 static volatile sig_atomic_t parent_handler_count;
 
@@ -353,6 +362,59 @@ static void test_vfork_exec_true(void) {
               (uint64_t) WEXITSTATUS(status), (uint64_t) pid, 1, 0);
 }
 
+// Covers two clone-flag fixes (issue #423 Tier 1b):
+//  1. CLONE_NEWUTS (and the other CLONE_NEW* namespace flags) must return
+//     EPERM for an unprivileged caller, not the generic "flag not recognized"
+//     EINVAL -- so callers that already fall back when they lack namespace
+//     privilege see that, instead of treating it as malformed input.
+static void test_clone_newuts_eperm(void) {
+    char *stack = malloc(65536);
+    pid_t pid = clone((int (*)(void *)) getpid, stack + 65536, CLONE_NEWUTS | SIGCHLD, NULL);
+    int err = errno;
+    free(stack);
+    if (pid != -1) {
+        waitpid(pid, NULL, 0);
+        failf("clone CLONE_NEWUTS -> EPERM (clone unexpectedly succeeded)",
+              (uint64_t) pid, 0, 0, (uint64_t) -1, 0, 0);
+        return;
+    }
+    test_log_if(err != EPERM, "clone CLONE_NEWUTS: errno=%d (%s)\n", err, strerror(err));
+    if (err != EPERM)
+        failf("clone CLONE_NEWUTS -> EPERM", (uint64_t) err, 0, 0, (uint64_t) EPERM, 0, 0);
+}
+
+static int child_report_ppid(void *arg) {
+    pid_t expected_grandparent = *(pid_t *) arg;
+    _exit(getppid() == expected_grandparent ? 0 : 1);
+}
+
+//  2. CLONE_PARENT: a task cloned with this flag becomes a *sibling* of the
+//     caller (its parent is the caller's own parent), not a child of the
+//     caller. B (a direct child of A) clones C with CLONE_PARENT; C's parent
+//     must be A, so A -- not B -- reaps it.
+static void test_clone_parent_reparents(void) {
+    pid_t a_pid = getpid();
+    pid_t b_pid = fork();
+    if (b_pid == 0) {
+        char *stack = malloc(65536);
+        pid_t expected = a_pid;
+        pid_t c_pid = clone(child_report_ppid, stack + 65536, CLONE_PARENT | SIGCHLD, &expected);
+        if (c_pid == -1)
+            _exit(2);
+        usleep(300000); // give C a chance to run and exit before B does
+        _exit(0);
+    }
+    int b_status;
+    waitpid(b_pid, &b_status, 0);
+    int c_status;
+    pid_t reaped = waitpid(-1, &c_status, 0);
+    bool ok = reaped > 0 && WIFEXITED(c_status) && WEXITSTATUS(c_status) == 0;
+    test_log_if(!ok, "clone CLONE_PARENT: reaped=%d c_status=%d\n", reaped, c_status);
+    if (!ok)
+        failf("clone CLONE_PARENT reparents to caller's parent",
+              (uint64_t) reaped, (uint64_t) c_status, 0, 1, 0, 0);
+}
+
 int main(int argc, char **argv) {
     if (argc >= 2) {
         if (strcmp(argv[1], "--child-check-exec-handler-reset") == 0)
@@ -375,5 +437,7 @@ int main(int argc, char **argv) {
     test_exec_sigmask_persists(argv);
     test_exec_env_argv(argv);
     test_vfork_exec_true();
+    test_clone_newuts_eperm();
+    test_clone_parent_reparents();
     return finish_suite("process_lifecycle");
 }

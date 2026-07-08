@@ -34,7 +34,15 @@
 #define CLONE_NEWNET_ 0x40000000
 #define CLONE_IO_ 0x80000000
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
-        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_)
+        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|CLONE_PARENT_)
+// Namespace flags are recognized but never implemented (no mount/user/pid/
+// uts/ipc/cgroup/net namespaces). Handled separately from IMPLEMENTED_FLAGS
+// below so they get the errno real Linux gives an unprivileged caller
+// (EPERM: creating a new namespace needs CAP_SYS_ADMIN/CAP_SYS_USER_NS)
+// instead of the generic "unrecognized flag" EINVAL -- callers that already
+// fall back when they lack namespace privilege need to see that, not a
+// malformed-argument error.
+#define CLONE_NEW_FLAGS_ (CLONE_NEWNS_|CLONE_NEWCGROUP_|CLONE_NEWUTS_|CLONE_NEWIPC_|CLONE_NEWUSER_|CLONE_NEWPID_|CLONE_NEWNET_)
 
 static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
@@ -264,6 +272,8 @@ static void clone_flag_names(dword_t flags, char *buf, size_t bufsize) {
 static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t ptid,
         guest_addr_t tls, guest_addr_t ctid) {
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
+    if (flags & CLONE_NEW_FLAGS_)
+        return _EPERM;
     dword_t unimpl_flags = flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS;
     if (unimpl_flags) {
         char names[256];
@@ -276,10 +286,29 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
         return _EINVAL;
     if (flags & CLONE_THREAD_ && !(flags & CLONE_SIGHAND_))
         return _EINVAL;
+    // CLONE_PARENT with no parent to attach to (only possible for the
+    // initial/init task) -- matches real Linux's EINVAL here.
+    if (flags & CLONE_PARENT_ && current->parent == NULL)
+        return _EINVAL;
 
     struct task *task = task_create_(current);
     if (task == NULL)
         return _ENOMEM;
+    if (flags & CLONE_PARENT_) {
+        // Reparent to the caller's own parent, so the new task becomes
+        // current's sibling instead of its child. task_create_ always links
+        // to its `parent` argument's children list *and* uses that argument
+        // as the template for the new task's inherited state (uid/gid/caps/
+        // etc, via `*task = *parent`) -- re-link the family-tree bookkeeping
+        // here instead of passing current->parent to task_create_, so the
+        // new task still inherits current's (possibly since-diverged) state,
+        // not the grandparent's.
+        complex_lockt(&pids_lock, 0);
+        list_remove(&task->siblings);
+        list_add(&current->parent->children, &task->siblings);
+        task->parent = current->parent;
+        unlock(&pids_lock);
+    }
     int err = copy_task(task, flags, stack, ptid, tls, ctid);
     if (err < 0) {
         // FIXME: there is a window between task_create_ and task_destroy where
