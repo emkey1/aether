@@ -85,6 +85,7 @@ struct amd64_rusage_ {
 };
 
 struct rusage_ rusage_get_current(void);
+struct rusage_ rusage_get_group(void);
 void rusage_add(struct rusage_ *dst, struct rusage_ *src);
 int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage);
 #define RUSAGE_SELF_ 0

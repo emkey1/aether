@@ -380,10 +380,13 @@ static dword_t sys_clock_gettime_guest_abi(dword_t clock, guest_addr_t tp, enum 
 
     struct timespec ts;
     if (clock == CLOCK_PROCESS_CPUTIME_ID_) {
-        // FIXME this is thread usage, not process usage
-        struct rusage_ rusage = rusage_get_current();
-        ts.tv_sec = rusage.utime.sec;
-        ts.tv_nsec = rusage.utime.usec * 1000;
+        // Real CLOCK_PROCESS_CPUTIME_ID measures total (user+system) CPU time
+        // consumed by every thread in the process, not just the caller's.
+        struct rusage_ rusage = rusage_get_group();
+        int64_t usec = (int64_t) rusage.utime.sec * 1000000 + rusage.utime.usec
+                     + (int64_t) rusage.stime.sec * 1000000 + rusage.stime.usec;
+        ts.tv_sec = usec / 1000000;
+        ts.tv_nsec = (usec % 1000000) * 1000;
     } else {
         clockid_t clock_id;
         if (clockid_to_real(clock, &clock_id)) return _EINVAL;
@@ -417,10 +420,13 @@ dword_t sys_clock_gettime64_guest(dword_t clock, guest_addr_t tp) {
 
     struct timespec ts;
     if (clock == CLOCK_PROCESS_CPUTIME_ID_) {
-        // FIXME this is thread usage, not process usage
-        struct rusage_ rusage = rusage_get_current();
-        ts.tv_sec = rusage.utime.sec;
-        ts.tv_nsec = rusage.utime.usec * 1000;
+        // Real CLOCK_PROCESS_CPUTIME_ID measures total (user+system) CPU time
+        // consumed by every thread in the process, not just the caller's.
+        struct rusage_ rusage = rusage_get_group();
+        int64_t usec = (int64_t) rusage.utime.sec * 1000000 + rusage.utime.usec
+                     + (int64_t) rusage.stime.sec * 1000000 + rusage.stime.usec;
+        ts.tv_sec = usec / 1000000;
+        ts.tv_nsec = (usec % 1000000) * 1000;
     } else {
         clockid_t clock_id;
         if (clockid_to_real(clock, &clock_id)) return _EINVAL;
