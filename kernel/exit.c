@@ -328,6 +328,7 @@ noreturn void do_exit(struct task *task, int status) {
             signal_no = leader->exit_signal;
             leader->zombie = true;
             notify(&parent->group->child_exit);
+            pidfd_notify_exit(leader);
             // The SIGCHLD a handler/sigwaitinfo/signalfd sees must carry a CLD_*
             // si_code and a bare si_status, not SI_KERNEL + the wait-encoded word.
             int chld_code, chld_status;

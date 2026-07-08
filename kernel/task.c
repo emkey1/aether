@@ -253,6 +253,7 @@ struct task *task_create_(struct task *parent) {
     list_init(&task->siblings);
     list_init(&task->ptracees);
     list_init(&task->ptrace_siblings);
+    list_init(&task->pidfds);
     task->pending = 0;
     task->waiting = 0;
     list_init(&task->queue);

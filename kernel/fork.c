@@ -34,7 +34,8 @@
 #define CLONE_NEWNET_ 0x40000000
 #define CLONE_IO_ 0x80000000
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
-        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|CLONE_PARENT_)
+        CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|CLONE_PARENT_|\
+        CLONE_PIDFD_)
 // Namespace flags are recognized but never implemented (no mount/user/pid/
 // uts/ipc/cgroup/net namespaces). Handled separately from IMPLEMENTED_FLAGS
 // below so they get the errno real Linux gives an unprivileged caller
@@ -161,9 +162,30 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
     if (flags & CLONE_CHILD_SETTID_)
         if (user_put_task(task, ctid_addr, task->pid))
             goto fail_unlink_group;
-    if (flags & CLONE_PARENT_SETTID_)
+    if (flags & CLONE_PARENT_SETTID_) {
         if (user_put(ptid_addr, task->pid))
             goto fail_unlink_group;
+    } else if (flags & CLONE_PIDFD_) {
+        // Reuses the parent_tid slot to instead receive a pidfd for the new
+        // task, installed in the *caller's* fd table -- copy_task runs in
+        // the calling (parent) thread's context before the child starts, so
+        // `current` here is the parent and f_install (which operates on
+        // current->files) lands the fd in the right table. Mutual exclusion
+        // with CLONE_PARENT_SETTID/CLONE_THREAD already checked in
+        // sys_clone_common.
+        struct fd *pidfd = pidfd_create(task);
+        if (IS_ERR(pidfd)) {
+            err = PTR_ERR(pidfd);
+            goto fail_unlink_group;
+        }
+        fd_t pidfd_num = f_install(pidfd, 0);
+        if (pidfd_num < 0) {
+            err = pidfd_num;
+            goto fail_unlink_group;
+        }
+        if (user_put(ptid_addr, pidfd_num))
+            goto fail_unlink_group;
+    }
     if (flags & CLONE_CHILD_CLEARTID_)
         task->clear_tid = ctid_addr;
     task->exit_signal = flags & CSIGNAL_;
@@ -289,6 +311,13 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
     // CLONE_PARENT with no parent to attach to (only possible for the
     // initial/init task) -- matches real Linux's EINVAL here.
     if (flags & CLONE_PARENT_ && current->parent == NULL)
+        return _EINVAL;
+    // CLONE_PIDFD reuses the parent_tid argument slot (to instead receive a
+    // pidfd) and needs a stable, separately-waitable pid -- both restrictions
+    // match real Linux's clone(2).
+    if (flags & CLONE_PIDFD_ && flags & CLONE_PARENT_SETTID_)
+        return _EINVAL;
+    if (flags & CLONE_PIDFD_ && flags & CLONE_THREAD_)
         return _EINVAL;
 
     struct task *task = task_create_(current);

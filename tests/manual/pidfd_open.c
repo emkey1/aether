@@ -1,17 +1,19 @@
-// pidfd_open (and the pidfd/io_uring stub family) must not SIGSYS on amd64.
+// pidfd_open (and the io_uring stub family) must not SIGSYS on amd64.
 //
-// pidfd_open (#434) is an ENOSYS stub (login/PAM fall back to waitpid; io_uring
-// and pidfd_send_signal likewise degrade to ordinary syscalls). But on amd64 it
-// was in the syscall table yet absent from amd64_syscall_legacy_arg_count, so it
-// fell to the default 6-arg classification: the marshaller validated unused
-// upper arg registers and, when one held a value with high bits set (not a
-// sign-extended -1), raised SIGSYS ("needs full-width args") -- killing login
-// (exit 159). Classifying these stubs as 0-arg makes them return their ENOSYS
-// cleanly so callers fall back.
+// pidfd_open (#434) is now a real implementation (kernel/pidfd.c, issue #423
+// Tier 1b -- see pidfd_clone.c for its functional behavior); this
+// test is what's left of its original purpose: a regression lock on the
+// amd64 arg-count classification. It was originally an ENOSYS stub in the
+// syscall table but absent from amd64_syscall_legacy_arg_count, so it fell
+// to the default 6-arg classification: the marshaller validated unused upper
+// arg registers and, when one held a value with high bits set (not a
+// sign-extended -1), raised SIGSYS ("needs full-width args") -- killing
+// login (exit 159). io_uring's stubs have the same classification gap and
+// are still ENOSYS.
 //
-// This test passes garbage with high bits in the unused arg registers to force
-// the old failure; it must return cleanly (ENOSYS, or a success if ever
-// implemented), never be killed by SIGSYS. Arch-neutral.
+// This test passes garbage with high bits in the unused arg registers to
+// force the old failure; it must return cleanly (ENOSYS, or success now that
+// pidfd_open is implemented), never be killed by SIGSYS. Arch-neutral.
 //
 // seccomp (#317 amd64 / #354 i386) is the same bug class with a twist: it is an
 // EOPNOTSUPP stub (man-db's sandbox probe calls it, then runs unconfined when it

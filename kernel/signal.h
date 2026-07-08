@@ -276,6 +276,7 @@ int_t sys_signalfd4(int_t fd, addr_t mask_addr, dword_t sigsetsize, int_t flags)
 int_t sys_signalfd_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize);
 int_t sys_signalfd4_guest(int_t fd, guest_addr_t mask_addr, dword_t sigsetsize, int_t flags);
 
+int signal_kill_task(struct task *task, dword_t sig, int si_code);
 dword_t sys_kill(pid_t_ pid, dword_t sig);
 dword_t sys_tkill(pid_t_ tid, dword_t sig);
 dword_t sys_tgkill(pid_t_ tgid, pid_t_ tid, dword_t sig);

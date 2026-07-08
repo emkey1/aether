@@ -1139,7 +1139,7 @@ static syscall_t i386_syscall_table[] = {
     [417] = (syscall_t) sys_recvmmsg_time64, // recvmmsg_time64
     [421] = (syscall_t) sys_rt_sigtimedwait_time64, // rt_sigtimedwait_time64
     [422] = (syscall_t) sys_futex_time64, // futex_time64
-    [424] = (syscall_t) syscall_stub, // pidfd_send_signal?
+    [424] = (syscall_t) sys_pidfd_send_signal,
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup (mirror amd64: ENOSYS so liburing/cmake fall back to epoll)
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
@@ -1149,7 +1149,7 @@ static syscall_t i386_syscall_table[] = {
     [431] = (syscall_t) syscall_stub_silent, // fsconfig
     [432] = (syscall_t) syscall_stub_silent, // fsmount
     [433] = (syscall_t) syscall_stub_silent, // fspick
-    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
+    [434] = (syscall_t) sys_pidfd_open,
     [435] = (syscall_t) sys_clone3, // clone3
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
@@ -1483,7 +1483,7 @@ static syscall_t amd64_syscall_table[453] = {
     [417] = (syscall_t) sys_recvmmsg_time64,
     [421] = (syscall_t) sys_rt_sigtimedwait_time64,
     [422] = (syscall_t) sys_futex_time64,
-    [424] = (syscall_t) syscall_stub_silent, // pidfd_send_signal
+    [424] = (syscall_t) sys_pidfd_send_signal,
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
@@ -1493,7 +1493,7 @@ static syscall_t amd64_syscall_table[453] = {
     [431] = (syscall_t) syscall_stub_silent, // fsconfig
     [432] = (syscall_t) syscall_stub_silent, // fsmount
     [433] = (syscall_t) syscall_stub_silent, // fspick
-    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
+    [434] = (syscall_t) sys_pidfd_open,
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
@@ -1767,7 +1767,7 @@ static syscall_t arm64_syscall_table[454] = {
     // "ERROR: arm64 stub syscall N" on every invocation. go build's os/exec
     // subprocess-wait hit 434 (pidfd_open) and logged an ERROR per child even
     // though the build/run completes correctly via the wait4 fallback.
-    [424] = (syscall_t) syscall_stub_silent, // pidfd_send_signal
+    [424] = (syscall_t) sys_pidfd_send_signal,
     [425] = (syscall_t) syscall_stub_silent, // io_uring_setup
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
@@ -1777,7 +1777,7 @@ static syscall_t arm64_syscall_table[454] = {
     [431] = (syscall_t) syscall_stub_silent, // fsconfig
     [432] = (syscall_t) syscall_stub_silent, // fsmount
     [433] = (syscall_t) syscall_stub_silent, // fspick
-    [434] = (syscall_t) syscall_stub_silent, // pidfd_open
+    [434] = (syscall_t) sys_pidfd_open,
     [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
     [440] = (syscall_t) syscall_stub_silent, // process_madvise
     [452] = (syscall_t) syscall_stub_silent, // fchmodat2
@@ -2347,8 +2347,8 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     case 225: case 234: case 238: case 239: case 241: case 262:
     case 263: case 267: case 268: case 271: case 272: case 273:
     case 274: case 275: case 280: case 282: case 284: case 286:
-    case 287: case 288: case 289: case 290: case 294: case 424:
-    case 425: case 426: case 427: case 434: case 438: case 440:
+    case 287: case 288: case 289: case 290: case 294:
+    case 425: case 426: case 427: case 438: case 440:
     case 449: // futex_waitv
         result = _ENOSYS; break;
     default:
@@ -3217,7 +3217,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 317: // seccomp (EOPNOTSUPP stub; arg3 is a 64-bit sock_fprog* -- man-db's
               // sandbox probe; classify 0-arg so the pointer doesn't SIGSYS the marshaller)
     case 309: // getcpu stubbed
-    case 424: // pidfd_send_signal (ENOSYS stub; callers fall back to kill)
     case 425: // io_uring_setup    (ENOSYS stub; callers use ordinary syscalls)
     case 426: // io_uring_enter
     case 427: // io_uring_register
@@ -3227,7 +3226,6 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 431: // fsconfig
     case 432: // fsmount
     case 433: // fspick
-    case 434: // pidfd_open (ENOSYS stub; login/PAM fall back to waitpid)
         return 0;
     case 3:   // close
     case 12:  // brk
@@ -3323,6 +3321,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 410: // timerfd_gettime64
     case 435: // clone3
     case 319: // memfd_create
+    case 434: // pidfd_open(pid, flags)
         return 2;
     case 0:   // read
     case 1:   // write
@@ -3414,6 +3413,8 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 437: // openat2
     case 439: // faccessat2 wired to faccessat for now
     case 452: // fchmodat2
+    case 424: // pidfd_send_signal(pidfd, sig, info, flags) -- info is ignored
+              // (UNUSED, never dereferenced), so the raw pointer arg is safe here
         return 4;
     case 56:  // clone
     case 25:  // mremap
@@ -3522,6 +3523,7 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 154: // setpgid
     case 201: // listen
     case 210: // shutdown
+    case 434: // pidfd_open(pid, flags)
         return 2;
     case 24:  // dup3
     case 30:  // ioprio_set
@@ -3534,6 +3536,9 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 198: // socket
     case 436: // close_range
         return 3;
+    case 424: // pidfd_send_signal(pidfd, sig, info, flags) -- info is ignored
+              // (UNUSED, never dereferenced), so the raw pointer arg is safe here
+        return 4;
     default:
         return 6;
     }

@@ -117,6 +117,9 @@ struct task {
     struct list siblings;
     struct list ptracees;
     struct list ptrace_siblings;
+    // Every open pidfd (kernel/pidfd.c) referencing this task, so the exit
+    // path can wake their pollers when this task becomes a zombie.
+    struct list pidfds;
 
     guest_addr_t clear_tid;
     guest_addr_t robust_list;
