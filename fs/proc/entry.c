@@ -83,19 +83,53 @@ void proc_entry_getname(struct proc_entry *entry, char *buf) {
         assert(!"missing name in proc entry");
 }
 
-bool proc_dir_read(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    if (entry->meta->readdir)
-        return entry->meta->readdir(entry, index, next_entry);
+static void proc_dot_getname(struct proc_entry *UNUSED(entry), char *buf) {
+    strcpy(buf, ".");
+}
+static void proc_dotdot_getname(struct proc_entry *UNUSED(entry), char *buf) {
+    strcpy(buf, "..");
+}
+static struct proc_dir_entry proc_dot_entry = {NULL, S_IFDIR, .getname = proc_dot_getname};
+static struct proc_dir_entry proc_dotdot_entry = {NULL, S_IFDIR, .getname = proc_dotdot_getname};
 
-    if (entry->meta->children) {
-        if (*index >= entry->meta->children->count)
-            return false;
-        next_entry->meta = &entry->meta->children->entries[*index];
-        next_entry->pid = entry->pid;
+bool proc_dir_read(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    // Every real directory reports "." and ".." as its first two dirents.
+    // Some directory-walking code (e.g. glibc's nftw(), which procps' sysctl
+    // -a uses) trusts that convention and unconditionally discards the first
+    // two entries by position rather than by name -- without these, that
+    // code silently ate the first two REAL sysctl files in every directory.
+    // Shield every existing per-directory readdir/.children implementation
+    // from this by translating the index here, once, rather than teaching
+    // each of them about it.
+    if (*index == 0) {
         (*index)++;
+        *next_entry = (struct proc_entry) {&proc_dot_entry, .pid = entry->pid};
         return true;
     }
-    assert(!"read from invalid proc directory");
+    if (*index == 1) {
+        (*index)++;
+        *next_entry = (struct proc_entry) {&proc_dotdot_entry, .pid = entry->pid};
+        return true;
+    }
+
+    unsigned long real_index = *index - 2;
+    bool any_left = false;
+    if (entry->meta->readdir) {
+        any_left = entry->meta->readdir(entry, &real_index, next_entry);
+    } else if (entry->meta->children) {
+        if (real_index >= entry->meta->children->count) {
+            any_left = false;
+        } else {
+            next_entry->meta = &entry->meta->children->entries[real_index];
+            next_entry->pid = entry->pid;
+            real_index++;
+            any_left = true;
+        }
+    } else {
+        assert(!"read from invalid proc directory");
+    }
+    *index = real_index + 2;
+    return any_left;
 }
 
 void free_string_array(char **array) {

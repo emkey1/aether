@@ -381,7 +381,7 @@ build_one() {
     echo "+ build $name"
     src_file=$(src_for "$name")
     if [ "$gas_imm_reg_workaround" -eq 0 ]; then
-        cc -O2 -pthread -I"$src_dir" -o "$work_dir/bin/$name" "$src_file"
+        cc -O2 -pthread -I"$src_dir" -o "$work_dir/bin/$name" "$src_file" -lm
         return
     fi
 
@@ -389,7 +389,7 @@ build_one() {
     fixed_asm=$work_dir/$name.gas-workaround.s
     cc -O2 -pthread -I"$src_dir" -S -o "$asm" "$src_file"
     awk -f "$work_dir/rewrite-gas-imm-reg.awk" "$asm" >"$fixed_asm"
-    cc -pthread -o "$work_dir/bin/$name" "$fixed_asm"
+    cc -pthread -o "$work_dir/bin/$name" "$fixed_asm" -lm
 }
 
 all_tests="signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open pidfd_clone fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup random_seed getrusage_group pty_line_discipline"

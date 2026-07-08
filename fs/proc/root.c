@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 #include "kernel/calls.h"
 #include "kernel/task.h"
 #include "fs/proc.h"
@@ -268,7 +271,21 @@ static int proc_show_stat(struct proc_entry *UNUSED(entry), struct proc_data *bu
     
     int blocked_task_count = get_count_of_blocked_tasks();
     int alive_task_count = get_count_of_alive_tasks();
-    proc_printf(buf, "ctxt 0\n");
+
+    // Every Linux "process" iSH emulates is a pthread inside this one host
+    // process, so the host process's own context-switch count (Mach
+    // TASK_EVENTS_INFO.csw) is a faithful stand-in for the guest-system-wide
+    // ctxt counter -- there's no equivalent for real hardware interrupts or
+    // softirqs (see below), but this one has a real host-side source.
+    uint64_t ctxt = 0;
+#ifdef __APPLE__
+    struct task_events_info task_events;
+    mach_msg_type_number_t task_events_count = TASK_EVENTS_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_EVENTS_INFO,
+                  (task_info_t) &task_events, &task_events_count) == KERN_SUCCESS)
+        ctxt = task_events.csw;
+#endif
+    proc_printf(buf, "ctxt %"PRIu64"\n", ctxt);
     struct uptime_info btime = get_uptime();
     struct timespec uptime_ts = {.tv_sec = btime.uptime_ticks / 100, .tv_nsec = btime.uptime_ticks % 100};
     struct timespec boot_time = timespec_subtract(timespec_now(CLOCK_REALTIME), uptime_ts);
@@ -283,6 +300,61 @@ static int proc_show_stat(struct proc_entry *UNUSED(entry), struct proc_data *bu
 
 static void show_kb(struct proc_data *buf, const char *name, uint64_t value) {
     proc_printf(buf, "%s%8"PRIu64" kB\n", name, value / 1000);
+}
+
+struct mem_page_class_totals {
+    uint64_t anon_bytes;
+    uint64_t shmem_bytes;
+    uint64_t mapped_bytes;
+};
+
+// Sums each live address space's own page-table flags into anon/shmem/mapped
+// byte counts -- this is real guest-memory accounting (unlike the host-only
+// figures in get_mem_usage()), just not previously aggregated anywhere. One
+// entry per thread-group leader: threads created with CLONE_THREAD always
+// share their leader's struct mm (CLONE_VM is required alongside it, see
+// kernel/fork.c), so summing leaders avoids counting the same address space
+// once per thread. A bare CLONE_VM without CLONE_THREAD would be missed, but
+// nothing in this codebase creates that combination.
+static void collect_mem_page_stats(struct mem_page_class_totals *out) {
+    memset(out, 0, sizeof(*out));
+
+    struct task_snapshot snapshot = {0};
+    if (task_snapshot_collect(&snapshot, true) < 0)
+        return;
+
+    for (unsigned i = 0; i < snapshot.count; i++) {
+        struct task *task = snapshot.tasks[i];
+        lock(&task->general_lock, 0);
+        struct mm *mm = task->mm;
+        if (mm != NULL)
+            mm_retain(mm);
+        unlock(&task->general_lock);
+        if (mm == NULL)
+            continue;
+
+        struct mem *mem = &mm->mem;
+        mem_read_lock_quiesce_aware(mem);
+        page_t page = 0;
+        while (page < mem->page_limit) {
+            struct pt_entry *pt = mem_pt(mem, page);
+            if (pt != NULL) {
+                if (pt->flags & P_ANONYMOUS) {
+                    if (pt->flags & P_SHARED)
+                        out->shmem_bytes += PAGE_SIZE;
+                    else
+                        out->anon_bytes += PAGE_SIZE;
+                } else {
+                    out->mapped_bytes += PAGE_SIZE;
+                }
+            }
+            mem_next_page(mem, &page);
+        }
+        mem_read_unlock_quiesce_aware(mem);
+        mm_release(mm);
+    }
+
+    task_snapshot_release(&snapshot);
 }
 
 static int proc_show_filesystems(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
@@ -336,6 +408,8 @@ DirectMap2M:      940032 kB
 DirectMap1G:           0 kB
 */
     struct mem_usage usage = get_mem_usage();
+    struct mem_page_class_totals page_totals;
+    collect_mem_page_stats(&page_totals);
     show_kb(buf, "MemTotal:       ", usage.total);
     show_kb(buf, "MemFree:        ", usage.free);
     show_kb(buf, "MemAvailable:   ", usage.available);
@@ -345,14 +419,15 @@ DirectMap1G:           0 kB
     show_kb(buf, "Active:         ", usage.active);
     show_kb(buf, "Inactive:       ", usage.inactive);
     show_kb(buf, "SwapCached:     ", 0);
-    // a bunch of crap busybox top needs to see or else it gets stack garbage
-    show_kb(buf, "Shmem:          ", 0);
+    // Buffers/Dirty/Writeback/Slab have no honest analog: iSH has no Linux-style
+    // unified page cache it controls, and no kernel slab allocator to account for.
+    show_kb(buf, "Shmem:          ", page_totals.shmem_bytes);
     show_kb(buf, "SwapTotal:      ", 0);
     show_kb(buf, "SwapFree:       ", 0);
     show_kb(buf, "Dirty:          ", 0);
     show_kb(buf, "Writeback:      ", 0);
-    show_kb(buf, "AnonPages:      ", 0);
-    show_kb(buf, "Mapped:         ", 0);
+    show_kb(buf, "AnonPages:      ", page_totals.anon_bytes);
+    show_kb(buf, "Mapped:         ", page_totals.mapped_bytes);
     show_kb(buf, "Slab:           ", 0);
     // Stuff that doesn't map elsehwere
     show_kb(buf, "Swapins:        ", usage.swapins);

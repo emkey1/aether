@@ -14,14 +14,31 @@ typedef double CFTimeInterval;
 extern bool doEnableMulticore;
 
 struct cpu_usage get_total_cpu_usage(void) {
-    host_cpu_load_info_data_t load;
-    mach_msg_type_number_t fuck = HOST_CPU_LOAD_INFO_COUNT;
-    host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, (host_info_t) &load, &fuck);
-    struct cpu_usage usage;
-    usage.user_ticks = load.cpu_ticks[CPU_STATE_USER];
-    usage.system_ticks = load.cpu_ticks[CPU_STATE_SYSTEM];
-    usage.idle_ticks = load.cpu_ticks[CPU_STATE_IDLE];
-    usage.nice_ticks = load.cpu_ticks[CPU_STATE_NICE];
+    // HOST_CPU_LOAD_INFO reports the ENTIRE PHYSICAL DEVICE's system-wide CPU
+    // load (every app on the device, not just us) -- guest tools reading
+    // /proc/stat (top, mpstat, load-based scripts) expect iSH's OWN emulated
+    // workload usage, and on a device running other apps this made the guest
+    // see near-100% idle even while iSH itself was pegging a core. Use this
+    // process's own cumulative user/system time instead; Mach has no
+    // per-process "idle" concept, so derive it from wall-clock uptime across
+    // the configured cpu count instead.
+    struct cpu_usage usage = {0};
+    struct task_absolutetime_info info;
+    mach_msg_type_number_t count = TASK_ABSOLUTETIME_INFO_COUNT;
+    kern_return_t kr = task_info(mach_task_self(), TASK_ABSOLUTETIME_INFO,
+                                  (task_info_t) &info, &count);
+    if (kr == KERN_SUCCESS) {
+        mach_timebase_info_data_t timebase;
+        mach_timebase_info(&timebase);
+        double ns_per_mach_tick = (double) timebase.numer / (double) timebase.denom;
+        usage.user_ticks = (uint64_t) (info.total_user * ns_per_mach_tick / 10000000.0);
+        usage.system_ticks = (uint64_t) (info.total_system * ns_per_mach_tick / 10000000.0);
+    }
+
+    struct uptime_info uptime = get_uptime();
+    uint64_t elapsed_ticks = (uint64_t) get_cpu_count() * uptime.uptime_ticks;
+    uint64_t busy_ticks = usage.user_ticks + usage.system_ticks;
+    usage.idle_ticks = elapsed_ticks > busy_ticks ? elapsed_ticks - busy_ticks : 0;
     return usage;
 }
 
@@ -169,35 +186,28 @@ int get_cpu_count_for_affinity(void) {
 }
 
 int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
-    mach_msg_type_number_t info_size = sizeof(processor_cpu_load_info_t);
-    processor_cpu_load_info_t sys_load_data = 0;
-    natural_t ncpu;
-    
-    int err = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &ncpu, (processor_info_array_t*)&sys_load_data, &info_size);
-    if (err) {
-        STRACE("Unable to get per cpu usage");
-        return err;
-    }
-    
-    struct cpu_usage* cpus_load_data = (struct cpu_usage*)calloc(ncpu, sizeof(struct cpu_usage));
-    if (!cpus_load_data) {
-        munmap(sys_load_data, vm_page_size);
+    // See get_total_cpu_usage(): PROCESSOR_CPU_LOAD_INFO reports real physical
+    // host cores, which have no clean mapping to iSH's own emulated cpus (each
+    // Linux task gets its own host pthread, not a fixed per-virtual-cpu
+    // worker). Approximate by splitting our own correctly-scoped total evenly
+    // across the configured cpu count instead of reporting numbers from a
+    // different process's workload entirely.
+    int ncpu = get_cpu_count();
+    if (ncpu < 1)
+        ncpu = 1;
+    struct cpu_usage total = get_total_cpu_usage();
+
+    struct cpu_usage *cpus_load_data = calloc(ncpu, sizeof(struct cpu_usage));
+    if (cpus_load_data == NULL)
         return _ENOMEM;
-    }
-    
-    for (natural_t i = 0; i < ncpu; i++) {
-        cpus_load_data[i].user_ticks = sys_load_data[i].cpu_ticks[CPU_STATE_USER];
-        cpus_load_data[i].system_ticks = sys_load_data[i].cpu_ticks[CPU_STATE_SYSTEM];
-        cpus_load_data[i].idle_ticks = sys_load_data[i].cpu_ticks[CPU_STATE_IDLE];
-        cpus_load_data[i].nice_ticks = sys_load_data[i].cpu_ticks[CPU_STATE_NICE];
+
+    for (int i = 0; i < ncpu; i++) {
+        cpus_load_data[i].user_ticks = total.user_ticks / (unsigned) ncpu;
+        cpus_load_data[i].system_ticks = total.system_ticks / (unsigned) ncpu;
+        cpus_load_data[i].idle_ticks = total.idle_ticks / (unsigned) ncpu;
+        cpus_load_data[i].nice_ticks = 0;
     }
     *cpus_usage = cpus_load_data;
-    
-    // Freeing cpu load information
-    if (sys_load_data) {
-        munmap(sys_load_data, vm_page_size);
-    }
-    
     return 0;
 }
 

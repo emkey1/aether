@@ -6,6 +6,8 @@
 #include <inttypes.h>
 #include "kernel/calls.h"
 #include "kernel/random.h"
+#include "kernel/task.h"
+#include "kernel/hostinfo.h"
 #include "fs/proc.h"
 #include "platform/platform.h"
 #include <sys/utsname.h>
@@ -45,9 +47,57 @@ static bool sys_show_user(struct proc_entry *UNUSED(entry), unsigned long *UNUSE
     return 0;
 }
 
-static bool sys_show_vm(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
+// iSH doesn't actually enforce any of these (no real memory-pressure
+// management, no routing/forwarding, no socket buffer accounting to speak
+// of), so they're read-write scalars backed by plain storage rather than
+// hooked up to real behavior. That's enough for software that only inspects
+// or requires a minimum value (e.g. Elasticsearch/OpenSearch's bootstrap
+// check on vm.max_map_count) rather than depending on the kernel enforcing it.
+struct sys_scalar {
+    const char *name;
+    _Atomic long value;
+};
+
+static long proc_sys_scalar_parse(struct proc_data *data) {
+    char tmp[32];
+    size_t n = data->size < sizeof(tmp) - 1 ? data->size : sizeof(tmp) - 1;
+    memcpy(tmp, data->data, n);
+    tmp[n] = '\0';
+    return strtol(tmp, NULL, 10);
+}
+
+static struct sys_scalar proc_sys_vm_scalars[] = {
+    {"dirty_background_ratio", 10},
+    {"dirty_ratio", 20},
+    {"max_map_count", 262144},
+    {"mmap_min_addr", 65536},
+    {"overcommit_memory", 0},
+    {"swappiness", 60},
+};
+#define PROC_SYS_VM_SCALARS_LEN (sizeof(proc_sys_vm_scalars) / sizeof(proc_sys_vm_scalars[0]))
+
+static struct proc_dir_entry proc_sys_vm_entry;
+
+static void proc_sys_vm_getname(struct proc_entry *entry, char *buf) {
+    snprintf(buf, 256, "%s", proc_sys_vm_scalars[entry->fd].name);
+}
+static int proc_sys_vm_show(struct proc_entry *entry, struct proc_data *buf) {
+    proc_printf(buf, "%ld\n", atomic_load_explicit(&proc_sys_vm_scalars[entry->fd].value, memory_order_relaxed));
     return 0;
 }
+static int proc_sys_vm_update(struct proc_entry *entry, struct proc_data *data) {
+    atomic_store_explicit(&proc_sys_vm_scalars[entry->fd].value, proc_sys_scalar_parse(data), memory_order_relaxed);
+    return 0;
+}
+static bool sys_show_vm(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index >= PROC_SYS_VM_SCALARS_LEN)
+        return false;
+    *next_entry = (struct proc_entry) {&proc_sys_vm_entry, .fd = (sdword_t) *index};
+    (*index)++;
+    return true;
+}
+static struct proc_dir_entry proc_sys_vm_entry = {NULL, S_IFREG | 0644,
+    .getname = proc_sys_vm_getname, .show = proc_sys_vm_show, .update = proc_sys_vm_update};
 
 static int proc_binfmt_misc_status_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     proc_printf(buf, "enabled\n");
@@ -78,8 +128,27 @@ static bool proc_binfmt_misc_readdir(struct proc_entry *UNUSED(entry), unsigned 
     return false;
 }
 
+static int sys_show_fs_file_max(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // Real kernels size this roughly proportional to installed memory; iSH
+    // enforces no such ceiling, so this is a plausible value for software
+    // that only inspects it rather than one derived from a real limit.
+    struct mem_usage usage = get_mem_usage();
+    uint64_t file_max = usage.total / 10240;
+    if (file_max < 8192)
+        file_max = 8192;
+    proc_printf(buf, "%"PRIu64"\n", file_max);
+    return 0;
+}
+
+static int sys_show_fs_nr_open(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "1048576\n");
+    return 0;
+}
+
 static struct proc_dir_entry proc_sys_fs_entries[] = {
     {"binfmt_misc", S_IFDIR, .readdir = proc_binfmt_misc_readdir},
+    {"file-max", S_IFREG | 0644, .show = sys_show_fs_file_max},
+    {"nr_open", S_IFREG | 0644, .show = sys_show_fs_nr_open},
 };
 
 #define PROC_SYS_FS_LEN sizeof(proc_sys_fs_entries) / sizeof(proc_sys_fs_entries[0])
@@ -93,13 +162,65 @@ static bool proc_sys_fs_readdir(struct proc_entry *UNUSED(entry), unsigned long 
     return false;
 }
 
-static bool sys_show_net_core(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
-    return 0;
-}
+static struct sys_scalar proc_sys_net_core_scalars[] = {
+    {"rmem_max", 212992},
+    {"somaxconn", 128},
+    {"wmem_max", 212992},
+};
+#define PROC_SYS_NET_CORE_SCALARS_LEN (sizeof(proc_sys_net_core_scalars) / sizeof(proc_sys_net_core_scalars[0]))
 
-static bool sys_show_net_ipv4(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
+static struct proc_dir_entry proc_sys_net_core_entry;
+
+static void proc_sys_net_core_getname(struct proc_entry *entry, char *buf) {
+    snprintf(buf, 256, "%s", proc_sys_net_core_scalars[entry->fd].name);
+}
+static int proc_sys_net_core_show(struct proc_entry *entry, struct proc_data *buf) {
+    proc_printf(buf, "%ld\n", atomic_load_explicit(&proc_sys_net_core_scalars[entry->fd].value, memory_order_relaxed));
     return 0;
 }
+static int proc_sys_net_core_update(struct proc_entry *entry, struct proc_data *data) {
+    atomic_store_explicit(&proc_sys_net_core_scalars[entry->fd].value, proc_sys_scalar_parse(data), memory_order_relaxed);
+    return 0;
+}
+static bool sys_show_net_core(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index >= PROC_SYS_NET_CORE_SCALARS_LEN)
+        return false;
+    *next_entry = (struct proc_entry) {&proc_sys_net_core_entry, .fd = (sdword_t) *index};
+    (*index)++;
+    return true;
+}
+static struct proc_dir_entry proc_sys_net_core_entry = {NULL, S_IFREG | 0644,
+    .getname = proc_sys_net_core_getname, .show = proc_sys_net_core_show, .update = proc_sys_net_core_update};
+
+static struct sys_scalar proc_sys_net_ipv4_scalars[] = {
+    {"ip_default_ttl", 64},
+    {"ip_forward", 0},
+    {"tcp_syncookies", 1},
+};
+#define PROC_SYS_NET_IPV4_SCALARS_LEN (sizeof(proc_sys_net_ipv4_scalars) / sizeof(proc_sys_net_ipv4_scalars[0]))
+
+static struct proc_dir_entry proc_sys_net_ipv4_entry;
+
+static void proc_sys_net_ipv4_getname(struct proc_entry *entry, char *buf) {
+    snprintf(buf, 256, "%s", proc_sys_net_ipv4_scalars[entry->fd].name);
+}
+static int proc_sys_net_ipv4_show(struct proc_entry *entry, struct proc_data *buf) {
+    proc_printf(buf, "%ld\n", atomic_load_explicit(&proc_sys_net_ipv4_scalars[entry->fd].value, memory_order_relaxed));
+    return 0;
+}
+static int proc_sys_net_ipv4_update(struct proc_entry *entry, struct proc_data *data) {
+    atomic_store_explicit(&proc_sys_net_ipv4_scalars[entry->fd].value, proc_sys_scalar_parse(data), memory_order_relaxed);
+    return 0;
+}
+static bool sys_show_net_ipv4(struct proc_entry *UNUSED(entry), unsigned long *index, struct proc_entry *next_entry) {
+    if (*index >= PROC_SYS_NET_IPV4_SCALARS_LEN)
+        return false;
+    *next_entry = (struct proc_entry) {&proc_sys_net_ipv4_entry, .fd = (sdword_t) *index};
+    (*index)++;
+    return true;
+}
+static struct proc_dir_entry proc_sys_net_ipv4_entry = {NULL, S_IFREG | 0644,
+    .getname = proc_sys_net_ipv4_getname, .show = proc_sys_net_ipv4_show, .update = proc_sys_net_ipv4_update};
 
 static bool sys_show_net_ipv6(struct proc_entry *UNUSED(entry), unsigned long *UNUSED(index), struct proc_entry *UNUSED(next_entry)) {
     return 0;
@@ -189,11 +310,24 @@ static bool proc_sys_kernel_random_readdir(struct proc_entry *UNUSED(entry), uns
     return false;
 }
 
+static int sys_show_kernel_pid_max(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    proc_printf(buf, "%d\n", MAX_PID);
+    return 0;
+}
+
+static int sys_show_kernel_threads_max(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // iSH has no separate thread-count cap distinct from the pid space.
+    proc_printf(buf, "%d\n", MAX_PID);
+    return 0;
+}
+
 struct proc_dir_entry proc_sys_kernel[] = {
     {"cap_last_cap", .show = sys_show_kernel_cap_last_cap},
     {"hostname", .show = sys_show_net_unix_hostname},
     {"osrelease", .show = sys_show_kernel_osrelease},
+    {"pid_max", S_IFREG | 0644, .show = sys_show_kernel_pid_max},
     {"random", S_IFDIR, .readdir = proc_sys_kernel_random_readdir},
+    {"threads-max", S_IFREG | 0644, .show = sys_show_kernel_threads_max},
     {"version", .show = sys_show_net_version},
 };
 
@@ -250,6 +384,7 @@ void proc_sys_init(struct proc_dir_entry *root_entry) {
     struct proc_dir_entry *fs_dir;
     struct proc_dir_entry *kernel_dir;
     struct proc_dir_entry *net_dir;
+    struct proc_dir_entry *vm_dir;
 
     if (root_entry == NULL)
         return;
@@ -274,9 +409,15 @@ void proc_sys_init(struct proc_dir_entry *root_entry) {
                 proc_find_entry(proc_sys_kernel, PROC_SYS_KERNEL_LEN, "random"));
     }
 
+    vm_dir = proc_children_find(&proc_sys_children, "vm");
+    if (vm_dir != NULL)
+        proc_sys_vm_entry.parent = vm_dir;
+
     net_dir = proc_children_find(&proc_sys_children, "net");
     if (net_dir != NULL) {
         proc_set_entries_parent(proc_sys_net, PROC_SYS_NET_LEN, net_dir);
         proc_net.parent = net_dir;
+        proc_sys_net_core_entry.parent = proc_find_entry(proc_sys_net, PROC_SYS_NET_LEN, "core");
+        proc_sys_net_ipv4_entry.parent = proc_find_entry(proc_sys_net, PROC_SYS_NET_LEN, "ipv4");
     }
 }

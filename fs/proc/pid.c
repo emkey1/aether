@@ -1,5 +1,6 @@
 #include <string.h>
 #include <sys/stat.h>
+#include <inttypes.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
@@ -7,6 +8,7 @@
 #include "kernel/calls.h"
 #include "fs/proc.h"
 #include "fs/fd.h"
+#include "fs/mmap_cache.h"
 #include "fs/tty.h"
 #include "kernel/fs.h"
 #include "kernel/vdso.h"
@@ -685,6 +687,208 @@ static int proc_pid_maps_show(struct proc_entry *entry, struct proc_data *buf) {
     return 0;
 }
 
+// smaps-style per-region accounting. iSH has no swap and no dirty-bit
+// tracking, so every guest-mapped page is counted as resident (Rss == Size)
+// and anonymous/writable pages are treated as dirty, matching the common
+// case (freshly-touched heap/stack) even though it can't observe an actual
+// clean anonymous page. Pss approximates true proportional accounting by
+// dividing a region's Rss by an estimated sharer count -- there is no
+// reverse index from a data block to the tasks mapping it, so this is an
+// estimate, not an exact cross-process PSS.
+//
+// The sharer count combines two independent signals, neither of which is
+// struct data's raw refcount (that counts one increment per *page* in the
+// region -- see pt_map -- so for an unshared N-page region it equals N, not
+// 1; dividing by it directly would make Pss collapse toward a single page
+// for every ordinary private mapping):
+//   - intra-lineage sharing (fork): refcount / region_pages. This is exact
+//     for never-written regions (the only ones eligible for the
+//     cross-process registry below) since they can't fragment via COW, and
+//     is a reasonable estimate otherwise.
+//   - cross-process sharing: mmap_cache_count() for mappings registered in
+//     fs/mmap_cache.c (never-writable file-backed mappings, where the host
+//     OS's own page cache already backs independent mmap() calls onto the
+//     same file+offset with the same physical pages -- this registry only
+//     tracks that pre-existing sharing for reporting purposes).
+// The two are combined with max() rather than summed: summing would need
+// each cache entry to track its members' own intra-lineage counts to avoid
+// double-counting, which isn't worth the complexity for a best-effort
+// estimate.
+struct smaps_totals {
+    uint64_t rss_kb, pss_kb;
+    uint64_t shared_clean_kb, shared_dirty_kb;
+    uint64_t private_clean_kb, private_dirty_kb;
+    uint64_t anonymous_kb;
+};
+
+static void proc_smaps_region(struct proc_data *buf, page_t start, page_t end,
+                               struct pt_entry *start_pt, struct data *data,
+                               const char *path, bool print_header,
+                               struct smaps_totals *totals) {
+    uint64_t region_pages = (uint64_t)(end - start);
+    uint64_t size_kb = region_pages * (PAGE_SIZE / 1024);
+    uint64_t rss_kb = size_kb; // every tracked page is resident; iSH has no swap
+    unsigned refcount = data != NULL ?
+        atomic_load_explicit(&data->refcount, memory_order_relaxed) : 1;
+    if (refcount == 0)
+        refcount = 1;
+    uint64_t intra_lineage_sharers = region_pages != 0 ? refcount / region_pages : refcount;
+    if (intra_lineage_sharers == 0)
+        intra_lineage_sharers = 1;
+    unsigned cross_process_sharers = mmap_cache_count(data != NULL ? data->cache_entry : NULL);
+    uint64_t sharers = intra_lineage_sharers > cross_process_sharers ?
+        intra_lineage_sharers : cross_process_sharers;
+    bool shared = (start_pt->flags & P_SHARED) || sharers > 1;
+    bool anon = (start_pt->flags & P_ANONYMOUS) != 0;
+    uint64_t pss_kb = shared ? rss_kb / sharers : rss_kb;
+
+    uint64_t shared_clean_kb = 0, shared_dirty_kb = 0;
+    uint64_t private_clean_kb = 0, private_dirty_kb = 0;
+    if (shared) {
+        if (anon)
+            shared_dirty_kb = rss_kb;
+        else
+            shared_clean_kb = rss_kb;
+    } else if (anon) {
+        private_dirty_kb = rss_kb;
+    } else {
+        private_clean_kb = rss_kb;
+    }
+
+    if (print_header) {
+        proc_printf(buf, "%08llx-%08llx %c%c%c%c %08lx 00:00 %-10d %s\n",
+                (unsigned long long) (start << PAGE_BITS), (unsigned long long) (end << PAGE_BITS),
+                start_pt->flags & P_READ ? 'r' : '-',
+                start_pt->flags & P_WRITE ? 'w' : '-',
+                start_pt->flags & P_EXEC ? 'x' : '-',
+                shared ? 's' : 'p',
+                (unsigned long) data->file_offset, 0, path);
+        proc_printf(buf, "Size:           %8"PRIu64" kB\n", size_kb);
+        proc_printf(buf, "KernelPageSize: %8u kB\n", PAGE_SIZE / 1024);
+        proc_printf(buf, "MMUPageSize:    %8u kB\n", PAGE_SIZE / 1024);
+        proc_printf(buf, "Rss:            %8"PRIu64" kB\n", rss_kb);
+        proc_printf(buf, "Pss:            %8"PRIu64" kB\n", pss_kb);
+        proc_printf(buf, "Shared_Clean:   %8"PRIu64" kB\n", shared_clean_kb);
+        proc_printf(buf, "Shared_Dirty:   %8"PRIu64" kB\n", shared_dirty_kb);
+        proc_printf(buf, "Private_Clean:  %8"PRIu64" kB\n", private_clean_kb);
+        proc_printf(buf, "Private_Dirty:  %8"PRIu64" kB\n", private_dirty_kb);
+        proc_printf(buf, "Referenced:     %8"PRIu64" kB\n", rss_kb);
+        proc_printf(buf, "Anonymous:      %8"PRIu64" kB\n", anon ? rss_kb : 0);
+        proc_printf(buf, "AnonHugePages:  %8d kB\n", 0);
+        proc_printf(buf, "Swap:           %8d kB\n", 0);
+        proc_printf(buf, "Locked:         %8d kB\n", 0);
+        proc_printf(buf, "VmFlags:%s%s%s%s\n",
+                start_pt->flags & P_READ ? " rd" : "",
+                start_pt->flags & P_WRITE ? " wr" : "",
+                start_pt->flags & P_EXEC ? " ex" : "",
+                shared ? " sh" : "");
+    }
+
+    if (totals != NULL) {
+        totals->rss_kb += rss_kb;
+        totals->pss_kb += pss_kb;
+        totals->shared_clean_kb += shared_clean_kb;
+        totals->shared_dirty_kb += shared_dirty_kb;
+        totals->private_clean_kb += private_clean_kb;
+        totals->private_dirty_kb += private_dirty_kb;
+        totals->anonymous_kb += anon ? rss_kb : 0;
+    }
+}
+
+static void proc_smaps_walk(struct task *task, struct proc_data *buf, bool rollup) {
+    struct mm *mm = proc_task_mm_retain(task);
+    struct mem *mem = mm ? &mm->mem : NULL;
+    if (mem == NULL)
+        return;
+
+    struct smaps_totals totals = {0};
+    page_t rollup_start = 0;
+    page_t rollup_end = 0;
+    bool any_region = false;
+
+    mem_read_lock_quiesce_aware(mem);
+    page_t page = 0;
+    while (page < mem->page_limit) {
+        while (page < mem->page_limit && mem_pt(mem, page) == NULL) {
+            mem_next_page(mem, &page);
+        }
+        if (page >= mem->page_limit)
+            break;
+        page_t start = page;
+        struct pt_entry *start_pt = mem_pt(mem, start);
+        struct data *data = start_pt->data;
+
+        while (page < mem->page_limit) {
+            struct pt_entry *pt = mem_pt(mem, page);
+            if (pt == NULL)
+                break;
+            if ((pt->flags & P_RWX) != (start_pt->flags & P_RWX))
+                break;
+            if (!(pt->data == data || (pt->flags & P_ANONYMOUS && start_pt->flags & P_ANONYMOUS)))
+                break;
+            mem_next_page(mem, &page);
+        }
+        page_t end = page;
+
+        if (!any_region)
+            rollup_start = start;
+        rollup_end = end;
+        any_region = true;
+
+        char path[MAX_PATH] = "";
+        if (start_pt->flags & P_GROWSDOWN) {
+            static const char s[] = "[stack]";
+            memcpy(path, s, sizeof(s));
+        } else if (data->name != NULL) {
+            strcpy(path, data->name);
+        } else if (data->fd != NULL) {
+            generic_getpath(data->fd, path);
+        }
+
+        proc_smaps_region(buf, start, end, start_pt, data, path, !rollup, &totals);
+    }
+    mem_read_unlock_quiesce_aware(mem);
+
+    if (rollup && any_region) {
+        proc_printf(buf, "%08llx-%08llx ---p 00000000 00:00 0                          [rollup]\n",
+                (unsigned long long) (rollup_start << PAGE_BITS), (unsigned long long) (rollup_end << PAGE_BITS));
+        proc_printf(buf, "Rss:            %8"PRIu64" kB\n", totals.rss_kb);
+        proc_printf(buf, "Pss:            %8"PRIu64" kB\n", totals.pss_kb);
+        proc_printf(buf, "Shared_Clean:   %8"PRIu64" kB\n", totals.shared_clean_kb);
+        proc_printf(buf, "Shared_Dirty:   %8"PRIu64" kB\n", totals.shared_dirty_kb);
+        proc_printf(buf, "Private_Clean:  %8"PRIu64" kB\n", totals.private_clean_kb);
+        proc_printf(buf, "Private_Dirty:  %8"PRIu64" kB\n", totals.private_dirty_kb);
+        proc_printf(buf, "Referenced:     %8"PRIu64" kB\n", totals.rss_kb);
+        proc_printf(buf, "Anonymous:      %8"PRIu64" kB\n", totals.anonymous_kb);
+        proc_printf(buf, "Swap:           %8d kB\n", 0);
+        proc_printf(buf, "Locked:         %8d kB\n", 0);
+    }
+
+    mm_release(mm);
+}
+
+static int proc_pid_smaps_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    proc_smaps_walk(task, buf, false);
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_smaps_rollup_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    proc_smaps_walk(task, buf, true);
+    proc_put_task(task);
+    return 0;
+}
+
 static ssize_t proc_pid_mem_pread(struct proc_entry *entry, struct proc_data *buf, off_t offset) {
     struct task *task = proc_get_task(entry);
     if (task == NULL)
@@ -850,10 +1054,112 @@ static void proc_pid_task_getname(struct proc_entry *entry, char *buf) {
 
 static struct proc_dir_entry proc_pid_task;
 
+// A thread cannot itself have a thread group, so /proc/<pid>/task/<tid>/
+// must NOT expose a "task" child the way /proc/<pid>/ does -- reusing
+// proc_pid_children wholesale there would make each thread directory
+// contain another "task" entry pointing at itself, i.e.
+// task/<tid>/task/<tid>/task/... forever. htop's thread scanner walked
+// straight into that, endlessly rediscovering "more threads" one level
+// down and leaking an fd per open() until it hit its fd-table limit and
+// wedged. Filter that one entry out.
+extern struct proc_children proc_pid_children;
+
+static bool proc_pid_task_dir_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    while (*index < proc_pid_children.count) {
+        struct proc_dir_entry *candidate = &proc_pid_children.entries[*index];
+        (*index)++;
+        if (strcmp(candidate->name, "task") == 0)
+            continue;
+        *next_entry = (struct proc_entry) {candidate, .pid = entry->pid};
+        return true;
+    }
+    return false;
+}
+
 static bool proc_pid_task_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
-    // TODO: Expose all threads
-    *next_entry = (struct proc_entry) {&proc_pid_task, .pid = entry->pid};
-    return !(*index)++;
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return false;
+    }
+
+    pid_t_ tid = 0;
+    bool found = false;
+    unsigned long i = 0;
+    complex_lockt(&pids_lock, 0);
+    struct task *t;
+    list_for_each_entry(&task->group->threads, t, group_links) {
+        if (i == *index) {
+            tid = t->pid;
+            found = true;
+            break;
+        }
+        i++;
+    }
+    unlock(&pids_lock);
+    proc_put_task(task);
+
+    if (!found)
+        return false;
+    (*index)++;
+    *next_entry = (struct proc_entry) {&proc_pid_task, .pid = tid};
+    return true;
+}
+
+// iSH implements no Linux namespaces at all: clone()/unshare() reject every
+// CLONE_NEW* flag outright (kernel/fork.c), so every task lives in exactly one
+// global namespace of each kind. Real Linux reports that same situation (no
+// namespaces in use) with symlinks to the initial namespaces' well-known inode
+// numbers, so we can report the identical values for every task rather than
+// inventing per-task ones.
+struct proc_ns_type {
+    const char *name;
+    unsigned long inode;
+};
+
+static const struct proc_ns_type proc_ns_types[] = {
+    {"cgroup", 4026531835},
+    {"ipc", 4026531839},
+    {"mnt", 4026531840},
+    {"net", 4026531956},
+    {"pid", 4026531836},
+    {"pid_for_children", 4026531836},
+    {"time", 4026531834},
+    {"time_for_children", 4026531834},
+    {"user", 4026531837},
+    {"uts", 4026531838},
+};
+#define PROC_NS_TYPES_LEN (sizeof(proc_ns_types) / sizeof(proc_ns_types[0]))
+
+static struct proc_dir_entry proc_pid_ns_entry;
+
+static bool proc_pid_ns_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return false;
+    }
+    proc_put_task(task);
+    if (*index >= PROC_NS_TYPES_LEN)
+        return false;
+    *next_entry = (struct proc_entry) {&proc_pid_ns_entry, .pid = entry->pid, .fd = (sdword_t) *index};
+    (*index)++;
+    return true;
+}
+
+static void proc_pid_ns_getname(struct proc_entry *entry, char *buf) {
+    snprintf(buf, 256, "%s", proc_ns_types[entry->fd].name);
+}
+
+static int proc_pid_ns_readlink(struct proc_entry *entry, char *buf) {
+    struct task *task = proc_get_task(entry);
+    if ((task == NULL) || (task->exiting == true)) {
+        proc_put_task(task);
+        return _ESRCH;
+    }
+    proc_put_task(task);
+    snprintf(buf, MAX_PATH, "%s:[%lu]", proc_ns_types[entry->fd].name, proc_ns_types[entry->fd].inode);
+    return 0;
 }
 
 static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
@@ -913,8 +1219,11 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"maps", .show = proc_pid_maps_show},
     {"mem", .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite},
     {"mountinfo", .show = proc_show_mountinfo},
+    {"ns", S_IFDIR, .readdir = proc_pid_ns_readdir},
     {"root", S_IFLNK, .readlink = proc_pid_root_readlink},
     {"sched", .show = proc_pid_sched_show},
+    {"smaps", .show = proc_pid_smaps_show},
+    {"smaps_rollup", .show = proc_pid_smaps_rollup_show},
     {"stat", .show = proc_pid_stat_show},
     {"statm", .show = proc_pid_statm_show},
     {"status", .show = proc_pid_status_show},
@@ -930,13 +1239,17 @@ static struct proc_dir_entry proc_pid_fd = {NULL, S_IFLNK,
 static struct proc_dir_entry proc_pid_fdinfo_entry = {NULL, S_IFREG,
     .getname = proc_pid_fd_getname, .show = proc_pid_fdinfo_show};
 
+static struct proc_dir_entry proc_pid_ns_entry = {NULL, S_IFLNK,
+    .getname = proc_pid_ns_getname, .readlink = proc_pid_ns_readlink};
+
 static struct proc_dir_entry proc_pid_task = {NULL, S_IFDIR,
-    .children = &proc_pid_children, .getname = proc_pid_task_getname};
+    .readdir = proc_pid_task_dir_readdir, .getname = proc_pid_task_getname};
 
 void proc_pid_init(void) {
     struct proc_dir_entry *fd_dir;
     struct proc_dir_entry *fdinfo_dir;
     struct proc_dir_entry *task_dir;
+    struct proc_dir_entry *ns_dir;
 
     proc_set_children_parent(&proc_pid_children, &proc_pid);
 
@@ -951,4 +1264,8 @@ void proc_pid_init(void) {
     task_dir = proc_children_find(&proc_pid_children, "task");
     if (task_dir != NULL)
         proc_pid_task.parent = task_dir;
+
+    ns_dir = proc_children_find(&proc_pid_children, "ns");
+    if (ns_dir != NULL)
+        proc_pid_ns_entry.parent = ns_dir;
 }

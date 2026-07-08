@@ -20,6 +20,7 @@
 #include "kernel/fs.h"
 #include "fs/dev.h"
 #include "fs/real.h"
+#include "fs/mmap_cache.h"
 #include "fs/tty.h"
 #include "util/sync.h"
 
@@ -668,6 +669,24 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
                prot, flags, errno);
     }
     int err = pt_map(mem, start, pages, memory, correction, prot);
+    // Never-writable file-backed mappings can't be COW-broken or otherwise
+    // mutated by the guest (write faults check P_WRITE before touching
+    // anything), so it's always safe to register them: the underlying host
+    // mapping this struct data wraps will stay untouched for its whole
+    // life. This is purely an accounting aid for /proc/<pid>/smaps -- see
+    // fs/mmap_cache.h. Registering MAP_SHARED alongside MAP_PRIVATE here is
+    // fine for the same reason: no P_WRITE means neither can ever be
+    // dirtied by the guest.
+    if (err == 0 && !(prot & P_WRITE)) {
+        struct stat real_stat;
+        if (fstat(fd->real_fd, &real_stat) == 0) {
+            struct pt_entry *pt = mem_pt(mem, start);
+            if (pt != NULL && pt->data != NULL) {
+                pt->data->cache_entry = mmap_cache_register(
+                        real_stat.st_dev, real_stat.st_ino, real_offset, pt->data->size);
+            }
+        }
+    }
     if (err < 0 && current != NULL && current->abi == GUEST_ABI_AMD64 &&
             amd64_realfs_mmap_trace_count < AMD64_REALFS_MMAP_TRACE_BUDGET) {
         amd64_realfs_mmap_trace_count++;

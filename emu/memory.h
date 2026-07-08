@@ -131,12 +131,17 @@ void *mem_ptr_fault(struct mem *mem, guest_addr_t addr, int type);
 
 #define LEAK_DEBUG 0
 
+struct mmap_cache_entry;
+
 struct data {
     void *data; // immutable
     size_t size; // also immutable
     atomic_uint refcount;
     uintptr_t shared_key;
     uint8_t *host_page_prot; // cached mirrored host protections, one per host page
+    // Set only for never-writable file-backed mappings (fs/mmap_cache.h) --
+    // lets /proc/<pid>/smaps see cross-process sharing this refcount can't.
+    struct mmap_cache_entry *cache_entry;
 
     // for display in /proc/pid/maps
     struct fd *fd;

@@ -16,6 +16,7 @@
 #include "kernel/vdso.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
+#include "fs/mmap_cache.h"
 #include "util/sync.h"
 #include <dlfcn.h>
 
@@ -564,6 +565,7 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
         .data = memory,
         .size = pages * PAGE_SIZE + offset,
         .shared_key = 0,
+        .cache_entry = NULL,
 
 #if LEAK_DEBUG
         .pid = current ? current->pid : 0,
@@ -633,6 +635,7 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
             if (data->fd != NULL) {
                 fd_close(data->fd);
             }
+            mmap_cache_unregister(data->cache_entry);
             free(data->host_page_prot);
             free(data);
         }

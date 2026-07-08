@@ -1596,6 +1596,7 @@ static syscall_t arm64_syscall_table[454] = {
     [94]  = (syscall_t) sys_exit_group,
     [95]  = (syscall_t) sys_waitid,
     [96]  = (syscall_t) sys_set_tid_address,
+    [97]  = (syscall_t) sys_unshare,
     [98]  = (syscall_t) sys_futex,
     [99]  = (syscall_t) sys_set_robust_list_amd64,
     [100] = (syscall_t) sys_get_robust_list_amd64,
@@ -3491,6 +3492,9 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 92:  // personality
     case 93:  // exit
     case 94:  // exit_group
+    case 97:  // unshare(flags) -- x1-x5 are caller garbage (only x0 is set),
+              // which would otherwise fail the dword-fit check and SIGSYS
+              // (e.g. dpkg/apt maintainer scripts sandboxing via unshare)
     case 109: // timer_getoverrun
     case 111: // timer_delete
     case 120: // sched_getscheduler
