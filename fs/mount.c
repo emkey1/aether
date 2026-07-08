@@ -168,7 +168,8 @@ int do_umount(const char *point) {
     return mount_remove(mount);
 }
 
-// FIXME: this is shit
+// Checks whether `flag` appears as a whole comma-separated token in `info`
+// (a mount option string like "rw,noexec,relatime"), not just as a substring.
 bool mount_param_flag(const char *info, const char *flag) {
     // Optimization: Hoist strlen(flag) to avoid recalculating it inside the loop
     size_t flag_len = strlen(flag);

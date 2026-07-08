@@ -376,7 +376,13 @@ static int tmpfs_umount(struct mount *mount) {
 static struct fd *tmpfs_open(struct mount *mount, const char *path, int flags, int mode) {
     struct tmp_dirent *dirent;
     if (flags & O_CREAT_) {
-        // FIXME: will create a file when given a path that ends with a slash
+        // Stale: `path` never has a trailing slash here. tmpfs_open is only
+        // ever reached through generic_openat (the sole caller of
+        // mount->fs->open), which already resolves a trailing slash in
+        // path_raw against the ENOENT/non-directory cases (EISDIR / ENOTDIR)
+        // before calling into this backend. Verified against real Linux:
+        // O_CREAT on "nonexistent/" -> EISDIR, on "existingfile/" -> ENOTDIR,
+        // neither reaches or corrupts this function.
         const char *filename;
         struct tmp_dirent *parent = tmpfs_lookup_parent(mount, path, &filename);
         if (IS_ERR(parent))
