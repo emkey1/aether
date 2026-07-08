@@ -44,9 +44,13 @@ struct termios_ {
 #define ECHO_ (1 << 3)
 #define ECHOE_ (1 << 4)
 #define ECHOK_ (1 << 5)
-#define ECHOKE_ (1 << 6)
 #define NOFLSH_ (1 << 7)
 #define ECHOCTL_ (1 << 9)
+// Real Linux/glibc termios c_lflag bit (0004000 octal); was previously
+// misdefined as (1 << 6), which is actually ECHONL's position -- that bug
+// meant real ECHOKE from a guest program's tcsetattr was silently ignored
+// (and a guest setting ECHONL would have been misread as ECHOKE instead).
+#define ECHOKE_ (1 << 11)
 #define IEXTEN_ (1 << 15)
 
 #define INLCR_ (1 << 6)

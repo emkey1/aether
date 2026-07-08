@@ -398,22 +398,37 @@ ssize_t tty_input(struct tty *tty, const char *input, size_t size, bool blocking
                 // '\0' is used to disable cc entries
                 goto no_special;
             } else if (ch == cc[VERASE_] || ch == cc[VKILL_]) {
-                // FIXME ECHOE and ECHOK are supposed to enable these
-                // ECHOKE enables erasing the line instead of echoing the kill char and outputting a newline
                 echo = lflags & ECHOK_;
                 ssize_t count = tty->bufsize;
+                // ECHOKE enables erasing the line visually (backspace-space-backspace
+                // per character, same as ECHOE below); plain ECHOK without ECHOKE
+                // instead echoes the kill character itself followed by a newline,
+                // leaving the killed text on screen. There's no non-erasing variant
+                // for VERASE itself, so erase_visually stays true on that path.
+                bool erase_visually = true;
                 if (ch == cc[VERASE_] && tty->bufsize > 0) {
                     echo = lflags & ECHOE_;
                     count = 1;
+                } else {
+                    erase_visually = lflags & ECHOKE_;
                 }
                 if (!(lflags & ECHO_))
                     echo = false;
+                if (echo && !erase_visually) {
+                    char kill_ch = ch;
+                    if (SHOULD_ECHOCTL(kill_ch)) {
+                        tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "^", 1);
+                        kill_ch ^= '\100';
+                    }
+                    tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, &kill_ch, 1);
+                    tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\r\n", 2);
+                }
                 for (int i = 0; i < count; i++) {
                     // don't delete past a flag
                     if (tty->buf_flag[tty->bufsize - 1])
                         break;
                     tty->bufsize--;
-                    if (echo) {
+                    if (echo && erase_visually) {
                         tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\b \b", 3);
                         if (SHOULD_ECHOCTL(tty->buf[tty->bufsize]))
                             tty_echo_buffered(tty, echo_buf, sizeof(echo_buf), &echo_len, "\b \b", 3);
@@ -738,7 +753,18 @@ static int tty_poll(struct fd *fd) {
     struct tty *tty = fd->tty;
     lock(&tty->lock, 0);
     int types = 0;
-    types |= POLL_WRITE; // FIXME now that we have ptys, you can't always write without blocking
+    // Writing to a pty delivers into the *peer* tty's input buffer (see
+    // pty_write -> tty_input(tty->pty.other, ...)), so it can block once that
+    // buffer is full -- unlike a physical tty, which has no such peer to back
+    // up against and stays always-writable. The peer bufsize read is unlocked,
+    // matching the existing pty_is_half_closed_master peer-field reads below;
+    // poll results are advisory/racy by nature regardless.
+    if ((tty->driver == &pty_master || tty->driver == &pty_slave) && tty->pty.other != NULL) {
+        if (tty->pty.other->bufsize < sizeof(tty->pty.other->buf))
+            types |= POLL_WRITE;
+    } else {
+        types |= POLL_WRITE;
+    }
     if (tty->hung_up) {
         types |= POLL_READ | POLL_WRITE | POLL_ERR | POLL_HUP;
     } else if (pty_is_half_closed_master(tty)) {
