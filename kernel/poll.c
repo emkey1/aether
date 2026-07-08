@@ -444,6 +444,22 @@ struct poll_context {
     int nfds;
 };
 
+// Entry used to sort pollfd indices by the underlying `struct fd *` identity,
+// so pollfd_ entries for the same fd (a program may list one fd more than
+// once) end up adjacent and can be merged in a single linear pass.
+struct poll_merge_entry {
+    struct fd *file;
+    word_t events;
+};
+
+static int poll_merge_entry_cmp(const void *a, const void *b) {
+    struct fd *fa = ((const struct poll_merge_entry *) a)->file;
+    struct fd *fb = ((const struct poll_merge_entry *) b)->file;
+    if (fa < fb) return -1;
+    if (fa > fb) return 1;
+    return 0;
+}
+
 #define POLL_ALWAYS_LISTENING (POLL_ERR|POLL_HUP|POLL_NVAL)
 static int poll_event_callback(void *context, int types, union poll_fd_info info) {
     struct poll_context *c = context;
@@ -480,27 +496,32 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
         // clear revents, which is reused to mark whether a pollfd has been added or not
         polls[i].revents = 0;
     }
-    // convert polls array into poll_add_fd calls
-    // FIXME this is quadratic
+    // Convert polls array into poll_add_fd calls, merging duplicate fds'
+    // event bits together. Sort by `struct fd *` identity so duplicates end
+    // up adjacent -- O(n log n) instead of the previous O(n^2) all-pairs scan.
+    struct poll_merge_entry merge[nfds];
+    unsigned nmerge = 0;
     for (unsigned i = 0; i < nfds; i++) {
-        if (polls[i].fd < 0 || polls[i].revents)
+        if (polls[i].fd < 0)
             continue;
-
-        // if the same fd is listed more than once, merge the events bits together
-        int events = polls[i].events;
-        polls[i].revents = 1;
-        if (files[i] == NULL)
-            continue;
-        for (unsigned j = 0; j < nfds; j++) {
-            if (polls[j].revents)
-                continue;
-            if (files[i] == files[j]) {
-                events |= polls[j].events;
-                polls[j].revents = 1;
-            }
+        merge[nmerge].file = files[i];
+        merge[nmerge].events = polls[i].events;
+        nmerge++;
+    }
+    qsort(merge, nmerge, sizeof(merge[0]), poll_merge_entry_cmp);
+    for (unsigned i = 0; i < nmerge; ) {
+        struct fd *file = merge[i].file;
+        word_t events = merge[i].events;
+        unsigned j = i + 1;
+        while (j < nmerge && merge[j].file == file) {
+            events |= merge[j].events;
+            j++;
         }
+        i = j;
+        if (file == NULL)
+            continue;
 
-        add_err = poll_add_fd(poll, files[i], events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) files[i]);
+        add_err = poll_add_fd(poll, file, events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) file);
         if (add_err < 0)
             goto out;
     }

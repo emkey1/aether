@@ -2417,6 +2417,18 @@ static int sockaddr_write(guest_addr_t sockaddr_addr, void *sockaddr, uint_t buf
     return 0;
 }
 
+// Releases whatever unix bind-name (inode-backed or abstract) `fd` currently
+// holds and clears both fields, so a later re-release (e.g. a failed rebind
+// followed by fd close) can't double-release the same name.
+static void release_unix_names(struct fd *fd) {
+    inode_release_if_exist(fd->socket.unix_name_inode);
+    fd->socket.unix_name_inode = NULL;
+    if (fd->socket.unix_name_abstract != NULL) {
+        unix_abstract_release(fd->socket.unix_name_abstract);
+        fd->socket.unix_name_abstract = NULL;
+    }
+}
+
 static int_t sys_bind_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t sockaddr_len) {
     STRACE("bind(%d, 0x%llx, %d)", sock_fd, (unsigned long long) sockaddr_addr, sockaddr_len);
     struct fd *sock = sock_getfd(sock_fd);
@@ -2451,9 +2463,7 @@ static int_t sys_bind_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t so
 
     err = bind(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0) {
-        inode_release_if_exist(sock->socket.unix_name_inode);
-        if (sock->socket.unix_name_abstract != NULL)
-            unix_abstract_release(sock->socket.unix_name_abstract);
+        release_unix_names(sock);
         return errno_map();
     }
     sock->socket.unix_name_inode = inode;
@@ -5219,10 +5229,7 @@ static int sock_close(struct fd *fd) {
     sockrestart_end_listen(fd);
     if (fd->socket.domain == AF_NETLINK_)
         netlink_reply_reset(fd);
-    // FIXME next 3 lines should go in a function like release_unix_names
-    inode_release_if_exist(fd->socket.unix_name_inode);
-    if (fd->socket.unix_name_abstract != NULL)
-        unix_abstract_release(fd->socket.unix_name_abstract);
+    release_unix_names(fd);
     lock(&peer_lock, 0);
     struct fd *peer = fd->socket.unix_peer;
     if (peer != NULL)
