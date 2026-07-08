@@ -3,7 +3,7 @@
 #include "kernel/calls.h"
 #include "fs/path.h"
 
-static int __path_normalize(const char *at_path, const char *path, char *out, int flags, int levels) {
+static int __path_normalize(const char *root_path, const char *at_path, const char *path, char *out, int flags, int levels) {
     // you must choose one
     if (flags & N_SYMLINK_FOLLOW)
         assert(!(flags & N_SYMLINK_NOFOLLOW));
@@ -86,8 +86,18 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                     return _ELOOP;
                 // readlink does not null terminate
                 c[res] = '\0';
-                // if we should restart from the root, copy down
-                if (*c == '/')
+                // If the symlink target is absolute, it must be re-anchored at the
+                // calling process's root (root_path -- e.g. a chroot), not the real
+                // filesystem root. Previously this dropped the accumulated `out`
+                // prefix (which carried the chroot anchor applied by path_normalize()
+                // at the top-level call) and recursed with at_path=NULL, so an
+                // absolute symlink target escaped the chroot and resolved against the
+                // real root. E.g. inside `chroot /i386root`, a symlink /bin/uname ->
+                // /bin/busybox would resolve to the real /bin/busybox instead of
+                // /i386root/bin/busybox, causing execve() to fail with ENOENT (no
+                // such absolute path in the real root) or resolve the wrong file.
+                bool absolute_target = *c == '/';
+                if (absolute_target)
                     memmove(out, c, strlen(c) + 1);
                 char *expanded_path = possible_symlink;
                 // Bolt: Optimize string concatenation by tracking lengths and using
@@ -101,7 +111,8 @@ static int __path_normalize(const char *at_path, const char *path, char *out, in
                     expanded_path[out_len] = '/';
                     memcpy(expanded_path + out_len + 1, p, p_len + 1);
                 }
-                return __path_normalize(NULL, expanded_path, out, flags, levels + 1);
+                const char *next_at_path = absolute_target ? root_path : NULL;
+                return __path_normalize(root_path, next_at_path, expanded_path, out, flags, levels + 1);
             }
 
             // if there's a slash after this component, ensure that if it
@@ -144,8 +155,9 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
 
     // start with root or cwd, depending on whether it starts with a slash
     lock(&current->fs->lock, 0);
+    struct fd *root = current->fs->root;
     if (path[0] == '/')
-        at = current->fs->root;
+        at = root;
     else if (at == AT_PWD)
         at = current->fs->pwd;
     unlock(&current->fs->lock);
@@ -156,8 +168,71 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
             return err;
         assert(path_is_normalized(at_path));
     }
+    // root_path anchors any *absolute symlink target* encountered while
+    // resolving (see __path_normalize): it must always be the process's
+    // chroot root, not necessarily `at_path` above (which is cwd-relative
+    // when `path` didn't start with '/'), so an absolute symlink inside a
+    // chroot (e.g. /bin/uname -> /bin/busybox under `chroot /i386root`)
+    // re-resolves against /i386root instead of escaping to the real root.
+    char root_path[MAX_PATH];
+    if (root != NULL) {
+        int err = generic_getpath(root, root_path);
+        if (err < 0)
+            return err;
+        assert(path_is_normalized(root_path));
+    }
 
-    return __path_normalize(at != NULL ? at_path : NULL, path, out, flags, 0);
+    int err = __path_normalize(root != NULL ? root_path : NULL, at != NULL ? at_path : NULL, path, out, flags, 0);
+    if (err < 0)
+        return err;
+
+    if (flags & N_PARENT_DIR_WRITE) {
+        // out is fully resolved and normalized here (begins with '/' or is
+        // empty, no ".", "..", or unresolved symlinks in the final
+        // component -- see __path_normalize). Strip the final component to
+        // get the parent directory, then require write+execute permission
+        // on it, matching Linux's MAY_WRITE|MAY_EXEC check on the parent for
+        // any operation that creates or removes a directory entry.
+        char parent[MAX_PATH];
+        size_t len = strlen(out);
+        if (len == 0) {
+            // out == "" means the target itself is the root directory, e.g.
+            // mkdir("/") or rmdir("/"). There is no parent to check write
+            // permission on; the caller's own existence/EBUSY-style checks
+            // (mkdir -> EEXIST, rmdir -> EBUSY) already handle this target
+            // correctly without our help, so just let it through here.
+            return 0;
+        }
+        size_t last_slash = 0;
+        for (size_t i = 0; i < len; i++)
+            if (out[i] == '/')
+                last_slash = i;
+        if (last_slash == 0) {
+            // parent is the filesystem root, e.g. creating "/foo". The
+            // mount-relative representation of the root used throughout this
+            // codebase is "" (see generic_getpath, fix_path), not "/" --
+            // stat'ing "/" would strip to an empty relative path passed to
+            // fstatat(), which is ENOENT without AT_EMPTY_PATH.
+            parent[0] = '\0';
+        } else {
+            memcpy(parent, out, last_slash);
+            parent[last_slash] = '\0';
+        }
+
+        struct mount *mount = find_mount_and_trim_path(parent);
+        if (mount == NULL)
+            return _ENOENT;
+        struct statbuf stat;
+        int stat_err = mount->fs->stat(mount, parent, &stat);
+        mount_release(mount);
+        if (stat_err < 0)
+            return stat_err;
+        int access_err = access_check(&stat, AC_W | AC_X);
+        if (access_err < 0)
+            return access_err;
+    }
+
+    return 0;
 }
 
 

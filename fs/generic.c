@@ -162,8 +162,15 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     // O_NOFOLLOW: do not resolve a *final* symlink component (intermediate
     // components are still followed), so opening one fails with ELOOP below.
     int norm = (flags & O_NOFOLLOW_) ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW;
-    if (flags & O_CREAT_)
-        norm |= N_PARENT_DIR_WRITE;
+    // N_PARENT_DIR_WRITE is deliberately NOT used here even though O_CREAT is
+    // set: at this point we don't yet know whether the target already
+    // exists. O_CREAT is very commonly passed defensively on an open() of an
+    // existing file (e.g. open(path, O_CREAT|O_WRONLY, mode)), and Linux
+    // only requires write access to the parent directory when a new dentry
+    // is actually about to be created -- if the target exists, only the
+    // target's own permissions matter. So the parent-write check below is
+    // deferred until after we know (via the ENOENT-from-stat below) that we
+    // are really creating something.
     int err = path_normalize(at, path_raw, path, norm);
     if (err < 0)
         return ERR_PTR(err);
@@ -189,6 +196,38 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
                 unlock(&inodes_lock);
                 mount_release(mount);
                 return ERR_PTR(_EISDIR);
+            }
+            // The target does not exist, so O_CREAT is really about to create
+            // a new directory entry: this is the point (unlike the "target
+            // already exists" branch below) where Linux requires write+exec
+            // permission on the parent directory. path is mount-relative and
+            // normalized (find_mount_and_trim_path only trims the mount
+            // prefix), so strip the final component to get the parent.
+            {
+                char parent[MAX_PATH];
+                size_t len = strlen(path);
+                size_t last_slash = 0;
+                for (size_t i = 0; i < len; i++)
+                    if (path[i] == '/')
+                        last_slash = i;
+                if (last_slash == 0)
+                    // Root directory: this codebase's mount-relative
+                    // representation of the root is "" (see
+                    // generic_getpath, fix_path), not "/".
+                    parent[0] = '\0';
+                else {
+                    memcpy(parent, path, last_slash);
+                    parent[last_slash] = '\0';
+                }
+                struct statbuf parent_stat;
+                int perr = mount->fs->stat(mount, parent, &parent_stat);
+                if (perr >= 0)
+                    perr = access_check(&parent_stat, AC_W | AC_X);
+                if (perr < 0) {
+                    unlock(&inodes_lock);
+                    mount_release(mount);
+                    return ERR_PTR(perr);
+                }
             }
             created = true;
         } else {
@@ -348,7 +387,7 @@ int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, co
 
 int generic_unlinkat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
+    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     struct mount *mount = find_mount_and_trim_path(path);
@@ -376,7 +415,10 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
     if (flags & ~RENAME_NOREPLACE_)
         return _EINVAL;
     char src[MAX_PATH];
-    int err = path_normalize(src_at, src_raw, src, N_SYMLINK_NOFOLLOW);
+    // Linux requires write+exec on both the source and destination parent
+    // directories for rename (removing the entry from one, adding it to the
+    // other), not just the destination.
+    int err = path_normalize(src_at, src_raw, src, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
     char dst[MAX_PATH];

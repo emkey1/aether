@@ -5,6 +5,15 @@
 
 #define N_SYMLINK_FOLLOW 1
 #define N_SYMLINK_NOFOLLOW 2
+// Require write+execute permission on the resolved parent directory of the
+// final path component. Only correct for callers where the operation always
+// creates or removes a directory entry regardless of whether the final
+// component itself already exists (mkdir, rmdir, rename, symlink, link,
+// unlink, mknod). generic_openat's O_CREAT case is NOT one of those -- it
+// commonly targets an existing file where O_CREAT is passed defensively and
+// only the target file's own permissions matter, not the parent's -- so it
+// must not use this flag and instead performs its own check gated on whether
+// it actually created a new entry. See generic_openat in fs/generic.c.
 #define N_PARENT_DIR_WRITE 4
 
 // Normalizes the path specified and writes the result into the out buffer.

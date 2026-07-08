@@ -259,7 +259,15 @@ int access_check(struct statbuf *stat, int check) {
     } else if (current->fsgid == stat->gid) {
         check <<= 3;
     }
-    if (!(stat->mode & check))
+    // All requested bits must be set, not merely overlap one of them: with a
+    // combined check like AC_W|AC_X, "other" permission bits of e.g. 5 (r-x)
+    // must be rejected for missing AC_W, but (mode & check) != 0 was true
+    // because AC_X alone overlapped -- silently granting write access. This
+    // was invisible for the common single-bit checks (AC_R or AC_W or AC_X
+    // alone, where "any overlap" and "all bits present" coincide) but wrong
+    // for any caller passing a combined mask, e.g. O_RDWR's AC_R|AC_W here
+    // and the parent-directory AC_W|AC_X check in fs/generic.c / fs/path.c.
+    if (((int) stat->mode & check) != check)
         return _EACCES;
     return 0;
 }
