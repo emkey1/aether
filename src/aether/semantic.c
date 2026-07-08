@@ -1238,15 +1238,25 @@ static void validateContractAnnotations(const char *source) {
 }
 
 static int aetherIsEffectfulBuiltin(const char *name, size_t len) {
-    /* Effectfulness is single-sourced in pscal-core (pscalBuiltinNameIsEffectful).
-     * Copy the possibly non-terminated slice and delegate. */
+    /* Effectfulness is single-sourced in pscal-core. Use the *live* check
+     * (pscalBuiltinNameEffectMaskLive), not the static-table-only
+     * pscalBuiltinNameIsEffectful: the static table can't know about a
+     * builtin an ext_builtins category, or -- since VM 2.0 Phase 7 -- a
+     * dlopen plugin, registers at runtime with its own explicit effect
+     * mask. A --ext-loaded plugin's builtins are already registered by the
+     * time semantic analysis runs (registerAllBuiltins() happens in
+     * main() before parsing/semantic analysis), so the live registry has
+     * the answer; the static table alone would silently treat a
+     * plugin-provided effectful builtin as pure, letting it escape both
+     * the FX-001 fx-block fence and the @pure/ANN-001 purity check. Copy
+     * the possibly non-terminated slice and delegate. */
     char buf[128];
     if (!name || len == 0 || len >= sizeof(buf)) {
         return 0;
     }
     memcpy(buf, name, len);
     buf[len] = '\0';
-    return pscalBuiltinNameIsEffectful(buf) ? 1 : 0;
+    return pscalBuiltinNameEffectMaskLive(buf) != FX_PURE ? 1 : 0;
 }
 
 static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) {
