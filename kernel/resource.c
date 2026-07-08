@@ -251,6 +251,11 @@ dword_t sys_getrusage_guest(dword_t who, guest_addr_t rusage_addr) {
     struct rusage_ rusage;
     switch (who) {
         case RUSAGE_SELF_:
+        case RUSAGE_THREAD_:
+            // rusage_get_current() already reports usage for the calling host
+            // thread (each guest task is one host pthread), which is exactly
+            // what RUSAGE_THREAD asks for and what this codebase already uses
+            // to approximate RUSAGE_SELF.
             rusage = rusage_get_current();
             break;
         case RUSAGE_CHILDREN_:

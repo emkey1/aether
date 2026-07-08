@@ -228,6 +228,14 @@ int fcntl_getlk(struct fd *fd, struct flock_ *flock, bool ofd) {
     if (flock->type != F_RDLCK_ && flock->type != F_WRLCK_)
         return _EINVAL;
     struct inode_data *inode = fd->inode;
+    if (inode == NULL) {
+        // fds without a backing inode (e.g. the pty fds synthesized for a
+        // session's initial controlling terminal, see pty_open_fake) have
+        // nowhere to store lock state. Real Linux permits fcntl locks on a
+        // tty, so report "unlocked" rather than crash on inode->lock.
+        flock->type = F_UNLCK_;
+        return 0;
+    }
     lock(&inode->lock, 0);
 
     struct file_lock request;
@@ -255,6 +263,13 @@ int fcntl_setlk(struct fd *fd, struct flock_ *flock, bool blocking, bool ofd) {
         return _EBADF;
 
     struct inode_data *inode = fd->inode;
+    if (inode == NULL) {
+        // See the matching comment in fcntl_getlk: no inode means no place to
+        // record the lock. Grant it unconditionally instead of crashing --
+        // this fd is never shared with an unrelated open of the same file,
+        // so there is no lock state to actually contend over.
+        return 0;
+    }
     lock(&inode->lock, 0);
 
     struct file_lock request;
