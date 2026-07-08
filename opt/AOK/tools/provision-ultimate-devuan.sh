@@ -98,13 +98,13 @@ PKGS="
   sysvinit-core
   openssh-client openssh-server sudo
   rsyslog iputils-ping wtmpdb
-  chrony cron logrotate
+  chrony cron logrotate dialog
   tzdata ca-certificates openssl
   man-db manpages libpam-systemd
   curl wget rsync bind9-dnsutils iproute2
   git strace build-essential gdb
   python3 python3-pip python3-venv
-  vim neovim nano tmux
+  vim neovim nano tmux sysstat
   htop btop ncdu lsof pv tree
   mc fzf ripgrep fd-find bat eza jq most
   w3m lynx nmap socat netcat-openbsd mtr-tiny
