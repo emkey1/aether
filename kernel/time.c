@@ -642,11 +642,120 @@ static void itimer_notify(struct task *task) {
     send_signal(task, SIGALRM_, info);
 }
 
-static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
-    if (which != ITIMER_REAL_) {
-        FIXME("unimplemented setitimer %d", which);
-        return _EINVAL;
+// ITIMER_VIRTUAL/PROF: neither has a native CPU-time clock this codebase's
+// timer subsystem can wait on (util/timer.h's struct timer only supports
+// CLOCK_MONOTONIC/CLOCK_REALTIME), so a CLOCK_MONOTONIC sampler ticks at a
+// fixed period, comparing accumulated CPU time (via rusage_get_group_of,
+// summed across the whole thread group like real Linux's VIRTUAL/PROF
+// clocks) against a deadline, firing SIGVTALRM/SIGPROF and rearming from
+// the interval like a real CPU-time timer would. This trades exact
+// delivery timing for zero added cost on the syscall/context-switch hot
+// path -- only processes that actually call setitimer(VIRTUAL/PROF) pay
+// for the sampler thread, and even then only a fixed, coarse tick rate.
+#define ITIMER_VPROF_SAMPLE_MS 20
+
+static struct timespec cpu_time_now_of(struct tgroup *group, bool include_system) {
+    struct rusage_ rusage = rusage_get_group_of(group);
+    long usec = rusage.utime.usec + (include_system ? rusage.stime.usec : 0);
+    struct timespec ts = {
+        .tv_sec = rusage.utime.sec + (include_system ? rusage.stime.sec : 0),
+        .tv_nsec = usec * 1000,
+    };
+    if (ts.tv_nsec >= 1000000000) {
+        ts.tv_nsec -= 1000000000;
+        ts.tv_sec++;
     }
+    return ts;
+}
+
+// Must be called with group->lock held.
+static bool itimer_vprof_maybe_fire(struct cpu_itimer_state *state, struct timespec cpu_now) {
+    if (!state->armed)
+        return false;
+    struct timespec remaining = timespec_subtract(state->deadline, cpu_now);
+    if (timespec_positive(remaining))
+        return false;
+    if (timespec_positive(state->interval))
+        state->deadline = timespec_add(cpu_now, state->interval);
+    else
+        state->armed = false;
+    return true;
+}
+
+static void itimer_vprof_sampler_notify(void *data) {
+    struct task *task = data;
+    struct tgroup *group = task->group;
+
+    struct timespec cpu_user = cpu_time_now_of(group, false);
+    struct timespec cpu_total = cpu_time_now_of(group, true);
+
+    lock(&group->lock, 0);
+    bool fire_virtual = itimer_vprof_maybe_fire(&group->itimer_virtual, cpu_user);
+    bool fire_prof = itimer_vprof_maybe_fire(&group->itimer_prof, cpu_total);
+    unlock(&group->lock);
+
+    struct siginfo_ info = { .code = SI_TIMER_ };
+    if (fire_virtual)
+        send_signal(task, SIGVTALRM_, info);
+    if (fire_prof)
+        send_signal(task, SIGPROF_, info);
+}
+
+// Must be called with group->lock held (matches itimer_set's caller).
+// Called with group->lock held (matches itimer_set's callers). Drop it
+// around cpu_time_now_of, which takes group->lock itself via
+// rusage_get_group_of -- otherwise reentrant on the same (non-recursive)
+// lock. The narrow window this opens (another thread's concurrent setitimer
+// on the same process seeing state from just before/after this one) is the
+// same "drop the lock across a nested lock-taking call" pattern already used
+// elsewhere in this codebase (e.g. mm_release around inodes_lock).
+static long itimer_vprof_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
+    struct cpu_itimer_state *state = which == ITIMER_VIRTUAL_ ? &group->itimer_virtual : &group->itimer_prof;
+    unlock(&group->lock);
+    struct timespec cpu_now = cpu_time_now_of(group, which == ITIMER_PROF_);
+    lock(&group->lock, 0);
+
+    if (old_spec != NULL) {
+        *old_spec = (struct timer_spec) {};
+        if (state->armed) {
+            struct timespec remaining = timespec_subtract(state->deadline, cpu_now);
+            old_spec->value = timespec_positive(remaining) ? remaining : (struct timespec) {};
+            old_spec->interval = state->interval;
+        }
+    }
+
+    if (timespec_is_zero(spec.value)) {
+        state->armed = false;
+        return 0;
+    }
+
+    state->armed = true;
+    state->deadline = timespec_add(cpu_now, spec.value);
+    state->interval = spec.interval;
+
+    if (group->itimer_vprof_sampler == NULL) {
+        struct timer *sampler = timer_new(CLOCK_MONOTONIC, itimer_vprof_sampler_notify, current);
+        if (IS_ERR(sampler))
+            return PTR_ERR(sampler);
+        group->itimer_vprof_sampler = sampler;
+    }
+    // (Re-)arm the sampler's own recurring tick; harmless if already
+    // running. Left running for the group's lifetime once started rather
+    // than paused when both VIRTUAL and PROF are disarmed -- see the
+    // struct field comment on itimer_vprof_sampler in kernel/task.h.
+    struct timer_spec sample_spec = {
+        .value = {.tv_nsec = ITIMER_VPROF_SAMPLE_MS * 1000000},
+        .interval = {.tv_nsec = ITIMER_VPROF_SAMPLE_MS * 1000000},
+    };
+    timer_set(group->itimer_vprof_sampler, sample_spec, NULL);
+    return 0;
+}
+
+static long itimer_set(struct tgroup *group, int which, struct timer_spec spec, struct timer_spec *old_spec) {
+    if (which == ITIMER_VIRTUAL_ || which == ITIMER_PROF_)
+        return itimer_vprof_set(group, which, spec, old_spec);
+    if (which != ITIMER_REAL_)
+        return _EINVAL;
 
     if (!group->itimer) {
         struct timer *timer = timer_new(CLOCK_REALTIME, (timer_callback_t) itimer_notify, current);
@@ -754,12 +863,10 @@ long sys_setitimer_amd64_guest(int_t which, guest_addr_t new_val_addr, guest_add
     return sys_setitimer_guest_abi(which, new_val_addr, old_val_addr, GUEST_ABI_AMD64);
 }
 
-// getitimer: report the interval timer currently armed for `which`. iSH only
-// implements ITIMER_REAL (the wall-clock SIGALRM timer); ITIMER_VIRTUAL/PROF
-// can never have been armed (setitimer rejects them) so they read back as
-// {0,0} — exactly what Linux reports for an unset timer. An invalid `which`
-// is EINVAL. (getitimer was entirely unwired before: i386 #105 / amd64 #36
-// raised SIGSYS, so any program polling its interval timer crashed.)
+// getitimer: report the interval timer currently armed for `which`. An
+// invalid `which` is EINVAL. (getitimer was entirely unwired before: i386
+// #105 / amd64 #36 raised SIGSYS, so any program polling its interval timer
+// crashed.)
 static long sys_getitimer_guest_abi(int_t which, guest_addr_t old_val_addr, enum guest_abi abi) {
     STRACE("getitimer(%d, %#llx)", which, (unsigned long long) old_val_addr);
     if (which != ITIMER_REAL_ && which != ITIMER_VIRTUAL_ && which != ITIMER_PROF_)
@@ -767,6 +874,12 @@ static long sys_getitimer_guest_abi(int_t which, guest_addr_t old_val_addr, enum
 
     struct timer_spec spec = {};
     struct tgroup *group = current->group;
+    // Computed up front (not under group->lock below): cpu_time_now_of takes
+    // group->lock itself via rusage_get_group_of.
+    struct timespec cpu_now = {};
+    if (which == ITIMER_VIRTUAL_ || which == ITIMER_PROF_)
+        cpu_now = cpu_time_now_of(group, which == ITIMER_PROF_);
+
     lock(&group->lock, 0);
     if (which == ITIMER_REAL_ && group->itimer != NULL) {
         struct timer *timer = group->itimer;
@@ -779,6 +892,14 @@ static long sys_getitimer_guest_abi(int_t which, guest_addr_t old_val_addr, enum
                 spec.value = remaining;
         }
         unlock(&timer->lock);
+    } else if (which == ITIMER_VIRTUAL_ || which == ITIMER_PROF_) {
+        struct cpu_itimer_state *state = which == ITIMER_VIRTUAL_ ? &group->itimer_virtual : &group->itimer_prof;
+        if (state->armed) {
+            struct timespec remaining = timespec_subtract(state->deadline, cpu_now);
+            spec.interval = state->interval;
+            if (timespec_positive(remaining))
+                spec.value = remaining;
+        }
     }
     unlock(&group->lock);
 

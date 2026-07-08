@@ -266,18 +266,25 @@ void rusage_add(struct rusage_ *dst, struct rusage_ *src) {
 // thread's final usage as it exits (see kernel/exit.c); add every
 // currently-live thread's usage on top of that baseline. Lock order
 // (pids_lock then group->lock) matches kernel/exit.c.
-struct rusage_ rusage_get_group(void) {
+// Takes an explicit group rather than assuming current->group, so it can be
+// called from a context with no meaningful `current` (e.g. the setitimer
+// VIRTUAL/PROF sampler, which runs on its own bare timer thread).
+struct rusage_ rusage_get_group_of(struct tgroup *group) {
     complex_lockt(&pids_lock, 0);
-    lock(&current->group->lock, 0);
-    struct rusage_ rusage = current->group->rusage;
+    lock(&group->lock, 0);
+    struct rusage_ rusage = group->rusage;
     struct task *t;
-    list_for_each_entry(&current->group->threads, t, group_links) {
+    list_for_each_entry(&group->threads, t, group_links) {
         struct rusage_ live = rusage_get_task(t);
         rusage_add(&rusage, &live);
     }
-    unlock(&current->group->lock);
+    unlock(&group->lock);
     unlock(&pids_lock);
     return rusage;
+}
+
+struct rusage_ rusage_get_group(void) {
+    return rusage_get_group_of(current->group);
 }
 
 int write_guest_rusage_abi(enum guest_abi abi, guest_addr_t addr, const struct rusage_ *rusage) {

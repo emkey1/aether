@@ -57,6 +57,9 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
         unlock(&group->tty->lock);
     }
     group->itimer = NULL;
+    group->itimer_vprof_sampler = NULL;
+    group->itimer_virtual = (typeof(group->itimer_virtual)) {};
+    group->itimer_prof = (typeof(group->itimer_prof)) {};
     group->doing_group_exit = false;
     group->continued = false;
     group->children_rusage = (struct rusage_) {};
