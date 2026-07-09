@@ -203,4 +203,9 @@ extern const struct fs_ops cgroup2fs;
 void fs_register(const struct fs_ops *fs);
 char* get_filesystems(void); // For /proc/filesystems
 
+// System-wide bytes moved through file-backed fds (kernel/fs.c), feeding
+// /proc/vmstat's pgpgin/pgpgout (which are in KiB).
+extern _Atomic qword_t io_disk_read_bytes;
+extern _Atomic qword_t io_disk_write_bytes;
+
 #endif

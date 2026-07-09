@@ -2,6 +2,7 @@
 #define TASK_H
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include "emu/cpu.h"
 #include "kernel/abi.h"
 #include "kernel/mm.h"
@@ -25,6 +26,34 @@ struct task_pending_deletion {
 // Global list of tasks pending deletion
 extern struct list tasks_pending_deletion_queue;
 extern pthread_mutex_t tasks_pending_deletion_lock;
+
+// Per-task I/O accounting, surfaced via /proc/<pid>/io (and eventually
+// taskstats). Written only by the owning task's thread from the syscall
+// read/write paths; read cross-thread by procfs, so the fields are relaxed
+// atomics (free on 64-bit hosts) rather than plain integers.
+// rchar/wchar/syscr/syscw count all read/write traffic; read_bytes/
+// write_bytes only bytes moved to/from file-backed fds (realfs/fakefs),
+// approximating Linux's "hit the storage layer" semantics.
+struct task_io_counters {
+    _Atomic qword_t rchar;
+    _Atomic qword_t wchar;
+    _Atomic qword_t syscr;
+    _Atomic qword_t syscw;
+    _Atomic qword_t read_bytes;
+    _Atomic qword_t write_bytes;
+    _Atomic qword_t cancelled_write_bytes;
+};
+
+static inline void task_io_counters_add(struct task_io_counters *dst,
+        struct task_io_counters *src) {
+    atomic_fetch_add_explicit(&dst->rchar, atomic_load_explicit(&src->rchar, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->wchar, atomic_load_explicit(&src->wchar, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->syscr, atomic_load_explicit(&src->syscr, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->syscw, atomic_load_explicit(&src->syscw, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->read_bytes, atomic_load_explicit(&src->read_bytes, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->write_bytes, atomic_load_explicit(&src->write_bytes, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->cancelled_write_bytes, atomic_load_explicit(&src->cancelled_write_bytes, memory_order_relaxed), memory_order_relaxed);
+}
 
 struct task {
     enum guest_abi abi;
@@ -64,6 +93,8 @@ struct task {
     uid_t_ groups[MAX_GROUPS];
     char comm[16] __strncpy_safe; // locked by general_lock
     bool did_exec; // for that one annoying setsid edge case
+
+    struct task_io_counters io;
 
     struct fdtable *files;
     struct fs_info *fs;
@@ -224,6 +255,9 @@ struct tgroup {
     struct list threads; // locked by pids_lock
     struct task *leader; // immutable
     struct rusage_ rusage;
+    // I/O counters of threads that already exited, rolled up in exit.c so a
+    // process's /proc/<pid>/io totals survive its threads. Locked by pids_lock.
+    struct task_io_counters io_dead;
 
     // Process-group/session membership lists are protected by pids_lock.
     // Group-local metadata (sid, pgid, tty) is protected by group->lock.

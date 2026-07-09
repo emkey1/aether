@@ -11,12 +11,50 @@
 #include "kernel/random.h"
 #include "fs/fd.h"
 #include "fs/inode.h"
+#include "fs/real.h"
 #include "fs/path.h"
 #include "fs/dev.h"
 #include "fs/devices.h"
 #include "fs/tty.h"
 
 #define MAX_RW_COUNT (16 * 1024 * 1024)
+
+// Per-task I/O accounting (surfaced via /proc/<pid>/io). syscr/syscw count
+// read/write-family syscalls that reached an fd; rchar/wchar count bytes
+// actually returned. read_bytes/write_bytes only count bytes moved through
+// file-backed fds (realfs/fakefs), approximating Linux's "hit the storage
+// layer" semantics — tmpfs/pipes/sockets/ttys don't reach storage, same as
+// Linux, where these two fields track block-layer I/O. The globals aggregate
+// disk bytes system-wide for /proc/vmstat's pgpgin/pgpgout.
+_Atomic qword_t io_disk_read_bytes;
+_Atomic qword_t io_disk_write_bytes;
+
+static bool fd_is_disk_backed(struct fd *fd) {
+    return fd->mount != NULL &&
+        (fd->mount->fs == &realfs || fd->mount->fs == &fakefs);
+}
+
+static void io_account_read(struct fd *fd, ssize_t res) {
+    atomic_fetch_add_explicit(&current->io.syscr, 1, memory_order_relaxed);
+    if (res <= 0)
+        return;
+    atomic_fetch_add_explicit(&current->io.rchar, (qword_t) res, memory_order_relaxed);
+    if (fd_is_disk_backed(fd)) {
+        atomic_fetch_add_explicit(&current->io.read_bytes, (qword_t) res, memory_order_relaxed);
+        atomic_fetch_add_explicit(&io_disk_read_bytes, (qword_t) res, memory_order_relaxed);
+    }
+}
+
+static void io_account_write(struct fd *fd, ssize_t res) {
+    atomic_fetch_add_explicit(&current->io.syscw, 1, memory_order_relaxed);
+    if (res <= 0)
+        return;
+    atomic_fetch_add_explicit(&current->io.wchar, (qword_t) res, memory_order_relaxed);
+    if (fd_is_disk_backed(fd)) {
+        atomic_fetch_add_explicit(&current->io.write_bytes, (qword_t) res, memory_order_relaxed);
+        atomic_fetch_add_explicit(&io_disk_write_bytes, (qword_t) res, memory_order_relaxed);
+    }
+}
 
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t extra_lock;
@@ -743,6 +781,7 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
         }
         STRACE(" -> %zd bytes", res);
     }
+    io_account_read(fd, res);
     return res;
 }
 
@@ -800,6 +839,7 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     } else {
         return _EBADF;
     }
+    io_account_write(fd, res);
     if (res > 0) {
         if (fd->mount != NULL && fd->mount->fs == &procfs)
             return res;
@@ -1037,6 +1077,7 @@ static dword_t sys_preadv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t io
     }
     unlock(&fd->lock);
     task_may_block_end();
+    io_account_read(fd, res);
     if (res > 0) {
         size_t remaining = (size_t) res;
         size_t offset = 0;
@@ -1111,6 +1152,7 @@ static dword_t sys_pwritev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t i
     }
     unlock(&fd->lock);
     task_may_block_end();
+    io_account_write(fd, res);
 out:
     free(buf);
     free(iovec);
@@ -1204,6 +1246,7 @@ dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off)
         off_t_ lseek_res = fd->ops->lseek(fd, saved_off, LSEEK_SET);
         assert(lseek_res >= 0);
     }
+    io_account_read(fd, res);
     if (res >= 0) {
         char path[MAX_PATH];
         if (fs_trace_elogind() && generic_getpath(fd, path) == 0 && fs_trace_interesting_path(path)) {
@@ -1270,6 +1313,7 @@ dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off
         }
     }
     unlock(&fd->lock);
+    io_account_write(fd, res);
     if (buf != stack_buf) free(buf);
     return res;
 }
@@ -2292,8 +2336,10 @@ static dword_t fd_copy_range(fd_t in_no, off_t_ *in_off, fd_t out_no, off_t_ *ou
             ssize_t nr = copy_read_chunk(in_fd, buf, want, in_off);
             if (nr < 0) { err = (int) nr; break; }
             if (nr == 0) break; // EOF on the input
+            io_account_read(in_fd, nr);
             ssize_t nw = copy_write_chunk(out_fd, buf, (size_t) nr, out_off);
             if (nw < 0) { err = (int) nw; break; }
+            io_account_write(out_fd, nw);
             total += (dword_t) nw;
             if (nw < nr) break; // short write: report progress, stop
         }

@@ -456,8 +456,13 @@ static int proc_show_vmstat(struct proc_entry *UNUSED(entry), struct proc_data *
     proc_printf(buf, "nr_inactive_anon %"PRIu64"\n", usage.inactive / 4096);
     proc_printf(buf, "nr_active_file 0\n");
     proc_printf(buf, "nr_inactive_file 0\n");
-    proc_printf(buf, "pgpgin 0\n");
-    proc_printf(buf, "pgpgout 0\n");
+    // pgpgin/pgpgout are in KiB (the kernel's unit for these two), fed by the
+    // per-task I/O accounting in kernel/fs.c. iotop's "Total DISK READ/WRITE"
+    // header derives from the delta between reads of these.
+    proc_printf(buf, "pgpgin %llu\n", (unsigned long long)
+            (atomic_load_explicit(&io_disk_read_bytes, memory_order_relaxed) / 1024));
+    proc_printf(buf, "pgpgout %llu\n", (unsigned long long)
+            (atomic_load_explicit(&io_disk_write_bytes, memory_order_relaxed) / 1024));
     proc_printf(buf, "pswpin %"PRIu64"\n", usage.swapins / 4096);
     proc_printf(buf, "pswpout %"PRIu64"\n", usage.swapouts / 4096);
     proc_printf(buf, "pgfault 0\n");

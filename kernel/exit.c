@@ -283,6 +283,13 @@ noreturn void do_exit(struct task *task, int status) {
 
     complex_lockt(&pids_lock, 0);
 
+    // Roll this thread's I/O counters into the group so the process totals in
+    // /proc/<pid>/io survive thread exit. Zero the live counters in the same
+    // pids_lock section so a concurrent reader summing threads + io_dead never
+    // double-counts.
+    task_io_counters_add(&task->group->io_dead, &task->io);
+    memset(&task->io, 0, sizeof(task->io));
+
     // save things that our parent might be interested in
     task->exit_code = status;
     if (amd64_trace_task_or_parent_lineage(task)) {

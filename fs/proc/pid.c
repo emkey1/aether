@@ -558,6 +558,37 @@ static int proc_pid_status_show(struct proc_entry *entry, struct proc_data *buf)
     return 0;
 }
 
+static int proc_pid_io_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+
+    // For a thread-group leader report the whole process (live threads plus
+    // the io_dead rollup of exited ones), matching Linux's /proc/<tgid>/io;
+    // for any other task just that thread's counters.
+    struct task_io_counters io = {};
+    complex_lockt(&pids_lock, 1);
+    if (task_is_leader(task)) {
+        task_io_counters_add(&io, &task->group->io_dead);
+        struct task *thread;
+        list_for_each_entry(&task->group->threads, thread, group_links)
+            task_io_counters_add(&io, &thread->io);
+    } else {
+        task_io_counters_add(&io, &task->io);
+    }
+    unlock(&pids_lock);
+    proc_put_task(task);
+
+    proc_printf(buf, "rchar: %llu\n", (unsigned long long) io.rchar);
+    proc_printf(buf, "wchar: %llu\n", (unsigned long long) io.wchar);
+    proc_printf(buf, "syscr: %llu\n", (unsigned long long) io.syscr);
+    proc_printf(buf, "syscw: %llu\n", (unsigned long long) io.syscw);
+    proc_printf(buf, "read_bytes: %llu\n", (unsigned long long) io.read_bytes);
+    proc_printf(buf, "write_bytes: %llu\n", (unsigned long long) io.write_bytes);
+    proc_printf(buf, "cancelled_write_bytes: %llu\n", (unsigned long long) io.cancelled_write_bytes);
+    return 0;
+}
+
 static int proc_pid_cgroup_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     // iSH does not track per-task cgroup membership, so report every task at the
     // root ("/") of each mounted hierarchy. The named v1 hierarchies (e.g.
@@ -1216,6 +1247,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"exe", S_IFLNK, .readlink = proc_pid_exe_readlink},
     {"fd", S_IFDIR, .readdir = proc_pid_fd_readdir},
     {"fdinfo", S_IFDIR, .readdir = proc_pid_fdinfo_readdir},
+    {"io", .show = proc_pid_io_show},
     {"maps", .show = proc_pid_maps_show},
     {"mem", .pread = proc_pid_mem_pread, .pwrite = proc_pid_mem_pwrite},
     {"mountinfo", .show = proc_show_mountinfo},
