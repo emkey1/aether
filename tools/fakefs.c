@@ -363,9 +363,15 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     // (EOF reached normally above; ARCHIVE_WARN entries were imported and hard
     // errors already returned, so no trailing status check is needed.)
 
-    // Add a path entry for the root if it's missing
+    // Add a path entry for the root if it's missing. Every other row's mode
+    // comes from archive_entry_mode(), which libarchive populates with the
+    // S_IFMT type bits from the tar header; this synthetic fallback must OR
+    // S_IFDIR in explicitly or the root inode ends up untyped (bare 0755,
+    // S_ISDIR() false), which among other things makes dpkg see "/" as a
+    // "weird file" and misfire "trying to overwrite '/.'" on the first
+    // package whose data.tar includes a "./" entry (nearly all of them).
     if (!archive_has_root) {
-        struct ish_stat stat = {.mode = 0755};
+        struct ish_stat stat = {.mode = S_IFDIR | 0755};
         sqlite3_bind_blob64(insert_stat, 1, &stat, sizeof(stat), SQLITE_TRANSIENT);
         STEP_RESET(insert_stat);
         sqlite3_bind_blob64(insert_path, 1, "", 0, SQLITE_TRANSIENT);
