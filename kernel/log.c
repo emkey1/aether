@@ -214,7 +214,7 @@ void ish_printk(const char *msg, ...) {
 #define NEWLINE "\r\n"
 static void log_line(const char *line) {
     struct iovec output[2] = {{(void *) line, strlen(line)}, {"\n", 1}};
-    writev(666, output, 2);
+    writev(555, output, 2);
 }
 #elif LOG_HANDLER_NSLOG
 static void log_line(const char *line) {
