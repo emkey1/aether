@@ -966,10 +966,66 @@ static void tmpfs_seekdir(struct fd *fd, unsigned long ptr) {
     unlock(&dir->lock);
 }
 
+#define TMPFS_BLOCK_SIZE 4096
+
+static void tmpfs_count_tree(struct tmp_dirent *dir, uint64_t *pages, uint64_t *inodes) {
+    struct tmp_dirent *child;
+    lock(&dir->lock, 0);
+    list_for_each_entry(&dir->children, child, dir) {
+        if (child->inode == NULL)
+            continue;
+        (*inodes)++;
+        if (S_ISREG(child->inode->stat.mode))
+            *pages += ((uint64_t) child->inode->stat.size + TMPFS_BLOCK_SIZE - 1) / TMPFS_BLOCK_SIZE;
+        if (S_ISDIR(child->inode->stat.mode))
+            tmpfs_count_tree(child, pages, inodes);
+    }
+    unlock(&dir->lock);
+}
+
+static int tmpfs_statfs(struct mount *mount, struct statfsbuf *stat) {
+    // Linux tmpfs reports the mount's size limit as f_blocks (default: half
+    // of RAM) and decrements f_bfree/f_bavail by pages actually stored; the
+    // inode cap defaults to the same count as the block cap. There is no
+    // size= limit enforcement here, so report the Linux default cap derived
+    // from host RAM and subtract what the mount's inodes actually hold.
+    uint64_t total_pages = 0;
+    long phys_pages = sysconf(_SC_PHYS_PAGES);
+    long host_page_size = sysconf(_SC_PAGESIZE);
+    if (phys_pages > 0 && host_page_size > 0)
+        total_pages = (uint64_t) phys_pages * host_page_size / 2 / TMPFS_BLOCK_SIZE;
+    if (total_pages == 0)
+        total_pages = 1 << 18; // 1 GiB fallback
+
+    uint64_t used_pages = 0, used_inodes = 1; // root inode
+    struct tmp_dirent *root = mount->data;
+    if (root != NULL)
+        tmpfs_count_tree(root, &used_pages, &used_inodes);
+
+    stat->bsize = TMPFS_BLOCK_SIZE;
+    stat->frsize = TMPFS_BLOCK_SIZE;
+    stat->blocks = total_pages;
+    stat->bfree = stat->bavail = used_pages < total_pages ? total_pages - used_pages : 0;
+    stat->files = total_pages;
+    stat->ffree = used_inodes < total_pages ? total_pages - used_inodes : 0;
+    stat->namelen = 255;
+    return 0;
+}
+
+// Linux reports zero block and inode counts for cgroup filesystems, just the
+// block size and name limit.
+static int cgroupfs_statfs(struct mount *UNUSED(mount), struct statfsbuf *stat) {
+    stat->bsize = TMPFS_BLOCK_SIZE;
+    stat->frsize = TMPFS_BLOCK_SIZE;
+    stat->namelen = 255;
+    return 0;
+}
+
 const struct fs_ops tmpfs = {
     .name = "tmpfs", .magic = 0x01021994,
     .mount = tmpfs_mount,
     .umount = tmpfs_umount,
+    .statfs = tmpfs_statfs,
     .open = tmpfs_open,
     .close = tmpfs_close,
     .stat = tmpfs_stat,
@@ -991,6 +1047,7 @@ const struct fs_ops cgroupfs = {
     .name = "cgroup", .magic = 0x27e0eb,
     .mount = tmpfs_mount,
     .umount = tmpfs_umount,
+    .statfs = cgroupfs_statfs,
     .open = tmpfs_open,
     .close = tmpfs_close,
     .stat = tmpfs_stat,
@@ -1012,6 +1069,7 @@ const struct fs_ops cgroup2fs = {
     .name = "cgroup2", .magic = 0x63677270,
     .mount = tmpfs_mount,
     .umount = tmpfs_umount,
+    .statfs = cgroupfs_statfs,
     .open = tmpfs_open,
     .close = tmpfs_close,
     .stat = tmpfs_stat,
