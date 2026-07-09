@@ -248,6 +248,36 @@ static void test_inet_tcp(void) {
     close(cli); close(lst);
 }
 
+// A wildcard *destination* means "this host" on Linux: sendto(0.0.0.0:port)
+// must reach a local listener. Darwin fails such sends with EHOSTUNREACH, so
+// iSH rewrites the destination (fs/sock.c sockaddr_read). stress-ng --udp's
+// client targets 0.0.0.0 and died instantly, stranding its server.
+static void test_sendto_wildcard_dest(void) {
+    int srv = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in sa; memset(&sa, 0, sizeof sa);
+    sa.sin_family = AF_INET; sa.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(srv, (struct sockaddr *) &sa, sizeof sa) < 0) {
+        check("udp0000.setup", 0, 1); close(srv); return;
+    }
+    struct sockaddr_in bound; socklen_t bl = sizeof bound;
+    getsockname(srv, (struct sockaddr *) &bound, &bl);
+    struct sockaddr_in dst; memset(&dst, 0, sizeof dst);
+    dst.sin_family = AF_INET;
+    dst.sin_addr.s_addr = htonl(INADDR_ANY); // 0.0.0.0, NOT loopback
+    dst.sin_port = bound.sin_port;
+    int cli = socket(AF_INET, SOCK_DGRAM, 0);
+    ssize_t sr = sendto(cli, "ping", 4, 0, (struct sockaddr *) &dst, sizeof dst);
+    check("udp0000.sendto", sr == 4, 1);
+    if (sr == 4) {
+        char buf[8] = {0};
+        arm_alarm(3);
+        ssize_t n = recv(srv, buf, sizeof buf, 0);
+        alarm(0);
+        check("udp0000.delivered", n == 4 && memcmp(buf, "ping", 4) == 0, 1);
+    }
+    close(cli); close(srv);
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     signal(SIGPIPE, SIG_IGN);
@@ -260,5 +290,6 @@ int main(int argc, char **argv) {
     test_pipe_poll_hup();
     test_unix_stream();
     test_inet_tcp();
+    test_sendto_wildcard_dest();
     return finish_suite("sock_conformance");
 }

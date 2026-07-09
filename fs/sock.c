@@ -1096,28 +1096,42 @@ static bool socket_should_map_unix_eperm_to_eagain(struct fd *sock, int real_fla
     return !socket_call_is_blocking(sock, real_flags);
 }
 
-static bool socket_blocking_syscall_begin(sigset_t *oldmask) {
-    sigset_t sigusr1;
-    sigemptyset(&sigusr1);
-    sigaddset(&sigusr1, SIGUSR1);
-    pthread_sigmask(SIG_BLOCK, &sigusr1, oldmask);
-
-    if (sigunwind_start()) {
-        pthread_sigmask(SIG_SETMASK, oldmask, NULL);
-        errno = EINTR;
-        return false;
-    }
-
-    if (socket_guest_signal_pending()) {
-        sigunwind_end();
-        pthread_sigmask(SIG_SETMASK, oldmask, NULL);
-        errno = EINTR;
-        return false;
-    }
-
-    pthread_sigmask(SIG_SETMASK, oldmask, NULL);
-    return true;
-}
+// Must be a macro, not a function: it plants the sigsetjmp unwind point (via
+// sigunwind_start) that sigusr1_handler siglongjmps back to while the CALLER
+// is blocked in the host syscall. As a function, that jump targeted this
+// helper's dead stack frame -- it "worked" often enough to look fine, but the
+// local oldmask it then restored with SIG_SETMASK had been clobbered by the
+// blocking call's frames, so the thread's host signal mask became garbage.
+// When the garbage included SIGUSR1, the thread went permanently deaf to
+// task_poke, and its next blocking socket call hung unkillably (stress-ng's
+// network sweep wedged in recvfrom with SIGALRM+SIGCHLD pending and unblocked).
+// Same rule as sigunwind_start itself: see util/sync.h.
+//
+// The explicit SIG_UNBLOCK before entering the syscall mirrors fs/poll.c:
+// guest sigprocmask only changes the guest-level mask, so make sure the host
+// mask can never silently suppress the poke.
+#define socket_blocking_syscall_begin(oldmask_p) ({ \
+    bool __sbsb_ok; \
+    sigset_t __sbsb_sigusr1; \
+    sigemptyset(&__sbsb_sigusr1); \
+    sigaddset(&__sbsb_sigusr1, SIGUSR1); \
+    pthread_sigmask(SIG_BLOCK, &__sbsb_sigusr1, (oldmask_p)); \
+    if (sigunwind_start()) { \
+        pthread_sigmask(SIG_SETMASK, (oldmask_p), NULL); \
+        errno = EINTR; \
+        __sbsb_ok = false; \
+    } else if (socket_guest_signal_pending()) { \
+        sigunwind_end(); \
+        pthread_sigmask(SIG_SETMASK, (oldmask_p), NULL); \
+        errno = EINTR; \
+        __sbsb_ok = false; \
+    } else { \
+        pthread_sigmask(SIG_SETMASK, (oldmask_p), NULL); \
+        pthread_sigmask(SIG_UNBLOCK, &__sbsb_sigusr1, NULL); \
+        __sbsb_ok = true; \
+    } \
+    __sbsb_ok; \
+})
 
 static void socket_blocking_syscall_end(void) {
     sigunwind_end();
@@ -2380,6 +2394,24 @@ static int sockaddr_read(guest_addr_t sockaddr_addr, void *sockaddr, uint_t *soc
     struct inode_data *inode = NULL;
     int err = sockaddr_read_bind(sockaddr_addr, sockaddr, sockaddr_len, NULL);
     inode_release_if_exist(inode);
+    if (err < 0)
+        return err;
+    // As a *destination* (connect/sendto/sendmsg -- everything except bind,
+    // which uses sockaddr_read_bind directly), the wildcard address means
+    // "this host" on Linux: 0.0.0.0 behaves like 127.0.0.1 and :: like ::1.
+    // Darwin instead fails such sends with EHOSTUNREACH. stress-ng --udp's
+    // client targets 0.0.0.0, so every send died instantly and the server
+    // side sat in recvfrom forever.
+    struct sockaddr *real_addr = sockaddr;
+    if (real_addr->sa_family == PF_INET) {
+        struct sockaddr_in *sin = (struct sockaddr_in *) real_addr;
+        if (sin->sin_addr.s_addr == htonl(INADDR_ANY))
+            sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    } else if (real_addr->sa_family == PF_INET6) {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) real_addr;
+        if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr))
+            sin6->sin6_addr = in6addr_loopback;
+    }
     return err;
 }
 
@@ -2924,22 +2956,27 @@ static int_t sys_socketpair_common(dword_t domain, dword_t type, dword_t protoco
     if (err < 0)
         return errno_map();
 
-    lock(&peer_lock, 0);
+    // Do NOT hold peer_lock across sock_fd_create: its failure path
+    // (f_install with the fd table full) calls fd_close -> sock_close, which
+    // takes peer_lock itself -- a self-deadlock on this non-recursive lock.
+    // stress-ng --sockpair exhausts fds by design and hit this every run,
+    // freezing the whole process (every other socketpair/sock_close/kill
+    // piled up behind the dead lock holder). The host socketpair() above is
+    // already fully connected, so the only window this opens is iSH's own
+    // unix_peer metadata lagging until the lock below -- harmless next to a
+    // guaranteed deadlock.
     int fake_sockets[2];
     err = fake_sockets[0] = sock_fd_create(sockets[0], domain, type, protocol);
-    if (fake_sockets[0] < 0) {
-        unlock(&peer_lock);
+    if (fake_sockets[0] < 0)
         goto close_sockets;
-    }
     err = fake_sockets[1] = sock_fd_create(sockets[1], domain, type, protocol);
-    if (fake_sockets[1] < 0) {
-        unlock(&peer_lock);
+    if (fake_sockets[1] < 0)
         goto close_fake_0;
-    }
     struct fd *sock1 = f_get(fake_sockets[0]);
     struct fd *sock2 = f_get(fake_sockets[1]);
     fill_cred(&sock1->socket.unix_cred);
     fill_cred(&sock2->socket.unix_cred);
+    lock(&peer_lock, 0);
     sock1->socket.unix_peer = sock2;
     sock2->socket.unix_peer = sock1;
     sock1->socket.unix_peer_cred = sock2->socket.unix_cred;

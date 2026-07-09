@@ -2391,17 +2391,30 @@ static int do_kill(pid_t_ pid, dword_t sig, pid_t_ tgid, int si_code) {
         complex_lockt(&pids_lock, 0);
         err = kill_group(-pid, sig, si_code);
     } else {
-        struct task *task = pid_get_task_ref(pid);
+        complex_lockt(&pids_lock, 0);
+        struct task *task = pid_get_task_zombie(pid);
         if (task == NULL) {
+            unlock(&pids_lock);
             return _ESRCH;
         }
 
         // If tgid is nonzero, it must be correct
         if (tgid != 0 && task->tgid != tgid) {
-            task_ref_cnt_mod(task, -1);
+            unlock(&pids_lock);
             return _ESRCH;
         }
 
+        // An exited-but-unreaped (zombie) task still exists for kill() on
+        // Linux: the signal is discarded but the call returns 0, not ESRCH.
+        // stress-ng does kill(child, SIGKILL) right after the child exits,
+        // before wait4() reaps it.
+        if (task->zombie) {
+            unlock(&pids_lock);
+            return 0;
+        }
+
+        task_ref_cnt_mod(task, 1);
+        unlock(&pids_lock);
         err = signal_kill_task(task, sig, si_code);
         task_ref_cnt_mod(task, -1);
     }

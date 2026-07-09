@@ -212,6 +212,20 @@ static void test_fork_shared_offset(void) {
     close(fd); close(rd);
 }
 
+// kill() on an exited-but-unreaped (zombie) child returns 0 on Linux -- the
+// process still exists until reaped; the signal is just discarded. iSH
+// returned ESRCH, which stress-ng hits with kill(child, SIGKILL) right
+// before wait4().
+static void test_kill_zombie(void) {
+    pid_t pid = fork();
+    if (pid == 0) _exit(0);
+    usleep(300000); // let the child become a zombie; do NOT reap yet
+    errno = 0;
+    check("kill_zombie.ret", kill(pid, SIGKILL), 0);
+    int st;
+    check("kill_zombie.reap", waitpid(pid, &st, 0), pid);
+}
+
 int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "--sleeper") == 0)
         return sleeper(argc, argv);
@@ -225,5 +239,6 @@ int main(int argc, char **argv) {
     test_wnohang();
     test_stop_continue();
     test_fork_shared_offset();
+    test_kill_zombie();
     return finish_suite("process_conformance");
 }
