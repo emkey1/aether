@@ -3296,6 +3296,14 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
     struct fd *sock = sock_getfd(sock_fd);
     if (sock == NULL)
         return _EBADF;
+    // value_len is the guest's raw setsockopt(2) optlen argument -- entirely
+    // guest-controlled, with no upper bound of its own. No real socket option
+    // is anywhere close to this size; reject before the VLA below turns an
+    // absurd optlen (observed: 0xffffffff from a stress-ng fuzz) into an
+    // unbounded stack allocation that blows through the guard page and
+    // crashes the whole process.
+    if (value_len > 4096)
+        return _EINVAL;
     char value[value_len];
     if (user_read(value_addr, value, value_len))
         return _EFAULT;
@@ -3521,6 +3529,10 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
     dword_t user_value_len;
     if (user_get(len_addr, user_value_len))
         return _EFAULT;
+    // Same unbounded-VLA hazard as sys_setsockopt_guest_abi: user_value_len
+    // comes from guest memory at len_addr, entirely guest-controlled.
+    if (user_value_len > 4096)
+        return _EINVAL;
     char value[user_value_len != 0 ? user_value_len : 1];
     if (user_value_len != 0 && user_read(value_addr, value, user_value_len))
         return _EFAULT;
