@@ -278,6 +278,22 @@ static struct statx_ stat_convert_statx(struct statbuf stat) {
     return statx;
 }
 
+// Filesystems with no real backing device (tmpfs, proc, devpts...) leave
+// stat->dev at 0; stamp the mount's anonymous device so each mount is
+// distinguishable by st_dev, as on Linux.
+static void stat_stamp_fake_dev(struct mount *mount, struct statbuf *stat) {
+    if (stat->dev == 0)
+        stat->dev = mount->fake_dev;
+}
+
+int generic_fstat(struct fd *fd, struct statbuf *stat) {
+    memset(stat, 0, sizeof(*stat));
+    int err = fd->mount->fs->fstat(fd, stat);
+    if (err >= 0)
+        stat_stamp_fake_dev(fd->mount, stat);
+    return err;
+}
+
 int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int flags) {
     int err;
 
@@ -286,8 +302,7 @@ int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, in
 
     char path[MAX_PATH];
     if (empty_path && (strcmp(path_raw, "") == 0)) {
-        memset(stat, 0, sizeof(*stat));
-        return at->mount->fs->fstat(at, stat);
+        return generic_fstat(at, stat);
     } else {
         err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
         if (err < 0)
@@ -299,6 +314,8 @@ int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, in
         return _ENOENT;
     memset(stat, 0, sizeof(*stat));
     err = mount->fs->stat(mount, path, stat);
+    if (err >= 0)
+        stat_stamp_fake_dev(mount, stat);
     mount_release(mount);
     return err;
 }
@@ -406,7 +423,7 @@ dword_t sys_fstat_arm64_guest(fd_t fd_no, guest_addr_t statbuf_addr) {
     if (fd == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    int err = fd->mount->fs->fstat(fd, &stat);
+    int err = generic_fstat(fd, &stat);
     if (err < 0)
         return err;
     struct arm64_stat_ guest_stat = stat_convert_arm64(stat);
@@ -433,7 +450,7 @@ dword_t sys_fstat64(fd_t fd_no, addr_t statbuf_addr) {
     if (fd == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    int err = fd->mount->fs->fstat(fd, &stat);
+    int err = generic_fstat(fd, &stat);
     char path[MAX_PATH];
     path[0] = '\0';
     generic_getpath(fd, path);
@@ -456,7 +473,7 @@ dword_t sys_fstat_amd64_guest(fd_t fd_no, guest_addr_t statbuf_addr) {
     if (fd == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    int err = fd->mount->fs->fstat(fd, &stat);
+    int err = generic_fstat(fd, &stat);
     if (err < 0)
         return err;
     struct amd64_stat_ guest_stat = stat_convert_amd64(stat);
@@ -510,7 +527,7 @@ dword_t sys_fstat(fd_t fd_no, addr_t statbuf_addr) {
     if (fd == NULL)
         return _EBADF;
     struct statbuf stat = {};
-    int err = fd->mount->fs->fstat(fd, &stat);
+    int err = generic_fstat(fd, &stat);
     char path[MAX_PATH];
     path[0] = '\0';
     generic_getpath(fd, path);

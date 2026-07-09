@@ -36,6 +36,7 @@ static const struct fs_ops memfd_fs = {
 static struct mount memfd_mount = {
     .point = "",
     .fs = &memfd_fs,
+    .fake_dev = FAKE_DEV_MINOR_MEMFD, // Linux memfds live on the internal shm tmpfs (anon dev)
 };
 
 static struct memfd_state *memfd_state_get(struct fd *fd) {

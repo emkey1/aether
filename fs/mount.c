@@ -112,6 +112,11 @@ int do_mount(const struct fs_ops *fs, const char *source, const char *point, con
     new_mount->refcount = 0;
     new_mount->bind_origin = NULL;
     new_mount->bind_prefix = NULL;
+    // Unique anonymous device per mount (Linux 0:xx); minors below
+    // FAKE_DEV_MINOR_DYNAMIC are reserved for the static pseudo-mounts
+    // (adhoc pipes/sockets, memfd).
+    static _Atomic unsigned next_fake_dev_minor = FAKE_DEV_MINOR_DYNAMIC;
+    new_mount->fake_dev = dev_make(0, next_fake_dev_minor++);
     if (fs->mount) {
         int err = fs->mount(new_mount);
         if (err < 0) {
@@ -238,6 +243,7 @@ static int do_bind_mount(const char *norm_source, const char *point, const char 
     bind->refcount = 0;
     bind->root_fd = -1;
     bind->data = NULL;
+    bind->fake_dev = origin->fake_dev; // a bind shares the origin's superblock
     bind->bind_origin = origin; // keeps the reference returned above
 
     lock(&mounts_lock, 0);

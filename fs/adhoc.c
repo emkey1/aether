@@ -90,4 +90,5 @@ static const struct fs_ops adhoc_fs = {
 static struct mount adhoc_mount = {
     .fs = &adhoc_fs,
     .point = "",
+    .fake_dev = FAKE_DEV_MINOR_ADHOC, // pipes/sockets live on an anon dev like Linux's pipefs/sockfs
 };

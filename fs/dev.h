@@ -30,6 +30,15 @@ static inline dev_t_ dev_fake_from_real(dev_t dev) {
     return dev_make(major(dev), minor(dev));
 }
 
+// Anonymous device minors (major 0, Linux 0:xx semantics) for filesystems
+// with no real backing device. Static pseudo-mounts get fixed minors below
+// FAKE_DEV_MINOR_DYNAMIC; do_mount() hands out minors from there up, one per
+// mount. Note dev_make(0, m) == m for m < 256, so the static-mount
+// initializers can use these constants directly.
+#define FAKE_DEV_MINOR_MEMFD 1
+#define FAKE_DEV_MINOR_ADHOC 2
+#define FAKE_DEV_MINOR_DYNAMIC 15
+
 #define DEV_BLOCK 0
 #define DEV_CHAR 1
 

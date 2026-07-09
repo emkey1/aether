@@ -70,6 +70,8 @@ int generic_seek(struct fd *fd, off_t_ off, int whence, size_t size);
 #define AC_F 0
 int generic_accessat(struct fd *dirfd, const char *path, int mode);
 int generic_statat(struct fd *at, const char *path, struct statbuf *stat, int flags);
+// fstat with the mount's anonymous st_dev stamped when the fs leaves dev 0
+int generic_fstat(struct fd *fd, struct statbuf *stat);
 int generic_setattrat(struct fd *at, const char *path, struct attr attr, bool follow_links);
 int generic_utime(struct fd *at, const char *path, struct timespec atime, struct timespec mtime, bool follow_links);
 ssize_t generic_readlinkat(struct fd *at, const char *path, char *buf, size_t bufsize);
@@ -86,6 +88,15 @@ struct mount {
     const struct fs_ops *fs;
     unsigned refcount;
     struct list mounts;
+
+    // Anonymous device number for this mount (Linux 0:xx semantics), stamped
+    // into stat results when the filesystem doesn't provide one (stat->dev
+    // left 0: tmpfs, proc, sys, devpts, cgroup...). Filesystems that derive a
+    // real device (realfs/fakefs via the host st_dev) are left alone. Unique
+    // per mount so st_dev comparisons (df mount matching, find -xdev, du -x)
+    // can tell virtual mounts apart. Binds copy their origin's, matching
+    // Linux (a bind shares the origin superblock).
+    dev_t_ fake_dev;
 
     int root_fd;
     union {
