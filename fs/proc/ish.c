@@ -219,13 +219,22 @@ static void get_child_names(struct proc_entry *entry, unsigned long index) {
     if (index == 0 || entry->child_names == NULL) {
         if (entry->child_names != NULL)
             free_string_array(entry->child_names);
-        entry->child_names = get_all_defaults_keys();
+        // get_all_defaults_keys is installed by the iOS app (UserPreferences.m);
+        // it is NULL in the command-line build. Fall back to an empty (but
+        // valid, NULL-terminated) listing rather than calling through NULL --
+        // reading /proc/ish/defaults otherwise crashed the emulator.
+        entry->child_names = get_all_defaults_keys != NULL ? get_all_defaults_keys() : NULL;
+        if (entry->child_names == NULL) {
+            entry->child_names = malloc(sizeof(char *));
+            if (entry->child_names != NULL)
+                entry->child_names[0] = NULL;
+        }
     }
 }
 
 static bool proc_ish_underlying_defaults_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     get_child_names(entry, *index);
-    if (entry->child_names[*index] == NULL)
+    if (entry->child_names == NULL || entry->child_names[*index] == NULL)
         return false;
     next_entry->meta = &proc_ish_underlying_defaults_fd;
     next_entry->name = strdup(entry->child_names[*index]);
