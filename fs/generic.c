@@ -286,7 +286,23 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     fd->type = stat.mode & S_IFMT;
     fd->flags = flags;
 
-    assert(!S_ISLNK(fd->type)); // would mean path_normalize didn't do its job
+    // path_normalize should have already followed every symlink component
+    // (including the final one, unless O_NOFOLLOW), so fd->type should never
+    // land here as S_IFLNK. It did on-device under heavy concurrent load
+    // (700+ threads, many processes opening shared libraries): fakefs's
+    // per-syscall metadata reads (fakefs_readlink at path_normalize time vs.
+    // fakefs_fstat here, both against the same SQLite ish_stat row) are not
+    // atomic with each other, so a concurrent writer can flip a path's
+    // recorded type between the two reads. That is a narrow, rare
+    // inconsistency in fakefs locking, not a corrupted filesystem -- but this
+    // used to be an assert(), which aborted the whole app on every occurrence.
+    // Fail just this open() instead, like Linux does when open() loses a
+    // symlink race (ELOOP), and let the caller (sshd's dlopen, in the crash
+    // that motivated this) retry or report an ordinary error.
+    if (S_ISLNK(fd->type)) {
+        err = _ELOOP;
+        goto error;
+    }
     if (S_ISBLK(fd->type) || S_ISCHR(fd->type)) {
         int type;
         if (S_ISBLK(fd->type))
