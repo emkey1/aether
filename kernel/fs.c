@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "kernel/calls.h"
 #include "kernel/errno.h"
@@ -30,7 +31,9 @@ _Atomic qword_t io_disk_read_bytes;
 _Atomic qword_t io_disk_write_bytes;
 
 static bool fd_is_disk_backed(struct fd *fd) {
-    return fd->mount != NULL &&
+    // Regular files only: device nodes (/dev/zero etc.) live on the same
+    // fakefs mount but their traffic never reaches storage.
+    return S_ISREG(fd->type) && fd->mount != NULL &&
         (fd->mount->fs == &realfs || fd->mount->fs == &fakefs);
 }
 
@@ -43,6 +46,31 @@ static void io_account_read(struct fd *fd, ssize_t res) {
         atomic_fetch_add_explicit(&current->io.read_bytes, (qword_t) res, memory_order_relaxed);
         atomic_fetch_add_explicit(&io_disk_read_bytes, (qword_t) res, memory_order_relaxed);
     }
+}
+
+// Block-I/O delay accounting for taskstats (iotop's IO> percentage): wall
+// time spent inside a file-backed read/write op. io_delay_start returns 0
+// for fds that aren't disk-backed so pipes/ttys don't pay the clock reads.
+static uint64_t io_delay_start(struct fd *fd) {
+    if (fd == NULL || !fd_is_disk_backed(fd))
+        return 0;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0;
+    uint64_t now = (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
+    return now != 0 ? now : 1;
+}
+
+static void io_delay_end(uint64_t start) {
+    if (start == 0)
+        return;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return;
+    uint64_t now = (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec;
+    atomic_fetch_add_explicit(&current->io.blkio_count, 1, memory_order_relaxed);
+    if (now > start)
+        atomic_fetch_add_explicit(&current->io.blkio_delay_ns, now - start, memory_order_relaxed);
 }
 
 static void io_account_write(struct fd *fd, ssize_t res) {
@@ -756,6 +784,7 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
         return _EISDIR;
 
     ssize_t res;
+    uint64_t delay_start = io_delay_start(fd);
     if (fd->ops->read) {
         res = fd->ops->read(fd, buf, size);
     } else if (fd->ops->pread) {
@@ -766,6 +795,7 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
     } else {
         return _EBADF;
     }
+    io_delay_end(delay_start);
 
     if (res >= 0) {
         char path[MAX_PATH];
@@ -829,6 +859,7 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
         return _EBADF;
 
     ssize_t res;
+    uint64_t delay_start = io_delay_start(fd);
     if (fd->ops->write) {
         res = fd->ops->write(fd, buf, size);
     } else if (fd->ops->pwrite) {
@@ -839,6 +870,7 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     } else {
         return _EBADF;
     }
+    io_delay_end(delay_start);
     io_account_write(fd, res);
     if (res > 0) {
         if (fd->mount != NULL && fd->mount->fs == &procfs)
@@ -1064,6 +1096,7 @@ static dword_t sys_preadv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t io
     }
     task_may_block_start();
     lock(&fd->lock, 0);
+    uint64_t delay_start = io_delay_start(fd);
     if (fd->ops->pread) {
         res = fd->ops->pread(fd, buf, io_size, off);
     } else if (fd->ops->lseek && fd->ops->read) {
@@ -1075,6 +1108,7 @@ static dword_t sys_preadv_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t io
     } else {
         res = _ESPIPE;
     }
+    io_delay_end(delay_start);
     unlock(&fd->lock);
     task_may_block_end();
     io_account_read(fd, res);
@@ -1139,6 +1173,7 @@ static dword_t sys_pwritev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t i
     }
     task_may_block_start();
     lock(&fd->lock, 0);
+    uint64_t delay_start = io_delay_start(fd);
     if (fd->ops->pwrite) {
         res = fd->ops->pwrite(fd, buf, offset, off);
     } else if (fd->ops->lseek && fd->ops->write) {
@@ -1150,6 +1185,7 @@ static dword_t sys_pwritev_common(fd_t fd_no, guest_addr_t iovec_addr, dword_t i
     } else {
         res = _ESPIPE;
     }
+    io_delay_end(delay_start);
     unlock(&fd->lock);
     task_may_block_end();
     io_account_write(fd, res);
@@ -1231,11 +1267,13 @@ dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off)
     task_may_block_start();
     lock(&fd->lock, 0);
     ssize_t res;
+    uint64_t delay_start = io_delay_start(fd);
     if (fd->ops->pread) {
         res = fd->ops->pread(fd, buf, size, off);
     } else {
         off_t_ saved_off = fd->ops->lseek(fd, 0, LSEEK_CUR);
         if ((res = fd->ops->lseek(fd, off, LSEEK_SET)) < 0) {
+            io_delay_end(delay_start);
             goto out;
         }
         res = fd->ops->read(fd, buf, size);
@@ -1246,6 +1284,7 @@ dword_t sys_pread_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off)
         off_t_ lseek_res = fd->ops->lseek(fd, saved_off, LSEEK_SET);
         assert(lseek_res >= 0);
     }
+    io_delay_end(delay_start);
     io_account_read(fd, res);
     if (res >= 0) {
         char path[MAX_PATH];
@@ -1295,7 +1334,8 @@ dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off
     
     lock(&fd->lock, 0);
     ssize_t res;
-    
+    uint64_t delay_start = io_delay_start(fd);
+
     TASK_MAY_BLOCK {
         if (fd->ops->pwrite) {
             res = fd->ops->pwrite(fd, buf, size, off);
@@ -1313,6 +1353,7 @@ dword_t sys_pwrite_guest(fd_t f, guest_addr_t buf_addr, dword_t size, off_t_ off
         }
     }
     unlock(&fd->lock);
+    io_delay_end(delay_start);
     io_account_write(fd, res);
     if (buf != stack_buf) free(buf);
     return res;
@@ -2244,6 +2285,7 @@ dword_t sys_fsync(fd_t f) {
 // advanced (mirrors sys_read_buf). Returns bytes read, 0 at EOF, or -errno.
 static ssize_t copy_read_chunk(struct fd *fd, void *buf, size_t size, off_t_ *off) {
     ssize_t res;
+    uint64_t delay_start = io_delay_start(fd);
     lock(&fd->lock, 0);
     if (off == NULL) {
         if (fd->ops->read)
@@ -2269,12 +2311,14 @@ static ssize_t copy_read_chunk(struct fd *fd, void *buf, size_t size, off_t_ *of
             *off += res;
     }
     unlock(&fd->lock);
+    io_delay_end(delay_start);
     return res;
 }
 
 // Symmetric write side for the copy engine.
 static ssize_t copy_write_chunk(struct fd *fd, const void *buf, size_t size, off_t_ *off) {
     ssize_t res;
+    uint64_t delay_start = io_delay_start(fd);
     lock(&fd->lock, 0);
     if (off == NULL) {
         if (fd->ops->write)
@@ -2300,6 +2344,7 @@ static ssize_t copy_write_chunk(struct fd *fd, const void *buf, size_t size, off
             *off += res;
     }
     unlock(&fd->lock);
+    io_delay_end(delay_start);
     return res;
 }
 

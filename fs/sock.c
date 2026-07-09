@@ -265,6 +265,99 @@ struct unix_diag_msg_ {
     uint32_t udiag_cookie[2];
 };
 
+// Generic netlink (NETLINK_GENERIC): just enough of the genl controller to
+// resolve the TASKSTATS family, plus TASKSTATS_CMD_GET itself. This is
+// iotop's only per-pid data source (it hard-exits if genl taskstats is
+// unavailable); pidstat and others use it too. Constants match
+// <linux/genetlink.h> and <linux/taskstats.h>.
+#define GENL_ID_CTRL_ 0x10
+#define CTRL_CMD_NEWFAMILY_ 1
+#define CTRL_CMD_GETFAMILY_ 3
+#define CTRL_ATTR_FAMILY_ID_ 1
+#define CTRL_ATTR_FAMILY_NAME_ 2
+#define CTRL_ATTR_VERSION_ 3
+#define CTRL_ATTR_HDRSIZE_ 4
+#define CTRL_ATTR_MAXATTR_ 5
+
+// Real kernels allocate taskstats' family id dynamically (>= GENL_START_ALLOC
+// = 0x13); userspace must resolve it by name, so any fixed value here is fine.
+#define GENL_FAMILY_TASKSTATS_ 0x16
+#define TASKSTATS_GENL_NAME_ "TASKSTATS"
+#define TASKSTATS_GENL_VERSION_ 0x1
+
+#define TASKSTATS_CMD_GET_ 1
+#define TASKSTATS_CMD_NEW_ 2
+#define TASKSTATS_CMD_ATTR_PID_ 1
+#define TASKSTATS_CMD_ATTR_TGID_ 2
+#define TASKSTATS_TYPE_PID_ 1
+#define TASKSTATS_TYPE_TGID_ 2
+#define TASKSTATS_TYPE_STATS_ 3
+#define TASKSTATS_TYPE_AGGR_PID_ 4
+#define TASKSTATS_TYPE_AGGR_TGID_ 5
+
+struct genlmsghdr_ {
+    uint8_t cmd;
+    uint8_t version;
+    uint16_t reserved;
+};
+#define GENL_HDRLEN_ NLMSG_ALIGN(sizeof(struct genlmsghdr_))
+
+// struct taskstats at TASKSTATS_VERSION 8 (ends at freepages_delay_total),
+// the newest version that contains nothing we can't at least plausibly fill.
+// The struct is append-only across versions and readers are told which
+// version they got via ->version, so tools bundling newer headers (iotop
+// ships v14/v15) read the common prefix. The explicit aligned(8) attributes
+// mirror the uapi header and make the layout identical on i386 and x86_64
+// guests and the host.
+#define TASKSTATS_VERSION_ 8
+#define TS_COMM_LEN_ 32
+struct taskstats_ {
+    uint16_t version;
+    uint32_t ac_exitcode;
+    uint8_t ac_flag;
+    uint8_t ac_nice;
+    uint64_t cpu_count __attribute__((aligned(8)));
+    uint64_t cpu_delay_total;
+    uint64_t blkio_count;
+    uint64_t blkio_delay_total;
+    uint64_t swapin_count;
+    uint64_t swapin_delay_total;
+    uint64_t cpu_run_real_total;
+    uint64_t cpu_run_virtual_total;
+    char ac_comm[TS_COMM_LEN_];
+    uint8_t ac_sched __attribute__((aligned(8)));
+    uint8_t ac_pad[3];
+    uint32_t ac_uid __attribute__((aligned(8)));
+    uint32_t ac_gid;
+    uint32_t ac_pid;
+    uint32_t ac_ppid;
+    uint32_t ac_btime;
+    uint64_t ac_etime __attribute__((aligned(8)));
+    uint64_t ac_utime;
+    uint64_t ac_stime;
+    uint64_t ac_minflt;
+    uint64_t ac_majflt;
+    uint64_t coremem;
+    uint64_t virtmem;
+    uint64_t hiwater_rss;
+    uint64_t hiwater_vm;
+    uint64_t read_char;
+    uint64_t write_char;
+    uint64_t read_syscalls;
+    uint64_t write_syscalls;
+    uint64_t read_bytes;
+    uint64_t write_bytes;
+    uint64_t cancelled_write_bytes;
+    uint64_t nvcsw;
+    uint64_t nivcsw;
+    uint64_t ac_utimescaled;
+    uint64_t ac_stimescaled;
+    uint64_t cpu_scaled_run_real_total;
+    uint64_t freepages_count;
+    uint64_t freepages_delay_total;
+};
+_Static_assert(sizeof(struct taskstats_) == 328, "taskstats v8 must be 328 bytes");
+
 static int netlink_append_attr_raw(char *buf, size_t cap, size_t *len_io, uint16_t type,
         const void *data, size_t data_len) {
     size_t attr_len = sizeof(struct nlattr_) + data_len;
@@ -1392,7 +1485,8 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
         int socket_type = type & SOCKET_TYPE_MASK;
         if (protocol != NETLINK_ROUTE_ &&
                 protocol != NETLINK_SOCK_DIAG_ &&
-                protocol != NETLINK_KOBJECT_UEVENT_)
+                protocol != NETLINK_KOBJECT_UEVENT_ &&
+                protocol != NETLINK_GENERIC_)
             return _EPROTONOSUPPORT;
         if (socket_type != SOCK_RAW_ && socket_type != SOCK_DGRAM_)
             return _EINVAL;
@@ -1903,6 +1997,187 @@ static int netlink_handle_diag_request(struct fd *sock, const struct nlmsghdr_ *
     return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
 }
 
+// Find a top-level netlink attribute by type (NLA_F_NESTED/NET_BYTEORDER
+// flags masked off, like the kernel's nla_find).
+static const struct nlattr_ *netlink_attr_find(const void *attrs, size_t len, uint16_t type) {
+    size_t off = 0;
+    while (off + sizeof(struct nlattr_) <= len) {
+        const struct nlattr_ *attr = (const struct nlattr_ *) ((const char *) attrs + off);
+        if (attr->nla_len < sizeof(*attr) || off + attr->nla_len > len)
+            break;
+        if ((attr->nla_type & 0x3fff) == type)
+            return attr;
+        off += NLA_ALIGN(attr->nla_len);
+    }
+    return NULL;
+}
+
+// Compare a string attribute's payload against str, tolerating a missing
+// terminating NUL (like the kernel's nla_strcmp).
+static bool netlink_attr_streq(const struct nlattr_ *attr, const char *str) {
+    size_t data_len = attr->nla_len - sizeof(*attr);
+    const char *data = (const char *) (attr + 1);
+    size_t str_len = strlen(str);
+    if (data_len > 0 && data[data_len - 1] == '\0')
+        data_len--;
+    return data_len == str_len && memcmp(data, str, str_len) == 0;
+}
+
+static void netlink_taskstats_from_io(struct taskstats_ *ts, struct task_io_counters *io) {
+    ts->read_char = atomic_load_explicit(&io->rchar, memory_order_relaxed);
+    ts->write_char = atomic_load_explicit(&io->wchar, memory_order_relaxed);
+    ts->read_syscalls = atomic_load_explicit(&io->syscr, memory_order_relaxed);
+    ts->write_syscalls = atomic_load_explicit(&io->syscw, memory_order_relaxed);
+    ts->read_bytes = atomic_load_explicit(&io->read_bytes, memory_order_relaxed);
+    ts->write_bytes = atomic_load_explicit(&io->write_bytes, memory_order_relaxed);
+    ts->cancelled_write_bytes = atomic_load_explicit(&io->cancelled_write_bytes, memory_order_relaxed);
+    ts->blkio_count = atomic_load_explicit(&io->blkio_count, memory_order_relaxed);
+    ts->blkio_delay_total = atomic_load_explicit(&io->blkio_delay_ns, memory_order_relaxed);
+}
+
+static int netlink_taskstats_fill(pid_t_ id, bool tgid, struct taskstats_ *ts) {
+    memset(ts, 0, sizeof(*ts));
+    complex_lockt(&pids_lock, 0);
+    struct task *task = pid_get_task(id);
+    if (task == NULL) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+    struct task_io_counters io = {};
+    if (tgid) {
+        struct tgroup *group = task->group;
+        task_io_counters_add(&io, &group->io_dead);
+        struct task *thread;
+        list_for_each_entry(&group->threads, thread, group_links)
+            task_io_counters_add(&io, &thread->io);
+        ts->ac_pid = group->leader->pid;
+    } else {
+        task_io_counters_add(&io, &task->io);
+        ts->ac_pid = task->pid;
+    }
+    ts->version = TASKSTATS_VERSION_;
+    ts->ac_ppid = task->parent != NULL ? task->parent->pid : 0;
+    ts->ac_uid = task->uid;
+    ts->ac_gid = task->gid;
+    // comm changes only at exec/prctl and is fixed-size; an unlocked copy can
+    // at worst be torn between two names, never overrun (ac_comm is larger
+    // and pre-zeroed).
+    memcpy(ts->ac_comm, task->comm, sizeof(task->comm));
+    unlock(&pids_lock);
+    netlink_taskstats_from_io(ts, &io);
+    return 0;
+}
+
+static int netlink_append_taskstats(struct fd *sock, const struct nlmsghdr_ *hdr,
+        bool tgid, uint32_t id, const struct taskstats_ *ts) {
+    char payload[GENL_HDRLEN_ + NLA_ALIGN(sizeof(struct nlattr_)) * 3 + 8 + sizeof(*ts) + 16] = {};
+    struct genlmsghdr_ *genl = (struct genlmsghdr_ *) payload;
+    genl->cmd = TASKSTATS_CMD_NEW_;
+    genl->version = TASKSTATS_GENL_VERSION_;
+    size_t len = GENL_HDRLEN_;
+
+    // Nested TASKSTATS_TYPE_AGGR_{PID,TGID} containing {PID/TGID, STATS}.
+    // No NLA_F_NESTED flag: the kernel builds this with nla_nest_start_noflag
+    // and iotop switches on the raw nla_type.
+    struct nlattr_ *aggr = (struct nlattr_ *) (payload + len);
+    size_t aggr_start = len;
+    len += sizeof(*aggr);
+    int err = netlink_append_attr_raw(payload, sizeof(payload), &len,
+            tgid ? TASKSTATS_TYPE_TGID_ : TASKSTATS_TYPE_PID_, &id, sizeof(id));
+    if (err < 0)
+        return err;
+    err = netlink_append_attr_raw(payload, sizeof(payload), &len,
+            TASKSTATS_TYPE_STATS_, ts, sizeof(*ts));
+    if (err < 0)
+        return err;
+    aggr->nla_type = tgid ? TASKSTATS_TYPE_AGGR_TGID_ : TASKSTATS_TYPE_AGGR_PID_;
+    aggr->nla_len = (uint16_t) (len - aggr_start);
+    return netlink_append_nlmsg(sock, GENL_FAMILY_TASKSTATS_, 0, hdr->nlmsg_seq, payload, len);
+}
+
+static int netlink_handle_generic_request(struct fd *sock, const struct nlmsghdr_ *hdr,
+        const void *payload, size_t payload_len) {
+    if (payload_len < sizeof(struct genlmsghdr_))
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
+    const struct genlmsghdr_ *genl = (const struct genlmsghdr_ *) payload;
+    const void *attrs = (const char *) payload + GENL_HDRLEN_;
+    size_t attrs_len = payload_len - GENL_HDRLEN_;
+
+    if (hdr->nlmsg_type == GENL_ID_CTRL_) {
+        if (genl->cmd != CTRL_CMD_GETFAMILY_)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
+        const struct nlattr_ *name = netlink_attr_find(attrs, attrs_len, CTRL_ATTR_FAMILY_NAME_);
+        if (name == NULL)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
+        // Family names are capped at GENL_NAMSIZ (16); real kernels fail
+        // policy validation with EINVAL before the lookup even happens.
+        if (name->nla_len - sizeof(*name) > 16)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
+        // TASKSTATS is the only family we implement; anything else resolves
+        // like an unregistered family so callers fall back cleanly.
+        if (!netlink_attr_streq(name, TASKSTATS_GENL_NAME_))
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _ENOENT);
+
+        char reply[GENL_HDRLEN_ + 5 * 8 + 16] = {};
+        struct genlmsghdr_ *rgenl = (struct genlmsghdr_ *) reply;
+        rgenl->cmd = CTRL_CMD_NEWFAMILY_;
+        rgenl->version = 2;
+        size_t len = GENL_HDRLEN_;
+        uint16_t family_id = GENL_FAMILY_TASKSTATS_;
+        uint32_t version = TASKSTATS_GENL_VERSION_;
+        uint32_t hdrsize = 0;
+        uint32_t maxattr = TASKSTATS_CMD_ATTR_TGID_;
+        // Attribute order matters and must match the kernel's ctrl_fill_info
+        // (NAME first, then ID): iotop doesn't scan attrs by type, it grabs
+        // the second attribute and expects it to be CTRL_ATTR_FAMILY_ID.
+        int err = netlink_append_attr_raw(reply, sizeof(reply), &len,
+                CTRL_ATTR_FAMILY_NAME_, TASKSTATS_GENL_NAME_, sizeof(TASKSTATS_GENL_NAME_));
+        if (err >= 0)
+            err = netlink_append_attr_raw(reply, sizeof(reply), &len,
+                    CTRL_ATTR_FAMILY_ID_, &family_id, sizeof(family_id));
+        if (err >= 0)
+            err = netlink_append_attr_raw(reply, sizeof(reply), &len,
+                    CTRL_ATTR_VERSION_, &version, sizeof(version));
+        if (err >= 0)
+            err = netlink_append_attr_raw(reply, sizeof(reply), &len,
+                    CTRL_ATTR_HDRSIZE_, &hdrsize, sizeof(hdrsize));
+        if (err >= 0)
+            err = netlink_append_attr_raw(reply, sizeof(reply), &len,
+                    CTRL_ATTR_MAXATTR_, &maxattr, sizeof(maxattr));
+        if (err < 0)
+            return err;
+        return netlink_append_nlmsg(sock, GENL_ID_CTRL_, 0, hdr->nlmsg_seq, reply, len);
+    }
+
+    if (hdr->nlmsg_type == GENL_FAMILY_TASKSTATS_) {
+        // The kernel registers taskstats ops with GENL_ADMIN_PERM
+        // (CAP_NET_ADMIN) since CVE-2011-2494; genl_rcv_msg fails them with
+        // EPERM for unprivileged callers.
+        if (current->euid != 0)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EPERM);
+        if (genl->cmd != TASKSTATS_CMD_GET_)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
+        bool tgid = false;
+        const struct nlattr_ *id_attr = netlink_attr_find(attrs, attrs_len, TASKSTATS_CMD_ATTR_PID_);
+        if (id_attr == NULL) {
+            id_attr = netlink_attr_find(attrs, attrs_len, TASKSTATS_CMD_ATTR_TGID_);
+            tgid = true;
+        }
+        if (id_attr == NULL || id_attr->nla_len < sizeof(*id_attr) + sizeof(uint32_t))
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
+        uint32_t id;
+        memcpy(&id, id_attr + 1, sizeof(id));
+        struct taskstats_ ts;
+        int err = netlink_taskstats_fill((pid_t_) id, tgid, &ts);
+        if (err < 0)
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, err);
+        return netlink_append_taskstats(sock, hdr, tgid, id, &ts);
+    }
+
+    // Unknown family id: same as sending to an unregistered genl family.
+    return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _ENOENT);
+}
+
 static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
     int iovlen = msg->msg_iovlen;
     if (iovlen < 0)
@@ -1932,6 +2207,8 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
         size_t payload_len = hdr->nlmsg_len - NLMSG_HDRLEN;
         if (sock->socket.protocol == NETLINK_ROUTE_)
             err = netlink_handle_route_request(sock, hdr, payload, payload_len);
+        else if (sock->socket.protocol == NETLINK_GENERIC_)
+            err = netlink_handle_generic_request(sock, hdr, payload, payload_len);
         else
             err = netlink_handle_diag_request(sock, hdr, payload, payload_len);
         if (err < 0)

@@ -42,6 +42,11 @@ struct task_io_counters {
     _Atomic qword_t read_bytes;
     _Atomic qword_t write_bytes;
     _Atomic qword_t cancelled_write_bytes;
+    // Block-I/O delay accounting for taskstats (iotop's IO> column): wall
+    // time this task spent inside file-backed read/write ops, and how many
+    // such ops. Not printed in /proc/<pid>/io (Linux doesn't either).
+    _Atomic qword_t blkio_count;
+    _Atomic qword_t blkio_delay_ns;
 };
 
 static inline void task_io_counters_add(struct task_io_counters *dst,
@@ -53,6 +58,8 @@ static inline void task_io_counters_add(struct task_io_counters *dst,
     atomic_fetch_add_explicit(&dst->read_bytes, atomic_load_explicit(&src->read_bytes, memory_order_relaxed), memory_order_relaxed);
     atomic_fetch_add_explicit(&dst->write_bytes, atomic_load_explicit(&src->write_bytes, memory_order_relaxed), memory_order_relaxed);
     atomic_fetch_add_explicit(&dst->cancelled_write_bytes, atomic_load_explicit(&src->cancelled_write_bytes, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->blkio_count, atomic_load_explicit(&src->blkio_count, memory_order_relaxed), memory_order_relaxed);
+    atomic_fetch_add_explicit(&dst->blkio_delay_ns, atomic_load_explicit(&src->blkio_delay_ns, memory_order_relaxed), memory_order_relaxed);
 }
 
 struct task {
