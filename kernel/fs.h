@@ -169,6 +169,11 @@ struct fs_ops {
     int (*setattr)(struct mount *mount, const char *path, struct attr attr);
     int (*fsetattr)(struct fd *fd, struct attr attr);
     int (*utime)(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime, bool follow_links);
+    // Set atime/mtime directly on an open fd (the futimens/utimensat(fd, NULL)
+    // form). No path resolution happens, so it must work on unlinked files and
+    // non-path fds (sockets, pipes). Optional; sys_utime_common falls back to
+    // resolving the fd's own path when absent.
+    int (*futime)(struct fd *fd, struct timespec atime, struct timespec mtime);
     // Returns the path of the file descriptor, null terminated, buf must be at least MAX_PATH+1
     int (*getpath)(struct fd *fd, char *buf); // required
 

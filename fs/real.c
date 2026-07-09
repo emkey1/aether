@@ -964,6 +964,13 @@ int realfs_utime(struct mount *mount, const char *path, struct timespec atime, s
     return 0;
 }
 
+int realfs_futime(struct fd *fd, struct timespec atime, struct timespec mtime) {
+    struct timespec times[2] = {atime, mtime};
+    if (futimens(fd->real_fd, times) < 0)
+        return errno_map();
+    return 0;
+}
+
 int realfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
     int err = mkdirat(mount->root_fd, fix_path(path), mode);
     if (err < 0)
@@ -1078,6 +1085,7 @@ const struct fs_ops realfs = {
     .setattr = realfs_setattr,
     .fsetattr = realfs_fsetattr,
     .utime = realfs_utime,
+    .futime = realfs_futime,
     .getpath = realfs_getpath,
     .flock = realfs_flock,
 

@@ -166,7 +166,13 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
         int err = generic_getpath(at, at_path);
         if (err < 0)
             return err;
-        assert(path_is_normalized(at_path));
+        // A non-path fd (socket, pipe, anon inode -- adhoc_getpath renders
+        // these as "socket:[N]" etc.) can land here as the dirfd of any *at
+        // syscall. Linux returns ENOTDIR when relative resolution is attempted
+        // against such an fd; don't assert (this aborted the whole app when
+        // stress-ng --sockabuse passed a socket fd to utimensat).
+        if (!path_is_normalized(at_path))
+            return _ENOTDIR;
     }
     // root_path anchors any *absolute symlink target* encountered while
     // resolving (see __path_normalize): it must always be the process's

@@ -1673,6 +1673,8 @@ static dword_t sys_utime_common(fd_t at_f, guest_addr_t path_addr, struct timesp
         int path_err = user_read_path(path_addr, path, sizeof(path));
         if (path_err)
             return path_err;
+    } else {
+        path[0] = '\0';
     }
     STRACE("utimensat(%d, %s, {{%d, %d}, {%d, %d}}, %d)", at_f, path,
             atime.tv_sec, atime.tv_nsec, mtime.tv_sec, mtime.tv_nsec, flags);
@@ -1680,8 +1682,26 @@ static dword_t sys_utime_common(fd_t at_f, guest_addr_t path_addr, struct timesp
     if (at == NULL)
         return _EBADF;
 
+    if (path_addr == 0) {
+        // The futimens(fd) form: utimensat(fd, NULL, times, 0). Linux does no
+        // path resolution here -- it operates on the open fd itself -- so it
+        // works on unlinked-but-open files and on fds with no path at all
+        // (sockets, pipes; stress-ng --sockabuse futimens()es a socket).
+        // Linux's do_utimes() rejects any flags in this form, and a NULL path
+        // with AT_FDCWD faults in getname().
+        if (at == AT_PWD)
+            return _EFAULT;
+        if (flags != 0)
+            return _EINVAL;
+        if (at->mount != NULL && at->mount->fs->futime != NULL)
+            return at->mount->fs->futime(at, atime, mtime);
+        // No fd-direct support on this fs: fall back to resolving the fd's
+        // own path (the historical behavior).
+        return generic_utime(at, ".", atime, mtime, true);
+    }
+
     bool follow_links = flags & AT_SYMLINK_NOFOLLOW_ ? false : true;
-    return generic_utime(at, path_addr != 0 ? path : ".", atime, mtime, follow_links);
+    return generic_utime(at, path, atime, mtime, follow_links);
 }
 
 dword_t sys_utimensat64(fd_t at_f, addr_t path_addr, addr_t times_addr, dword_t flags) {

@@ -68,10 +68,22 @@ bool is_adhoc_fd(struct fd *fd) {
     return fd->mount == &adhoc_mount;
 }
 
+// futimens() on a socket/pipe/anon fd sets the times on its (anonymous) inode
+// on Linux; mirror that on the fd's fake stat so fstat reflects the update.
+// (stress-ng --sockabuse futimens()es a socket fd in a loop.)
+static int adhoc_futime(struct fd *fd, struct timespec atime, struct timespec mtime) {
+    fd->stat.atime = (dword_t) atime.tv_sec;
+    fd->stat.atime_nsec = (dword_t) atime.tv_nsec;
+    fd->stat.mtime = (dword_t) mtime.tv_sec;
+    fd->stat.mtime_nsec = (dword_t) mtime.tv_nsec;
+    return 0;
+}
+
 static const struct fs_ops adhoc_fs = {
     .magic = 0x09041934, // FIXME wrong for pipes and sockets
     .fstat = adhoc_fstat,
     .fsetattr = adhoc_fsetattr,
+    .futime = adhoc_futime,
     .getpath = adhoc_getpath,
 };
 

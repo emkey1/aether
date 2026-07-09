@@ -725,6 +725,20 @@ static int tmpfs_fsetattr(struct fd *fd, struct attr attr) {
     return tmpfs_apply_attr(tmpfs_fd_inode(fd), attr);
 }
 
+// fd-direct futimens/utimensat(fd, NULL): unlike tmpfs_utime there is no path
+// lookup, so this works on an unlinked-but-open file like real Linux.
+static int tmpfs_futime(struct fd *fd, struct timespec atime, struct timespec mtime) {
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    lock(&inode->lock, 0);
+    inode->stat.atime = atime.tv_sec;
+    inode->stat.atime_nsec = atime.tv_nsec;
+    inode->stat.mtime = mtime.tv_sec;
+    inode->stat.mtime_nsec = mtime.tv_nsec;
+    tmpfs_update_ctime(inode);
+    unlock(&inode->lock);
+    return 0;
+}
+
 static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
     ssize_t res;
     struct tmp_inode *inode = tmpfs_fd_inode(fd);
@@ -855,6 +869,7 @@ const struct fs_ops tmpfs = {
     .setattr = tmpfs_setattr,
     .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
+    .futime = tmpfs_futime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,
@@ -875,6 +890,7 @@ const struct fs_ops cgroupfs = {
     .setattr = tmpfs_setattr,
     .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
+    .futime = tmpfs_futime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,
@@ -895,6 +911,7 @@ const struct fs_ops cgroup2fs = {
     .setattr = tmpfs_setattr,
     .fsetattr = tmpfs_fsetattr,
     .utime = tmpfs_utime,
+    .futime = tmpfs_futime,
     .getpath = tmpfs_getpath,
     .mkdir = tmpfs_mkdir,
     .mknod = tmpfs_mknod,

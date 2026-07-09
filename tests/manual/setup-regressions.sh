@@ -146,6 +146,7 @@ need_file ptrace_exit_kill.c
 need_file fcntl_lock.c
 need_file fcntl_ofd.c
 need_file at_empty_path.c
+need_file utimensat_fd.c
 need_file copy_file_range.c
 need_file name_to_handle_at.c
 need_file sendfile_vhangup.c
@@ -392,7 +393,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm" -lm
 }
 
-all_tests="signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path copy_file_range name_to_handle_at sendfile_vhangup pidfd_open pidfd_clone fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup random_seed getrusage_group pty_line_discipline"
+all_tests="signal_core signal_restart signal_realtime signal_altstack signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path utimensat_fd copy_file_range name_to_handle_at sendfile_vhangup pidfd_open pidfd_clone fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup random_seed getrusage_group pty_line_discipline"
 if [ "$is_x86_guest" -eq 1 ]; then
     # x86 flag-semantics atomics (lock-prefixed inline asm)
     all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 $all_tests"
