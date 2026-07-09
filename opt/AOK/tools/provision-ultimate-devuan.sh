@@ -95,7 +95,7 @@ PKGS="
   bash bash-completion cmake
   coreutils findutils grep sed gawk diffutils util-linux bsdextrautils
   procps passwd adduser file less
-  sysvinit-core
+  sysvinit-core locales
   openssh-client openssh-server sudo
   rsyslog iputils-ping wtmpdb
   chrony cron logrotate dialog

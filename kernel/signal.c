@@ -786,7 +786,18 @@ static void signalfd_info_from_siginfo(struct signalfd_siginfo_ *out, struct sig
 
 static struct fdtable *signalfd_task_files_retain(struct task *task) {
     struct fdtable *files = NULL;
-    lock(&task->general_lock, 0);
+    // trylock, not lock: this is called from the signal-delivery path while
+    // the sender holds a reference on `task` (see do_kill's pid_get_task_ref)
+    // and possibly sighand->lock/pids_lock. A task mid-exit holds its own
+    // general_lock for the entire do_exit() nanosleep-retry loop, which is
+    // itself waiting for the sender's held reference to be dropped -- a
+    // blocking lock() here deadlocks the two permanently (observed: a
+    // SIGKILL-proof hang, kill()'s caller stuck here while its target spun
+    // in do_exit forever). Same reasoning as the files->lock trylock below:
+    // if general_lock isn't free, skip the signalfd wakeup optimization --
+    // the signal is already recorded in task->pending either way.
+    if (trylock(&task->general_lock) != 0)
+        return NULL;
     if (!task->exiting && task->files != NULL)
         files = fdtable_retain(task->files);
     unlock(&task->general_lock);

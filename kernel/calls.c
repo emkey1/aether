@@ -1153,9 +1153,40 @@ static syscall_t i386_syscall_table[] = {
     [435] = (syscall_t) sys_clone3, // clone3
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
+    [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
     [439] = (syscall_t) sys_faccessat, // faccessat2
+    [440] = (syscall_t) syscall_stub_silent, // process_madvise
     [441] = (syscall_t) sys_epoll_pwait2, // epoll_pwait2
+    // 442-448, 450, 451, 453: same post-5.x-syscall gap as the arm64 table
+    // (identical syscall numbers on i386 -- Linux assigns these consistently
+    // across arches). i386 doesn't need an arg-count classifier entry to go
+    // with these: marshal_syscall_args_legacy only enforces the 32-bit
+    // dword-fit check for the two 64-bit-register ABIs (amd64/arm64); i386
+    // registers are already word-sized, so a stub here can't SIGSYS the way
+    // it did on arm64 before that table also got explicit arg counts.
+    [442] = (syscall_t) syscall_stub_silent, // mount_setattr
+    [443] = (syscall_t) syscall_stub_silent, // quotactl_fd
+    [444] = (syscall_t) syscall_stub_silent, // landlock_create_ruleset
+    [445] = (syscall_t) syscall_stub_silent, // landlock_add_rule
+    [446] = (syscall_t) syscall_stub_silent, // landlock_restrict_self
+    [447] = (syscall_t) syscall_stub_silent, // memfd_secret
+    [448] = (syscall_t) syscall_stub_silent, // process_mrelease
+    [449] = (syscall_t) syscall_stub_silent, // futex_waitv
+    [450] = (syscall_t) syscall_stub_silent, // set_mempolicy_home_node
+    [451] = (syscall_t) syscall_stub_silent, // cachestat
     [452] = (syscall_t) sys_fchmodat2,
+    [453] = (syscall_t) syscall_stub_silent, // map_shadow_stack
+    // 454-462: see arm64_syscall_table's matching comment (futex2 family,
+    // mount API introspection, LSM self-attr API, memory sealing).
+    [454] = (syscall_t) syscall_stub_silent, // futex_wake
+    [455] = (syscall_t) syscall_stub_silent, // futex_wait
+    [456] = (syscall_t) syscall_stub_silent, // futex_requeue
+    [457] = (syscall_t) syscall_stub_silent, // statmount
+    [458] = (syscall_t) syscall_stub_silent, // listmount
+    [459] = (syscall_t) syscall_stub_silent, // lsm_get_self_attr
+    [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
+    [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
+    [462] = (syscall_t) syscall_stub_silent, // mseal
 };
 /*
 SYS_MSGRCV                       = 401
@@ -1221,7 +1252,7 @@ struct syscall_abi_dispatch {
     void (*syscall_result)(struct cpu_state *cpu, dword_t result);
 };
 
-static syscall_t amd64_syscall_table[453] = {
+static syscall_t amd64_syscall_table[463] = {
     // This table covers amd64 syscalls that either reuse an existing i386
     // implementation safely or have a small amd64 shim for 64-bit arg packing.
     [0] = (syscall_t) sys_read,
@@ -1497,9 +1528,40 @@ static syscall_t amd64_syscall_table[453] = {
     [435] = (syscall_t) sys_clone3,
     [436] = (syscall_t) sys_close_range,
     [437] = (syscall_t) sys_openat2,
+    [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
     [439] = (syscall_t) sys_faccessat,
+    [440] = (syscall_t) syscall_stub_silent, // process_madvise
     [441] = (syscall_t) sys_epoll_pwait2,
+    // 442-448, 450, 451, 453: same post-5.x-syscall gap as the arm64 table
+    // (identical syscall numbers on amd64). Unlike i386, these DO need
+    // matching 0-arg entries in amd64_syscall_legacy_arg_count below --
+    // amd64 shares arm64's 32-bit dword-fit marshalling hazard for 64-bit
+    // guest registers, so a stub without an arg-count override would trade
+    // the noisy-but-safe "missing syscall" ENOSYS for a real SIGSYS on
+    // garbage upper argument registers (exactly what happened on arm64).
+    [442] = (syscall_t) syscall_stub_silent, // mount_setattr
+    [443] = (syscall_t) syscall_stub_silent, // quotactl_fd
+    [444] = (syscall_t) syscall_stub_silent, // landlock_create_ruleset
+    [445] = (syscall_t) syscall_stub_silent, // landlock_add_rule
+    [446] = (syscall_t) syscall_stub_silent, // landlock_restrict_self
+    [447] = (syscall_t) syscall_stub_silent, // memfd_secret
+    [448] = (syscall_t) syscall_stub_silent, // process_mrelease
+    [449] = (syscall_t) syscall_stub_silent, // futex_waitv
+    [450] = (syscall_t) syscall_stub_silent, // set_mempolicy_home_node
+    [451] = (syscall_t) syscall_stub_silent, // cachestat
     [452] = (syscall_t) sys_fchmodat2,
+    [453] = (syscall_t) syscall_stub_silent, // map_shadow_stack
+    // 454-462: see arm64_syscall_table's matching comment (futex2 family,
+    // mount API introspection, LSM self-attr API, memory sealing).
+    [454] = (syscall_t) syscall_stub_silent, // futex_wake
+    [455] = (syscall_t) syscall_stub_silent, // futex_wait
+    [456] = (syscall_t) syscall_stub_silent, // futex_requeue
+    [457] = (syscall_t) syscall_stub_silent, // statmount
+    [458] = (syscall_t) syscall_stub_silent, // listmount
+    [459] = (syscall_t) syscall_stub_silent, // lsm_get_self_attr
+    [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
+    [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
+    [462] = (syscall_t) syscall_stub_silent, // mseal
 };
 
 // AArch64 Linux syscall table. Numbering (asm-generic based — no
@@ -1523,7 +1585,7 @@ static syscall_t amd64_syscall_table[453] = {
 // this reuse is safe: the arm64 stack/heap are now kept low like amd64's,
 // so these functions' addr_t/dword_t-narrow argument marshalling doesn't
 // truncate real guest pointers).
-static syscall_t arm64_syscall_table[454] = {
+static syscall_t arm64_syscall_table[463] = {
     // I/O
     [2]   = (syscall_t) syscall_stub, // io_submit
     [5 ... 16] = (syscall_t) sys_xattr_stub,
@@ -1835,6 +1897,39 @@ static syscall_t arm64_syscall_table[454] = {
     [439] = (syscall_t) sys_faccessat, // faccessat2 reuses sys_faccessat, matches i386/amd64 tables
     [441] = (syscall_t) sys_epoll_pwait2,
     [449] = (syscall_t) syscall_stub_silent, // futex_waitv (native ENOSYS; glibc/musl fall back to plain FUTEX_WAIT)
+    // 442-448, 450, 451, 453: real modern syscalls (mount_setattr, quotactl_fd,
+    // landlock_*, memfd_secret, process_mrelease, set_mempolicy_home_node,
+    // cachestat, map_shadow_stack) with no table entry at all -- falling
+    // through to the generic "missing syscall" path, which is a clean ENOSYS
+    // but logs a loud ERROR per call (stress-ng's landlock/pidfd/mem stressors
+    // hit these routinely). Give them explicit silent-stub slots so callers
+    // that already handle ENOSYS (all of the above are optional/best-effort
+    // in real userspace) get it quietly, matching the rest of this table's
+    // policy for post-5.x syscalls.
+    [442] = (syscall_t) syscall_stub_silent, // mount_setattr
+    [443] = (syscall_t) syscall_stub_silent, // quotactl_fd
+    [444] = (syscall_t) syscall_stub_silent, // landlock_create_ruleset
+    [445] = (syscall_t) syscall_stub_silent, // landlock_add_rule
+    [446] = (syscall_t) syscall_stub_silent, // landlock_restrict_self
+    [447] = (syscall_t) syscall_stub_silent, // memfd_secret
+    [448] = (syscall_t) syscall_stub_silent, // process_mrelease
+    [450] = (syscall_t) syscall_stub_silent, // set_mempolicy_home_node
+    [451] = (syscall_t) syscall_stub_silent, // cachestat
+    [453] = (syscall_t) syscall_stub_silent, // map_shadow_stack
+    // 454-462: next batch of post-6.x syscalls (futex2 family, mount API
+    // introspection, LSM self-attr API, memory sealing). Same treatment as
+    // 442-453 above -- silent ENOSYS stubs with 0-arg classifier entries
+    // below, not the "way out of table bounds" SIGSYS path (observed:
+    // stress-ng's landlock/security probes hit mseal/462 this way).
+    [454] = (syscall_t) syscall_stub_silent, // futex_wake
+    [455] = (syscall_t) syscall_stub_silent, // futex_wait
+    [456] = (syscall_t) syscall_stub_silent, // futex_requeue
+    [457] = (syscall_t) syscall_stub_silent, // statmount
+    [458] = (syscall_t) syscall_stub_silent, // listmount
+    [459] = (syscall_t) syscall_stub_silent, // lsm_get_self_attr
+    [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
+    [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
+    [462] = (syscall_t) syscall_stub_silent, // mseal
 };
 
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
@@ -3227,6 +3322,34 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 431: // fsconfig
     case 432: // fsmount
     case 433: // fspick
+    case 438: // pidfd_getfd
+    case 440: // process_madvise
+    // Same reasoning: silent ENOSYS stubs whose args are never read, several
+    // of which take real 64-bit guest pointers (mount_setattr's uattr,
+    // landlock's ruleset/rule attr, cachestat's range/result structs) that
+    // would otherwise trip the dword-fit check and SIGSYS the caller (the
+    // arm64 table hit this exact bug with process_mrelease/448).
+    case 442: // mount_setattr
+    case 443: // quotactl_fd
+    case 444: // landlock_create_ruleset
+    case 445: // landlock_add_rule
+    case 446: // landlock_restrict_self
+    case 447: // memfd_secret
+    case 448: // process_mrelease
+    case 449: // futex_waitv
+    case 450: // set_mempolicy_home_node
+    case 451: // cachestat
+    case 453: // map_shadow_stack
+    // 454-462: see arm64's matching comment -- same 0-arg treatment.
+    case 454: // futex_wake
+    case 455: // futex_wait
+    case 456: // futex_requeue
+    case 457: // statmount
+    case 458: // listmount
+    case 459: // lsm_get_self_attr
+    case 460: // lsm_set_self_attr
+    case 461: // lsm_list_modules
+    case 462: // mseal
         return 0;
     case 3:   // close
     case 12:  // brk
@@ -3481,6 +3604,33 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 431: // fsconfig
     case 432: // fsmount
     case 433: // fspick
+    // Same reasoning: silent ENOSYS stubs (arm64_syscall_table) that never
+    // read their args, several of which take real 64-bit guest pointers
+    // (mount_setattr's uattr, landlock's ruleset/rule attr, cachestat's
+    // range/result structs) that would otherwise trip the dword-fit check
+    // and SIGSYS the caller instead of the intended silent ENOSYS (observed:
+    // stress-ng's process_mrelease (448) probe got SIGSYS'd this way).
+    case 442: // mount_setattr
+    case 443: // quotactl_fd
+    case 444: // landlock_create_ruleset
+    case 445: // landlock_add_rule
+    case 446: // landlock_restrict_self
+    case 447: // memfd_secret
+    case 448: // process_mrelease
+    case 450: // set_mempolicy_home_node
+    case 451: // cachestat
+    case 453: // map_shadow_stack
+    // 454-462: next batch of post-6.x syscalls (see arm64_syscall_table's
+    // matching comment) -- same 0-arg treatment for the same reason.
+    case 454: // futex_wake
+    case 455: // futex_wait
+    case 456: // futex_requeue
+    case 457: // statmount
+    case 458: // listmount
+    case 459: // lsm_get_self_attr
+    case 460: // lsm_set_self_attr
+    case 461: // lsm_list_modules
+    case 462: // mseal
         return 0;
     case 20:  // epoll_create1
     case 23:  // dup

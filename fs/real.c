@@ -312,6 +312,67 @@ static int realfs_wait_readable(int real_fd) {
     }
 }
 
+// Write-side counterpart to realfs_wait_readable(): realfs_write() used to
+// call the host write(2) directly with no wait loop at all, unlike
+// realfs_read(). A write to a full pipe/FIFO then blocks inside the raw
+// host syscall with none of the sigunwind_start()/SIGUSR1-unblocking
+// machinery below, so it cannot be interrupted by anything -- not the
+// SIGUSR1 poke iSH uses to wake blocked tasks, not even SIGKILL, since the
+// guest's signals are delivered through iSH's own translation layer, which
+// never gets a chance to run. Observed: stress-ng's pipeherd stressor
+// deadlocks a ring of processes this way, each stuck writing to a full pipe
+// toward a peer that's itself stuck the same way, unrecoverable short of
+// killing the whole iSH process.
+static int realfs_wait_writable(int real_fd) {
+    const int poll_timeout_ms = 100;
+    for (;;) {
+        struct pollfd pfd = {
+            .fd = real_fd,
+            .events = POLLOUT | POLLERR | POLLHUP,
+        };
+        sigset_t sigusr1, oldmask;
+        sigemptyset(&sigusr1);
+        sigaddset(&sigusr1, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &sigusr1, &oldmask);
+
+        if (sigunwind_start()) {
+            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            errno = EINTR;
+            return errno_map();
+        }
+
+        if (realfs_guest_signal_pending()) {
+            sigunwind_end();
+            pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            errno = EINTR;
+            return errno_map();
+        }
+
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+        int res = poll(&pfd, 1, poll_timeout_ms);
+        sigunwind_end();
+        if (res > 0)
+            return res;
+        if (res == 0) {
+            if (realfs_guest_signal_pending()) {
+                errno = EINTR;
+                return errno_map();
+            }
+            // Same periodic-retry rationale as realfs_wait_readable(): don't
+            // trust poll() timeout/POLLOUT/POLLERR reporting alone forever
+            // (Darwin's pipe/FIFO edge-case reporting is already known to be
+            // unreliable on the read side). Wake up every poll_timeout_ms and
+            // let realfs_write() attempt an actual non-blocking write() --
+            // it gets EAGAIN and loops back here if the pipe is still
+            // genuinely full, or succeeds/EPIPEs otherwise.
+            return 0;
+        }
+        if (errno == EINTR && !realfs_guest_signal_pending())
+            continue;
+        return errno_map();
+    }
+}
+
 static int getpath(int fd, char *buf) {
 #if defined(__linux__)
     char proc_fd[32];
@@ -444,26 +505,30 @@ ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
         return res;
     }
 
-    int saved_flags = fcntl(fd->real_fd, F_GETFL, 0);
-    bool forced_nonblock = false;
-    if (saved_flags >= 0 && !(saved_flags & O_NONBLOCK) &&
-            fcntl(fd->real_fd, F_SETFL, saved_flags | O_NONBLOCK) == 0) {
-        forced_nonblock = true;
-    }
+    // Force the host fd non-blocking (idempotent -- if it's already set,
+    // this is a harmless no-op) rather than restoring it afterward. The
+    // host file status flags belong to the open file description, which
+    // fork() shares across every task holding this fd (this is exactly
+    // pipeherd's topology: many forked children all reading the same
+    // inherited pipe end, all racing through this same struct fd). If we
+    // ever restored the flags to blocking, one task's cleanup could flip
+    // the fd back to blocking a moment before a sibling task -- having
+    // already confirmed the fd was non-blocking and skipped re-forcing it
+    // -- makes its own read() call, which then blocks in the raw host
+    // syscall with no signal-interrupt protection at all: unkillable, even
+    // by SIGKILL, since the guest's own signal delivery never gets to run.
+    // Observed as the exact cause of a real, SIGKILL-proof stress-ng
+    // pipeherd hang (every stuck thread's backtrace stopped right here).
+    (void) fcntl(fd->real_fd, F_SETFL, fcntl(fd->real_fd, F_GETFL, 0) | O_NONBLOCK);
 
     for (;;) {
         realfs_trace_io_enter("read", fd, read_size);
         int wait_res = realfs_wait_readable(fd->real_fd);
-        if (wait_res < 0) {
-            if (forced_nonblock)
-                (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
+        if (wait_res < 0)
             return wait_res;
-        }
 
         ssize_t res = read(fd->real_fd, buf, read_size);
         if (res >= 0) {
-            if (forced_nonblock)
-                (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
             if (res > 0 && is_adhoc_fd(fd) && S_ISFIFO(fd->stat.mode))
                 fd->realfs_fifo_had_data = true;
             realfs_trace_io("read", fd, read_size, res, buf);
@@ -474,22 +539,49 @@ ssize_t realfs_read(struct fd *fd, void *buf, size_t bufsize) {
                 (errno == EINTR && !realfs_guest_signal_pending())) {
             continue;
         }
-        int err = errno_map();
-        if (forced_nonblock)
-            (void) fcntl(fd->real_fd, F_SETFL, saved_flags);
-        return err;
+        return errno_map();
     }
 }
 
 ssize_t realfs_write(struct fd *fd, const void *buf, size_t bufsize) {
-    ssize_t res = realfs_write_host(fd->real_fd, buf, bufsize);
-    if (res < 0)
+    if (bufsize == 0)
+        return 0;
+
+    if (fd->flags & O_NONBLOCK_) {
+        ssize_t res = realfs_write_host(fd->real_fd, buf, bufsize);
+        if (res < 0)
+            return errno_map();
+        if (res > 0)
+            realfs_maybe_dump_apt_http_request(fd, buf, (size_t) res);
+        realfs_trace_io("write", fd, bufsize, res, buf);
+        realfs_count_write(res);
+        return res;
+    }
+
+    // See the matching comment in realfs_read(): force non-blocking
+    // idempotently and never restore it, since restoring races against
+    // sibling tasks sharing this same open file description (fork()).
+    (void) fcntl(fd->real_fd, F_SETFL, fcntl(fd->real_fd, F_GETFL, 0) | O_NONBLOCK);
+
+    for (;;) {
+        int wait_res = realfs_wait_writable(fd->real_fd);
+        if (wait_res < 0)
+            return wait_res;
+
+        ssize_t res = realfs_write_host(fd->real_fd, buf, bufsize);
+        if (res >= 0) {
+            if (res > 0)
+                realfs_maybe_dump_apt_http_request(fd, buf, (size_t) res);
+            realfs_trace_io("write", fd, bufsize, res, buf);
+            realfs_count_write(res);
+            return res;
+        }
+        if ((errno == EAGAIN || errno == EWOULDBLOCK) ||
+                (errno == EINTR && !realfs_guest_signal_pending())) {
+            continue;
+        }
         return errno_map();
-    if (res > 0)
-        realfs_maybe_dump_apt_http_request(fd, buf, (size_t) res);
-    realfs_trace_io("write", fd, bufsize, res, buf);
-    realfs_count_write(res);
-    return res;
+    }
 }
 
 ssize_t realfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {

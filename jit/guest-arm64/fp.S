@@ -8,9 +8,11 @@
 // vector register, so `str q30` after the op stores the architecturally
 // correct full 128-bit result without explicit masking.
 //
-// Only single (S) and double (D) precision are implemented — half (H)
-// and the fixed-point conversion forms reject at decode (gen_step_arm64)
-// with the usual clean INT_UNDEFINED.
+// Single (S) and double (D) precision are fully implemented; half (H) is
+// supported for FCVT precision-conversion only (the baseline storage/
+// interchange form, not FEAT_FP16 arithmetic). The fixed-point conversion
+// forms still reject at decode (gen_step_arm64) with the usual clean
+// INT_UNDEFINED.
 //
 // FCSEL/FCCMP reuse the cond_* gadget family (dpextra.S): gen emits
 // [cond_<cc>][consumer], with the condition result handed over in w10.
@@ -99,6 +101,13 @@ fp1src fsqrt_s,  fsqrt, s30, s30
 fp1src fsqrt_d,  fsqrt, d30, d30
 fp1src fcvt_sd,  fcvt,  d30, s30   // single -> double
 fp1src fcvt_ds,  fcvt,  s30, d30   // double -> single
+// Half-precision FCVT: this is the baseline ARMv8.0 storage/interchange
+// conversion (always available), NOT the FEAT_FP16 arithmetic extension
+// (FADD/FMUL/etc on H registers) — no hostcaps gating needed here.
+fp1src fcvt_sh,  fcvt,  h30, s30   // single -> half
+fp1src fcvt_hs,  fcvt,  s30, h30   // half -> single
+fp1src fcvt_dh,  fcvt,  h30, d30   // double -> half
+fp1src fcvt_hd,  fcvt,  d30, h30   // half -> double
 
 // ---- FCMP/FCMPE (incl. the compare-with-zero forms) ----------------------
 // Code stream: [gadget][rn | rm<<8 | cmp0<<16]. FCMPE's signaling-NaN

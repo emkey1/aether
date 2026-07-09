@@ -33,9 +33,14 @@
 #define CLONE_NEWPID_ 0x20000000
 #define CLONE_NEWNET_ 0x40000000
 #define CLONE_IO_ 0x80000000
+// CLONE_IO is purely a hint that parent and child should share an io_context
+// for I/O scheduler accounting (CFQ/BFQ); iSH has no io_context/io scheduler
+// to share, so it's a harmless no-op to accept, same as real Linux treats it
+// when CONFIG_BLOCK is off. Rejecting it (as "unimplemented") broke
+// stress-ng's clone stressor outright, not just noisy logging.
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
         CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|CLONE_PARENT_|\
-        CLONE_PIDFD_)
+        CLONE_PIDFD_|CLONE_IO_)
 // Namespace flags are recognized but never implemented (no mount/user/pid/
 // uts/ipc/cgroup/net namespaces). Handled separately from IMPLEMENTED_FLAGS
 // below so they get the errno real Linux gives an unprivileged caller
@@ -299,6 +304,13 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
     if (flags & CLONE_NEW_FLAGS_)
         return _EPERM;
+    // The low byte of flags (or clone3's separate exit_signal field, folded in
+    // by sys_clone3_guest) becomes task->exit_signal and is later handed to
+    // send_signal() uninspected when the child exits. Out-of-range values
+    // (e.g. stress-ng's clone stressor passing garbage here) would otherwise
+    // reach sig_mask()'s assert and abort the whole process.
+    if ((flags & CSIGNAL_) >= NUM_SIGS)
+        return _EINVAL;
     dword_t unimpl_flags = flags & ~CSIGNAL_ & ~IMPLEMENTED_FLAGS;
     if (unimpl_flags) {
         char names[256];

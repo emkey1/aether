@@ -2093,6 +2093,8 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         extern void gadget_arm64_fneg_s(void), gadget_arm64_fneg_d(void);
         extern void gadget_arm64_fsqrt_s(void), gadget_arm64_fsqrt_d(void);
         extern void gadget_arm64_fcvt_sd(void), gadget_arm64_fcvt_ds(void);
+        extern void gadget_arm64_fcvt_sh(void), gadget_arm64_fcvt_hs(void);
+        extern void gadget_arm64_fcvt_dh(void), gadget_arm64_fcvt_hd(void);
         extern void gadget_arm64_frintn_s(void), gadget_arm64_frintn_d(void);
         extern void gadget_arm64_frintp_s(void), gadget_arm64_frintp_d(void);
         extern void gadget_arm64_frintm_s(void), gadget_arm64_frintm_d(void);
@@ -2114,6 +2116,7 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             case 0x03: gadget = is_d ? (void *) gadget_arm64_fsqrt_d : (void *) gadget_arm64_fsqrt_s; break;
             case 0x04: gadget = is_d ? (void *) gadget_arm64_fcvt_ds : NULL; break; // FCVT Sd, Dn
             case 0x05: gadget = is_d ? NULL : (void *) gadget_arm64_fcvt_sd; break; // FCVT Dd, Sn
+            case 0x07: gadget = is_d ? (void *) gadget_arm64_fcvt_dh : (void *) gadget_arm64_fcvt_sh; break; // FCVT Hd, {D,S}n
             case 0x08: gadget = is_d ? (void *) gadget_arm64_frintn_d : (void *) gadget_arm64_frintn_s; break;
             case 0x09: gadget = is_d ? (void *) gadget_arm64_frintp_d : (void *) gadget_arm64_frintp_s; break;
             case 0x0a: gadget = is_d ? (void *) gadget_arm64_frintm_d : (void *) gadget_arm64_frintm_s; break;
@@ -2121,6 +2124,11 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             case 0x0c: gadget = is_d ? (void *) gadget_arm64_frinta_d : (void *) gadget_arm64_frinta_s; break;
             case 0x0e: gadget = is_d ? (void *) gadget_arm64_frintx_d : (void *) gadget_arm64_frintx_s; break;
             case 0x0f: gadget = is_d ? (void *) gadget_arm64_frinti_d : (void *) gadget_arm64_frinti_s; break;
+            }
+        } else if (type == 3) { // half-precision source: FCVT Sd/Dd, Hn
+            switch (opcode) {
+            case 0x04: gadget = (void *) gadget_arm64_fcvt_hs; break; // FCVT Sd, Hn
+            case 0x05: gadget = (void *) gadget_arm64_fcvt_hd; break; // FCVT Dd, Hn
             }
         }
         if (gadget == NULL) {

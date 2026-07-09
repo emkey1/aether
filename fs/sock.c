@@ -2622,7 +2622,21 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
 
     if (sock->socket.domain == AF_LOCAL_) {
         fill_cred(&sock->socket.unix_cred);
-        assert(sock->socket.unix_peer == NULL);
+        // A real connect(2) succeeds again on an AF_UNIX SOCK_DGRAM socket
+        // (reconnecting to a new peer, or dissolving the association) --
+        // unlike SOCK_STREAM, where a second connect on an already-connected
+        // socket fails with EISCONN before ever reaching this point. unix_peer
+        // can therefore legitimately already be set here; break the stale
+        // mutual link instead of asserting (observed: this crashed the whole
+        // process on a legitimate reconnect during a stress-ng sweep).
+        if (sock->socket.unix_peer != NULL) {
+            lock(&peer_lock, 0);
+            struct fd *old_peer = sock->socket.unix_peer;
+            if (old_peer != NULL)
+                old_peer->socket.unix_peer = NULL;
+            sock->socket.unix_peer = NULL;
+            unlock(&peer_lock);
+        }
         // Send a pointer to ourselves so the accept side can link unix_peer
         // later, but do not wait for that acknowledgement here. Linux connect()
         // completes once the transport connection exists; waiting for accept()
