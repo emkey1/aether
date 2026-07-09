@@ -1,11 +1,16 @@
 #include <sys/stat.h>
 #include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include "kernel/calls.h"
 #include "kernel/task.h"
 #include "kernel/errno.h"
 #include "kernel/fs.h"
 #include "fs/path.h"
 #include "fs/fifo.h"
 #include "fs/poll.h"
+#include "fs/real.h"
 #include "util/refcount.h"
 #include "util/timer.h"
 #include "debug.h"
@@ -24,6 +29,11 @@ struct tmp_inode {
         //char *symlink_data;
         struct fifo_file *fifo; // S_IFIFO: the shared named-pipe buffer
     };
+    // S_IFREG only: once the file has been mmapped, its contents live in this
+    // unlinked host temp file instead of the malloc'd file_data buffer, so
+    // guest mappings can be host mmaps of it (see tmpfs_inode_host_backing).
+    // -1 while still malloc-backed.
+    int host_fd;
 };
 
 static bool tmpfs_is_cgroup2_mount(struct mount *mount) {
@@ -45,6 +55,7 @@ static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
     node->stat.uid = current->euid;
     node->stat.gid = current->egid;
     node->file_data = NULL; // also clears the ->fifo union slot for S_IFIFO
+    node->host_fd = -1;
     if (S_ISREG(mode)) {
         node->file_data = malloc(0);
         if (node->file_data == NULL) {
@@ -62,6 +73,8 @@ static void tmp_inode_cleanup(struct tmp_inode *inode) {
     // target string there too (same union slot).
     if (S_ISREG(inode->stat.mode) || S_ISLNK(inode->stat.mode)) {
         free(inode->file_data);
+        if (inode->host_fd >= 0)
+            close(inode->host_fd);
     } else if (S_ISFIFO(inode->stat.mode)) {
         fifo_file_free(inode->fifo);
     }
@@ -274,8 +287,59 @@ static struct tmp_dirent *tmpfs_lookup_parent(struct mount *mount, const char *p
     return __tmpfs_lookup(mount, path, true, filename_out);
 }
 
+// Lazily switch a regular file's backing from the malloc'd file_data buffer to
+// an unlinked host temp file. The malloc buffer moves on every realloc
+// (tmpfs_file_resize / tmpfs_write), which would leave a guest mapping pointing
+// at freed memory, so it can never be mmapped directly; a host file makes every
+// guest mapping a host mmap of the same file, and the host kernel provides
+// MAP_SHARED write-back and mmap<->read/write coherence exactly as it does for
+// realfs. Only mmapped files pay the host-fd cost. Call with inode->lock held.
+// Returns the host fd, or a negative errno.
+static int tmpfs_inode_host_backing(struct tmp_inode *inode) {
+    assert(S_ISREG(inode->stat.mode));
+    if (inode->host_fd >= 0)
+        return inode->host_fd;
+    // TMPDIR is always set on iOS (the app sandbox tmp dir); fall back to /tmp
+    // for the command-line build.
+    const char *tmpdir = getenv("TMPDIR");
+    if (tmpdir == NULL || tmpdir[0] == '\0')
+        tmpdir = "/tmp";
+    char path[MAX_PATH];
+    if (snprintf(path, sizeof(path), "%s/ish-tmpfs.XXXXXX", tmpdir) >= (int) sizeof(path))
+        return _ENAMETOOLONG;
+    int host_fd = mkstemp(path);
+    if (host_fd < 0)
+        return errno_map();
+    unlink(path); // the inode owns the fd; the name never needs to exist again
+    fcntl(host_fd, F_SETFD, FD_CLOEXEC);
+    size_t size = inode->stat.size;
+    size_t done = 0;
+    while (done < size) {
+        ssize_t n = pwrite(host_fd, (char *) inode->file_data + done, size - done, done);
+        if (n < 0) {
+            int err = errno_map();
+            close(host_fd);
+            return err;
+        }
+        done += n;
+    }
+    free(inode->file_data);
+    inode->file_data = NULL;
+    inode->host_fd = host_fd;
+    return host_fd;
+}
+
 static int tmpfs_file_resize(struct tmp_inode *file, size_t size) {
     assert(S_ISREG(file->stat.mode));
+    if (file->host_fd >= 0) {
+        // Host-file-backed (has been mmapped): ftruncate keeps live guest
+        // mappings coherent, and the host zero-fills growth.
+        if (ftruncate(file->host_fd, size) < 0)
+            return errno_map();
+        file->stat.size = size;
+        tmpfs_update_mtime_and_ctime(file);
+        return 0;
+    }
     size_t old_size = file->stat.size;
     void *new_data = realloc(file->file_data, size);
     // realloc(ptr, 0) may legitimately return NULL (it frees ptr); only treat
@@ -756,6 +820,19 @@ static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
         goto out;
     assert(S_ISREG(inode->stat.mode));
 
+    if (inode->host_fd >= 0) {
+        // Host-file-backed (has been mmapped): read the host file so writes
+        // made through a MAP_SHARED guest mapping are visible.
+        ssize_t n = pread(inode->host_fd, buf, bufsize, fd->offset);
+        if (n < 0) {
+            res = errno_map();
+            goto out;
+        }
+        fd->offset += n;
+        res = n;
+        goto out;
+    }
+
     // Clamp to the bytes actually available. The past-EOF check must come
     // first: stat.size and fd->offset are unsigned, so computing
     // stat.size - fd->offset when offset > size underflows to a huge value,
@@ -790,6 +867,22 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     size_t end;
     if (__builtin_add_overflow((size_t) fd->offset, bufsize, &end)) {
         res = _EFBIG;
+        goto out;
+    }
+    if (inode->host_fd >= 0) {
+        // Host-file-backed (has been mmapped): write the host file so the data
+        // is visible through any MAP_SHARED guest mapping.
+        ssize_t n = pwrite(inode->host_fd, buf, bufsize, fd->offset);
+        if (n < 0) {
+            res = errno_map();
+            goto out;
+        }
+        fd->offset += n;
+        if (inode->stat.size < (size_t) fd->offset)
+            inode->stat.size = fd->offset;
+        if (n > 0)
+            tmpfs_update_mtime_and_ctime(inode);
+        res = n;
         goto out;
     }
     if (inode->stat.size < end) {
@@ -943,11 +1036,38 @@ static int tmpfs_poll(struct fd *fd) {
     return POLL_READ | POLL_WRITE;
 }
 
+static int tmpfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags) {
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    // Linux (verified): mmap of a tmpfs directory or FIFO fails with ENODEV.
+    if (!S_ISREG(inode->stat.mode))
+        return _ENODEV;
+    // Linux mmap access checks (verified): the fd must be readable for any
+    // mapping, and MAP_SHARED + PROT_WRITE additionally needs it writable.
+    // realfs gets these for free from the host mmap of real_fd (opened with
+    // the same access mode); here the backing host fd is always O_RDWR, so
+    // check the guest fd's mode explicitly.
+    int accmode = fd->flags & O_ACCMODE_;
+    if (accmode == O_WRONLY_)
+        return _EACCES;
+    if ((flags & MMAP_SHARED) && (prot & P_WRITE) && accmode != O_RDWR_)
+        return _EACCES;
+    // Linux (verified): a file offset that isn't page-aligned is EINVAL.
+    if (offset % PAGE_SIZE != 0)
+        return _EINVAL;
+    lock(&inode->lock, 0);
+    int host_fd = tmpfs_inode_host_backing(inode);
+    unlock(&inode->lock);
+    if (host_fd < 0)
+        return host_fd;
+    return host_fd_mmap(host_fd, mem, start, pages, offset, prot, flags);
+}
+
 const struct fd_ops tmpfs_fdops = {
     .read = tmpfs_read,
     .write = tmpfs_write,
     .poll = tmpfs_poll,
     .lseek = tmpfs_lseek,
+    .mmap = tmpfs_mmap,
     .readdir = tmpfs_readdir,
     .telldir = tmpfs_telldir,
     .seekdir = tmpfs_seekdir,

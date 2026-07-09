@@ -723,9 +723,11 @@ int realfs_poll(struct fd *fd) {
     return p.revents;
 }
 
-int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags) {
-    enum { AMD64_REALFS_MMAP_TRACE_BUDGET = 32 };
-    static unsigned amd64_realfs_mmap_trace_count;
+// Core of realfs_mmap, taking a bare host fd: map any mmapable host file into
+// the guest page tables. Shared with tmpfs, whose regular files are backed by
+// unlinked host temp files (a struct tmp_inode host_fd) rather than a struct fd
+// with a real_fd.
+int host_fd_mmap(int host_fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags) {
     int mmap_flags = 0;
     if (flags & MMAP_PRIVATE) mmap_flags |= MAP_PRIVATE;
     if (flags & MMAP_SHARED) mmap_flags |= MAP_SHARED;
@@ -745,21 +747,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;
     char *memory = mmap(NULL, (pages * PAGE_SIZE) + correction,
-            mmap_prot, mmap_flags, fd->real_fd, real_offset);
-    if (memory == MAP_FAILED && current != NULL && current->abi == GUEST_ABI_AMD64 &&
-            amd64_realfs_mmap_trace_count < AMD64_REALFS_MMAP_TRACE_BUDGET) {
-        amd64_realfs_mmap_trace_count++;
-        char path[MAX_PATH];
-        int path_err = generic_getpath(fd, path);
-        printk("amd64 realfs mmap fail: pid=%d comm=%s real_fd=%d path=%s pages=%#x guest_off=%#llx real_off=%#llx corr=%#llx prot=%#x flags=%#x errno=%d\n",
-               current->pid, current->comm, fd->real_fd,
-               path_err == 0 ? path : "<path err>",
-               (unsigned) pages,
-               (unsigned long long) offset,
-               (unsigned long long) real_offset,
-               (unsigned long long) correction,
-               prot, flags, errno);
-    }
+            mmap_prot, mmap_flags, host_fd, real_offset);
     int err = pt_map(mem, start, pages, memory, correction, prot);
     // Never-writable file-backed mappings can't be COW-broken or otherwise
     // mutated by the guest (write faults check P_WRITE before touching
@@ -771,7 +759,7 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
     // dirtied by the guest.
     if (err == 0 && !(prot & P_WRITE)) {
         struct stat real_stat;
-        if (fstat(fd->real_fd, &real_stat) == 0) {
+        if (fstat(host_fd, &real_stat) == 0) {
             struct pt_entry *pt = mem_pt(mem, start);
             if (pt != NULL && pt->data != NULL) {
                 pt->data->cache_entry = mmap_cache_register(
@@ -779,19 +767,24 @@ int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off
             }
         }
     }
+    return err;
+}
+
+int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags) {
+    enum { AMD64_REALFS_MMAP_TRACE_BUDGET = 32 };
+    static unsigned amd64_realfs_mmap_trace_count;
+    int err = host_fd_mmap(fd->real_fd, mem, start, pages, offset, prot, flags);
     if (err < 0 && current != NULL && current->abi == GUEST_ABI_AMD64 &&
             amd64_realfs_mmap_trace_count < AMD64_REALFS_MMAP_TRACE_BUDGET) {
         amd64_realfs_mmap_trace_count++;
         char path[MAX_PATH];
         int path_err = generic_getpath(fd, path);
-        printk("amd64 realfs mmap maperr: pid=%d comm=%s real_fd=%d path=%s pages=%#x guest_off=%#llx real_off=%#llx corr=%#llx prot=%#x flags=%#x err=%d\n",
+        printk("amd64 realfs mmap fail: pid=%d comm=%s real_fd=%d path=%s pages=%#x guest_off=%#llx prot=%#x flags=%#x err=%d errno=%d\n",
                current->pid, current->comm, fd->real_fd,
                path_err == 0 ? path : "<path err>",
                (unsigned) pages,
                (unsigned long long) offset,
-               (unsigned long long) real_offset,
-               (unsigned long long) correction,
-               prot, flags, err);
+               prot, flags, err, errno);
     }
     return err;
 }
