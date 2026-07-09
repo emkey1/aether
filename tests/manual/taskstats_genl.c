@@ -352,6 +352,6 @@ done:
         printf("taskstats_genl: %u FAILURES\n", failures_total);
         return 1;
     }
-    printf("taskstats_genl: all tests passed\n");
+    printf("taskstats_genl: PASS\n");
     return 0;
 }

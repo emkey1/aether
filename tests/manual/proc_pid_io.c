@@ -252,6 +252,6 @@ int main(int argc, char **argv) {
         printf("proc_pid_io: %u FAILURES\n", failures_total);
         return 1;
     }
-    printf("proc_pid_io: all tests passed\n");
+    printf("proc_pid_io: PASS\n");
     return 0;
 }

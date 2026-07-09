@@ -343,6 +343,6 @@ int main(int argc, char **argv) {
         printf("tmpfs_mmap: %u FAILURES\n", failures_total);
         return 1;
     }
-    printf("tmpfs_mmap: all tests passed\n");
+    printf("tmpfs_mmap: PASS\n");
     return 0;
 }
