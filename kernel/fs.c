@@ -2350,6 +2350,23 @@ static dword_t do_copy_file_range(fd_t in_fd, guest_addr_t in_off_addr, fd_t out
         guest_addr_t out_off_addr, uint64_t len, uint_t flags) {
     if (flags != 0)
         return _EINVAL;
+    // Unlike sendfile (which legitimately targets a socket as out_fd, and
+    // shares fd_copy_range below), Linux's copy_file_range requires both
+    // ends to be regular files and rejects anything else -- including
+    // sockets and pipes -- with EINVAL before touching either fd, confirmed
+    // against real Linux. fd_copy_range has no such check, so falling
+    // through here for a socket would reach a genuine blocking read() with
+    // none of sys_recvfrom's signal-interruptible wrapping. stress-ng
+    // --sockabuse calls copy_file_range on a connected socket pair
+    // expecting exactly this EINVAL; getting past this check instead hung
+    // that thread forever (nothing else ever writes to the socket) in a
+    // read() no signal could interrupt, wedging the whole stress-ng run.
+    struct fd *in_f = f_get(in_fd);
+    struct fd *out_f = f_get(out_fd);
+    if (in_f == NULL || out_f == NULL)
+        return _EBADF;
+    if (!S_ISREG(in_f->type) || !S_ISREG(out_f->type))
+        return _EINVAL;
     off_t_ in_off = 0, out_off = 0;
     off_t_ *in_ptr = NULL, *out_ptr = NULL;
     if (in_off_addr != 0) {

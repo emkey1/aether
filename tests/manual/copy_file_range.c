@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/syscall.h>
+#include <sys/socket.h>
 #include "test_common.h"
 
 #ifndef SYS_copy_file_range
@@ -102,9 +103,38 @@ out:
     unlink("/tmp/cfr.src"); unlink("/tmp/cfr.dst2");
 }
 
+// Regression for stress-ng --sockabuse: on Linux, copy_file_range() only
+// ever supports regular files (pipes on some kernels via a splice fallback
+// we don't implement) and rejects anything else -- sockets included -- with
+// EINVAL before touching either fd. iSH's fd_copy_range had no such check,
+// so a socket fell through to a real blocking read() with none of
+// sys_recvfrom's signal-interruptible wrapping: if nothing ever wrote to the
+// socket (exactly the case here -- and the case sockabuse hits, since real
+// Linux never attempts the read at all), the calling thread hung forever,
+// unkillable, and wedged the whole stress-ng run around it.
+static void test_socket_rejected(void) {
+    int sv[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) {
+        printf("FAIL: socketpair: %s\n", strerror(errno));
+        failures_total++;
+        return;
+    }
+    errno = 0;
+    ssize_t r = syscall(SYS_copy_file_range, sv[0], NULL, sv[1], NULL, 16, 0);
+    if (r >= 0 || errno != EINVAL) {
+        printf("FAIL: copy_file_range(socket): r=%ld errno=%d (%s), want -1/EINVAL\n",
+               r, errno, strerror(errno));
+        failures_total++;
+    } else {
+        test_logf("socket rejected with EINVAL as expected\n");
+    }
+    close(sv[0]); close(sv[1]);
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     test_whole_copy();
     test_offset_copy();
+    test_socket_rejected();
     return finish_suite("copy_file_range");
 }
