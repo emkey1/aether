@@ -65,6 +65,14 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     group->itimer_vprof_sampler = NULL;
     group->itimer_virtual = (typeof(group->itimer_virtual)) {};
     group->itimer_prof = (typeof(group->itimer_prof)) {};
+    // POSIX timers (timer_create) are NOT inherited across fork() on Linux --
+    // the child starts with none. The *group = *old_group shallow copy above
+    // duplicated the parent's posix_timers[] (including the struct timer *
+    // pointers), so a forked child that called timer_delete (e.g. stress-ng
+    // --cpu-sched, whose children delete the inherited timer at startup) freed
+    // a timer the parent still owned -> double free / use-after-free of the
+    // running timer thread. Clear the array so the child inherits no timers.
+    memset(group->posix_timers, 0, sizeof(group->posix_timers));
     group->doing_group_exit = false;
     group->continued = false;
     group->children_rusage = (struct rusage_) {};
