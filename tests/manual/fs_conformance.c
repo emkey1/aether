@@ -9,6 +9,7 @@
 //   - "nonexistent/.." -> ENOENT (no lexical '..' collapse)
 //   - open("name/", O_CREAT) -> EISDIR (no create through a trailing slash)
 //   - getdents with a too-small buffer -> EINVAL (not a spurious EOF)
+//   - fchdir on a non-directory (socket) -> ENOTDIR, cwd unchanged
 //   - renameat2(RENAME_NOREPLACE) onto an existing name -> EEXIST, else success
 //   - fcntl(F_DUPFD) with a negative/over-limit arg -> EINVAL (no abort)
 //   - readlink("/proc/self") is the bare numeric pid (no trailing slash)
@@ -24,6 +25,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include "test_common.h"
 
 #ifndef O_NOFOLLOW
@@ -111,6 +113,25 @@ int main(int argc, char **argv) {
         eq_errno("getdents.tiny", syscall(SYS_getdents64, dfd, tiny, (unsigned) sizeof tiny), EINVAL);
         close(dfd);
     }
+
+    // ---- fchdir requires a directory fd ----
+    // fchdir on a non-directory (socket) must return ENOTDIR and leave the cwd
+    // untouched. iSH used to skip the type check and pin the fd as cwd; a
+    // listening socket pinned this way never released its host port, so
+    // stress-ng --sockabuse spun on EADDRINUSE for minutes.
+    int cdd = open("d", O_RDONLY | O_DIRECTORY);
+    if (cdd >= 0) is_ok("fchdir.dir", fchdir(cdd));
+    char cwd_before[1024];
+    getcwd(cwd_before, sizeof cwd_before);
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd >= 0) {
+        eq_errno("fchdir.socket", fchdir(sfd), ENOTDIR);
+        char cwd_after[1024];
+        getcwd(cwd_after, sizeof cwd_after);
+        is_true("fchdir.socket.cwd_kept", strcmp(cwd_before, cwd_after) == 0);
+        close(sfd);
+    }
+    if (cdd >= 0) { chdir(base); close(cdd); }
 
     // ---- renameat2(RENAME_NOREPLACE) ----
     mkfile("nr_a"); mkfile("nr_b");

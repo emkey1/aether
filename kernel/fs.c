@@ -1450,6 +1450,15 @@ dword_t sys_fchdir(fd_t f) {
     struct fd *dir = f_get(f);
     if (dir == NULL)
         return _EBADF;
+    // Linux fchdir() requires the fd to be a directory; a non-directory (e.g. a
+    // socket, as stress-ng --sockabuse's fd-abuse sweep does) returns ENOTDIR
+    // without touching the cwd. The path-based chdir already enforces this via
+    // open_dir(); fchdir must match. Skipping the check pinned the fd as
+    // current->fs->pwd (fs_chdir retains it), so closing a listening socket
+    // never freed the real host socket -- the port stayed EADDRINUSE and the
+    // sockabuse retry loop spun for minutes.
+    if (!S_ISDIR(dir->type))
+        return _ENOTDIR;
     dir->refcount++;
     fs_chdir(current->fs, dir);
     return 0;
