@@ -8024,8 +8024,10 @@ restart_prefix:
         case 0x6b: {
             sqword_t src_signed;
             sqword_t imm_signed;
-            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
-                goto amd64_gpf_restore;
+            // Fetch the immediate before touching the r/m operand: a
+            // RIP-relative operand resolves against the END of the
+            // instruction, and the fetch cursor only reaches it once the
+            // immediate has been consumed.
             if (opcode == 0x69) {
                 if (op_size == 16) {
                     int16_t imm16;
@@ -8053,6 +8055,8 @@ restart_prefix:
                 }
                 imm_signed = imm8;
             }
+            if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, op_size, &rhs))
+                goto amd64_gpf_restore;
             src_signed = amd64_sign_extend(rhs, op_size);
             if (op_size == 64) {
                 __int128_t full = (__int128_t) src_signed * (__int128_t) imm_signed;
@@ -10557,8 +10561,9 @@ int amd64_jit_imul_imm(struct cpu_state *cpu, struct tlb *tlb,
         goto amd64_imul_imm_pf;
 
     size = operand_size_prefix ? 16 : (rex.w ? 64 : 32);
-    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &rhs))
-        goto amd64_imul_imm_pf;
+    // Fetch the immediate before touching the r/m operand: a RIP-relative
+    // operand resolves against the END of the instruction, and the fetch
+    // cursor only reaches it once the immediate has been consumed.
     if (opcode == 0x69) {
         if (size == 16) {
             int16_t imm16;
@@ -10577,6 +10582,8 @@ int amd64_jit_imul_imm(struct cpu_state *cpu, struct tlb *tlb,
             goto amd64_imul_imm_pf;
         imm_signed = imm8;
     }
+    if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, size, &rhs))
+        goto amd64_imul_imm_pf;
 
     src_signed = amd64_sign_extend(rhs, size);
     if (size == 64) {
