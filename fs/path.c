@@ -147,7 +147,11 @@ static int __path_normalize(const char *root_path, const char *at_path, const ch
 }
 
 int path_normalize(struct fd *at, const char *path, char *out, int flags) {
-    assert(at != NULL);
+    // A genuinely-NULL dirfd (distinct from the AT_PWD sentinel (struct fd *)-2)
+    // reaches here when an *at syscall is handed a bad/closed dirfd. Linux
+    // returns EBADF; don't abort the whole emulator (stress-ng --dir passed one).
+    if (at == NULL)
+        return _EBADF;
     if (strcmp(path, "") == 0)
         return _ENOENT;
     if (current == NULL || current->fs == NULL)

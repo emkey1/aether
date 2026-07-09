@@ -278,11 +278,17 @@ static int tmpfs_file_resize(struct tmp_inode *file, size_t size) {
     assert(S_ISREG(file->stat.mode));
     size_t old_size = file->stat.size;
     void *new_data = realloc(file->file_data, size);
-    if (new_data == NULL)
+    // realloc(ptr, 0) may legitimately return NULL (it frees ptr); only treat
+    // NULL as an error for a non-zero request.
+    if (new_data == NULL && size != 0)
         return _ENOMEM;
     file->file_data = new_data;
     file->stat.size = size;
-    memset((char *) file->file_data + old_size, 0, file->stat.size - old_size);
+    // Only zero newly-grown bytes. When shrinking (e.g. ftruncate to a smaller
+    // size, or to 0) size < old_size, and size - old_size is an unsigned
+    // underflow -> a huge memset that writes far past the buffer -> SIGSEGV.
+    if (size > old_size)
+        memset((char *) file->file_data + old_size, 0, size - old_size);
     tmpfs_update_mtime_and_ctime(file);
     return 0;
 }
@@ -750,11 +756,15 @@ static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
         goto out;
     assert(S_ISREG(inode->stat.mode));
 
-    if (bufsize > inode->stat.size - fd->offset) {
+    // Clamp to the bytes actually available. The past-EOF check must come
+    // first: stat.size and fd->offset are unsigned, so computing
+    // stat.size - fd->offset when offset > size underflows to a huge value,
+    // leaving bufsize unclamped and making the memcpy read wildly out of
+    // bounds (a pread past EOF on tmpfs -> SIGSEGV; Linux just returns 0).
+    if (fd->offset >= inode->stat.size)
+        bufsize = 0;
+    else if (bufsize > inode->stat.size - fd->offset)
         bufsize = inode->stat.size - fd->offset;
-        if (fd->offset >= inode->stat.size)
-            bufsize = 0;
-    }
     memcpy(buf, inode->file_data + fd->offset, bufsize);
     fd->offset += bufsize;
     res = bufsize;
@@ -775,8 +785,15 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
         goto out;
     assert(S_ISREG(inode->stat.mode));
 
-    if (inode->stat.size < fd->offset + bufsize) {
-        res = tmpfs_file_resize(inode, fd->offset + bufsize);
+    // Guard against fd->offset + bufsize wrapping (a write at an offset near
+    // SIZE_MAX would otherwise skip the grow and memcpy far past the buffer).
+    size_t end;
+    if (__builtin_add_overflow((size_t) fd->offset, bufsize, &end)) {
+        res = _EFBIG;
+        goto out;
+    }
+    if (inode->stat.size < end) {
+        res = tmpfs_file_resize(inode, end);
         if (res < 0)
             goto out;
     }

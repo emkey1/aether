@@ -10,6 +10,7 @@
 //   - open("name/", O_CREAT) -> EISDIR (no create through a trailing slash)
 //   - getdents with a too-small buffer -> EINVAL (not a spurious EOF)
 //   - fchdir on a non-directory (socket) -> ENOTDIR, cwd unchanged
+//   - tmpfs pread past EOF -> 0; ftruncate shrink/grow underflow-safe, grow zero-fills
 //   - renameat2(RENAME_NOREPLACE) onto an existing name -> EEXIST, else success
 //   - fcntl(F_DUPFD) with a negative/over-limit arg -> EINVAL (no abort)
 //   - readlink("/proc/self") is the bare numeric pid (no trailing slash)
@@ -132,6 +133,29 @@ int main(int argc, char **argv) {
         close(sfd);
     }
     if (cdd >= 0) { chdir(base); close(cdd); }
+
+    // ---- tmpfs read/resize boundary conditions (unsigned-underflow crashes) ----
+    // pread past EOF must return 0, not read out of bounds; ftruncate to a
+    // smaller size (including 0) must not underflow the zero-fill; a re-grow
+    // must read back as zeros. These crashed tmpfs (stress-ng copy-file,
+    // fallocate, sync-file) before the size arithmetic was made underflow-safe.
+    int tf = open("tmpf", O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (tf >= 0) {
+        is_true("tmpfs.write5", write(tf, "hello", 5) == 5);
+        char rb[16];
+        is_true("tmpfs.pread_past_eof", pread(tf, rb, sizeof rb, 100) == 0);
+        is_true("tmpfs.pread_clamped", pread(tf, rb, sizeof rb, 3) == 2);
+        is_ok("tmpfs.ftruncate_zero", ftruncate(tf, 0));
+        is_true("tmpfs.size_zero", fstat(tf, &st) == 0 && st.st_size == 0);
+        is_ok("tmpfs.ftruncate_grow", ftruncate(tf, 4096));
+        is_true("tmpfs.size_grow", fstat(tf, &st) == 0 && st.st_size == 4096);
+        char zb[64]; memset(zb, 0xff, sizeof zb);
+        ssize_t zn = pread(tf, zb, sizeof zb, 0);
+        int allzero = zn == (ssize_t) sizeof zb;
+        for (ssize_t i = 0; i < zn; i++) if (zb[i] != 0) allzero = 0;
+        is_true("tmpfs.grow_reads_zero", allzero);
+        close(tf);
+    }
 
     // ---- renameat2(RENAME_NOREPLACE) ----
     mkfile("nr_a"); mkfile("nr_b");

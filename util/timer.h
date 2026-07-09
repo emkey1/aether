@@ -9,9 +9,15 @@
 #include "util/sync.h"
 
 static inline struct timespec timespec_now(clockid_t clockid) {
-    assert(clockid == CLOCK_MONOTONIC || clockid == CLOCK_REALTIME);
-    struct timespec now;
-    clock_gettime(clockid, &now); // can't fail, according to posix spec
+    // Besides MONOTONIC/REALTIME, guest clock_nanosleep(TIMER_ABSTIME) and
+    // POSIX/timerfd timers legitimately reach here with the CPU-time clocks
+    // (CLOCK_THREAD_CPUTIME_ID / CLOCK_PROCESS_CPUTIME_ID) and BOOTTIME/RAW,
+    // all of which the host clock_gettime supports. Asserting MONOTONIC/REALTIME
+    // aborted the whole emulator on stress-ng --cpu-sched. Fall back to
+    // MONOTONIC only if the host genuinely rejects the clock.
+    struct timespec now = {0};
+    if (clock_gettime(clockid, &now) != 0)
+        clock_gettime(CLOCK_MONOTONIC, &now);
     return now;
 }
 
