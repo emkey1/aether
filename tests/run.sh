@@ -112,6 +112,7 @@ MODULE_CONST_SUPPORT_FIXTURE="$TESTS_DIR/module_consts"
 MODULE_CONST_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_const_import_pass.aether"
 MODULE_SHAPES_SUPPORT_FIXTURE="$TESTS_DIR/module_shapes"
 MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE="$TESTS_DIR/module_type_field_access_pass.aether"
+MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE="$TESTS_DIR/module_type_global_let_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
 TYPE_FIELD_COMMA_FAIL_FIXTURE="$TESTS_DIR/type_field_comma_fail.aether"
@@ -272,6 +273,7 @@ for fixture in \
     "$MODULE_CONST_IMPORT_PASS_FIXTURE" \
     "$MODULE_SHAPES_SUPPORT_FIXTURE" \
     "$MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE" \
+    "$MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE" \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
@@ -747,6 +749,16 @@ fi
 if ! grep -qx "7" /tmp/aether_module_type_field_access_pass.out; then
     echo "unexpected module type field access output" >&2
     cat /tmp/aether_module_type_field_access_pass.out >&2
+    exit 1
+fi
+# Regression: a top-level (global-scope) `let` typed with a module-exported
+# type must resolve like a function-local one. Before rea's fix the global
+# path kept the parse-time TYPE_UNKNOWN ("Cannot assign POINTER to
+# UNKNOWN_VAR_TYPE"). See rea's rea_module_type_global_var_decl_test.
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE" >/tmp/aether_module_type_global_let_pass.out
+if ! grep -qx "7" /tmp/aether_module_type_global_let_pass.out; then
+    echo "unexpected module type global let output" >&2
+    cat /tmp/aether_module_type_global_let_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$SHOWCASE_EXAMPLE" >/tmp/aether_showcase_example.out
