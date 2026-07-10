@@ -211,7 +211,18 @@ EOF
     # environment) to trim the emulator; meson rejects an empty list.
     guest_archs=${ISH_GUEST_ARCHS:-i386,amd64,arm64,riscv64}
     for var in buildtype log b_ndebug b_sanitize log_handler kernel kconfig guest_archs; do
-        old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< "$config")
+        if ! old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< "$config" 2>/dev/null); then
+            # The option is missing from this build dir's cached
+            # configuration: it was added to meson_options.txt after the
+            # dir was set up (e.g. guest_archs on an existing DerivedData
+            # tree). A plain `meson configure` can't learn new options —
+            # --reconfigure re-reads the option definitions. Without this,
+            # the next(...) one-liner died with StopIteration and, under
+            # `set -e`, took the whole Xcode build with it.
+            (set -x; meson setup --reconfigure . "$SRCROOT" --cross-file "$crossfile") || exit $?
+            config=$(meson introspect --buildoptions)
+            old_value=$(python3 -c "import sys, json; v = next(x['value'] for x in json.load(sys.stdin) if x['name'] == '$var'); print(str(v).lower() if isinstance(v, bool) else ','.join(v) if isinstance(v, list) else v)" <<< "$config")
+        fi
         new_value=${!var}
         if [[ $old_value != $new_value ]]; then
             set -x; meson configure "-D$var=$new_value"
