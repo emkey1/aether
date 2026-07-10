@@ -1,0 +1,81 @@
+# ktop
+
+A small, dependency-free `top(1)` clone with one extra column: **ARCH**, the
+guest CPU architecture (`arm64` / `x86_64` / `x86`) of each process's binary,
+read from its ELF header via `/proc/<pid>/exe`.
+
+iSH-AOK can run i386, amd64 and arm64 binaries side by side in the same
+booted guest -- most usefully via `chroot`ing into another installed root
+with [`/AOK/tools/mount-root.sh`](../mount-root.sh) -- and stock `top` has no
+way to show that mix. `ktop` otherwise behaves like ordinary `top`: an
+interactive, periodically refreshing process table sorted by `%CPU`, or `-b`
+batch mode for scripting. No ncurses, no procps -- just libc and `/proc`.
+
+## Build
+
+```sh
+sh /AOK/tools/ktop/build.sh          # builds ./ktop under /tmp/ktop-build
+sh /AOK/tools/ktop/build.sh install  # also installs to /usr/local/bin/ktop
+```
+
+`/AOK` is a read-only mount, so the script copies the source to a writable
+work directory (`$WORK_DIR`, default `/tmp/ktop-build`) before running `make`.
+Or build it manually:
+
+```sh
+cp /AOK/tools/ktop/ktop.c /AOK/tools/ktop/Makefile /tmp/ktop-build/
+make -C /tmp/ktop-build
+```
+
+## Usage
+
+```
+ktop [-b] [-n iterations] [-d seconds]
+
+  -b            batch mode: no screen clearing, print each snapshot and
+                exit after -n iterations (default 1 in batch mode)
+  -n iterations number of snapshots before exiting (default: run until
+                'q' is pressed, in interactive mode)
+  -d seconds    delay between snapshots (default: 3)
+```
+
+Interactive mode redraws in place (like `top`); press `q` to quit. Batch mode
+(`-b`) is meant for scripting, e.g.:
+
+```sh
+ktop -bn1                       # one snapshot, then exit
+ktop -bn1 | head -20
+```
+
+## Example: seeing the arch mix across a chroot
+
+Run `ktop` from the **outer, booted root** (i.e. a plain shell, not one
+entered via `mount-root.sh`). Build it there once:
+
+```sh
+sh /AOK/tools/ktop/build.sh install
+```
+
+Then, from that same outer shell, `ktop -bn1` shows every process on the
+system -- including ones running inside a `mount-root.sh` chroot into another
+installed root -- each correctly labeled with its own architecture, since
+`/proc` is a single, shared view of the one true kernel state regardless of
+which root a process was `exec`'d from:
+
+```sh
+sudo /AOK/tools/mount-root.sh Devuan6-x86_64 -- some-long-running-thing &
+ktop -bn1   # run from the outer shell, NOT inside the chroot above
+```
+
+**Known limitation:** run `ktop` *from inside* a `mount-root.sh` chroot and
+it can only detect the architecture of processes reachable from that
+chroot's own root -- anything outside it (including the outer root's own
+processes) shows `?` in the ARCH column rather than failing or showing wrong
+data. This mirrors a real gap in iSH-AOK's `/proc/<pid>/exe`: opening
+another process's exe this way resolves through a symlink-target string
+(unlike real Linux, which opens the underlying file directly regardless of
+the caller's chroot), so a target outside the caller's chroot can't be
+opened. `readlink` on that same path still works correctly and reports it as
+unreachable, matching real Linux -- it's specifically *opening* it that's
+restricted. Bottom line: for the full picture, run `ktop` from the outer,
+un-chrooted shell.
