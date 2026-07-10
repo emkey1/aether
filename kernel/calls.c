@@ -1240,6 +1240,9 @@ static inline void amd64_syscall_result(struct cpu_state *cpu, dword_t result);
 static inline qword_t arm64_syscall_number(const struct cpu_state *cpu);
 static inline void arm64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
 static inline void arm64_syscall_result(struct cpu_state *cpu, dword_t result);
+static inline qword_t riscv64_syscall_number(const struct cpu_state *cpu);
+static inline void riscv64_syscall_args(const struct cpu_state *cpu, qword_t args[6]);
+static inline void riscv64_syscall_result(struct cpu_state *cpu, dword_t result);
 void handle_syscall_interrupt(struct cpu_state *cpu);
 
 struct syscall_abi_dispatch {
@@ -1820,7 +1823,7 @@ static syscall_t arm64_syscall_table[463] = {
     [290] = (syscall_t) syscall_stub, // pkey_free
     // rseq (293) and kexec_file_load (294) are covered by the [292 ... 423]
     // silent-stub range below; not listed individually (it would re-init them).
-    // pidfd/io_uring/process_madvise: handle_arm64_native_syscall already
+    // pidfd/io_uring/process_madvise: handle_asm_generic_native_syscall already
     // returns a clean ENOSYS for every one of these (its "clean ENOSYS" case
     // group shadows the table before the entry is ever called), so the table
     // slot here governs *logging only*. Use the SILENT stub to match the
@@ -1962,12 +1965,30 @@ static const struct syscall_abi_dispatch arm64_syscall_dispatch = {
     .syscall_result = arm64_syscall_result,
 };
 
+// riscv64 shares arm64's syscall table: both are asm-generic ABIs with
+// identical numbering, and the entries reuse the same sys_* implementations
+// either way. Only the register plumbing (a7/a0-a5/a0 vs x8/x0-x5/x0) and
+// the riscv-arch-specific numbers (258 riscv_hwprobe / 259
+// riscv_flush_icache, intercepted in handle_asm_generic_native_syscall)
+// differ. If the tables ever need to diverge for real, split them then.
+static const struct syscall_abi_dispatch riscv64_syscall_dispatch = {
+    .abi = GUEST_ABI_RISCV64,
+    .name = "riscv64",
+    .table = arm64_syscall_table,
+    .num_syscalls = sizeof(arm64_syscall_table) / sizeof(arm64_syscall_table[0]),
+    .syscall_number = riscv64_syscall_number,
+    .syscall_args = riscv64_syscall_args,
+    .syscall_result = riscv64_syscall_result,
+};
+
 static const struct syscall_abi_dispatch *syscall_dispatch_for_abi(enum guest_abi abi) {
     switch (abi) {
     case GUEST_ABI_AMD64:
         return &amd64_syscall_dispatch;
     case GUEST_ABI_ARM64:
         return &arm64_syscall_dispatch;
+    case GUEST_ABI_RISCV64:
+        return &riscv64_syscall_dispatch;
     case GUEST_ABI_I386:
     default:
         return &i386_syscall_dispatch;
@@ -2018,6 +2039,16 @@ static void prepare_syscall_restart(struct cpu_state *cpu, const struct syscall_
         cpu->arm64_regs[arm64_x8] = syscall_num;
         cpu->arm64_regs[arm64_x0] = orig_arg0;
         cpu->arm64_pc -= 4;
+        return;
+    }
+    if (dispatch->abi == GUEST_ABI_RISCV64) {
+        // Same shape as arm64 above: a0 is both the return register and
+        // the first-argument register, so restore the original argument
+        // unconditionally (orig_a0). ECALL has no compressed form, so the
+        // rewind is always 4 bytes.
+        cpu->riscv64_regs[riscv64_a7] = syscall_num;
+        cpu->riscv64_regs[riscv64_a0] = orig_arg0;
+        cpu->riscv64_pc -= 4;
         return;
     }
 
@@ -2089,6 +2120,29 @@ static inline void arm64_syscall_result(struct cpu_state *cpu, dword_t result) {
         cpu->arm64_regs[arm64_x0] = (qword_t) result;
 }
 
+// riscv64: number in a7, args a0-a5, result a0. Same asm-generic
+// conventions as arm64 modulo register names (a0 has x0's dual
+// first-arg/return role; see prepare_syscall_restart).
+static inline qword_t riscv64_syscall_number(const struct cpu_state *cpu) {
+    return cpu->riscv64_regs[riscv64_a7];
+}
+
+static inline void riscv64_syscall_args(const struct cpu_state *cpu, qword_t args[6]) {
+    args[0] = cpu->riscv64_regs[riscv64_a0];
+    args[1] = cpu->riscv64_regs[riscv64_a1];
+    args[2] = cpu->riscv64_regs[riscv64_a2];
+    args[3] = cpu->riscv64_regs[riscv64_a3];
+    args[4] = cpu->riscv64_regs[riscv64_a4];
+    args[5] = cpu->riscv64_regs[riscv64_a5];
+}
+
+static inline void riscv64_syscall_result(struct cpu_state *cpu, dword_t result) {
+    if (syscall_result_is_errno(result))
+        cpu->riscv64_regs[riscv64_a0] = (qword_t) (sqword_t) syscall_result_errno(result);
+    else
+        cpu->riscv64_regs[riscv64_a0] = (qword_t) result;
+}
+
 static inline void amd64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
     sqword_t signed_result = (sqword_t) result;
     sdword_t signed_result32 = (sdword_t) (dword_t) result;
@@ -2107,8 +2161,13 @@ static bool syscall_arg_fits_legacy_dword(qword_t arg) {
     return arg <= UINT32_MAX || (arg >> 32) == UINT32_MAX;
 }
 
-static inline void arm64_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
-    cpu->arm64_regs[arm64_x0] = result;
+// Full-width result write for the asm-generic 64-bit ABIs served by
+// handle_asm_generic_native_syscall below: arm64's x0 or riscv64's a0.
+static inline void asm_generic_syscall_result_qword(struct cpu_state *cpu, qword_t result) {
+    if (current->abi == GUEST_ABI_RISCV64)
+        cpu->riscv64_regs[riscv64_a0] = result;
+    else
+        cpu->arm64_regs[arm64_x0] = result;
 }
 
 // AArch64 open(2) flags -> this codebase's internal (i386-valued) flags.
@@ -2151,7 +2210,7 @@ static dword_t internal_to_arm64_open_flags(dword_t flags) {
 
 // fcntl file-status commands: values are ABI-universal (fcntl.h) and defined
 // privately in fs/fd.c; mirrored here for the arm64 flag translation in
-// handle_arm64_native_syscall's case 25.
+// handle_asm_generic_native_syscall's case 25.
 #define F_GETFL_ 3
 #define F_SETFL_ 4
 
@@ -2171,36 +2230,57 @@ static dword_t internal_to_arm64_open_flags(dword_t flags) {
 // dword-returning cases funnel through the shared restart/sign-extend
 // tail; the three address-returning calls (brk/mmap/mremap) and lseek
 // set the full 64-bit result directly.
-static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_num,
+static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t syscall_num,
         const qword_t raw_args[6]) {
     dword_t result;
+    // riscv-arch-specific numbers (the asm-generic 244-259 arch range;
+    // unallocated on arm64, so they can't collide with the shared table).
+    if (current->abi == GUEST_ABI_RISCV64) {
+        switch (syscall_num) {
+        case 258: // riscv_hwprobe: ENOSYS; glibc probes at startup and
+                  // falls back cleanly (verify against real libc early in
+                  // bring-up, riscv64_guest_plan.md Risks)
+            asm_generic_syscall_result_qword(cpu, (qword_t) (sqword_t) _ENOSYS);
+            return true;
+        case 259: // riscv_flush_icache: the JIT invalidates translated
+                  // blocks on guest memory writes itself, so success no-op
+            asm_generic_syscall_result_qword(cpu, 0);
+            return true;
+        }
+    }
     switch (syscall_num) {
     // -- full-width results --
     case 139: { // rt_sigreturn: restores the whole register file; only
                 // overwrite X0 on error (mirrors amd64's case-15 handling)
-        qword_t sigreturn_result = sys_rt_sigreturn_arm64();
+        qword_t sigreturn_result;
+        if (current->abi == GUEST_ABI_RISCV64)
+            // riscv64 sigframes don't exist yet (riscv64_guest_plan.md
+            // patch 6 wires sys_rt_sigreturn_riscv64 here)
+            sigreturn_result = (qword_t) (sqword_t) _ENOSYS;
+        else
+            sigreturn_result = sys_rt_sigreturn_arm64();
         sqword_t signed_result = (sqword_t) sigreturn_result;
         if (signed_result < 0 && signed_result >= -4095)
-            arm64_syscall_result_qword(cpu, sigreturn_result);
+            asm_generic_syscall_result_qword(cpu, sigreturn_result);
         return true;
     }
     case 62: // lseek
-        arm64_syscall_result_qword(cpu, (qword_t) sys_lseek_amd64_guest(
+        asm_generic_syscall_result_qword(cpu, (qword_t) sys_lseek_amd64_guest(
                 (fd_t) raw_args[0], (off_t_) raw_args[1], (dword_t) raw_args[2]));
         return true;
     case 214: // brk
-        arm64_syscall_result_qword(cpu, sys_brk_guest(raw_args[0]));
+        asm_generic_syscall_result_qword(cpu, sys_brk_guest(raw_args[0]));
         return true;
     case 196: // shmat: returns an address
-        arm64_syscall_result_qword(cpu, (qword_t) sys_shmat_guest(
+        asm_generic_syscall_result_qword(cpu, (qword_t) sys_shmat_guest(
                 (int_t) raw_args[0], raw_args[1], (int_t) raw_args[2]));
         return true;
     case 216: // mremap
-        arm64_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
+        asm_generic_syscall_result_qword(cpu, sys_mremap_guest(raw_args[0], raw_args[1],
                 raw_args[2], (dword_t) raw_args[3], raw_args[4]));
         return true;
     case 222: // mmap
-        arm64_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], raw_args[1],
+        asm_generic_syscall_result_qword(cpu, sys_mmap_guest(raw_args[0], raw_args[1],
                 (dword_t) raw_args[2], (dword_t) raw_args[3], (fd_t) raw_args[4],
                 raw_args[5]));
         return true;
@@ -2457,7 +2537,7 @@ static bool handle_arm64_native_syscall(struct cpu_state *cpu, qword_t syscall_n
     // Sign-extend: a dword -errno (or any negative 32-bit result, e.g.
     // wait4's -1... which IS an errno encoding here) widens to the 64-bit
     // negative X0 the guest's errno check expects.
-    arm64_syscall_result_qword(cpu, (qword_t) (sqword_t) (sdword_t) result);
+    asm_generic_syscall_result_qword(cpu, (qword_t) (sqword_t) (sdword_t) result);
     return true;
 }
 
@@ -3772,14 +3852,17 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
         }
     }
 
+    // riscv64 shares arm64's arity table along with its syscall numbering
+    // (same asm-generic ABI; see riscv64_syscall_dispatch).
     unsigned arg_count = abi == GUEST_ABI_AMD64 ? amd64_syscall_legacy_arg_count(syscall_num)
-                       : abi == GUEST_ABI_ARM64 ? arm64_syscall_legacy_arg_count(syscall_num)
+                       : (abi == GUEST_ABI_ARM64 || abi == GUEST_ABI_RISCV64)
+                           ? arm64_syscall_legacy_arg_count(syscall_num)
                        : 6;
     for (unsigned i = 0; i < arg_count; i++) {
-        // Both 64-bit ABIs validate: a 64-bit value reaching the 32-bit
+        // All 64-bit ABIs validate: a 64-bit value reaching the 32-bit
         // marshalling is a dispatch bug, and failing loudly here (SIGSYS)
         // beats silently truncating a pointer (how arm64 dmesg broke).
-        if ((abi == GUEST_ABI_AMD64 || abi == GUEST_ABI_ARM64) &&
+        if (guest_abi_is_64bit(abi) &&
                 !syscall_arg_fits_legacy_dword(raw_args[i]))
             return false;
         args[i] = (dword_t) raw_args[i];
@@ -3836,6 +3919,16 @@ static void log_stub_syscall(struct cpu_state *cpu, const struct syscall_abi_dis
                (unsigned long long) cpu->arm64_regs[arm64_x3]);
         return;
     }
+    if (dispatch->abi == GUEST_ABI_RISCV64) {
+        printk("ERROR: %d(%s) %s %s syscall %u pc=0x%llx a0=0x%llx a1=0x%llx a2=0x%llx a3=0x%llx\n",
+               current->pid, current->comm, dispatch->name, kind, syscall_num,
+               (unsigned long long) cpu->riscv64_pc,
+               (unsigned long long) cpu->riscv64_regs[riscv64_a0],
+               (unsigned long long) cpu->riscv64_regs[riscv64_a1],
+               (unsigned long long) cpu->riscv64_regs[riscv64_a2],
+               (unsigned long long) cpu->riscv64_regs[riscv64_a3]);
+        return;
+    }
 
     printk("ERROR: %d(%s) %s %s syscall %u eip=0x%x eax=0x%x ebx=0x%x ecx=0x%x edx=0x%x\n",
            current->pid, current->comm, dispatch->name, kind, syscall_num, cpu->eip,
@@ -3869,6 +3962,21 @@ static void handle_arm64_syscall_interrupt(struct cpu_state *cpu) {
     // below: that exists because amd64 grew out of the i386-only register
     // file and some code paths still read the i386 mirror fields. arm64
     // never had that history — nothing reads cpu->eax/etc for an arm64 task.
+    handle_syscall_interrupt(cpu);
+}
+
+static void handle_riscv64_syscall_interrupt(struct cpu_state *cpu) {
+    if (current->abi != GUEST_ABI_RISCV64) {
+        printk("ERROR: %d(%s) riscv64 ECALL in non-riscv64 task at pc=%#llx\n",
+               current->pid, current->comm, (unsigned long long) cpu->riscv64_pc);
+        struct siginfo_ info = {
+            .code = ILL_ILLOPC_,
+            .fault.addr = current_fault_ip(cpu),
+        };
+        deliver_signal(current, SIGILL_, info);
+        return;
+    }
+    // Same no-legacy-seeding rationale as arm64 above.
     handle_syscall_interrupt(cpu);
 }
 
@@ -3975,8 +4083,8 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
             ptrace_syscall_stop(cpu);
         return;
     }
-    if (dispatch->abi == GUEST_ABI_ARM64 &&
-            handle_arm64_native_syscall(cpu, syscall_num, raw_args)) {
+    if ((dispatch->abi == GUEST_ABI_ARM64 || dispatch->abi == GUEST_ABI_RISCV64) &&
+            handle_asm_generic_native_syscall(cpu, syscall_num, raw_args)) {
         if (current->ptrace.traced && current->ptrace.stop_at_syscall &&
                 current->ptrace.syscall_stopped)
             ptrace_syscall_stop(cpu);
@@ -4105,6 +4213,8 @@ static guest_addr_t current_fault_ip(const struct cpu_state *cpu) {
         return cpu->amd64_rip;
     if (current->abi == GUEST_ABI_ARM64)
         return cpu->arm64_pc;
+    if (current->abi == GUEST_ABI_RISCV64)
+        return cpu->riscv64_pc;
     return cpu->eip;
 }
 
@@ -4129,6 +4239,15 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
                    (unsigned long long) cpu->arm64_sp,
                    (unsigned long long) cpu->arm64_pc,
                    (unsigned long long) cpu->arm64_tpidr);
+        }
+        if (current->abi == GUEST_ABI_RISCV64) {
+            for (int i = 0; i < 32; i += 4)
+                printk("  x%d=%#llx x%d=%#llx x%d=%#llx x%d=%#llx\n",
+                       i, (unsigned long long) cpu->riscv64_regs[i],
+                       i + 1, (unsigned long long) cpu->riscv64_regs[i + 1],
+                       i + 2, (unsigned long long) cpu->riscv64_regs[i + 2],
+                       i + 3, (unsigned long long) cpu->riscv64_regs[i + 3]);
+            printk("  pc=%#llx\n", (unsigned long long) cpu->riscv64_pc);
         }
         dump_opcode_window(current_fault_ip(cpu));
         if (current->abi == GUEST_ABI_AMD64) {
@@ -5281,6 +5400,9 @@ void handle_interrupt(int interrupt) {
             break;
         case INT_ARM64_SVC:
             handle_arm64_syscall_interrupt(cpu);
+            break;
+        case INT_RISCV64_ECALL:
+            handle_riscv64_syscall_interrupt(cpu);
             break;
         case INT_PF:
             handle_page_fault_interrupt(cpu);
