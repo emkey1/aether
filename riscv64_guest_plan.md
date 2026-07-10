@@ -86,9 +86,15 @@ Harder / new:
 - guest ptrace regsets (strace-on-guest): defer, mirror the late arm64
   ptrace-regset patch when needed.
 - Mixed-arch exec trees and multiarch rootfs: same deferral as aarch64 plan.
-- Xcode/app shipping before the CLI engine is solid (see patch 11; note the
-  pbxproj does not even reference `jit/guest-arm64/` yet - the app-side
-  wiring for BOTH new-guest engines is its own task).
+- Xcode/app shipping before the CLI engine is solid (see patch 11). Note:
+  the app builds the emulator exclusively through meson (`xcode-meson.sh` /
+  `xcode-ninja.sh` legacy targets, cpu_family aarch64), so meson source
+  additions ARE the app-side engine wiring; the pbxproj emulator-source
+  references belong only to the MakeXcodeAutoCompleteWork dummy target
+  (IDE indexing). An earlier draft of this plan got that wrong.
+- An interpreter, in any form. Reconfirmed 2026-07-10: straight to JIT;
+  the interpreter step does not add much and we have done this port shape
+  multiple times now.
 
 ## Concrete Patch Series
 
@@ -346,10 +352,32 @@ Files: `app/Roots.m`, `app/AppDelegate.m`, `iSH-AOK.xcodeproj/project.pbxproj`
 - Roots.m `BundledRootChoices()`: riscv64 entry, download-on-demand via
   `kBundledRootDownloadURLKey` (rootfs-assets release), guestABI
   metadata string "riscv64"; AppDelegate recovery string.
-- pbxproj: add `jit/guest-riscv64/*.S`. NOTE: the pbxproj does not
-  reference `jit/guest-arm64/` today either - the app-side wiring for
-  both guest engines lands together as its own validated change (Xcode
-  build + on-device smoke), not as a side effect of this port.
+- Engine wiring in the app comes free: the app builds the emulator via
+  meson (xcode-meson.sh), so patch 5's meson additions cover it. Add
+  "riscv64" to the `guest_archs` choices/default (see below) and to the
+  `ISH_GUEST_ARCHS` line in app/iSH.xcconfig. Optionally add
+  `jit/guest-riscv64/` file references to the MakeXcodeAutoCompleteWork
+  target for IDE indexing only.
+- Validated as its own change: Xcode build + on-device smoke.
+
+### Per-arch build selection (`guest_archs`, landed 2026-07-10)
+
+The build has a `guest_archs` meson array option (default: all arches;
+at least one required, enforced at configure). Each arch gets a
+`-DISH_GUEST_<ARCH>=0/1` define; `kernel/exec.c:elf_abi_detect` is the
+master gate (disabled arch ELFs get ENOEXEC). For arm64 the option also
+drops `emu/arm64_interp.c` + `jit/guest-arm64/*.S` and suppresses
+`ISH_JIT_ARM64_GUEST`; i386/amd64 stay compiled regardless (host gadget
+sets and jit/gen.c link amd64_jit_* helpers) so for those two it is a
+functional gate only. Xcode passes it via `ISH_GUEST_ARCHS` in
+app/iSH.xcconfig -> xcode-meson.sh.
+
+riscv64 integration points when patch 1 lands: add 'riscv64' to the
+option choices and default in meson_options.txt, `ISH_GUEST_RISCV64`
+define + misc.h fallback, gate the new `elf_abi_detect` case with it,
+condition `jit/guest-riscv64/*.S` + `ISH_JIT_RISCV64_GUEST` on
+`guest_archs.contains('riscv64') and jit_cpu_family == 'aarch64'`, and
+extend the xcconfig default list.
 
 ## Testing Strategy Summary
 

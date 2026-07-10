@@ -40,8 +40,29 @@ jit_cpu_family = get_option('jit_cpu_family')
 if jit_cpu_family == ''
     jit_cpu_family = host_machine.cpu_family()
 endif
-if jit_cpu_family == 'aarch64'
+
+# Guest architecture selection. Default is every supported guest; each can be
+# disabled with e.g. -Dguest_archs=i386,amd64. At least one must remain. The
+# ISH_GUEST_* defines gate ELF detection (kernel/exec.c) so a disabled arch's
+# binaries fail exec with ENOEXEC. For arm64 (and future guest-gadget arches)
+# disabling also drops the engine sources; the i386/amd64 translation units
+# stay compiled regardless because the x86 decoder template, the host gadget
+# sets, and jit/gen.c are interwoven (gadgets-*/[control,math].S call
+# amd64_jit_* helpers from emu/amd64_interp.c) — for those two the option is
+# a functional gate, not yet a size optimization.
+guest_archs = get_option('guest_archs')
+if guest_archs.length() == 0
+    error('guest_archs must enable at least one guest architecture (i386, amd64, arm64)')
+endif
+foreach garch : ['i386', 'amd64', 'arm64']
+    add_project_arguments('-DISH_GUEST_' + garch.to_upper() + '=' + (guest_archs.contains(garch) ? '1' : '0'), language: 'c')
+endforeach
+
+if jit_cpu_family == 'aarch64' and guest_archs.contains('arm64')
     add_project_arguments('-DISH_JIT_ARM64_GUEST=1', language: 'c')
+elif guest_archs.contains('arm64')
+    warning('arm64 guest enabled but host gadget set is ' + jit_cpu_family
+            + ': the arm64 engine is aarch64-host-only, arm64 binaries will not run')
 endif
 
 includes = [include_directories('.')]
@@ -106,8 +127,7 @@ emu_src = [
     'emu/vec.c',
     'emu/mmx.c',
     'emu/float80.c',
-    'emu/amd64_interp.c',
-    'emu/arm64_interp.c',
+    'emu/amd64_interp.c', # always built: host gadgets + jit/gen.c link its amd64_jit_* helpers
     'jit/jit.c',
     'jit/gen.c',
     'jit/helpers.c',
@@ -127,7 +147,10 @@ emu_src += [
 # buildable on an aarch64 host, since they're literal AArch64 assembly.
 # Distinct from gadgets-aarch64/ above (the ARM64 HOST gadget set used by
 # the i386/amd64 guest JIT) -- see aarch64_guest_plan.md's naming note.
-if jit_cpu_family == 'aarch64'
+if guest_archs.contains('arm64')
+    emu_src += ['emu/arm64_interp.c']
+endif
+if jit_cpu_family == 'aarch64' and guest_archs.contains('arm64')
     emu_src += [
         'jit/guest-arm64/math.S',
         'jit/guest-arm64/control.S',

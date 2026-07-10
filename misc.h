@@ -11,6 +11,20 @@
 #include <stdint.h>
 #endif
 
+// Guest architecture selection (meson -Dguest_archs=...). The build system
+// passes -DISH_GUEST_<ARCH>=0/1 for every arch; these fallbacks keep any
+// compile that bypasses meson (e.g. Xcode's autocomplete target, standalone
+// tool builds) behaving as all-archs-enabled.
+#ifndef ISH_GUEST_I386
+#define ISH_GUEST_I386 1
+#endif
+#ifndef ISH_GUEST_AMD64
+#define ISH_GUEST_AMD64 1
+#endif
+#ifndef ISH_GUEST_ARM64
+#define ISH_GUEST_ARM64 1
+#endif
+
 // utility macros
 #define glue(a, b) _glue(a, b)
 #define _glue(a, b) a##b
