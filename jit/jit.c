@@ -832,7 +832,7 @@ static struct jit_block *jit_lookup(struct jit *jit, guest_addr_t addr) {
 }
 
 static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *tlb,
-        bool amd64, bool arm64, bool *fallback_to_interp) {
+        bool amd64, bool arm64, bool riscv64, bool *fallback_to_interp) {
     struct gen_state state;
     TRACE("%d %08llx --- compiling:\n", current_pid(current), (unsigned long long) ip);
     if (amd64)
@@ -846,6 +846,7 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         *fallback_to_interp = false;
 
     bool started = arm64 ? gen_start_arm64(ip, &state)
+                 : riscv64 ? gen_start_riscv64(ip, &state)
                  : amd64 ? gen_start_amd64(ip, &state)
                  : gen_start(ip, &state);
     if (!started)
@@ -865,6 +866,7 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         // the maximum length of an x86 instruction
         // TODO refuse to decode instructions longer than 15 bytes
         guest_addr_t consumed = arm64 ? state.arm64_ip - ip
+                              : riscv64 ? state.riscv64_ip - ip
                               : amd64 ? state.amd64_ip - ip
                               : state.ip - ip;
         if (consumed >= PAGE_SIZE - 15) {
@@ -894,6 +896,8 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
     }
     if (arm64)
         assert(state.arm64_ip - ip <= PAGE_SIZE);
+    else if (riscv64)
+        assert(state.riscv64_ip - ip <= PAGE_SIZE);
     else if (amd64)
         assert(state.amd64_ip - ip <= PAGE_SIZE);
     else
@@ -903,16 +907,20 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
 }
 
 static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
-    return jit_block_compile_common(ip, tlb, false, false, NULL);
+    return jit_block_compile_common(ip, tlb, false, false, false, NULL);
 }
 
 static struct jit_block *jit_block_compile_amd64(guest_addr_t ip, struct tlb *tlb,
         bool *fallback_to_interp) {
-    return jit_block_compile_common(ip, tlb, true, false, fallback_to_interp);
+    return jit_block_compile_common(ip, tlb, true, false, false, fallback_to_interp);
 }
 
 static struct jit_block *jit_block_compile_arm64(guest_addr_t ip, struct tlb *tlb) {
-    return jit_block_compile_common(ip, tlb, false, true, NULL);
+    return jit_block_compile_common(ip, tlb, false, true, false, NULL);
+}
+
+static struct jit_block *jit_block_compile_riscv64(guest_addr_t ip, struct tlb *tlb) {
+    return jit_block_compile_common(ip, tlb, false, false, true, NULL);
 }
 
 // Remove all pointers to the block. It can't be freed yet because another
@@ -1527,6 +1535,212 @@ done_unlocked_arm64:
     return interrupt;
 }
 
+// riscv64 frontend: a mechanical clone of cpu_step_to_interrupt_arm64
+// above with the pc field and compile function swapped — same jetsam,
+// crash-unwind, cache, and chaining behavior. Kept separate like the
+// amd64 frontend rather than parameterized; if a third copy ever
+// appears, factor the loop.
+static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb) {
+    struct jit *jit = cpu->mmu->jit;
+
+    static __thread bool exception_handler_installed = false;
+    if (!exception_handler_installed) {
+        jit_install_thread_exception_handler();
+        // When the Mach handler isn't active (standalone CLI), a host SIGBUS on
+        // a truncated file-backed guest mmap would otherwise kill the process.
+        // Install a POSIX handler that translates it into a guest SIGBUS.
+        if (!jit_host_fault_mach_active())
+            jit_install_host_fault_signal_handler();
+        exception_handler_installed = true;
+    }
+
+    struct jit_block *cache[JIT_CACHE_SIZE] = {};
+    struct jit_frame frame_storage = {};
+    struct jit_frame *frame = &frame_storage;
+    frame->cpu = *cpu;
+    assert(jit->mmu == cpu->mmu);
+
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.riscv64_pc;
+    if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
+            *jit_crash_cpu = jit_crash_frame->cpu;
+        cpu->segfault_addr = jit_crash_addr;
+        cpu->segfault_was_write = false;
+        jit_crash_unwind_active = false;
+        jit_crash_mutex_lock = NULL;
+        jit_crash_frame = NULL;
+        jit_crash_cpu = NULL;
+        return jit_crash_interrupt;
+    }
+    jit_crash_unwind_active = true;
+
+    pthread_rwlock_rdlock(&jit->jetsam_lock.l);
+    jit_crash_lock = &jit->jetsam_lock;
+
+    unsigned last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+
+    int interrupt = INT_NONE;
+    while (interrupt == INT_NONE) {
+        if (tlb->mem_changes != cpu->mmu->changes)
+            tlb_refresh(tlb, cpu->mmu);
+
+        if (jit_should_yield(jit, cpu)) {
+            interrupt = INT_TIMER;
+            break;
+        }
+        guest_addr_t ip = frame->cpu.riscv64_pc;
+        size_t cache_index = jit_cache_hash(ip);
+        struct jit_block *block = cache[cache_index];
+        if (block == NULL || block->addr != ip) {
+            lock(&jit->lock, 0);
+            block = jit_lookup(jit, ip);
+            if (block == NULL) {
+                unlock(&jit->lock);
+                jit_crash_lock = NULL;
+                pthread_rwlock_unlock(&jit->jetsam_lock.l);
+
+                if (jit_should_yield(jit, cpu)) {
+                    interrupt = INT_TIMER;
+                    goto done_unlocked_riscv64;
+                }
+
+                block = jit_block_compile_riscv64(ip, tlb);
+                if (block == NULL) {
+                    __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
+                    if (jetsam_write_lock_timed(jit)) {
+                        jit_invalidate_all(jit);
+                        lock(&jit->lock, 0);
+                        jit_free_jetsam(jit);
+                        unlock(&jit->lock);
+                        atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
+                        pthread_rwlock_unlock(&jit->jetsam_lock.l);
+                        memset(cache, 0, sizeof(cache));
+                        memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+                        frame->last_block = NULL;
+                    }
+                    __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
+
+                    if (jit_should_yield(jit, cpu)) {
+                        interrupt = INT_TIMER;
+                        goto done_unlocked_riscv64;
+                    }
+                    block = jit_block_compile_riscv64(ip, tlb);
+                    if (block == NULL) {
+                        printk("JIT OOM at %#llx pid %d: even after full flush, killing task\n",
+                               (unsigned long long) ip, current ? current->pid : -1);
+                        jit_crash_unwind_active = false;
+                        jit_crash_frame = NULL;
+                        jit_crash_cpu = NULL;
+                        jit_crash_lock = NULL;
+                        return INT_GPF;
+                    }
+                }
+
+                pthread_rwlock_rdlock(&jit->jetsam_lock.l);
+                jit_crash_lock = &jit->jetsam_lock;
+                if (jit_should_yield(jit, cpu)) {
+                    jit_block_free(NULL, block);
+                    interrupt = INT_TIMER;
+                    break;
+                }
+
+                lock(&jit->lock, 0);
+                struct jit_block *existing = jit_lookup(jit, ip);
+                if (existing != NULL) {
+                    jit_block_free(NULL, block);
+                    block = existing;
+                } else {
+                    jit_insert(jit, block);
+                }
+            } else {
+                TRACE("%d %08llx --- missed cache (riscv64)\n", current_pid(current), (unsigned long long) ip);
+            }
+            cache[cache_index] = block;
+            unlock(&jit->lock);
+        }
+        struct jit_block *last_block = frame->last_block;
+        if (atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed) != last_block_cleanup_seq) {
+            last_block = frame->last_block = NULL;
+            memset(cache, 0, sizeof(cache));
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        }
+        if (last_block != NULL &&
+                (last_block->jump_ip[0] != NULL ||
+                 last_block->jump_ip[1] != NULL)) {
+            lock(&jit->lock, 0);
+            if (!last_block->is_jetsam && !block->is_jetsam) {
+                for (int i = 0; i <= 1; i++) {
+                    // Unchained arm64 targets carry bit 63 (control.S's
+                    // tagged-word scheme); a patched word is a host code
+                    // pointer with bit 63 clear. Requiring the tag makes
+                    // re-checking an already-patched slot a no-op instead
+                    // of a (low-probability) false re-patch.
+                    if (last_block->jump_ip[i] != NULL &&
+                            (*last_block->jump_ip[i] >> 63) != 0 &&
+                            (*last_block->jump_ip[i] & 0xffffffffffffULL) == block->addr) {
+                        // Backward edges (loops) ARE linked here, unlike the
+                        // i386/amd64 loops: arm64_chain enforces a per-entry
+                        // chain budget (jit_frame.chain_budget), so a chained
+                        // loop returns to C every few thousand dispatches and
+                        // cannot starve jetsam writers or the cycle counter.
+                        __atomic_store_n(last_block->jump_ip[i], (unsigned long) block->code, __ATOMIC_RELEASE);
+                        list_add(&block->jumps_from[i], &last_block->jumps_from_links[i]);
+                    }
+                }
+            }
+            unlock(&jit->lock);
+        }
+
+        frame->last_block = block;
+        last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+
+        if (__atomic_load_n(&block->code[0], __ATOMIC_RELAXED) == 0) {
+            printk("WARNING: JIT block %08llx pid %d has null code[0]; invalidating\n",
+                   (unsigned long long) block->addr, current ? current->pid : -1);
+            lock(&jit->lock, 0);
+            if (!block->is_jetsam) {
+                jit_block_disconnect(jit, block);
+                block->is_jetsam = true;
+                list_add(&jit->jetsam, &block->jetsam);
+            }
+            cache[cache_index] = NULL;
+            frame->last_block = NULL;
+            unlock(&jit->lock);
+            continue;
+        }
+
+        TRACE("%d %08llx --- cycle %ld (arm64)\n", current_pid(current), (unsigned long long) ip, frame->cpu.cycle);
+        bool force_block_boundary_break = current != NULL && current->force_no_jit_cache;
+        if (force_block_boundary_break)
+            __atomic_store_n(cpu->poked_ptr, true, __ATOMIC_SEQ_CST);
+        frame->chain_budget = 8192; // see jit_frame.chain_budget
+        interrupt = jit_enter(block, frame, tlb);
+        if (interrupt == INT_NONE && jit_should_yield(jit, cpu))
+            interrupt = INT_TIMER;
+        if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
+            interrupt = INT_TIMER;
+        *cpu = frame->cpu;
+        if (current != NULL && current->force_no_jit_cache) {
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            if (force_block_boundary_break && interrupt == INT_TIMER)
+                interrupt = INT_NONE;
+        }
+    }
+
+    jit_crash_lock = NULL;
+    pthread_rwlock_unlock(&jit->jetsam_lock.l);
+done_unlocked_riscv64:
+    jit_crash_unwind_active = false;
+    jit_crash_frame = NULL;
+    jit_crash_cpu = NULL;
+    return interrupt;
+}
+
 static int cpu_single_step(struct cpu_state *cpu, struct tlb *tlb) {
     struct gen_state state;
     if (!gen_start(cpu->eip, &state))
@@ -1850,6 +2064,11 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // jit_should_yield() call dereferenced NULL. Same fix, same reason.
         cpu->poked_ptr = &cpu->_poked;
         return cpu_step_to_interrupt_arm64(cpu, tlb);
+    }
+    if (current != NULL && current->abi == GUEST_ABI_RISCV64) {
+        // Same poked_ptr rule as arm64 above.
+        cpu->poked_ptr = &cpu->_poked;
+        return cpu_step_to_interrupt_riscv64(cpu, tlb);
     }
     if (current != NULL && current->abi == GUEST_ABI_AMD64) {
         if (!amd64_jit_is_enabled())

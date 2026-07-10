@@ -65,6 +65,13 @@ elif guest_archs.contains('arm64')
             + ': the arm64 engine is aarch64-host-only, arm64 binaries will not run')
 endif
 
+if jit_cpu_family == 'aarch64' and guest_archs.contains('riscv64')
+    add_project_arguments('-DISH_JIT_RISCV64_GUEST=1', language: 'c')
+elif guest_archs.contains('riscv64')
+    warning('riscv64 guest enabled but host gadget set is ' + jit_cpu_family
+            + ': the riscv64 engine is aarch64-host-only, riscv64 binaries will not run')
+endif
+
 includes = [include_directories('.')]
 
 threads = dependency('threads')
@@ -165,6 +172,13 @@ if jit_cpu_family == 'aarch64' and guest_archs.contains('arm64')
         'jit/guest-arm64/simd_shift.S',
         'jit/guest-arm64/crypto.S',
         'jit/guest-arm64/fp.S',
+    ]
+endif
+# RISC-V GUEST gadgets: AArch64 host assembly implementing riscv64 guest
+# semantics (jit/guest-riscv64/gadgets.h header comment).
+if jit_cpu_family == 'aarch64' and guest_archs.contains('riscv64')
+    emu_src += [
+        'jit/guest-riscv64/core.S',
     ]
 endif
 

@@ -297,6 +297,8 @@ static void amd64_jit_debug(const char *fmt, ...) {
 int gen_step(struct gen_state *state, struct tlb *tlb) {
     if (state->arm64)
         return gen_step_arm64(state, tlb);
+    if (state->riscv64)
+        return gen_step_riscv64(state, tlb);
     state->orig_ip = state->ip;
     state->orig_ip_extra = 0;
     if (state->amd64)
@@ -451,6 +453,9 @@ bool gen_start(guest_addr_t addr, struct gen_state *state) {
     state->arm64_flags_live = false;
     state->arm64_ip = addr;
     state->arm64_orig_ip = addr;
+    state->riscv64 = false; // same uninitialized-flag bug class as arm64 above
+    state->riscv64_ip = addr;
+    state->riscv64_orig_ip = addr;
     state->amd64 = false;
     state->amd64_fallback_to_interp = false;
     state->amd64_abort_block_to_interp = false;
@@ -4509,6 +4514,176 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
 
 #endif // ISH_JIT_ARM64_GUEST
 
+// ---- RISC-V guest code generator -----------------------------------------
+// Same host restriction and stub arrangement as the arm64 section above:
+// the riscv64 guest gadgets (jit/guest-riscv64/*.S) are AArch64 assembly,
+// gated by ISH_JIT_RISCV64_GUEST from meson.
+#ifdef ISH_JIT_RISCV64_GUEST
+
+bool gen_start_riscv64(guest_addr_t addr, struct gen_state *state) {
+    if (!gen_start(addr, state))
+        return false;
+    state->riscv64 = true;
+    state->riscv64_ip = addr;
+    state->riscv64_orig_ip = addr;
+    return true;
+}
+
+#include "emu/arch/riscv64/decode.h"
+
+// Byte offsets into cpu_state for gadget operands. rd==x0 writes are
+// redirected to the zero sink; rs==x0 reads load the never-written
+// riscv64_regs[0] slot (always 0). See emu/cpu.h's riscv64 block.
+static unsigned long riscv64_rd_off(unsigned rd) {
+    if (rd == 0)
+        return offsetof(struct cpu_state, riscv64_zero_sink);
+    return offsetof(struct cpu_state, riscv64_regs) + rd * sizeof(qword_t);
+}
+static unsigned long riscv64_rs_off(unsigned rs) {
+    return offsetof(struct cpu_state, riscv64_regs) + rs * sizeof(qword_t);
+}
+
+static int gen_riscv64_interrupt_at(struct gen_state *state, int code,
+        guest_addr_t pc, guest_addr_t addr) {
+    extern void gadget_riscv64_interrupt(void);
+    gen(state, (unsigned long) gadget_riscv64_interrupt);
+    gen(state, code);
+    gen(state, pc);
+    gen(state, addr);
+    return 0;
+}
+
+static int gen_riscv64_undefined(struct gen_state *state, uint32_t insn) {
+    // The port's bring-up tool, same as arm64's: run a real binary, read
+    // the encoding this logs, implement that instruction family next.
+    printk("WARNING: riscv64 JIT: no gadget for insn %#010x at pc %#llx\n",
+           insn, (unsigned long long) state->riscv64_orig_ip);
+    return gen_riscv64_interrupt_at(state, INT_UNDEFINED,
+            state->riscv64_orig_ip, state->riscv64_orig_ip);
+}
+
+static void gen_riscv64_mov_const(struct gen_state *state, unsigned rd, uint64_t value) {
+    extern void gadget_riscv64_mov_const(void);
+    gen(state, (unsigned long) gadget_riscv64_mov_const);
+    gen(state, riscv64_rd_off(rd));
+    gen(state, value);
+}
+
+// Unconditional compile-time branch: ends the block. Target is tagged with
+// bit 63 (unchained) for riscv64_branch_dispatch; gen_end turns the stream
+// slot recorded in jump_ip[0] into a chainable word.
+static int gen_riscv64_branch_to(struct gen_state *state, guest_addr_t target) {
+    extern void gadget_riscv64_b(void);
+    gen(state, (unsigned long) gadget_riscv64_b);
+    gen(state, target | 0x8000000000000000ULL);
+    state->jump_ip[0] = state->size - 1;
+    return 0;
+}
+
+int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
+    state->riscv64_orig_ip = state->riscv64_ip;
+    state->orig_ip_extra = 0;
+
+    // Fetch 2 bytes first, then the upper half only for a 4-byte encoding:
+    // a compressed instruction may be the last 2 bytes of a mapped page,
+    // and reading 4 unconditionally would take a spurious fetch fault on
+    // the following unmapped page.
+    uint16_t low16;
+    if (!tlb_read(tlb, state->riscv64_ip, &low16, sizeof(low16)))
+        return gen_riscv64_interrupt_at(state, INT_GPF,
+                state->riscv64_orig_ip, state->riscv64_orig_ip);
+    uint32_t insn;
+    unsigned length = riscv64_insn_length(low16);
+    if (length == 2) {
+        insn = riscv64_expand_rvc(low16);
+        if (insn == 0) {
+            // reserved/illegal compressed encoding
+            uint32_t raw = low16;
+            return gen_riscv64_undefined(state, raw);
+        }
+    } else {
+        uint16_t high16;
+        if (!tlb_read(tlb, state->riscv64_ip + 2, &high16, sizeof(high16)))
+            return gen_riscv64_interrupt_at(state, INT_GPF,
+                    state->riscv64_orig_ip, state->riscv64_orig_ip + 2);
+        insn = (uint32_t) low16 | ((uint32_t) high16 << 16);
+    }
+    state->riscv64_ip += length;
+
+    unsigned rd = riscv64_rd(insn);
+    unsigned rs1 = riscv64_rs1(insn);
+    unsigned funct3 = riscv64_funct3(insn);
+
+    switch (riscv64_opcode(insn)) {
+    case RISCV64_OP_LUI:
+        gen_riscv64_mov_const(state, rd, (uint64_t) riscv64_imm_u(insn));
+        return 1;
+
+    case RISCV64_OP_AUIPC:
+        gen_riscv64_mov_const(state, rd,
+                state->riscv64_orig_ip + (uint64_t) riscv64_imm_u(insn));
+        return 1;
+
+    case RISCV64_OP_OP_IMM:
+        if (funct3 == 0) { // addi (li/mv/nop forms included)
+            int64_t imm = riscv64_imm_i(insn);
+            if (rs1 == 0) {
+                gen_riscv64_mov_const(state, rd, (uint64_t) imm);
+            } else {
+                extern void gadget_riscv64_addi(void);
+                gen(state, (unsigned long) gadget_riscv64_addi);
+                gen(state, riscv64_rd_off(rd));
+                gen(state, riscv64_rs_off(rs1));
+                gen(state, (uint64_t) imm);
+            }
+            return 1;
+        }
+        return gen_riscv64_undefined(state, insn);
+
+    case RISCV64_OP_JAL: {
+        int64_t offset = riscv64_imm_j(insn);
+        if (rd != 0)
+            gen_riscv64_mov_const(state, rd, state->riscv64_ip); // link = pc + length
+        return gen_riscv64_branch_to(state, state->riscv64_orig_ip + offset);
+    }
+
+    case RISCV64_OP_SYSTEM:
+        if (insn == 0x00000073) { // ecall
+            extern void gadget_riscv64_ecall(void);
+            gen(state, (unsigned long) gadget_riscv64_ecall);
+            gen(state, state->riscv64_ip); // pc after the ecall
+            return 0; // block ends: exits to the main loop
+        }
+        if (insn == 0x00100073) // ebreak
+            return gen_riscv64_interrupt_at(state, INT_BREAKPOINT,
+                    state->riscv64_orig_ip, state->riscv64_orig_ip);
+        return gen_riscv64_undefined(state, insn);
+
+    default:
+        return gen_riscv64_undefined(state, insn);
+    }
+}
+
+#else // !ISH_JIT_RISCV64_GUEST
+
+bool gen_start_riscv64(guest_addr_t addr, struct gen_state *state) {
+    if (!gen_start(addr, state))
+        return false;
+    state->riscv64 = true;
+    state->riscv64_ip = addr;
+    state->riscv64_orig_ip = addr;
+    return true;
+}
+
+int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
+    (void) tlb;
+    die("riscv64 guest binaries are not supported on this host "
+        "(no riscv64 guest JIT; pc=%#llx)",
+        (unsigned long long) state->riscv64_ip);
+}
+
+#endif // ISH_JIT_RISCV64_GUEST
+
 static bool gen_fetch_amd64(struct gen_state *state, struct tlb *tlb, void *out, size_t size) {
     if (!tlb_read(tlb, state->amd64_ip, out, size))
         return false;
@@ -8420,6 +8595,12 @@ void gen_end(struct gen_state *state) {
             block->end_addr = state->arm64_ip - 1;
         else
             block->end_addr = block->addr;
+    } else if (state->riscv64) {
+        // Same rule as arm64: riscv64 advances riscv64_ip.
+        if (block->addr != state->riscv64_ip)
+            block->end_addr = state->riscv64_ip - 1;
+        else
+            block->end_addr = block->addr;
     } else if (block->addr != state->ip)
         block->end_addr = state->ip - 1;
     else
@@ -8451,6 +8632,20 @@ void gen_exit(struct gen_state *state) {
         // Unreachable: gen_step_arm64's unsupported stub die()s before any
         // arm64 block can be built on a host without the aarch64 gadgets.
         die("arm64 guest block on a host without the aarch64 guest JIT");
+#endif
+    }
+    if (state->riscv64) {
+#ifdef ISH_JIT_RISCV64_GUEST
+        // Size-cap continuation through the branch gadget, same design
+        // (and same gadget_exit-would-use-the-wrong-ip bug avoided) as the
+        // arm64 case above.
+        extern void gadget_riscv64_b(void);
+        gen(state, (unsigned long) gadget_riscv64_b);
+        gen(state, state->riscv64_ip | 0x8000000000000000ULL);
+        state->jump_ip[0] = state->size - 1;
+        return;
+#else
+        die("riscv64 guest block on a host without the riscv64 guest JIT");
 #endif
     }
     if (state->amd64) {

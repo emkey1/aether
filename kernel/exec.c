@@ -498,13 +498,6 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     // cpu_run_to_interrupt() dispatch wiring below now exist, so an aarch64
     // ELF has somewhere real to go instead of falling through to the i386
     // JIT and having its instruction bytes misdecoded as x86.
-    //
-    // riscv64 is at the guard stage (riscv64_guest_plan.md patch 1): the
-    // ELF is recognized, but there is no engine yet, so reject it here
-    // rather than let it fall through to another arch's execution path.
-    // Remove when the gadget engine (plan patch 5) lands.
-    if (header.abi == GUEST_ABI_RISCV64)
-        return _ENOEXEC;
     size_t guest_word_size = guest_abi_desc(header.abi).pointer_size;
     bool is_64bit = guest_abi_is_64bit(header.abi);
     struct elf_prg_info *ph;
