@@ -40,13 +40,21 @@
 }
 
 - (NSString *)_bundledChoiceSubtitle:(NSDictionary<NSString *, NSString *> *)choice {
+    NSString *subtitle;
     if ([self _bundledChoiceRequiresAMD64Bringup:choice]) {
-        return @"x86_64 (amd64) guest rootfs.";
+        subtitle = @"x86_64 (amd64) guest rootfs.";
+    } else if ([choice[@"guestABI"] isEqualToString:@"arm64"]) {
+        subtitle = @"arm64 (native AArch64) guest rootfs.";
+    } else {
+        subtitle = @"i386 guest rootfs.";
     }
-    if ([choice[@"guestABI"] isEqualToString:@"arm64"]) {
-        return @"arm64 (native AArch64) guest rootfs.";
+    if ([Roots.instance bundledRootChoiceNeedsDownload:choice]) {
+        NSString *size = choice[@"downloadSize"];
+        subtitle = size.length != 0
+            ? [subtitle stringByAppendingFormat:@" Downloads %@.", size]
+            : [subtitle stringByAppendingString:@" Downloads on first use."];
     }
-    return @"i386 guest rootfs.";
+    return subtitle;
 }
 
 - (void)_beginBundledImportChoice:(NSDictionary<NSString *, NSString *> *)choice {
@@ -70,8 +78,35 @@
     return Roots.instance.bundledRootChoices;
 }
 
-- (BOOL)showsBundledChoicesSection {
-    return self.bundledChoices.count != 0;
+// bundledChoices split along the same boundary Roots.m groups them by: choices
+// shipped in the app bundle (no download key -- currently the arm64 guests)
+// vs. choices fetched on demand into /AOK/persist/roots when selected. Shown
+// as two table sections so the "Downloadable" ones read as a distinct group,
+// not silently-slower bundled entries.
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)builtInBundledChoices {
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *choices = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *choice in self.bundledChoices) {
+        if (choice[@"downloadURL"].length == 0)
+            [choices addObject:choice];
+    }
+    return choices;
+}
+
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)downloadableBundledChoices {
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *choices = [NSMutableArray array];
+    for (NSDictionary<NSString *, NSString *> *choice in self.bundledChoices) {
+        if (choice[@"downloadURL"].length != 0)
+            [choices addObject:choice];
+    }
+    return choices;
+}
+
+- (BOOL)showsBuiltInChoicesSection {
+    return self.builtInBundledChoices.count != 0;
+}
+
+- (BOOL)showsDownloadableChoicesSection {
+    return self.downloadableBundledChoices.count != 0;
 }
 
 - (BOOL)showsInstalledRootsSection {
@@ -87,7 +122,7 @@
 }
 
 // Sections appear in this fixed order, each shown only when non-empty:
-// Installed Filesystems, Root Cached Filesystems, Bundled Filesystems.
+// Installed Filesystems, Root Cached Filesystems, Bundled Filesystems, Downloadable.
 - (NSInteger)installedRootsSectionIndex {
     return self.showsInstalledRootsSection ? 0 : NSNotFound;
 }
@@ -96,13 +131,25 @@
         return NSNotFound;
     return self.showsInstalledRootsSection ? 1 : 0;
 }
-- (NSInteger)bundledChoicesSectionIndex {
-    if (!self.showsBundledChoicesSection)
+- (NSInteger)builtInChoicesSectionIndex {
+    if (!self.showsBuiltInChoicesSection)
         return NSNotFound;
     NSInteger index = 0;
     if (self.showsInstalledRootsSection)
         index++;
     if (self.showsCachedRootsSection)
+        index++;
+    return index;
+}
+- (NSInteger)downloadableChoicesSectionIndex {
+    if (!self.showsDownloadableChoicesSection)
+        return NSNotFound;
+    NSInteger index = 0;
+    if (self.showsInstalledRootsSection)
+        index++;
+    if (self.showsCachedRootsSection)
+        index++;
+    if (self.showsBuiltInChoicesSection)
         index++;
     return index;
 }
@@ -115,8 +162,12 @@
     return self.showsCachedRootsSection && section == self.cachedRootsSectionIndex;
 }
 
-- (BOOL)sectionShowsBundledChoices:(NSInteger)section {
-    return self.showsBundledChoicesSection && section == self.bundledChoicesSectionIndex;
+- (BOOL)sectionShowsBuiltInChoices:(NSInteger)section {
+    return self.showsBuiltInChoicesSection && section == self.builtInChoicesSectionIndex;
+}
+
+- (BOOL)sectionShowsDownloadableChoices:(NSInteger)section {
+    return self.showsDownloadableChoicesSection && section == self.downloadableChoicesSectionIndex;
 }
 
 - (NSIndexPath *)selectedIndexPathForSender:(id)sender {
@@ -307,7 +358,9 @@
         sections++;
     if (self.showsCachedRootsSection)
         sections++;
-    if (self.showsBundledChoicesSection)
+    if (self.showsBuiltInChoicesSection)
+        sections++;
+    if (self.showsDownloadableChoicesSection)
         sections++;
     return MAX(sections, 1);
 }
@@ -316,24 +369,29 @@
         return Roots.instance.roots.count;
     if ([self sectionShowsCachedRoots:section])
         return self.cachedRootArchives.count;
-    if ([self sectionShowsBundledChoices:section])
-        return self.bundledChoices.count;
+    if ([self sectionShowsBuiltInChoices:section])
+        return self.builtInBundledChoices.count;
+    if ([self sectionShowsDownloadableChoices:section])
+        return self.downloadableBundledChoices.count;
     return 0;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if ([self sectionShowsInstalledRoots:section]) {
-        if (self.showsBundledChoicesSection || self.showsCachedRootsSection)
+        if (self.showsBuiltInChoicesSection || self.showsDownloadableChoicesSection || self.showsCachedRootsSection)
             return @"Installed Filesystems";
         return self.choosesRootOnSelection ? @"Choose a Filesystem" : nil;
     }
     if ([self sectionShowsCachedRoots:section]) {
         return @"Root Cached Filesystems (/AOK/persist/roots)";
     }
-    if ([self sectionShowsBundledChoices:section]) {
-        if (self.showsInstalledRootsSection || self.showsCachedRootsSection)
+    if ([self sectionShowsBuiltInChoices:section]) {
+        if (self.showsInstalledRootsSection || self.showsCachedRootsSection || self.showsDownloadableChoicesSection)
             return @"Bundled Filesystems";
         return @"Choose a Filesystem";
+    }
+    if ([self sectionShowsDownloadableChoices:section]) {
+        return @"Downloadable";
     }
     return nil;
 }
@@ -343,22 +401,27 @@
         return @"Tap a filesystem to make it active and continue booting.";
     }
     if ([self sectionShowsCachedRoots:section]) {
-        return @"Archives in /AOK/persist/roots (shared across all filesystems). Tap one to install it as a new filesystem.";
+        return @"Archives in /AOK/persist/roots (shared across all filesystems). Tap one to install it as a new filesystem. Swipe to delete.";
     }
-    if ([self sectionShowsBundledChoices:section]) {
+    if ([self sectionShowsBuiltInChoices:section]) {
         if (!self.showsInstalledRootsSection)
             return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive.";
         return @"These bundled filesystems can be imported again at any time.";
+    }
+    if ([self sectionShowsDownloadableChoices:section]) {
+        return @"Not bundled with the app. Downloaded on first use into /AOK/persist/roots, where they can be deleted afterward.";
     }
     return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self sectionShowsBundledChoices:indexPath.section]) {
+    if ([self sectionShowsBuiltInChoices:indexPath.section] || [self sectionShowsDownloadableChoices:indexPath.section]) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"BundledRootChoice"];
         if (cell == nil)
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"BundledRootChoice"];
-        NSDictionary<NSString *, NSString *> *choice = self.bundledChoices[indexPath.row];
+        NSDictionary<NSString *, NSString *> *choice = [self sectionShowsBuiltInChoices:indexPath.section]
+            ? self.builtInBundledChoices[indexPath.row]
+            : self.downloadableBundledChoices[indexPath.row];
         cell.textLabel.text = choice[@"displayName"];
         cell.detailTextLabel.text = [self _bundledChoiceSubtitle:choice];
         cell.accessoryType = UITableViewCellAccessoryNone;
@@ -399,9 +462,14 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self sectionShowsBundledChoices:indexPath.section]) {
+    if ([self sectionShowsBuiltInChoices:indexPath.section]) {
         [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        [self _confirmBundledImportChoiceIfNeeded:self.bundledChoices[indexPath.row]];
+        [self _confirmBundledImportChoiceIfNeeded:self.builtInBundledChoices[indexPath.row]];
+        return;
+    }
+    if ([self sectionShowsDownloadableChoices:indexPath.section]) {
+        [tableView deselectRowAtIndexPath:indexPath animated:YES];
+        [self _confirmBundledImportChoiceIfNeeded:self.downloadableBundledChoices[indexPath.row]];
         return;
     }
     if ([self sectionShowsCachedRoots:indexPath.section]) {
@@ -418,6 +486,30 @@
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 }
 
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
+    return [self sectionShowsCachedRoots:indexPath.section];
+}
+
+- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (editingStyle != UITableViewCellEditingStyleDelete)
+        return;
+    if (![self sectionShowsCachedRoots:indexPath.section])
+        return;
+    if (indexPath.row >= (NSInteger) self.cachedRootArchives.count)
+        return;
+    NSURL *archiveURL = self.cachedRootArchives[indexPath.row];
+    NSError *error = nil;
+    if (![NSFileManager.defaultManager removeItemAtURL:archiveURL error:&error]) {
+        [self presentError:error title:@"Delete failed"];
+        return;
+    }
+    // A full reload rather than an animated row delete: removing the last
+    // cached archive changes section membership (showsCachedRootsSection),
+    // which an animated single-row delete can't express safely.
+    [self reloadCachedRootArchives];
+    [tableView reloadData];
+}
+
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
     NSIndexPath *indexPath = [self selectedIndexPathForSender:sender];
     if (indexPath == nil || ![self sectionShowsInstalledRoots:indexPath.section])
@@ -428,7 +520,7 @@
 
 - (BOOL)shouldPerformSegueWithIdentifier:(NSString *)identifier sender:(id)sender {
     NSIndexPath *indexPath = [self selectedIndexPathForSender:sender];
-    if (indexPath != nil && [self sectionShowsBundledChoices:indexPath.section])
+    if (indexPath != nil && ([self sectionShowsBuiltInChoices:indexPath.section] || [self sectionShowsDownloadableChoices:indexPath.section]))
         return NO;
     if (indexPath != nil && [self sectionShowsCachedRoots:indexPath.section])
         return NO;

@@ -34,6 +34,21 @@ static NSURL *RootsDir(void) {
     return rootsDir;
 }
 
+// /AOK/persist is a single shared real-fs mount -- the AppGroup container's
+// AOK/persist directory (see AOKPersistDirectoryURL / the do_mount in
+// AppDelegate). It is the same regardless of which root is booted and is NOT
+// inside any root's fakefs data dir (that's just an empty mount point), so
+// both cachedRootArchiveURLs and the bundled-archive downloader address it
+// directly as a host directory.
+static NSURL *PersistRootsDir(void) {
+    NSURL *container = ContainerURL();
+    if (container == nil)
+        return nil;
+    return [[[container URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+             URLByAppendingPathComponent:@"persist" isDirectory:YES]
+            URLByAppendingPathComponent:@"roots" isDirectory:YES];
+}
+
 static NSString *kDefaultRoot = @"Default Root";
 // A single file-provider domain hosts every installed root as a folder, instead
 // of registering one domain per root (which spammed the Files sidebar). Must
@@ -45,6 +60,11 @@ static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
 static NSString *const kBundledRootInitialWindowKey = @"initialWindow";
 static NSString *const kBundledRootGuestABIKey = @"guestABI";
+// Present only for choices whose archive isn't shipped in the app bundle --
+// importing them downloads this URL into /AOK/persist/roots on demand
+// instead (see DownloadBundledArchive / importBundledRootChoice:).
+static NSString *const kBundledRootDownloadURLKey = @"downloadURL";
+static NSString *const kBundledRootDownloadSizeKey = @"downloadSize";
 static NSString *const kRootsErrorDomain = @"iSH.Roots";
 static NSString *const kRootMetadataFileName = @"ish-root.plist";
 static NSString *const kRootMetadataGuestABIKey = @"guestABI";
@@ -56,26 +76,13 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         choices = @[
-            @{
-                kBundledRootIdentifierKey: @"alpine3233",
-                kBundledRootDisplayNameKey: @"Alpine3.23.3",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
-                kBundledRootImportNameKey: @"Alpine3.23.3",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"i386",
-            },
-            @{
-                kBundledRootIdentifierKey: @"alpine3233x8664",
-                kBundledRootDisplayNameKey: @"Alpine3.23.3(x86_64)",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
-                // importName becomes a directory name and the whitespace-delimited
-                // mount "source" string parsed by guest init scripts, so it must
-                // pass RootNameIsValid (no shell/path metacharacters). The pretty
-                // parenthesized form lives in displayName, which is all the UI shows.
-                kBundledRootImportNameKey: @"Alpine3.23.3-x86_64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"amd64",
-            },
+            // Bundled-in-the-app choices come first (arm64 guests -- the only
+            // architecture still shipped in the IPA); the download-backed
+            // x86/x86_64 choices follow. RootsTableViewController splits these
+            // into two table sections ("Bundled Filesystems" / "Downloadable")
+            // along the same kBundledRootDownloadURLKey boundary, so keep all
+            // bundled (no download key) entries first and all downloadable
+            // entries after.
             @{
                 kBundledRootIdentifierKey: @"alpine3214arm64",
                 kBundledRootDisplayNameKey: @"Alpine3.21.4(arm64)",
@@ -88,12 +95,46 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootGuestABIKey: @"arm64",
             },
             @{
+                kBundledRootIdentifierKey: @"devuan6arm64",
+                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, arm64)",
+                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-aarch64",
+                kBundledRootImportNameKey: @"Devuan6-arm64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"arm64",
+            },
+            @{
+                kBundledRootIdentifierKey: @"alpine3233",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
+                kBundledRootImportNameKey: @"Alpine3.23.3",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"i386",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-x86.tar.xz",
+                kBundledRootDownloadSizeKey: @"~3 MB",
+            },
+            @{
+                kBundledRootIdentifierKey: @"alpine3233x8664",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3(x86_64)",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
+                // importName becomes a directory name and the whitespace-delimited
+                // mount "source" string parsed by guest init scripts, so it must
+                // pass RootNameIsValid (no shell/path metacharacters). The pretty
+                // parenthesized form lives in displayName, which is all the UI shows.
+                kBundledRootImportNameKey: @"Alpine3.23.3-x86_64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"amd64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-x86_64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~3 MB",
+            },
+            @{
                 kBundledRootIdentifierKey: @"devuan6x86",
                 kBundledRootDisplayNameKey: @"Devuan 6 (excalibur)",
                 kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86",
                 kBundledRootImportNameKey: @"Devuan6",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"i386",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-x86.tar.xz",
+                kBundledRootDownloadSizeKey: @"~32 MB",
             },
             @{
                 kBundledRootIdentifierKey: @"devuan6x8664",
@@ -102,14 +143,8 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootImportNameKey: @"Devuan6-x86_64",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"amd64",
-            },
-            @{
-                kBundledRootIdentifierKey: @"devuan6arm64",
-                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, arm64)",
-                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-aarch64",
-                kBundledRootImportNameKey: @"Devuan6-arm64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"arm64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-x86_64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~31 MB",
             },
         ];
     });
@@ -136,6 +171,17 @@ static NSURL *BundledRootArchiveURL(NSString *archiveName) {
             return url;
     }
     return nil;
+}
+
+// Where a download-backed bundled choice's archive lands once fetched --
+// alongside (and indistinguishable from, once present) any archive a user
+// drops into /AOK/persist/roots themselves.
+static NSURL *DownloadedBundledArchiveURL(NSDictionary<NSString *, NSString *> *choice) {
+    NSString *archiveName = choice[kBundledRootArchiveNameKey];
+    NSURL *dir = PersistRootsDir();
+    if (archiveName.length == 0 || dir == nil)
+        return nil;
+    return [dir URLByAppendingPathComponent:[archiveName stringByAppendingString:@".tar.xz"]];
 }
 
 static NSURL *RootMetadataURL(NSURL *rootURL) {
@@ -319,6 +365,112 @@ static BOOL RootsCheckAvailableSpaceForArchive(NSURL *archiveURL, NSURL *destina
     return YES;
 }
 
+// Drives one bundled-archive download for DownloadBundledArchive(). Progress
+// and cancellation are reported through the same id<ProgressReporter> that
+// fakefs_import's root_progress_callback (below) reports import progress
+// through, so the caller sees one continuous "Downloading..."/"Extracting..."
+// progress sheet.
+@interface RootsArchiveDownload : NSObject <NSURLSessionDownloadDelegate>
+@property (nonatomic, weak) id<ProgressReporter> progress;
+@property (nonatomic) NSURL *destinationURL;
+@property (nonatomic) NSError *error;
+@property (nonatomic) BOOL cancelled;
+@property (nonatomic) dispatch_semaphore_t semaphore;
+@end
+
+@implementation RootsArchiveDownload
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten
+ totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+    double fraction = totalBytesExpectedToWrite > 0
+        ? (double) totalBytesWritten / (double) totalBytesExpectedToWrite : 0;
+    NSString *message = totalBytesExpectedToWrite > 0
+        ? [NSString stringWithFormat:@"Downloading… %@ of %@",
+           FormatByteCount(totalBytesWritten), FormatByteCount(totalBytesExpectedToWrite)]
+        : [NSString stringWithFormat:@"Downloading… %@", FormatByteCount(totalBytesWritten)];
+    [self.progress updateProgress:fraction message:message];
+    if ([self.progress shouldCancel]) {
+        self.cancelled = YES;
+        [downloadTask cancel];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location {
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *) downloadTask.response;
+    if ([response isKindOfClass:NSHTTPURLResponse.class] && response.statusCode != 200) {
+        self.error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:@{
+            NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Server returned status %ld", (long) response.statusCode],
+        }];
+        return;
+    }
+    [NSFileManager.defaultManager removeItemAtURL:self.destinationURL error:nil];
+    NSError *moveError = nil;
+    if (![NSFileManager.defaultManager moveItemAtURL:location toURL:self.destinationURL error:&moveError])
+        self.error = moveError;
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    if (error != nil && self.error == nil && !self.cancelled)
+        self.error = error;
+    dispatch_semaphore_signal(self.semaphore);
+}
+
+@end
+
+// Synchronously downloads a bundled root's archive into /AOK/persist/roots.
+// Runs on a background queue already (see importBundledRootChoice: callers),
+// so blocking on a semaphore here is fine -- mirrors the rest of this file's
+// synchronous archive-import style rather than threading async completion
+// handlers through Roots' public API.
+static BOOL DownloadBundledArchive(NSURL *url, NSURL *destination, id<ProgressReporter> progress, NSError **error) {
+    NSError *dirError = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtURL:destination.URLByDeletingLastPathComponent
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:&dirError]) {
+        if (error != NULL)
+            *error = dirError;
+        return NO;
+    }
+
+    RootsArchiveDownload *delegate = [RootsArchiveDownload new];
+    delegate.progress = progress;
+    delegate.destinationURL = destination;
+    delegate.semaphore = dispatch_semaphore_create(0);
+
+    NSURLSessionConfiguration *config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:delegate delegateQueue:nil];
+    NSURLSessionDownloadTask *task = [session downloadTaskWithURL:url];
+    [progress updateProgress:0 message:@"Downloading…"];
+    [task resume];
+    dispatch_semaphore_wait(delegate.semaphore, DISPATCH_TIME_FOREVER);
+    [session finishTasksAndInvalidate];
+
+    if (delegate.cancelled) {
+        if (error != NULL)
+            *error = nil;
+        return NO;
+    }
+    if (delegate.error != nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{
+                NSLocalizedDescriptionKey: @"Couldn't download the filesystem image.",
+                NSLocalizedRecoverySuggestionErrorKey: @"Check your internet connection and try again.",
+                NSUnderlyingErrorKey: delegate.error,
+            }];
+        }
+        return NO;
+    }
+    return YES;
+}
+
 static void EnableCaseSensitiveFilesystemLookupsIfPossible(void) {
 #ifdef __APPLE__
     static dispatch_once_t onceToken;
@@ -419,6 +571,15 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     return BundledRootChoices();
 }
 
+- (BOOL)bundledRootChoiceNeedsDownload:(NSDictionary<NSString *, NSString *> *)choice {
+    if (choice[kBundledRootDownloadURLKey].length == 0)
+        return NO;
+    if (BundledRootArchiveURL(choice[kBundledRootArchiveNameKey]) != nil)
+        return NO;
+    NSURL *downloaded = DownloadedBundledArchiveURL(choice);
+    return downloaded == nil || ![NSFileManager.defaultManager fileExistsAtPath:downloaded.path];
+}
+
 - (NSURL *)rootUrl:(NSString *)name {
     return [RootsDir() URLByAppendingPathComponent:name];
 }
@@ -443,17 +604,9 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
 }
 
 - (NSArray<NSURL *> *)cachedRootArchiveURLs {
-    // /AOK/persist is a single shared real-fs mount — the AppGroup container's
-    // AOK/persist directory (see AOKPersistDirectoryURL / the do_mount in
-    // AppDelegate). It is the same regardless of which root is booted and is NOT
-    // inside any root's fakefs data dir (that's just an empty mount point), so we
-    // scan the shared host directory directly.
-    NSURL *container = ContainerURL();
-    if (container == nil)
+    NSURL *cacheDir = PersistRootsDir();
+    if (cacheDir == nil)
         return @[];
-    NSURL *cacheDir = [[[container URLByAppendingPathComponent:@"AOK" isDirectory:YES]
-                        URLByAppendingPathComponent:@"persist" isDirectory:YES]
-                       URLByAppendingPathComponent:@"roots" isDirectory:YES];
     NSArray<NSURL *> *entries = [NSFileManager.defaultManager
         contentsOfDirectoryAtURL:cacheDir
       includingPropertiesForKeys:@[NSURLIsRegularFileKey, NSURLFileSizeKey]
@@ -608,6 +761,25 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     }
 
     NSURL *archive = BundledRootArchiveURL(selectedChoice[kBundledRootArchiveNameKey]);
+    if (archive == nil) {
+        NSString *downloadURLString = selectedChoice[kBundledRootDownloadURLKey];
+        NSURL *downloadDestination = DownloadedBundledArchiveURL(selectedChoice);
+        if (downloadURLString.length != 0 && downloadDestination != nil) {
+            if ([NSFileManager.defaultManager fileExistsAtPath:downloadDestination.path]) {
+                // Already fetched by a previous import (or dropped in manually
+                // under that same name) -- no need to re-download.
+                archive = downloadDestination;
+            } else {
+                NSURL *downloadURL = [NSURL URLWithString:downloadURLString];
+                if (downloadURL != nil &&
+                    DownloadBundledArchive(downloadURL, downloadDestination, progress, error)) {
+                    archive = downloadDestination;
+                } else {
+                    return NO;
+                }
+            }
+        }
+    }
     if (archive == nil) {
         if (error != NULL) {
             *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{

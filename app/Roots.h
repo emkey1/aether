@@ -29,6 +29,10 @@ FOUNDATION_EXPORT NSNotificationName const RootsDidFinishInitialSelectionNotific
 @property (readonly) BOOL initialBundledRootImportInProgress;
 @property (readonly, nullable) NSError *initialBundledRootImportError;
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)bundledRootChoices;
+// YES if this bundled choice's archive isn't shipped in the app bundle and
+// hasn't already been downloaded into /AOK/persist/roots -- i.e. selecting it
+// will trigger a network download before it can be imported.
+- (BOOL)bundledRootChoiceNeedsDownload:(NSDictionary<NSString *, NSString *> *)choice;
 - (NSURL *)rootUrl:(NSString *)name;
 - (nullable NSString *)guestABIForRootNamed:(NSString *)name;
 // Archive files in the shared /AOK/persist/roots directory (the AppGroup
