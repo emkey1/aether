@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-04-2*
+*Guide version: 2026-07-09-1*
 Aether is a compact PSCAL front end. It uses the existing backend, bytecode
 compiler, and VM. It is not a separate runtime.
 
@@ -71,6 +71,10 @@ compiler, and VM. It is not a separate runtime.
 25. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
+26. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
+    response bodies). `mstreamcreate()`/`mstreamfromstring(text)` return
+    `MStream` — never `Int`, never `Text`. Body text comes from
+    `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`.
 
 Default stance: single-file programs; variadic `println("label = ", v)` over
 mixed-type `+`; explicit types for TOON values and non-trivial helper results;
@@ -88,7 +92,7 @@ flags the authoring-only ones.
 - Comments: prefer `// line comment`. Block comments are accepted, but models
   should still generate `//`. Text literals are double-quoted; escape `\"`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true`/`false`), `Void`, plus opaque
-  `ToonDoc`/`ToonNode`. `println(boolValue)` prints `true` or `false`. For mixed
+  `ToonDoc`/`ToonNode`/`MStream`. `println(boolValue)` prints `true` or `false`. For mixed
   output use variadic `println` (never `+`); to build a `Text`, use the
   conversion helpers (`itoa`, `formatfloat`, `realtostr`, `parse_int/float/bool`).
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||`.
@@ -300,8 +304,35 @@ banned in `@pure` functions:
 fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
 ```
 
-Networking (`http*`/`socket*`), `sqlite*`, `random`, and the clock are also
-effectful; discover them via `builtin_info(...)`.
+Sockets (`socket*`), `sqlite*`, `random`, and the clock are also effectful;
+discover them via `builtin_info(...)`.
+
+## HTTP requests (MS-001)
+
+Needs a libcurl build (`AETHER_ENABLE_CURL=ON`); the `http*` calls are
+effectful (FX-001). The response body lands in an `MStream` out-buffer:
+
+- `httpsession() -> Int`, `httpclose(session)`,
+  `httpsetheader(session, name, value)`
+- `httprequest(session, method, url, body, out) -> Int` (HTTP status; `body`
+  is the request payload, `""` for GET; `out` is an initialized `MStream`)
+- `mstreamcreate() -> MStream`, `mstreambuffer(ms) -> Text`,
+  `mstreamfree(ms)` (all pure, no `fx`)
+
+```aether
+fx {
+    let session: Int = httpsession();
+    let out: MStream = mstreamcreate();
+    let status: Int = httprequest(session, "GET", url, "", out);
+    if status == 200 { println(mstreambuffer(out)); }
+    mstreamfree(out);
+    httpclose(session);
+}
+```
+
+`mstreambuffer(out)` is the only way to read the body — never `print(out)`,
+never `let stream: Int = ...`. JSON responses pair with TOON:
+`toon_parse(mstreambuffer(out))`.
 
 ## Dynamic arrays
 
@@ -640,6 +671,10 @@ The compiler prints a stable code in brackets, and on newer builds a
   receiver is an inferred `new` binding; annotate it (`let c: C = new C();`).
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
   `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
+- **[MS-001]** an `MStream` handle misuse → declare stream bindings `MStream`
+  (`let out: MStream = mstreamcreate();`), read contents with
+  `mstreambuffer(ms) -> Text`; never `Int`/`Text` bindings, arithmetic, or
+  cross-assignment with TOON handles (see HTTP requests).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
   to the type if the prompt truly requires it).
 - **[FIELD-003]** a field default that is not a compile-time constant (names
@@ -678,6 +713,7 @@ FIELD-001). Re-read the prompt and match it exactly.
 - field & method names are not reserved words (`word`/`mul`/`new`/`for`); no
   `fn new()`/`__init__` constructor method (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)
+- stream bindings declared `MStream`; bodies read via `mstreambuffer` (MS-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly
   (KEY-001); intermediates guarded before `_or` (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)

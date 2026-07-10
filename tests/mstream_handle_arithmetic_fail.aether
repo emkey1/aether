@@ -1,0 +1,6 @@
+// MStream handles are opaque: arithmetic on one is rejected (MS-001).
+fn main() -> Void {
+    let s: MStream = mstreamcreate();
+    let n: Int = s + 1;
+    ret;
+}

@@ -1,0 +1,21 @@
+// MStream is a first-class opaque handle type: explicit declarations,
+// inference from mstreamcreate/mstreamfromstring, and Text extraction via
+// mstreambuffer must all compile and run (pure in-memory ops need no fx).
+fn main() -> Void {
+    let s: MStream = mstreamfromstring("aether streams");
+    let t: Text = mstreambuffer(s);
+    fx {
+        println(t);
+    }
+    mstreamfree(s);
+
+    let inferred = mstreamcreate();
+    let empty: Text = mstreambuffer(inferred);
+    fx {
+        if empty == "" {
+            println("empty ok");
+        }
+    }
+    mstreamfree(inferred);
+    ret;
+}
