@@ -24,6 +24,25 @@
 #define MAX_PATH 4096
 #endif
 
+// iSH's fake dev_t encoding (fs/dev.h's dev_make/dev_major/dev_minor,
+// mmmMMMmm hex layout). Duplicated here rather than including fs/dev.h
+// because that header pulls in fs/fd.h -> emu/memory.h, which this host
+// tool doesn't link against. Keep in sync with fs/dev.h.
+//
+// archive_entry_rdev()/archive_entry_set_rdev() round-trip through the
+// *host's* dev_t encoding (e.g. Darwin's major<<24|minor), which is not
+// the on-disk fakefs format -- use archive_entry_rdevmajor/rdevminor
+// instead, which libarchive decodes portably from the tar header.
+static uint32_t fakefs_dev_make(int major, int minor) {
+    return ((minor & 0xfff00) << 12) | (major << 8) | (minor & 0xff);
+}
+static int fakefs_dev_major(uint32_t dev) {
+    return (dev & 0xfff00) >> 8;
+}
+static int fakefs_dev_minor(uint32_t dev) {
+    return ((dev & 0xfff00000) >> 12) | (dev & 0xff);
+}
+
 // I have a weird way of error handling
 #define FILL_ERR(_type, _code, _message) do { \
     err_out->line = __LINE__; \
@@ -352,7 +371,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
             .mode = (uint32_t) archive_entry_mode(entry),
             .uid = (uint32_t) archive_entry_uid(entry),
             .gid = (uint32_t) archive_entry_gid(entry),
-            .rdev = (uint32_t) archive_entry_rdev(entry),
+            .rdev = fakefs_dev_make((int) archive_entry_rdevmajor(entry), (int) archive_entry_rdevminor(entry)),
         };
         sqlite3_bind_blob64(insert_stat, 1, &stat, sizeof(stat), SQLITE_TRANSIENT);
         STEP_RESET(insert_stat);
@@ -445,7 +464,8 @@ bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_er
         archive_entry_set_mode(entry, stat.mode);
         archive_entry_set_uid(entry, stat.uid);
         archive_entry_set_gid(entry, stat.gid);
-        archive_entry_set_rdev(entry, stat.rdev);
+        archive_entry_set_rdevmajor(entry, fakefs_dev_major(stat.rdev));
+        archive_entry_set_rdevminor(entry, fakefs_dev_minor(stat.rdev));
 
         struct stat real_stat;
         if (fstatat(root_fd, path, &real_stat, 0) < 0) {
