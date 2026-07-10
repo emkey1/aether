@@ -13,6 +13,7 @@
 #include <archive.h>
 #include <archive_entry.h>
 #include "tools/fakefs.h"
+#include "kernel/calls.h"
 #ifdef __APPLE__
 #include <errno.h>
 #include <sys/resource.h>
@@ -84,13 +85,13 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
             // bundled (no download key) entries first and all downloadable
             // entries after.
             @{
-                kBundledRootIdentifierKey: @"alpine3214arm64",
-                kBundledRootDisplayNameKey: @"Alpine3.21.4(arm64)",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.21.4-aarch64",
+                kBundledRootIdentifierKey: @"alpine3233arm64",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3(arm64)",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-aarch64",
                 // Native AArch64 guest (same-architecture dispatch on Apple
                 // silicon — see aarch64_guest_plan.md). Import name follows
                 // the RootNameIsValid rules like the x86_64 entry above.
-                kBundledRootImportNameKey: @"Alpine3.21.4-arm64",
+                kBundledRootImportNameKey: @"Alpine3.23.3-arm64",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"arm64",
             },
@@ -901,12 +902,45 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     return YES;
 }
 
+// Every root other than the booted one is auto-exposed read-write at
+// /AOK/roots/<name> (see AppDelegate's boot), and opt/AOK/tools/mount-root.sh
+// can additionally bind /proc, /sys, /dev, /dev/pts, /run and /AOK/tools into
+// it for a working chroot. Deleting or renaming that root's backing
+// directory out from under a still-mounted (or actively chrooted-into) fake
+// filesystem would corrupt or orphan it, so tear those mounts down first.
+//
+// Returns NO with *error set only if the root is genuinely busy (something
+// still has an open fd/cwd/root inside it, e.g. an active chroot session --
+// do_umount reports this as EBUSY). Any other do_umount outcome (most
+// commonly EINVAL: this root was never touched via mount-root.sh, so there's
+// nothing mounted at all) is harmless and silently ignored -- do_umount is
+// safe to call unconditionally on a path that isn't currently mounted.
+- (BOOL)unmountExposedRootNamed:(NSString *)name error:(NSError **)error {
+#if ISH_LINUX
+    NSString *base = [@"/AOK/roots/" stringByAppendingString:name];
+    NSArray<NSString *> *binds = @[@"AOK/tools", @"run", @"dev/pts", @"dev", @"sys", @"proc"];
+    for (NSString *bind in binds)
+        do_umount([base stringByAppendingPathComponent:bind].UTF8String);
+
+    if (do_umount(base.UTF8String) == _EBUSY) {
+        if (error != nil) {
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{NSLocalizedDescriptionKey:
+                @"This filesystem is currently mounted or in use (e.g. via mount-root.sh) -- exit any active session into it first"}];
+        }
+        return NO;
+    }
+#endif
+    return YES;
+}
+
 - (BOOL)destroyRootNamed:(NSString *)name error:(NSError **)error {
     if ([name isEqualToString:self.defaultRoot]) {
         *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{NSLocalizedDescriptionKey: @"Cannot delete the default filesystem"}];
         return NO;
     }
     NSAssert([self.roots containsObject:name], @"root does not exist: %@", name);
+    if (![self unmountExposedRootNamed:name error:error])
+        return NO;
     if (![NSFileManager.defaultManager removeItemAtURL:[self rootUrl:name] error:error])
         return NO;
     [[self mutableOrderedSetValueForKey:@"roots"] removeObject:name];
@@ -933,7 +967,8 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     if (!RootNameIsValid(newName, error))
         return NO;
     NSAssert([self.roots containsObject:name], @"root does not exist: %@", name);
-    
+    if (![self unmountExposedRootNamed:name error:error])
+        return NO;
     if (![NSFileManager.defaultManager moveItemAtURL:[self rootUrl:name] toURL:[self rootUrl:newName] error:error])
         return NO;
     NSUInteger index = [self.roots indexOfObject:name];
