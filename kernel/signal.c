@@ -236,6 +236,45 @@ struct rt_sigframe_arm64 {
     dword_t retcode[2]; // movz x8, #139 ; svc #0
 };
 
+
+// riscv64 signal frame (arch/riscv uapi): sigcontext is the gp regs
+// (pc, then x1..x31 in order) followed by the 528-byte __riscv_fp_state
+// union (sized by its q-extension member; only the d-extension view is
+// populated here). ucontext has the same 128-byte sigmask reservation as
+// arm64's.
+struct riscv64_mcontext_ {
+    qword_t pc;
+    qword_t regs[31]; // x1..x31
+    // union __riscv_fp_state, 528 bytes (sized by the q-extension view,
+    // which carries aligned(16) in the kernel uapi — that alignment is
+    // what pushes uc_mcontext to offset 176 in the ucontext). Only the
+    // d-extension view is populated.
+    qword_t f[32];
+    dword_t fcsr;
+    char fp_pad[528 - 32 * 8 - 4];
+} __attribute__((aligned(16)));
+static_assert(sizeof(struct riscv64_mcontext_) == 784, "riscv64 sigcontext size");
+
+struct riscv64_ucontext_ {
+    qword_t flags;
+    qword_t link;
+    struct amd64_stack_t_marshaled stack;
+    sigset_t_ sigmask;
+    char sigmask_pad[128 - sizeof(sigset_t_)];
+    struct riscv64_mcontext_ mcontext; // aligned(16) via the member type
+};
+static_assert(sizeof(struct riscv64_ucontext_) == 960, "riscv64 ucontext size");
+
+struct rt_sigframe_riscv64 {
+    struct amd64_siginfo_ info; // generic 64-bit siginfo layout
+    struct riscv64_ucontext_ uc;
+    // Not part of the kernel frame: the sigreturn trampoline. Real Linux
+    // riscv64 always returns via the vDSO's __vdso_rt_sigreturn; this
+    // port has no riscv vDSO, so it lives on the stack like arm64's.
+    dword_t retcode[2]; // li a7, 139 ; ecall
+};
+static_assert(offsetof(struct rt_sigframe_riscv64, uc) == 128, "riscv64 frame uc offset");
+
 static int sigaction_from_user(struct task *task, guest_addr_t user_addr, struct sigaction_ *action) {
     // arm64 shares the amd64 marshaling: aarch64's struct sigaction is the
     // same {handler, flags, restorer, mask} qword layout (arm64 defines
@@ -1391,6 +1430,64 @@ qword_t sys_rt_sigreturn_arm64(void) {
     return cpu->arm64_regs[arm64_x0];
 }
 
+
+static void setup_rt_sigframe_riscv64(struct siginfo_ *info, struct rt_sigframe_riscv64 *frame) {
+    struct cpu_state *cpu = &current->cpu;
+    memset(frame, 0, sizeof(*frame));
+    siginfo_to_amd64_user(&frame->info, info);
+    frame->uc.flags = 0;
+    frame->uc.link = 0;
+    frame->uc.stack = (struct amd64_stack_t_marshaled) {
+        .stack = current->altstack,
+        .flags = current_altstack_flags(current),
+        .size = current->altstack_size,
+    };
+    frame->uc.sigmask = current->blocked;
+
+    struct riscv64_mcontext_ *mc = &frame->uc.mcontext;
+    mc->pc = cpu->riscv64_pc;
+    for (int i = 1; i < 32; i++)
+        mc->regs[i - 1] = cpu->riscv64_regs[i];
+    for (int i = 0; i < 32; i++)
+        mc->f[i] = cpu->riscv64_f[i];
+    mc->fcsr = cpu->riscv64_fcsr;
+
+    // Trampoline: li a7, 139 (addi a7, x0, 139) ; ecall
+    frame->retcode[0] = 0x08b00893u;
+    frame->retcode[1] = 0x00000073u;
+}
+
+static void restore_riscv64_mcontext(struct rt_sigframe_riscv64 *frame, struct cpu_state *cpu) {
+    struct riscv64_mcontext_ *mc = &frame->uc.mcontext;
+    cpu->riscv64_pc = mc->pc;
+    for (int i = 1; i < 32; i++)
+        cpu->riscv64_regs[i] = mc->regs[i - 1];
+    for (int i = 0; i < 32; i++)
+        cpu->riscv64_f[i] = mc->f[i];
+    cpu->riscv64_fcsr = mc->fcsr;
+}
+
+qword_t sys_rt_sigreturn_riscv64(void) {
+    struct cpu_state *cpu = &current->cpu;
+    struct rt_sigframe_riscv64 frame;
+    // At handler entry SP = &frame; the trampoline ecall happens with SP
+    // restored to exactly that point (same contract as arm64).
+    guest_addr_t frame_addr = cpu->riscv64_regs[riscv64_sp];
+    if (user_get(frame_addr, frame)) {
+        deliver_signal(current, SIGSEGV_, SIGINFO_NIL);
+        return _EFAULT;
+    }
+
+    restore_riscv64_mcontext(&frame, cpu);
+
+    lock(&current->sighand->lock, 0);
+    restore_altstack(frame_addr, frame.uc.stack.stack,
+            frame.uc.stack.size, frame.uc.stack.flags);
+    sigmask_set(frame.uc.sigmask);
+    unlock(&current->sighand->lock);
+    return cpu->riscv64_regs[riscv64_a0];
+}
+
 static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
     int sig = info->sig;
     STRACE("%d receiving signal %d\n", current->pid, sig);
@@ -1466,6 +1563,40 @@ static void receive_signal(struct sighand *sighand, struct siginfo_ *info) {
             // See the amd64 path below: kill like Linux force_sigsegv
             // instead of self-deadlocking through deliver_signal.
             printk("WARNING: failed to install arm64 frame for %d at %#llx, killing\n",
+                   info->sig, (unsigned long long) sp);
+            unlock(&sighand->lock);
+            do_exit_group(SIGSEGV_);
+        }
+
+        if (action->flags & SA_RESETHAND_)
+            *action = (struct sigaction_) {.handler = SIG_DFL_};
+        return;
+    }
+
+    if (current->abi == GUEST_ABI_RISCV64) {
+        struct rt_sigframe_riscv64 frame;
+        setup_rt_sigframe_riscv64(info, &frame);
+        sp -= sizeof(frame);
+        sp &= ~0xfull; // RISC-V psABI: SP 16-byte aligned
+
+        current->cpu.riscv64_regs[riscv64_sp] = sp;
+        current->cpu.riscv64_pc = action->handler;
+        // Like arm64, riscv64 has only rt signals: a1/a2 always carry
+        // info/ucontext regardless of SA_SIGINFO.
+        current->cpu.riscv64_regs[riscv64_a0] = info->sig;
+        current->cpu.riscv64_regs[riscv64_a1] = sp + offsetof(struct rt_sigframe_riscv64, info);
+        current->cpu.riscv64_regs[riscv64_a2] = sp + offsetof(struct rt_sigframe_riscv64, uc);
+        // riscv64 defines no SA_RESTORER (the real kernel always uses the
+        // vDSO trampoline); this port always uses the on-stack retcode.
+        current->cpu.riscv64_regs[riscv64_ra] =
+            sp + offsetof(struct rt_sigframe_riscv64, retcode);
+
+        if (!(action->flags & SA_NODEFER_))
+            sigset_add(&current->blocked, info->sig);
+        current->blocked |= action->mask;
+
+        if (user_write(sp, &frame, sizeof(frame))) {
+            printk("WARNING: failed to install riscv64 frame for %d at %#llx, killing\n",
                    info->sig, (unsigned long long) sp);
             unlock(&sighand->lock);
             do_exit_group(SIGSEGV_);

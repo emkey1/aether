@@ -2254,9 +2254,7 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
                 // overwrite X0 on error (mirrors amd64's case-15 handling)
         qword_t sigreturn_result;
         if (current->abi == GUEST_ABI_RISCV64)
-            // riscv64 sigframes don't exist yet (riscv64_guest_plan.md
-            // patch 6 wires sys_rt_sigreturn_riscv64 here)
-            sigreturn_result = (qword_t) (sqword_t) _ENOSYS;
+            sigreturn_result = sys_rt_sigreturn_riscv64();
         else
             sigreturn_result = sys_rt_sigreturn_arm64();
         sqword_t signed_result = (sqword_t) sigreturn_result;

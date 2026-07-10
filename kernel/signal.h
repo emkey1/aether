@@ -224,6 +224,7 @@ dword_t sys_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr)
 dword_t sys_rt_sigreturn(void);
 qword_t sys_rt_sigreturn_amd64(void);
 qword_t sys_rt_sigreturn_arm64(void);
+qword_t sys_rt_sigreturn_riscv64(void);
 dword_t sys_sigreturn(void);
 
 #define SIG_BLOCK_ 0
