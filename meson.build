@@ -180,6 +180,7 @@ if jit_cpu_family == 'aarch64' and guest_archs.contains('riscv64')
     emu_src += [
         'jit/guest-riscv64/core.S',
         'jit/guest-riscv64/alu.S',
+        'jit/guest-riscv64/memory.S',
     ]
 endif
 

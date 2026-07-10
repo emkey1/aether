@@ -4624,6 +4624,17 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_riscv64_remw_rr(void);
     extern void gadget_riscv64_remuw_rr(void);
     extern void gadget_riscv64_beq(void);
+    extern void gadget_riscv64_lb(void);
+    extern void gadget_riscv64_lbu(void);
+    extern void gadget_riscv64_lh(void);
+    extern void gadget_riscv64_lhu(void);
+    extern void gadget_riscv64_lw(void);
+    extern void gadget_riscv64_lwu(void);
+    extern void gadget_riscv64_ld(void);
+    extern void gadget_riscv64_sb(void);
+    extern void gadget_riscv64_sh(void);
+    extern void gadget_riscv64_sw(void);
+    extern void gadget_riscv64_sd(void);
     extern void gadget_riscv64_bne(void);
     extern void gadget_riscv64_blt(void);
     extern void gadget_riscv64_bge(void);
@@ -4799,6 +4810,45 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
         state->jump_ip[1] = state->size - 1;
         return 0; // block ends at a conditional branch
     }
+
+    case RISCV64_OP_LOAD: {
+        static void (*const load_gadgets[8])(void) = {
+            gadget_riscv64_lb, gadget_riscv64_lh, gadget_riscv64_lw,
+            gadget_riscv64_ld, gadget_riscv64_lbu, gadget_riscv64_lhu,
+            gadget_riscv64_lwu, NULL,
+        };
+        void (*gadget)(void) = load_gadgets[funct3];
+        if (gadget == NULL)
+            return gen_riscv64_undefined(state, insn);
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rd_off(rd)); // x0 target still faults; sink absorbs it
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, (uint64_t) riscv64_imm_i(insn));
+        gen(state, state->riscv64_orig_ip); // fault-restart pc, ALWAYS last
+        return 1;
+    }
+
+    case RISCV64_OP_STORE: {
+        static void (*const store_gadgets[8])(void) = {
+            gadget_riscv64_sb, gadget_riscv64_sh, gadget_riscv64_sw,
+            gadget_riscv64_sd, NULL, NULL, NULL, NULL,
+        };
+        void (*gadget)(void) = store_gadgets[funct3];
+        if (gadget == NULL)
+            return gen_riscv64_undefined(state, insn);
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rs_off(riscv64_rs2(insn)));
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, (uint64_t) riscv64_imm_s(insn));
+        gen(state, state->riscv64_orig_ip); // fault-restart pc, ALWAYS last
+        return 1;
+    }
+
+    case RISCV64_OP_MISC_MEM:
+        // fence/fence.i: the TLB and block-invalidation machinery already
+        // provide the guarantees this JIT needs (blocks are invalidated on
+        // guest code writes); no-op, like arm64's hint-space handling.
+        return 1;
 
     case RISCV64_OP_JALR:
         if (funct3 != 0)
