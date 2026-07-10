@@ -26,3 +26,13 @@
 // interpreter and its tests observe that an SVC instruction was correctly
 // reached and decoded without a real dispatch target existing.
 #define INT_ARM64_SVC 0x102
+// Synthetic interrupt for a HOST bad-access (SIGBUS) taken while the JIT was
+// executing a guest memory access whose backing host page is no longer valid --
+// e.g. a file-backed guest mmap (tmpfs host_fd or realfs real_fd) whose backing
+// file was ftruncate'd smaller under a live mapping. The host fault is caught
+// (POSIX SIGBUS on the CLI, EXC_BAD_ACCESS via Mach on device), reverse-mapped
+// to the guest address, and reported here so the kernel delivers a guest SIGBUS
+// (BUS_ADRERR) exactly like Linux, instead of the emulator process dying. This
+// is distinct from INT_PF: the guest page is validly mapped in iSH's page table
+// (only the host backing shrank), so it must NOT retry through mem_ptr_fault.
+#define INT_BUS 0x103

@@ -441,6 +441,34 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page) {
     return entry;
 }
 
+// Reverse-map a host address that faulted during JIT execution back to the
+// guest address it backs. Walks the address space's page table looking for the
+// mapped guest page whose host backing range [data->data+offset, +PAGE_SIZE)
+// contains host_addr; on success stores the guest address in *guest_out.
+//
+// Safe to call from a host signal / Mach-exception handler: it takes no locks
+// and only performs the same atomic page-table loads the lockless proc/maps
+// walkers already use. The fault this exists to translate -- a store to a
+// past-EOF page of a file-backed mapping whose backing file was truncated --
+// never mutates iSH's page table (only the host file shrinks), so the faulting
+// entry is stable while we search for it.
+bool mem_host_addr_to_guest(struct mem *mem, void *host_addr, guest_addr_t *guest_out) {
+    if (mem == NULL || host_addr == NULL)
+        return false;
+    uintptr_t target = (uintptr_t) host_addr;
+    for (page_t page = 0; page < mem->page_limit; mem_next_page(mem, &page)) {
+        struct pt_entry *entry = mem_pt(mem, page);
+        if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
+            continue;
+        uintptr_t base = (uintptr_t) entry->data->data + entry->offset;
+        if (target >= base && target < base + PAGE_SIZE) {
+            *guest_out = ((guest_addr_t) page << PAGE_BITS) + (target - base);
+            return true;
+        }
+    }
+    return false;
+}
+
 static void mem_pt_del(struct mem *mem, page_t page) {
     struct pt_entry *entry = mem_pt_raw(mem, page);
     if (entry == NULL)

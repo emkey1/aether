@@ -11,6 +11,7 @@
 #include "util/sync.h"
 #include <stdatomic.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -463,6 +464,12 @@ void i386_trace_special_reg_op(const char *op, addr_t ip, int reg) {
 // Defined in app/hook.c; installs EXC_BAD_ACCESS handler on the calling thread.
 // No-op on non-arm64.  Forward-declared here to avoid a circular header dep.
 extern void jit_install_thread_exception_handler(void);
+// True when the Mach EXC_BAD_ACCESS handler is live for this process (device
+// app). When it is, guest-memory bad accesses are translated in the Mach
+// handler and we must NOT also install a POSIX SIGBUS handler (Mach preempts
+// POSIX delivery anyway). False on the standalone CLI, where the POSIX handler
+// is the only path. Defined in app/hook.c / platform/standalone.c.
+extern bool jit_host_fault_mach_active(void);
 
 // Thread-local jetsam_lock pointer for JIT crash recovery.
 // Set to &jit->jetsam_lock while this thread is in cpu_step_to_interrupt (i.e.
@@ -475,7 +482,10 @@ __thread bool jit_crash_unwind_active = false;
 __thread struct jit_frame *jit_crash_frame = NULL;
 __thread struct cpu_state *jit_crash_cpu = NULL;
 __thread int jit_crash_interrupt = INT_GPF;
-__thread addr_t jit_crash_addr = 0;
+// 64-bit: carries the guest fault address (amd64_rip / arm64_pc / eip, or a
+// reverse-mapped SIGBUS address). Must be guest_addr_t, not addr_t (32-bit),
+// or 64-bit amd64/arm64 addresses are truncated to their low 32 bits.
+__thread guest_addr_t jit_crash_addr = 0;
 
 static inline void jit_crash_track_mutex_lock(lock_t *mutex) {
     jit_crash_mutex_lock = mutex;
@@ -531,6 +541,96 @@ void jit_crash_fn(void) {
         abort();
     }
     pthread_exit(NULL);
+}
+
+// Shared translation of a host bad-access address (caught by the POSIX SIGBUS
+// handler on the CLI, or the Mach EXC_BAD_ACCESS handler on device) into a
+// pending guest SIGBUS. Returns true only when host_addr backs a live guest
+// page in the current address space — i.e. a genuine guest-memory fault such as
+// a store to a now-past-EOF page of a file-backed mmap whose backing file was
+// truncated under the mapping. On success it arms the JIT crash-unwind to
+// return INT_BUS carrying the guest fault address; the kernel then delivers a
+// guest SIGBUS (BUS_ADRERR), matching Linux. Returns false for faults that
+// don't map to guest memory (real JIT/host bugs), which are left to crash so
+// they are not silently hidden.
+bool jit_translate_host_fault(void *host_addr) {
+    if (!jit_crash_unwind_active || current == NULL)
+        return false;
+    guest_addr_t guest;
+    if (!mem_host_addr_to_guest(current->mem, host_addr, &guest))
+        return false;
+    jit_crash_interrupt = INT_BUS;
+    jit_crash_addr = guest;
+    return true;
+}
+
+// Faulting-thread entry point for the device (Mach) path. The Mach exception
+// handler (app/hook.c) runs on a dedicated server pthread where `current` is
+// NULL, so it cannot reverse-map the fault itself. Instead it redirects the
+// FAULTING thread's PC here (fault address in the first argument register), so
+// this runs with the guest thread's `current` intact. If the address backs a
+// guest page, unwind with a guest SIGBUS; otherwise it is a real bad access
+// (wild pointer in a helper, corrupted state) and we crash, logging the
+// address. A re-entrancy guard covers only the page-table walk: if the walk
+// itself faults it re-enters here, and we abort rather than loop.
+__attribute__((__noreturn__))
+void jit_crash_bus_fn(void *host_addr) {
+    static __thread bool bus_dispatch_active = false;
+    if (bus_dispatch_active)
+        abort(); // the reverse-map walk faulted -> genuine memory corruption
+    bus_dispatch_active = true;
+    bool translated = jit_translate_host_fault(host_addr);
+    bus_dispatch_active = false;
+    if (translated)
+        jit_crash_fn(); // noreturn: releases locks and unwinds with INT_BUS
+    printk("JIT: untranslatable bad access at host %p (pid %d) - crashing\n",
+           host_addr, current ? current->pid : -1);
+    abort();
+}
+
+// POSIX SIGBUS handler (standalone CLI only — the device app catches these via
+// Mach before POSIX delivery). Runs on a per-thread altstack (SA_ONSTACK).
+static void jit_host_sigbus_handler(int sig, siginfo_t *info, void *uctx) {
+    (void) uctx;
+    if (info != NULL && jit_translate_host_fault(info->si_addr)) {
+        // Unwind out of the faulting gadget back to cpu_step_to_interrupt's
+        // sigsetjmp, which returns INT_BUS. jit_crash_fn releases the jetsam
+        // read lock (and any guest-atomic lock an LSE helper held) before
+        // siglongjmp'ing. SA_NODEFER keeps SIGBUS unblocked across the longjmp:
+        // that sigsetjmp was armed with savesigs=0, so the signal mask is not
+        // restored, and without NODEFER a subsequent truncation fault would be
+        // silently blocked forever.
+        jit_crash_fn(); // noreturn
+    }
+    // Not a translatable guest fault: real bug. Restore the default disposition
+    // and return so the instruction re-faults into a normal crash/core dump,
+    // preserving debuggability.
+    signal(sig, SIG_DFL);
+}
+
+// Process-wide SIGBUS disposition, installed once.
+static void jit_install_host_fault_sigaction(void) {
+    struct sigaction sa = {0};
+    sa.sa_sigaction = jit_host_sigbus_handler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGBUS, &sa, NULL);
+}
+
+// Per-thread setup for the CLI POSIX host-fault handler: a dedicated altstack
+// (the guest thread's host stack may be in any state when a JIT store faults)
+// plus the one-time process-wide sigaction. Called once per JIT pthread. The
+// altstack is a thread-local array so it is reclaimed automatically at thread
+// exit (no per-thread malloc leak across churny fork/exec/thread workloads).
+static void jit_install_host_fault_signal_handler(void) {
+    static __thread char alt_stack[128 * 1024];
+    stack_t ss = {0};
+    ss.ss_sp = alt_stack;
+    ss.ss_size = sizeof(alt_stack);
+    sigaltstack(&ss, NULL);
+
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, jit_install_host_fault_sigaction);
 }
 
 // Acquire jetsam write lock with a short timeout. Uses non-blocking
@@ -879,6 +979,11 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     static __thread bool exception_handler_installed = false;
     if (!exception_handler_installed) {
         jit_install_thread_exception_handler();
+        // When the Mach handler isn't active (standalone CLI), a host SIGBUS on
+        // a truncated file-backed guest mmap would otherwise kill the process.
+        // Install a POSIX handler that translates it into a guest SIGBUS.
+        if (!jit_host_fault_mach_active())
+            jit_install_host_fault_signal_handler();
         exception_handler_installed = true;
     }
 
@@ -1227,6 +1332,11 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
     static __thread bool exception_handler_installed = false;
     if (!exception_handler_installed) {
         jit_install_thread_exception_handler();
+        // When the Mach handler isn't active (standalone CLI), a host SIGBUS on
+        // a truncated file-backed guest mmap would otherwise kill the process.
+        // Install a POSIX handler that translates it into a guest SIGBUS.
+        if (!jit_host_fault_mach_active())
+            jit_install_host_fault_signal_handler();
         exception_handler_installed = true;
     }
 
@@ -1480,6 +1590,11 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     static __thread bool exception_handler_installed = false;
     if (!exception_handler_installed) {
         jit_install_thread_exception_handler();
+        // When the Mach handler isn't active (standalone CLI), a host SIGBUS on
+        // a truncated file-backed guest mmap would otherwise kill the process.
+        // Install a POSIX handler that translates it into a guest SIGBUS.
+        if (!jit_host_fault_mach_active())
+            jit_install_host_fault_signal_handler();
         exception_handler_installed = true;
     }
 

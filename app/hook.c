@@ -29,7 +29,14 @@ extern void NSLog(CFStringRef, ...);
 // Mach exception; releases jetsam_lock and unwinds back into JIT C code.
 extern void jit_crash_fn(void);
 extern __thread int jit_crash_interrupt;
-extern __thread addr_t jit_crash_addr;
+extern __thread guest_addr_t jit_crash_addr;
+// Faulting-thread dispatcher for a host bad-access. This Mach handler runs on a
+// dedicated server thread where `current` is NULL, so it cannot reverse-map the
+// fault; it redirects the faulting thread's PC here (fault address in x0), and
+// jit_crash_bus_fn() (jit/jit.c) does the reverse-map with `current` intact,
+// delivering a guest SIGBUS for a genuine guest-memory fault or crashing for a
+// real bug.
+extern void jit_crash_bus_fn(void *host_addr);
 
 kern_return_t catch_mach_exception_raise(
     mach_port_t exception_port,
@@ -98,6 +105,25 @@ kern_return_t catch_mach_exception_raise_state(
         *new = *old;
         *new_stateCnt = old_stateCnt;
         arm_thread_state64_set_pc_fptr(*new, (void *)jit_crash_fn);
+        return KERN_SUCCESS;
+    }
+
+    // Bad access at a real PC on a JIT thread. This could be a store/load to a
+    // now-invalid file-backed mmap page (backing file truncated under the
+    // mapping) that should become a guest SIGBUS, or a genuine JIT bug. We can't
+    // tell here -- reverse-mapping needs the faulting task's `current`, which is
+    // NULL on this server thread -- so redirect the faulting thread to
+    // jit_crash_bus_fn(), passing the fault address (code[1]) in x0. It runs
+    // with `current` intact and either delivers a guest SIGBUS or crashes for a
+    // real bug. Redirecting here (vs KERN_FAILURE) trades a slightly less direct
+    // crash backtrace for real bugs against correctly surfacing guest SIGBUS.
+    if (exception_port == jit_crash_port &&
+        exception == EXC_BAD_ACCESS &&
+        codeCnt > 1) {
+        *new = *old;
+        *new_stateCnt = old_stateCnt;
+        new->__x[0] = (uint64_t) code[1]; // fault address -> first arg register
+        arm_thread_state64_set_pc_fptr(*new, (void *)jit_crash_bus_fn);
         return KERN_SUCCESS;
     }
 
@@ -213,6 +239,12 @@ void jit_install_thread_exception_handler(void) {
                                EXCEPTION_STATE | MACH_EXCEPTION_CODES,
                                ARM_THREAD_STATE64);
     mach_port_deallocate(mach_task_self(), thread);
+}
+
+// True once the Mach EXC_BAD_ACCESS handler is set up, so jit.c knows the Mach
+// path (not a POSIX SIGBUS handler) will translate guest-memory faults here.
+bool jit_host_fault_mach_active(void) {
+    return jit_crash_port != MACH_PORT_NULL;
 }
 
 // This is marked as available on iPhone in libproc.h but pulling in the header
@@ -378,6 +410,11 @@ bool hook(void *old, void *new) {
 
 void jit_install_thread_exception_handler(void) {
     // No-op on non-arm64
+}
+
+bool jit_host_fault_mach_active(void) {
+    // No Mach exception handler on non-arm64: the POSIX SIGBUS handler is used.
+    return false;
 }
 
 #endif

@@ -112,6 +112,12 @@ char *printBatteryStatus(int type) {
 void jit_install_thread_exception_handler(void) {
 }
 
+bool jit_host_fault_mach_active(void) {
+    // Standalone CLI has no Mach exception handler; the POSIX SIGBUS handler in
+    // jit.c translates truncated-mmap host faults into guest SIGBUS.
+    return false;
+}
+
 struct rtc_time_ish {
     int tm_sec;
     int tm_min;

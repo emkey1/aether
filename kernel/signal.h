@@ -82,6 +82,9 @@ struct sigaction_ {
 #define FPE_INTDIV_ 1
 #define SEGV_MAPERR_ 1
 #define SEGV_ACCERR_ 2
+#define BUS_ADRALN_ 1
+#define BUS_ADRERR_ 2
+#define BUS_OBJERR_ 3
 
 union sigval_ {
     int_t sv_int;

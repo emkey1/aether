@@ -5230,6 +5230,25 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
     deliver_signal(current, SIGILL_, info);
 }
 
+static void handle_bus_interrupt(struct cpu_state *cpu) {
+    // A host bad-access (SIGBUS) taken by the JIT on a file-backed guest mapping
+    // whose backing shrank (ftruncate under a live mmap), reverse-mapped to the
+    // guest fault address by jit_translate_host_fault(). Unlike a page fault the
+    // guest page is validly mapped in iSH's page table, so there is nothing for
+    // mem_ptr_fault to resolve -- deliver a guest SIGBUS directly, matching
+    // Linux (accessing a truncated page of a file mapping => SIGBUS/BUS_ADRERR).
+    printk("ERROR: %d(%s) SIGBUS on %#llx at %#llx (file-backed mmap truncated)\n",
+           current->pid, current->comm,
+           (unsigned long long) cpu->segfault_addr,
+           (unsigned long long) current_fault_ip(cpu));
+    record_guest_fault_event("bus-error", cpu, cpu->segfault_addr, cpu->segfault_was_write);
+    struct siginfo_ info = {
+        .code = BUS_ADRERR_,
+        .fault.addr = cpu->segfault_addr,
+    };
+    deliver_signal(current, SIGBUS_, info);
+}
+
 static void handle_arithmetic_interrupt(struct cpu_state *cpu) {
     printk("ERROR: %d(%s) arithmetic fault at 0x%x\n", current->pid, current->comm, cpu->eip);
     dump_stack(8);
@@ -5268,6 +5287,9 @@ void handle_interrupt(int interrupt) {
             break;
         case INT_GPF:
             handle_general_protection_interrupt(cpu);
+            break;
+        case INT_BUS:
+            handle_bus_interrupt(cpu);
             break;
         case INT_UNDEFINED:
             handle_illegal_instruction_interrupt(cpu);

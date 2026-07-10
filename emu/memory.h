@@ -125,6 +125,10 @@ struct pt_entry *mem_pt(struct mem *mem, page_t page);
 void mem_next_page(struct mem *mem, page_t *page);
 size_t mem_mapped_page_count(struct mem *mem);
 void *mem_ptr_fault(struct mem *mem, guest_addr_t addr, int type);
+// Reverse-map a faulting host address to the guest address it backs (for host
+// SIGBUS -> guest SIGBUS translation of file-backed-mmap truncation faults).
+// Lockless / signal-handler-safe. Returns true and fills *guest_out on a hit.
+bool mem_host_addr_to_guest(struct mem *mem, void *host_addr, guest_addr_t *guest_out);
 
 #define BYTES_ROUND_DOWN(bytes) (PAGE(bytes) << PAGE_BITS)
 #define BYTES_ROUND_UP(bytes) (PAGE_ROUND_UP(bytes) << PAGE_BITS)
