@@ -1,0 +1,97 @@
+name: Build Release IPA
+
+on:
+  push:
+    tags:
+      - 'builds/iSH-AOK_*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing builds/iSH-AOK_N tag to (re)build'
+        required: true
+
+env:
+  KEEP_RELEASES: 5
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          brew install llvm ninja libarchive
+          pip3 install --break-system-packages meson
+
+      - name: Build unsigned .app
+        run: |
+          xcodebuild build \
+            -project iSH-AOK.xcodeproj \
+            -scheme iSH \
+            -configuration Release \
+            -arch arm64 -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Package IPA
+        id: package
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/iSH-AOK.app"
+          test -d "$APP_PATH"
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          BUILD_N="${TAG##*_}"
+          IPA_NAME="iSH-AOK-${BUILD_N}.ipa"
+          mkdir Payload
+          cp -r "$APP_PATH" Payload/
+          zip -qr "$IPA_NAME" Payload
+          echo "ipa_name=$IPA_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "build_n=$BUILD_N" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.package.outputs.tag }}"
+          IPA_NAME="${{ steps.package.outputs.ipa_name }}"
+          BUILD_N="${{ steps.package.outputs.build_n }}"
+          PREV_N=$((BUILD_N - 1))
+          NOTES_FILE="release-notes-since-iSH-AOK_${PREV_N}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          else
+            NOTES_ARGS=(--notes "Unsigned build ${BUILD_N}. Re-sign with AltStore, SideStore, or Sideloadly before installing.")
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$IPA_NAME" --clobber
+          else
+            gh release create "$TAG" "$IPA_NAME" \
+              --title "iSH-AOK Build ${BUILD_N}" \
+              "${NOTES_ARGS[@]}" \
+              --latest
+          fi
+
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 200 --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.tagName | startswith("builds/iSH-AOK_")) | .tagName' \
+            | sort -t_ -k2 -n -r \
+            | tail -n +$((KEEP_RELEASES + 1)) \
+            | while read -r old_tag; do
+                echo "Pruning release $old_tag (keeping tag, deleting release + asset only)"
+                gh release delete "$old_tag" --yes
+              done
