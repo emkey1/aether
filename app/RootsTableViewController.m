@@ -45,6 +45,8 @@
         subtitle = @"x86_64 (amd64) guest rootfs.";
     } else if ([choice[@"guestABI"] isEqualToString:@"arm64"]) {
         subtitle = @"arm64 (native AArch64) guest rootfs.";
+    } else if ([choice[@"guestABI"] isEqualToString:@"riscv64"]) {
+        subtitle = @"riscv64 (RISC-V) guest rootfs.";
     } else {
         subtitle = @"i386 guest rootfs.";
     }
