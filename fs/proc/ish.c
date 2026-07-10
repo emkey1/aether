@@ -71,8 +71,11 @@ static int proc_ish_show_colors(struct proc_entry *UNUSED(entry), struct proc_da
 }
 
 static int proc_ish_show_documents(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    char *directory = get_documents_directory();
-    proc_printf(buf, "%s\n", directory);
+    // get_documents_directory is installed by the iOS app; it is NULL in the
+    // command-line build. Emit an empty value rather than calling through NULL
+    // (stress-ng --procfs reads /proc/ish/documents and crashed the emulator).
+    char *directory = get_documents_directory != NULL ? get_documents_directory() : NULL;
+    proc_printf(buf, "%s\n", directory != NULL ? directory : "");
     free(directory);
     return 0;
 }
@@ -169,6 +172,8 @@ static void proc_ish_defaults_getname(struct proc_entry *entry, char *buf) {
 }
 
 static int proc_ish_defaults_readlink(struct proc_entry *entry, char *buf) {
+    if (get_underlying_name == NULL)
+        return _EIO;
     char *name = get_underlying_name(entry->name);
     snprintf(buf, MAX_PATH, "../.defaults/%s", name);
     free(name);
@@ -178,6 +183,8 @@ static int proc_ish_defaults_readlink(struct proc_entry *entry, char *buf) {
 static int proc_ish_underlying_defaults_show(struct proc_entry *entry, struct proc_data *data) {
     size_t size;
     char *buffer;
+    if (get_user_default == NULL)
+        return _EIO;
     if (!get_user_default(entry->name, &buffer, &size))
         return _EIO;
     proc_buf_append(data, buffer, size);
@@ -186,16 +193,22 @@ static int proc_ish_underlying_defaults_show(struct proc_entry *entry, struct pr
 }
 
 static int proc_ish_underlying_defaults_update(struct proc_entry *entry, struct proc_data *data) {
+    if (set_user_default == NULL)
+        return _EIO;
     if (!set_user_default(entry->name, data->data, data->size))
         return _EIO;
     return 0;
 }
 
 static int proc_ish_underlying_defaults_unlink(struct proc_entry *entry) {
+    if (remove_user_default == NULL)
+        return _EIO;
     return remove_user_default(entry->name) ? 0 : _EIO;
 }
 
 static int proc_ish_defaults_unlink(struct proc_entry *entry) {
+    if (get_underlying_name == NULL || remove_user_default == NULL)
+        return _EIO;
     char *name = get_underlying_name(entry->name);
     int err = remove_user_default(name) ? 0 : _EIO;
     free(name);
@@ -244,6 +257,8 @@ static bool proc_ish_underlying_defaults_readdir(struct proc_entry *entry, unsig
 
 static bool proc_ish_defaults_readdir(struct proc_entry *entry, unsigned long *index, struct proc_entry *next_entry) {
     get_child_names(entry, *index);
+    if (get_friendly_name == NULL || entry->child_names == NULL)
+        return false;
     char *friendly_name;
     do {
         const char *name = entry->child_names[*index];

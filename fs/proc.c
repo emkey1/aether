@@ -115,12 +115,21 @@ static int proc_refresh_data(struct fd *fd) {
         return _EISDIR;
     assert(S_ISREG(mode));
 
+    struct proc_entry *entry = &fd->proc.entry;
+    // pread/pwrite-backed entries (e.g. /proc/<pid>/mem) have no buffered
+    // show() model: reads go straight through ->pread and there is nothing to
+    // refresh. Calling through the NULL ->show pointer here crashed the
+    // emulator -- a read() with no ->read op falls back to ->pread and then
+    // advances the offset via ->lseek (proc_seek -> proc_refresh_data), which
+    // stress-ng --procfs triggers by reading /proc/<pid>/mem.
+    if (entry->meta->show == NULL)
+        return 0;
+
     if (fd->proc.data.data == NULL) {
         fd->proc.data.capacity = 4096;
         fd->proc.data.data = malloc(fd->proc.data.capacity); // default size
     }
     fd->proc.data.size = 0;
-    struct proc_entry *entry = &fd->proc.entry;
     int err = entry->meta->show(entry, &fd->proc.data);
     if (err < 0)
         return err;
