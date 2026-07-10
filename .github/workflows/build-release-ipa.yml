@@ -33,6 +33,39 @@ jobs:
           pip3 install --break-system-packages meson
           echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
 
+      - name: Patch pre-existing tags for Apple Silicon Homebrew paths
+        run: |
+          python3 - <<'PYEOF'
+          import re, pathlib
+          p = pathlib.Path("tools/meson.build")
+          old = p.read_text()
+          pattern = re.compile(
+              r"    libarchive_lib = cc\.find_library\('archive', dirs: \['/usr/local/opt/libarchive/lib'\], required: false\)\n"
+              r"    if not libarchive_lib\.found\(\)\n"
+              r"        libarchive_lib = cc\.find_library\('archive', dirs: \['/opt/homebrew/opt/libarchive/lib'\], required: false\)\n"
+              r"    endif\n"
+              r"    if libarchive_lib\.found\(\)\n"
+              r"        libarchive = declare_dependency\(dependencies: \[libarchive_lib\], include_directories: include_directories\(\['/usr/local/opt/libarchive/include'\]\)\)\n"
+              r"    endif\n"
+          )
+          new = (
+              "    libarchive_prefix = '/usr/local/opt/libarchive'\n"
+              "    libarchive_lib = cc.find_library('archive', dirs: [libarchive_prefix + '/lib'], required: false)\n"
+              "    if not libarchive_lib.found()\n"
+              "        libarchive_prefix = '/opt/homebrew/opt/libarchive'\n"
+              "        libarchive_lib = cc.find_library('archive', dirs: [libarchive_prefix + '/lib'], required: false)\n"
+              "    endif\n"
+              "    if libarchive_lib.found()\n"
+              "        libarchive = declare_dependency(dependencies: [libarchive_lib], include_directories: include_directories([libarchive_prefix + '/include']))\n"
+              "    endif\n"
+          )
+          if pattern.search(old):
+              p.write_text(pattern.sub(new, old))
+              print("patched tools/meson.build for Apple Silicon Homebrew (pre-fix tag)")
+          else:
+              print("tools/meson.build already has the fix, no patch needed")
+          PYEOF
+
       - name: Build unsigned .app
         run: |
           xcodebuild build \
