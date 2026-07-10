@@ -128,6 +128,18 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDownloadSizeKey: @"~3 MB",
             },
             @{
+                kBundledRootIdentifierKey: @"alpine3233riscv64",
+                kBundledRootDisplayNameKey: @"Alpine3.23.3(riscv64)",
+                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-riscv64",
+                // RISC-V guest (riscv64_guest_plan.md); import name follows
+                // the RootNameIsValid rules like the x86_64 entry above.
+                kBundledRootImportNameKey: @"Alpine3.23.3-riscv64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"riscv64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-riscv64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~3 MB",
+            },
+            @{
                 kBundledRootIdentifierKey: @"devuan6x86",
                 kBundledRootDisplayNameKey: @"Devuan 6 (excalibur)",
                 kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86",

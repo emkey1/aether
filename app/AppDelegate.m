@@ -720,6 +720,9 @@ static NSString *BootExecRecovery(intptr_t err, NSString *guestABI) {
         if ([guestABI isEqualToString:@"amd64"]) {
             return @"This root is marked x86_64/amd64, but the boot command is not a supported x86_64 executable or script. Check Settings -> Boot Command or reimport the filesystem.";
         }
+        if ([guestABI isEqualToString:@"riscv64"]) {
+            return @"This root is marked riscv64, but the boot command is not a supported riscv64 executable or script. Check Settings -> Boot Command or reimport the filesystem.";
+        }
         return @"The configured boot command is not a supported Linux executable or script. Check Settings -> Boot Command.";
     }
     if (err == _ENOMEM) {
