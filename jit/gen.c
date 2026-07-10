@@ -4580,6 +4580,39 @@ static int gen_riscv64_branch_to(struct gen_state *state, guest_addr_t target) {
     return 0;
 }
 
+
+// CSR access helper, called through gadget_riscv64_call_helper (fp.S).
+// Only the FP CSRs exist in this port: fflags (0x001) = fcsr[4:0],
+// frm (0x002) = fcsr[7:5], fcsr (0x003) = fcsr[7:0]. Exception flags are
+// whatever the guest last wrote — host FP status is not synced back
+// (deviation; musl/printf only ever set the rounding mode).
+void riscv64_csr_helper(struct cpu_state *cpu, unsigned long arg) {
+    unsigned rd = arg & 31, rs1 = (arg >> 5) & 31;
+    unsigned funct3 = (arg >> 10) & 7, csr = (unsigned) (arg >> 13);
+    dword_t fcsr = cpu->riscv64_fcsr;
+    qword_t old = csr == 1 ? (fcsr & 0x1f)
+                : csr == 2 ? ((fcsr >> 5) & 7)
+                : (fcsr & 0xff);
+    qword_t src = (funct3 & 4) ? rs1 : cpu->riscv64_regs[rs1];
+    // csrrw/csrrwi always write; csrrs/c (and i forms) skip the write
+    // side effect when the rs1/uimm field is 0 (both encode it there).
+    bool write = (funct3 & 3) == 1 || rs1 != 0;
+    if (write) {
+        qword_t nv = (funct3 & 3) == 1 ? src
+                   : (funct3 & 3) == 2 ? (old | src)
+                   : (old & ~src);
+        if (csr == 1)
+            fcsr = (fcsr & ~0x1fu) | (nv & 0x1f);
+        else if (csr == 2)
+            fcsr = (fcsr & ~0xe0u) | ((nv & 7) << 5);
+        else
+            fcsr = nv & 0xff;
+        cpu->riscv64_fcsr = fcsr;
+    }
+    if (rd != 0)
+        cpu->riscv64_regs[rd] = old;
+}
+
 int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_riscv64_addi(void);
     extern void gadget_riscv64_add_rr(void);
@@ -4624,6 +4657,60 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_riscv64_remw_rr(void);
     extern void gadget_riscv64_remuw_rr(void);
     extern void gadget_riscv64_beq(void);
+    extern void gadget_riscv64_fadd_d(void);
+    extern void gadget_riscv64_fadd_s(void);
+    extern void gadget_riscv64_fsub_d(void);
+    extern void gadget_riscv64_fsub_s(void);
+    extern void gadget_riscv64_fmul_d(void);
+    extern void gadget_riscv64_fmul_s(void);
+    extern void gadget_riscv64_fdiv_d(void);
+    extern void gadget_riscv64_fdiv_s(void);
+    extern void gadget_riscv64_fmin_d(void);
+    extern void gadget_riscv64_fmin_s(void);
+    extern void gadget_riscv64_fmax_d(void);
+    extern void gadget_riscv64_fmax_s(void);
+    extern void gadget_riscv64_fsqrt_d(void);
+    extern void gadget_riscv64_fsqrt_s(void);
+    extern void gadget_riscv64_fsgnj_d(void);
+    extern void gadget_riscv64_fsgnj_s(void);
+    extern void gadget_riscv64_fsgnjn_d(void);
+    extern void gadget_riscv64_fsgnjn_s(void);
+    extern void gadget_riscv64_fsgnjx_d(void);
+    extern void gadget_riscv64_fsgnjx_s(void);
+    extern void gadget_riscv64_feq_d(void);
+    extern void gadget_riscv64_feq_s(void);
+    extern void gadget_riscv64_flt_d(void);
+    extern void gadget_riscv64_flt_s(void);
+    extern void gadget_riscv64_fle_d(void);
+    extern void gadget_riscv64_fle_s(void);
+    extern void gadget_riscv64_fcvt_d_w(void);
+    extern void gadget_riscv64_fcvt_s_w(void);
+    extern void gadget_riscv64_fcvtn_w_d(void);
+    extern void gadget_riscv64_fcvtn_w_s(void);
+    extern void gadget_riscv64_fcvtz_w_d(void);
+    extern void gadget_riscv64_fcvtz_w_s(void);
+    extern void gadget_riscv64_fcvt_d_wu(void);
+    extern void gadget_riscv64_fcvt_s_wu(void);
+    extern void gadget_riscv64_fcvtn_wu_d(void);
+    extern void gadget_riscv64_fcvtn_wu_s(void);
+    extern void gadget_riscv64_fcvtz_wu_d(void);
+    extern void gadget_riscv64_fcvtz_wu_s(void);
+    extern void gadget_riscv64_fcvt_d_l(void);
+    extern void gadget_riscv64_fcvt_s_l(void);
+    extern void gadget_riscv64_fcvtn_l_d(void);
+    extern void gadget_riscv64_fcvtn_l_s(void);
+    extern void gadget_riscv64_fcvtz_l_d(void);
+    extern void gadget_riscv64_fcvtz_l_s(void);
+    extern void gadget_riscv64_fcvt_d_lu(void);
+    extern void gadget_riscv64_fcvt_s_lu(void);
+    extern void gadget_riscv64_fcvtn_lu_d(void);
+    extern void gadget_riscv64_fcvtn_lu_s(void);
+    extern void gadget_riscv64_fcvtz_lu_d(void);
+    extern void gadget_riscv64_fcvtz_lu_s(void);
+    extern void gadget_riscv64_fcvt_d_s(void);
+    extern void gadget_riscv64_fcvt_s_d(void);
+    extern void gadget_riscv64_fmv_x_w(void);
+    extern void gadget_riscv64_fmv_w_x(void);
     extern void gadget_riscv64_flw(void);
     extern void gadget_riscv64_lr_w(void);
     extern void gadget_riscv64_lr_d(void);
@@ -4948,6 +5035,112 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
         return gen_riscv64_branch_to(state, state->riscv64_orig_ip + offset);
     }
 
+    case RISCV64_OP_OP_FP: {
+        unsigned funct7 = riscv64_funct7(insn);
+        unsigned rs2 = riscv64_rs2(insn);
+        bool is_d = funct7 & 1;
+        unsigned long fd = offsetof(struct cpu_state, riscv64_f) + rd * sizeof(qword_t);
+        unsigned long f1 = offsetof(struct cpu_state, riscv64_f) + rs1 * sizeof(qword_t);
+        unsigned long f2 = offsetof(struct cpu_state, riscv64_f) + rs2 * sizeof(qword_t);
+        void (*gadget)(void) = NULL;
+        unsigned long a = fd, b = f1, c = f2; // default: all-FP operands
+        switch (funct7 & ~1u) {
+        case 0x00: gadget = is_d ? gadget_riscv64_fadd_d : gadget_riscv64_fadd_s; break;
+        case 0x04: gadget = is_d ? gadget_riscv64_fsub_d : gadget_riscv64_fsub_s; break;
+        case 0x08: gadget = is_d ? gadget_riscv64_fmul_d : gadget_riscv64_fmul_s; break;
+        case 0x0c: gadget = is_d ? gadget_riscv64_fdiv_d : gadget_riscv64_fdiv_s; break;
+        case 0x2c: gadget = is_d ? gadget_riscv64_fsqrt_d : gadget_riscv64_fsqrt_s; break;
+        case 0x10:
+            switch (funct3) {
+            case 0: gadget = is_d ? gadget_riscv64_fsgnj_d : gadget_riscv64_fsgnj_s; break;
+            case 1: gadget = is_d ? gadget_riscv64_fsgnjn_d : gadget_riscv64_fsgnjn_s; break;
+            case 2: gadget = is_d ? gadget_riscv64_fsgnjx_d : gadget_riscv64_fsgnjx_s; break;
+            }
+            break;
+        case 0x14:
+            if (funct3 == 0) gadget = is_d ? gadget_riscv64_fmin_d : gadget_riscv64_fmin_s;
+            else if (funct3 == 1) gadget = is_d ? gadget_riscv64_fmax_d : gadget_riscv64_fmax_s;
+            break;
+        case 0x50: // fle/flt/feq -> integer rd
+            a = riscv64_rd_off(rd);
+            switch (funct3) {
+            case 0: gadget = is_d ? gadget_riscv64_fle_d : gadget_riscv64_fle_s; break;
+            case 1: gadget = is_d ? gadget_riscv64_flt_d : gadget_riscv64_flt_s; break;
+            case 2: gadget = is_d ? gadget_riscv64_feq_d : gadget_riscv64_feq_s; break;
+            }
+            break;
+        case 0x60: { // fcvt.{w,wu,l,lu}.{s,d}; rm=1 (RTZ, C casts) vs RNE
+            a = riscv64_rd_off(rd);
+            bool rtz = funct3 == 1;
+            static void (*const f2i[2][2][4])(void) = {
+                { { gadget_riscv64_fcvtn_w_s, gadget_riscv64_fcvtn_wu_s,
+                    gadget_riscv64_fcvtn_l_s, gadget_riscv64_fcvtn_lu_s },
+                  { gadget_riscv64_fcvtz_w_s, gadget_riscv64_fcvtz_wu_s,
+                    gadget_riscv64_fcvtz_l_s, gadget_riscv64_fcvtz_lu_s } },
+                { { gadget_riscv64_fcvtn_w_d, gadget_riscv64_fcvtn_wu_d,
+                    gadget_riscv64_fcvtn_l_d, gadget_riscv64_fcvtn_lu_d },
+                  { gadget_riscv64_fcvtz_w_d, gadget_riscv64_fcvtz_wu_d,
+                    gadget_riscv64_fcvtz_l_d, gadget_riscv64_fcvtz_lu_d } },
+            };
+            if (rs2 < 4)
+                gadget = f2i[is_d][rtz][rs2];
+            break;
+        }
+        case 0x68: { // fcvt.{s,d}.{w,wu,l,lu}
+            b = riscv64_rs_off(rs1);
+            static void (*const i2f[2][4])(void) = {
+                { gadget_riscv64_fcvt_s_w, gadget_riscv64_fcvt_s_wu,
+                  gadget_riscv64_fcvt_s_l, gadget_riscv64_fcvt_s_lu },
+                { gadget_riscv64_fcvt_d_w, gadget_riscv64_fcvt_d_wu,
+                  gadget_riscv64_fcvt_d_l, gadget_riscv64_fcvt_d_lu },
+            };
+            if (rs2 < 4)
+                gadget = i2f[is_d][rs2];
+            break;
+        }
+        case 0x20: // fcvt.s.d (0x20, rs2=1) / fcvt.d.s (0x21, rs2=0)
+            if (!is_d && rs2 == 1) gadget = gadget_riscv64_fcvt_s_d;
+            else if (is_d && rs2 == 0) gadget = gadget_riscv64_fcvt_d_s;
+            break;
+        case 0x70: // fmv.x.w (S) / fmv.x.d (D); fclass (rm=1) deferred
+            if (funct3 == 0) {
+                if (!is_d) {
+                    a = riscv64_rd_off(rd);
+                    gadget = gadget_riscv64_fmv_x_w;
+                } else {
+                    // pure 64-bit bit copy: reuse the integer addi gadget
+                    gen(state, (unsigned long) gadget_riscv64_addi);
+                    gen(state, riscv64_rd_off(rd));
+                    gen(state, f1);
+                    gen(state, 0);
+                    return 1;
+                }
+            }
+            break;
+        case 0x78: // fmv.w.x (S) / fmv.d.x (D)
+            if (funct3 == 0) {
+                if (!is_d) {
+                    b = riscv64_rs_off(rs1);
+                    gadget = gadget_riscv64_fmv_w_x;
+                } else {
+                    gen(state, (unsigned long) gadget_riscv64_addi);
+                    gen(state, fd);
+                    gen(state, riscv64_rs_off(rs1));
+                    gen(state, 0);
+                    return 1;
+                }
+            }
+            break;
+        }
+        if (gadget == NULL)
+            return gen_riscv64_undefined(state, insn);
+        gen(state, (unsigned long) gadget);
+        gen(state, a);
+        gen(state, b);
+        gen(state, c);
+        return 1;
+    }
+
     case RISCV64_OP_SYSTEM:
         if (insn == 0x00000073) { // ecall
             extern void gadget_riscv64_ecall(void);
@@ -4958,6 +5151,18 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
         if (insn == 0x00100073) // ebreak
             return gen_riscv64_interrupt_at(state, INT_BREAKPOINT,
                     state->riscv64_orig_ip, state->riscv64_orig_ip);
+        if (funct3 >= 1 && funct3 <= 7 && funct3 != 4) { // csrrw/s/c[i]
+            unsigned csr = insn >> 20;
+            if (csr >= 1 && csr <= 3) { // fflags/frm/fcsr only
+                extern void gadget_riscv64_call_helper(void);
+                extern void riscv64_csr_helper(struct cpu_state *cpu, unsigned long arg);
+                gen(state, (unsigned long) gadget_riscv64_call_helper);
+                gen(state, (unsigned long) riscv64_csr_helper);
+                gen(state, rd | (rs1 << 5) | (funct3 << 10)
+                        | ((unsigned long) csr << 13));
+                return 1;
+            }
+        }
         return gen_riscv64_undefined(state, insn);
 
     default:
