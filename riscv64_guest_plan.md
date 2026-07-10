@@ -269,6 +269,53 @@ tests/arm64.
 Exit criteria: busybox sh interactive under `./build/ish -f <riscv-fakefs>`
 on an arm64 host; i386/amd64/arm64 benchmarks unchanged.
 
+### 5b. Vendor/user extension hook (generic, all arches)
+
+Files: new `jit/ext.c` + `jit/ext.h`, `jit/gen.c` (miss paths), a callback
+gadget per host gadget set, CLI flag in `main.c`
+
+RISC-V's defining quirk is that vendors extend the ISA: the custom-0..3
+major opcodes (0x0B/0x2B/0x5B/0x7B) are permanently reserved for vendor
+extensions and can never be claimed by ratified standard extensions. To
+support those (and to let people test new instructions on ANY guest arch)
+without an interpreter layer, add a decode-miss hook:
+
+- Runtime registry of `{abi, uint32 mask, uint32 match, handler}` entries.
+  Handler signature `int (*)(struct cpu_state *, struct tlb *, uint64_t
+  insn, guest_addr_t pc)` returning an interrupt code or "continue".
+- Hook point: each `gen_step_*` frontend, on failing to decode an
+  instruction, consults the registry BEFORE raising INT_UNDEFINED. On a
+  match it emits one generic callback gadget (the amd64_jit_* helper-call
+  pattern that already exists) invoking the handler. Standard
+  instructions never touch this path, and the check runs at block-compile
+  time only, so the hot path is unaffected.
+- **Registration policy is the whole safety story and is per-arch**:
+  riscv64 accepts ONLY the custom-0..3 major opcodes; arm64 only
+  architecturally unallocated encodings; x86 only encodings that
+  currently #UD. The validator rejects anything else, so this can never
+  become an interpreter crutch for the ratified ISA (the no-interpreter
+  directive stays intact: the JIT remains the only engine for standard
+  instructions).
+- Registering/unregistering MUST flush the JIT block cache (compiled
+  blocks have the old miss behavior baked in); reuse the existing
+  invalidation machinery.
+- Handler sources, in tiers: (1) compiled-in vendor packs (e.g. T-Head)
+  toggled at runtime and reflected in cpuinfo/HWCAP/hwprobe only when
+  enabled - works in the App Store build; (2) CLI-only dlopen plugin
+  (`ish -X ext.dylib`) for development - iOS cannot load code at
+  runtime; (3) stretch: a small validated declarative micro-op format
+  (`rd = f(rs1, rs2)` over a fixed op set) for simple on-device user
+  additions without arbitrary code.
+- Free tier 0, document it: guest userspace can already trap-and-emulate
+  via a SIGILL handler, exactly as on real hardware.
+
+Exit criteria: a demo custom-0 instruction (e.g. a register-swap or
+popcount toy) registered via a CLI plugin executes inside a riscv64
+guest binary; the same mechanism demonstrated for one unallocated arm64
+encoding; registry register/unregister under load doesn't leave stale
+compiled blocks (invalidate verified); zero measurable slowdown on the
+standard-ISA benchmark set.
+
 ### 6. Signal delivery
 
 Files: `kernel/signal.c`
