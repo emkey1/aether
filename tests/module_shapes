@@ -1,0 +1,13 @@
+mod Shapes {
+    export type Point {
+        x: Int;
+        y: Int;
+    }
+
+    export fn makeOrigin() -> Point {
+        let p: Point = new Point();
+        p.x = 7;
+        p.y = 9;
+        ret p;
+    }
+}

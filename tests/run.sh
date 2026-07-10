@@ -110,6 +110,8 @@ MODULE_PURE_EXPORT_DIRECT_PASS_FIXTURE="$TESTS_DIR/module_pure_export_direct_pas
 MODULE_SUPPORT_FIXTURE="$TESTS_DIR/module_math"
 MODULE_CONST_SUPPORT_FIXTURE="$TESTS_DIR/module_consts"
 MODULE_CONST_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_const_import_pass.aether"
+MODULE_SHAPES_SUPPORT_FIXTURE="$TESTS_DIR/module_shapes"
+MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE="$TESTS_DIR/module_type_field_access_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
 TYPE_FIELD_COMMA_FAIL_FIXTURE="$TESTS_DIR/type_field_comma_fail.aether"
@@ -268,6 +270,8 @@ for fixture in \
     "$MODULE_SUPPORT_FIXTURE" \
     "$MODULE_CONST_SUPPORT_FIXTURE" \
     "$MODULE_CONST_IMPORT_PASS_FIXTURE" \
+    "$MODULE_SHAPES_SUPPORT_FIXTURE" \
+    "$MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE" \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
@@ -734,6 +738,15 @@ printf 'Aether\n42\n' >/tmp/aether_module_const_import_expected.out
 if ! cmp -s /tmp/aether_module_const_import_expected.out /tmp/aether_module_const_import_pass.out; then
     echo "unexpected module const import output" >&2
     cat /tmp/aether_module_const_import_pass.out >&2
+    exit 1
+fi
+# Regression: a `type` block exported from a module must stay resolvable --
+# for var-decl typing and for field access -- while the importing program is
+# analyzed. See rea's rea_module_type_field_access_test for the underlying fix.
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE" >/tmp/aether_module_type_field_access_pass.out
+if ! grep -qx "7" /tmp/aether_module_type_field_access_pass.out; then
+    echo "unexpected module type field access output" >&2
+    cat /tmp/aether_module_type_field_access_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$SHOWCASE_EXAMPLE" >/tmp/aether_showcase_example.out

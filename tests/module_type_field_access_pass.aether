@@ -1,0 +1,9 @@
+use module_shapes;
+
+fn main() -> Void {
+    let p: Point = Shapes.makeOrigin();
+    fx {
+        writeln(p.x);
+    }
+    ret;
+}
