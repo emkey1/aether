@@ -14,6 +14,7 @@
 #define ELF_X86 3
 #define ELF_X86_64 62
 #define ELF_AARCH64 183
+#define ELF_RISCV 243
 
 struct elf_header {
     uint32_t magic;

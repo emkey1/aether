@@ -6,11 +6,13 @@
 #include "kernel/abi/i386.h"
 #include "kernel/abi/amd64.h"
 #include "kernel/abi/arm64.h"
+#include "kernel/abi/riscv64.h"
 
 enum guest_abi {
     GUEST_ABI_I386 = 0,
     GUEST_ABI_AMD64 = 1,
     GUEST_ABI_ARM64 = 2,
+    GUEST_ABI_RISCV64 = 3,
 };
 
 struct guest_abi_desc {
@@ -44,6 +46,16 @@ static inline struct guest_abi_desc guest_abi_desc(enum guest_abi abi) {
             .pointer_size = sizeof(arm64_guest_addr_t),
             .word_size = sizeof(arm64_guest_word_t),
             .reg_size = sizeof(arm64_guest_reg_t),
+        };
+    case GUEST_ABI_RISCV64:
+        return (struct guest_abi_desc) {
+            .abi = abi,
+            .name = "riscv64",
+            .uname_machine = "riscv64",
+            .elf_platform = "riscv64",
+            .pointer_size = sizeof(riscv64_guest_addr_t),
+            .word_size = sizeof(riscv64_guest_word_t),
+            .reg_size = sizeof(riscv64_guest_reg_t),
         };
     case GUEST_ABI_I386:
     default:
@@ -81,6 +93,11 @@ static inline qword_t guest_abi_user_addr_max(enum guest_abi abi) {
         return (qword_t) 1 << 47;
     case GUEST_ABI_ARM64:
         return (qword_t) 1 << 48;
+    case GUEST_ABI_RISCV64:
+        // Sv39, the Linux riscv64 default (Alpine/Debian userland is built
+        // for Sv39-sized VA). Revisit (Sv48 = 1<<47) only if a workload
+        // needs more; see riscv64_guest_plan.md.
+        return (qword_t) 1 << 38;
     case GUEST_ABI_I386:
     default:
         return (qword_t) 1 << 32;
@@ -132,6 +149,20 @@ static inline struct guest_vm_layout guest_abi_vm_layout(enum guest_abi abi) {
             // placement that's deliberately kept low here, matching amd64's
             // own rationale, not the whole address space.
             .mmap_ceiling = ((page_t) 1 << 35) - 0x2000,
+            .user_addr_max = guest_abi_user_addr_max(abi),
+            .stack_page = (page_t) 0xffffe,
+            .stack_pointer = 0xfffff000u,
+        };
+    case GUEST_ABI_RISCV64:
+        return (struct guest_vm_layout) {
+            .abi = abi,
+            // 256 GiB user range (Sv39, 38-bit user VA) in 4 KiB guest pages.
+            .page_limit = (page_t) 1 << 26,
+            // Same discipline as amd64/arm64 above: full mmap window inside
+            // the ABI's VA limit, but the initial exec stack kept low
+            // because most syscall pointer marshalling is still 32-bit.
+            .mmap_floor = (page_t) 0x1000,
+            .mmap_ceiling = ((page_t) 1 << 26) - 0x2000,
             .user_addr_max = guest_abi_user_addr_max(abi),
             .stack_page = (page_t) 0xffffe,
             .stack_pointer = 0xfffff000u,

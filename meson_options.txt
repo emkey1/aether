@@ -7,8 +7,8 @@ option('kernel', type: 'combo', choices: ['ish', 'linux'], value: 'ish')
 option('kconfig', type: 'array', value: [])
 option('jit_cpu_family', type: 'string', value: '')
 option('guest_archs', type: 'array',
-       choices: ['i386', 'amd64', 'arm64'],
-       value: ['i386', 'amd64', 'arm64'],
+       choices: ['i386', 'amd64', 'arm64', 'riscv64'],
+       value: ['i386', 'amd64', 'arm64', 'riscv64'],
        description: 'Guest architectures this build can execute (at least one required)')
 
 option('vdso_c_args', type: 'string', value: '')

@@ -24,6 +24,9 @@
 #ifndef ISH_GUEST_ARM64
 #define ISH_GUEST_ARM64 1
 #endif
+#ifndef ISH_GUEST_RISCV64
+#define ISH_GUEST_RISCV64 1
+#endif
 
 // utility macros
 #define glue(a, b) _glue(a, b)

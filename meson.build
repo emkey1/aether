@@ -52,9 +52,9 @@ endif
 # a functional gate, not yet a size optimization.
 guest_archs = get_option('guest_archs')
 if guest_archs.length() == 0
-    error('guest_archs must enable at least one guest architecture (i386, amd64, arm64)')
+    error('guest_archs must enable at least one guest architecture (i386, amd64, arm64, riscv64)')
 endif
-foreach garch : ['i386', 'amd64', 'arm64']
+foreach garch : ['i386', 'amd64', 'arm64', 'riscv64']
     add_project_arguments('-DISH_GUEST_' + garch.to_upper() + '=' + (guest_archs.contains(garch) ? '1' : '0'), language: 'c')
 endforeach
 
