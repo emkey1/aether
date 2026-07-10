@@ -5018,13 +5018,15 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     case RISCV64_OP_JALR:
         if (funct3 != 0)
             return gen_riscv64_undefined(state, insn);
-        if (rd != 0)
-            gen_riscv64_mov_const(state, rd, state->riscv64_ip); // link
         {
+            // Single gadget: target computed from rs1 BEFORE the link
+            // write, so rd==rs1 (jalr ra, 0(ra)) follows the spec.
             extern void gadget_riscv64_jalr(void);
             gen(state, (unsigned long) gadget_riscv64_jalr);
+            gen(state, riscv64_rd_off(rd));
             gen(state, riscv64_rs_off(rs1));
             gen(state, (uint64_t) riscv64_imm_i(insn));
+            gen(state, state->riscv64_ip); // link = pc + length
         }
         return 0; // block ends
 

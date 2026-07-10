@@ -212,14 +212,18 @@ branch_op ge, ge
 branch_op ltu, lo
 branch_op geu, hs
 
-// JALR: indirect jump, target = (rs1 + imm) & ~1. Link write (if rd!=x0)
-// is a separate mov_const emitted before this. No chaining (target is
-// runtime-computed). Code stream: [gadget][rs1_off][imm]
+// JALR: indirect jump, target = (rs1 + imm) & ~1. No chaining (target is
+// runtime-computed). Target computed from rs1 BEFORE the link write, because rd may alias
+// rs1 (jalr ra, 0(ra)): the spec reads the base first. Code stream:
+// [gadget][rd_off][rs1_off][imm][link]  (rd_off = zero sink when rd=x0).
 .gadget jalr
-    ldr x9, [_ip]
-    ldr x10, [_ip, #8]
-    ldr x9, [_cpu, x9]
-    add x9, x9, x10
-    bic x9, x9, #1
-    str x9, [_cpu, #CPU_riscv64_pc]
+    ldr x9, [_ip]             // rd_off
+    ldr x10, [_ip, #8]        // rs1_off
+    ldr x11, [_ip, #16]       // imm
+    ldr x12, [_ip, #24]       // link value (pc + insn length)
+    ldr x10, [_cpu, x10]
+    add x10, x10, x11
+    bic x10, x10, #1
+    str x12, [_cpu, x9]       // link AFTER target is computed
+    str x10, [_cpu, #CPU_riscv64_pc]
     b jit_ret
