@@ -1588,6 +1588,13 @@ static syscall_t amd64_syscall_table[463] = {
 // this reuse is safe: the arm64 stack/heap are now kept low like amd64's,
 // so these functions' addr_t/dword_t-narrow argument marshalling doesn't
 // truncate real guest pointers).
+static dword_t sys_riscv_hwprobe(void) {
+    return _ENOSYS; // probe fails cleanly; callers use fallback paths
+}
+static dword_t sys_riscv_flush_icache(void) {
+    return 0; // translated blocks are invalidated on guest code writes
+}
+
 static syscall_t arm64_syscall_table[463] = {
     // I/O
     [2]   = (syscall_t) syscall_stub, // io_submit
@@ -1879,6 +1886,12 @@ static syscall_t arm64_syscall_table[463] = {
     [235] = (syscall_t) sys_mbind,
     [242] = (syscall_t) sys_accept4,
     [243] = (syscall_t) sys_recvmmsg_amd64,
+    // riscv-arch-specific range (244-259; unallocated on aarch64, so these
+    // entries are safe in the shared asm-generic table — only a riscv64
+    // task can ever reach them). Real functions, not NULL: a NULL entry
+    // takes the missing-syscall path before the native handler runs.
+    [258] = (syscall_t) sys_riscv_hwprobe,      // ENOSYS: glibc/apk fall back
+    [259] = (syscall_t) sys_riscv_flush_icache, // JIT invalidates on guest writes: no-op
     [260] = (syscall_t) sys_wait4,
     [261] = (syscall_t) sys_prlimit64,
     [269] = (syscall_t) sys_sendmmsg_amd64,
@@ -2233,21 +2246,6 @@ static dword_t internal_to_arm64_open_flags(dword_t flags) {
 static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t syscall_num,
         const qword_t raw_args[6]) {
     dword_t result;
-    // riscv-arch-specific numbers (the asm-generic 244-259 arch range;
-    // unallocated on arm64, so they can't collide with the shared table).
-    if (current->abi == GUEST_ABI_RISCV64) {
-        switch (syscall_num) {
-        case 258: // riscv_hwprobe: ENOSYS; glibc probes at startup and
-                  // falls back cleanly (verify against real libc early in
-                  // bring-up, riscv64_guest_plan.md Risks)
-            asm_generic_syscall_result_qword(cpu, (qword_t) (sqword_t) _ENOSYS);
-            return true;
-        case 259: // riscv_flush_icache: the JIT invalidates translated
-                  // blocks on guest memory writes itself, so success no-op
-            asm_generic_syscall_result_qword(cpu, 0);
-            return true;
-        }
-    }
     switch (syscall_num) {
     // -- full-width results --
     case 139: { // rt_sigreturn: restores the whole register file; only
@@ -2290,10 +2288,19 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
                // (same four relocated O_ constants as openat's flags, above).
         dword_t fcntl_cmd = (dword_t) raw_args[1];
         qword_t fcntl_arg = raw_args[2];
-        if (fcntl_cmd == F_SETFL_)
+        // riscv64 does NOT relocate the O_ constants: unlike arm64 (which
+        // overrides asm-generic fcntl.h), riscv uses the plain asm-generic
+        // values, which are bit-identical to this codebase's internal/i386
+        // ones — translating them here MIS-translates (riscv O_LARGEFILE
+        // 0x8000 is arm64's O_NOFOLLOW; musl ORs O_LARGEFILE into every
+        // open, so every open through a final symlink returned ELOOP: apk
+        // "Error loading shared library libz.so.1: Symbolic link loop",
+        // the same symptom the arm64 port hit for the opposite reason).
+        bool relocate = current->abi == GUEST_ABI_ARM64;
+        if (fcntl_cmd == F_SETFL_ && relocate)
             fcntl_arg = arm64_open_flags_to_internal(fcntl_arg);
         result = sys_fcntl_amd64_guest((fd_t) raw_args[0], fcntl_cmd, fcntl_arg);
-        if (fcntl_cmd == F_GETFL_ && !syscall_result_is_errno(result))
+        if (fcntl_cmd == F_GETFL_ && relocate && !syscall_result_is_errno(result))
             result = internal_to_arm64_open_flags(result);
         break;
     }
@@ -2347,7 +2354,10 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
                      (dword_t) raw_args[2], (dword_t) (raw_args[2] >> 32),
                      (dword_t) raw_args[3], (dword_t) (raw_args[3] >> 32)); break;
     case 56: result = sys_openat_guest((fd_t) raw_args[0], raw_args[1],
-                     arm64_open_flags_to_internal(raw_args[2]), (mode_t_) raw_args[3]); break;
+                     current->abi == GUEST_ABI_ARM64
+                         ? arm64_open_flags_to_internal(raw_args[2])
+                         : (dword_t) raw_args[2], // riscv64: asm-generic == internal, see case 25
+                     (mode_t_) raw_args[3]); break;
     case 71: result = sys_sendfile_guest((fd_t) raw_args[0], (fd_t) raw_args[1],
                      raw_args[2], raw_args[3]); break;
     case 101: result = sys_nanosleep_amd64_guest(raw_args[0], raw_args[1]); break;
@@ -3661,6 +3671,10 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
 // instead of silently truncating (how dmesg broke).
 static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     switch (syscall_num) {
+    case 258: // riscv_hwprobe: ENOSYS stub ignores its 5 args, one of which
+              // is a full-width pointer — classify 0-arg so it can't SIGSYS
+              // (the pidfd_open/seccomp precedent; apk probes at startup)
+    case 259: // riscv_flush_icache: no-op stub; start/end args are 64-bit
     case 124: // sched_yield
     case 157: // setsid
     case 172: // getpid
