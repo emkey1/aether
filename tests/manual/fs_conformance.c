@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -199,6 +200,54 @@ int main(int argc, char **argv) {
         for (ssize_t i = 0; i < r; i++) if (link[i] < '0' || link[i] > '9') numeric = 0;
         is_true("proc.self.numeric", numeric);
     }
+
+    // ---- readdir emits "." and ".." (tmpfs used to emit neither, so getdents
+    // on an empty tmpfs dir wrongly reported EOF) and rewinddir restarts it
+    // (reaches the kernel as lseek(SEEK_SET, 0)). ----
+    mkdir("rd", 0755);
+    mkfile("rd/f1");
+    DIR *rdd = opendir("rd");
+    if (rdd != NULL) {
+        int dot = 0, dotdot = 0, f1 = 0;
+        struct dirent *de;
+        while ((de = readdir(rdd))) {
+            if (strcmp(de->d_name, ".") == 0) dot++;
+            else if (strcmp(de->d_name, "..") == 0) dotdot++;
+            else if (strcmp(de->d_name, "f1") == 0) f1++;
+        }
+        is_true("readdir.dot", dot == 1);
+        is_true("readdir.dotdot", dotdot == 1);
+        is_true("readdir.entry", f1 == 1);
+        rewinddir(rdd);
+        is_true("rewinddir.restart", readdir(rdd) != NULL);
+        closedir(rdd);
+    }
+
+    // ---- rename: cross-directory move, overwrite, and POSIX type/empty rules
+    // (tmpfs had no ->rename, so every tmpfs rename returned EPERM). ----
+    mkdir("rs", 0755); mkdir("rdst", 0755);
+    mkfile("rs/mv");
+    is_ok("rename.crossdir", rename("rs/mv", "rdst/mv"));
+    is_true("rename.crossdir.moved", stat("rdst/mv", &st) == 0 && stat("rs/mv", &st) != 0);
+
+    mkfile("ov_a"); mkfile("ov_b");
+    int ova = open("ov_a", O_WRONLY);
+    if (ova >= 0) { (void) !write(ova, "Z", 1); close(ova); }
+    is_ok("rename.overwrite", rename("ov_a", "ov_b"));
+    char ovc = 0;
+    int ovb = open("ov_b", O_RDONLY);
+    if (ovb >= 0) { (void) !read(ovb, &ovc, 1); close(ovb); }
+    is_true("rename.overwrite.content", ovc == 'Z');
+
+    mkfile("t_file"); mkdir("t_dir", 0755);
+    eq_errno("rename.file_onto_dir", rename("t_file", "t_dir"), EISDIR);
+    eq_errno("rename.dir_onto_file", rename("t_dir", "t_file"), ENOTDIR);
+
+    mkdir("ne_src", 0755); mkdir("ne_dst", 0755); mkfile("ne_dst/x");
+    eq_errno("rename.onto_nonempty_dir", rename("ne_src", "ne_dst"), ENOTEMPTY);
+
+    mkdir("cyc", 0755); mkdir("cyc/sub", 0755);
+    eq_errno("rename.into_descendant", rename("cyc", "cyc/sub/inner"), EINVAL);
 
     return finish_suite("fs_conformance");
 }

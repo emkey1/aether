@@ -126,6 +126,8 @@ struct fd {
         struct {
             struct tmp_dirent *dirent;
             struct tmp_dirent *dir_pos;
+            // readdir phase: 0 = emit ".", 1 = emit "..", 2 = children (dir_pos)
+            unsigned dots_pos;
         } tmpfs;
         void *fs_data;
     };

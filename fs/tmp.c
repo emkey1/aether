@@ -500,6 +500,7 @@ out_creat:
     fd->tmpfs.dirent = dirent;
 
     fd->tmpfs.dir_pos = NULL;
+    fd->tmpfs.dots_pos = 0; // start readdir at "."
     lock(&dirent->lock, 0);
     if (!list_empty(&dirent->children)) {
         tmpfs_fd_seekdir(fd, list_first_entry(&dirent->children, struct tmp_dirent, dir));
@@ -569,6 +570,134 @@ static int tmpfs_rmdir(struct mount *mount, const char *path) {
     int err = tmpfs_dir_unlink(parent, filename, true);
     unlock(&parent->lock);
     tmp_dirent_release(parent);
+    return err;
+}
+
+// Move src -> dst entirely within the tmpfs tree. generic_renameat has already
+// rejected cross-mount (EXDEV), unknown flags (EINVAL), and RENAME_NOREPLACE
+// onto an existing dst (EEXIST); this handles the in-tree relocation plus
+// overwrite/type/cycle rules. Without this op tmpfs had no ->rename, so
+// generic_renameat returned EPERM for every rename on a tmpfs mount.
+static int tmpfs_rename(struct mount *mount, const char *src, const char *dst) {
+    const char *src_name;
+    struct tmp_dirent *src_parent = tmpfs_lookup_parent(mount, src, &src_name);
+    if (IS_ERR(src_parent))
+        return PTR_ERR(src_parent);
+    if (src_parent == NULL)
+        return _EBUSY; // can't rename the mount root
+    const char *dst_name;
+    struct tmp_dirent *dst_parent = tmpfs_lookup_parent(mount, dst, &dst_name);
+    if (IS_ERR(dst_parent)) {
+        tmp_dirent_release(src_parent);
+        return PTR_ERR(dst_parent);
+    }
+    if (dst_parent == NULL) {
+        tmp_dirent_release(src_parent);
+        return _EBUSY;
+    }
+
+    // Lock both parents in a stable (address) order so two concurrent renames
+    // can't deadlock; same parent -> lock once. This is the only op that
+    // relocates an entry, and two renames touching any common directory
+    // serialize on that directory's lock, so parent-lock ordering alone keeps
+    // the tree consistent without a separate moved-entry lock.
+    bool same_parent = src_parent == dst_parent;
+    struct tmp_dirent *lo = src_parent, *hi = dst_parent;
+    if (lo > hi) { struct tmp_dirent *t = lo; lo = hi; hi = t; }
+    lock(&lo->lock, 0);
+    if (!same_parent)
+        lock(&hi->lock, 0);
+
+    int err = 0;
+    struct tmp_dirent *dst_dirent = NULL;
+    struct tmp_dirent *src_dirent = tmpfs_dir_lookup(src_parent, src_name);
+    if (IS_ERR(src_dirent)) {
+        err = PTR_ERR(src_dirent);
+        src_dirent = NULL;
+        goto out;
+    }
+    dst_dirent = tmpfs_dir_lookup(dst_parent, dst_name);
+    if (IS_ERR(dst_dirent)) {
+        if (dst_dirent != ERR_PTR(_ENOENT)) {
+            err = PTR_ERR(dst_dirent);
+            dst_dirent = NULL;
+            goto out;
+        }
+        dst_dirent = NULL;
+    }
+
+    // rename(x, x) (same entry, including src==dst path) is a no-op success.
+    if (src_dirent == dst_dirent)
+        goto out;
+
+    bool src_is_dir = S_ISDIR(src_dirent->inode->stat.mode);
+
+    // Refuse to move a directory into itself or one of its own descendants,
+    // which would splice a subtree into an unreachable cycle.
+    if (src_is_dir) {
+        for (struct tmp_dirent *p = dst_parent; p != NULL; p = p->parent) {
+            if (p == src_dirent) {
+                err = _EINVAL;
+                goto out;
+            }
+        }
+    }
+
+    if (dst_dirent != NULL) {
+        bool dst_is_dir = S_ISDIR(dst_dirent->inode->stat.mode);
+        if (dst_is_dir && !src_is_dir) {
+            err = _EISDIR;
+            goto out;
+        }
+        if (!dst_is_dir && src_is_dir) {
+            err = _ENOTDIR;
+            goto out;
+        }
+        if (dst_is_dir) {
+            lock(&dst_dirent->lock, 0);
+            bool nonempty = !list_empty(&dst_dirent->children);
+            unlock(&dst_dirent->lock);
+            if (nonempty) {
+                err = _ENOTEMPTY;
+                goto out;
+            }
+        }
+        // Overwrite: drop dst's tree reference (its lookup ref is released at
+        // out, freeing it once no fd holds it).
+        list_remove(&dst_dirent->dir);
+        tmp_dirent_release(dst_dirent);
+    }
+
+    // Relocate src_dirent under dst_parent/dst_name, keeping its one tree
+    // reference (it stays in the tree, just in a new list). Publish the new
+    // parent pointer before releasing the old one so a concurrent reader of
+    // ->parent (tmpfs_readdir's "..", tmpfs_getpath) never sees a dangling
+    // field; the old parent is a non-empty directory holding its own tree
+    // reference, so it stays alive regardless.
+    list_remove(&src_dirent->dir);
+    strncpy(src_dirent->name, dst_name, sizeof(src_dirent->name) - 1);
+    src_dirent->name[sizeof(src_dirent->name) - 1] = '\0';
+    if (src_dirent->parent != dst_parent) {
+        struct tmp_dirent *old_parent = src_dirent->parent;
+        src_dirent->parent = tmp_dirent_retain(dst_parent);
+        tmp_dirent_release(old_parent);
+    }
+    src_dirent->index = dst_parent->next_index++;
+    list_add_tail(&dst_parent->children, &src_dirent->dir);
+
+    tmpfs_update_mtime_and_ctime(src_parent->inode);
+    tmpfs_update_mtime_and_ctime(dst_parent->inode);
+
+out:
+    if (dst_dirent != NULL)
+        tmp_dirent_release(dst_dirent); // lookup ref
+    if (src_dirent != NULL)
+        tmp_dirent_release(src_dirent); // lookup ref
+    if (!same_parent)
+        unlock(&hi->lock);
+    unlock(&lo->lock);
+    tmp_dirent_release(dst_parent);
+    tmp_dirent_release(src_parent);
     return err;
 }
 
@@ -820,30 +949,35 @@ static ssize_t tmpfs_read(struct fd *fd, void *buf, size_t bufsize) {
         goto out;
     assert(S_ISREG(inode->stat.mode));
 
+    // Snapshot fd->offset once (see tmpfs_write): a concurrent lseek/pwrite on
+    // a shared fd could otherwise move it between the clamp and the memcpy,
+    // making the memcpy read out of bounds.
+    size_t off = fd->offset;
+
     if (inode->host_fd >= 0) {
         // Host-file-backed (has been mmapped): read the host file so writes
         // made through a MAP_SHARED guest mapping are visible.
-        ssize_t n = pread(inode->host_fd, buf, bufsize, fd->offset);
+        ssize_t n = pread(inode->host_fd, buf, bufsize, off);
         if (n < 0) {
             res = errno_map();
             goto out;
         }
-        fd->offset += n;
+        fd->offset = off + n;
         res = n;
         goto out;
     }
 
     // Clamp to the bytes actually available. The past-EOF check must come
-    // first: stat.size and fd->offset are unsigned, so computing
-    // stat.size - fd->offset when offset > size underflows to a huge value,
-    // leaving bufsize unclamped and making the memcpy read wildly out of
-    // bounds (a pread past EOF on tmpfs -> SIGSEGV; Linux just returns 0).
-    if (fd->offset >= inode->stat.size)
+    // first: stat.size and off are unsigned, so computing stat.size - off when
+    // off > size underflows to a huge value, leaving bufsize unclamped and
+    // making the memcpy read wildly out of bounds (a pread past EOF on tmpfs ->
+    // SIGSEGV; Linux just returns 0).
+    if (off >= inode->stat.size)
         bufsize = 0;
-    else if (bufsize > inode->stat.size - fd->offset)
-        bufsize = inode->stat.size - fd->offset;
-    memcpy(buf, inode->file_data + fd->offset, bufsize);
-    fd->offset += bufsize;
+    else if (bufsize > inode->stat.size - off)
+        bufsize = inode->stat.size - off;
+    memcpy(buf, (char *) inode->file_data + off, bufsize);
+    fd->offset = off + bufsize;
     res = bufsize;
 
 out:
@@ -862,24 +996,31 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
         goto out;
     assert(S_ISREG(inode->stat.mode));
 
-    // Guard against fd->offset + bufsize wrapping (a write at an offset near
-    // SIZE_MAX would otherwise skip the grow and memcpy far past the buffer).
+    // Snapshot fd->offset ONCE. lseek/pwrite mutate fd->offset without holding
+    // inode->lock, and a struct fd is shared across dup/fork/threads. If the
+    // offset moved between sizing the buffer (below) and the memcpy, the memcpy
+    // would land past the just-resized buffer -> OOB write / SIGBUS. Using a
+    // single snapshot for the grow, the memcpy target, and the advance keeps
+    // them internally consistent regardless of a concurrent offset change.
+    size_t off = fd->offset;
+    // Guard against off + bufsize wrapping (a write at an offset near SIZE_MAX
+    // would otherwise skip the grow and memcpy far past the buffer).
     size_t end;
-    if (__builtin_add_overflow((size_t) fd->offset, bufsize, &end)) {
+    if (__builtin_add_overflow(off, bufsize, &end)) {
         res = _EFBIG;
         goto out;
     }
     if (inode->host_fd >= 0) {
         // Host-file-backed (has been mmapped): write the host file so the data
         // is visible through any MAP_SHARED guest mapping.
-        ssize_t n = pwrite(inode->host_fd, buf, bufsize, fd->offset);
+        ssize_t n = pwrite(inode->host_fd, buf, bufsize, off);
         if (n < 0) {
             res = errno_map();
             goto out;
         }
-        fd->offset += n;
-        if (inode->stat.size < (size_t) fd->offset)
-            inode->stat.size = fd->offset;
+        fd->offset = off + n;
+        if (inode->stat.size < off + (size_t) n)
+            inode->stat.size = off + n;
         if (n > 0)
             tmpfs_update_mtime_and_ctime(inode);
         res = n;
@@ -890,8 +1031,8 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
         if (res < 0)
             goto out;
     }
-    memcpy(inode->file_data + fd->offset, buf, bufsize);
-    fd->offset += bufsize;
+    memcpy((char *) inode->file_data + off, buf, bufsize);
+    fd->offset = off + bufsize;
     res = bufsize;
 
 out:
@@ -899,10 +1040,33 @@ out:
     return res;
 }
 
+static unsigned long tmpfs_telldir(struct fd *fd);
+static void tmpfs_seekdir(struct fd *fd, unsigned long ptr);
+
 static off_t_ tmpfs_lseek(struct fd *fd, off_t_ off, int whence) {
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISDIR(inode->stat.mode)) {
+        // A directory's "offset" is the opaque telldir/seekdir cookie, not a
+        // byte position. seekdir()/rewinddir() reach the kernel as
+        // lseek(SEEK_SET) (rewinddir is seekdir(0)); route them through the
+        // readdir cursor so they actually reposition instead of only moving
+        // the unused fd->offset.
+        off_t_ base;
+        switch (whence) {
+            case LSEEK_SET: base = 0; break;
+            case LSEEK_CUR: base = (off_t_) tmpfs_telldir(fd); break;
+            default: return _EINVAL; // SEEK_END is meaningless for dir cookies
+        }
+        off_t_ target = base + off;
+        if (target < 0)
+            return _EINVAL;
+        tmpfs_seekdir(fd, (unsigned long) target);
+        fd->offset = target;
+        return target;
+    }
+
     qword_t size = 0;
     if (whence == LSEEK_END) {
-        struct tmp_inode *inode = tmpfs_fd_inode(fd);
         lock(&inode->lock, 0);
         size = inode->stat.size;
         unlock(&inode->lock);
@@ -915,29 +1079,94 @@ static off_t_ tmpfs_lseek(struct fd *fd, off_t_ off, int whence) {
     return fd->offset;
 }
 
+// Directory offsets (telldir/seekdir) encode the readdir phase so "." and ".."
+// round-trip: 0 = ".", 1 = "..", 2 + child->index = a real child, and
+// 2 + next_index (past every current child) = end. Child indices are monotonic
+// (next_index++, never reused), so 2+index never collides with the 0/1 dot
+// slots, and all cookies stay non-negative as an off_t.
+#define TMPFS_DIROFF_DOT     0
+#define TMPFS_DIROFF_DOTDOT  1
+#define TMPFS_DIROFF_CHILD0  2
+
+// Point dir_pos at the first child (or NULL if empty). Caller holds dir->lock.
+static void tmpfs_dir_pos_first(struct fd *fd, struct tmp_dirent *dir) {
+    struct tmp_dirent *first = NULL;
+    if (!list_empty(&dir->children))
+        first = list_first_entry(&dir->children, struct tmp_dirent, dir);
+    tmpfs_fd_seekdir(fd, first);
+}
+
 static int tmpfs_readdir(struct fd *fd, struct dir_entry *entry) {
     struct tmp_dirent *parent = fd->tmpfs.dirent;
     int res = _ENOTDIR;
     if (!S_ISDIR(parent->inode->stat.mode))
-        goto out;
+        return res;
 
     lock(&fd->lock, 0);
     lock(&parent->lock, 0);
+
+    // Synthesize "." and ".." up front, like every real directory. tmpfs used
+    // to emit neither, so getdents on an empty tmpfs dir returned 0 (and a
+    // too-small buffer wrongly reported EOF instead of EINVAL); nftw-style
+    // walkers also mis-handled the missing dots. ".."  of the mount root has no
+    // parent dirent here, so it reflects the root's own inode.
+    if (fd->tmpfs.dots_pos <= TMPFS_DIROFF_DOTDOT) {
+        struct tmp_dirent *self;
+        const char *name;
+        if (fd->tmpfs.dots_pos == TMPFS_DIROFF_DOT) {
+            self = parent;
+            name = ".";
+        } else {
+            self = parent->parent != NULL ? parent->parent : parent;
+            name = "..";
+        }
+        entry->inode = self->inode->stat.inode;
+        entry->type = dir_entry_type_for_mode(self->inode->stat.mode);
+        strcpy(entry->name, name);
+        fd->tmpfs.dots_pos++;
+        res = 1;
+        goto out;
+    }
+
     struct tmp_dirent *dirent = fd->tmpfs.dir_pos;
     if (dirent == NULL) {
         res = 0;
         goto out;
     }
-    struct tmp_dirent *next_dirent = list_next_entry(dirent, dir);
-    if (&next_dirent->dir == &parent->children) // end of list
-        next_dirent = NULL;
-    tmpfs_fd_seekdir(fd, next_dirent);
 
+    // Fill the entry from the current cursor BEFORE advancing. Advancing calls
+    // tmpfs_fd_seekdir, which releases this dirent's dir_pos reference; if the
+    // dirent was already unlink()'d (its tree reference gone, dir_pos holding
+    // the last one) that release frees it, so touching dirent->inode afterward
+    // is a use-after-free (the tmpfs_readdir SIGSEGV under stress-ng
+    // --filerace: dirent->inode read as garbage/NULL). dir_pos keeps it alive
+    // until we advance, so reading it here is safe.
     entry->inode = dirent->inode->stat.inode;
     entry->type = dir_entry_type_for_mode(dirent->inode->stat.mode);
     strncpy(entry->name, dirent->name, sizeof(entry->name) - 1);
     entry->name[sizeof(entry->name) - 1] = '\0';
     res = 1;
+
+    // Advance the cursor. dir_pos is retained, so it can't be freed here, but a
+    // concurrent unlink may have list_remove'd it (NULLing its links). In that
+    // case list_next_entry would follow a NULL link to a bogus address; fall
+    // back to resuming by index, which is stable across removals.
+    struct tmp_dirent *next_dirent;
+    if (list_null(&dirent->dir)) {
+        next_dirent = NULL;
+        struct tmp_dirent *c;
+        list_for_each_entry(&parent->children, c, dir) {
+            if (c->index > dirent->index) {
+                next_dirent = c;
+                break;
+            }
+        }
+    } else {
+        next_dirent = list_next_entry(dirent, dir);
+        if (&next_dirent->dir == &parent->children) // end of list
+            next_dirent = NULL;
+    }
+    tmpfs_fd_seekdir(fd, next_dirent);
 
 out:
     unlock(&parent->lock);
@@ -946,23 +1175,42 @@ out:
 }
 
 static unsigned long tmpfs_telldir(struct fd *fd) {
+    if (fd->tmpfs.dots_pos == TMPFS_DIROFF_DOT)
+        return TMPFS_DIROFF_DOT;
+    if (fd->tmpfs.dots_pos == TMPFS_DIROFF_DOTDOT)
+        return TMPFS_DIROFF_DOTDOT;
     if (fd->tmpfs.dir_pos == NULL)
-        return (unsigned long) -1;
-    return fd->tmpfs.dir_pos->index;
+        // Past the last child: a cookie beyond every current index. It must be
+        // non-negative (this value round-trips through lseek(SEEK_SET) as an
+        // off_t, and pread/pwrite's fallback asserts the restored offset is
+        // >= 0), so we can't use ~0. next_index only grows, so this stays past
+        // the end even as entries are added; seekdir maps it back to NULL.
+        return TMPFS_DIROFF_CHILD0 + fd->tmpfs.dirent->next_index;
+    return TMPFS_DIROFF_CHILD0 + fd->tmpfs.dir_pos->index;
 }
 
 static void tmpfs_seekdir(struct fd *fd, unsigned long ptr) {
     struct tmp_dirent *dir = fd->tmpfs.dirent;
     lock(&dir->lock, 0);
     assert(S_ISDIR(dir->inode->stat.mode));
-    struct tmp_dirent *child;
-    list_for_each_entry(&dir->children, child, dir) {
-        if (child->index >= ptr)
-            break;
+    if (ptr == TMPFS_DIROFF_DOT || ptr == TMPFS_DIROFF_DOTDOT) {
+        fd->tmpfs.dots_pos = (unsigned) ptr;
+        tmpfs_dir_pos_first(fd, dir);
+    } else {
+        // Any child cookie (>= CHILD0) lands on the first child whose index is
+        // at least the target; a cookie past the last index finds none and
+        // parks the cursor at end (NULL).
+        fd->tmpfs.dots_pos = TMPFS_DIROFF_CHILD0;
+        unsigned long target = ptr - TMPFS_DIROFF_CHILD0;
+        struct tmp_dirent *child;
+        list_for_each_entry(&dir->children, child, dir) {
+            if (child->index >= target)
+                break;
+        }
+        if (&child->dir == &dir->children)
+            child = NULL;
+        tmpfs_fd_seekdir(fd, child);
     }
-    if (&child->dir == &dir->children)
-        child = NULL;
-    tmpfs_fd_seekdir(fd, child);
     unlock(&dir->lock);
 }
 
@@ -1031,6 +1279,7 @@ const struct fs_ops tmpfs = {
     .stat = tmpfs_stat,
     .unlink = tmpfs_unlink,
     .rmdir = tmpfs_rmdir,
+    .rename = tmpfs_rename,
     .fstat = tmpfs_fstat,
     .setattr = tmpfs_setattr,
     .fsetattr = tmpfs_fsetattr,
