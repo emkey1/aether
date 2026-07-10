@@ -4624,6 +4624,29 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     extern void gadget_riscv64_remw_rr(void);
     extern void gadget_riscv64_remuw_rr(void);
     extern void gadget_riscv64_beq(void);
+    extern void gadget_riscv64_flw(void);
+    extern void gadget_riscv64_lr_w(void);
+    extern void gadget_riscv64_lr_d(void);
+    extern void gadget_riscv64_sc_w(void);
+    extern void gadget_riscv64_sc_d(void);
+    extern void gadget_riscv64_amoswap_w(void);
+    extern void gadget_riscv64_amoswap_d(void);
+    extern void gadget_riscv64_amoadd_w(void);
+    extern void gadget_riscv64_amoadd_d(void);
+    extern void gadget_riscv64_amoxor_w(void);
+    extern void gadget_riscv64_amoxor_d(void);
+    extern void gadget_riscv64_amoand_w(void);
+    extern void gadget_riscv64_amoand_d(void);
+    extern void gadget_riscv64_amoor_w(void);
+    extern void gadget_riscv64_amoor_d(void);
+    extern void gadget_riscv64_amomin_w(void);
+    extern void gadget_riscv64_amomin_d(void);
+    extern void gadget_riscv64_amomax_w(void);
+    extern void gadget_riscv64_amomax_d(void);
+    extern void gadget_riscv64_amominu_w(void);
+    extern void gadget_riscv64_amominu_d(void);
+    extern void gadget_riscv64_amomaxu_w(void);
+    extern void gadget_riscv64_amomaxu_d(void);
     extern void gadget_riscv64_lb(void);
     extern void gadget_riscv64_lbu(void);
     extern void gadget_riscv64_lh(void);
@@ -4840,6 +4863,61 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
         gen(state, riscv64_rs_off(riscv64_rs2(insn)));
         gen(state, riscv64_rs_off(rs1));
         gen(state, (uint64_t) riscv64_imm_s(insn));
+        gen(state, state->riscv64_orig_ip); // fault-restart pc, ALWAYS last
+        return 1;
+    }
+
+    case RISCV64_OP_AMO: {
+        if (funct3 != 2 && funct3 != 3) // W and D only
+            return gen_riscv64_undefined(state, insn);
+        bool is_d = funct3 == 3;
+        unsigned funct5 = riscv64_funct7(insn) >> 2; // aq/rl in bits 1:0, always honored as aq+rl
+        unsigned rs2 = riscv64_rs2(insn);
+        void (*gadget)(void) = NULL;
+        switch (funct5) {
+        case 0x02: // lr
+            if (rs2 != 0)
+                return gen_riscv64_undefined(state, insn);
+            gadget = is_d ? gadget_riscv64_lr_d : gadget_riscv64_lr_w;
+            break;
+        case 0x03: gadget = is_d ? gadget_riscv64_sc_d : gadget_riscv64_sc_w; break;
+        case 0x01: gadget = is_d ? gadget_riscv64_amoswap_d : gadget_riscv64_amoswap_w; break;
+        case 0x00: gadget = is_d ? gadget_riscv64_amoadd_d : gadget_riscv64_amoadd_w; break;
+        case 0x04: gadget = is_d ? gadget_riscv64_amoxor_d : gadget_riscv64_amoxor_w; break;
+        case 0x0c: gadget = is_d ? gadget_riscv64_amoand_d : gadget_riscv64_amoand_w; break;
+        case 0x08: gadget = is_d ? gadget_riscv64_amoor_d : gadget_riscv64_amoor_w; break;
+        case 0x10: gadget = is_d ? gadget_riscv64_amomin_d : gadget_riscv64_amomin_w; break;
+        case 0x14: gadget = is_d ? gadget_riscv64_amomax_d : gadget_riscv64_amomax_w; break;
+        case 0x18: gadget = is_d ? gadget_riscv64_amominu_d : gadget_riscv64_amominu_w; break;
+        case 0x1c: gadget = is_d ? gadget_riscv64_amomaxu_d : gadget_riscv64_amomaxu_w; break;
+        default:
+            return gen_riscv64_undefined(state, insn);
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rd_off(rd));
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, riscv64_rs_off(rs2));
+        gen(state, state->riscv64_orig_ip); // fault-restart pc, ALWAYS last
+        return 1;
+    }
+
+    case RISCV64_OP_LOAD_FP: case RISCV64_OP_STORE_FP: {
+        // F/D loads/stores. fld/fsd/fsw reuse the integer gadgets with the
+        // f-register slot offset (same byte semantics); flw NaN-boxes.
+        bool is_load = riscv64_opcode(insn) == RISCV64_OP_LOAD_FP;
+        if (funct3 != 2 && funct3 != 3)
+            return gen_riscv64_undefined(state, insn);
+        unsigned long freg_off = offsetof(struct cpu_state, riscv64_f)
+            + (is_load ? rd : riscv64_rs2(insn)) * sizeof(qword_t);
+        void (*gadget)(void);
+        if (is_load)
+            gadget = funct3 == 3 ? gadget_riscv64_ld : gadget_riscv64_flw;
+        else
+            gadget = funct3 == 3 ? gadget_riscv64_sd : gadget_riscv64_sw;
+        gen(state, (unsigned long) gadget);
+        gen(state, freg_off);
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, (uint64_t) (is_load ? riscv64_imm_i(insn) : riscv64_imm_s(insn)));
         gen(state, state->riscv64_orig_ip); // fault-restart pc, ALWAYS last
         return 1;
     }

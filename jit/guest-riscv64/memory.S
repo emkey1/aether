@@ -223,3 +223,22 @@ store_gadget sb, 8,  rvsb, strb, w19
 store_gadget sh, 16, rvsh, strh, w19
 store_gadget sw, 32, rvsw, str,  w19
 store_gadget sd, 64, rvsd, str,  x19
+
+// ---- FP loads/stores (F/D extension) --------------------------------------
+// fld/fsd/fsw reuse the integer ld/sd/sw gadgets directly: gen passes the
+// f-register slot's byte offset instead of an x-register's, and the byte
+// semantics are identical. Only flw needs its own body: a 32-bit FP load
+// NaN-boxes into the 64-bit register (high 32 bits all-ones) per the ISA.
+.gadget flw
+    ldr x19, [_ip]            // fd_off
+    ldr x9, [_ip, #8]         // rs1_off
+    ldr x10, [_ip, #16]       // imm
+    add _ip, _ip, #32
+    ldr x7, [_cpu, x9]
+    add x7, x7, x10
+    read_prep 32, rvflw
+    ldr w11, [x7]
+    orr x11, x11, #0xffffffff00000000  // NaN-box
+    str x11, [_cpu, x19]
+    gret
+    read_bullshit 32, rvflw

@@ -91,6 +91,8 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
             task->cpu.amd64_regs[amd64_rsp] = stack;
         if (task->abi == GUEST_ABI_ARM64)
             task->cpu.arm64_sp = stack;
+        if (task->abi == GUEST_ABI_RISCV64)
+            task->cpu.riscv64_regs[riscv64_sp] = stack;
     }
 
     int err;
@@ -387,6 +389,9 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
         // as its "pid", and both sides run the parent path — the actual
         // first-fork failure mode observed bringing up busybox sh.
         task->cpu.arm64_regs[arm64_x0] = 0;
+    if (task->abi == GUEST_ABI_RISCV64)
+        // Same rule: the child returns 0 from clone in a0.
+        task->cpu.riscv64_regs[riscv64_a0] = 0;
 
     struct vfork_info vfork;
     if (flags & CLONE_VFORK_) {
