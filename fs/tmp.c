@@ -299,19 +299,9 @@ static int tmpfs_inode_host_backing(struct tmp_inode *inode) {
     assert(S_ISREG(inode->stat.mode));
     if (inode->host_fd >= 0)
         return inode->host_fd;
-    // TMPDIR is always set on iOS (the app sandbox tmp dir); fall back to /tmp
-    // for the command-line build.
-    const char *tmpdir = getenv("TMPDIR");
-    if (tmpdir == NULL || tmpdir[0] == '\0')
-        tmpdir = "/tmp";
-    char path[MAX_PATH];
-    if (snprintf(path, sizeof(path), "%s/ish-tmpfs.XXXXXX", tmpdir) >= (int) sizeof(path))
-        return _ENAMETOOLONG;
-    int host_fd = mkstemp(path);
+    int host_fd = host_unlinked_tmpfd();
     if (host_fd < 0)
-        return errno_map();
-    unlink(path); // the inode owns the fd; the name never needs to exist again
-    fcntl(host_fd, F_SETFD, FD_CLOEXEC);
+        return host_fd;
     size_t size = inode->stat.size;
     size_t done = 0;
     while (done < size) {

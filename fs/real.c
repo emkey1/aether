@@ -723,6 +723,27 @@ int realfs_poll(struct fd *fd) {
     return p.revents;
 }
 
+// Create an unlinked host temp file and return its fd (CLOEXEC), or a negative
+// errno. This is the mmapable backing store for guest files that don't live on
+// a real host filesystem: tmpfs regular files (fs/tmp.c) and memfds
+// (kernel/memfd.c). The fd is the only reference; the name is gone immediately.
+int host_unlinked_tmpfd(void) {
+    // TMPDIR is always set on iOS (the app sandbox tmp dir); fall back to /tmp
+    // for the command-line build.
+    const char *tmpdir = getenv("TMPDIR");
+    if (tmpdir == NULL || tmpdir[0] == '\0')
+        tmpdir = "/tmp";
+    char path[MAX_PATH];
+    if (snprintf(path, sizeof(path), "%s/ish-tmpfile.XXXXXX", tmpdir) >= (int) sizeof(path))
+        return _ENAMETOOLONG;
+    int host_fd = mkstemp(path);
+    if (host_fd < 0)
+        return errno_map();
+    unlink(path); // the caller owns the fd; the name never needs to exist again
+    fcntl(host_fd, F_SETFD, FD_CLOEXEC);
+    return host_fd;
+}
+
 // Core of realfs_mmap, taking a bare host fd: map any mmapable host file into
 // the guest page tables. Shared with tmpfs, whose regular files are backed by
 // unlinked host temp files (a struct tmp_inode host_fd) rather than a struct fd

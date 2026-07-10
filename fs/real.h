@@ -54,8 +54,10 @@ off_t realfs_lseek(struct fd *fd, off_t offset, int whence);
 
 int realfs_poll(struct fd *fd);
 int realfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags);
-// realfs_mmap's core on a bare host fd; shared with tmpfs (fs/tmp.c)
+// realfs_mmap's core on a bare host fd; shared with tmpfs (fs/tmp.c) and memfd (kernel/memfd.c)
 int host_fd_mmap(int host_fd, struct mem *mem, page_t start, pages_t pages, off_t offset, int prot, int flags);
+// unlinked CLOEXEC host temp file (or negative errno); mmapable backing for tmpfs files and memfds
+int host_unlinked_tmpfd(void);
 int realfs_fsync(struct fd *fd);
 int realfs_getflags(struct fd *fd);
 int realfs_setflags(struct fd *fd, dword_t arg);

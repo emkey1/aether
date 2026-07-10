@@ -309,7 +309,7 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
             type = DEV_BLOCK;
         else
             type = DEV_CHAR;
-        err = dev_open(dev_major(stat.rdev), dev_minor(stat.rdev), type, fd);
+        err = dev_open(dev_major((dev_t_)stat.rdev), dev_minor((dev_t_)stat.rdev), type, fd);
         if (err < 0)
             goto error;
     }
