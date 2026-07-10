@@ -40,6 +40,11 @@ jobs:
           pip3 install --break-system-packages meson
           echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
 
+      - name: Build hterm_all.js
+        run: |
+          cd deps/libapps/hterm
+          python3 bin/mkdist
+
       - name: Patch pre-existing tags for Apple Silicon Homebrew paths
         run: |
           python3 - <<'PYEOF'
