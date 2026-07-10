@@ -57,6 +57,8 @@ struct attr {
 struct fd *generic_open(const char *path, int flags, int mode);
 struct fd *generic_openat(struct fd *at, const char *path, int flags, int mode);
 int generic_getpath(struct fd *fd, char *buf);
+int fs_rebase_path_to_root(struct fs_info *fs, char *path);
+int fs_rebase_readlink_path(struct fs_info *fs, char *path);
 int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, const char *dst_raw);
 int generic_unlinkat(struct fd *at, const char *path);
 int generic_rmdirat(struct fd *at, const char *path);

@@ -1025,6 +1025,8 @@ static int proc_pid_fd_readlink(struct proc_entry *entry, char *buf) {
     if (fd != NULL)
         fd_close(fd);
     proc_put_task(task);
+    if (err >= 0)
+        err = fs_rebase_readlink_path(current->fs, buf);
     return err;
 }
 
@@ -1076,6 +1078,11 @@ static int proc_pid_exe_readlink(struct proc_entry *entry, char *buf) {
     int err = generic_getpath(fd, buf);
     fd_close(fd);
     proc_put_task(task);
+    // Rebase against the CALLING process's chroot root, not the target
+    // task's -- readlink of /proc/*/{exe,cwd,root,fd/N} is d_path() against
+    // current's root on real Linux (see fs_rebase_readlink_path).
+    if (err >= 0)
+        err = fs_rebase_readlink_path(current->fs, buf);
     return err;
 }
 
@@ -1212,6 +1219,8 @@ static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
     if (pwd != NULL)
         fd_close(pwd);
     proc_put_task(task);
+    if (err >= 0)
+        err = fs_rebase_readlink_path(current->fs, buf);
     return err;
 }
 
@@ -1234,6 +1243,8 @@ static int proc_pid_root_readlink(struct proc_entry *entry, char *buf) {
     if (root != NULL)
         fd_close(root);
     proc_put_task(task);
+    if (err >= 0)
+        err = fs_rebase_readlink_path(current->fs, buf);
     return err;
 }
 

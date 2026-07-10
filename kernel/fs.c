@@ -1462,49 +1462,101 @@ dword_t sys_ioctl_guest(fd_t f, dword_t cmd, guest_addr_t arg) {
     return sys_ioctl_common(f, cmd, arg);
 }
 
+// Shared prefix-matching step for fs_rebase_path_to_root and
+// fs_rebase_readlink_path: computes fs's chroot root path and, if `path`
+// lies under it, rewrites `path` in place to the root-relative form (root
+// itself -> "/"). Returns 1 if rebased, 0 if `path` is outside the root (or
+// the caller isn't chrooted at all, in which case `path` is left untouched
+// and the two callers' "outside the root" handling never triggers), or a
+// negative errno on failure to resolve the root's own path.
+static int fs_try_rebase_path(struct fs_info *fs, char *path) {
+    lock(&fs->lock, 0);
+    struct fd *root = fs->root;
+    char root_path[MAX_PATH + 1];
+    int root_err = root != NULL ? generic_getpath(root, root_path) : 0;
+    unlock(&fs->lock);
+    if (root_err < 0)
+        return root_err;
+    if (root == NULL || strcmp(root_path, "/") == 0)
+        return 1; // un-chrooted: nothing to rebase, path is already correct
+
+    size_t root_len = strlen(root_path);
+    if (strcmp(path, root_path) == 0) {
+        strcpy(path, "/");
+        return 1;
+    }
+    if (strncmp(path, root_path, root_len) == 0 && path[root_len] == '/') {
+        memmove(path, path + root_len, strlen(path + root_len) + 1);
+        return 1;
+    }
+    return 0;
+}
+
+// Rebase a mount-absolute path (as returned by generic_getpath) to be
+// relative to `fs`'s chroot root, matching Linux getcwd(2) semantics: the
+// root's own path becomes "/", a path under the root has the root prefix
+// stripped, and a path outside the root entirely (unreachable, e.g. chroot
+// without a following chdir) is ENOENT. Mutates `path` in place; the result
+// is always <= the input length.
+int fs_rebase_path_to_root(struct fs_info *fs, char *path) {
+    int rebased = fs_try_rebase_path(fs, path);
+    if (rebased < 0)
+        return rebased;
+    return rebased ? 0 : _ENOENT;
+}
+
+// Like fs_rebase_path_to_root, but for readlink() of the magic-symlink
+// targets under /proc/*/{cwd,root,exe,fd/N} -- those are computed via
+// d_path() against the CALLING process's root on real Linux (so callers pass
+// current->fs here even when reading another task's /proc entries), and
+// unlike getcwd(2), d_path() does NOT fail when the target is outside the
+// caller's root: it prefixes the un-rebased absolute path with
+// "(unreachable)" and the readlink still succeeds. Getting this wrong as an
+// outright ENOENT (as fs_rebase_path_to_root does) broke opening another
+// process's /proc/<pid>/exe from inside a chroot entirely -- iSH's open()
+// resolves a followed symlink's target by re-walking the string returned by
+// .readlink() (see __path_normalize in fs/path.c), so a failing readlink()
+// here made the subsequent open() fail too, not just the informational
+// readlink(2) syscall.
+int fs_rebase_readlink_path(struct fs_info *fs, char *path) {
+    int rebased = fs_try_rebase_path(fs, path);
+    if (rebased < 0)
+        return rebased;
+    if (rebased)
+        return 0;
+    static const char prefix[] = "(unreachable)";
+    size_t path_len = strlen(path);
+    if (sizeof(prefix) - 1 + path_len >= MAX_PATH)
+        return _ENAMETOOLONG;
+    memmove(path + sizeof(prefix) - 1, path, path_len + 1);
+    memcpy(path, prefix, sizeof(prefix) - 1);
+    return 0;
+}
+
 static dword_t sys_getcwd_common(guest_addr_t buf_addr, dword_t size) {
     STRACE("getcwd(%#x, %#x)", buf_addr, size);
     lock(&current->fs->lock, 0);
     struct fd *wd = current->fs->pwd;
-    struct fd *root = current->fs->root;
     char pwd[MAX_PATH + 1];
-    char root_path[MAX_PATH + 1];
     int err = generic_getpath(wd, pwd);
-    int root_err = root != NULL ? generic_getpath(root, root_path) : 0;
     unlock(&current->fs->lock);
     if (err < 0)
         return err;
-    if (root_err < 0)
-        return root_err;
 
-    // getcwd() is relative to the process's (chroot) root, not the whole mount
-    // namespace: generic_getpath returns the mount-absolute path, so strip the
-    // root's path prefix. After chroot("/jail") + chdir("/") getcwd() must be
-    // "/", and "/jail/sub" must be "/sub". The un-chrooted root's path is "/",
-    // in which case nothing is stripped. A cwd that is not under the root (e.g.
-    // chroot without a following chdir, leaving cwd at the old, now-outside
-    // directory) is unreachable -> ENOENT, matching Linux getcwd(2).
-    const char *cwd = pwd;
-    if (root != NULL && strcmp(root_path, "/") != 0) {
-        size_t root_len = strlen(root_path);
-        if (strcmp(pwd, root_path) == 0)
-            cwd = "/";
-        else if (strncmp(pwd, root_path, root_len) == 0 && pwd[root_len] == '/')
-            cwd = pwd + root_len;
-        else
-            return _ENOENT;
-    }
+    int rebase_err = fs_rebase_path_to_root(current->fs, pwd);
+    if (rebase_err < 0)
+        return rebase_err;
 
-    size_t pwd_len = strlen(cwd);
+    size_t pwd_len = strlen(pwd);
     if (pwd_len + 1 > size)
         return _ERANGE;
     size = pwd_len + 1;
-    STRACE(" \"%.*s\"", size, cwd);
+    STRACE(" \"%.*s\"", size, pwd);
     dword_t res = size;
 
     // Bolt: We can pass the stack-allocated buffer directly to user_write
     // instead of allocating, copying, and freeing a temporary heap buffer.
-    if (user_write(buf_addr, cwd, size))
+    if (user_write(buf_addr, pwd, size))
         res = _EFAULT;
     return res;
 }
