@@ -6,4 +6,8 @@ mod Calc {
     export fn timesFour(x: Int) -> Int {
         ret timesTwo(timesTwo(x));
     }
+
+    export fn timesFourSelfQualified(x: Int) -> Int {
+        ret Calc.timesTwo(Calc.timesTwo(x));
+    }
 }

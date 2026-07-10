@@ -1,0 +1,8 @@
+use module_calc;
+
+fn main() -> Void {
+    fx {
+        writeln(Calc.timesFourSelfQualified(3));
+    }
+    ret;
+}

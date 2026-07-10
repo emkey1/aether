@@ -115,6 +115,7 @@ MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE="$TESTS_DIR/module_type_field_access_pass.
 MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE="$TESTS_DIR/module_type_global_let_pass.aether"
 MODULE_CALC_SUPPORT_FIXTURE="$TESTS_DIR/module_calc"
 MODULE_INTRAMODULE_CALL_PASS_FIXTURE="$TESTS_DIR/module_intramodule_call_pass.aether"
+MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE="$TESTS_DIR/module_self_qualified_call_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
 TYPE_FIELD_COMMA_FAIL_FIXTURE="$TESTS_DIR/type_field_comma_fail.aether"
@@ -278,6 +279,7 @@ for fixture in \
     "$MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE" \
     "$MODULE_CALC_SUPPORT_FIXTURE" \
     "$MODULE_INTRAMODULE_CALL_PASS_FIXTURE" \
+    "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
@@ -776,6 +778,18 @@ fi
 if ! grep -qx "12" /tmp/aether_module_intramodule_call_pass.out; then
     echo "unexpected intra-module call output" >&2
     cat /tmp/aether_module_intramodule_call_pass.out >&2
+    exit 1
+fi
+# Regression: a module function calling a sibling export through the
+# module's own qualified name (e.g. `Calc.timesTwo(x)` from inside `mod
+# Calc`) must resolve just like an external qualified caller would. This
+# used to fail with "identifier 'Calc' not in scope": the qualified-call
+# receiver is resolved against modules reached through `use`/`#import`, and
+# a module never imports itself. See rea's rea_module_self_qualified_call_test.
+"$AETHER_BIN" --no-cache "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" >/tmp/aether_module_self_qualified_call_pass.out
+if ! grep -qx "12" /tmp/aether_module_self_qualified_call_pass.out; then
+    echo "unexpected self-qualified module call output" >&2
+    cat /tmp/aether_module_self_qualified_call_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$SHOWCASE_EXAMPLE" >/tmp/aether_showcase_example.out
