@@ -305,6 +305,13 @@ if not meson.is_cross_build()
     # test for floating point library
     float80_test = executable('float80_test', ['emu/float80.c', 'emu/float80-test.c'], dependencies: [libm])
     test('float80', float80_test)
+
+    # riscv64 decode.h check: RVC expansion + immediate reassembly against
+    # llvm-mc-derived vectors (tests/riscv64/decode_vectors.h, checked in).
+    riscv64_decode_check = executable('riscv64_decode_check',
+        ['tests/riscv64/decode_check.c'],
+        include_directories: [includes, include_directories('tests/riscv64')])
+    test('riscv64_decode', riscv64_decode_check)
 endif
 
 e2e_test = find_program('tests/e2e/e2e.bash')
