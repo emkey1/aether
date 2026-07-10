@@ -757,6 +757,13 @@ typedef struct {
     /* Class-context (mirrors rea's ReaParser fields used by method parsing). */
     const char *currentClassName; /* non-NULL while parsing a `type` body        */
     int currentMethodIndex;       /* v-table slot for the next method            */
+    const char *currentModuleName; /* non-NULL while parsing a `mod` body; mirrors
+                                     * rea's ReaParser.currentModuleName so a
+                                     * member fn's procedure_table registration
+                                     * uses the same "Module.func" qualified key
+                                     * rea's own module-function registration and
+                                     * the compiler's qualified call-site fallback
+                                     * expect (see registerFunctionSymbol).       */
     AetherBindingTable *bindings;       /* in-scope name->type for inference     */
     AetherBindingTable *funcReturns;    /* fn/method (possibly-mangled) name ->   */
                                         /* Aether return-type name, for inferring */
@@ -912,6 +919,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->hadError = false;
     p->currentClassName = NULL;
     p->currentMethodIndex = 0;
+    p->currentModuleName = NULL;
     p->bindings = bindings;
     p->funcReturns = NULL;
     p->tuples = NULL;
@@ -5297,7 +5305,23 @@ static AST *parseFnDecl(AetherParser *p) {
     }
     setTypeAST(func, vtype);
 
-    registerFunctionSymbol(func, nameTok->value ? nameTok->value : "", vtype, hasBody);
+    /* Inside a `mod { }` body, register under the module-qualified key
+     * ("ModuleName.funcname") -- mirroring rea's own parser (ReaParser.inModule
+     * / .currentModuleName in parser.c) and the qualified key rea's semantic
+     * analysis registers module exports under (ensureModuleProcedureSymbol) and
+     * the compiler reads back from (current_compilation_unit_name). Without
+     * this, a bare, never-updated stub got registered here for module member
+     * functions too, and the compiler's call-site lookup tries the bare name
+     * FIRST -- finding that stale (arity always 0) stub instead of ever
+     * reaching the qualified, correctly-arity'd symbol, so one module function
+     * calling a sibling failed with a bogus "expects 0 arguments" error. */
+    const char *regName = nameTok->value ? nameTok->value : "";
+    char qualifiedName[MAX_SYMBOL_LENGTH * 2 + 2];
+    if (p->currentModuleName && *p->currentModuleName) {
+        snprintf(qualifiedName, sizeof(qualifiedName), "%s.%s", p->currentModuleName, regName);
+        regName = qualifiedName;
+    }
+    registerFunctionSymbol(func, regName, vtype, hasBody);
     return func;
 }
 
@@ -5854,6 +5878,8 @@ static AST *parseModuleDecl(AetherParser *p) {
     addChild(block, stmts);
     setRight(moduleNode, block);
 
+    const char *prevModuleName = p->currentModuleName;
+    p->currentModuleName = nameTok->value;
     while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF &&
            !p->hadError) {
         collectPendingAnnotations(p);
@@ -5864,6 +5890,7 @@ static AST *parseModuleDecl(AetherParser *p) {
         aetherAppendModuleNode(decls, stmts, member);
         while (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
     }
+    p->currentModuleName = prevModuleName;
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
         aetherAdvance(p);
     } else {

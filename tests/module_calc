@@ -1,0 +1,9 @@
+mod Calc {
+    export fn timesTwo(x: Int) -> Int {
+        ret x * 2;
+    }
+
+    export fn timesFour(x: Int) -> Int {
+        ret timesTwo(timesTwo(x));
+    }
+}
