@@ -1466,22 +1466,45 @@ static dword_t sys_getcwd_common(guest_addr_t buf_addr, dword_t size) {
     STRACE("getcwd(%#x, %#x)", buf_addr, size);
     lock(&current->fs->lock, 0);
     struct fd *wd = current->fs->pwd;
+    struct fd *root = current->fs->root;
     char pwd[MAX_PATH + 1];
+    char root_path[MAX_PATH + 1];
     int err = generic_getpath(wd, pwd);
+    int root_err = root != NULL ? generic_getpath(root, root_path) : 0;
     unlock(&current->fs->lock);
     if (err < 0)
         return err;
+    if (root_err < 0)
+        return root_err;
 
-    size_t pwd_len = strlen(pwd);
+    // getcwd() is relative to the process's (chroot) root, not the whole mount
+    // namespace: generic_getpath returns the mount-absolute path, so strip the
+    // root's path prefix. After chroot("/jail") + chdir("/") getcwd() must be
+    // "/", and "/jail/sub" must be "/sub". The un-chrooted root's path is "/",
+    // in which case nothing is stripped. A cwd that is not under the root (e.g.
+    // chroot without a following chdir, leaving cwd at the old, now-outside
+    // directory) is unreachable -> ENOENT, matching Linux getcwd(2).
+    const char *cwd = pwd;
+    if (root != NULL && strcmp(root_path, "/") != 0) {
+        size_t root_len = strlen(root_path);
+        if (strcmp(pwd, root_path) == 0)
+            cwd = "/";
+        else if (strncmp(pwd, root_path, root_len) == 0 && pwd[root_len] == '/')
+            cwd = pwd + root_len;
+        else
+            return _ENOENT;
+    }
+
+    size_t pwd_len = strlen(cwd);
     if (pwd_len + 1 > size)
         return _ERANGE;
     size = pwd_len + 1;
-    STRACE(" \"%.*s\"", size, pwd);
+    STRACE(" \"%.*s\"", size, cwd);
     dword_t res = size;
 
-    // Bolt: We can pass the stack-allocated `pwd` buffer directly to user_write
+    // Bolt: We can pass the stack-allocated buffer directly to user_write
     // instead of allocating, copying, and freeing a temporary heap buffer.
-    if (user_write(buf_addr, pwd, size))
+    if (user_write(buf_addr, cwd, size))
         res = _EFAULT;
     return res;
 }
