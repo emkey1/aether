@@ -167,6 +167,11 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
             // user_desc pointer, which is what task_set_thread_area
             // would try to read tls_addr as.
             task->cpu.arm64_tpidr = tls_addr;
+        } else if (task->abi == GUEST_ABI_RISCV64) {
+            // On riscv64, CLONE_SETTLS passes the new thread's tp value
+            // directly; tp is an ordinary GPR (x4), not an out-of-band
+            // register like arm64's TPIDR_EL0.
+            task->cpu.riscv64_regs[riscv64_tp] = tls_addr;
         } else {
             err = task_set_thread_area(task, (addr_t) tls_addr);
             if (err < 0)

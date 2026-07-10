@@ -143,7 +143,7 @@ Files: `emu/cpu.h`, `jit/offsets.c`, `kernel/exec.c`, `kernel/fork.c`,
   a0=x10 ... a7=x17) so kernel code reads `a0`/`a7` not magic indices.
 - `jit/offsets.c`: add `riscv64()` emitting `CPU_riscv64_regs/_pc/_f/
   _fcsr/_res_addr/...`.
-- `emu/interrupt.h`: `INT_RISCV64_ECALL 0x103`.
+- `emu/interrupt.h`: `INT_RISCV64_ECALL 0x104` (0x103 is INT_BUS).
 - `kernel/exec.c:865-899`: riscv64 register-init block (zero file, set
   `riscv64_pc = entry`, `riscv64_regs[2] = sp`).
 

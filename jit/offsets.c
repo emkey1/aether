@@ -103,3 +103,15 @@ void arm64() {
     OFFSET(CPU, cpu_state, arm64_fpsr);
     OFFSET(CPU, cpu_state, arm64_fpcr);
 }
+
+// Same prefixed-name rule as arm64() above; jit/guest-riscv64/gadgets.h
+// will alias bare names (CPU_x10 etc.) onto these in one place.
+void riscv64() {
+    OFFSET(CPU, cpu_state, riscv64_regs);
+    OFFSET(CPU, cpu_state, riscv64_zero_sink);
+    OFFSET(CPU, cpu_state, riscv64_pc);
+    OFFSET(CPU, cpu_state, riscv64_res_addr);
+    OFFSET(CPU, cpu_state, riscv64_res_val);
+    OFFSET(CPU, cpu_state, riscv64_f);
+    OFFSET(CPU, cpu_state, riscv64_fcsr);
+}

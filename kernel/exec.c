@@ -911,6 +911,17 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     save->cpu.arm64_fpcr = 0;
     memset(save->cpu.arm64_v, 0, sizeof(save->cpu.arm64_v));
 
+    // riscv64, same unconditional-sibling rationale as the arm64 block.
+    // regs[0] is the hardwired-zero x0 and must stay 0; sp is x2.
+    memset(save->cpu.riscv64_regs, 0, sizeof(save->cpu.riscv64_regs));
+    save->cpu.riscv64_zero_sink = 0;
+    save->cpu.riscv64_pc = entry;
+    save->cpu.riscv64_regs[riscv64_sp] = sp;
+    save->cpu.riscv64_res_addr = UINT64_MAX;
+    save->cpu.riscv64_res_val = 0;
+    memset(save->cpu.riscv64_f, 0, sizeof(save->cpu.riscv64_f));
+    save->cpu.riscv64_fcsr = 0;
+
     err = 0;
 out_free_interp:
     if (new_mm != NULL)

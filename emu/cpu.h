@@ -135,6 +135,30 @@ enum arm64_reg {
     arm64_reg_count = 31,
 };
 
+// RISC-V x0-x31 with the standard ABI mnemonics. Unlike AArch64, SP and the
+// TLS pointer are ordinary GPRs (x2/x4), so there are no out-of-band fields
+// for them; only PC is architecturally separate. x0 is hardwired zero — the
+// riscv64_regs[0] slot exists so register access stays uniform, but it is
+// never written: decode redirects rd==x0 writebacks to riscv64_zero_sink
+// (see struct cpu_state below).
+enum riscv64_reg {
+    riscv64_zero = 0, // hardwired zero
+    riscv64_ra = 1,   // return address
+    riscv64_sp = 2,   // stack pointer
+    riscv64_gp = 3,   // global pointer
+    riscv64_tp = 4,   // thread pointer (TLS base)
+    riscv64_t0 = 5, riscv64_t1 = 6, riscv64_t2 = 7,
+    riscv64_s0 = 8,   // frame pointer by convention
+    riscv64_s1 = 9,
+    riscv64_a0 = 10, riscv64_a1 = 11, riscv64_a2 = 12, riscv64_a3 = 13,
+    riscv64_a4 = 14, riscv64_a5 = 15, riscv64_a6 = 16, riscv64_a7 = 17,
+    riscv64_s2 = 18, riscv64_s3 = 19, riscv64_s4 = 20, riscv64_s5 = 21,
+    riscv64_s6 = 22, riscv64_s7 = 23, riscv64_s8 = 24, riscv64_s9 = 25,
+    riscv64_s10 = 26, riscv64_s11 = 27,
+    riscv64_t3 = 28, riscv64_t4 = 29, riscv64_t5 = 30, riscv64_t6 = 31,
+    riscv64_reg_count = 32,
+};
+
 // Full guest-visible amd64 register state is still a separate bring-up task.
 // Until then, keep syscall-entry registers in a shadow block so the kernel can
 // route amd64 syscalls without forcing the interpreter/JIT state layout over in
@@ -267,6 +291,28 @@ struct cpu_state {
     union xmm_reg arm64_v[32];
     dword_t arm64_fpsr;
     dword_t arm64_fpcr;
+
+    // RISC-V (RV64GC) guest register file. Same sibling pattern as the
+    // arm64 block above. riscv64_regs[0] is the hardwired-zero x0: reads
+    // load it (it stays 0 forever), and decode redirects any rd==x0
+    // writeback to riscv64_zero_sink so gadget bodies stay uniform without
+    // a per-gadget "is rd zero" branch. SP (x2) and TP (x4, the TLS base)
+    // live in the array — RISC-V has no out-of-band SP/TLS registers.
+    qword_t riscv64_regs[riscv64_reg_count];
+    qword_t riscv64_zero_sink;
+    qword_t riscv64_pc;
+    // LR/SC reservation (the RISC-V analog of arm64's exclusive monitor;
+    // same design as arm64_excl_addr/_val, shared helper conventions in
+    // emu/tlb.c). res_addr == UINT64_MAX means no outstanding reservation.
+    // SC is implemented as reservation-check + CAS against res_val in one
+    // atomic op; the reservation is PRESERVED across INT_PF so a CoW fault
+    // mid LL/SC restarts correctly (the arm64_stxp lesson).
+    qword_t riscv64_res_addr;
+    qword_t riscv64_res_val;
+    // f0-f31, 64-bit (D extension). Single-precision (F) values are
+    // NaN-boxed into the low 32 bits per the ISA spec.
+    qword_t riscv64_f[32];
+    dword_t riscv64_fcsr;
 
     // flags
     union {
