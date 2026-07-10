@@ -13,3 +13,8 @@
 
 provision-ultimate-alpine.sh
 provision-ultimate-devuan.sh
+mount-root.sh
+ktop/ktop.c
+ktop/Makefile
+ktop/build.sh
+ktop/README.md

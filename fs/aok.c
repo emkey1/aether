@@ -15,6 +15,7 @@ enum aokfs_node_kind {
     aokfs_readme,
     aokfs_version,
     aokfs_persist_dir,
+    aokfs_roots_dir,
     aokfs_fixes_dir,
     aokfs_fixes_devuan_dir,
     aokfs_fixes_devuan_readme,
@@ -35,6 +36,10 @@ enum aokfs_node_kind {
     // /tests/x86/); only the directory nodes themselves are enumerated here.
     aokfs_tests_x86_dir,
     aokfs_tests_arm64_dir,
+    // ktop's source/build-script subdirectory: same pattern as the arch test
+    // dirs above, but rooted at /tools/ktop/ against the *tools* generated
+    // table (manifest names like "ktop/ktop.c" become paths under /tools/ktop/).
+    aokfs_tools_ktop_dir,
 };
 
 static enum aokfs_node_kind aokfs_decode_node(void *fs_data) {
@@ -74,12 +79,14 @@ static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
     return node == aokfs_root ||
         node == aokfs_fixes_dir ||
         node == aokfs_persist_dir ||
+        node == aokfs_roots_dir ||
         node == aokfs_fixes_devuan_dir ||
         node == aokfs_tools_dir ||
         node == aokfs_tests_dir ||
         node == aokfs_tests_audio_dir ||
         node == aokfs_tests_x86_dir ||
-        node == aokfs_tests_arm64_dir;
+        node == aokfs_tests_arm64_dir ||
+        node == aokfs_tools_ktop_dir;
 }
 
 static bool aokfs_node_is_symlink(enum aokfs_node_kind node) {
@@ -95,7 +102,7 @@ static bool aokfs_node_is_bundled_file(enum aokfs_node_kind node) {
 static mode_t_ aokfs_node_mode(enum aokfs_node_kind node) {
     if (aokfs_node_is_gen(node))
         return S_IFREG | (aokfs_gen_entry(node)->mode & 07777);
-    if (node == aokfs_persist_dir)
+    if (node == aokfs_persist_dir || node == aokfs_roots_dir)
         return S_IFDIR | 0777;
     if (aokfs_node_is_dir(node))
         return S_IFDIR | 0555;
@@ -122,6 +129,8 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/VERSION";
         case aokfs_persist_dir:
             return "/persist";
+        case aokfs_roots_dir:
+            return "/roots";
         case aokfs_fixes_dir:
             return "/fixes";
         case aokfs_fixes_devuan_dir:
@@ -144,6 +153,8 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/tools/iSH_benchmark.tgz";
         case aokfs_tools_setup_ish_benchmark:
             return "/tools/setup-ish-benchmark.sh";
+        case aokfs_tools_ktop_dir:
+            return "/tools/ktop";
         case aokfs_tests_audio_dir:
             return "/tests/audio";
         case aokfs_audio_raw:
@@ -166,6 +177,7 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_readme,
         aokfs_version,
         aokfs_persist_dir,
+        aokfs_roots_dir,
         aokfs_fixes_dir,
         aokfs_fixes_devuan_dir,
         aokfs_fixes_devuan_readme,
@@ -177,6 +189,7 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_tools_dir,
         aokfs_tools_ish_benchmark,
         aokfs_tools_setup_ish_benchmark,
+        aokfs_tools_ktop_dir,
         aokfs_tests_audio_dir,
         aokfs_audio_raw,
         aokfs_audio_wav,
@@ -605,9 +618,10 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 case 0: child = aokfs_readme; break;
                 case 1: child = aokfs_version; break;
                 case 2: child = aokfs_persist_dir; break;
-                case 3: child = aokfs_fixes_dir; break;
-                case 4: child = aokfs_tests_dir; break;
-                case 5: child = aokfs_tools_dir; break;
+                case 3: child = aokfs_roots_dir; break;
+                case 4: child = aokfs_fixes_dir; break;
+                case 5: child = aokfs_tests_dir; break;
+                case 6: child = aokfs_tools_dir; break;
                 default: return 0;
             }
             break;
@@ -626,15 +640,59 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
             }
             break;
         case aokfs_tools_dir: {
-            // The two bundled tool entries first, then generated /tools/* files.
-            size_t i = (size_t) fd->offset++;
-            if (i == 0)
+            // The two bundled tool entries and the ktop subdirectory first,
+            // then generated /tools/* files that belong directly to /tools
+            // (one path component past the prefix -- ktop's own files live
+            // under /tools/ktop/ and are only reachable through that node).
+            size_t want = (size_t) fd->offset++;
+            if (want == 0) {
                 child = aokfs_tools_ish_benchmark;
-            else if (i == 1)
+                break;
+            }
+            if (want == 1) {
                 child = aokfs_tools_setup_ish_benchmark;
-            else if (i - 2 < AOKFS_GEN_FILE_COUNT_tools)
-                child = (enum aokfs_node_kind) (AOKFS_GEN_TOOLS_BASE + (i - 2));
-            else
+                break;
+            }
+            if (want == 2) {
+                child = aokfs_tools_ktop_dir;
+                break;
+            }
+            size_t skip = want - 3;
+            const char *prefix = "/tools/";
+            size_t plen = strlen(prefix);
+            size_t seen = 0;
+            bool found = false;
+            for (size_t i = 0; i < AOKFS_GEN_FILE_COUNT_tools; i++) {
+                const char *p = aokfs_gen_files_tools[i].path;
+                if (strncmp(p, prefix, plen) != 0 || strchr(p + plen, '/') != NULL)
+                    continue;
+                if (seen++ == skip) {
+                    child = (enum aokfs_node_kind) (AOKFS_GEN_TOOLS_BASE + i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return 0;
+            break;
+        }
+        case aokfs_tools_ktop_dir: {
+            const char *prefix = "/tools/ktop/";
+            size_t plen = strlen(prefix);
+            size_t want = (size_t) fd->offset++;
+            size_t seen = 0;
+            bool found = false;
+            for (size_t i = 0; i < AOKFS_GEN_FILE_COUNT_tools; i++) {
+                const char *p = aokfs_gen_files_tools[i].path;
+                if (strncmp(p, prefix, plen) != 0 || strchr(p + plen, '/') != NULL)
+                    continue;
+                if (seen++ == want) {
+                    child = (enum aokfs_node_kind) (AOKFS_GEN_TOOLS_BASE + i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
                 return 0;
             break;
         }

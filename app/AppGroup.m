@@ -160,7 +160,7 @@ static NSString *ISHAppGroupLockSafeComponent(NSString *value) {
     return safe;
 }
 
-int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error) {
+static int ISHAppGroupAcquireNamedLockInternal(NSString *category, NSString *name, BOOL exclusive, BOOL nonBlocking, NSError **error) {
     NSURL *containerURL = ContainerURL();
     if (containerURL == nil) {
         if (error != nil) {
@@ -193,6 +193,8 @@ int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusi
     }
 
     int operation = exclusive ? LOCK_EX : LOCK_SH;
+    if (nonBlocking)
+        operation |= LOCK_NB;
     if (flock(fd, operation) < 0) {
         int flockErrno = errno;
         close(fd);
@@ -201,6 +203,19 @@ int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusi
         return -1;
     }
     return fd;
+}
+
+int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error) {
+    return ISHAppGroupAcquireNamedLockInternal(category, name, exclusive, NO, error);
+}
+
+// Like ISHAppGroupAcquireNamedLock, but returns -1/EWOULDBLOCK immediately
+// instead of blocking when the lock is already held elsewhere (e.g. the
+// FileProvider extension mid-operation on that root). Used for opportunistic
+// mounts -- e.g. exposing a non-booted root under /AOK/roots -- where losing
+// the race just means skipping that mount, not stalling app boot.
+int ISHAppGroupTryAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error) {
+    return ISHAppGroupAcquireNamedLockInternal(category, name, exclusive, YES, error);
 }
 
 void ISHAppGroupReleaseLock(int fd) {

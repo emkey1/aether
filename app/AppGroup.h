@@ -9,4 +9,5 @@
 
 NSURL *ContainerURL(void);
 int ISHAppGroupAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error);
+int ISHAppGroupTryAcquireNamedLock(NSString *category, NSString *name, BOOL exclusive, NSError **error);
 void ISHAppGroupReleaseLock(int fd);

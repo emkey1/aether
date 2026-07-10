@@ -5,7 +5,7 @@
 #include "fs/path.h"
 #include "fs/real.h"
 
-#define MAX_FILESYSTEMS 10
+#define MAX_FILESYSTEMS 11
 static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
     &realfs,
     &procfs,
@@ -15,6 +15,7 @@ static const struct fs_ops *filesystems[MAX_FILESYSTEMS] = {
     &sysfs,
     &cgroupfs,
     &cgroup2fs,
+    &fakefs,
 };
 
 static bool mount_trace_elogind(void) {
