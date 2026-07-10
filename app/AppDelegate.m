@@ -1376,6 +1376,19 @@ static NSURL *AOKPersistDirectoryURL(void) {
             URLByAppendingPathComponent:@"persist" isDirectory:YES];
 }
 
+// Sibling of AOKPersistDirectoryURL -- a real, writable, host-backed
+// directory mounted at /AOK/roots the same way /AOK/persist is mounted,
+// purely so other installed roots can be exposed as real (mkdir'd)
+// subdirectories under it. Distinct from AOK/persist/roots, which is the
+// cached-archive-download directory (see Roots.h).
+static NSURL *AOKRootsExposureDirectoryURL(void) {
+    NSURL *containerURL = ContainerURL();
+    if (containerURL == nil)
+        return nil;
+    return [[containerURL URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+            URLByAppendingPathComponent:@"roots" isDirectory:YES];
+}
+
 @implementation ISHDiagnosticsStore
 
 + (dispatch_queue_t)queue {
@@ -2337,6 +2350,93 @@ static TerminalViewController *CreateTerminalViewController(void) {
             NSLog(@"Could not create /AOK/persist backing directory: %@", persistError);
         }
     }
+
+    // Expose every other installed root read-write under /AOK/roots/<name>,
+    // so the booted guest can `mount -t fake /AOK/roots/<name>/data <point>`
+    // and chroot into it -- e.g. running an i686 root's toolchain from an
+    // aarch64 boot. /AOK/roots is a real, writable, host-backed directory
+    // (mounted the same way /AOK/persist is, just above) rather than a
+    // synthesized path under the read-only aokfs /AOK -- both because iSH's
+    // path resolver requires every non-final path component to exist as a
+    // real directory (fs/path.c), and because a real mkdir'd directory is
+    // what makes the mountpoint show up in `ls` at all, matching ordinary
+    // Linux mount semantics (mkdir the mountpoint, then mount onto it).
+    //
+    // The /AOK/roots mount itself is cheap (just opens a directory) and
+    // stays synchronous. Mounting each SECONDARY root is not cheap: fakefs's
+    // do_mount opens a SQLite connection and can run a migration/rebuild
+    // pass over the whole tree (fs/fake-migrate.c, fs/fake-rebuild.c) --
+    // with several installed roots this was slow enough, running inline on
+    // the main thread during willFinishLaunching, to blow past iOS's launch
+    // watchdog and get the app killed almost immediately after opening it.
+    // Neither do_mount nor the migrate/rebuild path touches the calling
+    // thread's `current` task pointer, so it's safe to defer to a background
+    // queue -- these mounts just appear at /AOK/roots a moment after launch
+    // instead of being guaranteed present before boot() returns.
+    //
+    // Best-effort: a root whose lock is already held (the FileProvider
+    // extension is mid-operation on it) is silently skipped rather than
+    // blocking, and each root's lock is released immediately after its own
+    // mount attempt -- it only needs to guard that root's mount setup, not
+    // the whole guest runtime (matching how the booted root's own lock,
+    // released in the @finally below, works the same way).
+    NSURL *aokRootsURL = AOKRootsExposureDirectoryURL();
+    if (aokRootsURL != nil) {
+        // Recreate fresh each boot so a root renamed/deleted since the last
+        // boot doesn't leave a stale, unmountable directory behind.
+        [NSFileManager.defaultManager removeItemAtURL:aokRootsURL error:nil];
+        NSError *rootsError = nil;
+        if ([NSFileManager.defaultManager createDirectoryAtURL:aokRootsURL
+                                   withIntermediateDirectories:YES
+                                                    attributes:nil
+                                                         error:&rootsError]) {
+            int rootsMountErr = do_mount(&realfs, aokRootsURL.fileSystemRepresentation, "/AOK/roots", "", 0);
+            if (rootsMountErr < 0) {
+                NSLog(@"Could not mount /AOK/roots: %d", rootsMountErr);
+            } else {
+                NSOrderedSet<NSString *> *otherRootNames = Roots.instance.roots;
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                    for (NSString *otherRootName in otherRootNames) {
+                        if ([otherRootName isEqualToString:defaultRoot])
+                            continue;
+                        NSURL *otherRoot = [Roots.instance rootUrl:otherRootName];
+                        NSURL *otherRootData = [otherRoot URLByAppendingPathComponent:@"data" isDirectory:YES];
+                        NSURL *otherRootMetadata = [otherRoot URLByAppendingPathComponent:@"meta.db" isDirectory:NO];
+                        BOOL otherIsDirectory = NO;
+                        if (![NSFileManager.defaultManager fileExistsAtPath:otherRootData.path isDirectory:&otherIsDirectory] || !otherIsDirectory)
+                            continue;
+                        otherIsDirectory = NO;
+                        if (![NSFileManager.defaultManager fileExistsAtPath:otherRootMetadata.path isDirectory:&otherIsDirectory] || otherIsDirectory)
+                            continue;
+                        NSURL *mountPointURL = [aokRootsURL URLByAppendingPathComponent:otherRootName isDirectory:YES];
+                        if (![NSFileManager.defaultManager createDirectoryAtURL:mountPointURL
+                                                     withIntermediateDirectories:YES
+                                                                      attributes:nil
+                                                                           error:nil])
+                            continue;
+                        int otherLockFd = ISHAppGroupTryAcquireNamedLock(@"root", otherRootName, YES, nil);
+                        if (otherLockFd < 0) {
+                            [ISHDiagnosticsStore recordLaunchStage:@"boot.root.secondary.busy"
+                                                           details:@{@"root": otherRootName}];
+                            continue;
+                        }
+                        NSString *mountPoint = [@"/AOK/roots/" stringByAppendingString:otherRootName];
+                        int secondaryErr = do_mount(&fakefs, otherRootData.fileSystemRepresentation, mountPoint.UTF8String, "", 0);
+                        ISHAppGroupReleaseLock(otherLockFd);
+                        if (secondaryErr < 0) {
+                            NSLog(@"Could not mount secondary root %@ at %@: %d", otherRootName, mountPoint, secondaryErr);
+                            continue;
+                        }
+                        [ISHDiagnosticsStore recordLaunchStage:@"boot.root.secondary.mounted"
+                                                       details:@{@"root": otherRootName, @"path": mountPoint}];
+                    }
+                });
+            }
+        } else {
+            NSLog(@"Could not create /AOK/roots backing directory: %@", rootsError);
+        }
+    }
+
     do_mount(&procfs, "proc", "/proc", "", 0);
     // Mount sysfs on /sys like the CLI does (main.c). Without it, tools that
     // read /sys/devices/system/cpu -- e.g. htop 3.4+ for its CPU count -- see
