@@ -29,8 +29,9 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          brew install llvm ninja libarchive
+          brew install llvm lld ninja libarchive
           pip3 install --break-system-packages meson
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
 
       - name: Build unsigned .app
         run: |
