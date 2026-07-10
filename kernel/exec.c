@@ -798,6 +798,12 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             hwcap = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) |
                     (1u << 5) | (1u << 6) | (1u << 7) | (1u << 8) |
                     (1u << 17) | (1u << 21);
+        // riscv64 COMPAT_HWCAP_ISA_*: one bit per ISA letter (bit = c-'a').
+        // rv64imafdc, matching the JIT and /proc/cpuinfo's isa line.
+        if (current->abi == GUEST_ABI_RISCV64)
+            hwcap = (1u << ('i' - 'a')) | (1u << ('m' - 'a')) |
+                    (1u << ('a' - 'a')) | (1u << ('f' - 'a')) |
+                    (1u << ('d' - 'a')) | (1u << ('c' - 'a'));
         struct aux64_ent aux[] = {
             {AX_HWCAP, hwcap},
             {AX_PAGESZ, PAGE_SIZE},

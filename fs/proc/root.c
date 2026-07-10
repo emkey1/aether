@@ -160,6 +160,35 @@ static int proc_show_cpuinfo(struct proc_entry *UNUSED(entry), struct proc_data 
         return 0;
     }
 
+    // riscv64 guests get the riscv cpuinfo format. Parsers key on the
+    // "isa" line; keep it in lockstep with kernel/exec.c's AT_HWCAP
+    // (rv64imafdc = exactly what the JIT implements; no V, no bitmanip)
+    // and the Sv39 layout from guest_abi_vm_layout.
+    if (abi == GUEST_ABI_RISCV64) {
+        char *rv_host_architecture = copyHostArchitecture();
+        char *rv_host_machine_identifier = copyHostMachineIdentifier();
+        char *rv_host_device_name = copyHostDeviceName();
+        char *rv_host_core_topology = copyHostCoreTopology();
+        int rv_cpu_count = get_cpu_count();
+        for (int cpu = 0; cpu < rv_cpu_count; cpu++) {
+            proc_printf(buf, "processor       : %d\n", cpu);
+            proc_printf(buf, "hart            : %d\n", cpu);
+            proc_printf(buf, "isa             : rv64imafdc\n");
+            proc_printf(buf, "mmu             : sv39\n");
+            proc_printf(buf, "uarch           : ish-aok,jit\n");
+            proc_printf(buf, "host arch       : %s\n", rv_host_architecture);
+            proc_printf(buf, "host machine    : %s\n", rv_host_machine_identifier);
+            proc_printf(buf, "host device     : %s\n", rv_host_device_name);
+            proc_printf(buf, "host cores      : %s\n", rv_host_core_topology);
+            proc_printf(buf, "\n");
+        }
+        free(rv_host_architecture);
+        free(rv_host_machine_identifier);
+        free(rv_host_device_name);
+        free(rv_host_core_topology);
+        return 0;
+    }
+
     do_cpuid(&eax, &ebx, &ecx, &edx); // Get vendor_id
 
     char vendor_id[13] = { 0 };
