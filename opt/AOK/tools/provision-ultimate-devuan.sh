@@ -155,6 +155,22 @@ else
 fi
 
 # ===========================================================================
+log "Locale -> C.UTF-8"
+# ===========================================================================
+# Devuan/Debian minirootfs images ship no locale set, so plain UTF-8-aware
+# tools (less, python3, git, man-db) fall back to the C/POSIX locale and mangle
+# non-ASCII. glibc on this base has C.UTF-8 built in (no locale-gen needed);
+# set it as the system default via the standard Debian /etc/default/locale and
+# /etc/environment (PAM reads both) so it applies system-wide, not just to
+# interactive shells.
+printf 'LANG=C.UTF-8\n' > /etc/default/locale
+if ! grep -q '^LANG=' /etc/environment 2>/dev/null; then
+    printf 'LANG=C.UTF-8\nLC_ALL=C.UTF-8\n' >> /etc/environment
+fi
+update-locale LANG=C.UTF-8 2>/dev/null || true
+note "LANG=C.UTF-8 (via /etc/default/locale, /etc/environment)"
+
+# ===========================================================================
 log "machine-id"
 # ===========================================================================
 if [ ! -s /etc/machine-id ]; then
@@ -240,6 +256,7 @@ cat > /etc/profile.d/30-aok-niceties.sh <<'NICETIES'
 export EDITOR=vim VISUAL=vim PAGER=less
 export LESS='-R -M -i'
 export TERM="${TERM:-xterm-256color}"
+export LC_ALL="${LC_ALL:-C.UTF-8}" LANG="${LANG:-C.UTF-8}"
 
 case $- in *i*) ;; *) return 2>/dev/null || exit 0;; esac
 

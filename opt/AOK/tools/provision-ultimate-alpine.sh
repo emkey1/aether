@@ -118,6 +118,21 @@ else
 fi
 
 # ===========================================================================
+log "Locale -> C.UTF-8"
+# ===========================================================================
+# Alpine's musl libc treats any requested locale as UTF-8-aware except plain
+# "C"/"POSIX", so C.UTF-8 works with no locale-gen step. Minirootfs images
+# don't set a default, so tools expecting UTF-8 (less, python3, git) silently
+# fall back to byte-oriented C/POSIX behavior. Set it system-wide via
+# /etc/environment (read by busybox login for both interactive and
+# non-interactive sessions) so it's not limited to shells that source
+# /etc/profile.d.
+if ! grep -q '^LANG=' /etc/environment 2>/dev/null; then
+    printf 'LANG=C.UTF-8\nLC_ALL=C.UTF-8\n' >> /etc/environment
+fi
+note "LANG=C.UTF-8 (via /etc/environment)"
+
+# ===========================================================================
 log "machine-id"
 # ===========================================================================
 if [ ! -s /etc/machine-id ]; then
@@ -188,6 +203,7 @@ cat > /etc/profile.d/30-aok-niceties.sh <<'NICETIES'
 export EDITOR=vim VISUAL=vim PAGER=less
 export LESS='-R -M -i'
 export TERM="${TERM:-xterm-256color}"
+export LC_ALL="${LC_ALL:-C.UTF-8}" LANG="${LANG:-C.UTF-8}"
 
 case $- in *i*) ;; *) return 2>/dev/null || exit 0;; esac
 
