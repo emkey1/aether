@@ -4581,6 +4581,55 @@ static int gen_riscv64_branch_to(struct gen_state *state, guest_addr_t target) {
 }
 
 int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
+    extern void gadget_riscv64_addi(void);
+    extern void gadget_riscv64_add_rr(void);
+    extern void gadget_riscv64_add_ri(void);
+    extern void gadget_riscv64_and_rr(void);
+    extern void gadget_riscv64_and_ri(void);
+    extern void gadget_riscv64_or_rr(void);
+    extern void gadget_riscv64_or_ri(void);
+    extern void gadget_riscv64_xor_rr(void);
+    extern void gadget_riscv64_xor_ri(void);
+    extern void gadget_riscv64_sll_rr(void);
+    extern void gadget_riscv64_sll_ri(void);
+    extern void gadget_riscv64_srl_rr(void);
+    extern void gadget_riscv64_srl_ri(void);
+    extern void gadget_riscv64_sra_rr(void);
+    extern void gadget_riscv64_sra_ri(void);
+    extern void gadget_riscv64_slt_rr(void);
+    extern void gadget_riscv64_slt_ri(void);
+    extern void gadget_riscv64_sltu_rr(void);
+    extern void gadget_riscv64_sltu_ri(void);
+    extern void gadget_riscv64_addw_rr(void);
+    extern void gadget_riscv64_addw_ri(void);
+    extern void gadget_riscv64_sllw_rr(void);
+    extern void gadget_riscv64_sllw_ri(void);
+    extern void gadget_riscv64_srlw_rr(void);
+    extern void gadget_riscv64_srlw_ri(void);
+    extern void gadget_riscv64_sraw_rr(void);
+    extern void gadget_riscv64_sraw_ri(void);
+    extern void gadget_riscv64_sub_rr(void);
+    extern void gadget_riscv64_subw_rr(void);
+    extern void gadget_riscv64_mul_rr(void);
+    extern void gadget_riscv64_mulw_rr(void);
+    extern void gadget_riscv64_mulh_rr(void);
+    extern void gadget_riscv64_mulhu_rr(void);
+    extern void gadget_riscv64_mulhsu_rr(void);
+    extern void gadget_riscv64_div_rr(void);
+    extern void gadget_riscv64_divu_rr(void);
+    extern void gadget_riscv64_rem_rr(void);
+    extern void gadget_riscv64_remu_rr(void);
+    extern void gadget_riscv64_divw_rr(void);
+    extern void gadget_riscv64_divuw_rr(void);
+    extern void gadget_riscv64_remw_rr(void);
+    extern void gadget_riscv64_remuw_rr(void);
+    extern void gadget_riscv64_beq(void);
+    extern void gadget_riscv64_bne(void);
+    extern void gadget_riscv64_blt(void);
+    extern void gadget_riscv64_bge(void);
+    extern void gadget_riscv64_bltu(void);
+    extern void gadget_riscv64_bgeu(void);
+    extern void gadget_riscv64_jalr(void);
     state->riscv64_orig_ip = state->riscv64_ip;
     state->orig_ip_extra = 0;
 
@@ -4624,9 +4673,9 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
                 state->riscv64_orig_ip + (uint64_t) riscv64_imm_u(insn));
         return 1;
 
-    case RISCV64_OP_OP_IMM:
+    case RISCV64_OP_OP_IMM: {
+        int64_t imm = riscv64_imm_i(insn);
         if (funct3 == 0) { // addi (li/mv/nop forms included)
-            int64_t imm = riscv64_imm_i(insn);
             if (rs1 == 0) {
                 gen_riscv64_mov_const(state, rd, (uint64_t) imm);
             } else {
@@ -4638,7 +4687,131 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
             }
             return 1;
         }
-        return gen_riscv64_undefined(state, insn);
+        static void (*const op_imm_gadgets[8])(void) = {
+            NULL, gadget_riscv64_sll_ri, gadget_riscv64_slt_ri,
+            gadget_riscv64_sltu_ri, gadget_riscv64_xor_ri,
+            NULL /* srli/srai below */, gadget_riscv64_or_ri,
+            gadget_riscv64_and_ri,
+        };
+        void (*gadget)(void) = op_imm_gadgets[funct3];
+        if (funct3 == 1) { // slli: shamt[5:0], upper imm bits must be 0
+            if ((imm & ~0x3f) != 0)
+                return gen_riscv64_undefined(state, insn);
+            imm &= 0x3f;
+        } else if (funct3 == 5) { // srli/srai by imm bit 10
+            gadget = (imm & 0x400) ? gadget_riscv64_sra_ri : gadget_riscv64_srl_ri;
+            if ((imm & ~0x43f) != 0)
+                return gen_riscv64_undefined(state, insn);
+            imm &= 0x3f;
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rd_off(rd));
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, (uint64_t) imm);
+        return 1;
+    }
+
+    case RISCV64_OP_OP_IMM_32: {
+        int64_t imm = riscv64_imm_i(insn);
+        void (*gadget)(void);
+        switch (funct3) {
+        case 0: gadget = gadget_riscv64_addw_ri; break;
+        case 1:
+            if ((imm & ~0x1f) != 0)
+                return gen_riscv64_undefined(state, insn);
+            gadget = gadget_riscv64_sllw_ri; break;
+        case 5:
+            gadget = (imm & 0x400) ? gadget_riscv64_sraw_ri : gadget_riscv64_srlw_ri;
+            if ((imm & ~0x41f) != 0)
+                return gen_riscv64_undefined(state, insn);
+            imm &= 0x1f;
+            break;
+        default:
+            return gen_riscv64_undefined(state, insn);
+        }
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rd_off(rd));
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, (uint64_t) imm);
+        return 1;
+    }
+
+    case RISCV64_OP_OP: case RISCV64_OP_OP_32: {
+        bool is_w = riscv64_opcode(insn) == RISCV64_OP_OP_32;
+        unsigned funct7 = riscv64_funct7(insn);
+        void (*gadget)(void) = NULL;
+        if (funct7 == 0x00) {
+            static void (*const base[8])(void) = {
+                gadget_riscv64_add_rr, gadget_riscv64_sll_rr,
+                gadget_riscv64_slt_rr, gadget_riscv64_sltu_rr,
+                gadget_riscv64_xor_rr, gadget_riscv64_srl_rr,
+                gadget_riscv64_or_rr, gadget_riscv64_and_rr,
+            };
+            static void (*const base_w[8])(void) = {
+                gadget_riscv64_addw_rr, gadget_riscv64_sllw_rr,
+                NULL, NULL, NULL, gadget_riscv64_srlw_rr, NULL, NULL,
+            };
+            gadget = is_w ? base_w[funct3] : base[funct3];
+        } else if (funct7 == 0x20) {
+            if (funct3 == 0)
+                gadget = is_w ? gadget_riscv64_subw_rr : gadget_riscv64_sub_rr;
+            else if (funct3 == 5)
+                gadget = is_w ? gadget_riscv64_sraw_rr : gadget_riscv64_sra_rr;
+        } else if (funct7 == 0x01) { // M extension
+            static void (*const m[8])(void) = {
+                gadget_riscv64_mul_rr, gadget_riscv64_mulh_rr,
+                gadget_riscv64_mulhsu_rr, gadget_riscv64_mulhu_rr,
+                gadget_riscv64_div_rr, gadget_riscv64_divu_rr,
+                gadget_riscv64_rem_rr, gadget_riscv64_remu_rr,
+            };
+            static void (*const m_w[8])(void) = {
+                gadget_riscv64_mulw_rr, NULL, NULL, NULL,
+                gadget_riscv64_divw_rr, gadget_riscv64_divuw_rr,
+                gadget_riscv64_remw_rr, gadget_riscv64_remuw_rr,
+            };
+            gadget = is_w ? m_w[funct3] : m[funct3];
+        }
+        if (gadget == NULL)
+            return gen_riscv64_undefined(state, insn);
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rd_off(rd));
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, riscv64_rs_off(riscv64_rs2(insn)));
+        return 1;
+    }
+
+    case RISCV64_OP_BRANCH: {
+        static void (*const branch_gadgets[8])(void) = {
+            gadget_riscv64_beq, gadget_riscv64_bne, NULL, NULL,
+            gadget_riscv64_blt, gadget_riscv64_bge,
+            gadget_riscv64_bltu, gadget_riscv64_bgeu,
+        };
+        void (*gadget)(void) = branch_gadgets[funct3];
+        if (gadget == NULL)
+            return gen_riscv64_undefined(state, insn);
+        guest_addr_t taken = state->riscv64_orig_ip + riscv64_imm_b(insn);
+        gen(state, (unsigned long) gadget);
+        gen(state, riscv64_rs_off(rs1));
+        gen(state, riscv64_rs_off(riscv64_rs2(insn)));
+        gen(state, taken | 0x8000000000000000ULL);
+        state->jump_ip[0] = state->size - 1;
+        gen(state, state->riscv64_ip | 0x8000000000000000ULL);
+        state->jump_ip[1] = state->size - 1;
+        return 0; // block ends at a conditional branch
+    }
+
+    case RISCV64_OP_JALR:
+        if (funct3 != 0)
+            return gen_riscv64_undefined(state, insn);
+        if (rd != 0)
+            gen_riscv64_mov_const(state, rd, state->riscv64_ip); // link
+        {
+            extern void gadget_riscv64_jalr(void);
+            gen(state, (unsigned long) gadget_riscv64_jalr);
+            gen(state, riscv64_rs_off(rs1));
+            gen(state, (uint64_t) riscv64_imm_i(insn));
+        }
+        return 0; // block ends
 
     case RISCV64_OP_JAL: {
         int64_t offset = riscv64_imm_j(insn);
