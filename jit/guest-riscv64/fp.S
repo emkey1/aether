@@ -262,3 +262,42 @@ cvt_f2i_gadget fcvt\rmode\()_lu_s, fcvt\rmode\()u, s16, x12, 0
     blr x9
     restore_c
     gret 2
+
+// ---- fused multiply-add family (4 register operands) ----------------------
+// riscv->aarch64 mnemonic mapping is a crosswise trap, verified per-op:
+//   riscv fmadd  (a*b)+c  -> aarch64 fmadd
+//   riscv fmsub  (a*b)-c  -> aarch64 fnmsub (n*m - a)
+//   riscv fnmsub -(a*b)+c -> aarch64 fmsub  (a - n*m)
+//   riscv fnmadd -(a*b)-c -> aarch64 fnmadd (-a - n*m)
+// Code stream: [gadget][rd_off][rs1_off][rs2_off][rs3_off], gret 4.
+.macro fma_gadget name, insn, w, box
+.gadget \name
+    ldr x9, [_ip]
+    ldr x10, [_ip, #8]
+    ldr x11, [_ip, #16]
+    ldr x12, [_ip, #24]
+    add x10, _cpu, x10
+    add x11, _cpu, x11
+    add x12, _cpu, x12
+    ldr \w\()16, [x10]
+    ldr \w\()17, [x11]
+    ldr \w\()18, [x12]
+    \insn \w\()16, \w\()16, \w\()17, \w\()18
+.if \box
+    fmov w10, s16
+    orr x10, x10, #0xffffffff00000000
+    str x10, [_cpu, x9]
+.else
+    str d16, [_cpu, x9]
+.endif
+    gret 4
+.endm
+
+fma_gadget fmadd_d,  fmadd,  d, 0
+fma_gadget fmsub_d,  fnmsub, d, 0
+fma_gadget fnmsub_d, fmsub,  d, 0
+fma_gadget fnmadd_d, fnmadd, d, 0
+fma_gadget fmadd_s,  fmadd,  s, 1
+fma_gadget fmsub_s,  fnmsub, s, 1
+fma_gadget fnmsub_s, fmsub,  s, 1
+fma_gadget fnmadd_s, fnmadd, s, 1
