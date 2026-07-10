@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <limits.h>
+#include <stdlib.h>
 #include "kernel/task.h"
 #include "util/sync.h"
 #include "debug.h"
@@ -7,6 +8,22 @@
 #include <string.h>
 
 int noprintk = 0; // Used to suppress calls to printk.
+
+// Gate for the "INFO: wait" short-wait tracing sprinkled through kernel/time.c
+// and kernel/poll.c (added for the futex/poll SA_RESTART investigation). Those
+// printk()s fire on EVERY short nanosleep/poll/select and each takes the global
+// log lock, so on a wait-heavy workload (stress-ng --sleep/--syscall/--schedmix
+// spawns hundreds of threads hammering nanosleep) they serialize every task and
+// slow the run by ~8x. Keep the traces available for debugging but default them
+// off; opt in with ISH_TRACE_WAITS=1. Cached so the hot path is one relaxed load.
+bool wait_trace_enabled(void) {
+    static int cached = -1;
+    if (cached == -1) {
+        const char *v = getenv("ISH_TRACE_WAITS");
+        cached = (v != NULL && v[0] != '\0' && v[0] != '0') ? 1 : 0;
+    }
+    return cached == 1;
+}
 extern bool doEnableExtraLocking;
 extern pthread_mutex_t wait_for_lock; // Synchroniztion lock
 

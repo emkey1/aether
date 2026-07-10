@@ -3021,6 +3021,7 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
     char sockaddr[sockaddr_len];
     int client =0;
     TASK_MAY_BLOCK {
+        bool retry;
         do {
             sockrestart_begin_listen_wait(sock);
             errno = 0;
@@ -3028,7 +3029,23 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
                             sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                             sockaddr_addr != 0 ? &sockaddr_len : NULL);
             sockrestart_end_listen_wait(sock);
-        } while (sockrestart_should_restart_listen_wait(0) && errno == EINTR);
+            // Retry the blocking accept() only when an iOS suspend/resume rebuilt
+            // the listening socket (sockrestart punt) or the host accept() was cut
+            // short by a purely spurious poke -- EINTR with no deliverable guest
+            // signal, e.g. a TLB-shootdown SIGUSR1. A real pending guest signal
+            // MUST surface as EINTR so the guest can run its handler.
+            //
+            // The former skip=0 stuck_count heuristic did the opposite: after a
+            // few interruptions it force-restarted accept() even with a guest
+            // signal already pending ("INFO: punting"). stress-ng --syscall arms a
+            // one-shot 1s SIGALRM (setitimer) to bail out of blocking syscalls; the
+            // forced restart re-entered accept() with that SIGALRM still pending,
+            // the one-shot timer never fired again, and accept() -- and the whole
+            // 2s run -- hung indefinitely. Mirror socket_wait_ready()/fs/poll.c.
+            bool resumed = sockrestart_should_restart_listen_wait(1);
+            retry = client < 0 && errno == EINTR &&
+                    (resumed || !socket_guest_signal_pending());
+        } while (retry);
     }
     if (client < 0)
         return errno_map();

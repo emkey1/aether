@@ -465,6 +465,47 @@ static void poll_notify_poke(int fd) {
     } while (wrote < 0 && errno == EINTR);
 }
 
+// Discard every pending instance of `sig` from a task -- both the bitmask bit
+// and any queued sigqueue entries (a signal lives in both, see
+// deliver_signal_unlocked_locked / signal_take_next_locked). Caller holds
+// task->sighand->lock, which protects task->pending and task->queue.
+static void signal_flush_pending(struct task *task, int sig) {
+    struct sigqueue *sigqueue, *tmp;
+    list_for_each_entry_safe(&task->queue, sigqueue, tmp, queue) {
+        if (sigqueue->info.sig == sig) {
+            list_remove(&sigqueue->queue);
+            free(sigqueue);
+        }
+    }
+    sigset_del(&task->pending, sig);
+}
+
+// Linux prepare_signal() semantics: generating a continue (SIGCONT) or a stop
+// (SIGSTOP/SIGTSTP/SIGTTIN/SIGTTOU) signal mutually cancels the other kind that
+// is still pending on the target, at generation time. Without this a rapid
+// SIGSTOP-then-SIGCONT pair races: the SIGCONT lifts group->stopped and wakes
+// the group-stop wait (kernel/calls.c), but the still-queued SIGSTOP is then
+// processed, sets group->stopped again, and the task blocks forever in the
+// group-stop wait_for_ignore_signals() with no further SIGCONT coming. This
+// intermittently wedged stress-ng --schedmix, which hammers its children with
+// interleaved SIGSTOP/SIGCONT. Operates on the target task (single-threaded
+// process, the common case and the observed failure); a multi-threaded group
+// whose stop and continue land on different threads is not fully covered here.
+// Caller holds task->sighand->lock.
+static void signal_prepare_stop_cont(struct task *task, int sig) {
+    switch (sig) {
+        case SIGCONT_:
+            signal_flush_pending(task, SIGSTOP_);
+            signal_flush_pending(task, SIGTSTP_);
+            signal_flush_pending(task, SIGTTIN_);
+            signal_flush_pending(task, SIGTTOU_);
+            break;
+        case SIGSTOP_: case SIGTSTP_: case SIGTTIN_: case SIGTTOU_:
+            signal_flush_pending(task, SIGCONT_);
+            break;
+    }
+}
+
 static void deliver_signal_unlocked_locked(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
         return;
@@ -960,6 +1001,11 @@ static void send_signal_with_sighand(struct task *task, struct sighand *sighand,
     if (task->zombie || task->exiting)
         return;
     lock(&sighand->lock, 0);
+    // Mutually cancel a pending stop/continue before queueing this one, matching
+    // Linux prepare_signal(). Done unconditionally (before the ignored check) so
+    // it still runs for a default-disposition SIGCONT, which skips the deliver
+    // path below but must still flush any queued stop signal.
+    signal_prepare_stop_cont(task, sig);
     bool ignored = signal_action(sighand, sig) == SIGNAL_IGNORE;
     bool synchronously_consumed = sigset_has(task->blocked | task->waiting, sig);
     if (should_trace_signal_task(task)) {

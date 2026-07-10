@@ -217,7 +217,7 @@ static dword_t clock_nanosleep_common(dword_t clock, int_t flags, struct timespe
             return 0;
     }
 
-    bool trace_short_sleep = req.tv_sec >= 0 && req.tv_sec <= 2;
+    bool trace_short_sleep = wait_trace_enabled() && req.tv_sec >= 0 && req.tv_sec <= 2;
     if (trace_short_sleep) {
         printk("INFO: wait clock_nanosleep enter pid=%d comm=%s clock=%u flags=%#x req=%llds.%09ld rem=%#x\n",
                current != NULL ? current->pid : -1,
@@ -978,7 +978,7 @@ static dword_t sys_nanosleep_guest_abi(guest_addr_t req_addr, guest_addr_t rem_a
     if (read_guest_timespec_abi(abi, req_addr, &req_ts))
         return _EFAULT;
     STRACE("nanosleep({%lld, %ld}, 0x%x", (long long) req_ts.tv_sec, req_ts.tv_nsec, rem_addr);
-    bool trace_short_sleep = req_ts.tv_sec >= 0 && req_ts.tv_sec <= 2;
+    bool trace_short_sleep = wait_trace_enabled() && req_ts.tv_sec >= 0 && req_ts.tv_sec <= 2;
     if (trace_short_sleep) {
         printk("INFO: wait nanosleep enter pid=%d comm=%s req=%llds.%09ld rem=%#x\n",
                current != NULL ? current->pid : -1,

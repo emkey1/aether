@@ -110,6 +110,9 @@ int wait_for(cond_t *cond, lock_t *lock, struct timespec *timeout);
 int wait_for_ignore_signals(cond_t *cond, lock_t *lock, struct timespec *timeout);
 void notify(cond_t *cond);
 void notify_once(cond_t *cond);
+// True only when ISH_TRACE_WAITS is set in the environment; gates the hot-path
+// "INFO: wait" short-wait traces in kernel/time.c and kernel/poll.c. See sync.c.
+bool wait_trace_enabled(void);
 void sigusr1_handler(int sig);
 // Instantiate this thread's thread-local storage used by sigusr1_handler before
 // SIGUSR1 is unblocked, so the handler never has to malloc() it from async
